@@ -9,7 +9,7 @@
  * exported-elsewhere binding residue and the states of every record are the
  * captured ones. Paths and payloads are test-only values.
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import daemonBindings from './daemon-bindings.json'
 import daemonReceipts from './daemon-receipts.json'
 import localStorage from './local-storage.json'
@@ -25,3 +25,24 @@ export const enrollmentLedger = readFileSync(new URL('./enrollment.ledger', impo
 /** The name the daemon's binding store gives a binding file (base64url of the session id). */
 export const bindingFileName = (sessionId: string): string =>
   `${Buffer.from(sessionId, 'utf8').toString('base64url')}.json`
+
+
+/** Sanitised identity layouts from the dev.166 outage; credentials are test-only. */
+export { default as identityShapes } from './identity-shapes.json'
+export interface IdentityShape {
+  name: string
+  authenticatedId: string
+  machineIdFile: string
+  daemon: { machineId: string; token: string }
+  supervisor?: { machineId: string; token: string }
+  token: string
+  absentIds: string[]
+  historicalIds: string[]
+}
+
+/** Write legacy inputs only: first current boot must perform the import itself. */
+export function writeIdentityShape(dir: string, shape: IdentityShape): void {
+  writeFileSync(`${dir}/machine.id`, shape.machineIdFile)
+  writeFileSync(`${dir}/daemon.json`, JSON.stringify(shape.daemon), { mode: 0o600 })
+  if (shape.supervisor) writeFileSync(`${dir}/supervisor.json`, JSON.stringify(shape.supervisor), { mode: 0o600 })
+}

@@ -220,6 +220,7 @@ export class SessionStart {
      */
     runtimeContract?: RuntimeContractRequest
   }): Promise<SessionSpawnResult> {
+    if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
     // AgentKind: persisting or broadcasting it fails the sessionsChanged
@@ -406,6 +407,7 @@ export class SessionStart {
      *  same name. Carried straight onto the spawn frame; absent changes nothing. */
     runtimeContract?: RuntimeContractRequest
   }): Promise<SessionSpawnResult> {
+    if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn.

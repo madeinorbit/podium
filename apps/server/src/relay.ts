@@ -1865,6 +1865,7 @@ export class SessionRegistry {
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
 
     this.bus.on('session.wakeRequested', async ({ sessionId, principal }) => {
+      if (process.env.PODIUM_REHEARSAL === '1') return
       const authorization: Promise<import('./modules/sessions/inbox').InboxAuthorizationDecision> = sessionsSvc.authorizeQueuedInputAtApply({
         sessionId,
         principal,

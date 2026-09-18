@@ -270,6 +270,7 @@ export async function createDaemonHostRuntime(args: {
   isConnected: () => boolean
   retryHandshake?: () => void
 }): Promise<DaemonHostRuntime> {
+  if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Daemon execution disabled during upgrade rehearsal')
   const { options: opts, instance, build, installDir, send: sendUpstream, sendOutput } = args
   /**
    * THE AGENT RUNTIME CONTRACT'S TERMINAL DRIVER (POD-1761 W3), when the flag is

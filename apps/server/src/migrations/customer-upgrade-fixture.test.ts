@@ -19,6 +19,8 @@
  */
 
 import { mkdirSync, mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { loadMachineState } from '@podium/runtime/local-machine'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
@@ -27,6 +29,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   enrollmentLedger,
   manifest,
+  identityShapes,
+  writeIdentityShape,
   serverReleaseMigrations,
   serverRows,
 } from '../../../../packages/runtime/src/fixtures/customer-upgrade'
@@ -58,8 +62,13 @@ const insert = (db: SqlDatabase, table: string, row: Row) => {
   ).run(...names.map((n) => row[n] as never))
 }
 
-const machines = (db: SqlDatabase): MachineRow[] =>
-  db.prepare('SELECT id, owner_user_id, token_hash FROM machines ORDER BY id').all() as MachineRow[]
+// Before upgrade custody lives on the legacy row; afterwards the manage edge is authoritative.
+const machines = (db: SqlDatabase, legacy = false): MachineRow[] =>
+  db.prepare(legacy
+    ? 'SELECT id, owner_user_id, token_hash FROM machines ORDER BY id'
+    : `SELECT m.id, g.grantee AS owner_user_id, m.token_hash FROM machines m
+       LEFT JOIN grants g ON g.resource_kind = 'machine' AND g.resource_id = m.id
+         AND g.verb = 'manage' AND g.custody = 1 ORDER BY m.id`).all() as MachineRow[]
 const meta = (db: SqlDatabase, key: string): string | undefined =>
   (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)?.value
 const feedEpoch = (db: SqlDatabase): string | undefined =>
@@ -110,7 +119,7 @@ function customerState(options: { ledger?: string | null; extraMachines?: Row[] 
     // A customer instance has served a feed: its identity row exists before the upgrade.
     insert(db, 'feed_identity', { singleton: 1, feed_id: 'feed-customer', epoch: 'customer-epoch', minted_at: '2026-08-03T21:37:10.194Z' })
     // Non-vacuous (trap 2): the captured fleet, every row under the retired literal.
-    const before = machines(db)
+    const before = machines(db, true)
     expect(before.length).toBeGreaterThanOrEqual(6)
     expect(before.every((m) => m.owner_user_id === RETIRED)).toBe(true)
     expect(db.prepare('SELECT count(*) AS c FROM sessions').get()).toEqual({ c: serverRows.sessions.length })
@@ -134,6 +143,27 @@ const record = (event: Record<string, unknown>) => JSON.stringify({ v: 1, ...eve
 const header = enrollmentLedger.split('\n')[0]!
 
 describe('customer upgrade fixture: server', () => {
+  it.each(identityShapes)('first store boot: $name preserves the authenticating row and historical fleet', async (shape) => {
+    const root = customerState({ ledger: null })
+    writeIdentityShape(root, shape)
+    const hash = createHash('sha256').update(shape.token).digest('hex')
+    withDb(root, (db) => db.prepare('UPDATE machines SET token_hash = ? WHERE id = ?').run(hash, shape.authenticatedId))
+    const before = withDb(root, (db) => machines(db, true).map((m) => m.id))
+    const identity = loadMachineState(root)
+    const store = await openTestStore(join(root, 'podium.db'), identity.machineId)
+    await store.close()
+    expect(identity.machineId).toBe(shape.authenticatedId)
+    expect(identity.daemon).toEqual(shape.daemon)
+    expect(identity.supervisor).toEqual(shape.supervisor)
+    expect(identity.legacy).toEqual({ machineId: shape.machineIdFile.trim() })
+    withDb(root, (db) => {
+      expect(machines(db).map((m) => m.id)).toEqual(before)
+      expect(machines(db).find((m) => m.id === shape.authenticatedId)?.token_hash).toBe(hash)
+      for (const id of shape.absentIds) expect(machines(db).some((m) => m.id === id)).toBe(false)
+      for (const id of shape.historicalIds) expect(db.prepare('SELECT hostname FROM machines WHERE id = ?').get(id)).toEqual({ hostname: 'laptop' })
+    })
+  })
+
   it('is the pinned customer release with the captured, non-vacuous fleet', () => {
     expect(manifest.customerRelease.tag).toBe('v0.1.1-edge.4')
     expect(serverReleaseMigrations.tag).toBe(manifest.customerRelease.tag)
@@ -202,7 +232,7 @@ describe('customer upgrade fixture: server', () => {
     await upgrade(root)
     const { member, before } = withDb(root, (db) => ({ member: meta(db, RETIRED_MEMBER_MAPPING)!, before: machines(db) }))
     withDb(root, (db) => {
-      db.prepare('UPDATE machines SET owner_user_id = ? WHERE id = ?').run(member, 'machine-peer')
+      db.prepare("UPDATE grants SET grantee = ? WHERE resource_kind = 'machine' AND resource_id = ? AND custody = 1").run(member, 'machine-peer')
     })
     writeFileSync(
       join(root, 'enrollment.ledger'),
@@ -247,6 +277,7 @@ describe('customer upgrade fixture: server', () => {
       expect(db.prepare("SELECT count(*) AS c FROM grants WHERE resource_id = 'machine-laptop-stale-2'").get()).toEqual({ c: 0 })
       // Ledger-only: no row invented, no credential invented — the machine pairs again.
       expect(after.find((m) => m.id === 'machine-ledger-only')).toBeUndefined()
+      expect(db.prepare("SELECT count(*) AS c FROM grants WHERE resource_kind = 'machine' AND resource_id = 'machine-ledger-only'").get()).toEqual({ c: 0 })
       // DB-only (no ledger history): keeps the migrated owner, never NULL.
       expect(after.find((m) => m.id === 'machine-peer')?.owner_user_id).toBe(member)
       expect(after.filter((m) => m.owner_user_id === null)).toEqual([])
@@ -256,7 +287,7 @@ describe('customer upgrade fixture: server', () => {
   it('malformed interior record refuses the upgrade before any destructive write', async () => {
     const lines = enrollmentLedger.trim().split('\n')
     const root = customerState({ ledger: `${[lines[0], lines[1], '{"v":1,"kind":"enroll"', ...lines.slice(2)].join('\n')}\n` })
-    const before = withDb(root, (db) => ({ epoch: feedEpoch(db), count: machines(db).length }))
+    const before = withDb(root, (db) => ({ epoch: feedEpoch(db), count: machines(db, true).length }))
     await expect(upgrade(root)).rejects.toThrow(/enrollment ledger line 3/)
     withDb(root, (db) => {
       expect(machines(db)).toHaveLength(before.count)

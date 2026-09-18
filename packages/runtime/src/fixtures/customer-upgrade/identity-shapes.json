@@ -1,0 +1,31 @@
+[
+  {
+    "name": "ludovico",
+    "authenticatedId": "machine-host",
+    "machineIdFile": "machine-host\n",
+    "daemon": { "machineId": "machine-daemon-stale-absent", "token": "stale-daemon-token" },
+    "supervisor": { "machineId": "machine-host", "token": "fixture-host-token" },
+    "token": "fixture-host-token",
+    "absentIds": ["machine-daemon-stale-absent"],
+    "historicalIds": []
+  },
+  {
+    "name": "re-paired-daemon",
+    "authenticatedId": "machine-peer",
+    "machineIdFile": "machine-old-absent\n",
+    "daemon": { "machineId": "machine-peer", "token": "fixture-peer-token" },
+    "token": "fixture-peer-token",
+    "absentIds": ["machine-old-absent"],
+    "historicalIds": []
+  },
+  {
+    "name": "mac-three-pairings",
+    "authenticatedId": "machine-laptop-live",
+    "machineIdFile": "machine-laptop-live\n",
+    "daemon": { "machineId": "machine-laptop-live", "token": "fixture-mac-token" },
+    "supervisor": { "machineId": "machine-laptop-live", "token": "fixture-mac-token" },
+    "token": "fixture-mac-token",
+    "absentIds": [],
+    "historicalIds": ["machine-laptop-dev", "machine-laptop-stale-1", "machine-laptop-live"]
+  }
+]

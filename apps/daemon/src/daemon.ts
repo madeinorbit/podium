@@ -68,6 +68,7 @@ export interface DaemonHandle {
  * each live in their owning modules; this function only wires their ports.
  */
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
+  if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Daemon execution disabled during upgrade rehearsal')
   const parentOwnsMachinePresence = process.env[SUPERVISOR_MACHINE_ID_ENV] !== undefined
   if (parentOwnsMachinePresence) {
     const { pairCode: _legacyPairCode, ...parentOptions } = opts

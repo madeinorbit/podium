@@ -578,6 +578,7 @@ export async function startServer(
     janitorWorkerForTests?: import('./janitor-host').StartJanitorWorkerFn
   } = {},
 ): Promise<ServerHandle> {
+  const rehearsal = process.env.PODIUM_REHEARSAL === '1'
   const config = loadConfig()
   // Fail invalid deployment overrides before allocating server resources.
   resolveAuthMode(config)
@@ -588,6 +589,9 @@ export async function startServer(
     ...opts,
     ...(opts.host === undefined ? { host: config.bindHost } : {}),
   })
+  if (rehearsal && (!['127.0.0.1', '::1'].includes(host) || process.env.PODIUM_CONNECT !== 'off')) {
+    throw new Error('PODIUM_REHEARSAL requires loopback and PODIUM_CONNECT=off')
+  }
   const configuredProxyHops = resolveTrustedProxyHops(opts.trustedProxyHops, process.env, host)
   if (
     !Number.isSafeInteger(configuredProxyHops) ||
@@ -731,7 +735,7 @@ export async function startServer(
     serverPlacement,
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
-    recoveryOnly,
+    recoveryOnly: recoveryOnly || rehearsal,
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
@@ -783,7 +787,7 @@ export async function startServer(
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
   // Maintenance is a separate server-owned channel; this secret is never a machine credential.
   const maintenanceToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
-  if (!recoveryOnly) {
+  if (!recoveryOnly && !rehearsal) {
     const supervisorSetup = loadSupervisorState(stateDir())
     const setupRequest = supervisorSetup.setupEnrollment
     if (setupRequest && !supervisorSetup.enrolledPublicKey) {
@@ -900,7 +904,7 @@ export async function startServer(
     // user that bound it, or to nobody and is refused (ADR 3 Amendment 1 D22).
     telegramBindings: store.telegramBindings,
   })
-  if (!recoveryOnly) messaging.configure()
+  if (!recoveryOnly && !rehearsal) messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
@@ -947,9 +951,9 @@ export async function startServer(
           },
         })
   const devPublisher = await wireDevBundlePublisher({
-    sourceRoot: developmentSourceRoot,
+    sourceRoot: rehearsal ? undefined : developmentSourceRoot,
     instanceId,
-    artifactOrigin: developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
+    artifactOrigin: !rehearsal && developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
     hasRemoteUpdateConsumers: async () =>
       (await store.machines.listMachines()).some((machine) =>
@@ -982,7 +986,7 @@ export async function startServer(
   /** One real host participant when an installed parent can apply its grants. */
   const localUpdateParticipant =
     process.env.PODIUM_MACHINE_UPDATE_OWNER !== 'supervisor' &&
-    !recoveryOnly &&
+    !recoveryOnly && !rehearsal &&
     process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
     !developmentRuntime.runningFromSource &&
     prepareCoordinatorUpdate &&
@@ -1109,7 +1113,7 @@ export async function startServer(
   const parentReport = readParentOutcome()?.why
   const durableUsers = registry.sessionStore.users
   const serverMoveCrash = serverMoveFaultHook()
-  if (!recoveryOnly)
+  if (!recoveryOnly && !rehearsal)
     await registry.modules.operations.engine.adoptOnBoot(
       async (row) => {
         if (row.kind === 'server-move') {
@@ -1987,6 +1991,9 @@ export async function startServer(
         ...(tls ? { tls } : {}),
         websocket: ws.websocket,
         async fetch(request, nativeServer) {
+          if (rehearsal && !['/health', '/version'].includes(new URL(request.url).pathname)) {
+            return new Response('Upgrade rehearsal: session and API traffic disabled', { status: 503 })
+          }
           if (!acceptingRequests) return new Response('Server is shutting down', { status: 503 })
           for (const plugin of opts.plugins ?? []) {
             const response = await plugin.onRequest?.(request)
@@ -2010,7 +2017,7 @@ export async function startServer(
           return await compressHttpResponse(request, response)
         },
       })
-      startDeferredSourceMovePoll()
+      if (!rehearsal) startDeferredSourceMovePoll()
     } catch (err) {
       await failListen(err)
       return
@@ -2020,10 +2027,12 @@ export async function startServer(
     boundPort = server.port
     // EVERY server process owns a janitor worker thread (PDM-27) — dev,
     // self-hosted and cloud are the same composition, and there is no mode or
-    // environment that turns it off. Construction stays off the listen path,
+    // ordinary environment that turns it off. Rehearsal deliberately omits it.
+    // Construction stays off the listen path,
     // and the client turns faults/stalls into observable degraded state plus
     // automatic replacement rather than request-loop failure.
     janitorHostStarting = (async () => {
+      if (rehearsal) return
       // Existing worker test seam suppresses real threads in vitest's fork runtime.
       if (!opts.janitorWorkerForTests && !janitorHostClosing) {
         const { SyncWorkerClient } = await import('./sync-worker/worker-client')
@@ -2392,7 +2401,7 @@ export async function startServer(
       },
     }
     void (
-      recoveryOnly
+      recoveryOnly || rehearsal
         ? Promise.resolve()
         : refreshTargetsOnBoot({
             refresh: (channel) => registry.modules.updates.refreshTarget(channel),
@@ -2400,11 +2409,11 @@ export async function startServer(
     ).then(async () => {
       // Recovery-only transfer boots must remain read-only. Normal boots recover
       // a lost settle sweep after operation adoption and target hydration.
-      if (!recoveryOnly) await registry.modules.updatesReconciler?.onBoot()
+      if (!recoveryOnly && !rehearsal) await registry.modules.updatesReconciler?.onBoot()
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
-      const targetRefresh = recoveryOnly
+      const targetRefresh = recoveryOnly || rehearsal
         ? { stop: () => {} }
         : startTargetRefresh({
             refresh: (channel) => registry.modules.updates.refreshTarget(channel),
@@ -2412,7 +2421,7 @@ export async function startServer(
             schedule: timerSchedule,
           })
       targetsResolvedOnBoot = true
-      if (!recoveryOnly) connectPublisher.start()
+      if (!recoveryOnly && !rehearsal) connectPublisher.start()
       resolve({
         port: server.port,
         syncWorker: () => syncWorker,

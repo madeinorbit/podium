@@ -37,9 +37,13 @@ import {
   daemonBindings,
   daemonReceipts,
   manifest,
+  identityShapes,
+  writeIdentityShape,
   serverRows,
 } from '../../../packages/runtime/src/fixtures/customer-upgrade'
 import { openTestStore } from '../../server/src/test-support/open-test-store'
+import { loadMachineState } from '@podium/runtime/local-machine'
+import { loadIdentity } from './identity'
 import { BindingStore } from './binding-store'
 
 const MACHINE = asMachineId(manifest.daemon.machineId)
@@ -127,6 +131,19 @@ async function serverFacts(
 }
 
 describe('customer upgrade fixture: daemon', () => {
+  it.each(identityShapes)('first identity boot: $name selects the authenticating row and retains legacy sections', async (shape) => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-identity-upgrade-'))
+    roots.push(dir)
+    writeIdentityShape(dir, shape)
+    expect(loadIdentity({ dir })).toEqual(shape.daemon)
+    const state = loadMachineState(dir)
+    expect(state.machineId).toBe(shape.authenticatedId)
+    expect(state.daemon).toEqual(shape.daemon)
+    expect(state.supervisor).toEqual(shape.supervisor)
+    expect(state.legacy).toEqual({ machineId: shape.machineIdFile.trim() })
+    expect(loadIdentity({ dir })).toEqual(shape.daemon)
+  })
+
   it('holds the captured residue: exported-elsewhere bindings under the retired literal, a receipt with no session', () => {
     for (const id of RESIDUE) {
       const record = daemonBindings[id]

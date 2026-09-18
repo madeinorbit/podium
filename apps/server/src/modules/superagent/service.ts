@@ -266,7 +266,7 @@ export class SuperagentService {
     this.waitPollMs = opts?.waitPollMs ?? 2000
     this.eventReadLimit = opts?.eventReadLimit ?? 500
     const reapEvery = opts?.reapIntervalMs ?? TURN_REAP_INTERVAL_MS
-    if (reapEvery > 0) {
+    if (reapEvery > 0 && process.env.PODIUM_REHEARSAL !== '1') {
       this.reaper = setInterval(async () => await this.reapStaleTurns(), reapEvery)
       this.reaper.unref?.()
     }
@@ -289,6 +289,7 @@ export class SuperagentService {
     // resume a turn this process does not yet know is running. Nothing can
     // arrive between these two lines today, and at the flip the read is awaited
     // in between — which is exactly why the order is written down.
+    if (process.env.PODIUM_REHEARSAL === '1') return service
     await service.adoptPendingTurns()
     modules.bus.on('machine.connected', async ({ machineId }) => {
       await service.resumePendingTurns(machineId)

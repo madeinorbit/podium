@@ -145,3 +145,42 @@ turn a successfully snapshotted update into a failed update.
 To restore the path named by the update failure: stop Podium (`podium stop`), replace
 `podium.db` with that snapshot, remove any stale `podium.db-wal` /
 `podium.db-shm`, and start the matching older binary version again.
+
+## Rehearse a candidate against real state
+
+From the candidate checkout, install its own dependencies with `bun run setup:worktree`, then:
+
+```bash
+bun --conditions=@podium/source scripts/rehearse-upgrade.ts /absolute/path/to/real/state
+# Optional second argument: a new, nonexistent directory for the retained copy.
+```
+
+The script reads the source, snapshots SQLite through a read-only connection (including
+committed WAL pages), and boots the candidate **from source** against the copy. It never
+checkpoints, migrates, stops, or takes over the live installation. Other regular files are
+copied; symlinks, sockets, the old instance marker and agent-home are omitted. Avoid concurrent
+enrollment or updates while capturing: SQLite is a consistent snapshot, but the collection
+of legacy JSON files is not a transaction. Use a consistent backup as input when necessary.
+
+The copy has its own `PODIUM_STATE_DIR`, agent home, `XDG_RUNTIME_DIR`, cache and temporary
+roots. A whitelisted child environment removes inherited session relays, supervisor credentials
+and instance overrides. The server binds loopback on an ephemeral port with
+`PODIUM_CONNECT=off`, `PODIUM_TELEMETRY=off` and `PODIUM_REHEARSAL=1`. No supervisor or daemon is launched.
+
+**Loopback and a copied database alone are not isolation.** Copied sessions and issues still
+point at real repositories: the 2026-09-18 rehearsal attempted `git worktree add` in one.
+Rehearsal mode skips session restoration, queued-input wake, issue boot reconciliation,
+janitor/reaper workers, superagent turn adoption/reaping, messaging, source publishing,
+update adoption and Connect publication. Session spawn and daemon startup refuse outright.
+HTTP and WebSocket traffic other than `/health` and `/version` returns 503, preventing an
+external daemon or client from activating copied sessions. Database migrations still run.
+Never remove the flag or boot a supervisor/daemon against this copy.
+
+The command checks health and the session-traffic fences, closes the server, and retains
+`state/`, `boot.log` and `result.json` in the printed directory. It fails on boot errors or a
+90-second timeout and kills its own child process group. Inspect the migrated `machine.json`
+and database: the root id must identify the authenticating row, historical machine rows must
+remain, and legacy sections must retain their original ids and credentials. Logs and the copy
+contain private state; keep them private and delete the printed directory when finished.
+This rehearsal proves server migration/boot safety, not daemon ONLINE attachment; the
+customer-upgrade fixture arms and skew lane provide that separate evidence.
