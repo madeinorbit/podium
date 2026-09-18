@@ -93,16 +93,27 @@ describe('bucketCostUsd', () => {
     // POD-670: fable's id names no family the other rows match, so it used to
     // land on the Sonnet-priced fallback at a third of its real rate.
     ['claude-fable-5', 10],
+    // Fable-5.1 shares fable-5's input/output tier; only its cache reads differ
+    // ($0.25 vs $1), so the input case pins the shared tier and the read case
+    // below pins the split. Narrower id must win over `fable`.
+    ['claude-fable-5-1', 10],
     ['gpt-5', 1.25],
     // Retired, but historical buckets still carry the id and it billed here.
     ['gpt-5-codex', 1.25],
-    // POD-718: the gpt-5.6 family reached the gpt-5 row by substring fallback;
-    // each current tier has its own rate and the narrower ids must win.
-    ['gpt-5.6-sol', 5],
-    ['gpt-5.6-terra', 2.5],
-    ['gpt-5.6-luna', 1],
+    // The `-pro` tiers each contain their family id, so each must precede it —
+    // otherwise they bill at the base tier, 6-12x under.
+    ['gpt-5-pro', 15],
+    ['gpt-5.2-pro', 21],
+    ['gpt-5.4-pro', 30],
+    ['gpt-5.5-pro', 30],
+    // models.dev 2026-09-18: the gpt-5.6 family moved DOWN (Sol $5→$4,
+    // Terra $2.50→$2, Luna $1→$0.20). Luna traffic was reading 5x high.
+    ['gpt-5.6-sol', 4],
+    ['gpt-5.6-terra', 2],
+    ['gpt-5.6-luna', 0.2],
     // The bare alias routes to Sol, so it prices as Sol.
-    ['gpt-5.6', 5],
+    ['gpt-5.6', 4],
+    ['gpt-6-astra', 10],
     ['gpt-5.5', 5],
     ['gpt-5.3-codex', 1.75],
     // Narrower ids precede the family, so these keep their own price.
@@ -138,20 +149,33 @@ describe('bucketCostUsd', () => {
     expect(bucketCostUsd(bucket('gpt-5', cached))).toBeCloseTo(0.125, 6)
     expect(bucketCostUsd(bucket('claude-sonnet-4-5', cached))).toBeCloseTo(0.3, 6)
     expect(bucketCostUsd(bucket('claude-opus-5', cached))).toBeCloseTo(0.5, 6)
-    expect(bucketCostUsd(bucket('gpt-5.6-sol', cached))).toBeCloseTo(0.5, 6)
+    expect(bucketCostUsd(bucket('gpt-5.6-sol', cached))).toBeCloseTo(0.4, 6)
+    expect(bucketCostUsd(bucket('gpt-5.6-luna', cached))).toBeCloseTo(0.02, 6)
+    expect(bucketCostUsd(bucket('gpt-6-astra', cached))).toBeCloseTo(1, 6)
     // xAI's grok-4.6 cached-input rate is $0.50, a quarter of input, not a tenth.
     expect(bucketCostUsd(bucket('grok-4.6', cached))).toBeCloseTo(0.5, 6)
   })
 
+  // Fable-5.1 is the exception to the tenth rule on the Anthropic side: its
+  // cache reads bill at $0.25 against $10 input, a quarter of fable-5's $1.
+  it('bills fable-5-1 cache reads at their own rate, not fable-5', () => {
+    const cached = { inputTokens: 0, cacheReadTokens: 1_000_000 }
+    expect(bucketCostUsd(bucket('claude-fable-5-1', cached))).toBeCloseTo(0.25, 6)
+    expect(bucketCostUsd(bucket('claude-fable-5', cached))).toBeCloseTo(1, 6)
+  })
+
   // The 1.25x cache-write multiplier used to be hardcoded for every model, which
-  // invented a charge OpenAI does not make on anything outside gpt-5.6 — and
-  // stayed invisible only because Codex reports the field as zero.
+  // invented a charge OpenAI does not make on anything outside gpt-5.6 and
+  // gpt-6 — and stayed invisible only because Codex reports the field as zero.
   it('bills cache writes only where the provider actually charges for them', () => {
     const written = { inputTokens: 0, cacheCreationTokens: 1_000_000 }
     expect(bucketCostUsd(bucket('claude-opus-5', written))).toBeCloseTo(6.25, 6)
-    expect(bucketCostUsd(bucket('gpt-5.6-sol', written))).toBeCloseTo(6.25, 6)
+    expect(bucketCostUsd(bucket('gpt-5.6-sol', written))).toBeCloseTo(5, 6)
+    expect(bucketCostUsd(bucket('gpt-5.6-luna', written))).toBeCloseTo(0.25, 6)
+    expect(bucketCostUsd(bucket('gpt-6-astra', written))).toBeCloseTo(12.5, 6)
     expect(bucketCostUsd(bucket('gpt-5', written))).toBeCloseTo(0, 6)
     expect(bucketCostUsd(bucket('gpt-5-mini', written))).toBeCloseTo(0, 6)
+    expect(bucketCostUsd(bucket('gpt-5.5-pro', written))).toBeCloseTo(0, 6)
   })
 
   it('bills Anthropic 5-minute writes at 1.25x and 1-hour writes at 2x input', () => {
@@ -177,6 +201,20 @@ describe('bucketCostUsd', () => {
   it('bills fable output at its own rate, not the fallback', () => {
     const out = { inputTokens: 0, outputTokens: 1_000_000 }
     expect(bucketCostUsd(bucket('claude-fable-5', out))).toBeCloseTo(50, 6)
+    expect(bucketCostUsd(bucket('claude-fable-5-1', out))).toBeCloseTo(50, 6)
+  })
+
+  // The `-pro` rows must win over the family rows whose ids they contain:
+  // output is where the dollars are, so a fallback here hides 6-12x.
+  it('bills pro-tier output at the pro rate, not the family rate', () => {
+    const out = { inputTokens: 0, outputTokens: 1_000_000 }
+    expect(bucketCostUsd(bucket('gpt-5-pro', out))).toBeCloseTo(120, 6)
+    expect(bucketCostUsd(bucket('gpt-5.2-pro', out))).toBeCloseTo(168, 6)
+    expect(bucketCostUsd(bucket('gpt-5.4-pro', out))).toBeCloseTo(180, 6)
+    expect(bucketCostUsd(bucket('gpt-5.5-pro', out))).toBeCloseTo(180, 6)
+    expect(bucketCostUsd(bucket('gpt-6-astra', out))).toBeCloseTo(50, 6)
+    expect(bucketCostUsd(bucket('gpt-5.6-luna', out))).toBeCloseTo(1.2, 6)
+    expect(bucketCostUsd(bucket('gpt-5.6-terra', out))).toBeCloseTo(12, 6)
   })
 
   it('falls back for an unrecognized model instead of charging nothing', () => {
@@ -272,7 +310,7 @@ describe('usageSummary', () => {
 
   it('ranks models by cost, not by tokens — the measure the sheet leads with', () => {
     // A cheap model with far more tokens must not outrank an expensive one: 20
-    // MTok of Luna input is $20, 5 MTok of Opus input is $25.
+    // MTok of Luna input is $4, 5 MTok of Opus input is $25.
     const s = usageSummary(
       [
         bucket({ model: 'gpt-5.6-luna', inputTokens: 20_000_000 }),
@@ -360,7 +398,7 @@ describe('usageSummary', () => {
   it('groups models by provider and ranks the rollup by cost', () => {
     const s = usageSummary(
       [
-        // Sol at $5 and Luna at $1 are 5x apart, so the rollup is also the
+        // Sol at $4 and Luna at $0.20 are 20x apart, so the rollup is also the
         // check that the two are not being flattened onto one gpt-5.6 rate.
         bucket({ model: 'gpt-5.6-sol', inputTokens: 8_000_000, messages: 2 }),
         bucket({ model: 'gpt-5.6-luna', inputTokens: 4_000_000, messages: 3 }),
@@ -371,7 +409,7 @@ describe('usageSummary', () => {
       now,
     )
 
-    // Anthropic ($50) outranks OpenAI ($44) here even though the OpenAI rows
+    // Anthropic ($50) outranks OpenAI ($32.80) here even though the OpenAI rows
     // came first, so this fails if the rollup ever stops sorting by cost.
     // xAI at $4 sits between OpenAI and the unpriced leftover.
     expect(s.providers.map((provider) => provider.provider)).toEqual([
@@ -381,7 +419,7 @@ describe('usageSummary', () => {
       'other',
     ])
     expect(s.providers[1]).toMatchObject({ totalTokens: 12_000_000, messages: 5 })
-    expect(s.providers[1]?.estCostUsd).toBeCloseTo(44, 6)
+    expect(s.providers[1]?.estCostUsd).toBeCloseTo(32.8, 6)
     expect(s.unpricedModels).toEqual(['future-vendor'])
   })
 
@@ -389,6 +427,25 @@ describe('usageSummary', () => {
   // being flagged AND charged the fallback rate; now it is neither.
   it('no longer lists fable as unpriced', () => {
     const s = usageSummary([bucket({ model: 'claude-fable-5', inputTokens: 1_000_000 })], now)
+    expect(s.unpricedModels).toEqual([])
+  })
+
+  // Every row the September refresh added must resolve to a priced row, or the
+  // provenance footer starts naming models the table claims to cover.
+  it('prices every newly added model id without the fallback', () => {
+    const s = usageSummary(
+      [
+        bucket({ model: 'claude-fable-5-1', inputTokens: 1_000_000 }),
+        bucket({ model: 'gpt-5-pro', inputTokens: 1_000_000 }),
+        bucket({ model: 'gpt-5.2-pro', inputTokens: 1_000_000 }),
+        bucket({ model: 'gpt-5.4-pro', inputTokens: 1_000_000 }),
+        bucket({ model: 'gpt-5.5-pro', inputTokens: 1_000_000 }),
+        bucket({ model: 'gpt-6-astra', inputTokens: 1_000_000 }),
+        bucket({ model: 'gpt-5.6-terra', inputTokens: 1_000_000 }),
+        bucket({ model: 'gpt-5.6-luna', inputTokens: 1_000_000 }),
+      ],
+      now,
+    )
     expect(s.unpricedModels).toEqual([])
   })
 })
