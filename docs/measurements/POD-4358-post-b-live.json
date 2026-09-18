@@ -1,0 +1,981 @@
+{
+  "runtimeSha": "4b9d7618b",
+  "bundle": "index-BC3ykpj3.js",
+  "buildHash": "02f62ccb6eeb36bf",
+  "capturedAt": "2026-09-18T19:56:44.885Z",
+  "browser": "148.0.7778.96",
+  "coldScale": {
+    "issues": 4887,
+    "sessions": 4323,
+    "repos": 501,
+    "worktrees": 469,
+    "openIssues": 2229,
+    "elements": 7679,
+    "buttons": 427,
+    "machines": 6,
+    "rows": 211
+  },
+  "warmScale": {
+    "issues": 4887,
+    "sessions": 4323,
+    "repos": 501,
+    "worktrees": 469,
+    "openIssues": 2229,
+    "elements": 7678,
+    "buttons": 426,
+    "machines": 6,
+    "rows": 211
+  },
+  "coldHeap": {
+    "before": {
+      "usedSize": 126830916,
+      "totalSize": 129953792,
+      "embedderHeapUsedSize": 20137224,
+      "backingStorageSize": 2738575
+    },
+    "after": {
+      "usedSize": 234940340,
+      "totalSize": 244510720,
+      "embedderHeapUsedSize": 28730520,
+      "backingStorageSize": 3015983
+    }
+  },
+  "warmHeap": {
+    "before": {
+      "usedSize": 122287008,
+      "totalSize": 126283776,
+      "embedderHeapUsedSize": 20176272,
+      "backingStorageSize": 2738699
+    },
+    "after": {
+      "usedSize": 227027400,
+      "totalSize": 235470848,
+      "embedderHeapUsedSize": 26113792,
+      "backingStorageSize": 2950174
+    }
+  },
+  "windows": [
+    {
+      "name": "warm-rotation",
+      "incidence": {
+        "machines": 14,
+        "selectedIssueId": 14,
+        "selectedWorktree": 14,
+        "workspaces": 2,
+        "paneA": 14,
+        "issueVisitBaseline": 14,
+        "issues": 14,
+        "sessions": 4,
+        "panelMode": 2,
+        "conversations": 4,
+        "outboxSize": 7,
+        "outboxDeadLetters": 19,
+        "issueProjections": 2,
+        "coarseNow": 1
+      },
+      "seconds": 50.92889999997616,
+      "publishes": 68,
+      "wakes": 20071,
+      "fanoutMs": 5341.199999928474,
+      "derives": 28,
+      "deriveMs": 4098.10000026226,
+      "sessionPublishes": 4,
+      "sessionDerives": 0,
+      "sessionDeriveMs": 0,
+      "longTasks": 77,
+      "longTaskMs": 29777,
+      "commits": 230,
+      "nativeMetrics": {
+        "Timestamp": 51.0429989999393,
+        "AudioHandlers": 1,
+        "AudioWorkletProcessors": 0,
+        "Documents": 14,
+        "Frames": 9,
+        "JSEventListeners": 4717,
+        "LayoutObjects": 13867,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 15745,
+        "Resources": 16,
+        "ContextLifecycleStateObservers": 21,
+        "V8PerContextDatas": 0,
+        "WorkerGlobalScopes": 1,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 14,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 0,
+        "LayoutCount": 222,
+        "RecalcStyleCount": 2004,
+        "LayoutDuration": 0.929176,
+        "RecalcStyleDuration": 2.002488,
+        "DevToolsCommandDuration": 1.155842,
+        "ScriptDuration": 26.675772000000002,
+        "V8CompileDuration": 0,
+        "TaskDuration": 43.781708,
+        "TaskOtherDuration": 13.018429999999999,
+        "ThreadTime": 38.822998,
+        "ProcessTime": 71.41,
+        "JSHeapUsedSize": 494616004,
+        "JSHeapTotalSize": 542240768,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 0,
+        "NavigationStart": 0
+      },
+      "buckets": {
+        "program": 12022.987999999988,
+        "idle": 7329.3800000000065,
+        "gc": 3931.880000000002,
+        "reactInclusive": 22877.73299999988,
+        "reactCommit": 3917.475000000003,
+        "worklist": 7939.320999999981,
+        "lookup": 14.491,
+        "hostTotal": 127.098,
+        "machineFacts": 86.88900000000001,
+        "issueDerivation": 2576.6730000000007,
+        "hostAggregates": 40.208999999999996,
+        "transcript": 2455.421000000003
+      },
+      "topSelf": [
+        [
+          "::(program)",
+          12022.987999999988
+        ],
+        [
+          "::(idle)",
+          7329.3800000000065
+        ],
+        [
+          "::(garbage collector)",
+          3931.880000000002
+        ],
+        [
+          "../../../../packages/sync/src/adapters/indexeddb/idb.ts::requestAsPromise",
+          2346.5530000000026
+        ],
+        [
+          "::getBoundingClientRect",
+          1657.5570000000014
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::missionRootFor",
+          1535.6339999999993
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::computeMissionIssueIds",
+          863.6400000000004
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::byId",
+          856.1330000000004
+        ],
+        [
+          "../../src/features/worklist/UnifiedIssueRow.tsx::UnifiedIssueRow",
+          584.9099999999997
+        ],
+        [
+          "../../src/lib/issue-chip-liveness.ts::issueReferenceSignature",
+          565.9909999999999
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::missionIssueIds",
+          446.5910000000002
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/session-ownership.ts::archivedSessionsForIssue",
+          441.378
+        ],
+        [
+          "../../src/features/worklist/UnifiedIssueRow.tsx::origin",
+          357.6559999999999
+        ],
+        [
+          "../../src/lib/issue-chip-liveness.ts::issueKey",
+          330.5749999999999
+        ],
+        [
+          "../../../../packages/sync/src/adapters/indexeddb/store.ts::IndexedDbSyncStore",
+          323.45500000000004
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/slices/worklist/rows.ts::buildUnifiedRows",
+          317.76099999999985
+        ],
+        [
+          "../../../../packages/model/src/predicates/machine-selection.ts::lastUsedMachine",
+          315.5959999999999
+        ],
+        [
+          "../../../../packages/client-core/src/engine/state.ts::selected",
+          288.55499999999995
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::indexMissionSessions",
+          284.8590000000002
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::setValueForStyles",
+          280.5330000000002
+        ],
+        [
+          "../../../../packages/client-core/src/engine/state.ts::issueActivityAt",
+          255.9
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::buildFlightDeckRows",
+          251.80799999999988
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::commitHostUpdate",
+          241.41500000000005
+        ],
+        [
+          "../../src/features/chat/PinnedBrief.tsx::measureBrief",
+          219.41500000000002
+        ],
+        [
+          "../../../../packages/model/src/predicates/machine-selection.ts::resolveTargetMachineForAgent",
+          208.552
+        ]
+      ],
+      "hostCounters": {
+        "hostSessions.materialScan": 4,
+        "hostSessions.aggregateBuild": 0
+      },
+      "diagnosticDrops": 0,
+      "switches": {
+        "clicks": 14,
+        "traces": 14,
+        "timeouts": 0,
+        "cold": 2,
+        "p50Ms": 1046.7999999523163,
+        "p95Ms": 4471.199999928474
+      }
+    },
+    {
+      "name": "disconnected-idle",
+      "incidence": {
+        "coarseNow": 1
+      },
+      "seconds": 66.11379999995232,
+      "publishes": 1,
+      "wakes": 280,
+      "fanoutMs": 107,
+      "derives": 1,
+      "deriveMs": 104.80000007152557,
+      "sessionPublishes": 0,
+      "sessionDerives": 0,
+      "sessionDeriveMs": 0,
+      "longTasks": 8,
+      "longTaskMs": 975,
+      "commits": 133,
+      "nativeMetrics": {
+        "Timestamp": 66.1067950000288,
+        "AudioHandlers": 0,
+        "AudioWorkletProcessors": 0,
+        "Documents": 0,
+        "Frames": 0,
+        "JSEventListeners": 612,
+        "LayoutObjects": 11,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 11,
+        "Resources": 36,
+        "ContextLifecycleStateObservers": 5,
+        "V8PerContextDatas": 0,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 0,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 0,
+        "LayoutCount": 15,
+        "RecalcStyleCount": 653,
+        "LayoutDuration": 0.005354999999999999,
+        "RecalcStyleDuration": 0.7813809999999999,
+        "DevToolsCommandDuration": 0.259154,
+        "ScriptDuration": 0.9746519999999999,
+        "V8CompileDuration": 0,
+        "TaskDuration": 5.360006000000002,
+        "TaskOtherDuration": 3.3394639999999995,
+        "ThreadTime": 5.342348000000001,
+        "ProcessTime": 14.96,
+        "JSHeapUsedSize": 1786248,
+        "JSHeapTotalSize": 4407296,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 0,
+        "NavigationStart": 0
+      },
+      "buckets": {
+        "program": 3946.147999999999,
+        "idle": 60903.2830000006,
+        "reactInclusive": 797.7409999999998,
+        "reactCommit": 67.65499999999997,
+        "gc": 113.22200000000001,
+        "worklist": 140.43599999999995,
+        "hostTotal": 1.071,
+        "machineFacts": 1.071
+      },
+      "topSelf": [
+        [
+          "::(idle)",
+          60903.2830000006
+        ],
+        [
+          "::(program)",
+          3946.147999999999
+        ],
+        [
+          "::fetch",
+          136.71900000000002
+        ],
+        [
+          "::(garbage collector)",
+          113.22200000000001
+        ],
+        [
+          "../../src/features/worklist/UnifiedIssueRow.tsx::UnifiedIssueRow",
+          81.11500000000001
+        ],
+        [
+          "../../../../packages/model/src/predicates/agent-computing.ts::isAgentConfirmedComputing",
+          50.073
+        ],
+        [
+          "::WebSocket",
+          49.42900000000001
+        ],
+        [
+          "../../src/app/StatusStrip.tsx::StatusStrip",
+          36.684
+        ],
+        [
+          "../../src/features/machines/ConnectionIndicator.tsx::ConnectionIndicator",
+          32.425
+        ],
+        [
+          "../../src/features/worklist/UnifiedIssueRow.tsx::origin",
+          27.405000000000005
+        ],
+        [
+          "../../src/lib/workspace-request.ts::workspaceRequestInit",
+          24.873
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::reconcileChildFibersImpl",
+          23.217
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::shouldSetTextContent",
+          18.589
+        ],
+        [
+          "::queueMicrotask",
+          16.122
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::renderWithHooks",
+          14.280000000000001
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/slices/worklist/row-attention.ts::rowMotionPhase",
+          14.277
+        ],
+        [
+          "http://127.0.0.1:55658/assets/chunk-Cyuzqnbw.js::",
+          13.349
+        ],
+        [
+          "../../src/features/worklist/SidebarUnified.tsx::WorkSections",
+          13.072
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::propagateParentContextChanges",
+          12.183
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::useFiber",
+          11.472000000000001
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/session-status.ts::isUnstartedSession",
+          11.326
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::beginWork",
+          11.225
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::updateProperties",
+          10.021999999999998
+        ],
+        [
+          "../../src/lib/workspace-request.ts::currentWorkspaceSlug",
+          10.02
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::completeWork",
+          9.481
+        ]
+      ],
+      "hostCounters": {
+        "hostSessions.materialScan": 0,
+        "hostSessions.aggregateBuild": 0
+      },
+      "diagnosticDrops": 0
+    },
+    {
+      "name": "activity",
+      "incidence": {
+        "conversations": 15,
+        "coarseNow": 1,
+        "machines": 14
+      },
+      "seconds": 66.10230000007152,
+      "publishes": 30,
+      "wakes": 8400,
+      "fanoutMs": 95.60000002384186,
+      "derives": 1,
+      "deriveMs": 57.10000002384186,
+      "sessionPublishes": 0,
+      "sessionDerives": 0,
+      "sessionDeriveMs": 0,
+      "longTasks": 14,
+      "longTaskMs": 1056,
+      "commits": 140,
+      "nativeMetrics": {
+        "Timestamp": 66.10889499995392,
+        "AudioHandlers": 0,
+        "AudioWorkletProcessors": 0,
+        "Documents": 0,
+        "Frames": 0,
+        "JSEventListeners": -1359,
+        "LayoutObjects": -16,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": -16,
+        "Resources": 0,
+        "ContextLifecycleStateObservers": 0,
+        "V8PerContextDatas": 0,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 0,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": -7,
+        "LayoutCount": 38,
+        "RecalcStyleCount": 475,
+        "LayoutDuration": 0.03221099999999999,
+        "RecalcStyleDuration": 0.7972739999999998,
+        "DevToolsCommandDuration": 0.21207600000000004,
+        "ScriptDuration": 1.3039779999999999,
+        "V8CompileDuration": 0,
+        "TaskDuration": 5.292377999999999,
+        "TaskOtherDuration": 2.9468390000000007,
+        "ThreadTime": 7.443065999999998,
+        "ProcessTime": 21.330000000000005,
+        "JSHeapUsedSize": 3833788,
+        "JSHeapTotalSize": 5267456,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 0,
+        "NavigationStart": 0
+      },
+      "buckets": {
+        "program": 3571.0510000000063,
+        "reactInclusive": 903.4480000000005,
+        "reactCommit": 105.97800000000002,
+        "idle": 60846.04999999996,
+        "gc": 267.44800000000004,
+        "worklist": 79.39699999999999,
+        "hostTotal": 7.519,
+        "machineFacts": 7.519
+      },
+      "topSelf": [
+        [
+          "::(idle)",
+          60846.04999999996
+        ],
+        [
+          "::(program)",
+          3571.0510000000063
+        ],
+        [
+          "::(garbage collector)",
+          267.44800000000004
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::propagateParentContextChanges",
+          85.973
+        ],
+        [
+          "../../src/app/StatusStrip.tsx::workingSessions",
+          71.858
+        ],
+        [
+          "../../../../packages/model/src/predicates/agent-computing.ts::isAgentConfirmedComputing",
+          57.139
+        ],
+        [
+          "../../../../packages/sync/src/adapters/indexeddb/store.ts::IndexedDbCacheStore",
+          56.312
+        ],
+        [
+          "../../../../packages/client-core/src/engine/machines-material.ts::canonical",
+          48.815999999999995
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::dispatchEventForPluginEventSystem",
+          48.587999999999994
+        ],
+        [
+          "../../../../packages/client-core/src/socket-transport/socket-hub.ts::SocketHub",
+          46.964
+        ],
+        [
+          "../../../../packages/protocol/src/messages/codec.ts::parseServerMessageLenient",
+          38.878
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::getNextLanes",
+          33.887
+        ],
+        [
+          "../../src/app/AgentConcurrencyHistory.tsx::AgentConcurrencyHistory",
+          33.115
+        ],
+        [
+          "../../../../packages/client-core/src/engine/machines-material.ts::machinesMaterialSignature",
+          25.693999999999992
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/zod@3.25.76-2f21c6c13225b00c/node_modules/zod/v3/types.js::ZodObject",
+          24.4
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::updateProperties",
+          22.840999999999998
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::recursivelyTraverseLayoutEffects",
+          22.03
+        ],
+        [
+          "../../../../packages/sync/src/adapters/indexeddb/store.ts::IndexedDbSyncStore",
+          20.977
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/@base-ui+utils@0.2.9+f7941a290aa3d619-1ae810c4f4c53233/node_modules/@base-ui/utils/esm/store/useStore.js::useStoreFast",
+          19.035
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/@base-ui+react@1.5.0+f7941a290aa3d619-72d4714b961b95d8/node_modules/@base-ui/react/esm/merge-props/mergeProps.js::mutablyMergeInto",
+          18.367
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::commitHostUpdate",
+          17.093
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/@base-ui+react@1.5.0+f7941a290aa3d619-72d4714b961b95d8/node_modules/@base-ui/react/esm/floating-ui-react/hooks/useHoverReferenceInteraction.js::useHoverReferenceInteraction",
+          16.302
+        ],
+        [
+          "::abort",
+          14.803
+        ],
+        [
+          "::postMessage",
+          13.939000000000002
+        ],
+        [
+          "../../src/features/worklist/UnifiedIssueRow.tsx::origin",
+          13.707
+        ]
+      ],
+      "hostCounters": {
+        "hostSessions.materialScan": 0,
+        "hostSessions.aggregateBuild": 0
+      },
+      "diagnosticDrops": 0
+    },
+    {
+      "name": "connected-idle",
+      "incidence": {
+        "conversations": 13,
+        "machines": 14,
+        "coarseNow": 1
+      },
+      "seconds": 66.47919999992847,
+      "publishes": 28,
+      "wakes": 7840,
+      "fanoutMs": 123.19999957084656,
+      "derives": 1,
+      "deriveMs": 89.5,
+      "sessionPublishes": 0,
+      "sessionDerives": 0,
+      "sessionDeriveMs": 0,
+      "longTasks": 8,
+      "longTaskMs": 937,
+      "commits": 137,
+      "nativeMetrics": {
+        "Timestamp": 66.69234499998856,
+        "AudioHandlers": 0,
+        "AudioWorkletProcessors": 0,
+        "Documents": 0,
+        "Frames": 0,
+        "JSEventListeners": 138,
+        "LayoutObjects": 0,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 0,
+        "Resources": 1,
+        "ContextLifecycleStateObservers": 0,
+        "V8PerContextDatas": 0,
+        "WorkerGlobalScopes": 0,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 0,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 0,
+        "LayoutCount": 35,
+        "RecalcStyleCount": 539,
+        "LayoutDuration": 0.018138999999999905,
+        "RecalcStyleDuration": 0.888487,
+        "DevToolsCommandDuration": 0.5414070000000001,
+        "ScriptDuration": 1.242814,
+        "V8CompileDuration": 0,
+        "TaskDuration": 6.955100000000002,
+        "TaskOtherDuration": 4.264253,
+        "ThreadTime": 7.948176999999999,
+        "ProcessTime": 21.790000000000003,
+        "JSHeapUsedSize": 2260376,
+        "JSHeapTotalSize": 7049216,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 0,
+        "NavigationStart": 0
+      },
+      "buckets": {
+        "program": 5051.862999999994,
+        "reactInclusive": 805.7810000000011,
+        "idle": 59569.86799999994,
+        "issueDerivation": 1.171,
+        "gc": 580.8370000000004,
+        "reactCommit": 137.88400000000001,
+        "hostAggregates": 0.921,
+        "hostTotal": 2.9930000000000003,
+        "machineFacts": 2.072,
+        "worklist": 100.09699999999998
+      },
+      "topSelf": [
+        [
+          "::(idle)",
+          59569.86799999994
+        ],
+        [
+          "::(program)",
+          5051.862999999994
+        ],
+        [
+          "::(garbage collector)",
+          580.8370000000004
+        ],
+        [
+          "../../../../packages/model/src/predicates/agent-computing.ts::isAgentConfirmedComputing",
+          109.63500000000002
+        ],
+        [
+          "../../../../packages/sync/src/adapters/indexeddb/store.ts::IndexedDbCacheStore",
+          44.901
+        ],
+        [
+          "../../../../packages/sync/src/adapters/indexeddb/store.ts::IndexedDbSyncStore",
+          39.04
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::renderWithHooks",
+          33.253
+        ],
+        [
+          "../../../../packages/client-core/src/engine/machines-material.ts::machinesMaterialSignature",
+          31.312000000000005
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/zod@3.25.76-2f21c6c13225b00c/node_modules/zod/v3/types.js::ZodObject",
+          31.034999999999997
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::updateProperties",
+          24.361
+        ],
+        [
+          "../../../../packages/client-core/src/engine/machines-material.ts::canonical",
+          22.462
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/zod@3.25.76-2f21c6c13225b00c/node_modules/zod/v3/types.js::ZodType",
+          21.407999999999998
+        ],
+        [
+          "../../src/features/worklist/UnifiedIssueRow.tsx::UnifiedIssueRow",
+          20.174
+        ],
+        [
+          "../../../../packages/client-core/src/socket-transport/socket-hub.ts::SocketHub",
+          19.871000000000002
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/motion-dom@12.42.2-a3862d95de0999de/node_modules/motion-dom/dist/es/render/utils/animation-state.mjs::animateChanges",
+          18.974
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/slices/worklist/rows.ts::buildUnifiedRows",
+          16.628999999999998
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::commitHostUpdate",
+          16.342
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/@trpc+server@11.17.0+7524df1edfed9f02-04340441de9f78eb/node_modules/@trpc/server/dist/getErrorShape-BPSzUA7W.mjs::freezeIfAvailable",
+          15.379
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/zod@3.25.76-2f21c6c13225b00c/node_modules/zod/v3/helpers/parseUtil.js::ParseStatus",
+          15.345
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::setValueForStyles",
+          15.002999999999998
+        ],
+        [
+          "../../../../packages/protocol/src/messages/codec.ts::parseServerMessageLenient",
+          14.898
+        ],
+        [
+          "../../../../packages/client-core/src/replica/kernel/facade.ts::reconcile",
+          14.679
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::batchedUpdates$1",
+          14.612
+        ],
+        [
+          "../../src/features/worklist/UnifiedIssueRow.tsx::origin",
+          14.169
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::performUnitOfWork",
+          13.777999999999999
+        ]
+      ],
+      "hostCounters": {
+        "hostSessions.materialScan": 0,
+        "hostSessions.aggregateBuild": 0
+      },
+      "diagnosticDrops": 0
+    },
+    {
+      "name": "cold-rotation",
+      "incidence": {
+        "selectedIssueId": 30,
+        "selectedWorktree": 30,
+        "workspaces": 6,
+        "paneA": 30,
+        "issueVisitBaseline": 30,
+        "issues": 39,
+        "sessions": 43,
+        "panelMode": 6,
+        "conversations": 18,
+        "outboxSize": 19,
+        "outboxDeadLetters": 42,
+        "coarseNow": 3,
+        "machines": 32,
+        "issueProjections": 6,
+        "issueEvents": 1
+      },
+      "seconds": 136.2022000000477,
+      "publishes": 195,
+      "wakes": 76206,
+      "fanoutMs": 14222.000000596046,
+      "derives": 75,
+      "deriveMs": 9676.199999928474,
+      "sessionPublishes": 43,
+      "sessionDerives": 6,
+      "sessionDeriveMs": 906.8999998569489,
+      "longTasks": 261,
+      "longTaskMs": 95995,
+      "commits": 842,
+      "nativeMetrics": {
+        "Timestamp": 136.49462899996433,
+        "AudioHandlers": 1,
+        "AudioWorkletProcessors": 0,
+        "Documents": 24,
+        "Frames": 12,
+        "JSEventListeners": 11205,
+        "LayoutObjects": 22987,
+        "MediaKeySessions": 0,
+        "MediaKeys": 0,
+        "Nodes": 39590,
+        "Resources": 15,
+        "ContextLifecycleStateObservers": 34,
+        "V8PerContextDatas": 0,
+        "WorkerGlobalScopes": 1,
+        "UACSSResources": 0,
+        "RTCPeerConnections": 0,
+        "ResourceFetchers": 24,
+        "AdSubframes": 0,
+        "DetachedScriptStates": 0,
+        "ArrayBufferContents": 0,
+        "LayoutCount": 521,
+        "RecalcStyleCount": 4878,
+        "LayoutDuration": 1.717269,
+        "RecalcStyleDuration": 4.123906,
+        "DevToolsCommandDuration": 2.175263,
+        "ScriptDuration": 88.899796,
+        "V8CompileDuration": 0,
+        "TaskDuration": 128.86771199999998,
+        "TaskOtherDuration": 31.951478,
+        "ThreadTime": 115.382379,
+        "ProcessTime": 203.1,
+        "JSHeapUsedSize": 455802444,
+        "JSHeapTotalSize": 578838528,
+        "FirstMeaningfulPaint": 0,
+        "DomContentLoaded": 0,
+        "NavigationStart": 0
+      },
+      "buckets": {
+        "program": 28758.918999999885,
+        "idle": 7535.534000000007,
+        "reactInclusive": 71306.07299999974,
+        "worklist": 23262.557000000033,
+        "lookup": 188.94,
+        "gc": 12756.325000000008,
+        "issueDerivation": 7194.861999999984,
+        "hostTotal": 427.5520000000001,
+        "machineFacts": 313.4410000000002,
+        "reactCommit": 11315.856999999984,
+        "hostAggregates": 114.111,
+        "transcript": 11343.033999999978
+      },
+      "topSelf": [
+        [
+          "::(program)",
+          28758.918999999885
+        ],
+        [
+          "::(garbage collector)",
+          12756.325000000008
+        ],
+        [
+          "::(idle)",
+          7535.534000000007
+        ],
+        [
+          "../../../../packages/sync/src/adapters/indexeddb/idb.ts::requestAsPromise",
+          5764.472000000009
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::missionRootFor",
+          4536.2949999999955
+        ],
+        [
+          "../../src/lib/issue-chip-liveness.ts::issueReferenceSignature",
+          4195.587000000002
+        ],
+        [
+          "::getBoundingClientRect",
+          3098.596
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::computeMissionIssueIds",
+          2504.105999999999
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::byId",
+          2005.0130000000038
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/session-ownership.ts::archivedSessionsForIssue",
+          2001.8290000000015
+        ],
+        [
+          "../../src/lib/issue-chip-liveness.ts::issueKey",
+          1940.1129999999991
+        ],
+        [
+          "../../../../packages/client-core/src/engine/state.ts::selected",
+          1805.3770000000006
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::missionIssueIds",
+          1502.4090000000006
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::setValueForStyles",
+          1081.2899999999995
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::renderWithHooks",
+          1020.5379999999996
+        ],
+        [
+          "../../../../packages/model/src/predicates/machine-selection.ts::lastUsedMachine",
+          975.4710000000006
+        ],
+        [
+          "../../src/features/worklist/UnifiedIssueRow.tsx::origin",
+          912.4630000000008
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::buildFlightDeckRows",
+          849.2049999999997
+        ],
+        [
+          "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js::commitHostUpdate",
+          843.4749999999998
+        ],
+        [
+          "../../../../packages/client-core/src/engine/reactions.ts::Reactions",
+          821.975
+        ],
+        [
+          "../../../../packages/client-core/src/viewmodels/mission.ts::indexMissionSessions",
+          819.8190000000003
+        ],
+        [
+          "../../../../packages/sync/src/adapters/indexeddb/store.ts::IndexedDbSyncStore",
+          817.7699999999999
+        ],
+        [
+          "../../../../packages/client-core/src/engine/state.ts::issueActivityAt",
+          760.2639999999998
+        ],
+        [
+          "../../src/lib/hooks/use-session-guard.ts::session",
+          727.6840000000004
+        ],
+        [
+          "../../../../packages/model/src/predicates/machine-selection.ts::resolveTargetMachineForAgent",
+          696.9090000000001
+        ]
+      ],
+      "hostCounters": {
+        "hostSessions.materialScan": 3,
+        "hostSessions.aggregateBuild": 0
+      },
+      "diagnosticDrops": 118,
+      "switches": {
+        "clicks": 30,
+        "traces": 30,
+        "timeouts": 0,
+        "cold": 30,
+        "p50Ms": 1172,
+        "p95Ms": 1959.8000000715256
+      }
+    }
+  ]
+}

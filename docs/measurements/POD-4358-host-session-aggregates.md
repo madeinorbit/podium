@@ -52,9 +52,9 @@ interaction boundary changed.
 The pre-fix live evidence is `POD-4286-post-b-live.json` at post-B c728e9c25:
 connected machine-facts inclusive 1,283.95 ms / 66.210 s; disconnected 715.41 ms /
 66.080 s; second connected 1,626.54 ms. Those measurements are not replaced by this
-hermetic fixture. A refreshed connected/disconnected live post-B comparison is
-still required on the integrated B13 candidate before any later pilot receives
-credit. The coordinator POD-4286 has been notified of this baseline dependency.
+hermetic fixture. The [refreshed baseline](POD-4358-post-b-baseline.md) now pins integrated B13
+candidate 4b9d7618b, including connected/disconnected and cold/warm-switch windows.
+Later pilot comparisons must use that baseline rather than inherit these gains.
 
 ## Revert and limits
 
