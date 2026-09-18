@@ -1,3 +1,4 @@
+import { fleetAuthzDeps, fleetUseResolver } from './fleet/authz'
 import { syncFeedPrincipal } from '../sync/route-support'
 /**
  * THE ONE DERIVED-FAMILY BUILDER (POD-314, the 3.4 cutover).
@@ -198,6 +199,8 @@ export interface FamilyState {
      *  cast at three call sites — which is how a brand quietly stops meaning
      *  anything. */
     readonly actorSessionId: Capability['actorSessionId']
+    /** Per-request selection, retaining the authenticated delegation chain. */
+    readonly defaultMachine?: () => Promise<import('@podium/model').MachineId>
   }
   readonly feedPrincipal?: import('@podium/protocol').Principal
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
@@ -433,6 +436,9 @@ export const familyState = (ctx: Context): FamilyState => ({
     userId: callerUserId(ctx),
     sessionState: sessionStatePrincipalFor(ctx.principal),
     actorSessionId: ctx.capability.actorSessionId,
+    defaultMachine: async () => mods(ctx).machines.defaultMachine(
+      fleetUseResolver(await fleetAuthzDeps(ctx)),
+    ),
   },
   feedPrincipal: syncFeedPrincipal(ctx.principal),
   discovery: ctx.discovery,

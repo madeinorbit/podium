@@ -7,6 +7,8 @@ import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http
 import { downloadName, rawFileHeaders } from './raw-file-headers'
 
 export interface AssetReader {
+  /** Resolve an omitted target with the authenticated request caller. */
+  defaultMachine?(request: Request): Promise<MachineId>
   /** Worktree asset URLs carry their root over HTTP, so the route must verify
    *  that the root belongs to the addressed machine before forwarding it. */
   allowsRoot(root: string, machineId?: MachineId): Promise<boolean> | boolean
@@ -38,7 +40,14 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
     const machineId = c.req.query('machineId')
     const path = c.req.query('path')
     if ((!sessionId && !root) || !path) return c.text('bad request', 400)
-    const parsedMachineId = machineId ? asMachineId(machineId) : undefined
+    let parsedMachineId = machineId ? asMachineId(machineId) : undefined
+    if (!sessionId && !parsedMachineId && registry.defaultMachine) {
+      try {
+        parsedMachineId = await registry.defaultMachine(c.req.raw)
+      } catch {
+        return c.text('no assigned and available daemon with caller use permission', 403)
+      }
+    }
     // `allowsRoot` prefix-matches against the registered repo roots, and that
     // comparison is lexical: `/repo/../../etc` starts with `/repo/` and would pass
     // while the daemon resolves it to `/etc`. Collapse `..` FIRST and forward the

@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server'
 import { bootStage } from './boot-timing'
 import type { ServerPlacement } from './modules/updates/service'
 import type { SyncDeltaPorts } from './sync/route-support'
@@ -894,7 +895,8 @@ export class SessionRegistry {
     updates = updatesService
     const requestBroker = new DaemonRequestBroker({
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
-      defaultMachine: async () => await machines.defaultMachine(),
+      // Unscoped daemon RPCs must supply a machine; they cannot borrow a caller.
+      defaultMachine: async () => await machines.defaultMachine(undefined),
     })
     // config.json writes made by THIS process, published beside settings.changed.
     // Held so shutdown detaches it: the seam is a MODULE-level subscriber list in
@@ -1152,7 +1154,8 @@ export class SessionRegistry {
       memory,
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       serverPlacement: options.serverPlacement,
-      defaultMachine: async () => await machines.defaultMachine(),
+      // Unscoped daemon RPCs must supply a machine; they cannot borrow a caller.
+      defaultMachine: async () => await machines.defaultMachine(undefined),
       resolveMachine: async (requested, cwd) => await machines.resolveMachine(requested, cwd),
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       machineName: async (id) => await machines.machineName(id),
@@ -2383,7 +2386,13 @@ export class SessionRegistry {
       },
       mayUseDefaultMachine: async (principal) => {
         const ownership = await ownershipSnapshotFromMachines(machines)
-        return checkMachineUse(principal, await machines.defaultMachine(), ownership) === undefined
+        try {
+          await machines.defaultMachine((id) => checkMachineUse(principal, id, ownership) === undefined ? 'granted' : 'denied')
+          return true
+        } catch (error) {
+          if (error instanceof TRPCError && error.code === 'PRECONDITION_FAILED') return false
+          throw error
+        }
       },
       now: () => new Date(this.now()),
     })

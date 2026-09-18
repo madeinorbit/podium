@@ -14,8 +14,8 @@ import { testClientPrincipal } from '../../test-support/client-principal'
 import { openTestStore } from '../../test-support/open-test-store'
 import type { Send } from '../sessions/session'
 import { machinesForPrincipal } from '../sessions/command-ctx'
-import type { CommandPrincipal } from '../../command-principal'
-import type { MachineOwnershipIndex } from '../../machine-access'
+import { userCommandPrincipal, type CommandPrincipal } from '../../command-principal'
+import { checkMachineVerb, ownershipSnapshotFromMachines, type MachineOwnershipIndex } from '../../machine-access'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
 
@@ -45,20 +45,63 @@ function makeService(): MachinesService {
   return new MachinesService(deps)
 }
 
+async function callerUse(svc: MachinesService, principal = userCommandPrincipal(firstAdminMemberId(), 'admin')) {
+  const ownership = await ownershipSnapshotFromMachines(svc)
+  return (id: import('@podium/model').MachineId) =>
+    checkMachineVerb(principal, id, ownership, 'use') === undefined ? 'granted' as const : 'denied' as const
+}
+
+test('default machine requires use, even for an administrator with manage authority', async () => {
+  const { svc, store } = await storedService()
+  try {
+    await svc.attach(MACHINE, () => {})
+    const stranger = asUserId('non-custodian')
+    const ownership = await ownershipSnapshotFromMachines(svc)
+    const admin = userCommandPrincipal(stranger, 'admin')
+    expect(checkMachineVerb(admin, MACHINE, ownership, 'manage')).toBeUndefined()
+    for (const role of ['member', 'admin'] as const) {
+      await expect(svc.defaultMachine(await callerUse(svc, userCommandPrincipal(stranger, role))))
+        .rejects.toThrow('caller use permission')
+    }
+    await expect(svc.defaultMachine(undefined)).rejects.toThrow('caller use permission')
+    expect(await svc.defaultMachine(await callerUse(svc))).toBe(MACHINE)
+  } finally {
+    svc.dispose()
+    await store.close()
+  }
+})
+
+test('default machine skips an available machine the caller cannot use', async () => {
+  const { svc, store } = await storedService()
+  try {
+    const second = asMachineId('second')
+    await store.machines.upsertMachine({ id: second, name: 'second', hostname: 'second',
+      tokenHash: 'second', ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true } })
+    await svc.attach(MACHINE, () => {})
+    await svc.attach(second, () => {})
+    const use = await callerUse(svc)
+    expect(await svc.defaultMachine((id) => id === MACHINE ? 'denied' : use(id))).toBe(second)
+  } finally {
+    svc.dispose()
+    await store.close()
+  }
+})
+
 test('default machine refuses without an available assigned daemon, then selects the reported daemon', async () => {
   const { svc, store } = await storedService()
   try {
-    await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
+    await expect(svc.defaultMachine(await callerUse(svc))).rejects.toThrow('no assigned and available daemon')
     const serverOnly = asMachineId('server-only')
     await store.machines.upsertMachine({ id: serverOnly, name: 'server', hostname: 'server',
       tokenHash: 'test', ownerUserId: firstAdminMemberId(),
       assignment: { server: true, agentExecution: false } })
     await svc.attach(serverOnly, () => {})
-    await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
+    await expect(svc.defaultMachine(await callerUse(svc))).rejects.toThrow('no assigned and available daemon')
     await svc.attach(MACHINE, () => {})
-    expect(await svc.defaultMachine()).toBe(MACHINE)
+    expect(await svc.defaultMachine(await callerUse(svc))).toBe(MACHINE)
     svc.detach(MACHINE)
-    await expect(svc.defaultMachine()).rejects.toThrow('no assigned and available daemon')
+    await expect(svc.defaultMachine(await callerUse(svc))).rejects.toThrow('no assigned and available daemon')
   } finally {
     svc.dispose()
     await store.close()
@@ -704,11 +747,15 @@ describe('MachinesService inventory persistence (#222)', () => {
   test('async predicate regression: repo placement skips the first foreign cwd', async () => {
     const { svc, store } = await makeStoreService()
     const other = asMachineId('repo-owner')
+    for (const id of [MACHINE, other]) {
+      await store.machines.upsertMachine({ id, name: id, hostname: id, tokenHash: id,
+        ownerUserId: firstAdminMemberId(), assignment: { server: false, agentExecution: true } })
+    }
     await svc.attach(MACHINE, recorder().send)
     await svc.attach(other, recorder().send)
     await store.repos.addRepo('/foreign', MACHINE)
     await store.repos.addRepo('/wanted', other)
-    expect(await svc.pickMachineForRepo(undefined, '/wanted/subdir')).toBe(other)
+    expect(await svc.pickMachineForRepo(undefined, '/wanted/subdir', await callerUse(svc))).toBe(other)
   })
 
   test('async predicate regression: agent placement rejects every incapable repo owner', async () => {
@@ -721,7 +768,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     await store.repos.addRepo('/repo', MACHINE)
     await svc.attach(MACHINE, recorder().send)
     await svc.recordInventory(MACHINE, INV)
-    await expect(svc.resolveMachineForAgent(undefined, '/repo', 'codex')).rejects.toThrow(
+    await expect(svc.resolveMachineForAgent(undefined, '/repo', 'codex', await callerUse(svc))).rejects.toThrow(
       "codex is not installed on machine 'Missing'",
     )
   })
@@ -900,7 +947,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
     })
 
-    expect(await svc.resolveMachineForAgent(undefined, '/repo/subdir', 'codex')).toBe(other)
+    expect(await svc.resolveMachineForAgent(undefined, '/repo/subdir', 'codex', await callerUse(svc))).toBe(other)
   })
 })
 

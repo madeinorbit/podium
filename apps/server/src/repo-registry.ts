@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { createLogger, describeError } from '@podium/logger'
 import type { GitRepositoryWire, MachineId } from '@podium/model'
 import type { ScanReposResult, SessionRegistry } from './relay'
+import type { MachineUseResolver } from './modules/machines/service'
 import { readLocalOriginUrl } from './repo-id'
 import { normalizeRepoPath, type SessionStore } from './store'
 
@@ -98,11 +99,11 @@ export class RepoRegistry {
     return inferRepoFromRoots(await this.list(machineId), path)
   }
 
-  async add(path: string, machineId?: MachineId, prefix?: string): Promise<void> {
+  async add(path: string, machineId?: MachineId, prefix?: string, use?: MachineUseResolver): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine(use)
     // THE GUARD THE REPO SCREEN NEEDED (POD-2700 §2.5). Every path that registers
     // a repository — `repos.add`, `repos.addMany`, `repos.createRepo`, and
     // whatever is written next — funnels through here, which is why the check
@@ -133,8 +134,8 @@ export class RepoRegistry {
 
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
    *  server-wide; previously written refs stop resolving (the caller warns). */
-  async setPrefix(path: string, prefix: string, machineId?: MachineId): Promise<void> {
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+  async setPrefix(path: string, prefix: string, machineId?: MachineId, use?: MachineUseResolver): Promise<void> {
+    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine(use)
     await this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
     await this.publishRepos()
   }
@@ -168,8 +169,8 @@ export class RepoRegistry {
     }
   }
 
-  async remove(path: string, machineId?: MachineId): Promise<void> {
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+  async remove(path: string, machineId?: MachineId, use?: MachineUseResolver): Promise<void> {
+    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine(use)
     await this.store.repos.removeRepo(normalizeRepoPath(path), mid)
   }
 

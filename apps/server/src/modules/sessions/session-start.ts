@@ -127,7 +127,7 @@ export interface SessionStartPorts {
   hasSession(sessionId: SessionId): boolean
   registerSession(session: Session): void
   sessionMachineId(sessionId: SessionId): string | undefined
-  defaultMachine(): Promise<MachineId>
+  defaultMachine(use: MachineUseResolver | undefined): Promise<MachineId>
   machineName(machineId: MachineId): Promise<string>
   nativeAccountIdForMachine(
     machineId: MachineId,
@@ -398,6 +398,7 @@ export class SessionStart {
     issueId?: IssueId
     sessionId?: SessionId
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
+    use?: MachineUseResolver
     bindingMachineAccess?: SessionBindingSpawnInstruction['machineAccess']
     loginHarness?: Exclude<AgentKind, 'shell'>
     /** The attribution pair, already derived from the binding principal by the
@@ -417,7 +418,7 @@ export class SessionStart {
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const machineId = input.machineId
       ? asMachineId(input.machineId)
-      : await this.ports.defaultMachine()
+      : await this.ports.defaultMachine(input.use)
     const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
     this.ports.onSpawnTargetLogin?.({
       machineId,

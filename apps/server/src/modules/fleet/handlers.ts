@@ -32,7 +32,7 @@ import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/se
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 import { machinesForPrincipal, visibleMachinesFor } from '../sessions/command-ctx'
-import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
+import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate, fleetUseResolver } from './authz'
 
 /** What the composition root supplies that core may not import for itself. */
 export interface FleetPorts {
@@ -351,7 +351,7 @@ export const repoAddHandler = async ({
   input,
 }: FleetArgs<{ path: string; machineId?: MachineId; prefix?: string }>) => {
   try {
-    await ctx.repos.add(input.path, input.machineId, input.prefix)
+    await ctx.repos.add(input.path, input.machineId, input.prefix, fleetUseResolver(await fleetAuthzDeps(ctx)))
   } catch (e) {
     badRequest(e)
   }
@@ -371,7 +371,7 @@ export const repoAddManyHandler = async ({
   const failed: { path: string; message: string }[] = []
   for (const path of input.paths) {
     try {
-      await ctx.repos.add(path, input.machineId)
+      await ctx.repos.add(path, input.machineId, undefined, fleetUseResolver(await fleetAuthzDeps(ctx)))
     } catch (e) {
       failed.push({ path, message: describeError(e) })
     }
@@ -383,7 +383,7 @@ export const repoRemoveHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ path: string; machineId?: MachineId }>) => {
-  await ctx.repos.remove(input.path, input.machineId)
+  await ctx.repos.remove(input.path, input.machineId, fleetUseResolver(await fleetAuthzDeps(ctx)))
   return await ctx.repos.list()
 }
 
@@ -392,7 +392,7 @@ export const repoSetPrefixHandler = async ({
   input,
 }: FleetArgs<{ path: string; prefix: string; machineId?: MachineId }>) => {
   try {
-    await ctx.repos.setPrefix(input.path, input.prefix, input.machineId)
+    await ctx.repos.setPrefix(input.path, input.prefix, input.machineId, fleetUseResolver(await fleetAuthzDeps(ctx)))
   } catch (e) {
     badRequest(e)
   }
@@ -541,15 +541,14 @@ export const discoveryScanFolderHandler = async ({
   // The machine is optional here; when it is omitted the scan resolves through
   // `defaultMachine()`, which POD-2700 also taught to prefer a daemon-bearing
   // machine — so guard the id that will actually be used, not the one supplied.
-  await requireRepoHost(
-    ctx,
-    input.machineId ?? await mods(ctx).machines.defaultMachine(),
-    'scan for repositories',
+  const machineId = input.machineId ?? await mods(ctx).machines.defaultMachine(
+    fleetUseResolver(await fleetAuthzDeps(ctx)),
   )
+  await requireRepoHost(ctx, machineId, 'scan for repositories')
   return await ctx.registry.modules.rpc.scanRepos(
     [input.path],
     { includeHome: false, maxDepth: input.maxDepth ?? 6 },
-    input.machineId,
+    machineId,
   )
 }
 

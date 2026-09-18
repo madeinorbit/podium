@@ -324,7 +324,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.sessions.set(session.sessionId, session)
     },
     sessionMachineId: (sessionId) => bag.sessions.get(sessionId)?.machineId,
-    defaultMachine: () => machines.defaultMachine(),
+    defaultMachine: (use) => machines.defaultMachine(use),
     machineName: (machineId) => machines.machineName(machineId),
     nativeAccountIdForMachine: (machineId, agentKind, accountId) =>
       machines.nativeAccountIdForMachine(machineId, agentKind, accountId),
@@ -349,7 +349,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     resolveMachine: (requested, cwd, agentKind) =>
       bag.machines.resolveMachineForAgent(requested, cwd, agentKind),
     // Headless selection ports remain tracked separately in POD-3605.
-    defaultMachine: () => bag.machines.defaultMachine(),
+    defaultMachine: () => bag.machines.defaultMachine(undefined),
     toMachine: (machineId, message) => machines.toMachine(machineId, message),
     nextRequestId: (prefix) => bag.rpc.nextRequestId(prefix),
     defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),

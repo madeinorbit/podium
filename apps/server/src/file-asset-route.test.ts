@@ -1,3 +1,4 @@
+import { asMachineId } from '@podium/model'
 // apps/server/src/file-asset-route.test.ts
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
@@ -248,5 +249,32 @@ describe('GET /files/asset', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('content-disposition')).toBe('attachment; filename="index.html"')
     expect(res.headers.get('content-security-policy')).toBeNull()
+  })
+})
+
+
+describe('asset default machine authorization', () => {
+  it('uses the caller-selected machine for both root validation and the read', async () => {
+    const app = new Hono()
+    const allowsRoot = vi.fn(() => true)
+    const readAsset = vi.fn(async () => ({ ok: true, dataBase64: 'b2s=' }))
+    const defaultMachine = vi.fn(async () => asMachineId('allowed'))
+    registerAssetRoute(app, { allowsRoot, readAsset, defaultMachine })
+    const response = await app.request('/files/asset?root=/repo&path=a.txt')
+    expect(response.status).toBe(200)
+    expect(defaultMachine).toHaveBeenCalledOnce()
+    expect(allowsRoot).toHaveBeenCalledWith('/repo', 'allowed')
+    expect(readAsset).toHaveBeenCalledWith({ root: '/repo', path: 'a.txt', machineId: 'allowed' })
+  })
+
+  it('refuses use denial before touching the daemon', async () => {
+    const app = new Hono()
+    const readAsset = vi.fn()
+    registerAssetRoute(app, { allowsRoot: () => true, readAsset,
+      defaultMachine: async () => { throw new Error('use denied') } })
+    const response = await app.request('/files/asset?root=/repo&path=a.txt')
+    expect(response.status).toBe(403)
+    expect(await response.text()).toContain('use')
+    expect(readAsset).not.toHaveBeenCalled()
   })
 })

@@ -1,3 +1,4 @@
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { asMachineId, firstAdminMemberId, structuralRejection } from '@podium/model'
 import type { MachineServiceAssignment } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -32,7 +33,7 @@ describe('desired assignment and observed availability', () => {
         const verbs = async () => machineVerbsFor(systemPrincipal('component-test'), id,
           await ownershipSnapshotFromMachines(service))
         expect((await verbs()).has('use')).toBe(false)
-        await expect(service.defaultMachine()).rejects.toThrow('no assigned and available daemon')
+        await expect(service.defaultMachine(() => 'granted')).rejects.toThrow('no assigned and available daemon')
         const transport = vi.fn()
         await service.attach(id, transport)
         expect((await store.machines.getMachine(id))?.serviceAssignment).toEqual(assignment)
@@ -40,10 +41,10 @@ describe('desired assignment and observed availability', () => {
         expect((await verbs()).has('use')).toBe(assignment.agentExecution)
         expect(structuralRejection((await service.listMachines())[0]!)).toBe(assignment.agentExecution ? undefined : 'no-daemon')
         if (assignment.agentExecution) {
-          expect(await service.defaultMachine()).toBe(id)
-          expect(await service.resolveMachineForAgent(undefined, '/repo', 'codex')).toBe(id)
+          expect(await service.defaultMachine(() => 'granted')).toBe(id)
+          expect(await service.resolveMachineForAgent(undefined, '/repo', 'codex', () => 'granted')).toBe(id)
         }
-        else await expect(service.defaultMachine()).rejects.toThrow('no assigned and available daemon')
+        else await expect(service.defaultMachine(() => 'granted')).rejects.toThrow('no assigned and available daemon')
         expect(service.detach(id, transport)).toBe(true)
         expect((await verbs()).has('use')).toBe(false)
         await vi.waitFor(async () => expect((await store.machines.getMachine(id))?.availability?.daemon).toBe(false))
@@ -56,11 +57,12 @@ describe('desired assignment and observed availability', () => {
     it(`supervisor enrollment preserves ${JSON.stringify(assignment)} without offering a task target`, async () => {
       const store = await openTestStore(':memory:')
       const service = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'test',
-        pairing: { mint: () => 'valid', redeem: () => ({ ownerUserId: firstAdminMemberId() }) },
+        installationId: 'component-test-installation',
+        pairing: { mint: () => 'valid', redeem: () => ({ ownerUserId: firstAdminMemberId(), installationId: 'component-test-installation' }) },
         clients: () => [], machinesForPrincipal: async () => [], sessionsChangedForMachine: () => {} })
       try {
         expect((await service.authenticateDaemon({ type: 'pair', code: 'valid', machineId: id,
-          hostname: 'host', assignment }, { source: 'supervisor' })).ok).toBe(true)
+          hostname: 'host', assignment, publicKey: publicKeyWire(mintSigningKeyPair()) }, { source: 'supervisor' })).ok).toBe(true)
         const send = vi.fn()
         await service.attachSupervisor(id, send, {}, [])
         expect((await store.machines.getMachine(id))?.serviceAssignment).toEqual(assignment)
@@ -70,7 +72,7 @@ describe('desired assignment and observed availability', () => {
         const verbs = machineVerbsFor(principal, id, await ownershipSnapshotFromMachines(service))
         expect(verbs.has('manage')).toBe(true)
         expect(verbs.has('use')).toBe(false)
-        await expect(service.resolveMachineForAgent(undefined, '/repo', 'codex')).rejects.toThrow()
+        await expect(service.resolveMachineForAgent(undefined, '/repo', 'codex', () => 'granted')).rejects.toThrow()
         await service.detachSupervisor(id, send)
         expect((await store.machines.getMachine(id))?.availability?.supervisor).toBe(false)
       } finally { service.dispose(); await store.close() }
@@ -83,9 +85,9 @@ describe('desired assignment and observed availability', () => {
       await service.attach(id, () => {})
       await service.changeAssignment(id, combinations[0]!, 'remove-1')
       expect((await store.machines.getMachine(id))?.availability?.daemon).toBe(true)
-      await expect(service.defaultMachine()).rejects.toThrow()
+      await expect(service.defaultMachine(() => 'granted')).rejects.toThrow()
       await service.changeAssignment(id, combinations[2]!, 'add-1')
-      expect(await service.defaultMachine()).toBe(id)
+      expect(await service.defaultMachine(() => 'granted')).toBe(id)
       await expect(service.changeAssignment(id, combinations[3]!, 'server-add')).rejects.toThrow('server transfer')
     } finally { service.dispose(); await store.close() }
   })
@@ -99,7 +101,7 @@ describe('desired assignment and observed availability', () => {
     try {
       expect((await store.machines.getMachine(id))?.availability?.daemon).toBe(true)
       expect((await fresh.listMachines())[0]?.availability?.daemon).toBe(false)
-      await expect(fresh.defaultMachine()).rejects.toThrow()
+      await expect(fresh.defaultMachine(() => 'granted')).rejects.toThrow()
     } finally { fresh.dispose(); await store.close() }
   })
 
@@ -110,7 +112,7 @@ describe('desired assignment and observed availability', () => {
       await service.attach(id, old)
       await service.attach(id, current)
       expect(service.detach(id, old)).toBe(false)
-      expect(await service.defaultMachine()).toBe(id)
+      expect(await service.defaultMachine(() => 'granted')).toBe(id)
       expect(service.detach(id, current)).toBe(true)
       await vi.waitFor(async () => expect((await store.machines.getMachine(id))?.availability?.daemon).toBe(false))
     } finally { service.dispose(); await store.close() }

@@ -1,3 +1,4 @@
+import { firstAdminMemberId } from '@podium/model'
 import { mkdir, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +12,10 @@ import { openTestStore } from './test-support/open-test-store'
  *  so single-machine add/remove attribute to that machine — preserving the original
  *  single-store behavior these tests assert. */
 async function singleMachineRepos(store: SessionStore): Promise<RepoRegistry> {
+  await store.machines.upsertMachine({
+    id: store.hostMachineId, name: 'repo-test', hostname: 'repo-test', tokenHash: 'repo-test',
+    ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
+  })
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
   return new RepoRegistry(registry, store)
@@ -20,10 +25,21 @@ describe('RepoRegistry', () => {
   it('starts empty, adds, dedupes, lists, removes', async () => {
     const reg = await singleMachineRepos(await openTestStore(':memory:'))
     expect(await reg.list()).toEqual([])
-    await reg.add('/home/u/src/app')
-    await reg.add('/home/u/src/app') // dedupe
+    await reg.add('/home/u/src/app', undefined, undefined, () => 'granted')
+    await reg.add('/home/u/src/app', undefined, undefined, () => 'granted') // dedupe
     expect(await reg.list()).toEqual(['/home/u/src/app'])
-    await reg.remove('/home/u/src/app')
+    await reg.remove('/home/u/src/app', undefined, () => 'granted')
+    expect(await reg.list()).toEqual([])
+  })
+
+  it('refuses omitted targets without use authorization for every repository write', async () => {
+    const reg = await singleMachineRepos(await openTestStore(':memory:'))
+    await expect(reg.add('/repo')).rejects.toThrow('use')
+    await reg.add('/repo', undefined, undefined, () => 'granted')
+    await expect(reg.setPrefix('/repo', 'DENY', undefined, () => 'denied')).rejects.toThrow('use')
+    await expect(reg.remove('/repo', undefined, () => 'denied')).rejects.toThrow('use')
+    expect(await reg.list()).toEqual(['/repo'])
+    await reg.remove('/repo', undefined, () => 'granted')
     expect(await reg.list()).toEqual([])
   })
 
@@ -37,15 +53,15 @@ describe('RepoRegistry', () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-reporeg-'))
     const file = join(dir, 'podium.db')
     const a = await singleMachineRepos(await openTestStore(file))
-    await a.add('/abs/one')
+    await a.add('/abs/one', undefined, undefined, () => 'granted')
     const b = await singleMachineRepos(await openTestStore(file))
     expect(await b.list()).toEqual(['/abs/one'])
   })
 
   it('inferFromPath returns the longest matching registered root', async () => {
     const repos = await singleMachineRepos(await openTestStore(':memory:'))
-    await repos.add('/a')
-    await repos.add('/a/b')
+    await repos.add('/a', undefined, undefined, () => 'granted')
+    await repos.add('/a/b', undefined, undefined, () => 'granted')
     expect(await repos.inferFromPath('/a/b/x/y')).toBe('/a/b')
     expect(await repos.inferFromPath('/a/x')).toBe('/a')
     expect(await repos.inferFromPath('/a')).toBe('/a')

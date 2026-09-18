@@ -76,9 +76,9 @@ export const modelRegistryClassificationErrors = (): string[] =>
   registryClassificationErrors(Object.values(MODEL_COMMANDS_TRPC).map((c) => c.contract))
 
 /** Bundle used by `modelFamilyProcedures` — keeps the selector in one place. */
-export function selectModelState(modules: RegistryModules): ModelState {
+export function selectModelState(modules: RegistryModules, defaultMachine: ModelState['defaultMachine'] | undefined): ModelState {
   return {
     settings: modules.settings,
-    defaultMachine: async () => await modules.machines.defaultMachine(),
+    defaultMachine: defaultMachine ?? (() => modules.machines.defaultMachine(undefined)),
   }
 }

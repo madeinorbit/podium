@@ -1084,18 +1084,21 @@ export class MachinesService {
     return [...this.daemons.keys()] as MachineId[]
   }
 
-  /** Refuse rather than invent a target when no assigned daemon is attached. */
-  async defaultMachine(): Promise<MachineId> {
+  /** Select only an assigned, attached daemon the caller may use.
+   * Missing authorization fails closed; internal callers must name a placement
+   * or supply the same use decision as an authenticated command. */
+  async defaultMachine(use: MachineUseResolver | undefined): Promise<MachineId> {
     const target = (await this.machineRecords()).find((m) =>
-      !m.revokedAt && m.serviceAssignment.agentExecution && this.daemons.has(m.id))
-    if (!target) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'no assigned and available daemon' })
+      !m.revokedAt && m.serviceAssignment.agentExecution && this.daemons.has(m.id) &&
+      use?.(m.id) === 'granted')
+    if (!target) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'no assigned and available daemon with caller use permission' })
     return target.id
   }
 
   /** Resolve an explicit online machine or an assigned and available daemon by repo affinity. */
-  async resolveMachine(requested: string | undefined, cwd: string): Promise<MachineId> {
+  async resolveMachine(requested: string | undefined, cwd: string, use?: MachineUseResolver): Promise<MachineId> {
     if (requested && this.daemons.has(requested) && (await this.serviceAssignment(asMachineId(requested))).agentExecution) return asMachineId(requested)
-    return await this.pickMachineForRepo(undefined, cwd)
+    return await this.pickMachineForRepo(undefined, cwd, use)
   }
 
   /** Resolve the selected machine and check its harness/login capability before creating a session. */
@@ -1111,7 +1114,7 @@ export class MachinesService {
       return requestedMachineId
     }
 
-    const legacy = await this.resolveMachine(undefined, cwd)
+    const legacy = await this.resolveMachine(undefined, cwd, use)
     // IMPLICIT placement is a surface too: readiness §3.1.4 M5 says the spawn
     // path must not OFFER a machine the principal cannot use, and an implicit
     // pick offers one without asking. Decorated rows make the existing
@@ -1314,7 +1317,7 @@ export class MachinesService {
   }
 
   /** Pick an online machine reporting the repo, or refuse through defaultMachine. */
-  async pickMachineForRepo(_originUrl: string | undefined, cwd: string): Promise<MachineId> {
+  async pickMachineForRepo(_originUrl: string | undefined, cwd: string, use?: MachineUseResolver): Promise<MachineId> {
     const online = this.onlineMachineIds()
     // A removed repo would make a retained positive unsafe. Resolve per pick;
     // absent repos and machines that disconnected during the read do not match.
@@ -1322,10 +1325,10 @@ export class MachinesService {
       [id, await this.deps.store.repos.listRepos(id)] as const,
     )))
     const byRepo = online.find((id) =>
-      this.daemons.has(id) &&
+      this.daemons.has(id) && use?.(id) === 'granted' &&
       reposByMachine.get(id)?.some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)) === true,
     )
-    return byRepo ?? await this.defaultMachine()
+    return byRepo ?? await this.defaultMachine(use)
   }
 
   /**

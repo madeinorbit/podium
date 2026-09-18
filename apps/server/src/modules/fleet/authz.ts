@@ -376,7 +376,11 @@ export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
     principal,
     ownership: await ownershipSnapshotFromMachines(machines),
     role: await accountRoleOf(principal, ctx),
-    defaultMachine: async () => await machines.defaultMachine(),
+    defaultMachine: async () => {
+      const ownership = await ownershipSnapshotFromMachines(machines)
+      return await machines.defaultMachine((id) =>
+        checkMachineVerb(principal, id, ownership, 'use') === undefined ? 'granted' : 'denied')
+    },
     allMachineIds: async () => (await machines.ownershipRows()).map((row) => row.id),
     machineName: async (machineId) => (await machines.ownershipRows()).find((r) => r.id === machineId)?.name,
     effectiveOwner: async (machineId) => await machines.effectiveOwner(machineId),
@@ -387,4 +391,9 @@ export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
  *  machines the principal may actually place work on. */
 export function fleetUsePredicate(deps: FleetAuthzDeps, verb: MachineVerb) {
   return (machineId: MachineId): boolean => mayUse(machineId, verb, deps)
+}
+
+/** The use decision consumed by machine placement, from the same verb policy. */
+export function fleetUseResolver(deps: FleetAuthzDeps): import('../machines/service').MachineUseResolver {
+  return (id) => mayUse(id, 'use', deps) ? 'granted' : 'denied'
 }

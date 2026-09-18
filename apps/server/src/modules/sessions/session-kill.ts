@@ -90,7 +90,7 @@ export class SessionKill {
     const session = this.ports.sessions.get(sessionId)
     const machineId = session?.machineId ??
       (await this.ports.store.sessions.getSession(sessionId))?.machineId ??
-      await this.ports.machines.defaultMachine()
+      await this.ports.machines.defaultMachine(undefined)
     return () => {
       // Notify while membership/cwd are still resolvable, before removal.
       this.ports.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })

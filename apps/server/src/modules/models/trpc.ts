@@ -16,7 +16,7 @@ export type ModelProcedures = FamilyProcedures<typeof MODEL_COMMANDS_TRPC, typeo
 export const modelFamilyProcedures = (): ModelProcedures =>
   derivedFamilyProcedures({
     family: 'models',
-    service: (state) => selectModelState(state.modules),
+    service: (state) => selectModelState(state.modules, state.caller.defaultMachine),
     commands: MODEL_COMMANDS_TRPC,
     queries: MODEL_QUERIES,
   })

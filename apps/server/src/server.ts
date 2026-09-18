@@ -1,3 +1,4 @@
+import { checkMachineVerb, ownershipSnapshotFromMachines } from './machine-access'
 import { bootStage } from './boot-timing'
 import { readNewestTargetPromotionMetadata } from './modules/server-transfer/target-status'
 import { completePreauthorizedSetup } from './setup-enrollment'
@@ -1674,11 +1675,22 @@ export async function startServer(
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
   registerAssetRoute(app, {
+    defaultMachine: async (request) => {
+      const principal = await requestPrincipal({
+        cookieHeader: request.headers.get('cookie') ?? undefined,
+        authorizationHeader: request.headers.get('authorization') ?? undefined,
+      }, request)
+      const machines = registry.modules.machines
+      const ownership = await ownershipSnapshotFromMachines(machines)
+      return await machines.defaultMachine(principal ? (id) =>
+        checkMachineVerb(principal, id, ownership, 'use') === undefined ? 'granted' : 'denied'
+        : undefined)
+    },
     readAsset: async (a) => await registry.modules.rpc.readAsset(a),
     allowsRoot: async (root, machineId) =>
       (await repos.inferFromPath(
         root,
-        machineId ?? (await registry.modules.machines.defaultMachine()),
+        machineId,
       )) !== undefined,
   })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
