@@ -1,7 +1,8 @@
-import { computed, comparer, observable, runInAction, type IComputedValue } from 'mobx'
+import { computed, observable, runInAction, type IComputedValue } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useEffect } from 'react'
 import { GROUP, NOW, counters, summaryJS, worklistJS, type Fixture, type Issue, type Session } from './model'
+const sameRows = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((row, i) => row === b[i])
 export function createMobxProof(data: Fixture) {
   const counts = counters()
   // Effective rows are immutable references; the proof never owns optimism.
@@ -11,8 +12,8 @@ export function createMobxProof(data: Fixture) {
   const byParent = observable.map<string, readonly string[]>([], { deep: false })
   const now = observable.box(NOW)
   const summaries = new Map<string, IComputedValue<ReturnType<typeof summaryJS>>>()
-  const groupIssues = computed(() => Array.from({ length: GROUP }, (_, i) => issues.get(`i${i}`)!), { equals: comparer.shallow })
-  const groupSessions = computed(() => groupIssues.get().flatMap(i => (byIssue.get(i.id) ?? []).map(id => sessions.get(id)!)), { equals: comparer.shallow })
+  const groupIssues = computed(() => Array.from({ length: GROUP }, (_, i) => issues.get(`i${i}`)!), { equals: sameRows })
+  const groupSessions = computed(() => groupIssues.get().flatMap(i => (byIssue.get(i.id) ?? []).map(id => sessions.get(id)!)), { equals: sameRows })
   const group = computed(() => worklistJS(groupIssues.get(), groupSessions.get(), now.get(), counts))
   function add(map: typeof byIssue, key: string | undefined, id: string) {
     if (key) map.set(key, [...(map.get(key) ?? []), id])
