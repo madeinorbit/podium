@@ -12,9 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       # --ignore-scripts: the generator only reads bun.lock + installed package.json/LICENSE
       # files, so lifecycle scripts (native rebuilds) are dead weight here.
       - run: bun install --frozen-lockfile --ignore-scripts

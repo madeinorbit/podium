@@ -36,6 +36,7 @@ import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
 import { CLIENT_DIST_DIRS } from './build-clients'
+import { assertBunToolchain } from './bun-toolchain'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
 import {
   inspectProofContract,
@@ -1582,5 +1583,12 @@ describe('test lane configuration', () => {
     const lean = vitestCommand(['run'])
     expect(lean.slice(0, 2)).toEqual(['bun', '--bun'])
     expect(lean[2]).toMatch(/node_modules\/vitest\/vitest\.mjs$/)
+  })
+})
+
+
+describe('Bun toolchain selection', () => {
+  it('keeps the executing runtime and package metadata aligned with mise', () => {
+    expect(() => assertBunToolchain()).not.toThrow()
   })
 })

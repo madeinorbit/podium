@@ -30,6 +30,10 @@ do not substitute multiple clients routed to one server.
 
 ## Checkout-local dependencies
 
+Bun is pinned in `mise.toml`. Run `mise trust` and `mise install bun` in a new checkout
+when needed, with mise activation or shims on PATH. Plain `bun --version` must match the
+pin before installing or validating. See [docs/toolchain.md](docs/toolchain.md).
+
 For a fresh checkout or git worktree, run:
 
 ```bash

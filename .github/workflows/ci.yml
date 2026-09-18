@@ -15,9 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -199,9 +199,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -216,9 +216,9 @@ jobs:
       TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -226,10 +226,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: /tmp/podium-cache/podium/turbo
-          key: turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-typecheck-${{ github.sha }}
+          key: turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-typecheck-${{ github.sha }}
           restore-keys: |
-            turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-typecheck-
-            turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-
+            turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-typecheck-
+            turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run typecheck
 
@@ -242,9 +242,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -263,9 +263,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -290,9 +290,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -322,9 +322,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       # Same system libraries the desktop release build installs: the crate links
       # webkit2gtk/gtk even when only its unit tests are being compiled.
       - name: Install Linux desktop build dependencies
@@ -352,9 +352,9 @@ jobs:
       TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -362,10 +362,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: /tmp/podium-cache/podium/turbo
-          key: turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-unit-tests-${{ github.sha }}
+          key: turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-unit-tests-${{ github.sha }}
           restore-keys: |
-            turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-unit-tests-
-            turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-
+            turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-unit-tests-
+            turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-
       - run: bun install --frozen-lockfile --ignore-scripts
       # Every default unit/Bun suite has a package owner and a cacheable Turbo task.
       # The wrapper keeps task concurrency at one, carries the install fingerprint,
@@ -409,9 +409,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -456,9 +456,9 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: jdx/mise-action@v2
         with:
-          bun-version: '1.4.2'
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache

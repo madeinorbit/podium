@@ -566,6 +566,7 @@ describe('default pool across task temporary directories', () => {
     writeFileSync(
       mutant,
       original
+        .replace("'./bun-toolchain'", JSON.stringify(fileURLToPath(new URL('./bun-toolchain.ts', import.meta.url))))
         .replace(
           'availableParallelism, homedir, hostname',
           'availableParallelism, homedir, hostname, tmpdir',

@@ -11,7 +11,7 @@ NotifyAccess=all
 WatchdogSec=90
 WorkingDirectory=/home/user/src/other/podium
 Environment=HOME=/home/user
-Environment=PATH=/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/user/.local/share/mise/shims:/home/user/.local/bin:/home/user/.opencode/bin:/home/user/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=18787
 Environment=PODIUM_INSTANCE=default
 Environment=PODIUM_DEV_SOURCE_ROOT=/home/user/src/other/podium

@@ -36,6 +36,7 @@
     "tests/*"
   ],
   "scripts": {
+    "preinstall": "bun scripts/bun-toolchain.ts",
     "//build": "Every package's build is a Turbo task; this only delegates (POD-3053). It was a hand-written `bun run --filter` chain, which is how POD-1610 survived a night of rebuilding: the chain looked like it rebuilt everything and left apps/web/dist three days stale. A chain has to be remembered; a task graph does not. Both clients are in it now, and an unchanged one is restored from the shared cache instead of rebuilt. apps/desktop is NOT: `@podium/desktop build` is a Tauri release build needing a Rust toolchain, it is a separately released artefact this server never serves, and it stays on `desktop:build`. This goes through scripts/build-clients.ts so the run carries the same admission and the same PODIUM_CHECK_ENV_HASH as every other cached lane — a raw `turbo run build` would be a different cache key, reusing nothing and filling the shared cache under an unfingerprinted identity.",
     "build": "bun scripts/build-clients.ts --workspace",
     "//build:clients": "The client build lane: `turbo run build` for both clients under admission, reporting each task's hash and whether it was restored. What scripts/build-bun.ts calls when it packages a release.",

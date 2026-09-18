@@ -49,7 +49,7 @@ const GENERATED_UNIT_NOTICE =
 // this for updater build children; the daemon needs it for agent CLIs. User dirs precede system
 // dirs so a supported user install wins over a stale system-wide one.
 const USER_RUNTIME_PATH =
-  '%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin'
+  '%h/.local/share/mise/shims:%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin'
 const DEV_HOME = '/home/user'
 const DEV_REPO = '/home/user/src/other/podium'
 
@@ -155,12 +155,12 @@ NotifyAccess=all
 WatchdogSec=90
 WorkingDirectory=${c.repoRoot}
 Environment=HOME=${c.home}
-Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${c.home}/.local/share/mise/shims:${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=${c.port}
 Environment=PODIUM_INSTANCE=${c.instanceId}
 # Run @podium/* from TypeScript SOURCE (--conditions=@podium/source), like Vite — no build,
 # no dist, no stale-dist trap. Bun runs TS natively and this process does no PTY work.
-ExecStart=${c.home}/.local/bin/bun --conditions=@podium/source scripts/server.ts
+ExecStart=/usr/bin/env bun --conditions=@podium/source scripts/server.ts
 Restart=always
 RestartSec=2
 # Two-tier scheduling (POD-598): the host runs ~10x CPU-oversubscribed by agent/test
@@ -226,7 +226,7 @@ NotifyAccess=all
 WatchdogSec=90
 WorkingDirectory=${c.repoRoot}
 Environment=HOME=${c.home}
-Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${c.home}/.local/share/mise/shims:${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=${c.port}
 Environment=PODIUM_INSTANCE=${c.instanceId}
 Environment=PODIUM_DEV_SOURCE_ROOT=${c.repoRoot}
@@ -304,12 +304,12 @@ NotifyAccess=all
 WatchdogSec=30
 WorkingDirectory=${c.repoRoot}
 Environment=HOME=${c.home}
-Environment=PATH=${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=${c.home}/.local/share/mise/shims:${c.home}/.local/bin:${c.home}/.opencode/bin:${c.home}/.bun/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PODIUM_PORT=${c.port}
 Environment=PODIUM_INSTANCE=${c.instanceId}
 # Bun runtime: the PTY backend is selected at runtime (@podium/harness). Run from SOURCE so
 # redeploy-on-main-change re-reads it like tsx did.
-ExecStart=${c.home}/.local/bin/bun --conditions=@podium/source scripts/daemon.ts
+ExecStart=/usr/bin/env bun --conditions=@podium/source scripts/daemon.ts
 Restart=always
 RestartSec=2
 # Two-tier scheduling (POD-598): the host runs ~10x CPU-oversubscribed by agent/test

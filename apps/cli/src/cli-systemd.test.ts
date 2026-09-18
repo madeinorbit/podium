@@ -60,7 +60,7 @@ describe('renderDaemonUnit', () => {
     expect(u).toContain('After=network-online.target podium-server.service')
     expect(u).toContain('Type=notify')
     expect(u).toContain(
-      'Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin',
+      'Environment=PATH=%h/.local/share/mise/shims:%h/.local/bin:%h/.bun/bin:%h/.opencode/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin',
     )
     expect(u).toContain('Restart=always')
   })
@@ -134,6 +134,16 @@ describe('renderParentUnit', () => {
 })
 
 describe('systemd profile rendering', () => {
+  it('places mise shims before standalone Bun for packaged and dev children', () => {
+    for (const profile of ['packaged', 'dev'] as const) {
+      const unit = renderParentUnit({ profile, home: '/home/test' })
+      const dirs = pathDirs(unit)
+      const home = profile === 'packaged' ? '%h' : '/home/test'
+      expect(dirs[0]).toBe(`${home}/.local/share/mise/shims`)
+      expect(dirs.indexOf(`${home}/.bun/bin`)).toBeGreaterThan(0)
+    }
+  })
+
   it('packaged profile emits exactly podium.service', () => {
     const files = renderSystemdFiles({ profile: 'packaged', instanceId: 'default' }).units
     expect(Object.keys(files)).toEqual(['podium.service'])

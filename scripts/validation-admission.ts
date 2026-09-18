@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { availableParallelism, homedir, hostname, totalmem } from 'node:os'
 import { join } from 'node:path'
+import { assertBunToolchain } from './bun-toolchain'
 
 const HEAVY_TEST_LOCK = 'test:heavy'
 const WATCH_LOCK = 'validation:watch'
@@ -578,6 +579,7 @@ export async function runWithValidationAdmission(
   options: ValidationProcessOptions,
 ): Promise<number> {
   if (command.length === 0) throw new Error('validation command is required')
+  assertBunToolchain()
   if (validationClass === 'focused' || validationClass === 'typecheck') {
     return runWithSlot(validationClass, command, options)
   }

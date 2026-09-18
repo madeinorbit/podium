@@ -36,11 +36,9 @@ jobs:
       TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with: { bun-version: '1.4.2' }
       # zig cross-compiles the abduco helper. rcodesign re-signs Darwin Mach-Os with
       # Bun's JIT entitlements — it does not add the signature (Bun already did).
-      # All three versions come from mise.toml — the one pin site dev machines share.
+      # All tool versions come from mise.toml — the one pin site dev machines share.
       # That includes pigz, the parallel compressor for the release tarballs (optional at
       # build time; scripts/parallel-gzip.ts falls back to gzip if it is missing).
       - uses: jdx/mise-action@v2
@@ -66,10 +64,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: /tmp/podium-cache/podium/turbo
-          key: turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-${{ github.sha }}
+          key: turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-${{ github.sha }}
           restore-keys: |
-            turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-
-            turbo-${{ runner.os }}-bun-1.4.2-${{ hashFiles('bun.lock') }}-
+            turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-
+            turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-
       # --ignore-scripts: the compiled headless runtime uses Bun.Terminal and never
       # loads node-pty. esbuild ships a platform package.
       - run: bun install --frozen-lockfile --ignore-scripts
@@ -138,8 +136,9 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with: { bun-version: '1.4.2' }
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: bun
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -180,8 +179,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with: { bun-version: '1.4.2' }
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: bun
       # The stable bridge proof runs the privileged real-release lane against the
       # prepared bytes. It skips the target build, but still packages the lane's
       # isolated coordinator and therefore needs the checkout-local release
@@ -267,8 +267,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with: { bun-version: '1.4.2' }
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: bun
       # The published smoke opens the Darwin bundles it cannot execute, so it needs the
       # Mach-O signature reader — and zig, to rebuild the reference abduco helpers it
       # checks the published binaries against. Without those references the embedded-helper

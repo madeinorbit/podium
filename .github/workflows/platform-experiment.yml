@@ -37,12 +37,10 @@ on:
            {"runner":"macos-15-intel","label":"darwin-x64"},
            {"runner":"windows-latest","label":"win32-x64"}]
       bun-version:
-        description: 'Bun version to pin on every runner'
+        description: 'Optional Bun override; empty uses mise.toml'
         required: false
         type: string
-        # Pinned, never a range: a '1.3' range has been seen resolving to 1.3.0
-        # (release.yml and windows-smoke.yml pin for the same reason).
-        default: '1.4.2'
+        default: ''
       install:
         description: 'Run `bun install` first (only needed if the experiment imports workspace code)'
         required: false
@@ -61,7 +59,7 @@ on:
       bun-version:
         required: false
         type: string
-        default: '1.4.2'
+        default: ''
       install:
         required: false
         type: boolean
@@ -84,7 +82,11 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes || 20 }}
     steps:
       - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: bun
       - uses: oven-sh/setup-bun@v2
+        if: inputs.bun-version != ''
         with:
           bun-version: ${{ inputs.bun-version }}
 

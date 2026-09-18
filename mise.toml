@@ -1,4 +1,4 @@
-# Non-node build toolchain pins — the ONE place these versions are spelled.
+# Runtime and build toolchain pins — the ONE place these versions are spelled.
 #
 # zig cross-compiles the abduco helper (scripts/abduco-cross.ts) and rcodesign re-signs
 # Darwin Mach-Os with Bun's JIT entitlements (scripts/build-bun.ts). Both change the bytes
@@ -12,9 +12,13 @@
 # it falls back to gzip, and resolvePigz never version-checks. The conda backend is used
 # because pigz publishes no binaries anywhere else; conda-forge ships it for linux and mac.
 #
+# Bun is selected before installs, tests and builds. Keep package.json packageManager
+# synchronized; CI reads this file instead of carrying a separate Bun pin.
+#
 # Dev setup: `mise install` (https://mise.jdx.dev), or install the exact versions by hand.
 
 [tools]
+bun = "1.4.2"
 zig = "0.16.0"
 "github:indygreg/apple-platform-rs" = { version = "apple-codesign/0.29.0", exe = "rcodesign" }
 "conda:pigz" = "2.8"
