@@ -1330,8 +1330,20 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       return existing
     }
     // A rebind of a process this daemon has already observed picks its stream up
-    // where it left off; a process it has never seen starts at zero.
+    // where it left off. A process THIS daemon has never seen — its own process
+    // restarted and is adopting a surviving session — must not start at zero:
+    // `seq` is a component of a cursor the consumer compares as a MONOTONIC
+    // VECTOR, and a regressed component reads every event after the restart as
+    // `same_or_before` the last one the consumer accepted. Those events are
+    // dropped as duplicates until the counter climbs past its old value, and
+    // the turn-start dropped in that window fenced the whole stream for good
+    // (POD-4360: delivery outcomes never arrived, queued rows were re-typed on
+    // every server restart). The floor is the clock in milliseconds: strictly
+    // above any sequence a previous process could have reached, since no
+    // process emits a thousand events per second for its whole life, and
+    // ordinal beyond that — it never participates in succession as a time.
     const carried = streamPositions.get(label)
+    const seqFloor = host.now()
     const session: DriverSession = {
       sessionId: registration.sessionId,
       agentKind: registration.agentKind,
@@ -1344,7 +1356,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       turnEpoch: carried?.turnEpoch ?? 0,
       fencedTurnEpoch: carried?.fencedTurnEpoch ?? 0,
       providerCursor: null,
-      seq: carried?.seq ?? 0,
+      seq: carried?.seq ?? seqFloor,
       log: [],
       wakers: new Set(),
       interactions: new Map(),
@@ -1373,6 +1385,21 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     sessions.set(session.sessionId, session)
     profiles.set(session.sessionId, profile)
     session.injection = injectionFor(session)
+    // A REBIND INTO A PROCESS THAT HAS NEVER SEEN THIS SESSION is the daemon
+    // itself having restarted (the in-process rebind above is the other case).
+    // Say so on the stream, as that branch does: `process/adopted` is what lets
+    // the consumer re-seed its position for a new observer process instead of
+    // fencing every later event as an epoch jump (POD-4360). The boot-time
+    // terminal adoption reaches `register()` directly, never `adopt()` below,
+    // so this is the only place the announcement can come from.
+    if (registration.rebind) {
+      emit(
+        session,
+        { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
+        new Date(host.now()).toISOString(),
+        'live',
+      )
+    }
     return session
   }
 

@@ -139,6 +139,28 @@ function startsTurn(event: RuntimeEvent): boolean {
   return event.t === 'turn' && event.ev.ev === 'started'
 }
 
+/**
+ * A NEW OBSERVER PROCESS ANNOUNCING ITSELF (POD-4360).
+ *
+ * The daemon adopts a surviving session after its own process restarted, and
+ * says so with a live `process/adopted`. That process's turn epoch comes from
+ * the durable observation checkpoint, so it can be far ahead of THIS
+ * checkpoint when the previous process's stream was dropped mid-way — which is
+ * exactly what a daemon restart used to do to it. Read as an ordinary event,
+ * the adoption is an epoch jump, and the strict no-gap rule below rejected it
+ * AND every later event forever: the session's runtime stream went dark with
+ * nothing logged, delivery outcomes never reached the inbox, and every server
+ * restart re-typed the same queued rows into the agent.
+ *
+ * An adoption is the one place a gap is not a lost edge but a new process's
+ * starting position, so it re-seeds the epoch instead of being fenced by it.
+ * The cursor-order and generation rules still apply to it unchanged: a stale
+ * replay of an old adoption is still `same_or_before`, never a re-seed.
+ */
+function announcesAdoption(event: RuntimeEvent): boolean {
+  return event.t === 'process' && event.ev.ev === 'adopted' && event.provenance === 'live'
+}
+
 function turnEpochMatches(event: RuntimeEvent): boolean {
   return event.t !== 'turn' || event.ev.turnEpoch === event.turnEpoch
 }
@@ -158,7 +180,44 @@ export class RuntimeEventGate {
   private projectionDrain: Promise<void> | undefined
   private projectionRequested = false
 
+  /** Rejections per (session, reason) since boot — the throttle for the warning
+   *  below. A rejected stream is silent by construction (the daemon acks and
+   *  moves on), so the FIRST rejection is the only chance to see it. */
+  private readonly rejections = new Map<string, number>()
+
   async record(sessionId: SessionId, event: RuntimeEvent): Promise<RuntimeEventGateResult> {
+    const result = await this.recordUnlogged(sessionId, event)
+    // Live only: a same-generation bootstrap replay is rejected by design on
+    // every adoption and would say nothing.
+    if (result.kind === 'rejected' && event.provenance === 'live') {
+      this.noteRejection(sessionId, event, result.reason)
+    }
+    return result
+  }
+
+  /**
+   * SAY IT ONCE, THEN EVERY HUNDREDTH TIME (POD-4360). A session whose every
+   * event is rejected stays visibly broken in the log without flooding it: the
+   * coordinator this was found on had its whole runtime stream rejected for
+   * seven hours — thousands of frames — with not one line saying so.
+   */
+  private noteRejection(sessionId: SessionId, event: RuntimeEvent, reason: string): void {
+    const key = `${sessionId}:${reason}`
+    const count = (this.rejections.get(key) ?? 0) + 1
+    this.rejections.set(key, count)
+    if (count !== 1 && count % 100 !== 0) return
+    log.warn('runtime event rejected', {
+      sessionId,
+      reason,
+      count,
+      kind: event.t,
+      provenance: event.provenance,
+      observerGeneration: event.observerGeneration,
+      turnEpoch: event.turnEpoch,
+    })
+  }
+
+  private async recordUnlogged(sessionId: SessionId, event: RuntimeEvent): Promise<RuntimeEventGateResult> {
     if (isRuntimeFineEvent(event)) return { kind: 'fine-live-only' }
     const session = this.ports.session(sessionId)
     if (!session) return { kind: 'rejected', reason: 'unknown-session' }
@@ -368,7 +427,7 @@ export class RuntimeEventGate {
     ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
     }
-    if (event.turnEpoch > current.turnEpoch) {
+    if (event.turnEpoch > current.turnEpoch && !announcesAdoption(event)) {
       if (event.turnEpoch !== current.turnEpoch + 1 || !startsTurn(event)) {
         return { kind: 'rejected', reason: 'turn-epoch-jump' }
       }

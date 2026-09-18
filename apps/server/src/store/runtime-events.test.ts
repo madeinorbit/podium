@@ -1081,17 +1081,72 @@ describe('durable runtime observation gate', () => {
     expect(cursor).toBe(1)
     expect(records.filter((record) => record.id > cursor)).toEqual([])
   })
+  it('re-seeds the turn epoch on a live process adoption instead of fencing the stream forever', async () => {
+    // THE WEDGE (POD-4360): a daemon restart adopted a surviving session whose
+    // durable epoch had moved on while the previous process's tail was dropped.
+    // Every later event was an "epoch jump" and the session's runtime stream
+    // stayed rejected for hours — delivery outcomes included, so the inbox never
+    // settled its queued rows and re-typed them on every restart.
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const sessionId = await bindContract(registry, store)
+    const t0 = Date.parse('2026-09-18T16:00:00.000Z')
+    const at = (offsetMs: number): string => new Date(t0 + offsetMs).toISOString()
+    const route = (deliveryId: string, event: RuntimeEvent): Promise<void> =>
+      registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId,
+        sessionId,
+        event,
+      })
+
+    await route('bootstrap', stateEvent({ at: at(0), seq: 1, observerGeneration: 1, provenance: 'bootstrap' }))
+    await route('started-1', turnEvent({ at: at(1_000), seq: 2, turnEpoch: 1, ev: 'started' }))
+    await route('completed-1', turnEvent({ at: at(2_000), seq: 3, turnEpoch: 1, ev: 'completed' }))
+    expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ turnEpoch: 1, closedTurnEpoch: 1 })
+
+    // NEGATIVE CONTROL, unchanged rule: an ordinary event that skips epochs is
+    // still a lost edge, not a re-seed.
+    await route('jump', stateEvent({ at: at(3_000), seq: 4, observerGeneration: 1, turnEpoch: 7 }))
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
+    expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ turnEpoch: 1 })
+
+    // The new daemon process announces itself at the epoch it durably resumed.
+    const adopted: RuntimeEvent = {
+      t: 'process',
+      ev: { ev: 'adopted', bindingVersion: 2 },
+      at: at(4_000),
+      provenance: 'live',
+      cursor: { segmentId: 'runtime-segment', components: { seq: 5 } },
+      observerGeneration: 1,
+      turnEpoch: 7,
+    }
+    await route('adopted', adopted)
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(4)
+    expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ turnEpoch: 7, closedTurnEpoch: 1 })
+
+    // And the stream is alive again: a delivery outcome at the re-seeded epoch
+    // reaches the projector rather than the floor.
+    await route('delivery', {
+      t: 'delivery',
+      rowId: 'row-1',
+      outcome: 'delivered',
+      at: at(5_000),
+      provenance: 'live',
+      cursor: { segmentId: 'runtime-segment', components: { seq: 6 } },
+      observerGeneration: 1,
+      turnEpoch: 7,
+    })
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(5)
+
+    // A stale replay of an older adoption is still ordered out, never a re-seed
+    // backwards.
+    await route('adopted-replay', { ...adopted, cursor: { segmentId: 'runtime-segment', components: { seq: 5 } } })
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(5)
+    expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ turnEpoch: 7 })
+  })
 })
 
-/**
- * WHAT COUNTS AS "THE CAUSAL STREAM OWNS THIS FAILURE" (POD-2414 third pass).
- *
- * The aggregate suppresses the compatibility `errored` shadow of a failure the
- * driver already reported causally. The predicate deciding that used to be
- * "does a checkpoint exist", and these tests exist because that was wrong in a
- * way no service-level test could see: the service takes the predicate as a
- * boolean, so the breadth bug lived entirely in what computes it.
- */
 describe('causal failure ownership', () => {
   const send = (
     registry: SessionRegistry,

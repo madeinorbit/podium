@@ -192,6 +192,7 @@ describe('the statements themselves', () => {
     expect(projection('queued_messages')).toEqual([
       'id',
       'text',
+      'queued_at',
       'attempts',
       'input_origin',
       'principal_kind',
@@ -424,6 +425,7 @@ describe('the session inbox', () => {
       {
         id: 'm1',
         text: 'hello',
+        queuedAt: 10,
         attempts: 0,
         inputOrigin: 'human',
         principalKind: 'agent',

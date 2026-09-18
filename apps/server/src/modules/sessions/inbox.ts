@@ -201,6 +201,10 @@ export interface QueuedInboxMessage {
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   id: string
   text: string
+  /** Epoch ms the row was accepted. The transcript witness below compares a
+   *  user turn's time against it, so an OLDER identical turn never settles a
+   *  NEWER row. */
+  queuedAt: number
   attempts: number
   inputOrigin: ObservationInputOrigin
   principal: InboxPrincipalReference
@@ -513,6 +517,42 @@ const tailUserTurnMatches = (session: Session, needle: string, exact = false): b
     if (item?.role !== 'user') continue
     const normalized = normalizeForMatch(item.text)
     return exact ? normalized === needle : normalized.includes(needle)
+  }
+  return false
+}
+
+/**
+ * Clock tolerance between the server's `queuedAt` and the harness's own
+ * transcript timestamps, which may come from another machine.
+ */
+const WITNESS_CLOCK_SKEW_MS = 5 * 60_000
+
+/**
+ * Was this queued row ALREADY TYPED into the session by an earlier custody
+ * (POD-4360)? The proof is the transcript: a user turn carrying the row's text,
+ * recorded at or after the row was queued. A turn without a timestamp can only
+ * prove the TAIL — the same rule the legacy drain's late-landing check uses.
+ *
+ * WHY THIS EXISTS. Custody of a forwarded row lives in server memory: a restart
+ * forgets it and hands every remaining row to the daemon again. That is correct
+ * for a row the previous process never got to — and a second copy for one it
+ * did. The coordinator this was found on received the same nineteen
+ * child-finished notices after every server update of the day, because the
+ * outcomes that would have deleted the rows were being dropped upstream.
+ */
+const transcriptWitnesses = (session: Session, row: QueuedInboxMessage): boolean => {
+  const needle = confirmationNeedle(row.text)
+  if (needle === null) return false
+  const items = session.terminal.transcriptItems()
+  const notBefore = row.queuedAt - WITNESS_CLOCK_SKEW_MS
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]
+    if (item?.role !== 'user') continue
+    const at = item.ts ? Date.parse(item.ts) : Number.NaN
+    // Untimed turns: the tail is the only position that proves anything.
+    if (!Number.isFinite(at)) return normalizeForMatch(item.text).includes(needle)
+    if (at < notBefore) return false
+    if (normalizeForMatch(item.text).includes(needle)) return true
   }
   return false
 }
@@ -1385,6 +1425,16 @@ export class SessionInbox {
           await this.deps.queue.delete(row.id)
           continue
         }
+        // ALREADY IN THE TRANSCRIPT (POD-4360): a previous custody typed it and
+        // the outcome never came back. Settle it here; typing it again is the
+        // duplicate the agent would read as a replay.
+        if (transcriptWitnesses(session, row)) {
+          log.info('queued row already witnessed in the transcript; settling without retyping', {
+            sessionId, rowId: row.id,
+          })
+          await this.settleDelivered(session, row)
+          continue
+        }
         binding.ids.add(row.id)
         // Awaiting this RPC would put subsequent rows behind a slow transport reply.
         // Receipts acknowledge custody only; the event stream owns settlement.
@@ -1403,6 +1453,16 @@ export class SessionInbox {
     try { await operation } finally { if (this.forwarding.get(sessionId) === operation) this.forwarding.delete(sessionId) }
   }
 
+  /** The delivered half of a row's settlement: the ledger learns it was
+   *  applied, a draft holding the same text clears, the row leaves the queue. */
+  private async settleDelivered(session: Session, row: QueuedInboxMessage): Promise<void> {
+    const sessionId = session.sessionId
+    if (row.sourceMessageId) await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
+    if (this.deps.draftText?.(sessionId) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
+    await this.deps.queue.delete(row.id)
+    this.forwardedRows.get(sessionId)?.ids.delete(row.id)
+  }
+
   /** Already ownership/generation-fenced by the runtime event gate. Repeat-safe by row id. */
   async deliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
     const session = this.deps.getSession(sessionId)
@@ -1410,8 +1470,7 @@ export class SessionInbox {
     const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
     if (!row) return
     if (event.outcome === 'delivered') {
-      if (row.sourceMessageId) await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
-      if (this.deps.draftText?.(sessionId) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
+      await this.settleDelivered(session, row)
     } else if (event.outcome === 'dropped') {
       await this.deps.authorization.interrupted?.({ sessionId, sourceMessageId: row.sourceMessageId })
     } else {
@@ -1420,8 +1479,10 @@ export class SessionInbox {
       const ownerUserId = await this.deps.ownerOf(sessionId)
       await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}), sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
     }
-    await this.deps.queue.delete(row.id)
-    this.forwardedRows.get(sessionId)?.ids.delete(row.id)
+    if (event.outcome !== 'delivered') {
+      await this.deps.queue.delete(row.id)
+      this.forwardedRows.get(sessionId)?.ids.delete(row.id)
+    }
     const remaining = await this.deps.queue.list(sessionId)
     await this.deps.write(session, (draft) => { draft.queuedMessageCount = remaining.length })
     this.deps.broadcast()

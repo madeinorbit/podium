@@ -383,6 +383,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         return (await rows).map((row: QueuedMessageRow) => ({
           id: row.id,
           text: row.text,
+          queuedAt: row.queuedAt,
           attempts: row.attempts,
           inputOrigin: row.inputOrigin,
           principal: {

@@ -1829,6 +1829,48 @@ describe('adopt', () => {
     expect(after.binding.bindingVersion).toBeGreaterThan(checkpoint.binding.bindingVersion)
   })
 
+  it('adopts from a NEW daemon process at a cursor strictly after the old one', async () => {
+    // A process restart (not the in-process supervisor restart above) has no
+    // carried stream position. Its first event must still order AFTER the last
+    // one the previous process emitted, or the consumer files it as a duplicate
+    // and the epoch it announces is lost with it (POD-4360).
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+    for (let i = 0; i < 5; i++) world.echo(sessionId, `turn ${i}`)
+    world.observe(sessionId, { transitionKind: 'turn_terminal', nextPhase: 'idle' })
+    const checkpoint = await session.snapshot()
+    const lastSeq = Number(checkpoint.cursor.components.seq)
+    expect(lastSeq).toBeGreaterThan(0)
+
+    // The same host (durable pty), a fresh runtime, ten seconds later: what a
+    // restarted daemon looks like from the session's point of view.
+    const restarted = createTerminalRuntime({ ...world.host, now: () => world.host.now() + 10_000 })
+    const framesBefore = world.frames.length
+    // The boot-time path: the daemon re-registers the surviving pty as a rebind.
+    restarted.register(
+      {
+        sessionId,
+        agentKind: 'claude-code',
+        cwd: SPEC.workdir,
+        resume: null,
+        observerGeneration: checkpoint.observerGeneration,
+        bindingVersion: checkpoint.binding.bindingVersion + 1,
+        rebind: true,
+      },
+      CLAUDE,
+    )
+
+    const adopted = world.frames
+      .slice(framesBefore)
+      .find((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'process' && frame.event.ev.ev === 'adopted')
+    expect(adopted).toBeDefined()
+    if (!adopted || adopted.type !== 'runtimeEvent') throw new Error('unreachable')
+    expect(adopted.event.provenance).toBe('live')
+    expect(Number(adopted.event.cursor.components.seq)).toBeGreaterThan(lastSeq)
+  })
+
   it('continues a live stream after its bounded replay buffer trims', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
