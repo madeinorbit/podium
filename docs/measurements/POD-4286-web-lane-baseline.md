@@ -66,6 +66,7 @@ What has been checked on `integrate/4286-frontend-perf`, as of the Phase C gate:
 | Frontend perf lane | 28 tests across 5 files |
 | Mobile lane | Both pre-existing failures repaired; the lane's two known reds are closed |
 | History | Linear, no merge commits |
+| Rebased onto current `dev/mw` | 35 commits replayed clean; our full diff byte-identical before and after (16,124 lines each); typecheck re-run green on the new base |
 
 Three defects were caught by that re-verification that the authoring workers' own reports
 had missed: a `TS2322` that shipped because a worker never claimed a typecheck, a test
