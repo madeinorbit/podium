@@ -126,6 +126,37 @@ amplifier worth coalescing (1.53 s of navigation-only fan-out across 12 gestures
 overlaps downstream derivation and is not an independent bucket; periodic publishes are the
 smallest synchronous cost measured here.
 
+## 1c. B5's audit narrows what Phase B can win (landed 82a1d1964)
+
+B5 read every worklist dependency (`published`, `nav`, `rows`, `row-order`, `folds`,
+`visibility`, `row-attention`, `session-ownership`, `session-urgency`, `session-status`,
+`focus`, `mission`, `fleet`, the issue helpers and both platforms' row consumers) and reached a
+result that limits this phase and should be read before C1 decides anything.
+
+**`lastActiveAt` is material and cannot be guarded away.** It drives row activity, recency
+order, timers and mission continuation-tip selection. I asked B5 to check whether the minute
+clock already covers the display case; it kept the field material anyway. Because a heartbeat
+moves that field constantly, the roughly 5.18 s per activity window that A1 attributed to
+session-carrying publications is NOT recovered by a whole-slice input guard.
+
+What the guard does win: machine publications now compare **ordered machine IDs only**, every
+other machine field being immaterial to this slice, which targets the 850 ms of machine-only
+derivations A1 measured. It also skips session transport diagnostics (terminal geometry and
+geometry state, controllerId, epoch, clientCount, the request counters, and the agentState
+provenance fields), none of which is read by any row, cell or row menu.
+
+The audit is deliberately conservative elsewhere: full issue models and remaining unknown
+session fields stay material because row context menus receive them. B5 makes **no CPU saving
+claim and no zero-idle claim**, which is correct and is why this is usable evidence.
+
+**Consequence for C1.** A whole-slice input guard is now a closed question: it removes the
+immaterial classes and nothing more. Recovering the session-carrying cost requires making the
+derivation itself finer, so that a row whose `lastActiveAt` moved recomputes that row rather
+than the whole world. That is per-issue computed summaries, which is Phase E work, and it is
+precisely the capability a reactive library exists to provide. C1 should treat "the worklist
+still rebuilds on session deltas after B5" as a measured input to gate outcome 4, not as a
+failure of B5.
+
 ## 2. Verdict on the existing plan
 
 Agree with the structure: measure, ship the store fixes that are independently releasable, stop
