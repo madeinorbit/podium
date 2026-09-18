@@ -1617,6 +1617,13 @@ describe('InteractionService — a contract session answers through its driver (
       nativeMenu: () => ({ ok: true }),
     })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: menuState() })
+    expect(await svc.listOpen(S)).toEqual([])
+    await svc.onInteractionResolved({ sessionId: S, ev: { ev: 'asked', interaction: {
+      id: 'ask:driver-menu', sessionId: S, kind: 'question',
+      payload: { v: 1, questions: [{ question: 'Which database?', multiSelect: false, previewLayout: false,
+        options: [{ label: 'Postgres' }, { label: 'SQLite' }] }] },
+      askedAt: '2026-09-15T00:00:00.000Z', source: 'screen-classifier', answerable: 'keystroke-emulated',
+    } } })
     const [row] = await svc.listOpen(S)
     expect(row).toMatchObject({ kind: 'question', answerable: 'keystroke-emulated' })
 
@@ -1694,4 +1701,20 @@ describe('InteractionService — a contract session answers through its driver (
     expect(answeredThroughContract).toEqual([])
     expect(delivered).toHaveLength(1)
   })
+})
+
+it('keeps admitted runtime identity on the gateway after the session delivery mode changes', async () => {
+  const h = harness({ structured: true, contractRouted: false, nativeMenu: () => ({ ok: true }) })
+  await h.svc.onInteractionResolved({ sessionId: S, ev: { ev: 'asked', interaction: {
+    id: 'ask:owned', sessionId: S, kind: 'question', source: 'screen-classifier',
+    answerable: 'keystroke-emulated', askedAt: '2026-08-14T00:00:00.000Z',
+    payload: { v: 1, questions: [{ question: 'Pick', multiSelect: false, previewLayout: false,
+      options: [{ label: 'One' }] }] },
+  } } })
+  expect(await h.store.get('ask:owned')).toMatchObject({ fingerprint: 'runtime:ask:owned' })
+  expect(await h.svc.answerChoices({ sessionId: S, interactionId: 'ask:owned',
+    choices: [{ optionIndices: [1] }], principal: PRINCIPAL })).toEqual({ ok: true })
+  expect(h.answeredThroughContract).toHaveLength(1)
+  expect(h.typedAtMenu).toEqual([])
+  expect(h.delivered).toEqual([])
 })

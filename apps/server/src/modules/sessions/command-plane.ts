@@ -425,7 +425,7 @@ type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
 type InterruptInput = z.infer<typeof sessionCommandPlaneInputs.interrupt>
 type SendInput = z.infer<typeof sessionCommandPlaneInputs.sendText>
 type TargetInput = { sessionId: SessionId }
-type AnswerInput = { sessionId: SessionId; choices?: AnswerChoice[]; skip?: true }
+type AnswerInput = { sessionId: SessionId; interactionId?: string; choices?: AnswerChoice[]; skip?: true }
 
 /** What `mail.send` answers with, narrowed to the keys the chat paths return.
  *  Exported because it is the INFERRED return type of two tRPC procedures — an

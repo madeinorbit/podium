@@ -1,3 +1,4 @@
+import type { PendingInteractionWire, QuestionAsk } from '@podium/protocol'
 import type { AgentInterview, SessionMeta, TranscriptItem } from '@podium/model'
 
 /** One option of an AskUserQuestion question. */
@@ -154,4 +155,25 @@ export const PENDING_ASK_ITEM_ID = 'pending-ask-from-state'
  *  ChatBlock.result, or a bare TranscriptItem.toolResult). */
 export function isChosenOption(answer: string, label: string): boolean {
   return answer.includes(`"${label}"`)
+}
+
+
+/** A transcript card may lag the aggregate. Never attach a replacement ID to
+ * choices rendered from a different question or layout. */
+export function matchesQuestionInteraction(row: PendingInteractionWire, raw: string): boolean {
+  if (row.kind !== 'question' || row.status !== 'asked') return false
+  const shown = parseAskQuestions(raw)
+  const current = (row.payload as QuestionAsk).questions
+  return shown.length > 0 && shown.length === current.length && shown.every((question, index) => {
+    const expected = current[index]
+    return expected !== undefined && question.question === expected.question &&
+      Boolean(question.multiSelect) === expected.multiSelect &&
+      isPreviewLayout(question) === expected.previewLayout &&
+      question.options.length === expected.options.length && question.options.every((option, optionIndex) => {
+        const target = expected.options[optionIndex]
+        return target !== undefined && option.label === target.label &&
+          (option.description ?? '') === (target.description ?? '') &&
+          (option.preview ?? '') === (target.preview ?? '')
+      })
+  })
 }

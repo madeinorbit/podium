@@ -470,6 +470,7 @@ export const RuntimeAnswerRequestMessage = z.object({
   requestId: z.string(),
   sessionId: z.string().min(1).pipe(SessionIdField),
   interactionId: z.string().min(1),
+  principal: z.object({ kind: z.enum(['user', 'agent', 'system']), ref: z.string() }).optional(),
   answer: z.record(z.string(), z.unknown()),
 })
 export type RuntimeAnswerRequestMessage = z.infer<typeof RuntimeAnswerRequestMessage>

@@ -380,6 +380,7 @@ export function ChatView({
             openFile={chat.openFile}
             onOpenImage={chat.setLightbox}
             onAnswerAsk={chat.answerAsk}
+            answerInteractionId={chat.answerInteractionId}
             livePendingAskIndex={chat.livePendingAskIndex}
             pendingAskBlock={chat.pendingAskBlock}
             lastAnswerBlockIndex={chat.lastAnswerBlockIndex}

@@ -140,7 +140,7 @@ export interface RuntimeDaemonRpcPort {
     cancelRowId?: string,
   ): Promise<{ result: { ok: true } | Refusal }>
   runtimeAnswer(
-    input: { sessionId: SessionId; interactionId: string; answer: Record<string, unknown> },
+    input: { sessionId: SessionId; interactionId: string; principal?: { kind: 'user' | 'agent' | 'system'; ref: string }; answer: Record<string, unknown> },
     machineId: MachineId,
   ): Promise<InteractionAnswerOutcome>
   runtimeLifecycle(
@@ -303,6 +303,7 @@ export class SessionRuntimeGateway {
   async answer(input: {
     sessionId: SessionId
     interactionId: string
+    principal?: { kind: 'user' | 'agent' | 'system'; ref: string }
     answer: Record<string, unknown>
   }): Promise<InteractionAnswerOutcome> {
     const machineId = this.ports.machineOf(input.sessionId)

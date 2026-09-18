@@ -108,7 +108,7 @@ function OptionPreviewWell({ label, text }: { label: string; text: string }): JS
  * option digits, free text via the native Other entry, or skip (Esc).
  * Who answered is never on the payload — the authority stamps it.
  */
-export type AskUserQuestionAnswer = { skip: true } | { choices: AskAnswerChoice[] }
+export type AskUserQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & { interactionId?: string; question?: string }
 
 export function AskUserQuestionCard({
   block,
@@ -116,11 +116,13 @@ export function AskUserQuestionCard({
   index,
   livePending,
   onAnswer,
+  interactionId,
 }: {
   block: ChatBlock
   cls: string
   index: number
   livePending: boolean
+  interactionId?: string
   onAnswer: (answer: AskUserQuestionAnswer) => Promise<void>
 }): JSX.Element {
   const { item } = block
@@ -214,7 +216,7 @@ export function AskUserQuestionCard({
     if (!choices) return
     setSubmitState('sending')
     try {
-      await onAnswer({ choices })
+      await onAnswer({ choices, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
     } catch {
       setSubmitState('failed')
     }
@@ -224,7 +226,7 @@ export function AskUserQuestionCard({
     if (locked) return
     setSubmitState('sending')
     try {
-      await onAnswer({ skip: true })
+      await onAnswer({ skip: true, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
     } catch {
       setSubmitState('failed')
     }

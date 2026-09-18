@@ -180,12 +180,19 @@ export class InteractionsRepository {
       const inserted = await this.get(row.id)
       if (inserted) return { row: inserted, inserted: true }
     }
+    const existing = await this.get(row.id)
+    if (existing) return { row: existing, inserted: false }
     const open = await this.openByFingerprint(row.sessionId, row.fingerprint)
     if (open) return { row: open, inserted: false }
     // Neither inserted nor found: the conflicting row was resolved between the
     // two statements. Retry once — now there is nothing to conflict with.
     const retried = await this.insert(row)
     return retried
+  }
+
+  async enrich(id: string, payload: unknown): Promise<void> {
+    await this.db.update(pendingInteractions).set({ payloadJson: JSON.stringify(payload) })
+      .where(and(eq(pendingInteractions.id, id), eq(pendingInteractions.status, 'asked'))).run()
   }
 
   async get(id: string): Promise<InteractionRow | null> {

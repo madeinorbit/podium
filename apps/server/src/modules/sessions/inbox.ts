@@ -358,6 +358,11 @@ export interface SessionInboxDeps {
   /** Bind-reported contract delivery, including headed sessions when the hot
    * rollout switch is enabled. Legacy bindings always keep the server path. */
   contractDelivery?(session: Session): boolean
+  contractAnswer?(input: {
+    sessionId: SessionId; interactionId?: string; choices?: AnswerChoice[]; skip?: boolean
+    principal: InboxPrincipalReference
+  }): Promise<{ ok: boolean; reason?: string }>
+
   /** Cancel a daemon-owned queued row before deleting its durable intent. */
   contractCancel?(sessionId: SessionId, rowId: string): Promise<{ ok: true } | Refusal>
   contractDeliver?(input: {
@@ -2212,7 +2217,28 @@ export class SessionInbox {
    * not answer stay on their first row, and the closing CR would commit those
    * rows as if the operator had picked them. The caller surfaces the reason.
    */
+  async deliverInteractionAnswer(
+    input: { sessionId: SessionId; principal: InboxPrincipalReference },
+    deliver: () => Promise<import('@podium/protocol').InteractionAnswerOutcome>,
+  ): Promise<import('@podium/protocol').InteractionAnswerOutcome> {
+    const session = this.deps.getSession(input.sessionId)
+    const ownerUserId = await this.deps.ownerOf(input.sessionId)
+    if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
+      return { ok: false, reason: 'expired' }
+    }
+    const origin = input.principal.kind === 'user' ? 'human' : input.principal.kind === 'agent' ? 'steward' : 'system'
+    await this.deps.prepareSend(input.sessionId, input.principal.attribution, 'answer', origin)
+    if (this.deps.getSession(input.sessionId) !== session ||
+        await this.deps.ownerOf(input.sessionId) !== ownerUserId ||
+        (session.status !== 'live' && session.status !== 'starting')) return { ok: false, reason: 'expired' }
+    const result = await deliver()
+    if (result.ok) await this.deps.attention.answered({ ownerUserId, sessionId: input.sessionId,
+      attribution: input.principal.attribution })
+    return result
+  }
+
   async answerAskUserQuestion(input: {
+    interactionId?: string
     sessionId: SessionId
     choices?: AnswerChoice[]
     skip?: boolean
@@ -2226,6 +2252,10 @@ export class SessionInbox {
     // class below is the one that carries a reason.
     if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
+    }
+    if (input.interactionId || session.runtimeContract === true) {
+      if (!input.interactionId || !this.deps.contractAnswer) return { ok: false, reason: 'unknown-interaction' }
+      return await this.deps.contractAnswer(input)
     }
     const choices = input.skip ? [] : (input.choices ?? [])
     if (!input.skip && choices.length === 0) return { ok: false, reason: 'no choices to type' }

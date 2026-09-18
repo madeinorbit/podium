@@ -265,7 +265,7 @@ export const runtimeHandlers: Pick<
       return
     }
     void handle
-      .answer(msg.interactionId, msg.answer)
+      .answer(msg.interactionId, msg.answer, { principal: msg.principal })
       .then((outcome) => {
         ctx.send({
           type: 'runtimeAnswerResult',

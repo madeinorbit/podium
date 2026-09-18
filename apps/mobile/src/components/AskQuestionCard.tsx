@@ -19,7 +19,7 @@ import { PressableScale } from './PressableScale'
  * Other entry, or skip. Who answered is never on the payload; the authority
  * stamps it.
  */
-export type AskQuestionAnswer = { skip: true } | { choices: AskAnswerChoice[] }
+export type AskQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & { interactionId?: string; question?: string }
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -36,11 +36,13 @@ export function AskQuestionCard({
   item,
   live,
   onAnswer,
+  interactionId,
   presentation = 'card',
   askedAt,
 }: {
   item: TranscriptItem
   live: boolean
+  interactionId?: string
   onAnswer?: (answer: AskQuestionAnswer) => Promise<void>
   presentation?: 'card' | 'band'
   askedAt?: string
@@ -99,7 +101,7 @@ export function AskQuestionCard({
     if (!choices) return
     setState('sending')
     try {
-      await onAnswer({ choices })
+      await onAnswer({ choices, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
       setState('sent')
     } catch {
       setState('failed')
@@ -110,7 +112,7 @@ export function AskQuestionCard({
     if (!onAnswer || locked) return
     setState('sending')
     try {
-      await onAnswer({ skip: true })
+      await onAnswer({ skip: true, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
       setState('sent')
     } catch {
       setState('failed')

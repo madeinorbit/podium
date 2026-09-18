@@ -256,6 +256,7 @@ export type QuestionSelection = z.infer<typeof QuestionSelection>
 
 export const QuestionAnswer = z.object({
   kind: z.literal('question'),
+  skip: z.literal(true).optional(),
   /** ONE ENTRY PER PROMPT, in `questions` order. A menu holds every prompt open
    *  at once and answering it is a single act, so a partial answer is not a
    *  thing the wire should be able to express. */
@@ -572,6 +573,7 @@ export const InteractionAnswerOutcome = z.union([
        * blocked instead of falsely resolved.
        */
       'delivery-failed',
+      'partial-delivery',
     ]),
     /** What went wrong, for a surface to show and a log to keep. Never parsed
      *  for control flow — that is what `reason` is for. */
@@ -626,6 +628,10 @@ const INTERACTION_RECORD = {
    * payload fields) that collapses the first case, and the spec requires
    * consumers to tolerate it failing on the second: asked→answered on a
    * classifier-sourced row is AT-LEAST-ONCE, never exactly-once.
+   *
+   * Admitted runtime events instead use `runtime:<driver id>`: the driver owns
+   * observation identity even when its evidence is screen-classified. This also
+   * retains runtime answer routing across later session binding changes.
    *
    * Present on every row, not just classifier ones, so the dedupe query needs no
    * branch — but only CONSULTED where `source` says identity is unreliable. A

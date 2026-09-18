@@ -513,6 +513,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // The bind frame owns runtimeContract. This rollout only changes delivery;
     // native renderer ownership above remains the separate no-PTY fact.
     contractDelivery: contractDeliveryRequested,
+    contractAnswer: (input) => bag.interactionAnswer?.(input) ?? Promise.resolve({ ok: false, reason: 'unknown-interaction' }),
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after
     // a bind frame — long past composition.

@@ -128,3 +128,14 @@ describe('AskQuestionCard', () => {
     expect(screen.queryByLabelText('Skip question')).toBeNull()
   })
 })
+
+
+it('submits the identity and content captured by the rendered card', async () => {
+  const onAnswer = vi.fn(async () => {})
+  render(<AskQuestionCard item={single} live interactionId="ask:rendered" onAnswer={onAnswer} />)
+  fireEvent.click(screen.getByLabelText('SQLite'))
+  await waitFor(() => expect(onAnswer).toHaveBeenCalledWith({
+    interactionId: 'ask:rendered', question: single.toolInputJson,
+    choices: [{ optionIndices: [2] }],
+  }))
+})

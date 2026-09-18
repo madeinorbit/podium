@@ -403,6 +403,7 @@ const answerChoice = z.union([
 const answerInput = z
   .object({
     sessionId: SessionIdField,
+    interactionId: z.string().min(1).optional(),
     skip: z.literal(true).optional(),
     choices: z.array(answerChoice).min(1).optional(),
   })

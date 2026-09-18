@@ -3137,13 +3137,9 @@ export class SessionRegistry {
        * the shape of a reply it does not send.
        */
       /**
-       * IS THIS SESSION ANSWERED THROUGH THE CONTRACT (POD-3986)?
-       *
-       * The SAME predicate `interruptText` and `continueSession` route behind —
-       * imported, not re-derived, so the rollout switch that governs one
-       * governs all of them. A session the server cannot find is not contract
-       * routed: the keystroke routes refuse an unknown session on their own,
-       * which is the behaviour that was there before this port existed.
+       * An ask owned by a runtime binding is answered by that binding. The
+       * headed text-delivery rollout does not transfer menu identity back to
+       * the legacy inbox script.
        */
       contractRouted: async (sessionId) => {
         // THE INTERNAL LIVE SESSION, not `sessionById`. The public projection
@@ -3152,14 +3148,15 @@ export class SessionRegistry {
         // anything — a silent no-op the type checker caught and the focused
         // tests could not, because they stub this port.
         const session = sessionsSvc.sessions.get(sessionId)
-        return session !== undefined && contractDeliveryRequested(session)
+        return session?.runtimeContract === true
       },
       deliverStructured: async (input) =>
-        await sessionsSvc.runtimeGateway.answer({
+        await sessionsSvc.inbox.deliverInteractionAnswer(input, () => sessionsSvc.runtimeGateway.answer({
           sessionId: input.sessionId,
           interactionId: input.interactionId,
+          principal: { kind: input.principal.kind, ref: input.principal.principalRef },
           answer: input.answer as unknown as Record<string, unknown>,
-        }),
+        })),
     })
     /**
      * THE PROTOCOL ASK INGRESS, BOUND (POD-2023).
@@ -3171,6 +3168,9 @@ export class SessionRegistry {
      * has a real request id, which is the identity `hasReliableIdentity`
      * branches on when it decides whether to dedupe by fingerprint.
      */
+    sessionsSvc.interactionAnswer = (input) => interactions.answerChoices(input)
+    sessionsSvc.pendingQuestion = async (sessionId) =>
+      (await interactions.listOpen(sessionId)).find((row) => row.kind === 'question') ?? null
     sessionsSvc.interactionAsk = (msg) => {
       // LOGGED, NOT SWALLOWED (POD-2023 review, 7.2). This frame is classified
       // `control.entity` on the argument that "a dropped one would leave a

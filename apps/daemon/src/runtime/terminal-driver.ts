@@ -326,6 +326,13 @@ interface DriverSession {
   log: LoggedEvent[]
   wakers: Set<() => void>
   interactions: Map<string, PendingInteraction>
+  interactionOwners: Map<string, {
+    bridge: ReturnType<TerminalRuntimeHost['bridge']>
+    pid: number | undefined
+    generation: number
+    bindingVersion: number
+  }>
+  answerScript?: { cancel(detail: string): void }
   answered: Set<string>
   lease: SessionLease | null
   draft: string | undefined
@@ -789,7 +796,11 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       answerable: 'keystroke-emulated',
     }
     if (session.interactions.has(interaction.id) || session.answered.has(interaction.id)) return
+    closeOpenInteractions(session, interaction.askedAt, observation.provenance, null)
     session.interactions.set(interaction.id, interaction)
+    const bridge = host.bridge(session.sessionId)
+    session.interactionOwners.set(interaction.id, { bridge, pid: bridge?.pid,
+      generation: session.observerGeneration, bindingVersion: session.bindingVersion })
     emit(
       session,
       { t: 'interaction', ev: { ev: 'asked', interaction } },
@@ -797,6 +808,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       observation.provenance,
       observation.providerCursor,
     )
+    if (interaction.kind === 'question' && interaction.payload.questions.every((q) => q.options.length === 0)) {
+      const generation = session.observerGeneration
+      const bridge = host.bridge(session.sessionId)
+      void host.readTranscript({ sessionId: session.sessionId, agentKind: session.agentKind,
+        cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) }, { limit: 50 })
+        .then((items) => {
+          if (session.disposed || session.answerScript || session.observerGeneration !== generation ||
+              host.bridge(session.sessionId) !== bridge || session.interactions.get(interaction.id) !== interaction) return
+          const item = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
+          if (!item?.toolInputJson) return
+          const parsed = JSON.parse(item.toolInputJson) as { questions?: NonNullable<NonNullable<AgentRuntimeState['need']>['interview']>['questions'] }
+          if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) return
+          // A historical tool call cannot enrich a different on-screen prompt.
+          const summary = interaction.payload.questions[0]?.question
+          if (!summary || !parsed.questions.some((q) => q.question === summary)) return
+          const questions = interviewPrompts({ kind: 'question', summary, interview: { questions: parsed.questions } })
+          if (!questions) return
+          const enriched: PendingInteraction = { ...interaction, payload: { v: 1, questions } }
+          session.interactions.set(interaction.id, enriched)
+          emit(session, { t: 'interaction', ev: { ev: 'asked', interaction: enriched } }, interaction.askedAt, observation.provenance)
+        }).catch(() => { /* The observed menu remains authoritative when enrichment fails. */ })
+    }
   }
 
   /**
@@ -811,14 +844,16 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     session: DriverSession,
     at: string,
     provenance: ObservationProvenance,
-    answeredBy: 'policy' | 'superagent' | 'human',
+    answeredBy: 'policy' | 'superagent' | 'human' | null,
   ): void {
+    session.answerScript?.cancel('the menu was resolved or replaced')
     for (const id of [...session.interactions.keys()]) {
       session.interactions.delete(id)
+      session.interactionOwners.delete(id)
       session.answered.add(id)
       emit(
         session,
-        { t: 'interaction', ev: { ev: 'answered', id, answeredBy, at } },
+        { t: 'interaction', ev: answeredBy === null ? { ev: 'expired', id, at } : { ev: 'answered', id, answeredBy, at } },
         at,
         provenance,
       )
@@ -947,6 +982,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         return
       }
       case 'agentExit': {
+        session.answerScript?.cancel('the process ended')
         session.alive = false
         session.live = false
         // The process tree is gone. Its stream position dies with it for the
@@ -1093,6 +1129,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     // A stale generation is REJECTED, never merged — the rule the envelope's
     // `observerGeneration` exists to enforce, applied at the driver's own door.
     if (observation.observerGeneration < session.observerGeneration) return
+    if (session.observerGeneration !== observation.observerGeneration ||
+        session.bindingVersion < observation.bindingVersion) {
+      session.answerScript?.cancel('observer ownership changed')
+    }
     session.observerGeneration = observation.observerGeneration
     session.bindingVersion = Math.max(session.bindingVersion, observation.bindingVersion)
     session.providerCursor = observation.providerCursor
@@ -1329,6 +1369,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     const label = host.durableLabel(registration.sessionId)
     const existing = sessions.get(registration.sessionId)
     if (existing) {
+      closeOpenInteractions(existing, new Date(host.now()).toISOString(), 'live', null)
       // A REBIND, not a second record. The observer generation and binding
       // version go UP and the conversation position does not move — which is
       // exactly the invariant the corpus pins across a supervisor restart.
@@ -1377,6 +1418,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       log: [],
       wakers: new Set(),
       interactions: new Map(),
+      interactionOwners: new Map(),
       answered: new Set(),
       lease: null,
       draft: undefined,
@@ -1471,6 +1513,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       // ---- lifecycle ----
       async stop() {
+        session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
         // The PROCESS is gone, so its stream position goes with it: a later
@@ -1485,6 +1528,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // hibernate, so a session with nothing to resume from would simply be
         // gone — data loss wearing a lifecycle verb's name.
         if (!session.resume) return refuse('no_resume_ref')
+        session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
         host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
@@ -1492,6 +1536,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       },
 
       async kill() {
+        session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
         streamPositions.delete(session.label)
@@ -1721,7 +1766,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         if (session.answered.has(interactionId)) return { ok: false, reason: 'already-answered' }
         const interaction = session.interactions.get(interactionId)
         if (!interaction) return { ok: false, reason: 'unknown-interaction' }
-        if (!session.alive || !host.bridge(session.sessionId)) {
+        const owner = session.interactionOwners.get(interactionId)
+        if (session.disposed || !session.alive || !owner?.bridge ||
+            host.bridge(session.sessionId) !== owner.bridge || owner.bridge.pid !== owner.pid ||
+            owner.generation !== session.observerGeneration || owner.bindingVersion !== session.bindingVersion) {
           return { ok: false, reason: 'expired' }
         }
         const script = menuScriptFor(answer, interaction)
@@ -1738,14 +1786,61 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // string, so `"12"` arrives as the key "12", matches no digit, and the
         // menu does not move at all (POD-609). The gaps are the keystroke
         // path's own: 120ms between keys, 240ms before the closing commit.
-        script.script.keys.forEach((key, at) => {
-          const send = (): void =>
-            host.bridge(session.sessionId)?.write(Buffer.from(key, 'utf8').toString('base64'))
-          const delay = script.script.at[at] ?? 0
-          if (delay <= 0) send()
-          else host.setTimer(send, delay)
+        if (session.answerScript) return { ok: false, reason: 'already-answered' }
+        const bridge = host.bridge(session.sessionId)
+        if (!bridge || session.disposed) return { ok: false, reason: 'expired' }
+        const pid = bridge.pid
+        const generation = session.observerGeneration
+        const bindingVersion = session.bindingVersion
+        const completed = await new Promise<InteractionAnswerOutcome>((resolve) => {
+          const timers = new Set<TimerHandle>()
+          let writes = 0
+          let settled = false
+          const finish = (outcome: InteractionAnswerOutcome): void => {
+            if (settled) return
+            settled = true
+            for (const timer of timers) host.clearTimer(timer)
+            if (session.answerScript === running) session.answerScript = undefined
+            resolve(outcome)
+          }
+          const running = {
+            cancel(detail: string): void {
+              // A partial script must never be retried against this menu.
+              if (writes > 0) {
+                session.interactions.delete(interactionId)
+                session.interactionOwners.delete(interactionId)
+                session.answered.add(interactionId)
+              }
+              finish({ ok: false, reason: writes > 0 ? 'partial-delivery' : 'expired',
+                detail: `${detail}; ${writes}/${script.script.keys.length} writes completed` })
+            },
+          }
+          session.answerScript = running
+          const send = (key: string, index: number): void => {
+            if (settled) return
+            if (session.disposed || !session.alive || sessions.get(session.sessionId) !== session ||
+                host.bridge(session.sessionId) !== bridge || bridge.pid !== pid ||
+                session.observerGeneration !== generation || session.bindingVersion !== bindingVersion ||
+                session.interactions.get(interactionId) !== interaction || session.answerScript !== running) {
+              running.cancel('answer ownership changed')
+              return
+            }
+            // Count an attempted write conservatively: a throwing bridge may have written bytes.
+            writes += 1
+            try { bridge.write(Buffer.from(key, 'utf8').toString('base64')) }
+            catch { running.cancel('bridge write failed'); return }
+            if (index === script.script.keys.length - 1) finish({ ok: true })
+          }
+          for (const [index, key] of script.script.keys.entries()) {
+            if (settled) break
+            const delay = script.script.at[index] ?? 0
+            if (delay <= 0) send(key, index)
+            else timers.add(host.setTimer(() => send(key, index), delay))
+          }
         })
+        if (!completed.ok) return completed
         session.interactions.delete(interactionId)
+        session.interactionOwners.delete(interactionId)
         session.answered.add(interactionId)
         const at = new Date(host.now()).toISOString()
         emit(
@@ -1980,6 +2075,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   function clear(sessionId: SessionId): void {
     const session = sessions.get(sessionId)
     if (session) {
+      session.answerScript?.cancel('the driver was disposed')
       session.disposed = true
       session.injection.dispose()
       // The PROCESS is gone — `clear` is called from the daemon's teardown path
@@ -2007,6 +2103,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       // because a restarted daemon has none; the durable masters keep running,
       // which is what `adopt()` then has to find.
       for (const session of [...sessions.values()]) {
+        session.answerScript?.cancel('the driver was disposed')
         session.disposed = true
         session.injection.dispose()
         for (const wake of [...session.wakers]) wake()
@@ -2018,6 +2115,9 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       const session = sessions.get(sessionId)
       if (!session) return
       session.interactions.set(interaction.id, interaction)
+      const bridge = host.bridge(session.sessionId)
+      session.interactionOwners.set(interaction.id, { bridge, pid: bridge?.pid,
+        generation: session.observerGeneration, bindingVersion: session.bindingVersion })
       emit(
         session,
         { t: 'interaction', ev: { ev: 'asked', interaction } },
@@ -2436,6 +2536,7 @@ function menuScriptFor(answer: unknown, ask: PendingInteraction): MenuScriptResu
       detail: `an answer of kind '${String(record.kind)}' cannot answer this menu`,
     }
   }
+  if (record.skip === true) return { ok: true, script: { keys: [ESC], at: [0] } }
   const selections = Array.isArray(record.selections)
     ? (record.selections as readonly QuestionSelection[])
     : null
@@ -2469,6 +2570,13 @@ function questionScriptFor(
     const prompt = prompts[at]
     const selection = selections[at]
     if (!prompt || !selection) return { ok: false, detail: `prompt ${at + 1}: missing` }
+    if (prompt.options.length === 0) return { ok: false, detail: `prompt ${at + 1}: options are unreadable` }
+    if (!prompt.multiSelect && selection.optionIndices.length > 1) {
+      return { ok: false, detail: `prompt ${at + 1}: this question takes one option` }
+    }
+    if (selection.text !== undefined && /[\r\n]/.test(selection.text)) {
+      return { ok: false, detail: `prompt ${at + 1}: free text must be a single line` }
+    }
     const shape = {
       ...(prompt.multiSelect ? { multiSelect: true as const } : {}),
       ...(prompt.previewLayout ? { previewLayout: true as const } : {}),

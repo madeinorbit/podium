@@ -959,7 +959,7 @@ export class DaemonRpcService {
   }
 
   async runtimeAnswer(
-    input: { sessionId: SessionId; interactionId: string; answer: Record<string, unknown> },
+    input: { sessionId: SessionId; interactionId: string; principal?: { kind: 'user' | 'agent' | 'system'; ref: string }; answer: Record<string, unknown> },
     machineId: MachineId,
   ): Promise<InteractionAnswerOutcome> {
     return await this.request(
@@ -974,6 +974,7 @@ export class DaemonRpcService {
         requestId,
         sessionId: input.sessionId,
         interactionId: input.interactionId,
+        principal: input.principal,
         answer: input.answer,
       }),
       machineId,

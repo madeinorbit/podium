@@ -59,7 +59,7 @@ function harness(
     structured?: boolean
     structuredFails?: boolean
     /** The driver's typed refusal, when the test is about which one it is. */
-    refusal?: 'already-answered' | 'expired' | 'unknown-interaction' | 'not-yet-supported'
+    refusal?: 'already-answered' | 'expired' | 'unknown-interaction' | 'not-yet-supported' | 'partial-delivery'
   } = {},
 ): Harness {
   const delivered: Harness['delivered'] = []
@@ -307,4 +307,17 @@ describe('the refusal predicate', () => {
       ),
     ).toContain('POD-707')
   })
+})
+
+
+it('keeps partial delivery unverified and refuses a second application', async () => {
+  const h = harness({ refusal: 'partial-delivery' })
+  await h.service.ask({ interaction: protocolAsk() })
+  const input = { id: 'per_live_1', answer: { kind: 'permission' as const, decision: 'allow-once' as const },
+    answeredBy: 'human' as const, principal: SYSTEM_INBOX_PRINCIPAL }
+  expect(await h.service.answer(input)).toMatchObject({ ok: false, reason: 'partial-delivery' })
+  expect(await h.service.get(input.id)).toMatchObject({ status: 'answered', deliveredVia: 'unverified' })
+  expect(await h.service.answer(input)).toEqual({ ok: false, reason: 'already-answered' })
+  expect(h.delivered).toHaveLength(1)
+  expect(h.keystrokes).toHaveLength(0)
 })

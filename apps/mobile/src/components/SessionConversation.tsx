@@ -1,3 +1,5 @@
+import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
+import { useStoreSelector } from '@podium/client-core/react'
 import {
   chatActivity,
   composerState,
@@ -137,6 +139,9 @@ export function SessionConversation({
   const issues = useIssues()
   const allSessions = useSessions()
   const sessionId = session.sessionId
+  const currentQuestion = useStoreSelector((s) => (s.pendingInteractions ?? []).find(
+    (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
+  ))
   const storedDraft = useSessionDraft(sessionId)
   // biome-ignore lint/correctness/useExhaustiveDependencies: one seed per addressed conversation
   const draftSeed = useMemo(() => storedDraft, [sessionId])
@@ -453,13 +458,18 @@ export function SessionConversation({
 
   const answerAsk = useCallback(
     async (answer: AskQuestionAnswer) => {
+      if (currentQuestion && (answer.interactionId !== currentQuestion.id ||
+          !answer.question || !matchesQuestionInteraction(currentQuestion, answer.question))) {
+        throw new Error('The question changed; wait for the current menu.')
+      }
       const sent = await trpc.sessions.answerAskUserQuestion.mutate({
         sessionId,
+        interactionId: answer.interactionId,
         ...answer,
       })
       if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
     },
-    [sessionId, trpc.sessions.answerAskUserQuestion],
+    [sessionId, currentQuestion, trpc.sessions.answerAskUserQuestion],
   )
 
   /**
@@ -535,6 +545,7 @@ export function SessionConversation({
                 ) : undefined
               }
               onAnswer={answerAsk}
+              answerInteractionId={currentQuestion?.id}
               onLoadOlder={loadOlder}
               onRefPress={(ref) => {
                 const seq = Number(ref.slice(4))
@@ -578,6 +589,8 @@ export function SessionConversation({
               style={styles.askLayer}
             >
               <AskQuestionCard
+                key={currentQuestion?.id}
+                interactionId={currentQuestion?.id}
                 item={pendingQuestion}
                 live={askAnswerable}
                 onAnswer={answerAsk}

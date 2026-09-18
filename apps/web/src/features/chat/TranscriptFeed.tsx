@@ -237,6 +237,7 @@ export function TranscriptFeed({
   openFile,
   onOpenImage,
   onAnswerAsk,
+  answerInteractionId,
   livePendingAskIndex,
   pendingAskBlock,
   lastAnswerBlockIndex,
@@ -281,6 +282,7 @@ export function TranscriptFeed({
   httpOrigin: string
   openFile: (sessionId: SessionId, path: string) => void
   onOpenImage: (url: string) => void
+  answerInteractionId?: string
   onAnswerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   livePendingAskIndex: number
   /** A live question the transcript does not carry yet, drawn from agent state.
@@ -490,6 +492,7 @@ export function TranscriptFeed({
                 // indexes into `blocks`, matched here against the row's blockIndex).
                 askLivePending={row.blockIndex === livePendingAskIndex}
                 onAnswerAsk={onAnswerAsk}
+                answerInteractionId={answerInteractionId}
                 collapseContext={collapseContext}
                 compact={compact}
                 ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
@@ -803,6 +806,7 @@ export function TranscriptFeed({
             onOpenImage={onOpenImage}
             askLivePending={true}
             onAnswerAsk={onAnswerAsk}
+                answerInteractionId={answerInteractionId}
             collapseContext={collapseContext}
             compact={compact}
             attribution={attributionForRole(attribution, 'tool')}

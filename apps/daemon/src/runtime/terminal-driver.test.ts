@@ -210,6 +210,7 @@ function makeWorld(
     })
   }
 
+  const bridges = new Map<SessionId, NonNullable<ReturnType<TerminalRuntimeHost['bridge']>>>()
   const host: TerminalRuntimeHost = {
     installInstrumentation: async () => ({ args: [] }),
     stageAttachment: async ({ source }) => ({
@@ -220,33 +221,38 @@ function makeWorld(
       kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
     }),
     send: (msg) => frames.push(msg),
-    bridge: (sessionId) =>
-      alive.get(`podium-${sessionId}`)
-        ? {
-            pid: 99,
-            write: (dataBase64) => {
-              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-              written.push(text)
-              const paste = pastedText(text)
-              if (paste !== undefined) {
-                pendingPaste.set(sessionId, paste)
-                return
-              }
-              if (text !== '\r') return
-              const pasted = pendingPaste.get(sessionId)
-              pendingPaste.delete(sessionId)
-              const hook = autoHook.get(sessionId)
-              if (!hook || pasted === undefined) return
-              runtime.onHookPayload(
-                sessionId,
-                hook.payload ?? {
-                  hook_event_name: 'UserPromptSubmit',
-                  prompt: hook.prompt ?? pasted,
-                },
-              )
-            },
-          }
-        : undefined,
+    bridge: (sessionId) => {
+      if (!alive.get(`podium-${sessionId}`)) return undefined
+      let bridge = bridges.get(sessionId)
+      if (!bridge) {
+        bridge = {
+          pid: 99,
+          write: (dataBase64) => {
+            const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+            written.push(text)
+            const paste = pastedText(text)
+            if (paste !== undefined) {
+              pendingPaste.set(sessionId, paste)
+              return
+            }
+            if (text !== '\r') return
+            const pasted = pendingPaste.get(sessionId)
+            pendingPaste.delete(sessionId)
+            const hook = autoHook.get(sessionId)
+            if (!hook || pasted === undefined) return
+            runtime.onHookPayload(
+              sessionId,
+              hook.payload ?? {
+                hook_event_name: 'UserPromptSubmit',
+                prompt: hook.prompt ?? pasted,
+              },
+            )
+          },
+        }
+        bridges.set(sessionId, bridge)
+      }
+      return bridge
+    },
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
@@ -2798,5 +2804,87 @@ describe('draft write availability', () => {
     )
     expect(drafts).toHaveLength(2)
     expect((await session.snapshot()).draft).toBe('')
+  })
+})
+
+describe('answer script ownership', () => {
+  it('refuses an observed ask after its bridge is replaced, before the first key', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.observe(handle.binding.sessionId, { nextPhase: 'needs_user' })
+    const id = (await handle.interactions())[0]!.id
+    const replacementWrites: string[] = []
+    world.host.bridge = () => ({ pid: 99, write: (data) => replacementWrites.push(data) })
+    expect(await handle.answer(id, { index: 0 })).toEqual({ ok: false, reason: 'expired' })
+    expect(world.written).toEqual([])
+    expect(replacementWrites).toEqual([])
+    world.runtime.dispose()
+  })
+
+  it.each(['replacement', 'human', 'bridge', 'bridge-disposal', 'dispose', 'clear', 'rebind', 'exit'] as const)(
+    'cancels the remaining multikey script after %s', async (cause) => {
+      const world = makeWorld()
+      const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+      const sessionId = handle.binding.sessionId
+      vi.useFakeTimers()
+      world.host.setTimer = (fn, delay) => setTimeout(fn, delay)
+      world.host.clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)
+      const ask = (transitionId: string) => world.observe(sessionId, {
+        transitionId, nextPhase: 'needs_user', priorPhase: 'working',
+        state: { phase: 'needs_user', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0,
+          need: { kind: 'question', summary: 'Pick', interview: { questions: [
+            { question: 'Pick', multiSelect: true, options: [{ label: 'One' }, { label: 'Two' }] },
+          ] } } },
+      })
+      try {
+        ask('first')
+        const id = (await handle.interactions())[0]!.id
+        const pending = handle.answer(id, { kind: 'question', selections: [{ optionIndices: [1, 2] }] })
+        expect(world.written).toEqual(['1'])
+        expect(answeredEvents(world)).toEqual([])
+        if (cause === 'replacement') ask('second')
+        if (cause === 'human') world.observe(sessionId, { priorPhase: 'needs_user', nextPhase: 'working' })
+        const replacementWrites: string[] = []
+        if (cause === 'bridge') world.host.bridge = () => ({ pid: 99, write: (data) => replacementWrites.push(data) })
+        if (cause === 'bridge-disposal') world.host.bridge = () => undefined
+        if (cause === 'dispose') world.runtime.dispose()
+        if (cause === 'clear') world.runtime.clear(sessionId)
+        if (cause === 'rebind') world.runtime.register({ sessionId, agentKind: 'claude-code', cwd: SPEC.workdir, resume: null }, CLAUDE)
+        if (cause === 'exit') world.runtime.observe({ type: 'agentExit', sessionId, code: 0 })
+        await vi.advanceTimersByTimeAsync(2000)
+        expect(await pending).toMatchObject({ ok: false, reason: 'partial-delivery' })
+        expect(world.written).toEqual(['1'])
+        expect(replacementWrites).toEqual([])
+        expect(await handle.answer(id, { index: 0 })).toMatchObject({ ok: false })
+      } finally {
+        world.runtime.dispose()
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  it('reports completion only after the final write and keeps replay idempotent', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    vi.useFakeTimers()
+    world.host.setTimer = (fn, delay) => setTimeout(fn, delay)
+    world.host.clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)
+    try {
+      world.observe(handle.binding.sessionId, { transitionId: 'preview', nextPhase: 'needs_user',
+        state: { phase: 'needs_user', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0,
+          need: { kind: 'question', summary: 'Pick', interview: { questions: [
+            { question: 'Pick', options: [{ label: 'One', preview: 'Preview' }] },
+          ] } } },
+      })
+      const id = (await handle.interactions())[0]!.id
+      const pending = handle.answer(id, { kind: 'question', selections: [{ optionIndices: [1] }] })
+      expect(world.written).toEqual(['1'])
+      expect(answeredEvents(world)).toEqual([])
+      expect(await handle.answer(id, { index: 0 })).toEqual({ ok: false, reason: 'already-answered' })
+      await vi.advanceTimersByTimeAsync(120)
+      expect(await pending).toEqual({ ok: true })
+      expect(world.written).toEqual(['1', '\r'])
+      expect(answeredEvents(world)).toHaveLength(1)
+    } finally { world.runtime.dispose(); vi.useRealTimers() }
   })
 })

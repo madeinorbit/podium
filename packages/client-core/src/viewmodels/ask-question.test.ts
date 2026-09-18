@@ -1,7 +1,9 @@
+import { PendingInteractionWire } from '@podium/protocol'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   isPreviewLayout,
+  matchesQuestionInteraction,
   latestPendingQuestion,
   optionPreview,
   parseAskQuestions,
@@ -147,4 +149,20 @@ describe('ask question view model', () => {
       expect(a?.item.id).toBe(b?.item.id)
     })
   })
+})
+
+
+it('refuses a rendered question whose text, options, or layout differs from its interaction', () => {
+  const row = PendingInteractionWire.parse({ id: 'ask:new', sessionId: 'session', askedAt: '2026-09-18T00:00:00.000Z',
+    source: 'screen-classifier', answerable: 'keystroke-emulated', fingerprint: 'runtime:ask:new', kind: 'question', status: 'asked', payload: { v: 1,
+    questions: [{ question: 'Pick', multiSelect: false, previewLayout: false,
+      options: [{ label: 'One' }, { label: 'Two' }] }] },
+  })
+  const raw = (question = 'Pick', options = [{ label: 'One' }, { label: 'Two' }], multiSelect = false) =>
+    JSON.stringify({ questions: [{ question, options, multiSelect }] })
+  expect(matchesQuestionInteraction(row, raw())).toBe(true)
+  expect(matchesQuestionInteraction(row, raw('Old question'))).toBe(false)
+  expect(matchesQuestionInteraction(row, raw('Pick', [{ label: 'Old choice' }]))).toBe(false)
+  expect(matchesQuestionInteraction(row, raw('Pick', undefined, true))).toBe(false)
+  expect(matchesQuestionInteraction({ ...row, status: 'superseded' }, raw())).toBe(false)
 })
