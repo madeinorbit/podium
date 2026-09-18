@@ -23,7 +23,7 @@ describe('repository usage', () => {
       const select = createRepositoryUsageSelector()
       let visits = 0
       const tracked = (rows: Session[]) => {
-        rows[Symbol.iterator] = function* () {
+        rows[Symbol.iterator] = function* (): Generator<Session, undefined, unknown> {
           for (let i = 0; i < this.length; i++) { visits++; yield this[i]! }
         }
         return rows
