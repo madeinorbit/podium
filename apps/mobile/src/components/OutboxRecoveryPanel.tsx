@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { outboxCommandFor } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
@@ -15,7 +16,7 @@ import { asMutationId } from '@podium/model'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useMobileStore } from '../client/hooks'
+import { useStoreSelector } from '../client/hooks'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
 import { AlertTriangle, Pencil, RefreshCw, Trash2 } from './icons'
@@ -26,7 +27,10 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
 }
 
 function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
-  const { recoverOutbox } = useMobileStore()
+  const { recoverOutbox } = useStoreSelector(
+    (s) => ({ recoverOutbox: s.recoverOutbox }),
+    shallowEqual,
+  )
   const plan = recoveryPlanFor(parked.reason.code)
   const baseCopy = recoveryCopyFor(parked.reason.code)
   const rule = confirmationRuleFor(parked.entry.kind)
@@ -179,7 +183,10 @@ function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
 }
 
 export function OutboxRecoveryPanel() {
-  const { outboxDeadLetters } = useMobileStore()
+  const { outboxDeadLetters } = useStoreSelector(
+    (s) => ({ outboxDeadLetters: s.outboxDeadLetters }),
+    shallowEqual,
+  )
   if (outboxDeadLetters.length === 0) return null
   const copy = recoveryDialogCopy(outboxDeadLetters.length)
   return (

@@ -1,9 +1,10 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { useModelCatalogState } from '@podium/client-core/react'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import { agentCapabilityRejection, type MachineId, machinesForRepoOrClone } from '@podium/model'
 import { useLayoutEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useMobileStore } from '../client/hooks'
+import { useStoreSelector } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
   AUTO,
@@ -49,7 +50,7 @@ export function LaunchConfigurationFields({
   onPlan?: (plan: LaunchPlan) => void
   allowInheritedAgent?: boolean
 }) {
-  const store = useMobileStore()
+  const store = useStoreSelector((s) => ({ repos: s.repos, machines: s.machines }), shallowEqual)
   const [fallback, setFallback] = useState<Picker>(null)
   const repo = useMemo(
     () => reposToViews(store.repos).find((candidate) => candidate.path === repoPath),

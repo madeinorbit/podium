@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import {
   chatActivity,
   composerState,
@@ -18,7 +19,7 @@ import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
-import { useHub, useIssues, useMobileStore, useSessionDraft, useSessions } from '../client/hooks'
+import { useHub, useIssues, useStoreSelector, useSessionDraft, useSessions } from '../client/hooks'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { interruptSession } from '../lib/interrupt-session'
@@ -132,7 +133,19 @@ export function SessionConversation({
   /** Wait until the authority recognizes a client-minted session id. */
   deferInitialTranscript?: boolean
 }) {
-  const store = useMobileStore()
+  const store = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      replica: s.replica,
+      setSessionDraft: s.setSessionDraft,
+      resumeAndSend: s.resumeAndSend,
+      dismissOffer: s.dismissOffer,
+      resurrectSession: s.resurrectSession,
+      killSession: s.killSession,
+      httpOrigin: s.httpOrigin,
+    }),
+    shallowEqual,
+  )
   const hub = useHub()
   const issues = useIssues()
   const allSessions = useSessions()

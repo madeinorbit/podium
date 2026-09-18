@@ -1,7 +1,8 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { MachineId } from '@podium/model'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
-import { useMobileStore } from '../../client/hooks'
+import { useStoreSelector } from '../../client/hooks'
 import {
   type DiffRow,
   diffRowAccessibilityLabel,
@@ -38,7 +39,14 @@ interface FileReadResult {
 /** Changed-file inventory and wrapped, per-file diffs on the task page. It uses
  * only the store's existing read-only Git and file contracts. */
 export function GitReviewSection({ root, machineId }: { root: string; machineId?: MachineId }) {
-  const store = useMobileStore()
+  const store = useStoreSelector(
+    (s) => ({
+      gitStatus: s.gitStatus,
+      readFileScoped: s.readFileScoped,
+      gitDiffFile: s.gitDiffFile,
+    }),
+    shallowEqual,
+  )
   const [header, setHeader] = useState<ReturnType<typeof parseStatus>['header'] | null>(null)
   const [entries, setEntries] = useState<StatusEntry[]>([])
   const [statusError, setStatusError] = useState<string | null>(null)

@@ -1,8 +1,9 @@
+import { shallowEqual } from '@podium/client-core/store'
 import type { IssueWire } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useMobileStore } from '../client/hooks'
+import { useStoreSelector } from '../client/hooks'
 import { startConfiguredIssue } from '../lib/configured-issue-launch'
 import {
   type LaunchConfiguration,
@@ -31,7 +32,7 @@ export function ConfiguredIssueLaunchSheet({
   onStarted?: () => void
   onClose: () => void
 }) {
-  const store = useMobileStore()
+  const store = useStoreSelector((s) => ({ trpc: s.trpc }), shallowEqual)
   const [configuration, setConfiguration] = useState(() =>
     issue ? launchConfigurationForIssue(issue) : DEFAULT_CONFIGURATION,
   )

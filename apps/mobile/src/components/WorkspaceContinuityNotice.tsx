@@ -1,6 +1,7 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { useRouter } from 'expo-router'
 import { StyleSheet, Text, View } from 'react-native'
-import { useConnected, useMobileStore } from '../client/hooks'
+import { useConnected, useStoreSelector } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
@@ -15,7 +16,10 @@ function plural(count: number, singular: string, multiple: string): string {
 export function WorkspaceContinuityNotice() {
   const router = useRouter()
   const connected = useConnected()
-  const { outboxDeadLetters, outboxSize } = useMobileStore()
+  const { outboxDeadLetters, outboxSize } = useStoreSelector(
+    (s) => ({ outboxDeadLetters: s.outboxDeadLetters, outboxSize: s.outboxSize }),
+    shallowEqual,
+  )
   const { profile } = useServerProfile()
   if (connected && outboxSize === 0 && outboxDeadLetters.length === 0) return null
 

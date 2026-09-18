@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import {
   type BoardFilter,
   clearChip,
@@ -23,7 +24,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
+import { useBooting, useIssues, useStoreSelector, useSessions } from '../client/hooks'
 import { ActionSheet } from '../components/ActionSheet'
 import { ChevronDown, ChevronRight, Filter, Layers, Plus, Search, X } from '../components/icons'
 import { Icon } from '../components/Icon'
@@ -70,7 +71,10 @@ const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded']
  */
 export function IssuesScreen() {
   const router = useRouter()
-  const store = useMobileStore()
+  const store = useStoreSelector(
+    (s) => ({ coarseNow: s.coarseNow, updateIssue: s.updateIssue, closeIssue: s.closeIssue }),
+    shallowEqual,
+  )
   const issues = useIssues()
   const sessions = useSessions()
   const [showDone, setShowDone] = useState(false)

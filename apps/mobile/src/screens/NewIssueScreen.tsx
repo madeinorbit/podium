@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import {
   codingRoleHarness,
   ISSUE_STAGE_LABELS,
@@ -8,7 +9,7 @@ import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
-import { useMobileStore, useSessions } from '../client/hooks'
+import { useStoreSelector, useSessions } from '../client/hooks'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
 import {
   type LaunchConfiguration,
@@ -39,7 +40,7 @@ export function NewIssueScreen() {
   // still has to clear the home indicator (the hook is the plain safe-area
   // inset here).
   const bottomInset = useContentBottomInset()
-  const store = useMobileStore()
+  const store = useStoreSelector((s) => ({ repos: s.repos, trpc: s.trpc }), shallowEqual)
   const sessions = useSessions()
   const [fallbackRepos, setFallbackRepos] = useState<string[]>([])
   const repos = useMemo(() => {

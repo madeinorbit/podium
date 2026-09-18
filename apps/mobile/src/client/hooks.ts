@@ -43,9 +43,19 @@ import type { MobileTrpc, TranscriptPage } from './trpc'
 
 type MobileStore = Store<MobileTrpc>
 
+/** Select only the mobile snapshot fields a consumer uses. */
+function useMobileStoreSelector<T>(
+  select: (store: MobileStore) => T,
+  isEqual?: (a: T, b: T) => boolean,
+): T {
+  return useStoreSelector<T, MobileTrpc>(select, isEqual)
+}
+
+export { useMobileStoreSelector as useStoreSelector }
+
 /** The whole snapshot, typed at the phone's tRPC surface. Use a narrower hook
  *  below when one field will do — this one re-renders on any store change.
- *  Reserved for diagnostics-grade surfaces (Settings); hot screens select. */
+ *  Reserved for explicit whole-snapshot diagnostics; screens select. */
 export function useMobileStore() {
   return useStore<MobileTrpc>()
 }

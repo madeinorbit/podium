@@ -14,7 +14,9 @@ const mobile = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('../client/hooks', () => ({ useMobileStore: () => mobile.state }))
+vi.mock('../client/hooks', () => ({
+  useStoreSelector: (select: (state: typeof mobile.state) => unknown) => select(mobile.state),
+}))
 
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
 

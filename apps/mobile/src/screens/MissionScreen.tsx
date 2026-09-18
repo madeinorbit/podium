@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import {
   isSessionWorking,
   type MissionProgress,
@@ -14,7 +15,7 @@ import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
+import { useBooting, useIssues, useStoreSelector, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
@@ -59,7 +60,14 @@ export function MissionScreen() {
   const raw = Array.isArray(params.missionId) ? params.missionId[0] : (params.missionId ?? '')
   const selectedId = asIssueId(decodeURIComponent(raw))
   const router = useRouter()
-  const store = useMobileStore()
+  const store = useStoreSelector(
+    (s) => ({
+      closeIssue: s.closeIssue,
+      setIssueTucked: s.setIssueTucked,
+      updateIssue: s.updateIssue,
+    }),
+    shallowEqual,
+  )
   const booting = useBooting()
   const issues = useIssues()
   const sessions = useSessions()

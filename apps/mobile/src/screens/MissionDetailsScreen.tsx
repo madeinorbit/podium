@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import { useSlice } from '@podium/client-core/react'
 import {
   missionRootFor,
@@ -7,7 +8,7 @@ import {
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
-import { useIssues, useMobileStore, useSessions } from '../client/hooks'
+import { useIssues, useStoreSelector, useSessions } from '../client/hooks'
 import { MissionDeck } from '../components/MissionDeck'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Screen } from '../components/Screen'
@@ -27,7 +28,10 @@ export function MissionDetailsScreen() {
   const missionId = asIssueId(decodeURIComponent(rawId ?? ''))
   const issues = useIssues()
   const sessions = useSessions()
-  const store = useMobileStore()
+  const store = useStoreSelector(
+    (s) => ({ setIssueTucked: s.setIssueTucked, closeIssue: s.closeIssue }),
+    shallowEqual,
+  )
   const router = useRouter()
   const { allWorktreePaths } = useSlice(worklistSlice)
   const [menuIssue, setMenuIssue] = useState<(typeof issues)[number] | null>(null)

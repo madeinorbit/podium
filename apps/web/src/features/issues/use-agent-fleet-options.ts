@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 /**
  * ONE READING OF "CAN THIS HARNESS RUN HERE", FOR EVERY ISSUE SURFACE (POD-1457).
  *
@@ -47,7 +48,10 @@ export interface AgentFleetOption {
  * on a cold replica would be a refusal the shell cannot support.
  */
 export function useAgentFleetOptions(issue: Pick<IssueViewModel, 'repoPath'>): AgentFleetOption[] {
-  const { repos, machines } = useStoreSelector((s) => ({ repos: s.repos, machines: s.machines }))
+  const { repos, machines } = useStoreSelector(
+    (s) => ({ repos: s.repos, machines: s.machines }),
+    shallowEqual,
+  )
   const repoPath = issue.repoPath
   return useMemo(() => {
     const repoView: RepoView | undefined = reposToViews(repos).find((r) => r.path === repoPath)

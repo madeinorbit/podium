@@ -40,7 +40,7 @@ import {
   outboxCommandFor,
 } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { type StoreNotices, StoreProvider, useStore } from '@podium/client-core/react'
+import { type StoreNotices, StoreProvider, useStoreSelector } from '@podium/client-core/react'
 import {
   createAsyncStorageReplicaStorage,
   parseReplicaNamespaceKey,
@@ -697,7 +697,7 @@ function MobileHubAttach({
   networkEnabled: boolean
   onDisconnected: () => void
 }): null {
-  const { hub } = useStore()
+  const hub = useStoreSelector((s) => s.hub)
   useEffect(() => {
     // The AppState/NetInfo controller commands the transport (`suspend` on
     // background, `connectNow` on foreground and on network restore), so it

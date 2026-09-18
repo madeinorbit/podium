@@ -1,3 +1,4 @@
+import { shallowEqual } from '@podium/client-core/store'
 import {
   pairLatestPromptAndAnswer,
   parseEnvelopeBatch,
@@ -40,10 +41,13 @@ export function useHandoffTranscript(
   active: boolean,
   missionSessions: readonly SessionMeta[],
 ): HandoffTranscriptState & { retry: () => void } {
-  const { trpc, replica } = useStoreSelector((store) => ({
-    trpc: store.trpc,
-    replica: store.replica,
-  }))
+  const { trpc, replica } = useStoreSelector(
+    (store) => ({
+      trpc: store.trpc,
+      replica: store.replica,
+    }),
+    shallowEqual,
+  )
   const session = useMemo(
     () => (active ? selectLatestPromptSession(missionSessions) : null),
     [active, missionSessions],
