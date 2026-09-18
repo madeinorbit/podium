@@ -1480,6 +1480,45 @@ describe('IssueService toWire needs_human (P4)', () => {
 })
 
 describe('IssueService.start', () => {
+  it.each([
+    'start',
+    'addSession',
+  ] as const)('%s refuses missing placement before catalog lookup or spawning', async (method) => {
+    const h = await harness()
+    await h.store.repos.addRepo('/r', h.store.hostMachineId)
+    const issue = await h.svc.create({ repoPath: '/r', title: 'No placement', startNow: false })
+    if (method === 'addSession')
+      await h.svc.update(issue.id, { worktreePath: '/r/wt', branch: 'issue/test' })
+    await h.svc.update(issue.id, { machineId: null })
+    h.deps.resolveMachine = undefined
+    const catalog = vi.spyOn(h.store.settings, 'getModelCatalog')
+    await expect(h.svc[method](issue.id)).rejects.toThrow('placement required')
+    expect(catalog).not.toHaveBeenCalled()
+    expect(h.deps.spawnSession).not.toHaveBeenCalled()
+    expect((await h.store.issues.getIssue(issue.id))!.machineId).toBeNull()
+  })
+
+  it.each([
+    'start',
+    'addSession',
+  ] as const)('%s validates the authorized machine catalog', async (method) => {
+    const h = await harness()
+    await h.store.repos.addRepo('/r', h.store.hostMachineId)
+    const issue = await h.svc.create({
+      repoPath: '/r',
+      title: 'Resolved placement',
+      startNow: false,
+    })
+    if (method === 'addSession')
+      await h.svc.update(issue.id, { worktreePath: '/r/wt', branch: 'issue/test' })
+    await h.svc.update(issue.id, { machineId: null })
+    h.deps.resolveMachine = vi.fn(async () => asMachineId('authorized-machine'))
+    const catalog = vi.spyOn(h.store.settings, 'getModelCatalog')
+    await h.svc[method](issue.id)
+    expect(catalog).toHaveBeenCalledWith('authorized-machine')
+    expect(catalog).not.toHaveBeenCalledWith(h.store.hostMachineId)
+  })
+
   it('starts on the host with an explicit machine id and routes work there', async () => {
     const { svc, deps, store } = await harness()
     const created = await svc.create({
@@ -5856,6 +5895,7 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
     sessions: SessionMeta[] = [],
   ) => {
     const h = await harness(sessions)
+    await h.store.repos.addRepo('/r', h.store.hostMachineId)
     h.deps.getSettings = async () => normalizeSettings({ worktreeGc })
     return { ...h, svc: await IssueService.create(h.deps) }
   }
@@ -5896,6 +5936,76 @@ describe('worktree GC sweep for closed work (POD-564)', () => {
       afterDays,
     }
   }
+
+  it('refuses an unplaced checkout once, counts it, and never treats its path as orphaned', async () => {
+    const h = await gcHarness({ mode: 'auto', afterDays: 14 })
+    const id = await closedIssueWithCheckout(h, { path: '/r/.worktrees/unplaced' })
+    await h.svc.update(id, { machineId: null })
+    await h.store.repos.addRepo('/r', h.store.hostMachineId)
+    h.deps.repoOp = vi.fn(async () => ({
+      ok: true,
+      output: gitWorktreeList([{ path: '/r' }, { path: '/r/.worktrees/unplaced' }]),
+    }))
+    const inventory = await h.svc.listReclaimableWorktrees(DUE, h.store.hostMachineId)
+    expect(inventory.candidates).toEqual([])
+    expect(inventory.orphans).toEqual([])
+    expect(inventory.refusedCount).toBe(1)
+    expect(inventory.refused).toEqual([
+      { issueId: id, reason: expect.stringContaining('no recorded machine') },
+    ])
+    const observed = await observationFor(h, id, 'auto')
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(await h.svc.tryWorktreeGcObserved(observed, DUE, systemPrincipal('expiry'))).toEqual({
+        outcome: 'refused',
+        reason: expect.stringContaining('no recorded machine'),
+      })
+    }
+    const report = await h.svc.releaseReclaimableWorktrees(systemPrincipal('expiry'), DUE)
+    expect(report.refusedCount).toBe(1)
+    expect(report.freed).toEqual([])
+    expect(
+      (await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_free_refused'] })).length,
+    ).toBe(1)
+    expect((await h.store.issues.getIssue(id))!.machineId).toBeNull()
+    expect((await h.svc.get(id))!.worktreePath).toBe('/r/.worktrees/unplaced')
+    expect(
+      (h.deps.repoOp as ReturnType<typeof vi.fn>).mock.calls.every(([op]) => op === 'worktreeList'),
+    ).toBe(true)
+  })
+
+  it('inventories the authorized default machine rather than the server host', async () => {
+    const h = await gcHarness({ mode: 'propose', afterDays: 14 })
+    const machine = asMachineId('authorized-remote')
+    await h.store.repos.addRepo('/remote', machine)
+    h.deps.resolveMachine = vi.fn(async () => machine)
+    await h.svc.listReclaimableWorktrees(DUE)
+    expect(h.deps.repoOp).toHaveBeenCalledExactlyOnceWith('worktreeList', '/remote', undefined, machine)
+  })
+
+  it('reports no usable inventory target when no authorized machine can be resolved', async () => {
+    const h = await gcHarness({ mode: 'propose', afterDays: 14 })
+    h.deps.resolveMachine = undefined
+    const inventory = await h.svc.listReclaimableWorktrees(DUE)
+    expect(inventory.targetRefusal).toContain('placement required')
+    expect(inventory.candidates).toEqual([])
+    expect(h.deps.repoOp).not.toHaveBeenCalled()
+  })
+
+  it('refuses an unplaced proposal before emitting a proposed event', async () => {
+    const h = await gcHarness({ mode: 'propose', afterDays: 14 })
+    const id = await closedIssueWithCheckout(h)
+    await h.svc.update(id, { machineId: null })
+    expect(
+      await h.svc.tryWorktreeGcObserved(
+        await observationFor(h, id, 'propose'),
+        DUE,
+        systemPrincipal('expiry'),
+      ),
+    ).toEqual({ outcome: 'refused', reason: expect.stringContaining('no recorded machine') })
+    expect(
+      await h.store.events.listEventsSince(0, { kinds: ['issue.worktree_gc_proposed'] }),
+    ).toEqual([])
+  })
 
   it('under `propose` it records what it would free and leaves the disk alone', async () => {
     // The first run on the origin host is ~97 directories. It has to be

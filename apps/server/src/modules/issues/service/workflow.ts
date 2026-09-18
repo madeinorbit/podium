@@ -307,10 +307,11 @@ export class IssueGitWorkflowModule {
     // selection above rather than writing it to `row` first is what makes that true of
     // the PROFILE too: a refused `--model` must not be left sitting on the issue for
     // the next start to inherit silently.
-    // Catalog is machine-keyed (POD-1123): validate against the issue's host.
+    // Catalog and execution must use the same authorized machine.
+    const executionMachineId = await this.store.resolveWorktreeMachine(row.machineId, row.repoPath)
     assertModelSelectionValid(
       await this.store.d.store.settings.getModelCatalog(
-        row.machineId ?? this.store.d.store.hostMachineId,
+        executionMachineId,
       ),
       {
         agentKind: agent,
@@ -397,7 +398,7 @@ export class IssueGitWorkflowModule {
       // Freeze the SAME repo-affine/default choice repoOp used to make internally.
       // Persisting and routing with one value records where the worktree was actually
       // created without changing which daemon receives the operation.
-      const worktreeMachineId = (await this.store.resolveWorktreeMachine(row.machineId, startRepoPath))
+      const worktreeMachineId = executionMachineId
       const res = await this.store.d.repoOp(
         'worktreeAdd',
         startRepoPath,
@@ -1412,9 +1413,10 @@ export class IssueGitWorkflowModule {
     })
     // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
     // session carries no model (addShell), so validation is a no-op there.
+    const executionMachineId = await this.store.resolveWorktreeMachine(row.machineId, row.repoPath)
     assertModelSelectionValid(
       await this.store.d.store.settings.getModelCatalog(
-        row.machineId ?? this.store.d.store.hostMachineId,
+        executionMachineId,
       ),
       {
         agentKind: kind,
@@ -1441,7 +1443,7 @@ export class IssueGitWorkflowModule {
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
-      ...(row.machineId ? { machineId: row.machineId } : {}),
+      machineId: executionMachineId,
     })
     return await this.store.toWire(row)
   }

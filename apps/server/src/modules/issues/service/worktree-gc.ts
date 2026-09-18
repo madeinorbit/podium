@@ -7,6 +7,8 @@ import type { IssueStore } from './core'
 
 import { parseGitWorktreeList } from './worktree-safety'
 
+const MISSING_MACHINE = 'worktree has no recorded machine; placement required'
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
 type FreeWorktreeResult = {
@@ -24,6 +26,8 @@ type ReleaseWorktreeResult = { freed: true } | { freed: false; reason?: string }
  * janitor revalidation, candidate selection, and unattended-release refusal.
  */
 export class IssueWorktreeGcModule {
+  private readonly missingPlacementLogged = new Map<IssueId, string>()
+
   constructor(
     private readonly store: IssueStore,
     private readonly freeWorktreeKeepBranch: FreeWorktree,
@@ -40,6 +44,8 @@ export class IssueWorktreeGcModule {
     const row = await this.store.rowOrThrow(id)
     const worktreePath = row.worktreePath
     if (!worktreePath) return { freed: false }
+    if (!row.machineId) return await this.refuseRelease(row, worktreePath, MISSING_MACHINE)
+    this.missingPlacementLogged.delete(row.id)
     const stillUsing = liveSessionsUsingWorktree(worktreePath, this.store.d.sessionFacts())
     if (stillUsing.length > 0) {
       return await this.refuseRelease(
@@ -62,9 +68,19 @@ export class IssueWorktreeGcModule {
   /** Reclaimable paths, oldest close first, shared by the panel and manual apply. */
   async listReclaimableWorktrees(nowMs: number = Date.now(), machineId?: MachineId) {
     const { afterDays } = (await this.store.d.getSettings()).worktreeGc
-    const targetMachineId = machineId ?? this.store.d.store.hostMachineId
+    let targetMachineId = machineId
+    let targetRefusal: string | null = null
+    if (!targetMachineId) {
+      try {
+        targetMachineId = await this.store.resolveWorktreeMachine(undefined, '')
+      } catch (error) {
+        targetRefusal = error instanceof Error ? error.message : String(error)
+      }
+    }
     const live = this.store.d.sessionFacts()
-    const repoRows = await this.store.d.store.repos.listRepos(targetMachineId)
+    const repoRows = targetMachineId
+      ? await this.store.d.store.repos.listRepos(targetMachineId)
+      : []
     const discovered = new Map<
       string,
       {
@@ -110,32 +126,34 @@ export class IssueWorktreeGcModule {
       }),
     )
 
-    // RESOLVED ONCE, UP FRONT, so every predicate below stays synchronous.
-    // A row's machine is a durable read now, and `rowMachine` used to be called
-    // from inside `.map` and `.filter`. An async callback there would put
-    // promises in `claimed` (so no membership test could ever match, and claimed
-    // worktrees would be swept as reclaimable) and would make the machine filter
-    // compare a promise to an id — always unequal, dropping every candidate.
-    const machineByRow = new Map<IssueId, MachineId>()
+    // Inventory only recorded placements. A missing pin must never be resolved
+    // to a different daemon, even when that daemon has the same path.
+    const unresolvedPaths = new Set<string>()
+    const refused: Array<{ issueId: IssueId; reason: string }> = []
     for (const row of this.store.rows.values()) {
-      machineByRow.set(row.id, await this.store.resolveWorktreeMachine(row.machineId, row.repoPath))
+      if (!row.worktreePath || row.machineId) continue
+      unresolvedPaths.add(row.worktreePath)
+      if (this.isCandidate(row, nowMs, afterDays)) {
+        refused.push({ issueId: row.id, reason: MISSING_MACHINE })
+      }
     }
-    const rowMachine = (row: IssueRow): MachineId =>
-      machineByRow.get(row.id) ?? this.store.deps.store.hostMachineId
     const claimed = new Set<string>()
     for (const row of this.store.rows.values()) {
       if (!row.worktreePath) continue
-      claimed.add(`${rowMachine(row)}\0${row.worktreePath}`)
+      claimed.add(`${row.machineId}\0${row.worktreePath}`)
     }
     const candidates = [...this.store.rows.values()]
       .filter((row) => this.isCandidate(row, nowMs, afterDays))
-      .filter((row) => rowMachine(row) === targetMachineId)
+      .filter(
+        (row): row is IssueRow & { machineId: MachineId } =>
+          Boolean(row.machineId) && row.machineId === targetMachineId,
+      )
       .filter((row) => liveSessionsUsingWorktree(row.worktreePath, live).length === 0)
       .sort(
         (a, b) => (a.closedAt ?? '').localeCompare(b.closedAt ?? '') || a.id.localeCompare(b.id),
       )
       .map((row) => {
-        const resolvedMachineId = rowMachine(row)
+        const resolvedMachineId = row.machineId
         const found = discovered.get(`${resolvedMachineId}\0${row.worktreePath}`)
         return {
           issueId: row.id,
@@ -149,7 +167,7 @@ export class IssueWorktreeGcModule {
       })
 
     const orphans = [...discovered.values()]
-      .filter((entry) => !entry.primary)
+      .filter((entry) => !entry.primary && !unresolvedPaths.has(entry.path))
       .filter((entry) => !claimed.has(`${entry.machineId}\0${entry.path}`))
       .sort((a, b) => a.path.localeCompare(b.path))
       .map(({ primary: _primary, ...entry }) => entry)
@@ -160,6 +178,9 @@ export class IssueWorktreeGcModule {
 
     return {
       candidates,
+      refused,
+      refusedCount: refused.length,
+      targetRefusal,
       orphans,
       diagnostics,
       allWorktreePaths,
@@ -171,13 +192,25 @@ export class IssueWorktreeGcModule {
   async releaseReclaimableWorktrees(principal: CommandPrincipal, nowMs: number = Date.now()) {
     const freed: string[] = []
     const refused: Array<{ issueId: IssueId; reason: string }> = []
-    const { candidates } = await this.listReclaimableWorktrees(nowMs)
+    const {
+      candidates,
+      refused: unresolved,
+      targetRefusal,
+    } = await this.listReclaimableWorktrees(nowMs)
+    for (const item of unresolved) {
+      const row = await this.store.rowOrThrow(item.issueId)
+      // An item refused by this proposal cannot become destructive work mid-apply.
+      if (!row.machineId && row.worktreePath) {
+        await this.refuseRelease(row, row.worktreePath, item.reason)
+      }
+      refused.push(item)
+    }
     for (const candidate of candidates) {
       const result = await this.releaseWorktreeIfIdle(candidate.issueId, principal)
       if (result.freed) freed.push(candidate.issueId)
       else refused.push({ issueId: candidate.issueId, reason: result.reason ?? 'not released' })
     }
-    return { freed, refused }
+    return { freed, refused, refusedCount: refused.length, targetRefusal }
   }
 
   /**
@@ -205,6 +238,10 @@ export class IssueWorktreeGcModule {
     if (liveSessionsUsingWorktree(row.worktreePath, this.store.d.sessionFacts()).length > 0) {
       return { outcome: 'precondition' as const }
     }
+    if (!row.machineId) {
+      const result = await this.refuseRelease(row, observed.worktreePath, MISSING_MACHINE)
+      return { outcome: 'refused' as const, reason: result.reason }
+    }
     if (observed.mode === 'propose') {
       await this.store.emitEvent('issue.worktree_gc_proposed', row.id, {
         seq: row.seq,
@@ -220,11 +257,15 @@ export class IssueWorktreeGcModule {
   }
 
   private async refuseRelease(row: IssueRow, worktreePath: string, reason: string) {
+    if (reason === MISSING_MACHINE && this.missingPlacementLogged.get(row.id) === worktreePath) {
+      return { freed: false as const, reason }
+    }
     await this.store.emitEvent('issue.worktree_free_refused', row.id, {
       seq: row.seq,
       worktreePath,
       reason,
     })
+    if (reason === MISSING_MACHINE) this.missingPlacementLogged.set(row.id, worktreePath)
     return { freed: false as const, reason }
   }
 }
