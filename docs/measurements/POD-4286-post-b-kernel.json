@@ -1,0 +1,1841 @@
+{
+  "baseline": "c728e9c252c43110944934b8aedb63603695852d",
+  "records": [
+    {
+      "profile": "ci",
+      "scenario": "cold-start",
+      "ms": 120.62896999999975,
+      "counts": {
+        "runtime": 1,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 674,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "ci",
+      "scenario": "unrelated-session",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 15.850762000000032,
+      "p95": 37.34999300000163,
+      "syncP50": 11.80768199999875,
+      "syncP95": 34.65973999999915,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "ci",
+      "scenario": "draft-A",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 0.44458599999961734,
+      "p95": 1.3267800000012357,
+      "syncP50": 0.17239800000061223,
+      "syncP95": 0.6002099999986967,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 5,
+            "selectorRuns": 5,
+            "slices": {},
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "drafts"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "ci",
+      "scenario": "hostMetrics",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 0.04039100000045437,
+      "p95": 0.08999500000027183,
+      "syncP50": 0.012909000000945525,
+      "syncP95": 0.04879299999993236,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 0,
+            "reactCommits": 0,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 0,
+            "selectorRuns": 0,
+            "slices": {},
+            "subscriberWakes": 0
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": []
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "ci",
+      "scenario": "coarseNow",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 5.297322000000349,
+      "p95": 14.496202000000267,
+      "syncP50": 0.034521999999924446,
+      "syncP95": 0.05684500000097614,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "coarseNow"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "ci",
+      "scenario": "issue-click",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 7.011010000000169,
+      "p95": 16.17292500000076,
+      "syncP50": 4.680025999999998,
+      "syncP95": 13.772186000000147,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "selectedIssueId",
+                "issueVisitBaseline"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "ci",
+      "scenario": "optimistic-echo",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 17.274717000000237,
+      "p95": 49.783683000001474,
+      "syncP50": 7.038431999999375,
+      "syncP95": 12.091345999999248,
+      "counts": [
+        {
+          "n": 1,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 2
+            },
+            "subscriberWakes": 30
+          }
+        },
+        {
+          "n": 19,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 30
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "ci",
+      "scenario": "optimistic-rejection",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 17.619493999998667,
+      "p95": 52.76065700000072,
+      "syncP50": 5.870390000000043,
+      "syncP95": 13.550815000000512,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 2
+            },
+            "subscriberWakes": 30
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters",
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "ci",
+      "scenario": "mixed-feed",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 8.263456999999107,
+      "p95": 14.880747999999585,
+      "syncP50": 6.644850999999107,
+      "syncP95": 11.75646499999857,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 2,
+            "reactCommits": 1,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 12,
+            "selectorRuns": 12,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 10
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "drafts"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "ci",
+      "scenario": "guard-negative-control",
+      "before": {
+        "runtime": 163,
+        "publishes": 1,
+        "nestedPublishes": 0,
+        "subscriberWakes": 6,
+        "selectorRuns": 5,
+        "selectorCacheMisses": 5,
+        "rowBuilds": 0,
+        "reactCommits": 1,
+        "slices": {
+          "worklist": 1
+        }
+      },
+      "after": {
+        "runtime": 164,
+        "publishes": 1,
+        "nestedPublishes": 0,
+        "subscriberWakes": 5,
+        "selectorRuns": 5,
+        "selectorCacheMisses": 5,
+        "rowBuilds": 0,
+        "reactCommits": 1,
+        "slices": {}
+      }
+    },
+    {
+      "profile": "ci",
+      "scenario": "cold-start",
+      "ms": 59.34253399999943,
+      "counts": {
+        "runtime": 165,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 674,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "ci",
+      "scenario": "cold-start",
+      "ms": 30.658481000000393,
+      "counts": {
+        "runtime": 166,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 674,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "ci",
+      "scenario": "cold-start",
+      "ms": 34.94010000000162,
+      "counts": {
+        "runtime": 167,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 674,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "ci",
+      "scenario": "cold-start",
+      "ms": 99.41387600000053,
+      "counts": {
+        "runtime": 168,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 674,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "live",
+      "scenario": "cold-start",
+      "ms": 239.9905120000003,
+      "counts": {
+        "runtime": 169,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 4867,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "live",
+      "scenario": "unrelated-session",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 117.32030099999974,
+      "p95": 160.59287399999994,
+      "syncP50": 114.7743249999985,
+      "syncP95": 156.5208079999993,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "live",
+      "scenario": "draft-A",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 0.0987089999998716,
+      "p95": 0.31387099999847123,
+      "syncP50": 0.049914999999600695,
+      "syncP95": 0.16298400000050606,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 5,
+            "selectorRuns": 5,
+            "slices": {},
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "drafts"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "live",
+      "scenario": "hostMetrics",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 0.02181199999904493,
+      "p95": 0.23979899999903864,
+      "syncP50": 0.0059689999998226995,
+      "syncP95": 0.11254799999915122,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 0,
+            "reactCommits": 0,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 0,
+            "selectorRuns": 0,
+            "slices": {},
+            "subscriberWakes": 0
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": []
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "live",
+      "scenario": "coarseNow",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 55.96385900000132,
+      "p95": 129.50573900000018,
+      "syncP50": 0.03939899999932095,
+      "syncP95": 0.11318000000028405,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "coarseNow"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "live",
+      "scenario": "issue-click",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 60.47305899999992,
+      "p95": 331.015034,
+      "syncP50": 54.761546999998245,
+      "syncP95": 326.5457150000002,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "selectedIssueId",
+                "issueVisitBaseline"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "live",
+      "scenario": "optimistic-echo",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 127.89782999999807,
+      "p95": 192.92701999999917,
+      "syncP50": 70.1563270000006,
+      "syncP95": 100.16827900000135,
+      "counts": [
+        {
+          "n": 1,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 2
+            },
+            "subscriberWakes": 30
+          }
+        },
+        {
+          "n": 19,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 30
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "live",
+      "scenario": "optimistic-rejection",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 154.2760070000004,
+      "p95": 231.43293699999776,
+      "syncP50": 83.95402100000138,
+      "syncP95": 168.09064600000056,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 2
+            },
+            "subscriberWakes": 30
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters",
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "live",
+      "scenario": "mixed-feed",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 121.75749600000199,
+      "p95": 174.21097400000144,
+      "syncP50": 110.92556599999807,
+      "syncP95": 172.14121200000227,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 2,
+            "reactCommits": 1,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 12,
+            "selectorRuns": 12,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 10
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "drafts"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "live",
+      "scenario": "guard-negative-control",
+      "before": {
+        "runtime": 331,
+        "publishes": 1,
+        "nestedPublishes": 0,
+        "subscriberWakes": 6,
+        "selectorRuns": 5,
+        "selectorCacheMisses": 5,
+        "rowBuilds": 0,
+        "reactCommits": 1,
+        "slices": {
+          "worklist": 1
+        }
+      },
+      "after": {
+        "runtime": 332,
+        "publishes": 1,
+        "nestedPublishes": 0,
+        "subscriberWakes": 5,
+        "selectorRuns": 5,
+        "selectorCacheMisses": 5,
+        "rowBuilds": 0,
+        "reactCommits": 1,
+        "slices": {}
+      }
+    },
+    {
+      "profile": "live",
+      "scenario": "cold-start",
+      "ms": 201.25217399999747,
+      "counts": {
+        "runtime": 333,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 4867,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "live",
+      "scenario": "cold-start",
+      "ms": 233.51383999999962,
+      "counts": {
+        "runtime": 334,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 4867,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "live",
+      "scenario": "cold-start",
+      "ms": 178.6709809999993,
+      "counts": {
+        "runtime": 335,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 4867,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "live",
+      "scenario": "cold-start",
+      "ms": 220.11925800000245,
+      "counts": {
+        "runtime": 336,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 4867,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "growth",
+      "scenario": "cold-start",
+      "ms": 407.15342800000144,
+      "counts": {
+        "runtime": 337,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 9734,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "growth",
+      "scenario": "unrelated-session",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 208.92176299999846,
+      "p95": 298.78014800000165,
+      "syncP50": 204.63744900000165,
+      "syncP95": 285.8853659999986,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "growth",
+      "scenario": "draft-A",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 0.19165699999939534,
+      "p95": 8.432842000001983,
+      "syncP50": 0.11041499999919324,
+      "syncP95": 0.5501049999984389,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 5,
+            "selectorRuns": 5,
+            "slices": {},
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "drafts"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "growth",
+      "scenario": "hostMetrics",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 0.033610000002227025,
+      "p95": 0.13991999999780091,
+      "syncP50": 0.01170799999817973,
+      "syncP95": 0.08852300000216928,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 0,
+            "reactCommits": 0,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 0,
+            "selectorRuns": 0,
+            "slices": {},
+            "subscriberWakes": 0
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": []
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "growth",
+      "scenario": "coarseNow",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 85.02969600000506,
+      "p95": 149.22442700000101,
+      "syncP50": 0.027730000001611188,
+      "syncP95": 0.05061600000044564,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "coarseNow"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "growth",
+      "scenario": "issue-click",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 90.78392299999541,
+      "p95": 113.3429230000038,
+      "syncP50": 84.2603620000009,
+      "syncP95": 108.91046800000186,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 1,
+            "reactCommits": 1,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 7,
+            "selectorRuns": 7,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 5
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "selectedIssueId",
+                "issueVisitBaseline"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "growth",
+      "scenario": "optimistic-echo",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 349.75523700000485,
+      "p95": 536.0883069999982,
+      "syncP50": 190.60064099999727,
+      "syncP95": 353.6127899999992,
+      "counts": [
+        {
+          "n": 1,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 2
+            },
+            "subscriberWakes": 30
+          }
+        },
+        {
+          "n": 19,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 30
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "growth",
+      "scenario": "optimistic-rejection",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 323.74761099999887,
+      "p95": 462.35323100000096,
+      "syncP50": 183.2914740000051,
+      "syncP95": 322.1752420000048,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 6,
+            "reactCommits": 2,
+            "rowBuilds": 0,
+            "selectorCacheMisses": 30,
+            "selectorRuns": 30,
+            "slices": {
+              "worklist": 2
+            },
+            "subscriberWakes": 30
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxSize",
+                "outboxDeadLetters",
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "outboxDeadLetters"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 0
+        }
+      ]
+    },
+    {
+      "profile": "growth",
+      "scenario": "mixed-feed",
+      "runner": {
+        "hostname": "ludovico",
+        "cpu": "AMD EPYC Processor (with IBPB)",
+        "bun": "1.4.2"
+      },
+      "n": 20,
+      "p50": 195.9306660000002,
+      "p95": 309.3614649999945,
+      "syncP50": 188.00489299999754,
+      "syncP95": 306.23794199999975,
+      "counts": [
+        {
+          "n": 20,
+          "value": {
+            "nestedPublishes": 0,
+            "publishes": 2,
+            "reactCommits": 1,
+            "rowBuilds": 1,
+            "selectorCacheMisses": 12,
+            "selectorRuns": 12,
+            "slices": {
+              "worklist": 1
+            },
+            "subscriberWakes": 10
+          }
+        }
+      ],
+      "publications": [
+        {
+          "n": 20,
+          "value": [
+            {
+              "changedKeys": [
+                "sessions"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            },
+            {
+              "changedKeys": [
+                "drafts"
+              ],
+              "nested": false,
+              "subscriberWakes": 5
+            }
+          ]
+        }
+      ],
+      "durableReads": [
+        {
+          "n": 20,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "profile": "growth",
+      "scenario": "guard-negative-control",
+      "before": {
+        "runtime": 499,
+        "publishes": 1,
+        "nestedPublishes": 0,
+        "subscriberWakes": 6,
+        "selectorRuns": 5,
+        "selectorCacheMisses": 5,
+        "rowBuilds": 0,
+        "reactCommits": 1,
+        "slices": {
+          "worklist": 1
+        }
+      },
+      "after": {
+        "runtime": 500,
+        "publishes": 1,
+        "nestedPublishes": 0,
+        "subscriberWakes": 5,
+        "selectorRuns": 5,
+        "selectorCacheMisses": 5,
+        "rowBuilds": 0,
+        "reactCommits": 1,
+        "slices": {}
+      }
+    },
+    {
+      "profile": "growth",
+      "scenario": "cold-start",
+      "ms": 335.466002000001,
+      "counts": {
+        "runtime": 501,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 9734,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "growth",
+      "scenario": "cold-start",
+      "ms": 307.0420680000025,
+      "counts": {
+        "runtime": 502,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 9734,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "growth",
+      "scenario": "cold-start",
+      "ms": 328.56998400000157,
+      "counts": {
+        "runtime": 503,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 9734,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    },
+    {
+      "profile": "growth",
+      "scenario": "cold-start",
+      "ms": 340.414933,
+      "counts": {
+        "runtime": 504,
+        "publishes": 9,
+        "nestedPublishes": 0,
+        "subscriberWakes": 45,
+        "selectorRuns": 43,
+        "selectorCacheMisses": 43,
+        "rowBuilds": 9734,
+        "reactCommits": 2,
+        "slices": {
+          "worklist": 2
+        }
+      }
+    }
+  ]
+}
