@@ -188,13 +188,17 @@ describe('async session port boundaries', () => {
         await Promise.resolve()
         return { pathHint: '/recorded/transcript' }
       } },
-      machines: { ownershipRows: async () => [], grantsForMachine: async () => [] },
+      // Recovery has custody and an available daemon, but no personal use grant.
+      machines: {
+        ownershipRows: async () => [{ id: f.session.machineId, daemonAssigned: true, daemonAvailable: true }],
+        grantsForMachine: async () => [{ grantee: firstAdminMemberId(), verb: 'manage', custody: true }],
+      },
       state: { draftSyncEnabled: () => false },
     } as unknown as SessionClientPlanePorts)
     expect(await plane.reattachMessageFor(f.session, f.session.machineId)).toMatchObject({
       type: 'reattach', observationGeneration: 7, observationBindingVersion: 4,
       observationProviderSessionId: 'provider', pathHint: '/recorded/transcript',
-      binding: { transitionId: `reattach:${f.session.sessionId}:7` },
+      binding: { transitionId: `reattach:${f.session.sessionId}:7`, machineAccess: 'allowed', principal: { kind: 'system' } },
     })
   })
 

@@ -200,13 +200,13 @@ const verbsFromRow = (row: MachineOwnershipRow, subject: UserId | null): Set<Mac
  * The verbs a principal currently holds on one machine — resolved live over the
  * delegation chain (D16.2).
  *
- * A system principal holds `see` and, on owned machines, `use`. It is constructed in-process only
- * and is unreachable from every transport (D21.2), so it is not an escalation
- * surface; denying it would break boot reconcile and the expiry sweeps, which
- * park and resurrect sessions with no human behind the call. Its writes are
- * still attributed `system` and still land in the scope of what they acted on —
- * that obligation is D17.5's, and it lives on the attribution pair, not here.
- * It deliberately does NOT hold `manage`.
+ * Rule 4 exception (POD-4255): in-process system jobs hold `see`, and `use`
+ * only on existing, non-revoked machines with exactly one explicit custodian
+ * and an assigned, available daemon. No personal use grant is required.
+ * SessionClientPlane.reattachMessageFor needs this verdict to rebind survivors
+ * after daemon reconnect and census recovery. Transport principals never mint
+ * this authority (D21.2); writes remain attributed to system, with no human
+ * on whose behalf it acts (D17.5). It deliberately does NOT hold `manage`.
  */
 export function machineVerbsFor(
   principal: CommandPrincipal,

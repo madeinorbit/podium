@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { attributionOf } from '../../planes/principal'
 import { helloFor, transportFacts } from '../test-support'
+import { createHandshakeAcceptor } from '../acceptor'
+import { createAuthStrategyRegistry } from './registry'
 import { createNodeReservedStrategy } from './node-reserved'
 import { createSystemStrategy, SYSTEM_JOBS, systemPrincipal } from './system'
 
@@ -36,6 +38,37 @@ describe('system principals (ADR 3 Am.1 D21)', () => {
       transport: transportFacts({ endpoint: 'in-process', inProcess: true }),
     })
     expect(outcome).toMatchObject({ ok: false, reason: 'auth-failed' })
+  })
+
+  it.each(['/client', '/daemon', '/machine'])('refuses a wire system claim on %s before establishing a principal', (endpoint) => {
+    const acceptor = createHandshakeAcceptor({
+      registry: createAuthStrategyRegistry([createSystemStrategy()]),
+      transport: transportFacts({ endpoint, inProcess: false }),
+    })
+    const claim = {
+      ...helloFor({ kind: 'operatorChannel' }),
+      peerRole: 'system',
+      principal: { kind: 'system', job: 'steward' },
+    }
+    expect(acceptor.receive(JSON.stringify(claim))).toMatchObject({
+      action: 'reject', reply: { reason: 'malformed-hello' },
+    })
+    expect(acceptor.state).toBe('closed')
+    expect(acceptor.peer).toBeNull()
+    expect(acceptor.receive(JSON.stringify({ type: 'inventoryRequest' })).action).not.toBe('deliver')
+  })
+
+  it('refuses wire authentication even when the composition root selects the system strategy', () => {
+    const acceptor = createHandshakeAcceptor({
+      registry: createAuthStrategyRegistry([createSystemStrategy()]),
+      role: 'system',
+      transport: transportFacts({ endpoint: '/daemon', inProcess: false }),
+    })
+    expect(acceptor.receive(JSON.stringify(helloFor({ kind: 'operatorChannel' })))).toMatchObject({
+      action: 'reject', reply: { reason: 'auth-failed' },
+    })
+    expect(acceptor.peer).toBeNull()
+    expect(acceptor.state).toBe('closed')
   })
 
   it('resolve as system with NO on-behalf-of, for every named job', () => {

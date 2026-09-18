@@ -392,6 +392,40 @@ describe('the principal itself', () => {
     })
   })
 
+  it('bounds grant-free system use by live custody, revocation and daemon availability', () => {
+    const machine = asMachineId('system-rebind')
+    const row = {
+      id: machine, revokedAt: null as string | null, daemonAssigned: true, daemonAvailable: true,
+    }
+    let edges = [{ grantee: OWNER, verb: 'manage', custody: true }]
+    const ownership = ownershipFromGrantEdges({
+      ownershipRows: () => [row],
+      grantsForMachine: () => edges,
+    })
+    const principal = systemPrincipal('session-rebind')
+    const verbs = () => [...machineVerbsFor(principal, machine, ownership)].sort()
+    // Custody only: nobody has a personal use grant.
+    expect(verbs()).toEqual(['see', 'use'])
+    expect(machineUseDecision(user(OWNER, 'admin'), machine, ownership)).toBe('denied')
+    row.daemonAvailable = false
+    expect(verbs()).toEqual(['see'])
+    row.daemonAvailable = true
+    row.daemonAssigned = false
+    expect(verbs()).toEqual(['see'])
+    row.daemonAssigned = true
+    row.revokedAt = '2026-09-18T00:00:00Z'
+    expect(verbs()).toEqual(['see'])
+    row.revokedAt = null
+    edges = []
+    expect(verbs()).toEqual(['see'])
+    edges = [
+      { grantee: OWNER, verb: 'manage', custody: true },
+      { grantee: COLLEAGUE, verb: 'manage', custody: true },
+    ]
+    expect(verbs()).toEqual(['see'])
+    expect([...machineVerbsFor(principal, asMachineId('absent'), ownership)]).toEqual([])
+  })
+
   it('a system job has no human, and holds see + use but never manage', () => {
     const ownership = ownershipFromMachines({
       ownershipRows: () => [{ id: asMachineId('local'), ownerUserId: OWNER, daemonAssigned: true, daemonAvailable: true }],
