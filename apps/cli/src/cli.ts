@@ -2244,8 +2244,10 @@ export async function main(
       // units armed until the parent health gate (run by the parent process)
       // retires them. Idempotent on a converged host.
       const { reconcileSupervision } = await import('./topology-reconcile')
+      const { reconcileSentences } = await import('./topology-reconcile-output')
       try {
-        await reconcileSupervision()
+        const result = await reconcileSupervision()
+        for (const sentence of reconcileSentences(result)) console.log(sentence)
       } catch (error) {
         // The installer would overwrite a custom unit that reconciliation preserves.
         console.error(`podium: topology reconcile failed: ${(error as Error).message}`)
