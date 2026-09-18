@@ -14,6 +14,20 @@ Difference, by file, computed with `comm` over the sorted `FAIL` lines of both r
 
 So Phase B introduced exactly one web-lane regression, and it is a test-only one.
 
+## Re-run after B11 and B12 (same day)
+
+The first comparison predates B11 (`6766e4183`), which changed product code in the
+optimistic path, so the lane was re-run on `c728e9c25`:
+
+| Tree | Failing files | Failing tests | Total |
+|---|---:|---:|---:|
+| Clean base `c5e5fdfaf` | 19 | 35 | 4131 |
+| `integrate/4286-frontend-perf` at `c728e9c25` | 19 | 35 | 4137 |
+
+Diffing the sorted `FAIL` file lists both ways is EMPTY in both directions: no file fails
+only on ours, and none fails only on the base. **Phase B, complete, introduces zero web-lane
+regressions.** The six extra passing tests are B12's repaired probe assertions.
+
 ## Why the one regression is not a product defect
 
 `slice-render-count.test.tsx` deliberately publishes fresh snapshot objects carrying
