@@ -1,0 +1,2573 @@
+{
+  "live": {
+    "at": "2026-09-18T17:54:30.437Z",
+    "browser": "148.0.7778.96",
+    "cardinalities": {
+      "issues": 4867,
+      "openIssues": 2230,
+      "sessions": 4304,
+      "repos": 500,
+      "worktrees": 468,
+      "machines": 6,
+      "elements": 7755,
+      "buttons": 428
+    },
+    "heapStart": {
+      "usedSize": 152961996,
+      "totalSize": 163729408,
+      "embedderHeapUsedSize": 20775080,
+      "backingStorageSize": 2758980
+    },
+    "heapEnd": null,
+    "windows": [
+      {
+        "name": "connected-idle",
+        "elapsedMs": 65787.39999997616,
+        "pubs": 110,
+        "pubsPerMinute": 100.32316218610846,
+        "deriveCount": 38,
+        "derivesPerMinute": 34.65709239156474,
+        "deriveTotalMs": 5536.299999713898,
+        "deriveP50": 134.6,
+        "deriveP95": 406.9,
+        "notifyMs": 5743.499999046326,
+        "keys": {
+          "issues": 7,
+          "issueProjections": 7,
+          "hostMetrics": 40,
+          "conversations": 31,
+          "sessions": 13,
+          "machines": 17,
+          "coarseNow": 1,
+          "drafts": 2
+        },
+        "keyGroups": {
+          "coarseNow": {
+            "publishes": 1,
+            "notifyMs": 75.5,
+            "derives": 1,
+            "deriveMs": 74.5
+          },
+          "conversations": {
+            "publishes": 30,
+            "notifyMs": 26.40000009536743,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "drafts": {
+            "publishes": 2,
+            "notifyMs": 0.8999999761581421,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "hostMetrics": {
+            "publishes": 40,
+            "notifyMs": 71.19999957084656,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issues,issueProjections": {
+            "publishes": 7,
+            "notifyMs": 1357.3999996185303,
+            "derives": 7,
+            "deriveMs": 1289.6999999284744
+          },
+          "machines": {
+            "publishes": 17,
+            "notifyMs": 1290.8999999761581,
+            "derives": 17,
+            "deriveMs": 1260.6999999284744
+          },
+          "sessions": {
+            "publishes": 12,
+            "notifyMs": 2785.8999997377396,
+            "derives": 12,
+            "deriveMs": 2776.799999833107
+          },
+          "sessions,conversations": {
+            "publishes": 1,
+            "notifyMs": 135.30000007152557,
+            "derives": 1,
+            "deriveMs": 134.60000002384186
+          }
+        },
+        "longTasks": 57,
+        "longTaskMs": 26643,
+        "longTaskMaxMs": 2198,
+        "reactCommits": 215,
+        "issueWakes": 91,
+        "warm": {
+          "n": 0,
+          "p50": null,
+          "p95": null
+        },
+        "cold": {
+          "n": 0,
+          "p50": null,
+          "p95": null
+        },
+        "timeouts": 0
+      },
+      {
+        "name": "disconnected-idle",
+        "elapsedMs": 65614.5,
+        "pubs": 1,
+        "pubsPerMinute": 0.9144320234094598,
+        "deriveCount": 1,
+        "derivesPerMinute": 0.9144320234094598,
+        "deriveTotalMs": 120.60000002384186,
+        "deriveP50": 120.6,
+        "deriveP95": 120.6,
+        "notifyMs": 121.20000004768372,
+        "keys": {
+          "coarseNow": 1
+        },
+        "keyGroups": {
+          "coarseNow": {
+            "publishes": 1,
+            "notifyMs": 121.20000004768372,
+            "derives": 1,
+            "deriveMs": 120.60000002384186
+          }
+        },
+        "longTasks": 22,
+        "longTaskMs": 2070,
+        "longTaskMaxMs": 425,
+        "reactCommits": 134,
+        "issueWakes": 0,
+        "warm": {
+          "n": 0,
+          "p50": null,
+          "p95": null
+        },
+        "cold": {
+          "n": 0,
+          "p50": null,
+          "p95": null
+        },
+        "timeouts": 0
+      },
+      {
+        "name": "agent-activity",
+        "elapsedMs": 65516.699999928474,
+        "pubs": 125,
+        "pubsPerMinute": 114.47463013259501,
+        "deriveCount": 58,
+        "derivesPerMinute": 53.11622838152409,
+        "deriveTotalMs": 8082.699999809265,
+        "deriveP50": 141.3,
+        "deriveP95": 300,
+        "notifyMs": 8267.599999666214,
+        "keys": {
+          "hostMetrics": 39,
+          "conversations": 29,
+          "issues": 11,
+          "issueProjections": 5,
+          "sessions": 34,
+          "machines": 13,
+          "issueEvents": 2,
+          "coarseNow": 1
+        },
+        "keyGroups": {
+          "coarseNow": {
+            "publishes": 1,
+            "notifyMs": 63.5,
+            "derives": 1,
+            "deriveMs": 62.89999997615814
+          },
+          "conversations": {
+            "publishes": 28,
+            "notifyMs": 14.000000238418579,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "hostMetrics": {
+            "publishes": 39,
+            "notifyMs": 34.0999995470047,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issues": {
+            "publishes": 6,
+            "notifyMs": 890.700000166893,
+            "derives": 6,
+            "deriveMs": 839.0
+          },
+          "issues,issueProjections": {
+            "publishes": 2,
+            "notifyMs": 514.7999999523163,
+            "derives": 2,
+            "deriveMs": 481.1999999284744
+          },
+          "issues,issueProjections,issueEvents": {
+            "publishes": 2,
+            "notifyMs": 692.6000000238419,
+            "derives": 2,
+            "deriveMs": 668.3999998569489
+          },
+          "machines": {
+            "publishes": 13,
+            "notifyMs": 856.900000333786,
+            "derives": 13,
+            "deriveMs": 850.1999998092651
+          },
+          "sessions": {
+            "publishes": 32,
+            "notifyMs": 4903.699999451637,
+            "derives": 32,
+            "deriveMs": 4884.600000143051
+          },
+          "sessions,conversations": {
+            "publishes": 1,
+            "notifyMs": 146.29999995231628,
+            "derives": 1,
+            "deriveMs": 145.80000007152557
+          },
+          "sessions,issues,issueProjections": {
+            "publishes": 1,
+            "notifyMs": 151,
+            "derives": 1,
+            "deriveMs": 150.60000002384186
+          }
+        },
+        "longTasks": 70,
+        "longTaskMs": 38367,
+        "longTaskMaxMs": 1371,
+        "reactCommits": 196,
+        "issueWakes": 143,
+        "warm": {
+          "n": 0,
+          "p50": null,
+          "p95": null
+        },
+        "cold": {
+          "n": 0,
+          "p50": null,
+          "p95": null
+        },
+        "timeouts": 0
+      }
+    ]
+  },
+  "repeat": {
+    "at": "2026-09-18T18:00:01.134Z",
+    "browser": "148.0.7778.96",
+    "cardinalities": {
+      "issues": 4869,
+      "openIssues": 2231,
+      "sessions": 4305,
+      "repos": 500,
+      "worktrees": 468,
+      "machines": 6,
+      "elements": 8245,
+      "buttons": 529
+    },
+    "heapStart": {
+      "usedSize": 126047144,
+      "totalSize": 129982464,
+      "embedderHeapUsedSize": 21430720,
+      "backingStorageSize": 2722203
+    },
+    "heapEnd": null,
+    "windows": [
+      {
+        "name": "switches",
+        "elapsedMs": 177868.10000002384,
+        "pubs": 535,
+        "pubsPerMinute": 180.47080954929916,
+        "deriveCount": 209,
+        "derivesPerMinute": 70.50168073981966,
+        "deriveTotalMs": 26338.399999022484,
+        "deriveP50": 130.6,
+        "deriveP95": 210.4,
+        "notifyMs": 39784.99999880791,
+        "keys": {
+          "hostMetrics": 107,
+          "conversations": 56,
+          "issueVisitBaseline": 30,
+          "selectedIssueId": 30,
+          "issues": 110,
+          "workspaces": 6,
+          "paneA": 35,
+          "panelMode": 6,
+          "selectedWorktree": 25,
+          "sessions": 92,
+          "issueProjections": 11,
+          "outboxSize": 16,
+          "outboxDeadLetters": 45,
+          "machines": 41,
+          "coarseNow": 3,
+          "issueEvents": 2
+        },
+        "keyGroups": {
+          "coarseNow": {
+            "publishes": 3,
+            "notifyMs": 228.299999833107,
+            "derives": 3,
+            "deriveMs": 160.5
+          },
+          "conversations": {
+            "publishes": 56,
+            "notifyMs": 1356.4999997615814,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "hostMetrics": {
+            "publishes": 107,
+            "notifyMs": 2703.4000000953674,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issueVisitBaseline": {
+            "publishes": 30,
+            "notifyMs": 465.7999999523163,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issues": {
+            "publishes": 54,
+            "notifyMs": 7377.299999713898,
+            "derives": 32,
+            "deriveMs": 5574.500000119209
+          },
+          "issues,issueProjections": {
+            "publishes": 9,
+            "notifyMs": 1660.2999999523163,
+            "derives": 9,
+            "deriveMs": 1376.5999997854233
+          },
+          "issues,issueProjections,issueEvents": {
+            "publishes": 2,
+            "notifyMs": 422.1999999284744,
+            "derives": 2,
+            "deriveMs": 326.39999997615814
+          },
+          "machines": {
+            "publishes": 41,
+            "notifyMs": 3807.6999999284744,
+            "derives": 41,
+            "deriveMs": 2583.0000005960464
+          },
+          "outboxDeadLetters": {
+            "publishes": 29,
+            "notifyMs": 559.2000002861023,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "outboxSize,outboxDeadLetters": {
+            "publishes": 16,
+            "notifyMs": 376.2000000476837,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "paneA": {
+            "publishes": 29,
+            "notifyMs": 603.0999999046326,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "panelMode": {
+            "publishes": 6,
+            "notifyMs": 131.10000002384186,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "selectedIssueId": {
+            "publishes": 30,
+            "notifyMs": 3048.899999856949,
+            "derives": 30,
+            "deriveMs": 2153.1999999284744
+          },
+          "selectedWorktree": {
+            "publishes": 25,
+            "notifyMs": 355.10000002384186,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "sessions": {
+            "publishes": 47,
+            "notifyMs": 8034.099999666214,
+            "derives": 47,
+            "deriveMs": 6883.199999570847
+          },
+          "sessions,issues": {
+            "publishes": 45,
+            "notifyMs": 8502.899999856949,
+            "derives": 45,
+            "deriveMs": 7280.999999046326
+          },
+          "workspaces,paneA": {
+            "publishes": 6,
+            "notifyMs": 152.89999997615814,
+            "derives": 0,
+            "deriveMs": 0
+          }
+        },
+        "longTasks": 304,
+        "longTaskMs": 137549,
+        "longTaskMaxMs": 2986,
+        "reactCommits": 1065,
+        "issueWakes": 2833,
+        "warm": {
+          "n": 0,
+          "p50": null,
+          "p95": null
+        },
+        "cold": {
+          "n": 30,
+          "p50": 657.2,
+          "p95": 1160.8
+        },
+        "timeouts": 0,
+        "gestures": [
+          {
+            "index": 0,
+            "clickMs": 3445.5774740000015,
+            "observedMs": 5058.100000023842,
+            "pubs": 10,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 313.1999999284744,
+            "derives": 2,
+            "deriveMs": 494.89999997615814,
+            "resident": null
+          },
+          {
+            "index": 1,
+            "clickMs": 1719.3470349999989,
+            "observedMs": 3274.899999976158,
+            "pubs": 10,
+            "navigationPubs": 6,
+            "navigationNotifyMs": 157.79999995231628,
+            "derives": 3,
+            "deriveMs": 488.39999997615814,
+            "resident": null
+          },
+          {
+            "index": 2,
+            "clickMs": 1766.219352,
+            "observedMs": 3403.0,
+            "pubs": 14,
+            "navigationPubs": 6,
+            "navigationNotifyMs": 180.29999995231628,
+            "derives": 6,
+            "deriveMs": 786.1999996900558,
+            "resident": null
+          },
+          {
+            "index": 3,
+            "clickMs": 1180.2950839999976,
+            "observedMs": 2705.100000023842,
+            "pubs": 10,
+            "navigationPubs": 6,
+            "navigationNotifyMs": 141.70000004768372,
+            "derives": 3,
+            "deriveMs": 323.89999997615814,
+            "resident": null
+          },
+          {
+            "index": 4,
+            "clickMs": 1557.619531000004,
+            "observedMs": 3805.8000000715256,
+            "pubs": 15,
+            "navigationPubs": 6,
+            "navigationNotifyMs": 150.90000009536743,
+            "derives": 5,
+            "deriveMs": 504.39999997615814,
+            "resident": null
+          },
+          {
+            "index": 5,
+            "clickMs": 2440.801176000001,
+            "observedMs": 4540.299999952316,
+            "pubs": 16,
+            "navigationPubs": 6,
+            "navigationNotifyMs": 113.60000002384186,
+            "derives": 6,
+            "deriveMs": 747.2999999523163,
+            "resident": null
+          },
+          {
+            "index": 6,
+            "clickMs": 1023.2706109999999,
+            "observedMs": 2529.5,
+            "pubs": 8,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 91.5,
+            "derives": 3,
+            "deriveMs": 329.2999999523163,
+            "resident": null
+          },
+          {
+            "index": 7,
+            "clickMs": 2438.176496,
+            "observedMs": 4629.700000047684,
+            "pubs": 14,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 181.30000007152557,
+            "derives": 8,
+            "deriveMs": 722.2000000476837,
+            "resident": null
+          },
+          {
+            "index": 8,
+            "clickMs": 5170.548767,
+            "observedMs": 6710.700000047684,
+            "pubs": 22,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 160.79999995231628,
+            "derives": 10,
+            "deriveMs": 958.3999999761581,
+            "resident": null
+          },
+          {
+            "index": 9,
+            "clickMs": 2198.594836999997,
+            "observedMs": 3737.0999999046326,
+            "pubs": 11,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 177.30000007152557,
+            "derives": 4,
+            "deriveMs": 480.89999997615814,
+            "resident": null
+          },
+          {
+            "index": 10,
+            "clickMs": 1440.2658599999995,
+            "observedMs": 2973.100000023842,
+            "pubs": 9,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 135.5,
+            "derives": 3,
+            "deriveMs": 575.5999999046326,
+            "resident": null
+          },
+          {
+            "index": 11,
+            "clickMs": 2020.8053570000047,
+            "observedMs": 3630.5999999046326,
+            "pubs": 9,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 102.39999997615814,
+            "derives": 3,
+            "deriveMs": 347.7000000476837,
+            "resident": null
+          },
+          {
+            "index": 12,
+            "clickMs": 2253.756032999998,
+            "observedMs": 3966.100000023842,
+            "pubs": 12,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 126.29999995231628,
+            "derives": 4,
+            "deriveMs": 811.1999999284744,
+            "resident": null
+          },
+          {
+            "index": 13,
+            "clickMs": 1820.272855999996,
+            "observedMs": 3371.5,
+            "pubs": 9,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 173.70000004768372,
+            "derives": 3,
+            "deriveMs": 348.89999997615814,
+            "resident": null
+          },
+          {
+            "index": 14,
+            "clickMs": 3180.3569750000024,
+            "observedMs": 5196.100000023842,
+            "pubs": 16,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 118.49999988079071,
+            "derives": 6,
+            "deriveMs": 872.6999999284744,
+            "resident": null
+          },
+          {
+            "index": 15,
+            "clickMs": 4437.721430999998,
+            "observedMs": 6061.699999928474,
+            "pubs": 18,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 103.40000009536743,
+            "derives": 8,
+            "deriveMs": 770.1999998092651,
+            "resident": null
+          },
+          {
+            "index": 16,
+            "clickMs": 1144.3921689999988,
+            "observedMs": 2815.2999999523163,
+            "pubs": 9,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 137.4999998807907,
+            "derives": 3,
+            "deriveMs": 388.10000002384186,
+            "resident": null
+          },
+          {
+            "index": 17,
+            "clickMs": 2071.0986129999947,
+            "observedMs": 4585.200000047684,
+            "pubs": 12,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 142.09999990463257,
+            "derives": 7,
+            "deriveMs": 640.4000002145767,
+            "resident": null
+          },
+          {
+            "index": 18,
+            "clickMs": 2481.979742999989,
+            "observedMs": 4426.399999976158,
+            "pubs": 13,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 204.9999998807907,
+            "derives": 8,
+            "deriveMs": 689.6000001430511,
+            "resident": null
+          },
+          {
+            "index": 19,
+            "clickMs": 2942.7245990000083,
+            "observedMs": 4985.0,
+            "pubs": 15,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 205.20000004768372,
+            "derives": 5,
+            "deriveMs": 739.4000000953674,
+            "resident": null
+          },
+          {
+            "index": 20,
+            "clickMs": 1988.4735590000055,
+            "observedMs": 3992.2999999523163,
+            "pubs": 12,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 106.70000004768372,
+            "derives": 5,
+            "deriveMs": 604.1999998092651,
+            "resident": null
+          },
+          {
+            "index": 21,
+            "clickMs": 2410.366693000018,
+            "observedMs": 4936.900000095367,
+            "pubs": 14,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 152.30000007152557,
+            "derives": 5,
+            "deriveMs": 1058.2999999523163,
+            "resident": null
+          },
+          {
+            "index": 22,
+            "clickMs": 2488.2135509999935,
+            "observedMs": 4312.600000023842,
+            "pubs": 12,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 115.89999985694885,
+            "derives": 5,
+            "deriveMs": 617.1999999284744,
+            "resident": null
+          },
+          {
+            "index": 23,
+            "clickMs": 2021.0300690000004,
+            "observedMs": 4008.3000000715256,
+            "pubs": 14,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 301.1999999284744,
+            "derives": 5,
+            "deriveMs": 741.6999999284744,
+            "resident": null
+          },
+          {
+            "index": 24,
+            "clickMs": 1705.0033299999777,
+            "observedMs": 3324.100000023842,
+            "pubs": 10,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 114.69999992847443,
+            "derives": 4,
+            "deriveMs": 500.9999998807907,
+            "resident": null
+          },
+          {
+            "index": 25,
+            "clickMs": 3134.255101000017,
+            "observedMs": 4659.900000095367,
+            "pubs": 13,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 119.39999997615814,
+            "derives": 4,
+            "deriveMs": 463.4999998807907,
+            "resident": null
+          },
+          {
+            "index": 26,
+            "clickMs": 3943.5331850000075,
+            "observedMs": 6284.5,
+            "pubs": 20,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 114.00000011920929,
+            "derives": 10,
+            "deriveMs": 1004.6000000238419,
+            "resident": null
+          },
+          {
+            "index": 27,
+            "clickMs": 2277.8522499999963,
+            "observedMs": 3880.7999999523163,
+            "pubs": 14,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 120.60000002384186,
+            "derives": 5,
+            "deriveMs": 643.0999999046326,
+            "resident": null
+          },
+          {
+            "index": 28,
+            "clickMs": 1581.1732299999858,
+            "observedMs": 3867.5,
+            "pubs": 11,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 256.4999998807907,
+            "derives": 7,
+            "deriveMs": 705.200000166893,
+            "resident": null
+          },
+          {
+            "index": 29,
+            "clickMs": 3460.8510930000048,
+            "observedMs": 4988.899999976158,
+            "pubs": 15,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 237.60000014305115,
+            "derives": 8,
+            "deriveMs": 693.7000000476837,
+            "resident": null
+          }
+        ]
+      },
+      {
+        "name": "optimistic-unread",
+        "elapsedMs": 50175.799999952316,
+        "pubs": 131,
+        "pubsPerMinute": 156.64922133792524,
+        "deriveCount": 45,
+        "derivesPerMinute": 53.81080122295142,
+        "deriveTotalMs": 5614.199999809265,
+        "deriveP50": 132.3,
+        "deriveP95": 229.3,
+        "notifyMs": 8742.599999070168,
+        "keys": {
+          "repos": 1,
+          "repoDiagnostics": 1,
+          "machines": 15,
+          "reposLoading": 1,
+          "issues": 37,
+          "conversations": 19,
+          "hostMetrics": 30,
+          "outboxDeadLetters": 25,
+          "sessions": 29,
+          "issueProjections": 1,
+          "coarseNow": 1,
+          "outboxSize": 3
+        },
+        "keyGroups": {
+          "coarseNow": {
+            "publishes": 1,
+            "notifyMs": 62.39999997615814,
+            "derives": 1,
+            "deriveMs": 47.299999952316284
+          },
+          "conversations": {
+            "publishes": 19,
+            "notifyMs": 338.3999996185303,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "hostMetrics": {
+            "publishes": 30,
+            "notifyMs": 796.6999998092651,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issues": {
+            "publishes": 11,
+            "notifyMs": 311.19999980926514,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "machines": {
+            "publishes": 14,
+            "notifyMs": 1090.200000166893,
+            "derives": 14,
+            "deriveMs": 810.0999999046326
+          },
+          "outboxDeadLetters": {
+            "publishes": 22,
+            "notifyMs": 629.4999996423721,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "outboxSize,outboxDeadLetters": {
+            "publishes": 3,
+            "notifyMs": 36.10000002384186,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "repos,repoDiagnostics,machines": {
+            "publishes": 1,
+            "notifyMs": 83.10000002384186,
+            "derives": 1,
+            "deriveMs": 49.59999990463257
+          },
+          "reposLoading": {
+            "publishes": 1,
+            "notifyMs": 11.799999952316284,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "sessions": {
+            "publishes": 3,
+            "notifyMs": 527.2000000476837,
+            "derives": 3,
+            "deriveMs": 439.2999999523163
+          },
+          "sessions,issues": {
+            "publishes": 25,
+            "notifyMs": 4668.700000047684,
+            "derives": 25,
+            "deriveMs": 4102.800000071526
+          },
+          "sessions,issues,issueProjections": {
+            "publishes": 1,
+            "notifyMs": 187.29999995231628,
+            "derives": 1,
+            "deriveMs": 165.10000002384186
+          }
+        },
+        "longTasks": 69,
+        "longTaskMs": 29173,
+        "longTaskMaxMs": 1527,
+        "reactCommits": 196,
+        "issueWakes": 962,
+        "warm": {
+          "n": 0,
+          "p50": null,
+          "p95": null
+        },
+        "cold": {
+          "n": 30,
+          "p50": 657.2,
+          "p95": 1160.8
+        },
+        "timeouts": 0
+      }
+    ]
+  },
+  "warm": {
+    "at": "2026-09-18T18:05:42.492Z",
+    "browser": "148.0.7778.96",
+    "cardinalities": {
+      "issues": 4869,
+      "openIssues": 2229,
+      "sessions": 4308,
+      "repos": 501,
+      "worktrees": 469,
+      "machines": 6,
+      "elements": 8292,
+      "buttons": 530
+    },
+    "heapStart": {
+      "usedSize": 136931320,
+      "totalSize": 140902400,
+      "embedderHeapUsedSize": 22483792,
+      "backingStorageSize": 2725481
+    },
+    "heapEnd": {
+      "usedSize": 222644448,
+      "totalSize": 229785600,
+      "embedderHeapUsedSize": 24932072,
+      "backingStorageSize": 2825653
+    },
+    "windows": [
+      {
+        "name": "switches",
+        "elapsedMs": 95915.0,
+        "pubs": 288,
+        "pubsPerMinute": 180.159516238336,
+        "deriveCount": 92,
+        "derivesPerMinute": 57.550956576135114,
+        "deriveTotalMs": 14114.200000166893,
+        "deriveP50": 143.6,
+        "deriveP95": 373.7,
+        "notifyMs": 22099.400000691414,
+        "keys": {
+          "hostMetrics": 57,
+          "issueVisitBaseline": 14,
+          "selectedIssueId": 14,
+          "issues": 64,
+          "workspaces": 2,
+          "paneA": 15,
+          "machines": 21,
+          "conversations": 49,
+          "issueProjections": 12,
+          "reposLoading": 2,
+          "panelMode": 2,
+          "sessions": 27,
+          "issueEvents": 2,
+          "repos": 1,
+          "repoDiagnostics": 1,
+          "selectedWorktree": 1,
+          "coarseNow": 2,
+          "outboxSize": 4,
+          "outboxDeadLetters": 23
+        },
+        "keyGroups": {
+          "coarseNow": {
+            "publishes": 2,
+            "notifyMs": 171.89999985694885,
+            "derives": 2,
+            "deriveMs": 108.29999995231628
+          },
+          "conversations": {
+            "publishes": 48,
+            "notifyMs": 1202.1000009775162,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "hostMetrics": {
+            "publishes": 57,
+            "notifyMs": 1583.4000005722046,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issueVisitBaseline": {
+            "publishes": 14,
+            "notifyMs": 359.40000009536743,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issues": {
+            "publishes": 52,
+            "notifyMs": 5808.499999165535,
+            "derives": 18,
+            "deriveMs": 3811.299999833107
+          },
+          "issues,issueProjections": {
+            "publishes": 8,
+            "notifyMs": 1637.1999999284744,
+            "derives": 8,
+            "deriveMs": 1383.3999999761581
+          },
+          "issues,issueProjections,conversations": {
+            "publishes": 1,
+            "notifyMs": 429.59999990463257,
+            "derives": 1,
+            "deriveMs": 373.6999999284744
+          },
+          "issues,issueProjections,issueEvents": {
+            "publishes": 1,
+            "notifyMs": 188.29999995231628,
+            "derives": 1,
+            "deriveMs": 152.5
+          },
+          "machines": {
+            "publishes": 20,
+            "notifyMs": 2228.900000333786,
+            "derives": 20,
+            "deriveMs": 1730.9000004529953
+          },
+          "outboxDeadLetters": {
+            "publishes": 19,
+            "notifyMs": 356.30000030994415,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "outboxSize,outboxDeadLetters": {
+            "publishes": 4,
+            "notifyMs": 76.799999833107,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "paneA": {
+            "publishes": 13,
+            "notifyMs": 291.700000166893,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "panelMode": {
+            "publishes": 2,
+            "notifyMs": 63.799999952316284,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "repos,repoDiagnostics,machines": {
+            "publishes": 1,
+            "notifyMs": 122.89999997615814,
+            "derives": 1,
+            "deriveMs": 83.70000004768372
+          },
+          "reposLoading": {
+            "publishes": 2,
+            "notifyMs": 52.89999997615814,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "selectedIssueId": {
+            "publishes": 14,
+            "notifyMs": 1253.799999833107,
+            "derives": 14,
+            "deriveMs": 942.200000166893
+          },
+          "selectedWorktree": {
+            "publishes": 1,
+            "notifyMs": 15.099999904632568,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "sessions": {
+            "publishes": 25,
+            "notifyMs": 5695.499999880791,
+            "derives": 25,
+            "deriveMs": 5052.799999952316
+          },
+          "sessions,issues,issueProjections": {
+            "publishes": 1,
+            "notifyMs": 326.2000000476837,
+            "derives": 1,
+            "deriveMs": 303.59999990463257
+          },
+          "sessions,issues,issueProjections,issueEvents": {
+            "publishes": 1,
+            "notifyMs": 188.20000004768372,
+            "derives": 1,
+            "deriveMs": 171.79999995231628
+          },
+          "workspaces,paneA": {
+            "publishes": 2,
+            "notifyMs": 46.89999997615814,
+            "derives": 0,
+            "deriveMs": 0
+          }
+        },
+        "longTasks": 158,
+        "longTaskMs": 72640,
+        "longTaskMaxMs": 1726,
+        "reactCommits": 405,
+        "issueWakes": 1436,
+        "warm": {
+          "n": 12,
+          "p50": 729.4,
+          "p95": 916.8
+        },
+        "cold": {
+          "n": 2,
+          "p50": 4860.7,
+          "p95": 4860.7
+        },
+        "timeouts": 0,
+        "gestures": [
+          {
+            "index": 0,
+            "clickMs": 3535.8799070000023,
+            "observedMs": 5806.300000071526,
+            "pubs": 18,
+            "navigationPubs": 4,
+            "navigationNotifyMs": 176.799999833107,
+            "derives": 10,
+            "deriveMs": 1293.200000166893,
+            "resident": 1
+          },
+          {
+            "index": 1,
+            "clickMs": 8871.771546000004,
+            "observedMs": 10497.200000047684,
+            "pubs": 26,
+            "navigationPubs": 6,
+            "navigationNotifyMs": 327.299999833107,
+            "derives": 10,
+            "deriveMs": 2154.199999809265,
+            "resident": 2
+          },
+          {
+            "index": 2,
+            "clickMs": 2408.269622000007,
+            "observedMs": 4869.0,
+            "pubs": 8,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 132.20000004768372,
+            "derives": 4,
+            "deriveMs": 1100.8000001907349,
+            "resident": 2
+          },
+          {
+            "index": 3,
+            "clickMs": 1685.691822000008,
+            "observedMs": 3540.7000000476837,
+            "pubs": 11,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 244.80000007152557,
+            "derives": 3,
+            "deriveMs": 705.5999999046326,
+            "resident": 2
+          },
+          {
+            "index": 4,
+            "clickMs": 4080.6598899999954,
+            "observedMs": 5596.899999976158,
+            "pubs": 16,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 194.10000002384186,
+            "derives": 8,
+            "deriveMs": 1067.1000001430511,
+            "resident": 2
+          },
+          {
+            "index": 5,
+            "clickMs": 1388.1711569999898,
+            "observedMs": 3135.0999999046326,
+            "pubs": 8,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 96.09999990463257,
+            "derives": 3,
+            "deriveMs": 389.2999999523163,
+            "resident": 2
+          },
+          {
+            "index": 6,
+            "clickMs": 2380.866326999996,
+            "observedMs": 4125.399999976158,
+            "pubs": 13,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 98.59999990463257,
+            "derives": 8,
+            "deriveMs": 717.8000000715256,
+            "resident": 2
+          },
+          {
+            "index": 7,
+            "clickMs": 1451.224064000009,
+            "observedMs": 3251.3000000715256,
+            "pubs": 8,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 89.89999997615814,
+            "derives": 2,
+            "deriveMs": 184.29999995231628,
+            "resident": 2
+          },
+          {
+            "index": 8,
+            "clickMs": 2682.7711710000003,
+            "observedMs": 4233.600000023842,
+            "pubs": 19,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 101.90000009536743,
+            "derives": 7,
+            "deriveMs": 546.7000000476837,
+            "resident": 2
+          },
+          {
+            "index": 9,
+            "clickMs": 2193.691665999999,
+            "observedMs": 4158.299999952316,
+            "pubs": 15,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 123.10000002384186,
+            "derives": 4,
+            "deriveMs": 470.200000166893,
+            "resident": 2
+          },
+          {
+            "index": 10,
+            "clickMs": 1054.8170990000071,
+            "observedMs": 2665.7000000476837,
+            "pubs": 13,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 103.89999997615814,
+            "derives": 2,
+            "deriveMs": 224.09999990463257,
+            "resident": 2
+          },
+          {
+            "index": 11,
+            "clickMs": 1430.503663999989,
+            "observedMs": 2935.0,
+            "pubs": 11,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 89.200000166893,
+            "derives": 2,
+            "deriveMs": 222.0,
+            "resident": 2
+          },
+          {
+            "index": 12,
+            "clickMs": 1561.4877859999979,
+            "observedMs": 3282.899999976158,
+            "pubs": 8,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 137.80000007152557,
+            "derives": 4,
+            "deriveMs": 800.5,
+            "resident": 2
+          },
+          {
+            "index": 13,
+            "clickMs": 2157.828573000006,
+            "observedMs": 3784.2000000476837,
+            "pubs": 14,
+            "navigationPubs": 3,
+            "navigationNotifyMs": 115.0,
+            "derives": 4,
+            "deriveMs": 460.0,
+            "resident": 2
+          }
+        ]
+      },
+      {
+        "name": "optimistic-unread",
+        "elapsedMs": 4308.200000047684,
+        "pubs": 16,
+        "pubsPerMinute": 222.83088064374323,
+        "deriveCount": 1,
+        "derivesPerMinute": 13.926930040233952,
+        "deriveTotalMs": 124.89999997615814,
+        "deriveP50": 124.9,
+        "deriveP95": 124.9,
+        "notifyMs": 509.9999998807907,
+        "keys": {
+          "issues": 7,
+          "conversations": 3,
+          "outboxDeadLetters": 4,
+          "hostMetrics": 2
+        },
+        "keyGroups": {
+          "conversations": {
+            "publishes": 3,
+            "notifyMs": 77.29999995231628,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "hostMetrics": {
+            "publishes": 2,
+            "notifyMs": 48.700000047683716,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issues": {
+            "publishes": 7,
+            "notifyMs": 317.7999999523163,
+            "derives": 1,
+            "deriveMs": 124.89999997615814
+          },
+          "outboxDeadLetters": {
+            "publishes": 4,
+            "notifyMs": 66.19999992847443,
+            "derives": 0,
+            "deriveMs": 0
+          }
+        },
+        "longTasks": 7,
+        "longTaskMs": 2433,
+        "longTaskMaxMs": 544,
+        "reactCommits": 11,
+        "issueWakes": 161,
+        "warm": {
+          "n": 12,
+          "p50": 729.4,
+          "p95": 916.8
+        },
+        "cold": {
+          "n": 2,
+          "p50": 4860.7,
+          "p95": 4860.7
+        },
+        "timeouts": 0
+      },
+      {
+        "name": "optimistic-read-press",
+        "elapsedMs": 8590.299999952316,
+        "pubs": 32,
+        "pubsPerMinute": 223.507910085871,
+        "deriveCount": 8,
+        "derivesPerMinute": 55.87697752146775,
+        "deriveTotalMs": 689.8999997377396,
+        "deriveP50": 70.9,
+        "deriveP95": 164.9,
+        "notifyMs": 1349.8999999761581,
+        "keys": {
+          "hostMetrics": 4,
+          "conversations": 2,
+          "paneA": 1,
+          "issueVisitBaseline": 1,
+          "issues": 12,
+          "selectedIssueId": 1,
+          "machines": 4,
+          "outboxDeadLetters": 7,
+          "outboxSize": 1
+        },
+        "keyGroups": {
+          "conversations": {
+            "publishes": 2,
+            "notifyMs": 25.700000047683716,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "hostMetrics": {
+            "publishes": 4,
+            "notifyMs": 87.90000009536743,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issueVisitBaseline": {
+            "publishes": 1,
+            "notifyMs": 10.399999976158142,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issues": {
+            "publishes": 12,
+            "notifyMs": 682.5,
+            "derives": 3,
+            "deriveMs": 418.59999990463257
+          },
+          "machines": {
+            "publishes": 4,
+            "notifyMs": 294.59999990463257,
+            "derives": 4,
+            "deriveMs": 220.89999985694885
+          },
+          "outboxDeadLetters": {
+            "publishes": 6,
+            "notifyMs": 160.59999990463257,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "outboxSize,outboxDeadLetters": {
+            "publishes": 1,
+            "notifyMs": 15.400000095367432,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "paneA": {
+            "publishes": 1,
+            "notifyMs": 9.299999952316284,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "selectedIssueId": {
+            "publishes": 1,
+            "notifyMs": 63.5,
+            "derives": 1,
+            "deriveMs": 50.39999997615814
+          }
+        },
+        "longTasks": 13,
+        "longTaskMs": 4862,
+        "longTaskMaxMs": 918,
+        "reactCommits": 59,
+        "issueWakes": 276,
+        "warm": {
+          "n": 13,
+          "p50": 720.8,
+          "p95": 916.8
+        },
+        "cold": {
+          "n": 2,
+          "p50": 4860.7,
+          "p95": 4860.7
+        },
+        "timeouts": 0
+      },
+      {
+        "name": "optimistic-echo",
+        "elapsedMs": 55486.5,
+        "pubs": 90,
+        "pubsPerMinute": 97.32096996566732,
+        "deriveCount": 17,
+        "derivesPerMinute": 18.38284988240383,
+        "deriveTotalMs": 1312.0000003576279,
+        "deriveP50": 50.6,
+        "deriveP95": 257.1,
+        "notifyMs": 3492.5999997854233,
+        "keys": {
+          "hostMetrics": 34,
+          "outboxDeadLetters": 6,
+          "issues": 8,
+          "conversations": 27,
+          "machines": 13,
+          "outboxSize": 1,
+          "coarseNow": 1,
+          "sessions": 1,
+          "issueProjections": 1
+        },
+        "keyGroups": {
+          "coarseNow": {
+            "publishes": 1,
+            "notifyMs": 70.09999990463257,
+            "derives": 1,
+            "deriveMs": 50
+          },
+          "conversations": {
+            "publishes": 27,
+            "notifyMs": 644.0,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "hostMetrics": {
+            "publishes": 34,
+            "notifyMs": 944.6000001430511,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "issues": {
+            "publishes": 7,
+            "notifyMs": 431.89999985694885,
+            "derives": 1,
+            "deriveMs": 257.10000002384186
+          },
+          "issues,issueProjections": {
+            "publishes": 1,
+            "notifyMs": 182.20000004768372,
+            "derives": 1,
+            "deriveMs": 151.70000004768372
+          },
+          "machines": {
+            "publishes": 13,
+            "notifyMs": 936.1999998092651,
+            "derives": 13,
+            "deriveMs": 700.3000003099442
+          },
+          "outboxDeadLetters": {
+            "publishes": 5,
+            "notifyMs": 78.89999997615814,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "outboxSize,outboxDeadLetters": {
+            "publishes": 1,
+            "notifyMs": 33.700000047683716,
+            "derives": 0,
+            "deriveMs": 0
+          },
+          "sessions": {
+            "publishes": 1,
+            "notifyMs": 171,
+            "derives": 1,
+            "deriveMs": 152.89999997615814
+          }
+        },
+        "longTasks": 44,
+        "longTaskMs": 9196,
+        "longTaskMaxMs": 595,
+        "reactCommits": 119,
+        "issueWakes": 184,
+        "warm": {
+          "n": 13,
+          "p50": 720.8,
+          "p95": 916.8
+        },
+        "cold": {
+          "n": 2,
+          "p50": 4860.7,
+          "p95": 4860.7
+        },
+        "timeouts": 0
+      }
+    ]
+  },
+  "cpuProfiles": [
+    {
+      "window": "repeat-optimistic-unread.cpuprofile",
+      "selfCategoryMs": {
+        "other": 23911.108000000033,
+        "viewmodels": 9350.907999999941,
+        "react": 3319.411,
+        "idle": 8175.242000000016,
+        "gc": 4529.432000000012,
+        "replica": 489.6160000000001
+      },
+      "inclusiveMs": {
+        "react": 19890.36400000005,
+        "mission": 6237.635000000003,
+        "reactCommit": 1780.341000000001,
+        "runtime": 10888.273999999958,
+        "worklist": 5816.472000000002,
+        "replica": 1779.833000000001
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 10132.683
+        },
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 8175.242000000016
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 4529.432000000012
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/idb.ts:99",
+          "function": "e.onsuccess",
+          "ms": 3300.2509999999897
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:388",
+          "function": "Va",
+          "ms": 1758.8070000000002
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1041",
+          "function": "go",
+          "ms": 1315.6770000000026
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:290",
+          "function": "",
+          "ms": 882.5659999999998
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1036",
+          "function": "",
+          "ms": 882.2159999999999
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:86",
+          "function": "vn",
+          "ms": 751.5529999999998
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:393",
+          "function": "",
+          "ms": 664.918
+        },
+        {
+          "source": "../../src/app/store.tsx:140",
+          "function": "",
+          "ms": 571.8540000000005
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:4333",
+          "function": "renderWithHooks",
+          "ms": 546.2520000000001
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:169",
+          "function": "",
+          "ms": 379.558
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/store.ts:696",
+          "function": "hydrate",
+          "ms": 361.71399999999977
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 360.93900000000014
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/worklist/rows.ts:51",
+          "function": "kd",
+          "ms": 350.158
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:288",
+          "function": "G",
+          "ms": 343.06499999999994
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:38",
+          "function": "mn",
+          "ms": 314.92600000000016
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:1291",
+          "function": "setValueForStyles",
+          "ms": 292.76
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:178",
+          "function": "tr",
+          "ms": 256.0160000000001
+        }
+      ]
+    },
+    {
+      "window": "agent-activity.cpuprofile",
+      "selfCategoryMs": {
+        "other": 13955.392999999985,
+        "idle": 21940.622999999974,
+        "viewmodels": 21400.81199999983,
+        "react": 3556.208000000005,
+        "gc": 2348.3800000000006,
+        "replica": 2330.755999999999
+      },
+      "inclusiveMs": {
+        "react": 28616.214000000127,
+        "replica": 10202.085999999996,
+        "runtime": 8595.61400000003,
+        "reactCommit": 2079.142,
+        "worklist": 9037.421000000026,
+        "mission": 4930.036000000015
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 21940.622999999974
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:174",
+          "function": "Oc",
+          "ms": 11254.626999999997
+        },
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 4827.408000000005
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 2348.3800000000006
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1041",
+          "function": "go",
+          "ms": 2131.185999999997
+        },
+        {
+          "source": "../../src/features/setup/ColdStartComposer.tsx:202",
+          "function": "",
+          "ms": 1977.461000000001
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1036",
+          "function": "",
+          "ms": 1265.4820000000004
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:83",
+          "function": "mD",
+          "ms": 1123.652
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:169",
+          "function": "",
+          "ms": 889.72
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 692.5980000000006
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-view-cache.ts:248",
+          "function": "Cd",
+          "ms": 589.2919999999998
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/worklist/rows.ts:51",
+          "function": "kd",
+          "ms": 446.4549999999999
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:8725",
+          "function": "commitHostUpdate",
+          "ms": 392.92099999999994
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1386",
+          "function": "Ao",
+          "ms": 362.106
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-view-models.ts:102",
+          "function": "pd",
+          "ms": 340.29799999999994
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:13577",
+          "function": "updateProperties",
+          "ms": 327.77800000000013
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-views.ts:262",
+          "function": "od",
+          "ms": 317.90600000000006
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:461",
+          "function": "Kc",
+          "ms": 314.71099999999984
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:575",
+          "function": "Xa",
+          "ms": 305.3090000000001
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/store.ts:1058",
+          "function": "slice",
+          "ms": 282.94599999999986
+        }
+      ]
+    },
+    {
+      "window": "disconnected-idle.cpuprofile",
+      "selfCategoryMs": {
+        "other": 10730.434999999994,
+        "react": 249.7570000000001,
+        "idle": 53616.43099999972,
+        "viewmodels": 394.3620000000003,
+        "gc": 626.6749999999996
+      },
+      "inclusiveMs": {
+        "react": 786.5220000000005,
+        "reactCommit": 65.15899999999999,
+        "worklist": 157.16700000000006,
+        "runtime": 121.20600000000005,
+        "mission": 18.615999999999996
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 53616.43099999972
+        },
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 10354.109999999991
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 626.6749999999996
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 121.37299999999999
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:83",
+          "function": "mD",
+          "ms": 84.204
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:461",
+          "function": "Kc",
+          "ms": 50.81999999999999
+        },
+        {
+          "source": "",
+          "function": "fetch",
+          "ms": 42.87
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:15387",
+          "function": "findInstanceBlockingTarget",
+          "ms": 29.610000000000003
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:371",
+          "function": "Hc",
+          "ms": 28.300000000000004
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/worklist/nav.ts:62",
+          "function": "$u",
+          "ms": 27.000999999999998
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:12408",
+          "function": "dispatchEventForPluginEventSystem",
+          "ms": 23.733999999999998
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:12455",
+          "function": "",
+          "ms": 22.159
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:3022",
+          "function": "checkIfContextChanged",
+          "ms": 21.464
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/session-urgency.ts:58",
+          "function": "sa",
+          "ms": 20.058999999999997
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:169",
+          "function": "",
+          "ms": 17.706000000000003
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:392",
+          "function": "Uc",
+          "ms": 15.592
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:575",
+          "function": "Xa",
+          "ms": 15.419999999999998
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:580",
+          "function": "Xc",
+          "ms": 14.136000000000001
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/@base-ui+react@1.5.0+f7941a290aa3d619-72d4714b961b95d8/node_modules/@base-ui/react/esm/popover/trigger/PopoverTrigger.js:26",
+          "function": "",
+          "ms": 11.998999999999999
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:8725",
+          "function": "commitHostUpdate",
+          "ms": 11.691
+        }
+      ]
+    },
+    {
+      "window": "warm-optimistic-read-press.cpuprofile",
+      "selfCategoryMs": {
+        "other": 4466.224000000008,
+        "viewmodels": 1525.5000000000025,
+        "react": 613.4120000000003,
+        "idle": 1459.7290000000005,
+        "gc": 707.8889999999996,
+        "replica": 79.91499999999998
+      },
+      "inclusiveMs": {
+        "mission": 904.2589999999998,
+        "runtime": 1561.1580000000008,
+        "react": 2800.3690000000024,
+        "replica": 109.75499999999995,
+        "reactCommit": 503.7700000000003,
+        "worklist": 909.046
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 2044.1799999999994
+        },
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 1459.7290000000005
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 707.8889999999996
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/idb.ts:99",
+          "function": "e.onsuccess",
+          "ms": 590.592000000001
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:388",
+          "function": "Va",
+          "ms": 544.7719999999999
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:86",
+          "function": "vn",
+          "ms": 125.91999999999996
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1041",
+          "function": "go",
+          "ms": 124.88100000000003
+        },
+        {
+          "source": "../../src/app/store.tsx:140",
+          "function": "",
+          "ms": 122.103
+        },
+        {
+          "source": "",
+          "function": "getBoundingClientRect",
+          "ms": 102.73500000000003
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:290",
+          "function": "",
+          "ms": 94.17799999999997
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:4333",
+          "function": "renderWithHooks",
+          "ms": 90.85399999999997
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:1291",
+          "function": "setValueForStyles",
+          "ms": 82.059
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:38",
+          "function": "mn",
+          "ms": 76.58199999999998
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/store.ts:696",
+          "function": "hydrate",
+          "ms": 72.80300000000001
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-view-cache.ts:248",
+          "function": "Cd",
+          "ms": 68.136
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1036",
+          "function": "",
+          "ms": 65.517
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:178",
+          "function": "tr",
+          "ms": 63.21
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 59.76299999999999
+        },
+        {
+          "source": "../../../../packages/model/src/predicates/machine-selection.ts:368",
+          "function": "vt",
+          "ms": 53.114999999999995
+        },
+        {
+          "source": "../../../../packages/model/src/predicates/machine-selection.ts:340",
+          "function": "_t",
+          "ms": 48.986999999999995
+        }
+      ]
+    },
+    {
+      "window": "connected-idle.cpuprofile",
+      "selfCategoryMs": {
+        "other": 13562.174999999957,
+        "idle": 31622.514000000105,
+        "replica": 1458.1649999999984,
+        "gc": 1390.7560000000003,
+        "viewmodels": 13380.29299999995,
+        "react": 3895.388000000001
+      },
+      "inclusiveMs": {
+        "replica": 5996.366999999995,
+        "runtime": 5883.70000000001,
+        "react": 19032.86499999996,
+        "worklist": 6214.366000000013,
+        "mission": 2822.2370000000033,
+        "reactCommit": 2975.2060000000006
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 31622.514000000105
+        },
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 6660.5830000000105
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:174",
+          "function": "Oc",
+          "ms": 5494.498000000003
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 1390.7560000000003
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:8842",
+          "function": "commitBeforeMutationEffects",
+          "ms": 1337.7880000000007
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1041",
+          "function": "go",
+          "ms": 1201.894999999999
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:83",
+          "function": "mD",
+          "ms": 1053.7740000000003
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 975.2919999999995
+        },
+        {
+          "source": "../../src/features/setup/ColdStartComposer.tsx:202",
+          "function": "",
+          "ms": 815.2509999999997
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1036",
+          "function": "",
+          "ms": 754.0290000000007
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:169",
+          "function": "",
+          "ms": 712.6090000000002
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/worklist/rows.ts:51",
+          "function": "kd",
+          "ms": 495.62799999999993
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:461",
+          "function": "Kc",
+          "ms": 432.70100000000014
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-views.ts:448",
+          "function": "ld",
+          "ms": 357.922
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-view-cache.ts:248",
+          "function": "Cd",
+          "ms": 313.41300000000024
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:1291",
+          "function": "setValueForStyles",
+          "ms": 282.66599999999994
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/store.ts:1058",
+          "function": "slice",
+          "ms": 243.94100000000012
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:8725",
+          "function": "commitHostUpdate",
+          "ms": 243.18399999999986
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-views.ts:262",
+          "function": "od",
+          "ms": 233.23399999999998
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:13577",
+          "function": "updateProperties",
+          "ms": 224.48200000000003
+        }
+      ]
+    },
+    {
+      "window": "warm-optimistic-echo.cpuprofile",
+      "selfCategoryMs": {
+        "other": 9602.000000000033,
+        "viewmodels": 4280.993999999997,
+        "react": 1304.0270000000005,
+        "idle": 38926.16800000027,
+        "gc": 1113.998,
+        "replica": 212.22100000000015
+      },
+      "inclusiveMs": {
+        "react": 7321.359999999997,
+        "mission": 2492.937000000001,
+        "reactCommit": 778.332,
+        "runtime": 3918.0740000000014,
+        "worklist": 1587.7640000000001,
+        "replica": 1545.7360000000022
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 38926.16800000027
+        },
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 4888.352999999999
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 1113.998
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:393",
+          "function": "",
+          "ms": 1005.2150000000007
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:388",
+          "function": "Va",
+          "ms": 986.7090000000006
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/idb.ts:99",
+          "function": "e.onsuccess",
+          "ms": 717.6719999999999
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 401.097
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:86",
+          "function": "vn",
+          "ms": 306.5170000000001
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:290",
+          "function": "",
+          "ms": 298.8810000000003
+        },
+        {
+          "source": "../../src/app/store.tsx:140",
+          "function": "",
+          "ms": 281.5469999999999
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/store.ts:1058",
+          "function": "slice",
+          "ms": 255.8179999999999
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:4333",
+          "function": "renderWithHooks",
+          "ms": 235.747
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:38",
+          "function": "mn",
+          "ms": 192.14000000000007
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/store.ts:696",
+          "function": "hydrate",
+          "ms": 177.63299999999998
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1041",
+          "function": "go",
+          "ms": 176.13999999999996
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:461",
+          "function": "Kc",
+          "ms": 143.134
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:1291",
+          "function": "setValueForStyles",
+          "ms": 136.202
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:169",
+          "function": "",
+          "ms": 134.69799999999998
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/worklist/rows.ts:51",
+          "function": "kd",
+          "ms": 131.31099999999995
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1036",
+          "function": "",
+          "ms": 120.23300000000002
+        }
+      ]
+    },
+    {
+      "window": "warm-optimistic-unread.cpuprofile",
+      "selfCategoryMs": {
+        "other": 2509.2860000000023,
+        "viewmodels": 629.6250000000005,
+        "replica": 54.01300000000001,
+        "gc": 618.8029999999998,
+        "react": 281.04999999999995,
+        "idle": 140.20000000000002
+      },
+      "inclusiveMs": {
+        "runtime": 641.2190000000002,
+        "mission": 499.02400000000034,
+        "worklist": 206.9890000000001,
+        "replica": 138.848,
+        "react": 954.3660000000002,
+        "reactCommit": 139.737
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 1469.2619999999997
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 618.8029999999998
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/idb.ts:99",
+          "function": "e.onsuccess",
+          "ms": 382.64400000000006
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:388",
+          "function": "Va",
+          "ms": 272.41499999999996
+        },
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 140.20000000000002
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:393",
+          "function": "",
+          "ms": 113.27599999999998
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:86",
+          "function": "vn",
+          "ms": 72.991
+        },
+        {
+          "source": "../../src/app/store.tsx:140",
+          "function": "",
+          "ms": 57.929
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:4333",
+          "function": "renderWithHooks",
+          "ms": 44.557
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:1291",
+          "function": "setValueForStyles",
+          "ms": 42.213
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/store.ts:696",
+          "function": "hydrate",
+          "ms": 40.971000000000004
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:169",
+          "function": "",
+          "ms": 37.947
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1041",
+          "function": "go",
+          "ms": 37.942
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:178",
+          "function": "tr",
+          "ms": 35.389
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 29.989000000000004
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/overlay.ts:755",
+          "function": "U",
+          "ms": 26.644
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:7931",
+          "function": "bubbleProperties",
+          "ms": 26.61
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1036",
+          "function": "",
+          "ms": 26.032999999999998
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-view-cache.ts:248",
+          "function": "Cd",
+          "ms": 21.157
+        },
+        {
+          "source": "../../src/features/chat/Minimap.tsx:70",
+          "function": "on",
+          "ms": 20.453
+        }
+      ]
+    },
+    {
+      "window": "repeat-switches.cpuprofile",
+      "selfCategoryMs": {
+        "other": 90334.90400000119,
+        "react": 17430.53100000001,
+        "idle": 5067.111000000011,
+        "viewmodels": 47741.69500000046,
+        "gc": 13320.98599999997,
+        "replica": 4807.521999999996
+      },
+      "inclusiveMs": {
+        "react": 96308.70700000008,
+        "runtime": 50815.05300000045,
+        "reactCommit": 13178.516000000003,
+        "replica": 20463.094999999925,
+        "mission": 31130.549999999985,
+        "worklist": 28754.931999999862
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 26349.779999999882
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 13320.98599999997
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:388",
+          "function": "Va",
+          "ms": 9026.427
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1041",
+          "function": "go",
+          "ms": 5999.507999999986
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/idb.ts:99",
+          "function": "e.onsuccess",
+          "ms": 5093.7830000000195
+        },
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 5067.111000000011
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:86",
+          "function": "vn",
+          "ms": 4890.033000000002
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:393",
+          "function": "",
+          "ms": 4359.293000000007
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1036",
+          "function": "",
+          "ms": 3959.1099999999983
+        },
+        {
+          "source": "../../src/app/store.tsx:140",
+          "function": "",
+          "ms": 3107.940999999997
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:290",
+          "function": "",
+          "ms": 2993.0379999999936
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:38",
+          "function": "mn",
+          "ms": 2765.5420000000054
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:4333",
+          "function": "renderWithHooks",
+          "ms": 2560.748000000003
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:1291",
+          "function": "setValueForStyles",
+          "ms": 2369.1339999999996
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:169",
+          "function": "",
+          "ms": 2186.6050000000027
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/worklist/rows.ts:51",
+          "function": "kd",
+          "ms": 1688.335000000001
+        },
+        {
+          "source": "",
+          "function": "getBoundingClientRect",
+          "ms": 1608.338000000002
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 1560.9839999999986
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:178",
+          "function": "tr",
+          "ms": 1419.9189999999987
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:8725",
+          "function": "commitHostUpdate",
+          "ms": 1401.260000000001
+        }
+      ]
+    },
+    {
+      "window": "warm-switches.cpuprofile",
+      "selfCategoryMs": {
+        "other": 42654.758999999875,
+        "idle": 5771.348999999993,
+        "viewmodels": 27674.501,
+        "react": 8951.735999999988,
+        "gc": 7761.21999999999,
+        "replica": 3211.705000000005
+      },
+      "inclusiveMs": {
+        "react": 45453.52799999998,
+        "runtime": 25108.017999999956,
+        "reactCommit": 6836.815,
+        "mission": 17946.871999999898,
+        "worklist": 15693.966999999944,
+        "replica": 15942.671999999906
+      },
+      "topSelf": [
+        {
+          "source": "",
+          "function": "(program)",
+          "ms": 12725.92899999995
+        },
+        {
+          "source": "",
+          "function": "(garbage collector)",
+          "ms": 7761.21999999999
+        },
+        {
+          "source": "",
+          "function": "(idle)",
+          "ms": 5771.348999999993
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:388",
+          "function": "Va",
+          "ms": 5609.788000000007
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1041",
+          "function": "go",
+          "ms": 3646.1880000000083
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:393",
+          "function": "",
+          "ms": 3428.735000000001
+        },
+        {
+          "source": "../../../../packages/sync/src/adapters/indexeddb/idb.ts:99",
+          "function": "e.onsuccess",
+          "ms": 2850.0939999999996
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/mission.ts:1036",
+          "function": "",
+          "ms": 1904.6910000000003
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:86",
+          "function": "vn",
+          "ms": 1765.1950000000008
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:169",
+          "function": "",
+          "ms": 1603.8369999999982
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:1291",
+          "function": "setValueForStyles",
+          "ms": 1350.3010000000008
+        },
+        {
+          "source": "../../src/app/store.tsx:140",
+          "function": "",
+          "ms": 1300.6500000000005
+        },
+        {
+          "source": "../../../../../../../../../.bun/install/cache/links/react-dom@19.2.7+e14d3f224186685e-49f93e51a657aa70/node_modules/react-dom/cjs/react-dom-client.production.js:4333",
+          "function": "renderWithHooks",
+          "ms": 1274.3199999999986
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/worklist/rows.ts:51",
+          "function": "kd",
+          "ms": 913.2220000000004
+        },
+        {
+          "source": "../../../../packages/client-core/src/viewmodels/slices/machines/facts.ts:377",
+          "function": "",
+          "ms": 897.13
+        },
+        {
+          "source": "../../src/lib/issue-chip-liveness.ts:38",
+          "function": "mn",
+          "ms": 889.3030000000001
+        },
+        {
+          "source": "../../src/features/worklist/UnifiedIssueRow.tsx:83",
+          "function": "mD",
+          "ms": 884.7479999999999
+        },
+        {
+          "source": "../../../../packages/client-core/src/engine/state.ts:178",
+          "function": "tr",
+          "ms": 879.8009999999998
+        },
+        {
+          "source": "../../../../packages/client-core/src/replica/issue-view-cache.ts:248",
+          "function": "Cd",
+          "ms": 872.325
+        },
+        {
+          "source": "../../../../packages/model/src/predicates/machine-selection.ts:368",
+          "function": "vt",
+          "ms": 795.986
+        }
+      ]
+    }
+  ]
+}
