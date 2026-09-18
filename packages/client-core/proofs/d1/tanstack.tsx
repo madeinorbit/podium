@@ -45,9 +45,11 @@ export function createTanstackProof(data: Fixture) {
     .fn.where(({ i }) => i.seq <= GROUP).select(({ i }) => i) }))
   const groupSessions = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
     .innerJoin({ i: groupIssues }, ({ s, i }) => eq(s.issueId, i.id)).select(({ s }) => s) }))
-  const ranked = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: groupIssues })
-    .innerJoin({ clock: clock.collection }, ({ clock: c }) => eq(c.id, 'clock'))
-    .fn.select(({ i, clock: c }) => ({ id: i.id, band: band(i, c.now, counts), seq: i.seq, key: i.sortKey || '\uffff', created: Date.parse(i.createdAt) || 0 }))
+  const rankedInputs = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: groupIssues })
+    .select(({ i }) => ({ issue: i, clockKey: 'clock' })) }))
+  const ranked = publicQuery(createLiveQueryCollection({ gcTime: 1, query: q => q.from({ input: rankedInputs })
+    .innerJoin({ clock: clock.collection }, ({ input, clock: c }) => eq(input.clockKey, c.id))
+    .fn.select(({ input: { issue: i }, clock: c }) => ({ id: i.id, band: band(i, c.now, counts), seq: i.seq, key: i.sortKey || '\uffff', created: Date.parse(i.createdAt) || 0 }))
     .orderBy(({ $selected }) => $selected.band, 'asc').orderBy(({ $selected }) => $selected.key, 'asc')
     .orderBy(({ $selected }) => $selected.created, 'desc').orderBy(({ $selected }) => $selected.seq, 'desc')
     .orderBy(({ $selected }) => $selected.id, 'asc') }))
@@ -56,7 +58,7 @@ export function createTanstackProof(data: Fixture) {
   function rowQuery(id: string) { return publicQuery(createLiveQueryCollection({ gcTime: 1,
     query: q => q.from({ s: sessions.collection }).where(({ s }) => eq(s.sessionId, id)).select(({ s }) => s).findOne() })) }
   const rowQueries = new Map<number, ReturnType<typeof rowQuery>>()
-  const queries = [phases, latest, children, summary, summaryPhases, groupIssues, groupSessions, ranked, group]
+  const queries = [phases, latest, children, summary, summaryPhases, groupIssues, groupSessions, rankedInputs, ranked, group]
   return { counts, sessions: sessions.collection, issues: issues.collection, phases, children, summary, summaryPhases,
     groupIssues, groupSessions, ranked, group,
     observeNative() {

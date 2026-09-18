@@ -1,4 +1,5 @@
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { join, dirname } from 'node:path'
 import type * as TestingLibrary from '@testing-library/react'
 import { useEffect, useSyncExternalStore } from 'react'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
@@ -22,9 +23,12 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
   const results: unknown[] = []
   afterEach(cleanup)
   afterAll(() => {
-    const directory = new URL('./results/', import.meta.url)
+    let root = process.cwd()
+    while (!existsSync(join(root, 'packages/client-core/package.json')) && dirname(root) !== root) root = dirname(root)
+    if (!existsSync(join(root, 'packages/client-core/package.json'))) throw new Error('D1 repository root not found')
+    const directory = join(root, 'packages/client-core/proofs/d1/results')
     mkdirSync(directory, { recursive: true })
-    writeFileSync(new URL(`${platform}.json`, directory), JSON.stringify({ platform, node: process.version,
+    writeFileSync(join(directory, `${platform}.json`), JSON.stringify({ platform, node: process.version,
       baseline: 'POD-4358-post-b-baseline.md', measurements: results }, null, 2) + '\n')
   })
   describe(`D1 ${platform}: identical real-shape proof`, () => {

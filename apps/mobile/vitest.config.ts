@@ -85,6 +85,9 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
     alias: [
       ...sharedAliases,
+      // The proof dependency is owned by client-core; transform its ESM entry so
+      // its React import follows mobile's alias instead of its CJS peer graph.
+      { find: /^mobx-react-lite$/, replacement: fileURLToPath(new URL('../../packages/client-core/node_modules/mobx-react-lite/dist/mobxreactlite.esm.js', import.meta.url)) },
       // An ABSOLUTE replacement, because this rewrite also fires for inlined
       // third-party code (react-native-svg below), whose files live in the
       // isolated linker's store — a bare `react-native-web` would be resolved
