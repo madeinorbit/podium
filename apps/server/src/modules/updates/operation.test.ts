@@ -62,6 +62,8 @@ import {
 } from './operation'
 import { UpdatesService } from './service'
 import { updateStartability } from './trpc'
+import { refreshTargetsOnBoot } from './target-refresh'
+import { UpdateReconciler } from './reconciler'
 import { offeredDeliveries, type WaveMachine, type WaveRound } from './wave'
 
 /**
@@ -1338,6 +1340,7 @@ function fakeClock() {
 }
 
 interface HarnessOptions {
+  resolveTarget?: (channel: UpdateChannel) => Promise<UpdateTarget>
   approvedTarget?: () => Promise<UpdateTarget | undefined>
   durableRecovery?: boolean
   machines?: WaveMachine[]
@@ -1419,6 +1422,7 @@ async function harness(options: HarnessOptions = {}) {
       ...(options.approvedTarget ? { approvedTarget: options.approvedTarget } : {}),
       ...(options.durableRecovery ? { recovery: new UpdateRecoveryStore(db) } : {}),
       fleetChannel: () => 'dev',
+      ...(options.resolveTarget ? { resolveTarget: options.resolveTarget } : {}),
       exclusiveOperationActive: async () =>
         (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
@@ -4856,5 +4860,74 @@ describe('coordinator snapshot activation boundary', () => {
     await service.tick('dev')
     await service.fleet()
     expect(send).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('boot target hydration observation boundary (POD-4257)', () => {
+  it('does not grant or advance an adopted running operation before an engine tick', async () => {
+    const target = packedTarget()
+    const fleet = [machine({ id: 'a' }), machine({ id: 'b' })]
+    const resolveTarget = vi.fn(async () => target)
+    const h = await harness({
+      machines: fleet,
+      target,
+      durableRecovery: true,
+      resolveTarget,
+      serverPlacement: { kind: 'external' },
+    })
+    let boot: Awaited<ReturnType<typeof h.reboot>> | undefined
+    try {
+      await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+      await h.engine.whenSettled('op_1')
+      expect(h.sent.map((sent) => sent.machineId)).toEqual(['a'])
+      const grant = h.sent[0]!.message
+      fleet[0] = machine({ id: 'a', version: target.version })
+      await h.updates.onStatus(asMachineId('a'), {
+        type: 'updateStatus', state: 'current', version: target.version,
+        targetVersion: target.version, grantId: grant.grantId,
+      })
+      h.engine.stop()
+      fleet[0]!.online = false
+      fleet[1]!.online = false
+      boot = await h.reboot({ seedTarget: undefined })
+      const successor = boot
+      await successor.engine.adoptOnBoot(
+        () => ({ appVersion: target.version, servedWebDigest: WEB_DIGEST,
+          machineDirectory: fleet, now: h.clock.clock.now() }),
+        () => successor.context(),
+      )
+      await successor.engine.whenSettled('op_1')
+      expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+      const bridge = createUpdateFleetBridge({
+        engine: successor.engine, updates: successor.updates, now: h.clock.clock.now,
+      })
+      successor.setTargetChanged(() => bridge.onTargetChanged())
+      const reconciler = new UpdateReconciler({
+        updates: successor.updates,
+        operationActive: async () => (await successor.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
+      })
+      // server.ts opens the listener before awaiting its feed. A directory can
+      // already show a participant online when that feed finishes resolving.
+      // Do not deliver a fleet-change event or advance the fake engine clock:
+      // only the actual boot refresh and observation callbacks run below.
+      fleet[1]!.online = true
+      const before = await h.read()
+      const grantsBefore = h.sent.length
+      const states = (operation: Operation) => operation.steps?.map(({ id, state }) => ({ id, state }))
+      await refreshTargetsOnBoot({
+        channels: ['dev'], refresh: (channel) => successor.updates.refreshTarget(channel),
+      })
+      await h.settleTargetChanges()
+      await reconciler.onBoot()
+      await successor.engine.whenSettled('op_1')
+      expect(resolveTarget).toHaveBeenCalledTimes(1)
+      expect.soft(h.sent.slice(grantsBefore), 'boot hydration must not issue grants').toEqual([])
+      expect.soft(states(await h.read()), 'boot hydration must not advance step states').toEqual(states(before))
+      expect(h.clock.clock.now()).toBe(0)
+    } finally {
+      h.engine.stop()
+      boot?.engine.stop()
+    }
   })
 })

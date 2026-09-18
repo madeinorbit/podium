@@ -1339,7 +1339,7 @@ export async function startServer(
   // The dev resolver pulls this server's own feed. The listener must therefore
   // exist before the boot resolve, but it must not report healthy in that narrow
   // window or a supervisor (and the packaged restart gate) could observe the
-  // exact empty fleet state boot is about to repair.
+  // empty target snapshot that boot is still hydrating.
   app.get('/health', (c) =>
     serverMoveDataPlaneDeferred || targetsResolvedOnBoot
       ? c.text('ok')

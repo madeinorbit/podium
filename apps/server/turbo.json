@@ -281,6 +281,7 @@
     "test:store": {
       "dependsOn": [],
       "inputs": [
+        "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
@@ -443,6 +444,7 @@
         "src/modules/derived-family.ts",
         "src/modules/events/retention.test.ts",
         "src/modules/events/retention.ts",
+        "src/modules/fleet/authz.ts",
         "src/modules/funnel.test.ts",
         "src/modules/funnel.ts",
         "src/modules/hosts/service-contract-quiet.test.ts",
@@ -1411,6 +1413,7 @@
         "src/modules/updates/release-proposal.ts",
         "src/modules/updates/release-target.ts",
         "src/modules/updates/service.ts",
+        "src/modules/updates/target-refresh.ts",
         "src/modules/updates/trpc.ts",
         "src/modules/updates/wave.ts",
         "src/modules/workflows/handlers/advances.ts",
@@ -2289,6 +2292,7 @@
         "src/modules/daemon-request.ts",
         "src/modules/derived-family.ts",
         "src/modules/events/retention.ts",
+        "src/modules/fleet/authz.ts",
         "src/modules/funnel.ts",
         "src/modules/hosts/service.ts",
         "src/modules/interactions/answers.ts",
