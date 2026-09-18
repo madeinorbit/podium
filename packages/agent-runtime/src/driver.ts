@@ -46,7 +46,11 @@ export interface AgentSessionHandle {
   /** Graceful shutdown; the survival table is unchanged from today. */
   stop(): Promise<void>
   /** REFUSES without a resume ref — hibernating a session we cannot bring back
-   *  is data loss wearing a lifecycle verb's name. */
+   *  is data loss wearing a lifecycle verb's name.
+   *  This is an execution primitive, not automatic-parking authorization.
+   *  The host owns quiet policy, causal proof and transactional consumption
+   *  (docs/architecture/automatic-parking-proof.md); idle/health/resume alone
+   *  cannot authorize an automatic call. */
   hibernate(): Promise<Refusal | { ok: true }>
   kill(): Promise<void>
   /** daemon-internal (POD-3990): no server-side frame, called only by

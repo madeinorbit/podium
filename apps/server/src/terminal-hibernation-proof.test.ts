@@ -1,9 +1,12 @@
-import { asThreadId } from '@podium/model'
+import { asThreadId, firstAdminMemberId } from '@podium/model'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
+import type { SessionTerminalProof } from './modules/sessions/terminal-proof'
+import type { Session } from './modules/sessions/session'
+import type { TerminalCandidateFacts } from './store/types'
 import { openTestStore } from './test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
@@ -25,6 +28,16 @@ function runtime(
     nativeSubagentCount: 0,
     ...extra,
   }
+}
+
+async function assignedStore() {
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
+    id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'token',
+    ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
+  })
+  await store.machines.setServiceAssignment(store.hostMachineId, { server: true, agentExecution: true })
+  return store
 }
 
 async function harness({
@@ -50,7 +63,7 @@ async function harness({
   closing?: boolean
   terminalRetryable?: boolean
 } = {}) {
-  const store = await openTestStore(':memory:')
+  const store = await assignedStore()
   const daemon: ControlMessage[] = []
   const registry = await SessionRegistry.create(store, undefined, { instanceId })
   registries.push(registry)
@@ -155,7 +168,8 @@ async function harness({
 
 describe('durable terminal hibernation proof', () => {
   it('keeps explicit legacy hibernation proof-free', async () => {
-    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(await assignedStore(), undefined, { instanceId: 'default' })
+    registries.push(registry)
     await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -409,6 +423,68 @@ describe('durable terminal hibernation proof', () => {
     expect(await store.observationCheckpoints.getTerminalCandidate(sessionId)).toEqual(proofBefore)
     expect(gone).not.toHaveBeenCalled()
     expect(daemon.filter((message) => message.type === 'kill')).toHaveLength(beforeKills)
+  })
+
+  it.each(['generation', 'input', 'output'] as const)(
+    'refuses %s arriving between the initial proof check and transaction', async (change) => {
+      const h = await harness()
+      await h.confirm(1)
+      const session = (h.registry.modules.sessions as unknown as {
+        sessions: Map<SessionId, Session>
+      }).sessions.get(h.sessionId)!
+      const read = h.store.observationCheckpoints.getTerminalCandidate.bind(h.store.observationCheckpoints)
+      vi.spyOn(h.store.observationCheckpoints, 'getTerminalCandidate').mockImplementationOnce(async (id) => {
+        const proof = await read(id)
+        if (change === 'generation') {
+          await h.store.observationCheckpoints.advanceGeneration(id, 'codex', 'thread-1')
+        } else if (change === 'input') {
+          session.terminal.recordInputActivity()
+        } else {
+          session.terminal.acceptOutput(Buffer.from('late output'), 1)
+        }
+        return proof
+      })
+      expect(await h.registry.modules.sessions.hibernateSession({
+        sessionId: h.sessionId, requireTerminalProof: true,
+      })).toEqual({ ok: false, reason: 'terminal proof changed before hibernation' })
+      expect(session.status).toBe('live')
+      expect((await h.store.sessions.loadSessions()).find(row => row.id === h.sessionId)?.status).toBe('live')
+      expect(h.daemon.filter(message => message.type === 'kill')).toEqual([])
+      expect((await read(h.sessionId))?.consumedAt).toBeNull()
+    },
+  )
+
+  it.each([
+    ['queued input', (f: TerminalCandidateFacts) => { f.queuedInputCount = 1 }],
+    ['mail', (f: TerminalCandidateFacts) => { f.pendingMessages = [{ id: 'mail', status: 'queued', deliveredAt: null, injectedAt: null, ackedBy: null }] }],
+    ['auto continue', (f: TerminalCandidateFacts) => { f.autoContinueActive = true }],
+    ['subagent count', (f: TerminalCandidateFacts) => { f.activeWork.nativeSubagentCount = 1 }],
+    ['subagent identity with zero count', (f: TerminalCandidateFacts) => { f.activeWork.nativeSubagentIds = ['child'] }],
+    ['awaiting subagents', (f: TerminalCandidateFacts) => { f.activeWork.awaitingSubagents = true }],
+    ['child session', (f: TerminalCandidateFacts) => { f.activeWork.childSessions = [{ sessionId: f.sessionId, status: 'live', activityCount: 1 }] }],
+    ['queue drain', (f: TerminalCandidateFacts) => { f.activeWork.queueDrainActive = true }],
+    ['missing resume', (f: TerminalCandidateFacts) => { f.resumable = false }],
+  ] as const)('refuses a confirmed matching proof containing %s', async (_name, mutate) => {
+    const h = await harness()
+    await h.confirm(1)
+    const proof = (await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId))!
+    const facts = structuredClone(proof.facts)
+    mutate(facts)
+    // Inject at the evidence port: even a matching, confirmed durable record
+    // cannot authorize retirement when any one no-work fact is false.
+    const owner = (h.registry.modules.sessions as unknown as {
+      terminalProof: SessionTerminalProof
+    }).terminalProof
+    vi.spyOn(owner, 'facts').mockResolvedValue(facts)
+    await h.store.observationCheckpoints.recordTerminalCandidate(facts, at(30))
+    await h.store.observationCheckpoints.confirmTerminalCandidate(facts, 2, at(31))
+    expect((await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId))?.confirmedAt).toBeTruthy()
+    expect(await h.registry.modules.sessions.hasValidTerminalProof(h.sessionId)).toBe(false)
+    expect(await h.registry.modules.sessions.hibernateSession({
+      sessionId: h.sessionId, requireTerminalProof: true,
+    })).toEqual({ ok: false, reason: 'terminal state is not safely reapable' })
+    expect(h.daemon.filter(message => message.type === 'kill')).toEqual([])
+    expect((await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId))?.consumedAt).toBeNull()
   })
 
   it('rolls back proof consumption and in-memory hibernation when the row transaction fails', async () => {

@@ -1619,7 +1619,6 @@ export class SessionRegistry {
         },
         hibernateSession: async (input) => await sessionsSvc.hibernateSession(input),
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
-        parkStaleSession: (input) => sessionsSvc.parkStaleSession(input),
         hasScheduledWakeup: async (sessionId, now) => {
           const lastSpawned = await this.store.automations.lastSpawnedSessions()
           return (await this.store.automations.list()).some((automation) => {

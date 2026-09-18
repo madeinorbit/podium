@@ -5,39 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../bus'
 import { type HostSessionView, type HostsDeps, HostsService } from './service'
 
-/**
- * CHARACTERIZATION for this issue (`POD-3994`, from POD-3740 audit Finding 7),
- * NOT a fix. Question: can a server-family contract session actually reach the
- * terminal-quiet park gate, given the audit's caveat that reaching it depends
- * on a resume ref being present?
- *
- * SHAPE. Each case below builds the HostSessionView exactly as relay.ts would
- * project a server-family contract session (codex-app-server: resume kind
- * `codex-thread` — apps/daemon/src/runtime/codex-driver.ts; same pattern for
- * opencode-session and grok-session):
- *   - `resume` PRESENT (server drivers report it at bind and the daemon stores
- *     it — daemon-lifecycle.ts `setResume`; it is durable on the row).
- *   - `phase` from driver state events (drivers re-send `state()` as legacy
- *     `agentState` at bind and on every state event — opencode-driver.ts).
- *   - `lastInputAtMs / lastOutputAtMs / lastResumedAtMs` all ZERO: a session
- *     with no PTY never receives `ptyOutput`, contract delivery
- *     (`forwardContractRows` → `contractDeliver`) never calls
- *     `recordInputActivity`, and `recordResumeActivity` fires only on a
- *     hibernation resume. relay.ts projects these stamps for EVERY session
- *     with no contract guard, so the gate reads never-moving zeros.
- *
- * Four cases, one per combination that matters:
- *   1. observed (idle) + proof → PARKED: the output-quiet overlay passes on
- *      epoch stamps, i.e. it contributes nothing for this shape.
- *   2. observed (idle) WITHOUT proof → live: the production mask. Contract
- *      sessions never hold terminal proof (no terminal observers ever confirm
- *      a fence; provider-`none` harnesses never even get a lease), so the
- *      observed path cannot fire for them in production.
- *   3. unobserved (unknown) + resume → PARKED with no proof consulted at all:
- *      the gate IS reachable. hibernateSession is entered with
- *      requireTerminalProof=false and succeeds on resume + non-working phase.
- *   4. unobserved WITHOUT resume → live, hibernateSession never entered: the
- *      audit's caveat holds — the resume ref is the ticket.
+/** Family-specific quiet policy selects candidates; host-owned proof authorizes parking.
+ * Synthetic proof in these policy tests does not imply a contract driver produces it.
+ * Production drivers without causal proof remain live, including unknown-phase sessions.
  */
 
 const NOW = new Date('2026-07-17T12:00:00.000Z').getTime()
@@ -128,13 +98,6 @@ function harness(input: {
       return { ok: true }
     },
     parkShellSession: async () => ({ ok: false, reason: 'not a shell session' }),
-    parkStaleSession: async ({ sessionId }) => {
-      const target = input.sessions.find((item) => item.sessionId === sessionId)
-      if (!target || target.status !== 'live') return { ok: false, reason: 'not running' }
-      target.status = target.resume ? 'hibernated' : 'exited'
-      parked.push(sessionId)
-      return { ok: true }
-    },
     hasScheduledWakeup: async () => false,
     hasValidTerminalProof: async (sessionId) => input.proven?.has(sessionId) ?? false,
     terminalProofMissing: async (sessionId) => !(input.proven?.has(sessionId) ?? false),
@@ -152,7 +115,7 @@ function harness(input: {
   }
 }
 
-describe('contract-session quiet-gate reachability (characterization)', () => {
+describe('contract-session parking authorization', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.setSystemTime(NOW)
@@ -192,21 +155,13 @@ describe('contract-session quiet-gate reachability (characterization)', () => {
     expect(sessions[0]?.status).toBe('live')
   })
 
-  it('parks a resumable unobserved contract-shaped session with no proof at all — the gate is reachable', async () => {
-    // Phase unknown + resume ref + fully quiet past the 4 h floor: eligible
-    // with NO terminal proof consulted. For this shape fullyQuietSinceMs is
-    // just lastActiveAt (the PTY stamps are zeros), so "four hours terminal
-    // quiet" is really "no contract event for four hours" — and the park
-    // below kills the process on exactly that evidence.
+  it('keeps a long-quiet resumable contract session live without proof', async () => {
     const sessions = [unobservedContract(asSessionId('contract-silent'))]
     const { service, parked, hibernateRequireProof } = harness({ sessions, proven: new Set() })
-
     await service.onHostMetrics(asMachineId('local'), sample(10))
-
-    expect(parked).toEqual(['contract-silent'])
-    expect(hibernateRequireProof).toEqual([
-      { sessionId: 'contract-silent', requireTerminalProof: false },
-    ])
+    expect(parked).toEqual([])
+    expect(hibernateRequireProof).toEqual([])
+    expect(sessions[0]?.status).toBe('live')
   })
 
   it('never routes an unobserved contract-shaped session without a resume ref into hibernateSession — the audit caveat holds', async () => {
@@ -221,17 +176,6 @@ describe('contract-session quiet-gate reachability (characterization)', () => {
   })
 })
 
-/**
- * THE FIX (this issue): the terminal-quiet overlay is a PTY-only rule, and a
- * contract-backed session's quiet is read from contract-side facts (phase +
- * event-time recency + resume) instead of never-moving terminal stamps.
- *
- * These fail before the fix (the gate folds PTY stamps for every session) and
- * pass after (it branches on `driverFamily`, projected by relay.ts; absent
- * means unknown and keeps the PTY rule). The two pins after them guard the
- * demarcation: PTY behavior is unchanged, and the all-old contract shape keeps
- * parking exactly as the characterization above documents.
- */
 describe('contract facts gate (fix)', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -275,7 +219,7 @@ describe('contract facts gate (fix)', () => {
         lastOutputAtMs: NOW - 10_000,
       }),
     ]
-    const { service, parked } = harness({ sessions, proven: new Set() })
+    const { service, parked } = harness({ sessions, proven: new Set(sessions.map((s) => s.sessionId)) })
 
     await service.onHostMetrics(asMachineId('local'), sample(10))
 
@@ -289,7 +233,7 @@ describe('contract facts gate (fix)', () => {
         lastOutputAtMs: NOW - 10_000,
       }),
     ]
-    const { service, parked } = harness({ sessions, proven: new Set() })
+    const { service, parked } = harness({ sessions, proven: new Set(sessions.map((s) => s.sessionId)) })
 
     await service.onHostMetrics(asMachineId('local'), sample(10))
 
@@ -297,14 +241,32 @@ describe('contract facts gate (fix)', () => {
     expect(sessions[0]?.status).toBe('live')
   })
 
-  it('pin: an all-old contract-backed session keeps parking as characterized', async () => {
+  it('passes proof consumption through for a quiet contract-backed candidate', async () => {
     const sessions = [
       unobservedContract(asSessionId('contract-old'), { driverFamily: 'server' }),
     ]
-    const { service, parked } = harness({ sessions, proven: new Set() })
+    const { service, parked, hibernateRequireProof } = harness({
+      sessions, proven: new Set(['contract-old']),
+    })
 
     await service.onHostMetrics(asMachineId('local'), sample(10))
 
     expect(parked).toEqual(['contract-old'])
+    expect(hibernateRequireProof).toEqual([{ sessionId: 'contract-old', requireTerminalProof: true }])
   })
+  it.each(['terminal', 'server', 'embedded'] as const)(
+    'keeps the unknown-phase four-hour floor for %s even with proof', async (driverFamily) => {
+      const sessions = [unobservedContract(asSessionId('recent'), {
+        driverFamily,
+        lastActiveAt: new Date(NOW - 3 * HOUR).toISOString(),
+      })]
+      const { service, parked, hibernateRequireProof } = harness({
+        sessions, proven: new Set(['recent']),
+      })
+      await service.onHostMetrics(asMachineId('local'), sample(95))
+      expect(parked).toEqual([])
+      expect(hibernateRequireProof).toEqual([])
+    },
+  )
+
 })
