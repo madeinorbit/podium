@@ -12,7 +12,7 @@ mkdirSync(output, { recursive: true })
 const webRequire = createRequire(join(root, 'apps/web/package.json'))
 const { build } = await import(webRequire.resolve('vite'))
 const measurements: unknown[] = []
-for (const candidate of ['mobx', 'tanstack']) {
+for (const candidate of (process.env.PODIUM_D7_PROOF === '1' ? ['mobx', 'keyed'] : ['mobx', 'tanstack', 'keyed'])) {
   const entry = join(output, `${candidate}-entry.tsx`)
   writeFileSync(entry, `import * as proof from '../../${candidate}';\n(globalThis as any).__D1_PROOF__ = proof;\n`)
   const dist = join(output, candidate)
@@ -24,7 +24,7 @@ for (const candidate of ['mobx', 'tanstack']) {
   const bytes = readdirSync(dist).filter(f => f.endsWith('.js')).map(f => readFileSync(join(dist, f)))
   measurements.push({ candidate, build: 'Vite isolated proof; React external', bytes: bytes.reduce((n,b) => n+b.length,0), gzipBytes: bytes.reduce((n,b) => n+gzipSync(b).length,0) })
   const libraryEntry = join(output, `${candidate}-library.ts`)
-  writeFileSync(libraryEntry, candidate === 'mobx'
+  writeFileSync(libraryEntry, candidate === 'keyed' ? 'export {};\n' : candidate === 'mobx'
     ? "export { observable, computed, runInAction } from 'mobx'; export { observer } from 'mobx-react-lite';\n"
     : "export { createCollection, createLiveQueryCollection, BasicIndex, eq, lte, count, max, sum, caseWhen, coalesce, gt } from '@tanstack/db'; export { useLiveQuery } from '@tanstack/react-db';\n")
   const libraryDist = join(output, `${candidate}-library`)

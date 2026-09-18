@@ -4,6 +4,7 @@ import type * as TestingLibrary from '@testing-library/react'
 import { useEffect, useSyncExternalStore } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { autorun, onBecomeUnobserved } from 'mobx'
+import { createKeyedProof, KeyedRow, KeyedSummary, KeyedGroup } from './keyed'
 import { createMobxProof, MobxRow, MobxSummary, MobxGroup } from './mobx'
 import { createTanstackProof, TanstackRow, TanstackSummary, TanstackGroup } from './tanstack'
 import { fixture, NOW, counters, summaryJS, worklistJS, GROUP, type Counts } from './model'
@@ -37,7 +38,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
       baseline: 'POD-4358-post-b-baseline.md', measurements: results }, null, 2) + '\n')
   })
   describe.skipIf(process.env.PODIUM_D1_PROOF !== '1')(`D1 ${platform}: identical real-shape proof`, () => {
-    for (const candidate of ['mobx', 'tanstack'] as const)
+    for (const candidate of (process.env.PODIUM_D7_PROOF === '1' ? ['mobx', 'keyed'] as const : ['mobx', 'tanstack', 'keyed'] as const))
       for (const readers of [200, 1000])
         for (const addressing of ['same', 'distinct'] as const)
           it(`${candidate}: ${readers} ${addressing} row readers`, async () => {
@@ -46,7 +47,8 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
             const start = performance.now()
             const mobx = candidate === 'mobx' ? createMobxProof(data) : undefined
             const tanstack = candidate === 'tanstack' ? createTanstackProof(data) : undefined
-            const proof = mobx ?? tanstack!
+            const keyed = candidate === 'keyed' ? createKeyedProof(data) : undefined
+            const proof = mobx ?? tanstack ?? keyed!
             let reads = 0, commits = 0, summaryReads = 0, groupReads = 0
             let summaryValue: unknown, groupValue: unknown
             const read = () => { reads++ }, commit = () => { commits++ }
@@ -56,11 +58,13 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
               {Array.from({ length: readers }, (_, n) => {
                 const id = `s${addressing === 'same' ? 0 : n}`
                 return mobx ? <MobxRow key={n} proof={mobx} id={id} read={read} commit={commit} />
+                  : keyed ? <KeyedRow key={n} proof={keyed} id={id} read={read} commit={commit} />
                   : <TanstackRow key={n} proof={tanstack!} id={id} reader={n} read={read} commit={commit} />
               })}
               {[0, 1].map(n => mobx ? <MobxSummary key={`summary${n}`} proof={mobx} read={summaryRead} />
+                : keyed ? <KeyedSummary key={`summary${n}`} proof={keyed} read={summaryRead} />
                 : <TanstackSummary key={`summary${n}`} proof={tanstack!} read={summaryRead} />)}
-              {mobx ? <MobxGroup proof={mobx} read={groupRead} /> : <TanstackGroup proof={tanstack!} read={groupRead} />}
+              {mobx ? <MobxGroup proof={mobx} read={groupRead} /> : keyed ? <KeyedGroup proof={keyed} read={groupRead} /> : <TanstackGroup proof={tanstack!} read={groupRead} />}
             </>
             const view = render(elements)
             await act(settle)
@@ -80,6 +84,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
                 const t = performance.now()
                 await act(async () => { const s = performance.now(); proof.update(next); syncTimes.push(performance.now() - s); await settle() })
                 times.push(performance.now() - t)
+                expect(domainValue(groupValue)).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW, counters()))
               }
               scenarios[name] = { readers: reads, commits, summaryReaders: summaryReads, groupReaders: groupReads,
                 wallMs: distribution(times), syncMs: distribution(syncTimes), operations: diff(proof.counts, before) }
@@ -99,6 +104,17 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
             data.issues[4] = { ...data.issues[4]!, parentId: data.issues[5]!.id }
             await act(async () => { proof.updateIssue(data.issues[4]!); await settle() })
             expect(summaryValue).toEqual(oracle())
+            // Exercise family caching beyond the timed timestamp-only stream.
+            for (const patch of [{ archived: true }, { archived: false, issueId: 'i5' }, { issueId: 'i0' }]) {
+              data.sessions[0] = { ...data.sessions[0]!, ...patch } as typeof data.sessions[number]
+              await act(async () => { proof.update(data.sessions[0]!); await settle() })
+              expect(summaryValue).toEqual(oracle())
+              expect(domainValue(groupValue)).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW, counters()))
+            }
+            // Provenance takes the conservative whole-group cache fallback.
+            data.issues[5] = { ...data.issues[5]!, startedBySession: data.sessions[0]!.sessionId }
+            await act(async () => { proof.updateIssue(data.issues[5]!); await settle() })
+            expect(domainValue(groupValue)).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW, counters()))
             const beforeTick = { ...proof.counts }
             await act(async () => { proof.tick(NOW + 120_000); await settle() })
             expect(domainValue(groupValue)).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW + 120_000, counters()))
@@ -108,8 +124,10 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
               const t = performance.now()
               await act(async () => { proof.replace(next); await settle() })
               rescope.push(performance.now() - t)
+              expect(domainValue(groupValue)).toEqual(worklistJS(next.issues.slice(0, GROUP), next.sessions.slice(0, GROUP), NOW + 120_000, counters()))
             }
             view.unmount(); stopNative?.(); await settle()
+            if (keyed) expect(keyed.subscriberCount()).toBe(0)
             const beforeUnmounted = { ...proof.counts }
             proof.update({ ...data.sessions[0]!, lastActiveAt: new Date(NOW + 500_000).toISOString() })
             await new Promise(resolve => setTimeout(resolve, 20))
@@ -139,7 +157,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
       }
     })
 
-    it('dependency-ordered teardown is quiet; the source-first control is armed', async () => {
+    it.skipIf(process.env.PODIUM_D7_PROOF === '1')('dependency-ordered teardown is quiet; the source-first control is armed', async () => {
       const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
       const proof = createTanstackProof(fixture())
       const subscriptions = [proof.summary, proof.summaryPhases, proof.ranked, proof.groupSessions].map(q => q.subscribeChanges(() => {}))
@@ -156,7 +174,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
       results.push({ teardown: 'reverse dependency order passes; source-first control emits error' })
     })
 
-    it('computed suspension and query GC release their subscriptions', async () => {
+    it.skipIf(process.env.PODIUM_D7_PROOF === '1')('computed suspension and query GC release their subscriptions', async () => {
       const data = fixture(), mobx = createMobxProof(data), tanstack = createTanstackProof(data)
       let suspended = 0
       const value = mobx.summary('i0')

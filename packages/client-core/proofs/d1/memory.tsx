@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL('../../../../', import.meta.url))
 const output = fileURLToPath(new URL('./results/', import.meta.url))
 if (!process.argv.includes('--child')) {
   const results = []
-  for (const candidate of ['mobx', 'tanstack']) for (const readers of [200, 1000]) for (const addressing of ['same', 'distinct']) {
+  for (const candidate of (process.env.PODIUM_D7_PROOF === '1' ? ['mobx', 'keyed'] : ['mobx', 'tanstack', 'keyed'])) for (const readers of [200, 1000]) for (const addressing of ['same', 'distinct']) {
     const child = Bun.spawn(['bun', '--conditions=@podium/source', import.meta.path, '--child', candidate, String(readers), addressing],
       { cwd: root, stdout: 'pipe', stderr: 'inherit', env: process.env })
     const text = await new Response(child.stdout).text()
@@ -31,6 +31,7 @@ if (!process.argv.includes('--child')) {
   const { fixture } = await import('./model')
   const mobx = await import('./mobx')
   const tanstack = await import('./tanstack')
+  const keyed = await import('./keyed')
   const data = fixture()
   const heap = async () => {
     const samples = []
@@ -38,10 +39,10 @@ if (!process.argv.includes('--child')) {
     return { samples, median: [...samples].sort((a, b) => a - b)[1]! }
   }
   const before = await heap()
-  const proof = candidate === 'mobx' ? mobx.createMobxProof(data) : tanstack.createTanstackProof(data)
-  const Row = candidate === 'mobx' ? mobx.MobxRow : tanstack.TanstackRow
-  const Summary = candidate === 'mobx' ? mobx.MobxSummary : tanstack.TanstackSummary
-  const Group = candidate === 'mobx' ? mobx.MobxGroup : tanstack.TanstackGroup
+  const proof = candidate === 'mobx' ? mobx.createMobxProof(data) : candidate === 'keyed' ? keyed.createKeyedProof(data) : tanstack.createTanstackProof(data)
+  const Row = candidate === 'mobx' ? mobx.MobxRow : candidate === 'keyed' ? keyed.KeyedRow : tanstack.TanstackRow
+  const Summary = candidate === 'mobx' ? mobx.MobxSummary : candidate === 'keyed' ? keyed.KeyedSummary : tanstack.TanstackSummary
+  const Group = candidate === 'mobx' ? mobx.MobxGroup : candidate === 'keyed' ? keyed.KeyedGroup : tanstack.TanstackGroup
   let commits = 0
   const elements = [
     ...Array.from({ length: readers }, (_, n) => React.createElement(Row as React.ElementType, { key: n, proof,
