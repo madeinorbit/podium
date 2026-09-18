@@ -93,6 +93,16 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
       : (requestCoordinatorRestart ?? {})
   const registry = await SessionRegistry.create(opts.store, undefined, { instanceId: 'updates-test' })
   const hostMachineId = registry.sessionStore.hostMachineId
+  // Registry construction no longer enrolls the host. Supply the enrolled
+  // coordinator and its running identity before attaching an update receiver.
+  await registry.modules.machines.ensureHostMachine('updates-test')
+  await registry.modules.machines.recordComponent(hostMachineId, 'server')
+  await registry.modules.machines.setMachineBuild(
+    hostMachineId,
+    { appVersion: process.env.PODIUM_APP_VERSION ?? 'dev' },
+    [],
+    '2026-08-13T00:00:00.000Z',
+  )
   const hostUpdateReceiver = opts.hostUpdateReceiver ?? (() => {})
   if (hostUpdateReceiver !== false) registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
   await registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
