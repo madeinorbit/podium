@@ -42,7 +42,6 @@ import {
   type UpdateReality,
 } from '../../apps/server/src/modules/updates/operation'
 import { UpdatesService } from '../../apps/server/src/modules/updates/service'
-import { decideReconciliation } from '../../apps/server/src/modules/updates/reconciler'
 import type { WaveMachine } from '../../apps/server/src/modules/updates/wave'
 
 export function socketRequest(
@@ -340,21 +339,12 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             event('status', { machineId: body.id, status })
           }
           if (!wasOnline) {
-            const machine = (await updates.fleet()).find((candidate) => candidate.id === body.id)
-            const verdict = decideReconciliation({
-              machine,
-              target: policy.published,
-              approvedTargetVersion: policy.approved?.version,
-              approvedTarget: policy.approved,
-              operationActive: (await engine?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
-              attempts: 0,
+            // Since POD-4167 a reconnect never earns a grant on its own: the
+            // reconciler reports drift and only a human-started operation grants.
+            event('reconnect-decision', {
+              machineId: body.id,
+              verdict: { converge: false, because: 'human-operation-required' },
             })
-            event('reconnect-decision', { machineId: body.id, verdict })
-            if (verdict.converge)
-              updates.authorizeMachine(asMachineId(body.id), {
-                initiator: { kind: 'operator-apply' },
-                eligibility: 'fixture persisted exact approval reconnect',
-              })
           }
           if (engine && body.id === 'coordinator' && !adopted) {
             adopted = true

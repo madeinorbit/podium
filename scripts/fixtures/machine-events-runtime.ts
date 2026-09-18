@@ -154,7 +154,6 @@ try {
   const offlineOperation = await start()
   assert.equal((await registry.sessionStore.operations.get(offlineOperation))?.state, 'done')
   assert.deepEqual(await registry.sessionStore.operations.approvedTarget('dev'), target)
-  assert.deepEqual(registry.modules.updatesReconciler?.pending(), [])
 
   // No fixture call to onMachineConnected/onOperationSettled/onFleetChanged:
   // only /machine dispatch and the production registry subscriptions can grant.
@@ -228,11 +227,7 @@ try {
   // A publication with different exact bytes has no standing authorization.
   updates.setTarget('dev', { ...target, version: '3.0.0' })
   const unapproved = await connect()
-  await until(
-    () => registry.modules.updatesReconciler?.pending().length === 0,
-    'unapproved reconnect drained',
-    10_000,
-  )
+  // The reconciler only reports drift since POD-4167; nothing queues a grant here.
   assert.equal(unapproved.grants().length, 0)
   console.log(
     JSON.stringify({
