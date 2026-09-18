@@ -779,26 +779,27 @@ describe('send receipts', () => {
     expect(receipt.outcome).toBe('unverified')
   })
 
-  it.each(['hook', 'transcript-echo'] as const)(
-    'credits only one identical overlapping send per %s observation',
-    async (proof) => {
-      const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+  it.each([
+    'hook',
+    'transcript-echo',
+  ] as const)('credits only one identical overlapping send per %s observation', async (proof) => {
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     world.ready(session.binding.sessionId)
-      const first = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
-      const second = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
-      await Promise.resolve()
-      if (proof === 'hook') {
-        world.runtime.onHookPayload(session.binding.sessionId, {
-          hook_event_name: 'UserPromptSubmit', prompt: 'ship it',
-        })
-      } else {
-        world.echo(session.binding.sessionId, 'ship it')
-      }
-      const receipts = await Promise.all([first, second])
-      expect(receipts[0]).toMatchObject({ outcome: 'accepted', provenBy: proof })
-      expect(receipts[1].outcome).toBe('unverified')
-    },
-  )
+    const first = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    const second = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    if (proof === 'hook') {
+      world.runtime.onHookPayload(session.binding.sessionId, {
+        hook_event_name: 'UserPromptSubmit',
+        prompt: 'ship it',
+      })
+    } else {
+      world.echo(session.binding.sessionId, 'ship it')
+    }
+    const receipts = await Promise.all([first, second])
+    expect(receipts[0]).toMatchObject({ outcome: 'accepted', provenBy: proof })
+    expect(receipts[1].outcome).toBe('unverified')
+  })
 
   it('anchors an accept to the causal hook on Claude, ahead of any echo', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
@@ -813,7 +814,9 @@ describe('send receipts', () => {
       { text: 'ship it' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}"`)
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(
+      `"{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}"`,
+    )
     expect(resolved.outcome).toBe('accepted')
     if (resolved.outcome !== 'accepted') return
     // THE MECHANISM IS DECLARED, and this is the one that makes a terminal
@@ -837,7 +840,9 @@ describe('send receipts', () => {
       { text: 'first' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(
+      `"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`,
+    )
     expect(resolved.outcome).toBe('unverified')
   })
 
@@ -867,7 +872,9 @@ describe('send receipts', () => {
     const named = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
     const [otherReceipt, namedReceipt] = await Promise.all([other, named])
 
-    expect(JSON.stringify([otherReceipt, namedReceipt])).toMatchInlineSnapshot(`"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}]"`)
+    expect(JSON.stringify([otherReceipt, namedReceipt])).toMatchInlineSnapshot(
+      `"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}]"`,
+    )
     expect(namedReceipt.outcome).toBe('accepted')
     if (namedReceipt.outcome !== 'accepted') return
     expect(namedReceipt.provenBy).toBe('hook')
@@ -893,7 +900,9 @@ describe('send receipts', () => {
       { text: 'first' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(
+      `"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`,
+    )
     expect(resolved.outcome).toBe('unverified')
   })
 
@@ -920,7 +929,9 @@ describe('send receipts', () => {
     )
     // `unverified` IS THE TRUE ANSWER, and it is not the same as "not sent": the
     // keystrokes went out and the caller is told exactly that much.
-    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(
+      `"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`,
+    )
     expect(resolved.outcome).toBe('unverified')
     expect(world.written[0]).toBe(`${PASTE_START}did this land?${PASTE_END}`)
   })
@@ -1014,7 +1025,7 @@ describe('send receipts', () => {
     try {
       const driver = world.runtime.driverFor('claude-code', CLAUDE)
       const session = await driver.create(SPEC)
-    world.ready(session.binding.sessionId)
+      world.ready(session.binding.sessionId)
       // No hookOnSubmit and no echo: the instrumentation channel never answered.
       const first = await session.send(
         { text: 'first without a channel' },
@@ -1533,7 +1544,10 @@ describe('the queue drain', () => {
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     world.ready(session.binding.sessionId)
     world.bind(session.binding.sessionId)
-    const receipt = await session.send({ text: 'new bind' }, { origin: 'human', delivery: 'when-ready' })
+    const receipt = await session.send(
+      { text: 'new bind' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     expect(receipt.outcome).toBe('queued')
     expect(world.written).toEqual([])
   })
@@ -1541,7 +1555,10 @@ describe('the queue drain', () => {
   it('gates direct when-ready behind live composer readiness', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-    const receipt = await session.send({ text: 'too early' }, { origin: 'human', delivery: 'when-ready' })
+    const receipt = await session.send(
+      { text: 'too early' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
     expect(receipt.outcome).toBe('queued')
     expect(world.written).toEqual([])
   })
@@ -1748,9 +1765,7 @@ describe('the queue drain', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 400; i++) await Promise.resolve()
 
-    expect(world.written.filter((text) => text !== '\r')).toEqual([
-      'delivered',
-    ])
+    expect(world.written.filter((text) => text !== '\r')).toEqual(['delivered'])
     expect(world.abandoned).toEqual([])
   })
 
@@ -1822,9 +1837,7 @@ describe('the queue drain', () => {
     ).toBe('queued')
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 400; i++) await Promise.resolve()
-    expect(world.written.filter((text) => text !== '\r')).toEqual([
-      'after launch',
-    ])
+    expect(world.written.filter((text) => text !== '\r')).toEqual(['after launch'])
   })
 
   it('holds a bind for the session it named, never for the next one (POD-2107)', async () => {
@@ -2066,6 +2079,73 @@ describe('observation translation', () => {
     state: { phase: 'working', since: '2026-08-14T00:00:00.000Z', nativeSubagentCount: 0 },
   }
 
+  it('restores quiet bootstrap and native subagent identity without inventing turns', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    const since = '2026-01-01T00:00:00.000Z'
+    for (const count of [1, 0]) {
+      const state: AgentRuntimeState = {
+        phase: count ? 'working' : 'idle',
+        since,
+        nativeSubagentCount: count,
+        ...(count
+          ? { nativeSubagents: [{ id: 'child-1', type: 'Explore' }], awaitingSubagents: true }
+          : { idle: { kind: 'done' } }),
+      }
+      world.observe(sessionId, {
+        transitionKind: count ? 'snapshot' : 'subagent_bookkeeping',
+        provenance: count ? 'bootstrap' : 'live',
+        state,
+        providerAt: count ? null : since,
+      })
+      expect((await session.snapshot()).state).toEqual(state)
+    }
+    const events = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' ? [frame.event] : [],
+    )
+    expect(events.map((event) => event.t)).toEqual(['state', 'state'])
+    expect(events[0]).toMatchObject({
+      provenance: 'bootstrap',
+      at: since,
+      change: { state: { nativeSubagents: [{ id: 'child-1', type: 'Explore' }] } },
+    })
+    expect(events[1]).toMatchObject({
+      change: { state: { phase: 'idle', nativeSubagentCount: 0 } },
+    })
+  })
+
+  it('publishes screen-only prompts and rejects stale state and foreign observation identities', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    const since = '2026-01-01T00:00:00.000Z'
+    const state: AgentRuntimeState = {
+      phase: 'needs_user',
+      since,
+      nativeSubagentCount: 0,
+      stateSource: 'classifier',
+      need: { kind: 'permission', summary: 'Sign in to continue' },
+    }
+    world.runtime.observeState({ sessionId, state, observerGeneration: 1, bindingVersion: 1 })
+    expect((await session.state()).need?.summary).toBe('Sign in to continue')
+    const before = world.frames.length
+    world.runtime.observeState({
+      sessionId,
+      state: { ...state, phase: 'idle' },
+      observerGeneration: 0,
+      bindingVersion: 1,
+    })
+    world.observe(sessionId, { observerGeneration: 0 })
+    world.observe(sessionId, { bindingVersion: 0 })
+    expect(world.frames).toHaveLength(before)
+    expect(world.frames[0]).toMatchObject({
+      type: 'runtimeEvent',
+      event: { t: 'state', at: since, change: { state } },
+    })
+    expect(world.written).toEqual([])
+  })
+
   // Regression from POD-4056: the selected poll source owns this boundary once.
 
   it('emits one start when observation and poll report the same turn', async () => {
@@ -2081,8 +2161,9 @@ describe('observation translation', () => {
       nextPhase: 'working',
       turnEpoch: 1,
     })
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'working',
@@ -2098,30 +2179,38 @@ describe('observation translation', () => {
     expect(turns.map((event) => event.ev.ev)).toEqual(['started'])
   })
 
-  it.each(['state-first', 'observation-first'] as const)(
-    'keeps OpenCode poll epochs authoritative across turns (%s)',
-    async (order) => {
-      const world = makeWorld()
-      const profile = terminalProfileFor('opencode')
-      if (!profile) throw new Error('OpenCode terminal profile missing')
-      expect(profile.lifecycleFromState).toBe(true)
-      const session = await world.runtime.driverFor('opencode', profile).create({
-        ...SPEC,
-        harness: 'opencode',
-      })
-      const sessionId = session.binding.sessionId
+  it.each([
+    'state-first',
+    'observation-first',
+  ] as const)('keeps OpenCode poll epochs authoritative across turns (%s)', async (order) => {
+    const world = makeWorld()
+    const profile = terminalProfileFor('opencode')
+    if (!profile) throw new Error('OpenCode terminal profile missing')
+    expect(profile.lifecycleFromState).toBe(true)
+    const session = await world.runtime.driverFor('opencode', profile).create({
+      ...SPEC,
+      harness: 'opencode',
+    })
+    const sessionId = session.binding.sessionId
 
-      for (let epoch = 1; epoch <= 3; epoch++) {
-        for (const phase of ['working', 'idle'] as const) {
-          const state: AgentRuntimeState = {
-            phase,
-            since: `2026-08-14T00:00:0${epoch}.000Z`,
-            nativeSubagentCount: 0,
-            stateSource: 'poll',
-            ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
-          }
-          const poll = () => world.runtime.observe({ type: 'agentState', sessionId, state })
-          const observe = () => world.observe(sessionId, {
+    for (let epoch = 1; epoch <= 3; epoch++) {
+      for (const phase of ['working', 'idle'] as const) {
+        const state: AgentRuntimeState = {
+          phase,
+          since: `2026-08-14T00:00:0${epoch}.000Z`,
+          nativeSubagentCount: 0,
+          stateSource: 'poll',
+          ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
+        }
+        const poll = () =>
+          world.runtime.observeState({
+            sessionId,
+            state,
+            observerGeneration: 1,
+            bindingVersion: session.binding.bindingVersion,
+          })
+        const observe = () =>
+          world.observe(sessionId, {
             transitionKind: phase === 'working' ? 'turn_opened' : 'turn_terminal',
             priorPhase: phase === 'working' ? 'idle' : 'working',
             nextPhase: phase,
@@ -2139,16 +2228,18 @@ describe('observation translation', () => {
       }
     }
 
-      const turns = world.frames.flatMap((frame) =>
-        frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],
-      )
-      expect(turns.map(({ ev, turnEpoch }) => [ev, turnEpoch])).toEqual([
-        ['started', 1], ['completed', 1],
-        ['started', 2], ['completed', 2],
-        ['started', 3], ['completed', 3],
-      ])
-    },
-  )
+    const turns = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],
+    )
+    expect(turns.map(({ ev, turnEpoch }) => [ev, turnEpoch])).toEqual([
+      ['started', 1],
+      ['completed', 1],
+      ['started', 2],
+      ['completed', 2],
+      ['started', 3],
+      ['completed', 3],
+    ])
+  })
 
   it('does not let an observation epoch or fence poison the OpenCode poll counter', async () => {
     const world = makeWorld()
@@ -2172,11 +2263,12 @@ describe('observation translation', () => {
     // turn emits nothing — so nothing is lost by asking the surface that exists.
     expect(observed.observerGeneration).toBe(9)
     expect(observed.cursor.segmentId).toBe('seg')
-    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent')).toHaveLength(2)
+    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent')).toHaveLength(3)
 
     for (const phase of ['working', 'idle', 'working', 'idle'] as const) {
-      world.runtime.observe({
-        type: 'agentState',
+      world.runtime.observeState({
+        observerGeneration: (await session.snapshot()).observerGeneration,
+        bindingVersion: session.binding.bindingVersion,
         sessionId,
         state: {
           phase,
@@ -2191,8 +2283,10 @@ describe('observation translation', () => {
       frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],
     )
     expect(turns.map(({ ev, turnEpoch }) => [ev, turnEpoch])).toEqual([
-      ['started', 1], ['completed', 1],
-      ['started', 2], ['completed', 2],
+      ['started', 1],
+      ['completed', 1],
+      ['started', 2],
+      ['completed', 2],
     ])
   })
 
@@ -2202,8 +2296,9 @@ describe('observation translation', () => {
     const driver = world.runtime.driverFor('opencode', profile)
     const session = await driver.create({ ...SPEC, harness: 'opencode' })
     const sessionId = session.binding.sessionId
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'working',
@@ -2212,8 +2307,9 @@ describe('observation translation', () => {
         stateSource: 'classifier',
       },
     })
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'idle',
@@ -2223,10 +2319,13 @@ describe('observation translation', () => {
         stateSource: 'classifier',
       },
     })
-    expect(world.frames).toEqual([])
+    expect(
+      world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn'),
+    ).toEqual([])
 
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'idle',
@@ -2236,8 +2335,9 @@ describe('observation translation', () => {
         stateSource: 'poll',
       },
     })
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'working',
@@ -2246,8 +2346,9 @@ describe('observation translation', () => {
         stateSource: 'poll',
       },
     })
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'idle',
@@ -2536,29 +2637,25 @@ describe('observation translation', () => {
     })
   })
 
-  it('reads the compaction direction rather than assuming it', () => {
-    // Getting this backwards would re-prime the instruction channel at the wrong
-    // boundary — a silent failure, which is why it is read from the phase.
-    expect(
-      stateEventForObservation({
-        ...base,
-        transitionKind: 'compaction',
-        nextPhase: 'compacting',
-      }),
-    ).toMatchObject({ kind: 'compaction', phase: 'start' })
-    expect(
-      stateEventForObservation({
-        ...base,
-        transitionKind: 'compaction',
-        nextPhase: 'idle',
-      }),
-    ).toMatchObject({ kind: 'compaction', phase: 'end' })
+  it.each([
+    'compacting',
+    'idle',
+    'unknown',
+  ] as const)('preserves the complete %s phase', (phase) => {
+    const state = { ...base.state, phase }
+    expect(stateEventForObservation({ ...base, transitionKind: 'compaction', state })).toEqual({
+      kind: 'state_snapshot',
+      state,
+      at: base.providerAt ?? base.receivedAt,
+    })
   })
 
-  it('emits NOTHING for a transition it cannot name honestly', () => {
+  it('preserves bookkeeping state without inventing a delta', () => {
     // The observation does not carry a subagent delta's direction, so there is no
-    // event that would be true. Silence beats plausible.
-    expect(stateEventForObservation({ ...base, transitionKind: 'subagent_bookkeeping' })).toBeNull()
+    // delta that would be true. The full folded state is lossless.
+    expect(
+      stateEventForObservation({ ...base, transitionKind: 'subagent_bookkeeping' }),
+    ).toMatchObject({ kind: 'state_snapshot', state: base.state })
     expect(turnEventForObservation({ ...base, transitionKind: 'activity' })).toBeNull()
   })
 

@@ -21,11 +21,23 @@ import { createFrameSink } from './frame-sink'
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
 
-const agentState = (phase: 'idle' | 'working'): DaemonMessage =>
+let stateSeq = 0
+const agentState = (phase: 'idle' | 'working', generation = 1): DaemonMessage =>
   ({
-    type: 'agentState',
+    type: 'runtimeEvent',
     sessionId: SESSION,
-    state: { phase, since: '2026-08-20T00:00:00.000Z', nativeSubagentCount: 0 },
+    event: {
+      t: 'state',
+      change: {
+        kind: 'state_snapshot',
+        state: { phase, since: '2026-08-20T00:00:00.000Z', nativeSubagentCount: 0 },
+      },
+      at: '2026-08-20T00:00:00.000Z',
+      provenance: 'live',
+      cursor: { segmentId: 'state', components: { seq: ++stateSeq } },
+      observerGeneration: generation,
+      turnEpoch: 0,
+    },
   }) as DaemonMessage
 
 function world() {
@@ -60,7 +72,7 @@ const settled = (ctx: DaemonContext) =>
   vi.waitFor(() => expect(ctx.nativeClientTransitions?.size).toBe(0))
 
 describe('the daemon outbound frame sink', () => {
-  it('re-arms a refused native attach from a real agentState frame', async () => {
+  it('re-arms a refused native attach from a runtime state snapshot', async () => {
     const { sink, ctx, attach, upstream } = world()
 
     sink(agentState('idle'))
@@ -76,6 +88,22 @@ describe('the daemon outbound frame sink', () => {
     expect(upstream).toHaveBeenCalledTimes(1)
   })
 
+  it('does not re-arm from a stale generation or legacy state', async () => {
+    const { sink, ctx, attach } = world()
+    sink({ type: 'runtimeEvent', sessionId: SESSION, event: { t: 'process', ev: { ev: 'adopted', bindingVersion: 2 }, observerGeneration: 2 } } as DaemonMessage)
+    sink(agentState('idle', 1))
+    sink({
+      type: 'agentState',
+      sessionId: SESSION,
+      state: { phase: 'idle', since: '2026-08-20T00:00:00.000Z', nativeSubagentCount: 0 },
+    } as DaemonMessage)
+    await settled(ctx)
+    expect(attach).not.toHaveBeenCalled()
+    sink(agentState('idle', 2))
+    await settled(ctx)
+    expect(attach).toHaveBeenCalledTimes(1)
+  })
+
   it('forwards the phase on the frame untranslated', async () => {
     const { sink, ctx, attach } = world()
 
@@ -88,7 +116,7 @@ describe('the daemon outbound frame sink', () => {
     expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
   })
 
-  it('acts on agentState only', async () => {
+  it('ignores non-state transcript frames', async () => {
     const { sink, ctx, attach, upstream } = world()
 
     sink({ type: 'transcriptDelta', sessionId: SESSION, items: [] } as unknown as DaemonMessage)
@@ -191,12 +219,17 @@ describe('the daemon outbound frame sink', () => {
 
     sink({ type: 'runtimeEvent', sessionId: SESSION, event: {} } as unknown as DaemonMessage)
     sink({ type: 'runtimeFineEvent', sessionId: SESSION, event: {} } as unknown as DaemonMessage)
-    sink(agentState('working'))
+    const legacy = {
+      type: 'agentState',
+      sessionId: SESSION,
+      state: { phase: 'working', since: '2026-08-20T00:00:00.000Z', nativeSubagentCount: 0 },
+    } as DaemonMessage
+    sink(legacy)
 
     // The driver emits its own `runtimeEvent` frames THROUGH this sink, so
     // observing them here would be a loop. Everything else is fair game.
     expect(observe).toHaveBeenCalledTimes(1)
-    expect(observe).toHaveBeenCalledWith(agentState('working'))
+    expect(observe).toHaveBeenCalledWith(legacy)
     expect(upstream).toHaveBeenCalledTimes(3)
   })
 })

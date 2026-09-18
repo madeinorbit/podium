@@ -567,6 +567,7 @@ export async function createDaemonHostRuntime(args: {
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
+    onState: (observation) => terminalRuntime?.observeState(observation),
     onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
     sharedScreenFor: (sessionId) =>
       daemonCtx ? terminalScreenFor(daemonCtx, sessionId).model : undefined,

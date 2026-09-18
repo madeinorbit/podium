@@ -113,6 +113,102 @@ async function bindContract(registry: SessionRegistry, store: SessionStore, runt
 }
 
 describe('durable runtime observation gate', () => {
+  it('restores full state after a quiet restart and accepts bookkeeping after a closed turn', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      const sessionId = await bindContract(registry, store)
+      const at = '2026-08-23T00:00:00.000Z'
+      const send = async (event: RuntimeEvent) =>
+        registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'runtimeEvent',
+          sessionId,
+          deliveryId: `state-${event.observerGeneration}-${event.cursor.components.seq}`,
+          event,
+        })
+      await send(
+        stateEvent({
+          at,
+          seq: 20,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+          change: { kind: 'session_started' },
+        }),
+      )
+      await send(turnEvent({ at, seq: 21, turnEpoch: 1, ev: 'completed' }))
+      const state = { phase: 'idle', since: at, nativeSubagentCount: 0, idle: { kind: 'done' } }
+      await send(
+        stateEvent({
+          at,
+          seq: 1,
+          observerGeneration: 2,
+          provenance: 'bootstrap',
+          change: { kind: 'state_snapshot', state },
+        }),
+      )
+      expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toMatchObject(
+        state,
+      )
+      expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+        observerGeneration: 2,
+        cursor: { components: { seq: 1 } },
+      })
+      for (const [index, phase] of ['needs_user', 'compacting', 'unknown', 'idle'].entries()) {
+        const next = {
+          ...state,
+          phase,
+          nativeSubagentCount: phase === 'idle' ? 0 : 1,
+          ...(phase === 'idle' ? {} : { nativeSubagents: [{ id: 'child-1', type: 'Explore' }] }),
+        }
+        await send(
+          stateEvent({
+            at,
+            seq: index + 2,
+            observerGeneration: 2,
+            change: { kind: 'state_snapshot', state: next },
+          }),
+        )
+        expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toMatchObject(
+          next,
+        )
+      }
+      const providerPosition = stateEvent({ at, seq: 6, observerGeneration: 2, change: { kind: 'state_snapshot', state } })
+      providerPosition.cursor.components.transcript = 50
+      await send(providerPosition)
+      const regressed = stateEvent({ at, seq: 1, observerGeneration: 3, provenance: 'bootstrap', change: { kind: 'state_snapshot', state: { ...state, phase: 'working' } } })
+      regressed.cursor.components.transcript = 49
+      await send(regressed)
+      expect((await store.events.runtimeEventCheckpoint(sessionId))?.observerGeneration).toBe(2)
+      await send(
+        stateEvent({
+          at,
+          seq: 100,
+          observerGeneration: 1,
+          change: { kind: 'state_snapshot', state: { ...state, phase: 'working' } },
+        }),
+      )
+      expect((await registry.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe(
+        'idle',
+      )
+      await send(
+        stateEvent({
+          at,
+          seq: 1,
+          observerGeneration: 3,
+          provenance: 'bootstrap',
+          segmentId: 'foreign',
+          change: { kind: 'state_snapshot', state: { ...state, phase: 'working' } },
+        }),
+      )
+      expect((await registry.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe(
+        'idle',
+      )
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
+  })
+
   it('keeps legacy-only bindings authoritative without a runtime checkpoint', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })

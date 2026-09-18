@@ -21,6 +21,8 @@ export interface AgentStateEventProvenance {
  * degrades to coarser states instead of breaking the model.
  */
 export type AgentStateEvent = (
+  /** Already folded driver state. Admission/fencing belongs to the runtime stream. */
+  | { kind: 'state_snapshot'; state: AgentRuntimeState }
   | { kind: 'session_started' }
   /** The harness explicitly disabled a channel Podium normally observes. */
   | {

@@ -196,6 +196,11 @@ export function reduceAgentState(
   event: AgentStateEvent,
   now: string,
 ): AgentRuntimeState {
+  // The driver already arbitrated its private observation channels. Preserve
+  // their phase time and identity list, but keep the consumer's durable timer.
+  if (event.kind === 'state_snapshot') {
+    return { ...event.state, workingMsTotal: workingMsAt(prev, event.state.since) }
+  }
   if (lowerConfidenceIsStale(prev, event, now)) return prev
   const since = event.at ?? now
   // Intentionally omits awaitingSubagents / idle / need / error so non-hold

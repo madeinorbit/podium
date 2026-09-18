@@ -342,6 +342,31 @@ export class RuntimeEventGate {
       }
     }
 
+    // A full bootstrap in the immediately succeeding lease is a state restore,
+    // not replayed activity. Its daemon-local sequence may restart at one.
+    const restoringState =
+      replacing &&
+      event.provenance === 'bootstrap' &&
+      event.t === 'state' &&
+      event.change.kind === 'state_snapshot'
+    if (restoringState) {
+      const { seq: _oldSequence, ...before } = current.cursor.components
+      const { seq: _newSequence, ...after } = event.cursor.components
+      if (compareProviderCursor(
+        { ...current.cursor, components: before },
+        { ...event.cursor, components: after },
+      ) === 'incomparable') return { kind: 'rejected', reason: 'unproven-segment-rotation' }
+      // Only the driver's sequence restarts. Provider evidence cannot go backwards
+      // inside the same file/segment under a fresh observer lease.
+      if (current.cursor.segmentId === event.cursor.segmentId &&
+          Object.entries(before).some(([key, value]) => (after[key] ?? 0) < value)) {
+        return { kind: 'rejected', reason: 'cursor-not-after-checkpoint' }
+      }
+      if (event.turnEpoch < current.turnEpoch)
+        return { kind: 'rejected', reason: 'turn-epoch-regressed' }
+      return { kind: 'accept' }
+    }
+
     const order = compareProviderCursor(current.cursor, event.cursor)
     if (order === 'incomparable') {
       return { kind: 'rejected', reason: 'unproven-segment-rotation' }
@@ -349,7 +374,11 @@ export class RuntimeEventGate {
     if (order === 'same_or_before') {
       return { kind: 'duplicate', rebaseGeneration: replacing }
     }
-    if (!replacing && event.provenance === 'bootstrap') {
+    if (
+      !replacing &&
+      event.provenance === 'bootstrap' &&
+      !(event.t === 'state' && event.change.kind === 'state_snapshot')
+    ) {
       return { kind: 'rejected', reason: 'cursor-not-after-checkpoint' }
     }
 
@@ -364,12 +393,20 @@ export class RuntimeEventGate {
       event.turnEpoch <= current.closedTurnEpoch &&
       event.t !== 'process' &&
       event.t !== 'delivery' &&
-      event.t !== 'draft'
+      event.t !== 'draft' &&
+      !(event.t === 'state' && event.change.kind === 'state_snapshot')
     ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
     }
     if (event.turnEpoch > current.turnEpoch) {
-      if (event.turnEpoch !== current.turnEpoch + 1 || !startsTurn(event)) {
+      if (
+        !(
+          event.provenance === 'bootstrap' &&
+          event.t === 'state' &&
+          event.change.kind === 'state_snapshot'
+        ) &&
+        (event.turnEpoch !== current.turnEpoch + 1 || !startsTurn(event))
+      ) {
         return { kind: 'rejected', reason: 'turn-epoch-jump' }
       }
     }
@@ -396,7 +433,12 @@ export class RuntimeEventGate {
       await this.ports.interaction?.({ sessionId, ev: event.ev })
     }
     if (closesTurn(event)) await this.ports.board({ kind: 'turnEnd', sessionId, eventId })
-    if (event.t === 'state' && event.change.kind === 'needs_user') {
+    if (
+      event.t === 'state' &&
+      (event.change.kind === 'needs_user' ||
+        (event.change.kind === 'state_snapshot' &&
+          (event.change.state as { phase?: string } | undefined)?.phase === 'needs_user'))
+    ) {
       await this.ports.board({ kind: 'attention', sessionId, eventId })
     }
   }

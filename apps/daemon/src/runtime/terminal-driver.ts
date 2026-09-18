@@ -55,6 +55,7 @@ import {
  */
 
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import type {
   AcceptPort,
   ActingPrincipal,
@@ -315,6 +316,9 @@ interface DriverSession {
   resume: ResumeRef | null
   bindingVersion: number
   observerGeneration: number
+  state?: AgentRuntimeState
+  stateGeneration?: number
+  lastEmittedCursor?: ProviderCursor
   turnEpoch: number
   /** Highest epoch whose terminal observation has already been folded. */
   fencedTurnEpoch: number
@@ -431,52 +435,17 @@ export interface TerminalHarnessProfile {
 // Observation → RuntimeEvent translation
 // ---------------------------------------------------------------------------
 
-/**
- * The phase transition an observation reports, as the normalized state
- * vocabulary.
- *
- * EVERY FIELD COMES FROM THE OBSERVATION. `needs_user`'s `need` is the state's
- * own, the completion verdict is the state's own idle verdict, and a transition
- * whose event cannot be named honestly (a subagent bookkeeping tick, whose delta
- * direction the observation does not carry) produces NO event rather than a
- * guessed one. The contract would rather be silent than plausible.
- */
-export function stateEventForObservation(observation: AgentObservation): AgentStateEvent | null {
-  const state = observation.state
-  switch (observation.transitionKind) {
-    case 'turn_opened':
-      return { kind: 'prompt_submitted', at: observation.providerAt ?? undefined }
-    case 'activity':
-      return { kind: 'activity', at: observation.providerAt ?? undefined }
-    case 'needs_user':
-      return {
-        kind: 'needs_user',
-        need: state.need?.kind ?? 'question',
-        ...(state.need?.summary ? { summary: state.need.summary } : {}),
-        ...(state.need?.ask ? { ask: state.need.ask } : {}),
-        at: observation.providerAt ?? undefined,
-      }
-    case 'compaction':
-      // Direction is READ, not assumed: entering the compacting phase is the
-      // start, leaving it is the end. That boundary is what re-primes the
-      // instruction channel, so getting it backwards would re-prime at the wrong
-      // moment — which is exactly the kind of thing a guess gets wrong quietly.
-      return {
-        kind: 'compaction',
-        phase: observation.nextPhase === 'compacting' ? 'start' : 'end',
-        at: observation.providerAt ?? undefined,
-      }
-    case 'turn_terminal':
-      return {
-        kind: 'turn_completed',
-        ...(state.idle ? { verdict: state.idle } : {}),
-        at: observation.providerAt ?? undefined,
-      }
-    case 'session_terminal':
-      return { kind: 'session_ended', at: observation.providerAt ?? undefined }
-    case 'snapshot':
-    case 'subagent_bookkeeping':
-      return null
+/** An observation already contains the folded state, including identity and
+ * phase details that cannot be reconstructed from its transition label. This
+ * is a snapshot, never an invented task delta or turn acceptance. */
+export function stateEventForObservation(
+  observation: AgentObservation,
+): Extract<AgentStateEvent, { kind: 'state_snapshot' }> {
+  return {
+    kind: 'state_snapshot',
+    state: observation.state,
+    at: observation.providerAt ??
+      (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt),
   }
 }
 
@@ -509,6 +478,16 @@ export function turnEventForObservation(observation: AgentObservation): RuntimeE
 // The runtime
 // ---------------------------------------------------------------------------
 
+export interface TerminalStateObservation {
+  sessionId: SessionId
+  state: AgentRuntimeState
+  observerGeneration: number
+  bindingVersion: number
+  bootstrap?: boolean
+}
+
+type TerminalObservation = DaemonMessage | ({ type: 'terminalState' } & TerminalStateObservation)
+
 export interface TerminalRuntime {
   recoverWithId(msg: ReattachControl, profile: TerminalHarnessProfile): Promise<AgentSessionHandle>
   observeDraft(sessionId: SessionId, text: string): void
@@ -526,6 +505,7 @@ export interface TerminalRuntime {
   /** THE EVENT SOURCE. Tap on the daemon's outbound frame stream — see the
    *  header. Returns immediately for a session that is not registered. */
   observe(msg: DaemonMessage): void
+  observeState(observation: TerminalStateObservation): void
   /** The causal accept signal: a raw hook payload, before the observers fold it. */
   onHookPayload(sessionId: SessionId, payload: unknown): void
   /**
@@ -627,7 +607,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
    * floor as before — this map holds one entry per in-flight create/adopt, never
    * one per frame the daemon sends about somebody else's session.
    */
-  const pendingFrames = new Map<SessionId, DaemonMessage[]>()
+  const pendingFrames = new Map<SessionId, TerminalObservation[]>()
 
   // -- event plumbing -------------------------------------------------------
 
@@ -676,7 +656,14 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   ): ProviderCursor => {
     const base = provider ?? session.providerCursor
     if (!base) return driverLocalCursor(session.label, seq)
-    return { ...base, components: { ...base.components, seq } }
+    const previous = session.lastEmittedCursor
+    const predecessor =
+      previous &&
+      previous.segmentId !== base.segmentId &&
+      previous.segmentId === driverLocalCursor(session.label, 0).segmentId
+        ? { predecessorSegmentId: previous.segmentId }
+        : {}
+    return { ...base, ...predecessor, components: { ...base.components, seq } }
   }
 
   function emit(
@@ -705,6 +692,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       observerGeneration: session.observerGeneration,
       turnEpoch: session.turnEpoch,
     })
+    session.lastEmittedCursor = event.cursor
     session.log.push({ seq: session.seq, event })
     const timingBinding = handles.get(session.sessionId)?.binding
     if (timingBinding) driverTiming.runtimeEvent(timingBinding, event)
@@ -870,7 +858,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
    * and only the one or two ids with a create/adopt in flight have an entry to
    * push onto. See {@link pendingFrames}.
    */
-  function holdUntilRegistered(sessionId: SessionId, msg: DaemonMessage): void {
+  function holdUntilRegistered(sessionId: SessionId, msg: TerminalObservation): void {
     const held = pendingFrames.get(sessionId)
     if (!held) return
     if (held.length >= PENDING_FRAME_LIMIT) {
@@ -931,7 +919,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     emit(session, { t: 'draft', text }, observedAt(), 'live')
   }
 
-  function observe(msg: DaemonMessage): void {
+  function observe(msg: TerminalObservation): void {
     const claimedId =
       msg.type === 'agentObservation'
         ? msg.observation.podiumSessionId
@@ -1060,10 +1048,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         observeDraft(session.sessionId, msg.text)
         return
       }
-      case 'agentState': {
-        applyStateLifecycle(session, msg.state)
+      case 'terminalState': {
+        if (
+          msg.observerGeneration !== session.observerGeneration ||
+          msg.bindingVersion !== session.bindingVersion
+        )
+          return
+        const bootstrap =
+          msg.bootstrap === true ||
+          (session.observerGeneration > 1 && session.stateGeneration !== session.observerGeneration)
+        if (!bootstrap) applyStateLifecycle(session, msg.state)
+        else session.observedStatePhase = msg.state.phase
+        publishState(
+          session,
+          msg.state,
+          msg.state.stateObservedAt ?? msg.state.since,
+          bootstrap ? 'bootstrap' : 'live',
+        )
         return
       }
+      case 'agentState':
+        // Legacy transport is no longer a driver input.
+        return
       case 'agentContext': {
         session.contextUsedPercent = msg.percent
         return
@@ -1125,10 +1131,39 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     }
   }
 
+  function publishState(
+    session: DriverSession,
+    state: AgentRuntimeState,
+    at: string,
+    provenance: ObservationProvenance,
+    cursor?: ProviderCursor,
+  ): void {
+    if (
+      !cursor &&
+      session.stateGeneration === session.observerGeneration &&
+      isDeepStrictEqual(session.state, state)
+    )
+      return
+    session.state = state
+    session.stateGeneration = session.observerGeneration
+    emit(
+      session,
+      { t: 'state', change: { kind: 'state_snapshot', state, at } },
+      at,
+      provenance,
+      cursor,
+    )
+  }
+
   function applyObservation(session: DriverSession, observation: AgentObservation): void {
     // A stale generation is REJECTED, never merged — the rule the envelope's
     // `observerGeneration` exists to enforce, applied at the driver's own door.
-    if (observation.observerGeneration < session.observerGeneration) return
+    if (
+      observation.observerGeneration < session.observerGeneration ||
+      observation.bindingVersion < session.bindingVersion ||
+      (session.resume && observation.providerSessionId !== session.resume.value)
+    )
+      return
     if (session.observerGeneration !== observation.observerGeneration ||
         session.bindingVersion < observation.bindingVersion) {
       session.answerScript?.cancel('observer ownership changed')
@@ -1155,7 +1190,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       bindingVersion: session.bindingVersion,
     }
 
-    const at = observation.providerAt ?? observation.receivedAt
+    const at = observation.providerAt ??
+      (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt)
     // Poll state owns lifecycle and epochs for this harness. The observation
     // envelope still carries cursor, generation, asks, transcript items and
     // state events, so only its lifecycle mutation and turn event are skipped.
@@ -1163,13 +1199,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     if (turn) emit(session, turn, at, observation.provenance, observation.providerCursor)
 
     const change = stateEventForObservation(observation)
-    if (change) {
-      emit(session, { t: 'state', change }, at, observation.provenance, observation.providerCursor)
-    }
+    session.state = change.state
+    session.stateGeneration = session.observerGeneration
+    emit(session, { t: 'state', change }, at, observation.provenance, observation.providerCursor)
 
     // This boundary is the current causal envelope, after generation/binding adoption.
-    // Screen-classifier agentState frames are intentionally legacy and may be rejected
-    // by the server once this fenced observation stream exists; they do not authorize this read.
+    // Driver-private screen state does not authorize transcript reconciliation.
     if (observation.transitionKind === 'turn_terminal') {
       void reconcileTranscript(session, transcriptFence)
     }
@@ -1502,9 +1537,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       const liveAt = session.liveAtMs
       if (!session.live || !session.alive || liveAt === undefined) return false
       const now = host.now()
-      return now - liveAt >= 6000 ||
-        (session.lastOutputAtMs > liveAt && now - liveAt >= 800 &&
+      return (
+        now - liveAt >= 6000 ||
+        (session.lastOutputAtMs > liveAt &&
+          now - liveAt >= 800 &&
           now - session.lastOutputAtMs >= 600)
+      )
     }
     const handle: AgentSessionHandle = {
       get binding() {
@@ -1567,11 +1605,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       async snapshot(): Promise<SessionSnapshot> {
         return {
           binding: binding(),
-          state: host.trackedState(session.sessionId) ?? {
-            phase: 'unknown',
-            since: new Date(host.now()).toISOString(),
-            nativeSubagentCount: 0,
-          },
+          state: session.state ??
+            host.trackedState(session.sessionId) ?? {
+              phase: 'unknown',
+              since: new Date(host.now()).toISOString(),
+              nativeSubagentCount: 0,
+            },
           cursor: cursorFor(session, session.seq),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
@@ -1707,7 +1746,11 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // turn, so `steer` becomes `queue` and `deliveredAs` says so.
         const requested: TurnDelivery = options.delivery
         if (requested === 'steer' || requested === 'queue') return enqueue()
-        if (requested === 'when-ready' && (!deliveryReady() || ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? ''))) {
+        if (
+          requested === 'when-ready' &&
+          (!deliveryReady() ||
+            ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? ''))
+        ) {
           if (options.deliveryAttempt) return { outcome: 'refused', refusal: refuse('busy') }
           return enqueue()
         }
@@ -1898,6 +1941,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       async state(): Promise<AgentRuntimeState> {
         return (
+          session.state ??
           host.trackedState(session.sessionId) ?? {
             phase: 'unknown',
             since: new Date(host.now()).toISOString(),
@@ -2173,20 +2217,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     const previous = recoveries.get(msg.sessionId)
     const recovery = (async () => {
       await previous?.catch(() => undefined)
-      if (typeof msg.runtimeContract === 'string' && canonicalDriverId(msg.runtimeContract) !== profile.driverId) {
-        throw new TerminalRecoveryRefusal(`runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`)
+      if (
+        typeof msg.runtimeContract === 'string' &&
+        canonicalDriverId(msg.runtimeContract) !== profile.driverId
+      ) {
+        throw new TerminalRecoveryRefusal(
+          `runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`,
+        )
       }
       const current = sessions.get(msg.sessionId)
       if (
         current &&
         (current.label !== msg.durableLabel ||
-          current.agentKind !== msg.agentKind || current.driverId !== profile.driverId ||
+          current.agentKind !== msg.agentKind ||
+          current.driverId !== profile.driverId ||
           (msg.observationGeneration !== undefined &&
             msg.observationGeneration < current.observerGeneration) ||
           (msg.observationBindingVersion !== undefined &&
             msg.observationBindingVersion < current.bindingVersion))
       )
-        throw new TerminalRecoveryRefusal('terminal recovery identity or observation fence is stale')
+        throw new TerminalRecoveryRefusal(
+          'terminal recovery identity or observation fence is stale',
+        )
       return claiming(msg.sessionId, async () => {
         if (verifyDurable && !(await host.durableHostAlive(msg.durableLabel))) {
           throw new Error(`terminal driver: no surviving durable host for ${msg.durableLabel}`)
@@ -2240,6 +2292,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     bindings: () => [...handles.values()].map((handle) => handle.binding),
     has: (sessionId) => sessions.has(sessionId),
     observe,
+    observeState: (observation) => observe({ type: 'terminalState', ...observation }),
     observeDraft,
     onHookPayload,
     reportOomKill(sessionId, scopeUnit) {

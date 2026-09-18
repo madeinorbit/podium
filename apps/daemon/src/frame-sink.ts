@@ -30,6 +30,14 @@
  * defect rather than tolerate a missing one.
  */
 
+import {
+  compareProviderCursor,
+  initialAgentState,
+  reduceAgentState,
+  type AgentStateEvent,
+} from '@podium/harness'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
+import type { ProviderCursor } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { DaemonContext } from './control/context'
 import { nativeClientInteractionAnswered, nativeClientStateObserved } from './control/session'
@@ -44,7 +52,18 @@ export interface FrameSinkPorts {
 }
 
 export function createFrameSink(ports: FrameSinkPorts): (message: DaemonMessage) => void {
+  const states = new Map<
+    SessionId,
+    { generation: number; cursor: ProviderCursor; state: AgentRuntimeState }
+  >()
+  const generations = new Map<SessionId, number>()
   return (message: DaemonMessage): void => {
+    const currentGeneration = 'sessionId' in message ? generations.get(message.sessionId) : undefined
+    const staleRuntimeEvent = message.type === 'runtimeEvent' &&
+      currentGeneration !== undefined && message.event.observerGeneration < currentGeneration
+    if (message.type === 'runtimeEvent' && Number.isSafeInteger(message.event.observerGeneration) && !staleRuntimeEvent) {
+      generations.set(message.sessionId, message.event.observerGeneration)
+    }
     /**
      * THE ONE TYPE THE DRIVER TAP MUST SKIP. The driver emits `runtimeEvent`
      * frames THROUGH this sink, so observing them here would feed the driver its
@@ -53,17 +72,30 @@ export function createFrameSink(ports: FrameSinkPorts): (message: DaemonMessage)
     if (message.type !== 'runtimeEvent' && message.type !== 'runtimeFineEvent') {
       ports.runtime()?.observe(message)
     }
-    /**
-     * A NATIVE ATTACH THE SESSION REFUSED IS RE-ARMED FROM THE STATE FRAME IT
-     * ALREADY EMITS. Every family's phase change becomes exactly this frame —
-     * the three server drivers and the terminal observers all send it — so one
-     * hook here is what three per-driver callbacks would have been. The phase
-     * comes off the frame UNTRANSLATED: the decision about which phases can win
-     * a take-over belongs to the reconcile, not to the sink.
-     */
-    if (message.type === 'agentState') {
-      const ctx = ports.context()
-      if (ctx) nativeClientStateObserved(ctx, message.sessionId, message.state)
+    // Fold the contract stream for native retry admission. Stale generations
+    // and replayed cursors cannot re-arm an attachment refused by newer state.
+    if (message.type === 'runtimeEvent' && message.event.t === 'state' && !staleRuntimeEvent) {
+      const event = message.event
+      const prior = states.get(message.sessionId)
+      const fresh =
+        !prior ||
+        event.observerGeneration > prior.generation ||
+        (event.observerGeneration === prior.generation &&
+          compareProviderCursor(prior.cursor, event.cursor) === 'after')
+      if (fresh) {
+        const state = reduceAgentState(
+          prior?.state ?? initialAgentState(event.at),
+          event.change as AgentStateEvent,
+          event.at,
+        )
+        states.set(message.sessionId, {
+          generation: event.observerGeneration,
+          cursor: event.cursor,
+          state,
+        })
+        const ctx = ports.context()
+        if (ctx) nativeClientStateObserved(ctx, message.sessionId, state)
+      }
     }
     /**
      * AND THE OTHER HALF OF THAT RE-ARM: AN ASK THAT WAS JUST ANSWERED.
@@ -79,7 +111,7 @@ export function createFrameSink(ports: FrameSinkPorts): (message: DaemonMessage)
      * because the driver's `observe` feeds the driver, and nothing under this tap
      * emits a frame.
      */
-    if (message.type === 'runtimeEvent' && message.event.t === 'interaction') {
+    if (message.type === 'runtimeEvent' && message.event.t === 'interaction' && !staleRuntimeEvent) {
       if (message.event.ev.ev === 'answered') {
         const ctx = ports.context()
         if (ctx) nativeClientInteractionAnswered(ctx, message.sessionId)
