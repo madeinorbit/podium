@@ -1,7 +1,7 @@
 import { asSessionId, asThreadId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { createSlicePublisher } from './publish'
-import { superagentSlice, threadById, type SuperThreadView } from './superagent'
+import { createSlicePublisher, type SliceDefinition } from './publish'
+import { superagentSlice, threadById, type SuperagentSource, type SuperThreadView } from './superagent'
 
 // ---------------------------------------------------------------------------
 // POD-330 audit item zero — the superagent view's shadow mirror is gone.
@@ -97,5 +97,84 @@ describe('superagentSlice', () => {
     const mine = [thread('global'), thread('btw_mine', { kind: 'btw' })]
     expect(threadById(mine, 'btw_mine')?.id).toBe('btw_mine')
     expect(threadById(mine, 'btw_someone-elses')).toBeUndefined()
+  })
+})
+
+
+describe('superagent source guard', () => {
+  it('skips draft, metric and session publishes; the unguarded control derives on all three', () => {
+    let snapshot = {
+      ...source([thread('global')]),
+      drafts: {},
+      metrics: {},
+      sessions: {},
+    }
+    const guarded = createSlicePublisher(() => snapshot)
+    const unguarded = createSlicePublisher(() => snapshot)
+    const { sourceEqual: _guard, ...withoutGuard } = superagentSlice
+    const first = guarded.read(superagentSlice)
+    unguarded.read(withoutGuard)
+    for (const key of ['drafts', 'metrics', 'sessions'] as const) {
+      snapshot = { ...snapshot, [key]: { changed: true } }
+      expect(guarded.read(superagentSlice)).toBe(first)
+      unguarded.read(withoutGuard)
+    }
+    expect(guarded.derivations().superagent).toBe(1)
+    expect(unguarded.derivations().superagent).toBe(4)
+    console.info('superagent unrelated publishes: unguarded +3, guarded +0 derivations')
+  })
+
+  function assertUpdate(
+    definition: typeof superagentSlice,
+    before: SuperagentSource,
+    after: SuperagentSource,
+  ) {
+    let snapshot = before
+    const publisher = createSlicePublisher(() => snapshot)
+    publisher.read(definition)
+    snapshot = after
+    const value = publisher.read(definition)
+    expect(value).toEqual(superagentSlice.derive(after))
+    expect(publisher.derivations().superagent).toBe(2)
+  }
+
+  const global = thread('global', { podiumSessionId: asSessionId('session-global') })
+  const btw = thread('btw', { podiumSessionId: asSessionId('session-btw') })
+  const before = source([global, btw])
+  const cases = [
+    ['thread change', source([{ ...global, title: 'Updated', podiumSessionId: asSessionId('new-session') }, btw])],
+    ['active-thread change', { ...before, superThreadId: asThreadId('btw') }],
+    ['thread disappearance', source([btw])],
+  ] as const
+
+  it.each(cases)('updates on %s', (_name, after) => {
+    assertUpdate(superagentSlice, before, after)
+  })
+
+  it.each([
+    ['superThreads', (a, b) => a.superThreadId === b.superThreadId, cases[0][1]],
+    ['superThreadId', (a, b) => a.superThreads === b.superThreads, cases[1][1]],
+  ] satisfies [string, NonNullable<SliceDefinition<SuperagentSource, unknown>['sourceEqual']>, SuperagentSource][])(
+    'rejects a guard missing %s with the same update assertion',
+    (_name, sourceEqual, after) => {
+      expect(() => assertUpdate({ ...superagentSlice, sourceEqual }, before, after)).toThrow()
+    },
+  )
+
+  it('derives afresh for a replacement principal publisher', () => {
+    const first = createSlicePublisher(() => before)
+    const oldValue = first.read(superagentSlice)
+    // Principal isolation is the publisher lifetime, even if inputs are shared.
+    let snapshot = before
+    const replacement = createSlicePublisher(() => snapshot)
+    expect(replacement.read(superagentSlice)).not.toBe(oldValue)
+    expect(replacement.derivations().superagent).toBe(1)
+    snapshot = source([thread('global', { podiumSessionId: asSessionId('other-user') })])
+    expect(replacement.read(superagentSlice).activeSessionId).toBe('other-user')
+    snapshot = source([])
+    expect(replacement.read(superagentSlice).threads).toEqual([])
+    expect(replacement.read(superagentSlice).activeSessionId).toBeUndefined()
+    expect(replacement.derivations().superagent).toBe(3)
+    expect(first.read(superagentSlice)).toBe(oldValue)
   })
 })

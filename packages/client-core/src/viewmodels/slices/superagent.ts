@@ -76,6 +76,8 @@ export interface SuperagentSliceValue {
 export const superagentSlice: SliceDefinition<SuperagentSource, SuperagentSliceValue> = defineSlice(
   {
     name: 'superagent',
+    sourceEqual: (a, b) =>
+      a.superThreads === b.superThreads && a.superThreadId === b.superThreadId,
     derive: (s) => {
       const active = s.superThreads.find((t) => t.id === s.superThreadId)
       return {
