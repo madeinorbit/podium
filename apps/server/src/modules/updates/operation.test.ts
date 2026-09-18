@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
-import { MachineUpdateExecutor } from '@podium/runtime/machine-update'
+import { MachineUpdateExecutor, updateFingerprint } from '@podium/runtime/machine-update'
 import { requestMachineUpdate, startMachineUpdateControl } from '@podium/runtime/machine-update-control'
 import { createInstalledCoordinatorUpdate } from './installed-restart'
 import { UpdateRecoveryStore } from './recovery-store'
@@ -60,7 +60,7 @@ import {
   updateOperationDetails,
   updateOperationKind,
 } from './operation'
-import { UpdatesService } from './service'
+import { UpdatesService, type UpdatesDeps } from './service'
 import { updateStartability } from './trpc'
 import { refreshTargetsOnBoot } from './target-refresh'
 import { UpdateReconciler } from './reconciler'
@@ -1340,6 +1340,7 @@ function fakeClock() {
 }
 
 interface HarnessOptions {
+  recordGrant?: UpdatesDeps['recordGrant']
   resolveTarget?: (channel: UpdateChannel) => Promise<UpdateTarget>
   approvedTarget?: () => Promise<UpdateTarget | undefined>
   durableRecovery?: boolean
@@ -1423,6 +1424,7 @@ async function harness(options: HarnessOptions = {}) {
       ...(options.durableRecovery ? { recovery: new UpdateRecoveryStore(db) } : {}),
       fleetChannel: () => 'dev',
       ...(options.resolveTarget ? { resolveTarget: options.resolveTarget } : {}),
+      ...(options.recordGrant ? { recordGrant: options.recordGrant } : {}),
       exclusiveOperationActive: async () =>
         (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
@@ -4865,20 +4867,29 @@ describe('coordinator snapshot activation boundary', () => {
 
 
 describe('boot target hydration observation boundary (POD-4257)', () => {
-  it('does not grant or advance an adopted running operation before an engine tick', async () => {
+  it.each(['own target', 'different version', 'different fingerprint', 'withdrawn channel'] as const)(
+    'resumes only an adopted operation’s exact approved target: %s', async (scenario) => {
     const target = packedTarget()
     const fleet = [machine({ id: 'a' }), machine({ id: 'b' })]
-    const resolveTarget = vi.fn(async () => target)
+    const hydrated = scenario === 'different version'
+      ? { ...target, version: 'dev+def5678' }
+      : scenario === 'different fingerprint' ? { ...target, critical: true } : target
+    const resolveTarget = vi.fn(async () => hydrated)
+    const recordGrant = vi.fn<NonNullable<UpdatesDeps['recordGrant']>>()
+    let approvalStore: OperationStore | undefined
     const h = await harness({
       machines: fleet,
       target,
       durableRecovery: true,
       resolveTarget,
+      recordGrant,
+      approvedTarget: async () => approvalStore?.approvedTarget('dev'),
       serverPlacement: { kind: 'external' },
     })
+    approvalStore = h.store
     let boot: Awaited<ReturnType<typeof h.reboot>> | undefined
     try {
-      await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+      await h.engine.start(UPDATE_OPERATION_KIND, h.context(), { createdBy: 'user' })
       await h.engine.whenSettled('op_1')
       expect(h.sent.map((sent) => sent.machineId)).toEqual(['a'])
       const grant = h.sent[0]!.message
@@ -4899,6 +4910,9 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       )
       await successor.engine.whenSettled('op_1')
       expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+      if (scenario === 'withdrawn channel') {
+        await successor.updates.withdrawFailedTarget('dev', target, 'test withdrawal')
+      }
       const bridge = createUpdateFleetBridge({
         engine: successor.engine, updates: successor.updates, now: h.clock.clock.now,
       })
@@ -4922,12 +4936,55 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       await reconciler.onBoot()
       await successor.engine.whenSettled('op_1')
       expect(resolveTarget).toHaveBeenCalledTimes(1)
-      expect.soft(h.sent.slice(grantsBefore), 'boot hydration must not issue grants').toEqual([])
+      const issued = h.sent.slice(grantsBefore)
+      if (scenario === 'own target') {
+        expect(issued.map(({ machineId }) => machineId)).toEqual(['b'])
+        for (const { message } of issued) {
+          expect(message.target.version).toBe(target.version)
+          expect(updateFingerprint(message.target)).toBe(updateFingerprint(target))
+          expect(recordGrant.mock.calls.find(([record]) => record.grantId === message.grantId)?.[0])
+            .toMatchObject({ initiator: { kind: 'operation', operationId: before.id, step: UPDATE_STEP_MACHINES } })
+        }
+      } else {
+        expect.soft(issued, 'unapproved or withdrawn hydration must not issue grants').toEqual([])
+      }
+      expect((await h.read()).id).toBe(before.id)
+      expect(await h.store.history(UPDATE_OPERATION_KIND)).toHaveLength(1)
       expect.soft(states(await h.read()), 'boot hydration must not advance step states').toEqual(states(before))
       expect(h.clock.clock.now()).toBe(0)
     } finally {
       h.engine.stop()
       boot?.engine.stop()
+    }
+  })
+  it('hydrates without starting an operation or granting when none is running', async () => {
+    const target = packedTarget()
+    let approvalStore: OperationStore | undefined
+    const h = await harness({
+      machines: [machine({ id: 'a' })],
+      target,
+      durableRecovery: true,
+      resolveTarget: async () => target,
+      approvedTarget: async () => approvalStore?.approvedTarget('dev'),
+      serverPlacement: { kind: 'external' },
+    })
+    approvalStore = h.store
+    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: h.clock.clock.now })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+    const reconciler = new UpdateReconciler({
+      updates: h.updates,
+      operationActive: async () => (await h.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
+    })
+    try {
+      await refreshTargetsOnBoot({ channels: ['dev'], refresh: (channel) => h.updates.refreshTarget(channel) })
+      await h.settleTargetChanges()
+      await reconciler.onBoot()
+      expect(h.updates.target('dev')).toEqual(target)
+      expect(h.sent).toEqual([])
+      expect(await h.store.history(UPDATE_OPERATION_KIND)).toEqual([])
+      expect(h.clock.clock.now()).toBe(0)
+    } finally {
+      h.engine.stop()
     }
   })
 })

@@ -2422,6 +2422,10 @@ export async function startServer(
         }
       },
     }
+    // Named boot exception (POD-3957/POD-4257): hydrate targets without changing
+    // identity, ownership or placement. The callback may re-ensure an adopted
+    // running operation's own places. Its required boundary is the exact approved
+    // target: it must not start an operation or grant a different/withdrawn target.
     const healthStarted = performance.now()
     void (
       recoveryOnly
