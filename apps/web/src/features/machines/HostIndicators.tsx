@@ -1,14 +1,13 @@
 import { shallowEqual } from '@podium/client-core/store'
 import {
-  hostAgentsView,
+  hostAgentsViewFromCounts,
+  createHostSessionAggregatesSelector,
   hostLoadView,
   hostMemoryView,
   listReclaimableWorktreesClient,
   occupiedRootsFromKey,
   placeReclaimable,
   RECLAIMABLE_WORKTREE_THRESHOLD,
-  residencyBreakdown,
-  residentWorktreeKey,
 } from '@podium/client-core/viewmodels'
 import type { MachineId } from '@podium/model/browser'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
@@ -218,7 +217,9 @@ export function HeaderHostIndicators(): JSX.Element {
   // can move a checkout in or out of the list, so the memo depends on that key
   // (`occupancyKey`) instead of on the array. `issues` stays a plain dep: its
   // identity already changes only when an issue row does.
-  const occupancyKey = residentWorktreeKey(sessions)
+  const selectAggregates = useMemo(() => createHostSessionAggregatesSelector(), [])
+  const aggregates = selectAggregates(sessions)
+  const occupancyKey = aggregates.occupancyKey
   const soleMachine = hostMetrics.length === 1
   const soleMachineId = hostMetrics[0]?.machineId
   const reclaimByMachine = useMemo(() => {
@@ -273,9 +274,10 @@ export function HeaderHostIndicators(): JSX.Element {
         // A renamed machine should read by its chosen name everywhere, and this
         // chip was the one surface still showing the raw telemetry hostname.
         const displayName = machine?.name ?? host.hostname
-        const agents = hostAgentsView(
-          sessions,
-          host.machineId,
+        const aggregate = aggregates.forMachine(host.machineId)
+        const agents = hostAgentsViewFromCounts(
+          aggregate.count,
+          aggregate.idleSplit.idle,
           lifecycle?.hibernation.maxIdleSessions ?? null,
           displayName,
         )
@@ -288,7 +290,7 @@ export function HeaderHostIndicators(): JSX.Element {
         const reclaimCount = host.machineId ? (reclaimByMachine.get(host.machineId) ?? 0) : 0
         const reclaimablePast =
           reclaimCount >= RECLAIMABLE_WORKTREE_THRESHOLD && health.status === 'ok'
-        const phases = residencyBreakdown(sessions, host.machineId)
+        const phases = aggregate.phases
         const agentTitleParts = [
           agents.title,
           phases.working > 0 || phases.idle > 0 || phases.waiting > 0

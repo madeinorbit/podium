@@ -5,14 +5,13 @@ import {
   hostDiskView,
   hostLoadView,
   hostMemoryView,
-  idleSessionSplit,
+  createHostSessionAggregatesSelector,
   panelLabel,
   reclaimSpaceLabel,
-  residencyBreakdown,
 } from '@podium/client-core/viewmodels'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { RotateCw } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
+import { useMemo, type JSX, type ReactNode } from 'react'
 import { useHostMetrics, useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { usePolledQuery } from '@/lib/use-polled-query'
@@ -123,7 +122,9 @@ export function LoadPanel({
   // it is read. Until the walk answers the row is drawn empty rather than
   // withheld: appearing late would push the whole body down a line.
   const disk = data?.disk ? hostDiskView(data.disk) : null
-  const idleSplit = idleSessionSplit(sessions, machineId)
+  const selectAggregates = useMemo(() => createHostSessionAggregatesSelector(), [])
+  const aggregate = selectAggregates(sessions).forMachine(machineId)
+  const idleSplit = aggregate.idleSplit
   const { inventory: reclaimable } = useReclaimInventory(trpc, machineId)
   const reclaimCount = reclaimable?.candidates.length ?? 0
   const orphanCount = reclaimable?.orphans.length ?? 0
@@ -177,7 +178,7 @@ export function LoadPanel({
   // What the removed native tooltip used to say, kept where it can sit beside
   // the memory it explains. The rows below list these sessions one by one; this
   // is the only place their working / idle / waiting split is stated.
-  const phases = residencyBreakdown(sessions, machineId)
+  const phases = aggregate.phases
   const resident = phases.working + phases.idle + phases.waiting + phases.other
   const agentLine =
     resident > 0

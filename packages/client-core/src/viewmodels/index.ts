@@ -71,3 +71,5 @@ export * from './types'
 export * from './unread'
 export * from './usage'
 export * from './workspace-layout'
+
+export * from './host-session-aggregates'

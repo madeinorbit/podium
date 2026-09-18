@@ -432,6 +432,16 @@ export function hostAgentsView(
 ): HostAgentsView {
   const count = residentSessionsOnMachine(sessions, machineId).length
   const observedIdleCount = idleSessionSplit(sessions, machineId).idle
+  return hostAgentsViewFromCounts(count, observedIdleCount, maxIdleSessions, hostname)
+}
+
+/** Format cached inventory independently of host names and policy updates. */
+export function hostAgentsViewFromCounts(
+  count: number,
+  observedIdleCount: number,
+  maxIdleSessions: number | null,
+  hostname: string,
+): HostAgentsView {
   if (maxIdleSessions == null) {
     return {
       count,
