@@ -168,7 +168,7 @@ describe('effective-state change contract (unwired reference publisher)', () => 
   })
 
   it('supports explicit keyed membership invalidation without tracked reads', () => {
-    const session = (id: string, issueId: string) => ({ ...row(id), sessionId: id, issueId })
+    const session = (id: string, issueId: string) => ({ ...row(id), sessionId: id as SessionMeta['sessionId'], issueId: issueId as SessionMeta['issueId'] })
     const source = createEffectiveChanges(view([session('s', 'a'), session('t', 'b')]))
     // Small contract consumer, not a production adapter: retain old membership,
     // install the whole commit, then notify each affected bucket once.
