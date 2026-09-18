@@ -89,7 +89,11 @@ function terminalItemEvent(input: {
 }
 
 async function bindContract(registry: SessionRegistry, store: SessionStore, runtimeContract = true) {
-  registry.gateway.attachDaemon(store.hostMachineId, () => {})
+  await store.machines.upsertMachine({
+    id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
+    ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
+  })
+  await registry.gateway.attachDaemon(store.hostMachineId, () => {})
   const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/project',
@@ -360,6 +364,7 @@ describe('durable runtime observation gate', () => {
     expect(
       (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId),
     ).toMatchObject({ transcriptAvailable: true })
+    expect(await store.events.runtimeTranscriptSessionIds()).toContain(sessionId)
     expect(await store.events.listRuntimeTranscriptEvents(sessionId)).toHaveLength(2)
     const newest = await store.events.listRuntimeTranscriptEvents(sessionId, 1)
     expect(newest).toHaveLength(1)
@@ -620,7 +625,7 @@ describe('durable runtime observation gate', () => {
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     await registry.dispose()
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    restarted.gateway.attachDaemon(store.hostMachineId, () => {})
+    await restarted.gateway.attachDaemon(store.hostMachineId, () => {})
     const restartedBoard: string[] = []
     restarted.bus.on('issue.runtimeDerived', (event) => restartedBoard.push(event.kind))
 

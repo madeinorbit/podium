@@ -1,3 +1,4 @@
+import { bootStage } from './boot-timing'
 import { readNewestTargetPromotionMetadata } from './modules/server-transfer/target-status'
 import { completePreauthorizedSetup } from './setup-enrollment'
 import { requestParentEnrollment } from '@podium/runtime/parent-control'
@@ -735,7 +736,8 @@ export async function startServer(
     serverPlacement,
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
-    recoveryOnly: recoveryOnly || rehearsal,
+    recoveryOnly,
+    rehearseBoot: rehearsal,
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
@@ -784,10 +786,12 @@ export async function startServer(
     // which is also the auth the agents on that machine actually run under.
     modelProbe: async (machineId) => await registry.modules.rpc.modelProbe(machineId),
   })
+  const adoptionStarted = performance.now()
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
   // Maintenance is a separate server-owned channel; this secret is never a machine credential.
   const maintenanceToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
-  if (!recoveryOnly && !rehearsal) {
+  const setupStarted = performance.now()
+  if (!recoveryOnly) {
     const supervisorSetup = loadSupervisorState(stateDir())
     const setupRequest = supervisorSetup.setupEnrollment
     if (setupRequest && !supervisorSetup.enrolledPublicKey) {
@@ -798,7 +802,7 @@ export async function startServer(
         // Credential activation and enrollment committed together. Files and parent RPC happen afterwards.
         if (stagedHash && receipt.actor && (await store.users.credentialFor(receipt.actor))?.passwordHash === stagedHash) deleteLegacyInstancePasswordFile()
         try {
-          await requestParentEnrollment({ action: 'confirm', agentExecution: receipt.agentExecution,
+          if (!rehearsal) await requestParentEnrollment({ action: 'confirm', agentExecution: receipt.agentExecution,
             setupRequestId: receipt.requestId, publicKey: receipt.publicKey, installationId: receipt.installationId })
         } catch (error) {
           log.warn('setup enrollment committed; parent confirmation will retry', { err: error })
@@ -814,6 +818,7 @@ export async function startServer(
         await registry.modules.machines.grantHostMachineIfUnowned(applied.userId)
     }
   }
+  bootStage('setup enrollment', setupStarted)
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
@@ -1113,7 +1118,7 @@ export async function startServer(
   const parentReport = readParentOutcome()?.why
   const durableUsers = registry.sessionStore.users
   const serverMoveCrash = serverMoveFaultHook()
-  if (!recoveryOnly && !rehearsal)
+  if (!recoveryOnly)
     await registry.modules.operations.engine.adoptOnBoot(
       async (row) => {
         if (row.kind === 'server-move') {
@@ -1189,9 +1194,11 @@ export async function startServer(
           ...(serverMoveCrash ? { crash: serverMoveCrash } : {}),
         }
       },
+      { resume: !rehearsal },
     )
   if (!recoveryOnly && parentReport) clearParentOutcome()
 
+  bootStage('machines updates adoption', adoptionStarted)
   const deferredSourceJournal = registry.modules.serverTransfer.status()
   const deferredSourceMove =
     deferredSourceJournal &&
@@ -1984,6 +1991,7 @@ export async function startServer(
 
     let acceptingRequests = true
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
+    const listenStarted = performance.now()
     try {
       server = serveNative({
         port: requestedPort,
@@ -2017,6 +2025,7 @@ export async function startServer(
           return await compressHttpResponse(request, response)
         },
       })
+      bootStage('listen', listenStarted)
       if (!rehearsal) startDeferredSourceMovePoll()
     } catch (err) {
       await failListen(err)
@@ -2400,8 +2409,9 @@ export async function startServer(
         }
       },
     }
+    const healthStarted = performance.now()
     void (
-      recoveryOnly || rehearsal
+      recoveryOnly
         ? Promise.resolve()
         : refreshTargetsOnBoot({
             refresh: (channel) => registry.modules.updates.refreshTarget(channel),
@@ -2409,7 +2419,7 @@ export async function startServer(
     ).then(async () => {
       // Recovery-only transfer boots must remain read-only. Normal boots recover
       // a lost settle sweep after operation adoption and target hydration.
-      if (!recoveryOnly && !rehearsal) await registry.modules.updatesReconciler?.onBoot()
+      if (!recoveryOnly) await registry.modules.updatesReconciler?.onBoot()
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
@@ -2421,6 +2431,7 @@ export async function startServer(
             schedule: timerSchedule,
           })
       targetsResolvedOnBoot = true
+      bootStage('health exposed', healthStarted)
       if (!recoveryOnly && !rehearsal) connectPublisher.start()
       resolve({
         port: server.port,

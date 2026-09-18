@@ -1698,11 +1698,14 @@ exec "$CANARY_REAL_CLI" "$@"
     })
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'clean named server')
     expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject(
-      {
-        mode: 'all-in-one',
-        updateChannel: 'edge',
-      },
+      { mode: 'all-in-one', configVersion: 2 },
     )
+    // S8 imports the channel into deployment settings on the first server boot.
+    const namedDatabase = openDatabase(join(namedSpec.stateDir, 'podium.db'), { readOnly: true })
+    try {
+      const settings = namedDatabase.prepare("SELECT value FROM meta WHERE key = 'settings'").get() as { value: string }
+      expect(JSON.parse(settings.value).deployment.updateChannel).toBe('edge')
+    } finally { namedDatabase.close() }
     const stopped = await runCli(named, ['stop'])
     expect(stopped.code, stopped.stderr).toBe(0)
     await waitUntil(() => named.child.exitCode !== null, 'cold named parent cleanup')

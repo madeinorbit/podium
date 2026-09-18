@@ -462,8 +462,11 @@ export class SyncRepository {
         payload: changeLatest.payload,
       })
       .from(changeLatest)
-      .orderBy(asc(changeLatest.seq))
       .all()
+    // Read payload pages in table order. ORDER BY seq chooses change_latest_seq
+    // and scatters a full-world read across the DB (14.9s on the 1GB incident
+    // copy). Preserve the public sequence order with an in-memory numeric sort.
+    rows.sort((a, b) => a.seq - b.seq)
     this.latestChangeStatesCache = rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
     return this.latestChangeStatesCache
   }

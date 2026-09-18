@@ -890,7 +890,10 @@ pub fn document_shown(current: &Url, port: u16) -> Option<LocalDocument> {
 /// Deliberately several seconds' worth: the shell RESPAWNS its sidecar (see the supervision
 /// monitor), so an ordinary restart — including the one an update performs — must not bounce
 /// the window through the fallback and lose the page's state.
-pub const SERVED_FALLBACK_STREAK: u32 = 6;
+// One probe per second: retain the served document beyond the parent's 90s
+// migration-bearing handover deadline, with 30s for reconnect/rollback.
+pub const SERVED_FALLBACK_STREAK: u32 = 120;
+pub const SERVER_BOOT_BUDGET_SECS: u64 = 120;
 /// Consecutive healthy probes before a fallen-back window returns to the served origin. Lower,
 /// because returning is the convergent direction: the served UI is the one that matches the
 /// server.

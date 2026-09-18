@@ -1722,3 +1722,18 @@ describe('what the engine writes down', () => {
     expect((await store.get('op_1'))?.state).toBe('done')
   })
 })
+
+
+describe('fenced rehearsal adoption', () => {
+  it('persists reconciled boot truth without executing a runner', async () => {
+    const { store, registry, engine } = harness()
+    const ensure = vi.fn(done)
+    registry.register(testKind({ runners: { first: runner(ensure), second: runner(ensure) } }))
+    await store.insert({ id: 'op_copy', kind: 'test', exclusionGroup: 'lifecycle', state: 'running',
+      createdAt: 10, updatedAt: 10, steps: [{ id: 'first', state: 'pending' }, { id: 'second', state: 'pending' }] })
+    const adopted = await engine.adoptOnBoot(() => undefined, () => undefined, { resume: false })
+    expect(adopted).toHaveLength(1)
+    expect(await store.get('op_copy')).toBeDefined()
+    expect(ensure).not.toHaveBeenCalled()
+  })
+})

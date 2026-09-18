@@ -82,15 +82,16 @@ struct DesktopSuccessorState {
 /// A local backend restart is different from an outage: while supervision is deliberately
 /// bringing the process back, the served document must stay put. The watchdog owns the health
 /// check that ends this pause because `spawn()` only proves that a process exists, not that its
-/// identity-checked HTTP endpoint is ready. The startup probe already allows 30 seconds, so the
-/// same budget bounds this state; after it expires the ordinary six-failure fallback resumes.
+/// identity-checked HTTP endpoint is ready. The startup probe and outage watchdog allow 120 seconds,
+/// exceeding the parent's 90-second migration-bearing handover deadline.
 #[derive(Default)]
 struct LocalRestartPause {
     started: Mutex<Option<std::time::Instant>>,
 }
 
 impl LocalRestartPause {
-    const BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+    const BUDGET: std::time::Duration =
+        std::time::Duration::from_secs(bootstrap::SERVER_BOOT_BUDGET_SECS);
 
     fn begin(&self) {
         if let Ok(mut started) = self.started.lock() {
@@ -2219,7 +2220,11 @@ fn main() {
                             ),
                         )
                     } else {
-                        let ready = bootstrap::wait_for_local_server(port, 200, 150);
+                        let ready = bootstrap::wait_for_local_server(
+                            port,
+                            (bootstrap::SERVER_BOOT_BUDGET_SECS * 1000 / 150) as u32,
+                            150,
+                        );
                         // Which build owns this device's local data. Refreshed from the
                         // server when it is up; read from disk when it is not, which is
                         // exactly the case the baked fallback's stale guard needs it for.
@@ -2837,9 +2842,9 @@ mod tests {
         let started = std::time::Instant::now();
         *pause.started.lock().unwrap() = Some(started);
 
-        assert!(pause.should_stand_down_at(false, started + std::time::Duration::from_secs(8)));
+        assert!(pause.should_stand_down_at(false, started + std::time::Duration::from_secs(65)));
         assert!(pause.is_active());
-        assert!(!pause.should_stand_down_at(true, started + std::time::Duration::from_secs(9)));
+        assert!(!pause.should_stand_down_at(true, started + std::time::Duration::from_secs(66)));
         assert!(
             !pause.is_active(),
             "an identity-checked ready server resumes watching"

@@ -1,3 +1,4 @@
+import { bootStage } from './boot-timing'
 import type { ServerPlacement } from './modules/updates/service'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { readIssue, readClosedIssueIds } from './modules/world-index/issue-reader'
@@ -285,6 +286,8 @@ interface SessionRegistryOptions {
   reactions?: readonly unknown[]
   /** Compose read/recovery surfaces without running ordinary boot writers. */
   recoveryOnly?: boolean
+  /** Run durable hydration on a fenced rehearsal copy without background dispatch. */
+  rehearseBoot?: boolean
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -502,11 +505,14 @@ export class SessionRegistry {
    * this method is where the awaits go — which is the whole reason the steps are
    * a list in one place rather than three lines in three constructors.
    */
-  private async hydrate(): Promise<void> {
+  private async hydrate(rehearseBoot = false): Promise<void> {
+    let stageStarted = performance.now()
     // Session rows must be restored before any issue or message reconciliation
     // can inspect their targets. Recovery-only serves operations, history, action
     // and health, so it neither needs nor may run session restoration's writers.
-    if (!this.recoveryOnly) await this.modules.sessions.loadFromStore()
+    if (!this.recoveryOnly || rehearseBoot) await this.modules.sessions.loadFromStore()
+    bootStage('sessions recovery', stageStarted)
+    stageStarted = performance.now()
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()
     await this.superagentDefaults.seed()
@@ -532,12 +538,16 @@ export class SessionRegistry {
     await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.
     await this.modules.automations.reconcileFromStore()
-    if (!this.recoveryOnly) {
+    bootStage('feeds memory automations', stageStarted)
+    stageStarted = performance.now()
+    if (!this.recoveryOnly || rehearseBoot) {
       await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
       // AFTER boot, never before: this lists issues, and the store refuses a
       // read until the issue service has hydrated through its factory.
-      this.modules.issueSessionLifecycle.startClosedIssueSweep()
+      if (!this.recoveryOnly && !rehearseBoot) this.modules.issueSessionLifecycle.startClosedIssueSweep()
     }
+    bootStage('issues catch-up', stageStarted)
+    stageStarted = performance.now()
     // One durable queued-row pass repairs events missed while the server was down
     // and restores one-shot wake-cooldown deadlines. [spec:SP-c29e]
     if (!this.recoveryOnly) {
@@ -549,6 +559,7 @@ export class SessionRegistry {
         })
       }
     }
+    bootStage('queued messages recovery', stageStarted)
   }
 
   /**
@@ -570,13 +581,20 @@ export class SessionRegistry {
     options: SessionRegistryOptions,
   ): Promise<SessionRegistry> {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
+    const worldStarted = performance.now()
     const world = await WorldIndex.load(resolvedStore)
+    bootStage('world index', worldStarted)
+    const baselineStarted = performance.now()
+    // Warm the shared repository cache explicitly; Authority consumes it below.
+    // Otherwise this queued read is silently charged to session recovery.
+    await resolvedStore.sync.latestChangeStates()
+    bootStage('ledger baseline read', baselineStarted)
     log.info('world index loaded', { elapsedMs: world.loadMs })
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
       worldIndex: world.reader,
     })
-    await registry.hydrate()
+    await registry.hydrate(options.rehearseBoot)
     return registry
   }
 
@@ -599,6 +617,7 @@ export class SessionRegistry {
     notificationPushers ??= DEFAULT_NOTIFICATION_PUSHERS
     const { instanceId } = options
     const recoveryOnly = options.recoveryOnly === true
+    const backgroundDisabled = recoveryOnly || options.rehearseBoot === true
     this.recoveryOnly = recoveryOnly
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
@@ -1125,7 +1144,7 @@ export class SessionRegistry {
       },
       {
         ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
-        repairSubagentSegmentPaths: !recoveryOnly,
+        repairSubagentSegmentPaths: !backgroundDisabled,
       },
     )
     const rpc = new DaemonRpcService({
@@ -2964,7 +2983,7 @@ export class SessionRegistry {
     let updatesReconciler: UpdateReconciler | undefined
     const operationsModule = createOperations({
       store: this.store.operations,
-      startCleanupJanitor: !recoveryOnly,
+      startCleanupJanitor: !backgroundDisabled,
       onChanged: updateOperationObserver(updatesService, () => updatesReconciler),
     })
     operationsModule.kinds.register(updateOperationKind())
@@ -3292,7 +3311,7 @@ export class SessionRegistry {
     // Module boot hook: eager hydration (a corrupt row is quarantined by the
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping) and the issue ledger boot reconcile.
-    if (!recoveryOnly) {
+    if (!backgroundDisabled) {
       // issues.boot AND the closed-issue sweep both run in `hydrate` now. They
       // are ORDERED: the sweep lists issues, and the issue store refuses a read
       // before its factory has hydrated it. dev/mw ran boot then sweep here;
@@ -3417,7 +3436,7 @@ export class SessionRegistry {
       await messagesSvc.onTranscriptDelta(sessionId, items)
     })
     this.messageSweep = setInterval(() => {
-      if (!recoveryOnly)
+      if (!backgroundDisabled)
         void messagesSvc.sweep().catch((err: unknown) => {
           log.warn('message delivery sweep failed', { err })
         })
@@ -3428,7 +3447,7 @@ export class SessionRegistry {
     // session with an empty queue or one already draining — and because what it
     // heals is a person waiting on a message that has already been accepted.
     this.queuedInputSweep = setInterval(() => {
-      if (!recoveryOnly)
+      if (!backgroundDisabled)
         void sessionsSvc.inbox.sweepQueuedInputs().catch((err: unknown) => {
           log.warn('queued input sweep failed', { err })
         })
@@ -3438,7 +3457,7 @@ export class SessionRegistry {
     // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
     // daemon in the fleet is one that drops it.
     this.approvalStallSweep = setInterval(() => {
-      if (!recoveryOnly)
+      if (!backgroundDisabled)
         void approvals.sweepStalledExecutions().catch((err: unknown) => {
           log.warn('approval stall sweep failed', { err })
         })
@@ -3458,17 +3477,17 @@ export class SessionRegistry {
     // the ephemeral in-memory git-state cache, so there is no durable write for
     // the janitor's fence to protect — see IssueGitWatch.
     this.issueGitWatch = new IssueGitWatch(issues)
-    if (!recoveryOnly) this.issueGitWatch.start()
+    if (!backgroundDisabled) this.issueGitWatch.start()
     // Reads through the same fan-out `quota.summary` serves, so the sampler adds
     // no new path to the daemons — only a clock behind the one that exists.
     this.quotaSampler = new QuotaSampler(this.store.quotaHistory, async () =>
       await this.modules.rpc.agentQuotaAll(),
     )
-    if (!recoveryOnly) this.quotaSampler.start()
+    if (!backgroundDisabled) this.quotaSampler.start()
     this.quotaBackfill = new QuotaBackfill(this.store.quotaHistory, async (sinceMs) =>
       await this.modules.rpc.quotaHistoryAll(sinceMs),
     )
-    if (!recoveryOnly) this.quotaBackfill.start()
+    if (!backgroundDisabled) this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
     this.automationScheduler = new AutomationScheduler(automations)
     // this.automationScheduler.start()

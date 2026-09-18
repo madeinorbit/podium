@@ -1573,6 +1573,7 @@ describe('delayed successor boot ownership', () => {
     const predecessorExit = vi.fn()
     const confirmed = vi.fn()
     const claims = vi.fn()
+    const incomingPhases: string[] = []
     const successorProcess = new FakeChild(process.pid)
     /** The successor's own server, which binds and reports ready at `readyAt`. */
     let successorServer: FakeChild | undefined
@@ -1605,7 +1606,14 @@ describe('delayed successor boot ownership', () => {
               }) as SpawnChildFn,
               probeHealth: probe,
               now: clock.now,
-              sleep: async (ms) => clock.advance(ms),
+              sleep: async (ms) => {
+                clock.advance(ms)
+                if (clock.now() >= readyAt && successorServer) {
+                  successorServer.reportReady({ role: 'server', version: '2.0.0', port: 19099 })
+                  successorServer = undefined
+                }
+              },
+              onSnapshot: (snap) => { incomingPhases.push(snap.phase) },
               notify: () => {},
               claimRole: claims,
               exit: () => {},
@@ -1641,6 +1649,7 @@ describe('delayed successor boot ownership', () => {
     expect(clock.now()).toBeGreaterThanOrEqual(62_000)
     expect(clock.now()).toBeLessThan(91_000)
     expect(incoming?.isBootHealthy()).toBe(true)
+    expect(incomingPhases).not.toContain('degraded')
     expect(claims).toHaveBeenCalledTimes(1)
     expect(confirmed).toHaveBeenCalledTimes(1)
     expect(predecessorExit).toHaveBeenCalledWith(0)

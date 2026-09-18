@@ -69,10 +69,24 @@ export function copyRehearsalState(source: string, destination: string): void {
 
 async function bootCopy(): Promise<void> {
   if (process.env.PODIUM_REHEARSAL !== '1') throw new Error('--boot is internal; use a source state directory')
+  const { addSink } = await import('../packages/logger/src/index')
+  addSink({ name: 'rehearsal', minLevel: 'info', write: (record) => console.log(JSON.stringify(record)) })
+  // Exercise feed-resolution orchestration too, refusing egress at its transport
+  // boundary. Only our own loopback health/fence probes may reach the network.
+  const nativeFetch = globalThis.fetch
+  let probeOrigin: string | undefined
+  globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    if (url.origin !== probeOrigin) {
+      throw new Error('Upgrade rehearsal: outbound fetch disabled')
+    }
+    return nativeFetch(input, init)
+  }, nativeFetch)
   const { startServer } = await import('../apps/server/src/server')
   const server = await startServer({ port: 0, host: '127.0.0.1', transcriptLake: 'off' })
   try {
     const origin = `http://127.0.0.1:${server.port}`
+    probeOrigin = origin
     if (!(await fetch(`${origin}/health`)).ok) throw new Error('candidate health check failed')
     if ((await fetch(`${origin}/trpc/machines.list`)).status !== 503) throw new Error('rehearsal API fence missing')
     if ((await fetch(`${origin}/daemon`)).status !== 503) throw new Error('rehearsal daemon fence missing')
@@ -102,6 +116,11 @@ export async function rehearse(sourceArg: string, outputArg?: string): Promise<s
   try {
     const code = await new Promise<number | null>((done, reject) => { child.once('error', reject); child.once('close', done) })
     writeFileSync(join(root, 'boot.log'), log, { mode: 0o600 })
+    const stages = log.split('\n').flatMap((line) => {
+      try { const record = JSON.parse(line); return record.ns === 'server:boot' ? [record] : [] }
+      catch { return [] }
+    })
+    writeFileSync(join(root, 'boot-stages.json'), JSON.stringify(stages, null, 2), { mode: 0o600 })
     if (code !== 0 || !existsSync(join(root, 'result.json'))) throw new Error(`candidate failed (exit ${code}); see ${join(root, 'boot.log')}`)
     const state = JSON.parse(readFileSync(join(root, 'state', 'machine.json'), 'utf8')) as { machineId: string }
     console.log(`Candidate boot healthy; session execution disabled; machine ${state.machineId}. Evidence: ${join(root, 'result.json')}`)

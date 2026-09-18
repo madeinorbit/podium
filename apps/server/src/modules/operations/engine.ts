@@ -806,6 +806,7 @@ export class OperationEngine {
   async adoptOnBoot(
     realityFor: (row: OperationRow) => unknown | Promise<unknown>,
     contextFor: (row: OperationRow) => unknown | Promise<unknown> = () => undefined,
+    options: { resume?: boolean } = {},
   ): Promise<Operation[]> {
     const adopted: Operation[] = []
     let live: OperationRow[]
@@ -819,7 +820,7 @@ export class OperationEngine {
       return adopted
     }
     for (const row of live) {
-      const outcome = await this.adoptRow(row, realityFor, contextFor).catch(
+      const outcome = await this.adoptRow(row, realityFor, contextFor, options.resume !== false).catch(
         async (err) =>
           await this.abandonSafely(row, {
             code: ADOPTION_FAILED_ERROR_CODE,
@@ -837,6 +838,7 @@ export class OperationEngine {
     row: OperationRow,
     realityFor: (row: OperationRow) => unknown | Promise<unknown>,
     contextFor: (row: OperationRow) => unknown | Promise<unknown>,
+    resume = true,
   ): Promise<Operation> {
     const def = this.deps.registry.get(row.kind)
     if (!def || !row.operation) return await this.abandon(row)
@@ -889,7 +891,8 @@ export class OperationEngine {
       this.persistable(this.resumeStalled(reconciled), def),
       this.now(),
     )
-    await this.drive(row.id)
+    // Rehearsal performs adoption against its copy but never executes runners.
+    if (resume) await this.drive(row.id)
     // THE ROW MAY LEGITIMATELY BE GONE. Driving it to an outcome sweeps its
     // kind's retention, and an operation older than the newest twenty finished
     // ones is deleted by its own completion — so requiring it here turned a

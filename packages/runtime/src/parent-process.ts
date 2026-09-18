@@ -1118,7 +1118,12 @@ export class ParentProcess {
       this.env.PODIUM_APP_VERSION ??
       (await this.readInstalledVersion())
     this.bootExpected = expected
-    const healthy = await this.waitForHealthy(expected, 60_000)
+    // A successor shares the outgoing parent's absolute deadline. A shorter
+    // nested gate used to declare failure at 60s while handover still allowed 90s.
+    const bootBudgetMs = this.incomingDeadline === undefined
+      ? HANDOVER_HEALTH_TIMEOUT_MS
+      : Math.max(0, this.incomingDeadline - this.deps.now())
+    const healthy = await this.waitForHealthy(expected, bootBudgetMs)
     if (this.stopping || this.terminating) return
     if (!healthy) {
       log.error('parent boot health gate failed', { expected })
@@ -1235,7 +1240,7 @@ export class ParentProcess {
    * daemon never reconnected" were one indistinguishable outcome, on the path
    * where getting it wrong costs a rollback.
    *
-   * The gate polls every 200 ms for up to a minute, so only the OUTCOME is
+   * The gate polls every 200 ms within the shared handover deadline, so only the OUTCOME is
    * logged, carrying the probe it was last refused by.
    */
   private async waitForHealthy(expectedVersion: string, budgetMs: number): Promise<boolean> {

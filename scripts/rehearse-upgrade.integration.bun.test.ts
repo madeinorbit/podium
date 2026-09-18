@@ -43,6 +43,12 @@ describe('upgrade rehearsal', () => {
     expect(readdirSync(source).sort()).toEqual([...names, 'live-state-link'].sort())
     expect(readdirSync(join(output, 'state'))).not.toContain('live-state-link')
     expect(JSON.parse(readFileSync(join(output, 'result.json'), 'utf8'))).toMatchObject({ healthy: true, sessionTrafficDisabled: true })
+    const stages = JSON.parse(readFileSync(join(output, 'boot-stages.json'), 'utf8')) as { stage: string; durationMs: number; stageDurationMs: number }[]
+    for (const stage of ['store open', 'backup', 'migrations', 'imports', 'backfill', 'world index',
+      'ledger baseline read', 'sessions recovery', 'issues catch-up', 'queued messages recovery',
+      'setup enrollment', 'machines updates adoption', 'listen', 'health exposed']) {
+      expect(stages.some((row) => row.stage === stage && row.durationMs >= row.stageDurationMs)).toBe(true)
+    }
     const copied = openDatabase(join(output, 'state', 'podium.db'), { readOnly: true })
     try {
       expect(copied.prepare('SELECT count(*) AS n FROM machines').get()).toEqual({ n: serverRows.machines.length })

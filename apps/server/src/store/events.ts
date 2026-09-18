@@ -230,6 +230,13 @@ export class EventsRepository {
     return events
   }
 
+  /** Boot census: legacy sessions with no runtime stream need no transcript query. */
+  async runtimeTranscriptSessionIds(): Promise<Set<string>> {
+    const rows = await this.db.selectDistinct({ subject: podiumEvents.subject })
+      .from(podiumEvents).where(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND)).all()
+    return new Set(rows.map((row) => row.subject))
+  }
+
   /** Read complete transcript items committed by a runtime driver. */
   async listRuntimeTranscriptEvents(sessionId: SessionId, limit = 12_000): Promise<RuntimeEvent[]> {
     // The inner query takes the NEWEST `limit` matching rows and the outer one

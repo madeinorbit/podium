@@ -1,3 +1,4 @@
+import { bootStage } from '../../boot-timing'
 import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
 import type { MachineId, SessionId, SessionMeta } from '@podium/model'
 import { AgentKind } from '@podium/model'
@@ -735,7 +736,7 @@ export class SessionRepository {
   /** Materialize one persisted row without exposing it until the caller installs it.
    *  Restored tombstones always come back as exited: deletion killed their runtime,
    *  so retaining a prior live/starting status would claim a PTY that no longer exists. */
-  async sessionFromStoredRow(r: SessionRow, mode: 'boot' | 'restore'): Promise<Session | null> {
+  async sessionFromStoredRow(r: SessionRow, mode: 'boot' | 'restore', hasRuntimeTranscript = true): Promise<Session | null> {
     const kind = AgentKind.safeParse(r.agentKind)
     if (!kind.success) {
       log.warn('skipping a persisted session with an invalid agentKind', {
@@ -867,7 +868,7 @@ export class SessionRepository {
     // Terminal drivers use this durable bridge when the legacy observation path
     // is fenced; provider-file deltas can still overlap and upsert by cursor/id.
     const runtimeItems =
-      (await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId) ?? []).flatMap(
+      (hasRuntimeTranscript ? await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId) ?? [] : []).flatMap(
         (event) => {
           const item = runtimeTranscriptItemFromEvent(event)
           return item ? [item] : []
@@ -914,6 +915,7 @@ export class SessionRepository {
   }
 
   async loadFromStore(): Promise<void> {
+    const recoveryStarted = performance.now()
     this.observationLeases.hydrate(await this.store.observationCheckpoints.loadAll())
 
     // Shared draft documents hydrate here; viewer rows remain lazy per principal.
@@ -921,11 +923,21 @@ export class SessionRepository {
       isFeatureEnabled('draft-sync', await this.store.settings.getSettings()),
     )
     await this.state.loadFromStore()
+    bootStage('sessions draft hydration', recoveryStarted)
+    const rowsStarted = performance.now()
     const offers = await this.store.sessions.listOffers() // [spec:SP-c7f1]
-    for (const r of await this.store.sessions.loadSessions()) {
-      const session = await this.sessionFromStoredRow(r, 'boot')
+    let rowReadMs = 0
+    let installMs = 0
+    const runtimeSessions = await this.store.events.runtimeTranscriptSessionIds()
+    const storedRows = await this.store.sessions.loadSessions()
+    for (const r of storedRows) {
+      let rowStarted = performance.now()
+      const session = await this.sessionFromStoredRow(r, 'boot', runtimeSessions.has(r.id))
+      rowReadMs += performance.now() - rowStarted
+      rowStarted = performance.now()
       if (!session) continue
       await this.installStoredSession(session, offers)
+      installMs += performance.now() - rowStarted
       const checkpoint = this.observationLeases.checkpointOf(r.id)
       if (checkpoint) {
         session.applyObservationCheckpoint(checkpoint)
@@ -944,6 +956,9 @@ export class SessionRepository {
       }
       if (r.status !== session.status) await this.persist(session)
     }
+    log.info('boot session recovery breakdown', { sessions: storedRows.length, rowReadMs, installMs })
+    bootStage('sessions row recovery', rowsStarted)
+    const baselineStarted = performance.now()
     // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
     // deliberate point instead of burst-allocating inside the first listSessions.
     // loadSessions returns created_at order, so allocation is deterministic; the
@@ -984,6 +999,7 @@ export class SessionRepository {
       sessions.map((s) => ({ id: s.sessionId, value: s })),
     )
     this.publishSessionProjection(recovered)
+    bootStage('sessions baseline', baselineStarted)
   }
 
   forget(sessionId: SessionId): void {

@@ -1,3 +1,4 @@
+import { bootStage } from './boot-timing'
 /**
  * Durable server-side store. Single writer (the server).
  *
@@ -296,11 +297,16 @@ export class SessionStore {
           err: refusal.error,
         }),
     }
+    const openStarted = performance.now()
     let database = await openStoreDatabase(path)
+    bootStage('store open', openStarted)
     let executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
     try {
       const applied = await executor.exclusive(async () => {
+        const migrationStarted = performance.now()
         const result = migrateStoreConnection(database, path)
+        bootStage('migrations', migrationStarted)
+        const importsStarted = performance.now()
         importConfigSettings(database, path === ':memory:' ? undefined : dirname(path))
         importFingerprintKey(database, path === ':memory:' ? undefined : dirname(path))
         importInstallationIdentity(database, path === ':memory:' ? undefined : dirname(path))
@@ -308,6 +314,7 @@ export class SessionStore {
           importEnrollmentLedger(database, dirname(path))
           importUpdateSigningKey(database, dirname(path))
         }
+        bootStage('imports', importsStarted)
         return result
       })
       if (applied.length > 0) log.info('applied migrations', { applied })
@@ -321,7 +328,9 @@ export class SessionStore {
         await executor.exclusive(async () => configureStoreConnection(database))
       }
       const store = new SessionStore(path, hostMachineId, options, database, executor)
+      const backfillStarted = performance.now()
       await store.initialize()
+      bootStage('backfill', backfillStarted)
       return store
     } catch (error) {
       await executor.close()

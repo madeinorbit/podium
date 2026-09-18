@@ -1,3 +1,4 @@
+import { bootStage } from '../boot-timing'
 /**
  * Schema migration runtime [spec:SP-4428].
  *
@@ -249,7 +250,9 @@ export function runDrizzleMigrations(
   // #43: snapshot before applying anything, but only when the DB already holds
   // real tables (a brand-new file is not worth backing up).
   if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
+    const backupStarted = performance.now()
     backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
+    bootStage('backup', backupStarted)
   }
 
   const client = bunSqliteClient(db)
