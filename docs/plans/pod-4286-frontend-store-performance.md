@@ -83,6 +83,49 @@ must be re-frozen in A3 against these numbers. An idle client performing 101 pub
 of long tasks per minute is the headline defect; the C1 gate is judged against that, not against
 publish counts alone.
 
+## 1b. A1's final report corrects section 1 (landed 0af1b787b)
+
+`docs/measurements/POD-4286-baseline.md` is the authority. It disproves three claims I made in
+section 1 from source reading. Do not repeat them.
+
+| My claim | Measured |
+|---|---|
+| 5-6 publishes per worklist-row click | **4** on the warm path: three navigation keys (`selectedIssueId`, `paneA`, `issueVisitBaseline`) then the optimistic issue publish. Cross-worktree first-open reaches 3-6. Still not one, so B1 stands. |
+| One press wakes all 30 `useReplicaIssues` readers twice | **23 mounted readers** wake per issue-fold publication. 30 was a source-file census, not mounted readers. The "all 30 twice" phrasing is unsupported. |
+| July warm switch p50 158 ms | That figure is a **mixed** run of 23 warm and 7 cold traces. The strictly warm subset is **p50 132.2 / p95 270.5 ms**. |
+
+Today's warm switch is **p50 729.4 / p95 916.8 ms** over 12 traces. Against July's warm 132.2 ms
+that looks like a 5.5x regression, but the corpus grew 7-8x in the same period and no paired
+workload exists, so it is not attributable to any code change, and specifically not to the
+September sync rewrite. A1 states plainly that no comparable July publish counter was ever
+recorded, so cadence regression can be neither asserted nor ruled out.
+
+Further measured facts that change the work:
+
+- **Long tasks are worse than section 1a said.** Ordinary activity: 70 long tasks totalling
+  38.4 s per 65.5 s window. Connected idle: 57 totalling 26.6 s.
+- **`machines` is a worklist input too.** Machine-only publications caused 13 derivations
+  costing 850 ms. B5 must guard machines on material fields, not only sessions.
+- **`conversations` is the second most frequent key** (31 idle / 29 activity) and causes no
+  worklist derivation at all, yet wakes every subscriber. Candidate for the same treatment as
+  host metrics if C1 finds subscriber wakeups material.
+- **Publishes are not the only render driver.** The disconnected control had 1 publish and still
+  committed React 134 times, from local timers and connection UI. Removing publishes alone will
+  not take rendering to zero.
+- **Heap** went 130.6 MiB after hydration to 212.3 MiB after use, +81.7 MiB. Probe arrays are
+  included, so no leak is established and none should be claimed.
+- **The disconnected control is the counter's negative control**: 1 publish in 65.6 s proves the
+  instrument is not inventing publications.
+
+Ranking, as measured, and explicitly not additive: whole-world derived-data invalidation
+dominates (worklist derive 8.08 s per 65.5 s, of which 5.18 s on session-carrying publishes,
+plus the repo picker's 11.25 s sampled self that B8 has now removed); large-tree React commit is
+real but smaller (2.08 s of commit stacks, against 28.6 s inclusive of application work, so
+calling all React time "commit cost" blames the wrong layer); publish volume per gesture is an
+amplifier worth coalescing (1.53 s of navigation-only fan-out across 12 gestures) but its timing
+overlaps downstream derivation and is not an independent bucket; periodic publishes are the
+smallest synchronous cost measured here.
+
 ## 2. Verdict on the existing plan
 
 Agree with the structure: measure, ship the store fixes that are independently releasable, stop
