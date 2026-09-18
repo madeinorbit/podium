@@ -21,11 +21,11 @@ import { SidebarUnified } from '../features/worklist/SidebarUnified'
 //                 inputs, so N consumers means N executions of the same
 //                 derivation; a published slice computes it once per change.
 //
-// A "publish" here is what the real store does — a new snapshot object whose
-// slice-relevant CONTENT is unchanged (fresh array identities, same values).
-// That is the common case in this app: an unrelated field moves, every consumer
-// re-derives. Both numbers are printed on every run so a regression is legible
-// as a number and not only as a failed assertion.
+// Each publish changes one session's material lastActiveAt value, exercising
+// one shared derivation regardless of consumer count. Identical-content
+// publishes correctly hit the material-input cache and cannot measure this.
+// Both numbers are printed on every run so a regression is legible as a number
+// and not only as a failed assertion.
 // ---------------------------------------------------------------------------
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -141,19 +141,18 @@ function issue(id: string, title: string) {
   }
 }
 
-/** Bumped by each simulated publish so every snapshot is a fresh object graph
- *  with identical slice-relevant content — exactly what a store publish looks
- *  like to a consumer that memoizes on identity. */
+/** Bumped by each simulated publish to change one session's lastActiveAt.
+ *  Since 82a1d1964, worklistSlice compares material inputs: fresh identities
+ *  with identical content are cache hits. Vary content so this probe still
+ *  measures one derivation per change shared by N consumers (POD-330/331). */
 let publishNonce = 0
 
 /**
  * THE SNAPSHOT MUST BE STABLE BETWEEN PUBLISHES, or this probe measures a lie.
  *
- * The publisher's cache key is snapshot IDENTITY (`slices/publish.ts`). A
- * `storeSnapshot()` that minted a fresh object on every read — which is what
- * this file did while every consumer derived for itself — would miss the cache
- * on every single read, so the published slice would appear to derive once per
- * consumer per render and the port would measure as no improvement at all.
+ * Snapshot identity is the publisher's first cache check; worklistSlice also
+ * compares material inputs. Rebuilding on every read would exercise that input
+ * comparison per consumer instead of mirroring the store's snapshot contract.
  *
  * The real store publishes ONE object per change and hands the same one to
  * every reader within that change. This mirrors that: a new object per
@@ -170,7 +169,6 @@ function storeSnapshot() {
 }
 
 function buildSnapshot() {
-  void publishNonce
   return {
     // The coarse clock (POD-331) is part of the snapshot, so a time-dependent
     // slice re-derives when time moves. Pinned here: this probe measures
@@ -182,7 +180,10 @@ function buildSnapshot() {
     uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     repos: [{ path: '/repo', kind: 'repository', branch: 'main', worktrees: [] }],
     sessions: [
-      sess('s-a', 'i-a', 'working'),
+      {
+        ...sess('s-a', 'i-a', 'working'),
+        lastActiveAt: new Date(Date.parse('2026-07-06T12:00:00.000Z') + publishNonce).toISOString(),
+      },
       sess('s-b', 'i-b', 'idle'),
       sess('s-c', 'i-c', 'idle'),
     ],
@@ -316,8 +317,13 @@ describe('POD-330 render-count probe — worklist', () => {
     const atReady = { ...derivations, worklist: worklistDerivations() }
 
     for (let i = 0; i < PUBLISHES; i++) {
+      const beforePublish = worklistDerivations()
       publishNonce++
       act(() => root.render(tree()))
+      // Every material change must exercise the counter, without duplicate
+      // derivations hidden by averaging over skipped publications.
+      expect(worklistDerivations() - beforePublish).toBeGreaterThan(0)
+      expect(worklistDerivations() - beforePublish).toBeLessThanOrEqual(1)
     }
 
     // The probe must be able to say NO. If the derivation never ran, the
@@ -390,8 +396,13 @@ describe('POD-331 render-count probe — worklist with a second consumer', () =>
     const atReady = { ...derivations, worklist: worklistDerivations() }
 
     for (let i = 0; i < PUBLISHES; i++) {
+      const beforePublish = worklistDerivations()
       publishNonce++
       act(() => root.render(tree()))
+      // Every material change must exercise the counter, without duplicate
+      // derivations hidden by averaging over skipped publications.
+      expect(worklistDerivations() - beforePublish).toBeGreaterThan(0)
+      expect(worklistDerivations() - beforePublish).toBeLessThanOrEqual(1)
     }
 
     // Same can-say-NO guard as above: numbers from a derivation that never ran
