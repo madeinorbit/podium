@@ -4,10 +4,10 @@ import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   machineViewsFromWire,
   reposToViews,
-  repoUsageAt,
+  createRepositoryUsageSelector,
+  indexedRepoUsageAt,
   type RepoView,
   resolveDefaultAgent,
-  sidebarSessions,
   usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
@@ -192,17 +192,15 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * message about an agent that was fine. One predicate now answers both: an
    * entry is listed only if it resolves to a real checkout somewhere.
    *
-   * Ordering is `repoUsageAt`, which exists for this ("for sorting repo
-   * pickers by recent use") and reads the two session fields it needs. The
-   * sidebar model this used to build was thrown away except for path, name and
-   * machines, and it rebuilt the whole session-ownership index every time the
-   * sessions array was replaced — which is many times a second next to a busy
-   * fleet, for a pane that is not even showing sessions.
+   * Usage checks only shell membership, cwd and lastActiveAt on session updates.
+   * Material changes rebuild one prefix index, rather than scanning history for
+   * every repository. Keep this cache local to this composer's session scope.
    */
+  const selectRepositoryUsage = useMemo(() => createRepositoryUsageSelector(), [])
+  const repositoryUsage = selectRepositoryUsage(sessions)
   const repoChoices = useMemo(() => {
     const usage = new Map<string, number>()
-    const active = sidebarSessions(sessions)
-    for (const repo of repos) usage.set(repo.path, repoUsageAt(repo, active))
+    for (const repo of repos) usage.set(repo.path, indexedRepoUsageAt(repo, repositoryUsage))
     const usageFor = (view: RepoView): number =>
       Math.max(
         usage.get(view.path) ?? 0,
@@ -215,7 +213,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
           usageFor(b) - usageFor(a) ||
           a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
       )
-  }, [repos, sessions])
+  }, [repos, repositoryUsage])
   /**
    * THE DRAFT IS SUBSCRIBED, NOT SEEDED (POD-1469).
    *
