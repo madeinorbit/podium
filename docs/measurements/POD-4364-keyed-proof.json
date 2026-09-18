@@ -1,0 +1,1835 @@
+{
+  "issue": "POD-4364",
+  "sourceCommit": "17d1c63d4e101e62795ca6cbc31f9579c78d0ee1",
+  "command": "bun scripts/test-heavy.ts -- bun packages/client-core/proofs/d1/validate-d7.ts",
+  "validation": {
+    "exitCode": 0,
+    "typecheckTasks": 18,
+    "proofTestsPassed": 18,
+    "libraryLifecycleTestsSkipped": 4,
+    "isolatedMemoryProcesses": 8,
+    "viteBuilds": 4,
+    "expoBuilds": 6
+  },
+  "sourcePhysicalLines": {
+    "keyed": 130,
+    "mobx": 76
+  },
+  "web": {
+    "platform": "web",
+    "node": "v26.3.0",
+    "baseline": "POD-4358-post-b-baseline.md",
+    "measurements": [
+      {
+        "candidate": "mobx",
+        "readers": 200,
+        "addressing": "same",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 131.26418999999987,
+        "gcMethod": "Bun.gc(true)",
+        "mountedHeapDeltaBytes": 9318975,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.23061500000039814,
+              "p95": 2.0792679999995016
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.042814000000362284,
+              "p95": 0.19307000000026164
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 4000,
+            "commits": 4000,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 10.525776000000405,
+              "p95": 23.945369999999457
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 2.7762830000001486,
+              "p95": 10.915508999999474
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 800020,
+              "childVisits": 80,
+              "mission": 4000,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 60.64467599999989,
+          "p95": 95.1107809999994
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 160003,
+          "childVisits": 12,
+          "mission": 800,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "mobx",
+        "readers": 200,
+        "addressing": "distinct",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 16.568546999999853,
+        "gcMethod": "Bun.gc(true)",
+        "mountedHeapDeltaBytes": -9874039,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.20129199999973935,
+              "p95": 3.621350999999777
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.04396600000018225,
+              "p95": 0.06768099999953847
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20,
+            "commits": 20,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 2.78704899999957,
+              "p95": 6.008780000000115
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 2.013898999999583,
+              "p95": 3.0679199999995035
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 800020,
+              "childVisits": 80,
+              "mission": 4000,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 29.67554199999995,
+          "p95": 35.89647199999945
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 160003,
+          "childVisits": 12,
+          "mission": 800,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "mobx",
+        "readers": 1000,
+        "addressing": "same",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 49.21961099999953,
+        "gcMethod": "Bun.gc(true)",
+        "mountedHeapDeltaBytes": -5991855,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.16887399999995978,
+              "p95": 2.5418429999999717
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.04989500000010594,
+              "p95": 0.21554399999968155
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20000,
+            "commits": 20000,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 13.155979000001025,
+              "p95": 72.23805099999936
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 2.971627000000808,
+              "p95": 21.722066000000268
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 800020,
+              "childVisits": 80,
+              "mission": 4000,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 32.71814500000073,
+          "p95": 35.94933200000014
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 160003,
+          "childVisits": 12,
+          "mission": 800,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "mobx",
+        "readers": 1000,
+        "addressing": "distinct",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 36.312535999999454,
+        "gcMethod": "Bun.gc(true)",
+        "mountedHeapDeltaBytes": -5727369,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.14567899999929068,
+              "p95": 0.4868189999997412
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.03774700000030862,
+              "p95": 0.10189299999910872
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20,
+            "commits": 20,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 2.664655999999013,
+              "p95": 4.1900040000000445
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 1.6466889999992418,
+              "p95": 2.2820920000012848
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 800020,
+              "childVisits": 80,
+              "mission": 4000,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 33.96866100000079,
+          "p95": 36.44054700000015
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 160003,
+          "childVisits": 12,
+          "mission": 800,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "keyed",
+        "readers": 200,
+        "addressing": "same",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 17.991371000000072,
+        "gcMethod": "Bun.gc(true)",
+        "mountedHeapDeltaBytes": -13990062,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.17579300000033982,
+              "p95": 0.8658779999987019
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.03544300000066869,
+              "p95": 0.3606800000015937
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 4000,
+            "commits": 4000,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 2.7254359999988083,
+              "p95": 8.08943200000067
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 1.2711359999993874,
+              "p95": 6.616933999999674
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 4020,
+              "childVisits": 80,
+              "mission": 100,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 14.146624000000884,
+          "p95": 37.921118000000206
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 803,
+          "childVisits": 12,
+          "mission": 600,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "keyed",
+        "readers": 200,
+        "addressing": "distinct",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 24.14737299999979,
+        "gcMethod": "Bun.gc(true)",
+        "mountedHeapDeltaBytes": -13484441,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.12677099999928032,
+              "p95": 1.2440970000006928
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.023755000000164728,
+              "p95": 0.04636999999820546
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20,
+            "commits": 20,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 1.7256579999993846,
+              "p95": 6.2012699999995675
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 1.139299000000392,
+              "p95": 5.601880999998684
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 4020,
+              "childVisits": 80,
+              "mission": 100,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 10.989079999999376,
+          "p95": 20.85456499999964
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 803,
+          "childVisits": 12,
+          "mission": 600,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "keyed",
+        "readers": 1000,
+        "addressing": "same",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 16.347615000000587,
+        "gcMethod": "Bun.gc(true)",
+        "mountedHeapDeltaBytes": -10908612,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.14311300000008487,
+              "p95": 4.105107000001226
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.023615000000063446,
+              "p95": 0.14585900000020047
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20000,
+            "commits": 20000,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 7.784474000000046,
+              "p95": 27.641551999999137
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 1.1029130000006262,
+              "p95": 4.623342999999295
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 4020,
+              "childVisits": 80,
+              "mission": 100,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 16.541816000000836,
+          "p95": 19.02901600000041
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 803,
+          "childVisits": 12,
+          "mission": 600,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "keyed",
+        "readers": 1000,
+        "addressing": "distinct",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 16.792331999999078,
+        "gcMethod": "Bun.gc(true)",
+        "mountedHeapDeltaBytes": -10653182,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.13427100000080827,
+              "p95": 0.42479699999967124
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.02227400000083435,
+              "p95": 0.04793200000131037
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20,
+            "commits": 20,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 1.9272209999999177,
+              "p95": 2.377425000000585
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.983566000000792,
+              "p95": 1.4767740000006597
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 4020,
+              "childVisits": 80,
+              "mission": 100,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 13.326515999999174,
+          "p95": 25.048344000000725
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 803,
+          "childVisits": 12,
+          "mission": 600,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "armed-coarse-control",
+        "readers": 200,
+        "reads": 200,
+        "commits": 200
+      },
+      {
+        "candidate": "armed-coarse-control",
+        "readers": 1000,
+        "reads": 1000,
+        "commits": 1000
+      }
+    ]
+  },
+  "mobile": {
+    "platform": "mobile",
+    "node": "v22.22.2",
+    "baseline": "POD-4358-post-b-baseline.md",
+    "measurements": [
+      {
+        "candidate": "mobx",
+        "readers": 200,
+        "addressing": "same",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 148.1300029999993,
+        "gcMethod": "unforced heap (GC unavailable)",
+        "mountedHeapDeltaBytes": 10255656,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.38215299999956187,
+              "p95": 2.0580659999995987
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.07079599999997299,
+              "p95": 0.23565299999972922
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 4000,
+            "commits": 4000,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 16.158543000000464,
+              "p95": 66.57876599999963
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 4.611275000000205,
+              "p95": 51.3193310000006
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 800020,
+              "childVisits": 80,
+              "mission": 4000,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 45.82913799999915,
+          "p95": 82.37070700000004
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 160003,
+          "childVisits": 12,
+          "mission": 800,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "mobx",
+        "readers": 200,
+        "addressing": "distinct",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 74.03351499999917,
+        "gcMethod": "unforced heap (GC unavailable)",
+        "mountedHeapDeltaBytes": 2719808,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.2006710000005114,
+              "p95": 12.759154999999737
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.03474199999982375,
+              "p95": 0.1262989999995625
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20,
+            "commits": 20,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 3.1352420000002894,
+              "p95": 18.882736999999906
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 2.0830540000006295,
+              "p95": 15.546393999999054
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 800020,
+              "childVisits": 80,
+              "mission": 4000,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 47.48121499999979,
+          "p95": 72.98551399999997
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 160003,
+          "childVisits": 12,
+          "mission": 800,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "mobx",
+        "readers": 1000,
+        "addressing": "same",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 85.63013499999943,
+        "gcMethod": "unforced heap (GC unavailable)",
+        "mountedHeapDeltaBytes": 374352,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.561241000001246,
+              "p95": 3.1568139999999403
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.038207000001420965,
+              "p95": 0.05342999999993481
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20000,
+            "commits": 20000,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 19.919582000000446,
+              "p95": 49.378961000000345
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 2.451947999999902,
+              "p95": 9.580465999999433
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 800020,
+              "childVisits": 80,
+              "mission": 4000,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 85.183986,
+          "p95": 133.04129699999976
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 160003,
+          "childVisits": 12,
+          "mission": 800,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "mobx",
+        "readers": 1000,
+        "addressing": "distinct",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 106.3065630000001,
+        "gcMethod": "unforced heap (GC unavailable)",
+        "mountedHeapDeltaBytes": 10239576,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.2607509999998001,
+              "p95": 4.165327000000616
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.03698599999916041,
+              "p95": 0.05185700000038196
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20,
+            "commits": 20,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 3.2623829999993177,
+              "p95": 10.599905999999464
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 2.0732389999993757,
+              "p95": 5.322533000000476
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 800020,
+              "childVisits": 80,
+              "mission": 4000,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 65.06394400000136,
+          "p95": 79.04796600000009
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 160003,
+          "childVisits": 12,
+          "mission": 800,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "keyed",
+        "readers": 200,
+        "addressing": "same",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 19.38827499999934,
+        "gcMethod": "unforced heap (GC unavailable)",
+        "mountedHeapDeltaBytes": 7453240,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 2.0316970000003494,
+              "p95": 27.73171800000091
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.029082999999445747,
+              "p95": 0.50832199999968
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 4000,
+            "commits": 4000,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 8.816932000001543,
+              "p95": 14.932182999998986
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 2.127049000000625,
+              "p95": 9.555270000000746
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 4020,
+              "childVisits": 80,
+              "mission": 100,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 14.261768000000302,
+          "p95": 17.708415999999488
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 803,
+          "childVisits": 12,
+          "mission": 600,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "keyed",
+        "readers": 200,
+        "addressing": "distinct",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 24.840722999999343,
+        "gcMethod": "unforced heap (GC unavailable)",
+        "mountedHeapDeltaBytes": 304112,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.19054499999947438,
+              "p95": 15.829788999999437
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.02379599999949278,
+              "p95": 0.03495199999997567
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20,
+            "commits": 20,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 2.8785879999995814,
+              "p95": 18.59013899999991
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 1.9438449999997829,
+              "p95": 17.71882199999891
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 4020,
+              "childVisits": 80,
+              "mission": 100,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 26.65691700000025,
+          "p95": 30.059026999999332
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 803,
+          "childVisits": 12,
+          "mission": 600,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "keyed",
+        "readers": 1000,
+        "addressing": "same",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 81.09028800000306,
+        "gcMethod": "unforced heap (GC unavailable)",
+        "mountedHeapDeltaBytes": 8193856,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.20562900000004447,
+              "p95": 6.579536000001099
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.025177999999868916,
+              "p95": 0.030575999997381587
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20000,
+            "commits": 20000,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 19.220744000002014,
+              "p95": 27.090996999999334
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 1.745799000000261,
+              "p95": 3.258035999999265
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 4020,
+              "childVisits": 80,
+              "mission": 100,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 28.477656999999454,
+          "p95": 33.29385999999795
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 803,
+          "childVisits": 12,
+          "mission": 600,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "keyed",
+        "readers": 1000,
+        "addressing": "distinct",
+        "corpus": {
+          "issues": 4867,
+          "sessions": 4304
+        },
+        "bootstrapMs": 61.71392999999807,
+        "gcMethod": "unforced heap (GC unavailable)",
+        "mountedHeapDeltaBytes": 8629800,
+        "scenarios": {
+          "unrelated": {
+            "readers": 0,
+            "commits": 0,
+            "summaryReaders": 0,
+            "groupReaders": 0,
+            "wallMs": {
+              "n": 20,
+              "p50": 0.5213320000002568,
+              "p95": 4.110594999998284
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 0.02343500000279164,
+              "p95": 0.04333499999847845
+            },
+            "operations": {
+              "summary": 0,
+              "sessionVisits": 0,
+              "childVisits": 0,
+              "mission": 0,
+              "nesting": 0,
+              "rank": 0,
+              "sorts": 0,
+              "nativeOutputChanges": 0
+            }
+          },
+          "relevant": {
+            "readers": 20,
+            "commits": 20,
+            "summaryReaders": 40,
+            "groupReaders": 20,
+            "wallMs": {
+              "n": 20,
+              "p50": 3.4828139999990526,
+              "p95": 8.472426000000269
+            },
+            "syncMs": {
+              "n": 20,
+              "p50": 1.462533000001713,
+              "p95": 4.894129999996949
+            },
+            "operations": {
+              "summary": 20,
+              "sessionVisits": 4020,
+              "childVisits": 80,
+              "mission": 100,
+              "nesting": 20,
+              "rank": 0,
+              "sorts": 20,
+              "nativeOutputChanges": 0
+            }
+          }
+        },
+        "rescopeMs": {
+          "n": 3,
+          "p50": 28.220702000002348,
+          "p95": 35.83808500000305
+        },
+        "clockAndRescopeOperations": {
+          "summary": 3,
+          "sessionVisits": 803,
+          "childVisits": 12,
+          "mission": 600,
+          "nesting": 4,
+          "rank": 0,
+          "sorts": 4,
+          "nativeOutputChanges": 0
+        },
+        "unobserved": {
+          "summary": 0,
+          "sessionVisits": 0,
+          "childVisits": 0,
+          "mission": 0,
+          "nesting": 0,
+          "rank": 0,
+          "sorts": 0,
+          "nativeOutputChanges": 0
+        }
+      },
+      {
+        "candidate": "armed-coarse-control",
+        "readers": 200,
+        "reads": 200,
+        "commits": 200
+      },
+      {
+        "candidate": "armed-coarse-control",
+        "readers": 1000,
+        "reads": 1000,
+        "commits": 1000
+      }
+    ]
+  },
+  "memory": {
+    "method": "One fresh Bun process per case; happy-dom + React DOM 19.2.7; three synchronous GC samples; fixture and library imports excluded from baseline delta. Not device memory.",
+    "results": [
+      {
+        "candidate": "mobx",
+        "readers": 200,
+        "addressing": "same",
+        "commits": 200,
+        "before": {
+          "samples": [
+            32952892,
+            32955370,
+            32945402
+          ],
+          "median": 32952892
+        },
+        "mounted": {
+          "samples": [
+            42252010,
+            42251925,
+            42251589
+          ],
+          "median": 42251925
+        },
+        "disposed": {
+          "samples": [
+            35824889,
+            35824998,
+            35824998
+          ],
+          "median": 35824998
+        },
+        "mountedDeltaBytes": 9299033,
+        "afterDisposeDeltaBytes": 2872106
+      },
+      {
+        "candidate": "mobx",
+        "readers": 200,
+        "addressing": "distinct",
+        "commits": 200,
+        "before": {
+          "samples": [
+            32945112,
+            32943078,
+            32943078
+          ],
+          "median": 32943078
+        },
+        "mounted": {
+          "samples": [
+            42363063,
+            42362118,
+            42362118
+          ],
+          "median": 42362118
+        },
+        "disposed": {
+          "samples": [
+            35897025,
+            35892191,
+            35892197
+          ],
+          "median": 35892197
+        },
+        "mountedDeltaBytes": 9419040,
+        "afterDisposeDeltaBytes": 2949119
+      },
+      {
+        "candidate": "mobx",
+        "readers": 1000,
+        "addressing": "same",
+        "commits": 1000,
+        "before": {
+          "samples": [
+            32945225,
+            32947441,
+            32944529
+          ],
+          "median": 32945225
+        },
+        "mounted": {
+          "samples": [
+            46446263,
+            46446391,
+            46446391
+          ],
+          "median": 46446391
+        },
+        "disposed": {
+          "samples": [
+            36705357,
+            36705450,
+            36704890
+          ],
+          "median": 36705357
+        },
+        "mountedDeltaBytes": 13501166,
+        "afterDisposeDeltaBytes": 3760132
+      },
+      {
+        "candidate": "mobx",
+        "readers": 1000,
+        "addressing": "distinct",
+        "commits": 1000,
+        "before": {
+          "samples": [
+            32946009,
+            32948445,
+            32948445
+          ],
+          "median": 32948445
+        },
+        "mounted": {
+          "samples": [
+            47300518,
+            47299715,
+            47299715
+          ],
+          "median": 47299715
+        },
+        "disposed": {
+          "samples": [
+            36735586,
+            36735678,
+            36735678
+          ],
+          "median": 36735678
+        },
+        "mountedDeltaBytes": 14351270,
+        "afterDisposeDeltaBytes": 3787233
+      },
+      {
+        "candidate": "keyed",
+        "readers": 200,
+        "addressing": "same",
+        "commits": 200,
+        "before": {
+          "samples": [
+            32942569,
+            32945031,
+            32945031
+          ],
+          "median": 32945031
+        },
+        "mounted": {
+          "samples": [
+            38327886,
+            38327986,
+            38327986
+          ],
+          "median": 38327986
+        },
+        "disposed": {
+          "samples": [
+            35649442,
+            35649510,
+            35649510
+          ],
+          "median": 35649510
+        },
+        "mountedDeltaBytes": 5382955,
+        "afterDisposeDeltaBytes": 2704479
+      },
+      {
+        "candidate": "keyed",
+        "readers": 200,
+        "addressing": "distinct",
+        "commits": 200,
+        "before": {
+          "samples": [
+            32951617,
+            32953632,
+            32952560
+          ],
+          "median": 32952560
+        },
+        "mounted": {
+          "samples": [
+            38488959,
+            38480211,
+            38480009
+          ],
+          "median": 38480211
+        },
+        "disposed": {
+          "samples": [
+            35543276,
+            35542448,
+            35542448
+          ],
+          "median": 35542448
+        },
+        "mountedDeltaBytes": 5527651,
+        "afterDisposeDeltaBytes": 2589888
+      },
+      {
+        "candidate": "keyed",
+        "readers": 1000,
+        "addressing": "same",
+        "commits": 1000,
+        "before": {
+          "samples": [
+            32937720,
+            32940154,
+            32937578
+          ],
+          "median": 32937720
+        },
+        "mounted": {
+          "samples": [
+            41248912,
+            41248801,
+            41248801
+          ],
+          "median": 41248801
+        },
+        "disposed": {
+          "samples": [
+            36790223,
+            36790287,
+            36789839
+          ],
+          "median": 36790223
+        },
+        "mountedDeltaBytes": 8311081,
+        "afterDisposeDeltaBytes": 3852503
+      },
+      {
+        "candidate": "keyed",
+        "readers": 1000,
+        "addressing": "distinct",
+        "commits": 1000,
+        "before": {
+          "samples": [
+            32946892,
+            32949160,
+            32949160
+          ],
+          "median": 32949160
+        },
+        "mounted": {
+          "samples": [
+            41962191,
+            41960336,
+            41960336
+          ],
+          "median": 41960336
+        },
+        "disposed": {
+          "samples": [
+            36805668,
+            36805732,
+            36804724
+          ],
+          "median": 36805668
+        },
+        "mountedDeltaBytes": 9011176,
+        "afterDisposeDeltaBytes": 3856508
+      }
+    ]
+  },
+  "bundles": [
+    {
+      "candidate": "mobx",
+      "build": "Vite isolated proof; React external",
+      "bytes": 274522,
+      "gzipBytes": 64849
+    },
+    {
+      "candidate": "mobx",
+      "build": "Vite library-only; React external",
+      "bytes": 68741,
+      "gzipBytes": 18160
+    },
+    {
+      "candidate": "mobx",
+      "build": "Expo web isolated entry; includes React",
+      "bytes": 835343,
+      "gzipBytes": 205900
+    },
+    {
+      "candidate": "mobx",
+      "build": "Expo ios isolated entry; includes React",
+      "bytes": 899798,
+      "gzipBytes": 222811
+    },
+    {
+      "candidate": "mobx",
+      "build": "Expo android isolated entry; includes React",
+      "bytes": 899798,
+      "gzipBytes": 222811
+    },
+    {
+      "candidate": "keyed",
+      "build": "Vite isolated proof; React external",
+      "bytes": 207202,
+      "gzipBytes": 47713
+    },
+    {
+      "candidate": "keyed",
+      "build": "Vite library-only; React external",
+      "bytes": 0,
+      "gzipBytes": 20
+    },
+    {
+      "candidate": "keyed",
+      "build": "Expo web isolated entry; includes React",
+      "bytes": 773650,
+      "gzipBytes": 189996
+    },
+    {
+      "candidate": "keyed",
+      "build": "Expo ios isolated entry; includes React",
+      "bytes": 838900,
+      "gzipBytes": 206654
+    },
+    {
+      "candidate": "keyed",
+      "build": "Expo android isolated entry; includes React",
+      "bytes": 838900,
+      "gzipBytes": 206654
+    }
+  ]
+}
