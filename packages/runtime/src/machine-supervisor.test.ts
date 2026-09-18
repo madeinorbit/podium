@@ -624,6 +624,7 @@ describe('supervisor credential rotation', () => {
       build: { appVersion: 'test' }, deliveryCaps: [],
       report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn(),
     })
+    writeFileSync(join(dir, 'daemon.secret'), 'historical-bearer')
     let connection = makeConnection()
     try {
       connection.rotateCredential()
@@ -648,7 +649,9 @@ describe('supervisor credential rotation', () => {
       retry.message({ ...challenge, connectionId: 'retry', nonce: 'nonce-retry' })
       expect(retry.sent[1]!.credential.rotation.newKeyId).toBe(next)
       expect(readMachineCredential(dir)).toEqual(pending)
+      expect(existsSync(join(dir, 'daemon.secret'))).toBe(true)
       retry.message({ type: 'peerHelloOk', v: retry.sent[0]!.v, caps: [], enrolledPublicKey: next })
+      expect(existsSync(join(dir, 'daemon.secret'))).toBe(false)
       expect(readMachineCredential(dir)!.pendingRotation).toBeUndefined()
       expect(machinePublicKeyWire(readMachineCredential(dir)!)).toBe(next)
       expect(loadSupervisorState(dir).enrolledPublicKey).toBe(next)
@@ -658,6 +661,10 @@ describe('supervisor credential rotation', () => {
       fresh.message({ ...challenge, connectionId: 'fresh', nonce: 'nonce-fresh' })
       expect(fresh.sent[1]!.credential.rotation).toBeUndefined()
       expect(verifyWithMachineKey(next, machineHelloTranscript({ ...challenge, connectionId: 'fresh', nonce: 'nonce-fresh' }), fresh.sent[1]!.credential.proof.signature)).toBe(true)
+      // A crash after key promotion but before file deletion is cleaned on reconnect.
+      writeFileSync(join(dir, 'daemon.secret'), 'historical-bearer')
+      fresh.message({ type: 'peerHelloOk', v: fresh.sent[0]!.v, caps: [] })
+      expect(existsSync(join(dir, 'daemon.secret'))).toBe(false)
     } finally { connection.close() }
   })
 })

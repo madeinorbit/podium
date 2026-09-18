@@ -70,7 +70,7 @@ describe('startServer hosts the janitor itself', () => {
   }
 
   it('starts exactly one worker, dialing its own bound port with its own credential', async () => {
-    const calls: Array<{ serverUrl: string; token: string }> = []
+    const calls: Array<Parameters<StartJanitorWorkerFn>[0]> = []
     const start: StartJanitorWorkerFn = async (options) => {
       calls.push(options)
       return fakeWorker()
@@ -79,7 +79,8 @@ describe('startServer hosts the janitor itself', () => {
     await until(() => calls.length === 1, 'the janitor worker to start')
     expect(calls).toHaveLength(1)
     expect(calls[0]?.serverUrl).toContain(`:${handle.port}`)
-    expect(calls[0]?.token).toBeTruthy()
+    expect(calls[0]?.credentialDir).toBe(process.env.PODIUM_STATE_DIR)
+    expect(calls[0]?.token).toBeUndefined()
 
     const janitor = await janitorOnVersion(handle.port)
     expect(janitor.state).toBe('running')

@@ -392,12 +392,13 @@ export function createMachineSupervisorConnection(
     deps.state.assignment = persistedState.assignment
     deps.state.setupEnrollment = persistedState.setupEnrollment
     saveSupervisorState(deps.stateDir, deps.state)
-    if (enrolledPublicKey && readMachineCredential(deps.stateDir)?.pendingRotation) {
+    const acknowledgedKey = enrolledPublicKey ?? deps.state.enrolledPublicKey
+    if (acknowledgedKey) {
       // Make the new-key reference durable before dropping the only old private key.
       // A crash before promotion leaves a pending proposal that the next hello retries.
       syncFile(join(deps.stateDir, STATE_FILE))
       syncFile(deps.stateDir)
-      acknowledgeMachineCredentialRotation(deps.stateDir, enrolledPublicKey)
+      acknowledgeMachineCredentialRotation(deps.stateDir, acknowledgedKey)
     }
     if (issuedToken || enrolledPublicKey) deps.onPaired?.()
     return true

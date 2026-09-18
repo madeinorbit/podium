@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
+import { readOrCreateLocalMachineId } from './local-machine'
 
 const dirs: string[] = []
 const stateDir = (): string => {
@@ -66,16 +66,4 @@ describe('readOrCreateLocalMachineId', () => {
     expect(statSync(join(dir, 'machine.json')).mode & 0o777).toBe(0o600)
   })
 
-  it('lives beside the bootstrap secret without either standing in for the other', () => {
-    // Split mode reads BOTH from this one dir: the id it presents, and the secret
-    // it presents it WITH. Rotating the credential must not change who the host is.
-    const dir = stateDir()
-    const id = readOrCreateLocalMachineId(dir)
-    const secret = readOrCreateDaemonSecret(dir)
-
-    expect(secret).not.toBe(id)
-    rmSync(join(dir, 'daemon.secret'))
-    expect(readOrCreateDaemonSecret(dir)).not.toBe(secret)
-    expect(readOrCreateLocalMachineId(dir)).toBe(id)
-  })
 })

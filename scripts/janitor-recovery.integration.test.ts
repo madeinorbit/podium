@@ -1,3 +1,6 @@
+import { readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key'
+import { createHash } from 'node:crypto'
+import { loadSupervisorState, saveSupervisorState } from '@podium/runtime/machine-supervisor'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -48,7 +51,11 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
     let janitor: JanitorHandle | undefined
 
     try {
-      const seed = await openTestStore(dbPath)
+      const state = loadSupervisorState(dir)
+      saveSupervisorState(dir, { ...state, token: 'janitor-fixture-token' })
+      const seed = await openTestStore(dbPath, state.machineId)
+      readOrCreateUpdateSigningKey(dir)
+      await seed.machines.upsertMachine({ id: state.machineId, name: 'host', hostname: 'host', tokenHash: createHash('sha256').update('janitor-fixture-token').digest('hex'), ownerUserId: null })
       const message: MessageRow = {
         id: 'msg_due',
         threadId: asThreadId('thread_due'),
@@ -83,7 +90,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
       server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
       janitor = await startJanitor({
         serverUrl: `http://127.0.0.1:${server.port}`,
-        token: server.maintenanceToken,
+        credentialDir: server.maintenanceCredentialDir,
         dbPath,
       })
 

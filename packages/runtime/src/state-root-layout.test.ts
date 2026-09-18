@@ -7,8 +7,8 @@ import { deleteLegacyInstancePasswordFile, readLegacyInstancePasswordHash, stage
 import { clearPendingGrant, writePendingGrant } from './update-pending'
 import { saveConfig } from './config'
 import { writeConnectivity } from './connectivity'
-import { readMachineState, readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
-import { createMachineCredential } from './machine-credential'
+import { readMachineState, readOrCreateLocalMachineId } from './local-machine'
+import { createMachineCredential, acknowledgeMachineCredentialRotation, machinePublicKeyWire } from './machine-credential'
 import { loadSupervisorState, saveSupervisorState } from './machine-supervisor'
 import { saveCachedSessionToken } from './session-mint'
 
@@ -21,12 +21,10 @@ vi.mock('node:fs', async (importOriginal) => {
   } }
 })
 
-// POD-3957 ruling: daemon.secret remains the box-bound maintenance credential
-// until POD-4197 replaces its consumers. It must never overwrite the S7 keypair.
+// Final state after credential rotation; legacy bearer files may remain until acknowledgement.
 const ALLOWED_PERSISTENT_FILES = [
   'cli-session.json',
   'config.json',
-  'daemon.secret',
   'instance.json',
   'machine.json',
   'machine.key',
@@ -37,12 +35,11 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-it('fresh machine writers create only the approved transitional state-root files', async () => {
+it('fresh machine writers create only the approved five state-root files', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-layout-'))
   roots.push(dir)
   saveConfig({ mode: 'all-in-one' }, join(dir, 'config.json'))
   const machineId = readOrCreateLocalMachineId(dir)
-  const maintenanceToken = readOrCreateDaemonSecret(dir)
   createMachineCredential(dir)
   const originalKey = readFileSync(join(dir, 'machine.key'), 'utf8')
   const supervisor = loadSupervisorState(dir)
@@ -68,7 +65,6 @@ it('fresh machine writers create only the approved transitional state-root files
   clearPendingGrant(dir)
   expect(readdirSync(dir).sort()).toEqual(ALLOWED_PERSISTENT_FILES)
   expect(readOrCreateLocalMachineId(dir)).toBe(machineId)
-  expect(readOrCreateDaemonSecret(dir)).toBe(maintenanceToken)
   expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(originalKey)
 })
 
@@ -82,7 +78,8 @@ it('imports all four legacy files without changing credentials and removes them 
   writeFileSync(join(dir, 'daemon.json'), JSON.stringify(daemon))
   writeFileSync(join(dir, 'supervisor.json'), JSON.stringify(supervisor))
   writeFileSync(join(dir, 'connectivity.json'), JSON.stringify(connectivity))
-  const token = readOrCreateDaemonSecret(dir)
+  const token = 'original-maintenance-token'
+  writeFileSync(join(dir, 'daemon.secret'), token)
   createMachineCredential(dir)
   const key = readFileSync(join(dir, 'machine.key'), 'utf8')
 
@@ -90,11 +87,15 @@ it('imports all four legacy files without changing credentials and removes them 
   expect(loadSupervisorState(dir)).toEqual(supervisor)
   expect(readMachineState(dir)).toMatchObject({ daemon, supervisor, connectivity })
   expect(readdirSync(dir).sort()).toEqual(['daemon.secret', 'machine.json', 'machine.key'])
-  expect(readOrCreateDaemonSecret(dir)).toBe(token)
+  expect(readFileSync(join(dir, 'daemon.secret'), 'utf8')).toBe(token)
   expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(key)
   const persisted = readFileSync(join(dir, 'machine.json'), 'utf8')
   loadSupervisorState(dir)
   expect(readFileSync(join(dir, 'machine.json'), 'utf8')).toBe(persisted)
+  // The imported bearer file is allowed only until the host acknowledges its key.
+  expect(acknowledgeMachineCredentialRotation(dir, machinePublicKeyWire(createMachineCredential(dir)))).toBe(true)
+  expect(readdirSync(dir).sort()).toEqual(['machine.json', 'machine.key'])
+  expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(key)
 })
 
 it('resumes a crash after durable publication and before legacy removal', () => {

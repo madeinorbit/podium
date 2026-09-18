@@ -16,7 +16,8 @@ export type JanitorWorkerState = 'running' | 'degraded' | 'stopped'
 
 export interface JanitorWorkerStartOptions {
   serverUrl: string
-  token: string
+  token?: string
+  credentialDir?: string
   dbPath?: string
   tickMs?: number
 }

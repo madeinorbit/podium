@@ -106,6 +106,7 @@ async function maintenanceHarness(dir: string, leaseTtlMs = 1_000) {
   let boundaryHit = deferred()
   let release = deferred()
   registerMaintenanceRoute(app, {
+    machineId: 'acceptance-host', installationId: 'acceptance-installation', authenticateSignature: () => false,
     authenticateToken: (token) => token === TOKEN,
     service: {
       handshake: (request) => service.handshake(request),

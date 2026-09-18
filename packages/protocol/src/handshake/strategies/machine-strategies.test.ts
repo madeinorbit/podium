@@ -1,9 +1,4 @@
-/**
- * The three `machine` rows of ADR 5 D5 — local secret, pair code, machine token.
- * One file, three describes: they share a fixture set on purpose, because the
- * point being tested is that the three CREDENTIALS differ while the resolved
- * principal does not.
- */
+/** Pair-code and bearer credentials resolve the same machine principal. */
 
 import { describe, expect, it } from 'vitest'
 import { asUserId } from '../../planes/principal'
@@ -16,101 +11,12 @@ import {
   pairedMachineRecord,
   transportFacts,
 } from '../test-support'
-import { createMachineLocalSecretStrategy } from './machine-local-secret'
 import { createMachinePairCodeStrategy } from './machine-pair-code'
 import { createMachineTokenStrategy } from './machine-token'
 import { machineUseAllowed } from './types'
 
 const localMachine = machineRecord('local', { owner: 'usr-ada', name: 'ada-mbp' })
 const remoteMachine = machineRecord('mach-vps', { owner: 'usr-ada', name: 'vps' })
-
-describe('machine (local) — shared host secret', () => {
-  const seed = { secrets: { 'secret-ok': localMachine } }
-
-  it('resolves a machine principal that carries owner and grants', () => {
-    const mint = createRecordingMinter()
-    const strategy = createMachineLocalSecretStrategy({ machines: fakeMachines(seed), mint })
-    const outcome = strategy.authenticate({
-      credential: { kind: 'daemonSecret', secret: 'secret-ok' },
-      hello: helloFor({ kind: 'daemonSecret', secret: 'secret-ok' }),
-      transport: transportFacts({ endpoint: '/daemon', connectionId: 'conn-7' }),
-    })
-    expect(outcome.ok).toBe(true)
-    if (!outcome.ok) return
-    expect(outcome.principal).toMatchObject({
-      kind: 'machine',
-      machine: 'local',
-      // The DEVICE half is the connection, so a reconnect is the same machine on
-      // a new binding rather than a new machine.
-      device: 'conn-7',
-    })
-    // A machine is not a person: no user, and nothing minted for one.
-    expect(outcome.principal).not.toHaveProperty('user')
-    expect(mint.minted).toEqual([{ kind: 'machine', subject: 'local' }])
-  })
-
-  it('is payload-inert: claiming another machineId does not change the principal', () => {
-    const strategy = createMachineLocalSecretStrategy({
-      machines: fakeMachines(seed),
-      mint: createRecordingMinter(),
-    })
-    const outcome = strategy.authenticate({
-      credential: { kind: 'daemonSecret', secret: 'secret-ok' },
-      hello: helloFor({ kind: 'daemonSecret', secret: 'secret-ok' }, {
-        claims: { ...HOSTILE_CLAIMS, machineId: 'mach-someone-elses' },
-      }),
-      transport: transportFacts(),
-    })
-    expect(outcome.ok && outcome.principal).toMatchObject({ machine: 'local' })
-  })
-
-  it('is payload-inert: a build report does not change the principal', () => {
-    const strategy = createMachineLocalSecretStrategy({
-      machines: fakeMachines(seed),
-      mint: createRecordingMinter(),
-    })
-    const outcome = strategy.authenticate({
-      credential: { kind: 'daemonSecret', secret: 'secret-ok' },
-      hello: helloFor(
-        { kind: 'daemonSecret', secret: 'secret-ok' },
-        {
-          build: { appVersion: 'dev+attacker', wireSchemaDigest: 'forged', installKind: 'source' },
-        },
-      ),
-      transport: transportFacts(),
-    })
-    expect(outcome.ok && outcome.principal).toMatchObject({ kind: 'machine', machine: 'local' })
-  })
-
-  it('fails closed on a wrong secret — and being on the local socket is not proof', () => {
-    const strategy = createMachineLocalSecretStrategy({
-      machines: fakeMachines(seed),
-      mint: createRecordingMinter(),
-    })
-    const outcome = strategy.authenticate({
-      credential: { kind: 'daemonSecret', secret: 'secret-wrong' },
-      hello: helloFor({ kind: 'daemonSecret', secret: 'secret-wrong' }),
-      // Loopback, in-process, same host — none of it authenticates anything.
-      transport: transportFacts({ endpoint: '/daemon', inProcess: true }),
-    })
-    expect(outcome).toMatchObject({ ok: false, reason: 'auth-failed' })
-  })
-
-  it('fails closed when the secret file is gone (availability blip, not a bypass)', () => {
-    // ADR 5 D5's operational note: deleting the secret under a running split
-    // daemon rejects auth until restart. Fail closed is the correct behaviour.
-    const strategy = createMachineLocalSecretStrategy({
-      machines: fakeMachines({ secrets: {} }),
-      mint: createRecordingMinter(),
-    })
-    const outcome = strategy.authenticate({
-      credential: { kind: 'daemonSecret', secret: 'secret-ok' },
-      hello: helloFor({ kind: 'daemonSecret', secret: 'secret-ok' }),
-      transport: transportFacts(),
-    })
-    expect(outcome.ok).toBe(false)
-  })
-})
 
 describe('machine (remote) — one-shot pair code', () => {
   const paired = pairedMachineRecord('mach-vps', 'tok-minted', { owner: 'usr-ada', name: 'vps', updatePubkey: 'server-key-1' })

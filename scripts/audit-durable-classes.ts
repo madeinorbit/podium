@@ -410,12 +410,6 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     writeSites: ['apps/server/src/modules/updates/signing-key.ts'],
   },
   {
-    store: '<stateDir>/daemon.secret',
-    kind: 'filesystem',
-    row: 'pairing-token',
-    writeSites: ['packages/runtime/src/local-machine.ts'],
-  },
-  {
     store: '<stateDir>/enrollment.ledger',
     kind: 'filesystem',
     row: 'enrollment-ledger',

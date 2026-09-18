@@ -1,3 +1,5 @@
+import { readHostMachineCredential } from './maintenance-credential'
+import { machinePublicKeyWire } from './machine-credential'
 /**
  * Server-transfer lifecycle: the durable config conversions and process-role transition
  * each side of a cutover boots through. [spec:SP-9f5e] — file/digest/journal concerns live
@@ -44,7 +46,7 @@ import {
   saveConfig,
   stateDir,
 } from './config'
-import { LocalMachineIdentityConflictError, loadMachineState, readMachineState, updateMachineState, readOrCreateDaemonSecret } from './local-machine'
+import { LocalMachineIdentityConflictError, loadMachineState, readMachineState, updateMachineState } from './local-machine'
 import type { RunRole } from './run-registry'
 import {
   loadSupervisorState,
@@ -192,9 +194,13 @@ function saveTransferSupervisorAssignment(config: PodiumConfig): void {
 
 function saveSourceDaemonIdentity(): void {
   const dir = stateDir()
-  const token = readOrCreateDaemonSecret(dir)
+  const credential = readHostMachineCredential(dir, false)
   updateMachineState(dir, (machine) => {
-    machine.daemon = { ...machine.daemon, machineId: machine.machineId, token }
+    machine.daemon = { ...machine.daemon, machineId: machine.machineId }
+    delete machine.daemon.token
+    delete machine.daemon.enrolledPublicKey
+    if (credential.kind === 'bearer') machine.daemon.token = credential.token
+    else machine.daemon.enrolledPublicKey = machinePublicKeyWire(credential.key)
   })
 }
 
@@ -339,7 +345,7 @@ export interface TargetPromotionResult {
 /**
  * The TARGET side of a cutover: write the durable config that makes this machine host the
  * instance — `mode: server`, the new public URL, optional explicit port. The target's own
- * machine identity (machine.id / daemon secret) lives in separate state files and is never
+ * machine identity and credential (machine.json / machine.key) lives in separate state files and is never
  * touched here, so a later follow-up can offer all-in-one promotion without a re-import.
  *
  * IDEMPOTENT: replaying a promotion that already recorded this URL (and port, when given)

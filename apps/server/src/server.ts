@@ -57,7 +57,6 @@ import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
 import { installationPublicKeyWire } from '@podium/runtime/installation-identity'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
-  readOrCreateDaemonSecret,
   readOrCreateLocalMachineId,
   stateDir,
 } from '@podium/runtime/local-machine'
@@ -241,8 +240,8 @@ export interface ServerHandle {
   registry: SessionRegistry
   /** True when this process exposes only durable server-move recovery APIs. */
   recoveryOnly: boolean
-  /** Server-owned maintenance channel credential; never accepted for machine authentication. */
-  maintenanceToken: string
+  /** Host credential directory used by local maintenance clients. */
+  maintenanceCredentialDir: string
   /**
    * In-process daemon seam [POD-196]: hands the all-in-one daemon a direct
    * message channel so per-frame traffic skips the loopback WebSocket + JSON +
@@ -789,8 +788,6 @@ export async function startServer(
   })
   const adoptionStarted = performance.now()
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
-  // Maintenance is a separate server-owned channel; this secret is never a machine credential.
-  const maintenanceToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
   const setupStarted = performance.now()
   if (!recoveryOnly) {
     const supervisorSetup = loadSupervisorState(stateDir())
@@ -1434,6 +1431,9 @@ export async function startServer(
         : undefined,
   })
   registerMaintenanceRoute(app, {
+    machineId: hostMachineId,
+    installationId: installation.installationId,
+    authenticateSignature: (transcript, signature) => store.machines.verifyMachineSignature(asMachineId(hostMachineId), transcript, signature),
     // The maintenance realm is THIS HOST's credential, named by its real id rather
     // than by a constant that stood for it.
     authenticateToken: async (token) =>
@@ -2063,7 +2063,7 @@ export async function startServer(
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
-        token: maintenanceToken,
+        credentialDir: stateDir(),
         ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
       if (janitorHostClosing) {
@@ -2452,7 +2452,7 @@ export async function startServer(
         instanceId,
         registry,
         recoveryOnly,
-        maintenanceToken,
+        maintenanceCredentialDir: stateDir(),
         localDaemonLink,
         ...(loopAccounting ? { loopAccounting } : {}),
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist

@@ -1,3 +1,4 @@
+import { maintenanceAuthorization } from '@podium/runtime/maintenance-credential'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
@@ -1154,7 +1155,7 @@ export interface MaintenanceHttpClient {
 
 export function createMaintenanceHttpClient(
   serverUrl: string,
-  token: string,
+  credential: string | { credentialDir: string },
   fetchFn: typeof fetch = fetch,
   requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   shutdownSignal?: AbortSignal,
@@ -1163,13 +1164,16 @@ export function createMaintenanceHttpClient(
   const post = async (path: string, body: unknown): Promise<unknown> => {
     const timeoutSignal = AbortSignal.timeout(requestTimeoutMs)
     const signal = shutdownSignal ? AbortSignal.any([shutdownSignal, timeoutSignal]) : timeoutSignal
+    const serialized = JSON.stringify(body)
+    const authorization = typeof credential === 'string' ? `Bearer ${credential}`
+      : await maintenanceAuthorization(base, path, serialized, credential.credentialDir, fetchFn, signal)
     const response = await fetchFn(`${base}${path}`, {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${token}`,
+        authorization,
         'content-type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: serialized,
       signal,
     })
     const payload = await response.json()
@@ -1230,7 +1234,8 @@ export function handleTickError(
 
 export async function startJanitor(options: {
   serverUrl: string
-  token: string
+  token?: string
+  credentialDir?: string
   dbPath?: string
   tickMs?: number
   /**
@@ -1250,7 +1255,7 @@ export async function startJanitor(options: {
   const shutdown = new AbortController()
   const client = createMaintenanceHttpClient(
     options.serverUrl,
-    options.token,
+    options.token ?? { credentialDir: options.credentialDir ?? stateDir() },
     fetch,
     undefined,
     shutdown.signal,

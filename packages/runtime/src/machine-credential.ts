@@ -1,7 +1,7 @@
 /** Machine enrollment owns this key; callers explicitly choose its storage directory.
  * Creation is an enrollment operation, never a boot-time repair or fallback.
  */
-import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, fsyncSync, renameSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, fsyncSync, renameSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   isSigningKeyPair,
@@ -97,7 +97,19 @@ export function prepareMachineCredentialRotation(dir: string): MachineCredential
 /** The caller persists the acknowledged public key before retiring the old private key. */
 export function acknowledgeMachineCredentialRotation(dir: string, publicKey: string): boolean {
   const current = readMachineCredential(dir)
-  if (!current?.pendingRotation || machinePublicKeyWire(current.pendingRotation) !== publicKey) return false
-  saveCredential(dir, { version: 1, ...current.pendingRotation })
+  if (!current) return false
+  if (current.pendingRotation) {
+    if (machinePublicKeyWire(current.pendingRotation) !== publicKey) return false
+    saveCredential(dir, { version: 1, ...current.pendingRotation })
+  } else if (machinePublicKeyWire(current) !== publicKey) return false
+  // A repeated acknowledgement resumes cleanup after a crash. Never remove the
+  // legacy bearer before the server has acknowledged the replacement key.
+  try {
+    unlinkSync(join(dir, 'daemon.secret'))
+    const directory = openSync(dir, 'r')
+    try { fsyncSync(directory) } finally { closeSync(directory) }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
   return true
 }

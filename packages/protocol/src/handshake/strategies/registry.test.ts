@@ -12,12 +12,12 @@ const allPorts = () => ({
 })
 
 /** Every `kind` the envelope's credential union can carry. */
-const CREDENTIAL_KINDS = PeerCredential.options.map((o) => o.shape.kind.value)
+const CREDENTIAL_KINDS = PeerCredential.options.map((o) => o.shape.kind.value).filter((kind) => kind !== 'daemonSecret')
 
 describe('auth strategy registry', () => {
   it('selects by (role, credentialKind) — a lookup, not a conditional', () => {
     const registry = createDefaultAuthRegistry(allPorts())
-    expect(registry.lookup('machine', 'daemonSecret')?.name).toBe('machine-local-secret')
+    expect(registry.lookup('machine', 'daemonSecret')).toBeNull()
     expect(registry.lookup('machine', 'pairCode')?.name).toBe('machine-pair-code')
     expect(registry.lookup('machine', 'machineToken')?.name).toBe('machine-token')
     expect(registry.lookup('console', 'sessionCookie')?.name).toBe('console-cookie')
@@ -25,7 +25,7 @@ describe('auth strategy registry', () => {
     expect(registry.lookup('node', 'nodeCredential')?.name).toBe('node-reserved-inert')
   })
 
-  it('has an entry for every role and every credential kind — no silent gaps', () => {
+  it('has an entry for every role and every supported credential kind — retired secrets stay unregistered', () => {
     const entries = createDefaultAuthRegistry(allPorts()).entries()
     const roles = new Set(entries.map((e) => e.role))
     for (const role of AUTH_ROLES) expect([...roles]).toContain(role)

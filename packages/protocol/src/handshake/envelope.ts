@@ -84,7 +84,7 @@ export const SessionCookieCredential = z.object({
 })
 
 export const DaemonSecretCredential = z.object({
-  /** ADR 5 D5, machine (local): the shared host secret from `readOrCreateDaemonSecret`. */
+  /** Retired wire shape: parsed for rejection, never registered as authentication. */
   kind: z.literal('daemonSecret'),
   secret: z.string().min(1),
 })
@@ -204,9 +204,7 @@ export const PeerIdentityClaims = z
      * value be handed to something that expects an authenticated
      * `MachineId` — so branding this field would make the one thing this whole
      * schema exists to prevent (D7.1 / D14.3: "never for a principal") a
-     * silent assignment instead of a type error. `machine-local-secret.ts`
-     * states in so many words that it never reads this field, and
-     * `machine-token.ts` records that a claim naming a different machine still
+     * silent assignment instead of a type error. `machine-token.ts` records that a claim naming a different machine still
      * resolves to the token's own — the authenticated id comes from the
      * credential, and this stays a string so it cannot be mistaken for it.
      */

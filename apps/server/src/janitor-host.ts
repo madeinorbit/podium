@@ -21,7 +21,7 @@
  */
 import { startJanitorWorker } from '@podium/janitor/worker-client'
 import { localServerUrl } from '@podium/runtime/config'
-import { readOrCreateDaemonSecret } from '@podium/runtime/local-machine'
+import { stateDir } from '@podium/runtime/config'
 
 export type JanitorComponentState = 'running' | 'degraded' | 'stopped'
 
@@ -36,13 +36,15 @@ export interface JanitorHost {
 /** The shape of `@podium/janitor`'s worker client, as the server needs it. */
 export type StartJanitorWorkerFn = (opts: {
   serverUrl: string
-  token: string
+  token?: string
+  credentialDir?: string
 }) => Promise<JanitorHost>
 
 export interface JanitorHostDeps {
   port: number
   serverUrl?: string
   token?: string
+  credentialDir?: string
   /**
    * TEST ONLY. Replaces the worker client so server tests never spawn a thread.
    * Production callers leave it absent, which is the real client.
@@ -59,10 +61,10 @@ export interface JanitorHostDeps {
  */
 export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHost> {
   const serverUrl = deps.serverUrl ?? localServerUrl(deps.port)
-  const token = deps.token ?? readOrCreateDaemonSecret()
+  const credentialDir = deps.credentialDir ?? stateDir()
   const start = deps.start ?? startJanitorWorker
   try {
-    return await start({ serverUrl, token })
+    return await start({ serverUrl, credentialDir, ...(deps.token === undefined ? {} : { token: deps.token }) })
   } catch (error) {
     const reason = (error as Error).message
     return {

@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { MachineId } from '@podium/model'
 import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -159,28 +159,4 @@ export function updateMachineState(dir: string, change: (state: MachineState) =>
 
 export function readOrCreateLocalMachineId(dir: string = stateDir()): MachineId {
   return loadMachineState(dir).machineId
-}
-
-/** Transitional box-bound maintenance token. S7 machine.key remains a separate keypair.
- * POD-4197 owns replacement of the remaining maintenance consumers; never migrate this
- * bearer onto machine.key or regenerate it as part of the state-file consolidation.
- */
-export function readOrCreateDaemonSecret(dir: string = stateDir()): string {
-  const path = join(dir, 'daemon.secret')
-  try {
-    const existing = readFileSync(path, 'utf8').trim()
-    if (existing) return existing
-  } catch {
-    // not created yet — fall through and create it
-  }
-  const secret = randomBytes(32).toString('hex')
-  mkdirSync(dir, { recursive: true })
-  try {
-    // `wx`: fail if the file already exists, so a server/daemon startup race can't have
-    // one clobber the other's secret — the loser re-reads the winner's value.
-    writeFileSync(path, secret, { mode: 0o600, flag: 'wx' })
-    return secret
-  } catch {
-    return readFileSync(path, 'utf8').trim()
-  }
 }

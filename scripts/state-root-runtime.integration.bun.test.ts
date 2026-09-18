@@ -88,7 +88,7 @@ it('keeps consolidated machine files independent across two named runtimes', asy
         expect(existsSync(join(instance.stateDir, retired))).toBe(false)
       }
       expect(existsSync(join(instance.stateDir, 'machine.key'))).toBe(true)
-      expect(existsSync(join(instance.stateDir, 'daemon.secret'))).toBe(true)
+      expect(existsSync(join(instance.stateDir, 'daemon.secret'))).toBe(false)
       // Quiesce writers before the census: an atomic machine.json replacement
       // may legitimately have a temporary file while the supervisor is running.
       // After graceful shutdown, leftover staging files must fail the fence.
@@ -101,7 +101,7 @@ it('keeps consolidated machine files independent across two named runtimes', asy
       // pending-update.json belongs only to an in-flight update; this fresh boot
       // has none. auth.json belongs only to the pre-boot setup handoff above.
       const allowedFiles = new Set([
-        'cli-session.json', 'config.json', 'daemon.secret',
+        'cli-session.json', 'config.json',
         'instance.json', 'machine.json', 'machine.key',
         // Existing process lock, explicitly outside the persistent-file census.
         'daemon.lock',

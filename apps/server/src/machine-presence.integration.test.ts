@@ -1,3 +1,9 @@
+import { MACHINE_PRESENCE_GRACE_MS } from './modules/machines/service'
+import { readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key'
+import { openTestStore } from './test-support/open-test-store'
+import { createHash } from 'node:crypto'
+import { loadSupervisorState, saveSupervisorState } from '@podium/runtime/machine-supervisor'
+import { readHostMachineCredential } from '@podium/runtime/maintenance-credential'
 /**
  * POD-1585 — A CONNECTED DAEMON MUST READ ONLINE.
  *
@@ -30,7 +36,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHandshakeDialer } from '@podium/protocol'
-import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { noJanitorWorkerForTests } from './janitor-host'
@@ -40,10 +46,12 @@ const priorStateDir = process.env.PODIUM_STATE_DIR
 
 /** One real daemon handshake over a real socket; resolves when the link is up. */
 async function connectDaemon(port: number, stateDir: string): Promise<WebSocket> {
+  const credential = readHostMachineCredential(stateDir)
+  if (credential.kind !== 'bearer') throw new Error('presence fixture expects an enrolled bearer')
   const ws = new WebSocket(`ws://127.0.0.1:${port}/daemon`)
   const dialer = createHandshakeDialer({
     peerRole: 'machine',
-    credential: { kind: 'daemonSecret', secret: readOrCreateDaemonSecret(stateDir) },
+    credential: { kind: 'machineToken', token: credential.token, machineHint: credential.machineId },
     claims: { machineId: readOrCreateLocalMachineId(stateDir), hostname: hostname() },
   })
   await new Promise<void>((resolve, reject) => {
@@ -65,6 +73,12 @@ describe('machine presence (live server, real daemon socket)', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-presence-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    const state = loadSupervisorState(stateDir)
+    saveSupervisorState(stateDir, { ...state, token: 'presence-token' })
+    const seed = await openTestStore(join(stateDir, 'podium.db'), state.machineId)
+    readOrCreateUpdateSigningKey(stateDir)
+    await seed.machines.upsertMachine({ id: state.machineId, name: 'host', hostname: 'host', tokenHash: createHash('sha256').update('presence-token').digest('hex'), ownerUserId: null })
+    await seed.close()
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
   afterAll(async () => {
@@ -83,7 +97,7 @@ describe('machine presence (live server, real daemon socket)', () => {
   }
 
   it('flips the machine ONLINE while a daemon is attached, and back OFFLINE when it goes', async () => {
-    // Boot writes the host row (`ensureHostMachine`) before any daemon exists —
+    // The fixture explicitly enrolled the host before any daemon exists —
     // the row's mere presence, and its `lastSeenAt`, prove nothing about reach.
     expect((await listing()).online).toBe(false)
     const beforeConnect = (await listing()).lastSeenAt
@@ -101,10 +115,9 @@ describe('machine presence (live server, real daemon socket)', () => {
       ws.on('close', () => resolve())
       ws.close()
     })
-    // Detach is observed through the same field the UI reads, so a socket that
-    // closes without evicting its registration is caught here rather than as a
-    // machine that stays permanently, wrongly online.
-    await expect.poll(async () => (await listing()).online).toBe(false)
+    // The listing deliberately retains presence during reconnect grace; after
+    // that grace expires, the closed socket must no longer keep it online.
+    await expect.poll(async () => (await listing()).online, { timeout: MACHINE_PRESENCE_GRACE_MS + 5_000 }).toBe(false)
 
     // A SECOND handshake must advance it AGAIN: the reported symptom was a value
     // written once at connect and never after, which a single-connect assertion
@@ -115,7 +128,7 @@ describe('machine presence (live server, real daemon socket)', () => {
       new Date(afterConnect).getTime(),
     )
     ws2.close()
-  })
+  }, 60_000)
 
   it('stays ONLINE across heartbeat sweeps even though lastSeenAt never moves', async () => {
     // THE ANSWER TO "does presence stay fresh once attached?", pinned rather than
@@ -143,6 +156,6 @@ describe('machine presence (live server, real daemon socket)', () => {
     expect((await listing()).lastSeenAt).toBe(atConnect)
 
     ws.close()
-    await expect.poll(async () => (await listing()).online).toBe(false)
+    await expect.poll(async () => (await listing()).online, { timeout: MACHINE_PRESENCE_GRACE_MS + 5_000 }).toBe(false)
   }, 60_000)
 })

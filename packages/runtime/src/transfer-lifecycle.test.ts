@@ -1,3 +1,4 @@
+import { createMachineCredential, machinePublicKeyWire } from './machine-credential'
 import {
   existsSync,
   mkdtempSync,
@@ -92,10 +93,16 @@ describe('server transfer lifecycle', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  function seedSource() {
+    const state = loadSupervisorState(root)
+    saveSupervisorState(root, { ...state, token: 'enrolled-source-token' })
+  }
+
   it('moves both cached supervisor roles with the durable source and target config', () => {
     const state = loadSupervisorState(root)
     saveSupervisorState(root, { ...state, assignment: { server: true, agentExecution: false } })
     saveConfig({ mode: 'server', publicUrl: 'https://source.example' })
+    seedSource()
     applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
     expect(loadSupervisorState(root).assignment).toEqual({ server: false, agentExecution: true })
     applyTargetServerPromotion({
@@ -113,10 +120,12 @@ describe('server transfer lifecycle', () => {
 
   it('preserves later assignment policy on transfer retries and finalized endpoint cleanup', () => {
     saveConfig({ mode: 'server', publicUrl: 'https://source.example' })
+    seedSource()
     applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
     const state = loadSupervisorState(root)
     const assignment = { server: false, agentExecution: false }
     saveSupervisorState(root, { ...state, assignment })
+    seedSource()
     applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
     expect(loadSupervisorState(root).assignment).toEqual(assignment)
     const promotion = {
@@ -131,6 +140,18 @@ describe('server transfer lifecycle', () => {
     finalizeTargetServerPromotion()
     expect(loadConfig().serverUrl).toBeUndefined()
     expect(loadSupervisorState(root).assignment).toEqual(assignment)
+  })
+
+  it('preserves the enrolled key on source demotion without minting a bearer', () => {
+    const state = loadSupervisorState(root)
+    const key = createMachineCredential(root)
+    saveSupervisorState(root, { ...state, enrolledPublicKey: machinePublicKeyWire(key) })
+    saveConfig({ mode: 'server', publicUrl: 'https://source.example' })
+    applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target.example' })
+    expect(JSON.parse(readFileSync(join(root, 'machine.json'), 'utf8')).daemon).toEqual({
+      machineId: state.machineId, enrolledPublicKey: machinePublicKeyWire(key),
+    })
+    expect(existsSync(join(root, 'daemon.secret'))).toBe(false)
   })
 
   it('durably creates the target machine identity', () => {
@@ -171,6 +192,7 @@ describe('server transfer lifecycle', () => {
     })
     const before = loadConfig()
 
+    seedSource()
     const first = applySourceDemotion({
       transferId: TRANSFER_ONE,
       serverUrl: 'https://target.example',
@@ -191,7 +213,7 @@ describe('server transfer lifecycle', () => {
     })
     expect(JSON.parse(readFileSync(join(root, 'machine.json'), 'utf8')).daemon).toEqual({
       machineId: JSON.parse(readFileSync(join(root, 'machine.json'), 'utf8')).machineId,
-      token: readFileSync(join(root, 'daemon.secret'), 'utf8').trim(),
+      token: 'enrolled-source-token',
     })
     expect(JSON.parse(readFileSync(hostConfigBackupPath(TRANSFER_ONE), 'utf8'))).toEqual(before)
     expect(readdirSync(root).some((name) => name.startsWith('.config-transfer-'))).toBe(false)
@@ -403,6 +425,7 @@ describe('server transfer lifecycle', () => {
       port: 21001,
     }
     saveConfig(firstSource)
+    seedSource()
     applySourceDemotion({ transferId: TRANSFER_ONE, serverUrl: 'https://target-one.example' })
 
     const secondSource = {
@@ -412,6 +435,7 @@ describe('server transfer lifecycle', () => {
       port: 21002,
     }
     saveConfig(secondSource)
+    seedSource()
     applySourceDemotion({ transferId: TRANSFER_TWO, serverUrl: 'https://target-two.example' })
 
     expect(JSON.parse(readFileSync(hostConfigBackupPath(TRANSFER_ONE), 'utf8'))).toMatchObject(

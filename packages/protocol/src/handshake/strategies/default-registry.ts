@@ -1,11 +1,11 @@
 /**
  * The assembled strategy set — the composition root's one call.
  *
- * TOTALITY IS THE POINT. Every `(role, credentialKind)` pair the envelope can
- * express gets an entry, because a MISSING entry and a REFUSING entry fail
+ * TOTALITY IS THE POINT. Every `(role, credentialKind)` supported pair
+ * gets an entry, because a MISSING entry and a REFUSING entry fail
  * differently: a missing one falls through to a generic "unsupported credential"
  * that reads like an accident, and it is the shape in which a new credential kind
- * silently arrives unhandled. `registry.test.ts` pins the matrix.
+ * silently arrives unhandled. The retired daemonSecret wire shape is unregistered. `registry.test.ts` pins the matrix.
  *
  * A port that is not wired yet produces an explicit REFUSING strategy naming the
  * missing port, not a gap. That is how the console cookie strategy behaves in
@@ -51,8 +51,6 @@ export const createDefaultAuthRegistry = (ports: StrategyPorts): AuthStrategyReg
       ? unavailableStrategy('console', 'sessionCookie', 'ClientSessionDirectory (POD-1075)')
       : createConsoleCookieStrategy({ clientSessions: ports.clientSessions, mint: ports.mint }),
     // machine — ADR 5 D5 rows 2 and 3
-    // Retired wire kind: parsed only to return an explicit refusal to old clients.
-    unavailableStrategy('machine', 'daemonSecret', 'retired local-secret authentication'),
     ports.machines === undefined
       ? unavailableStrategy('machine', 'pairCode', 'MachineDirectory')
       : createMachinePairCodeStrategy({ machines: ports.machines, mint: ports.mint }),

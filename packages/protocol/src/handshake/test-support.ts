@@ -75,8 +75,6 @@ export const clientSession = (
 })
 
 export interface FakeMachinesSeed {
-  /** secret → machine record. */
-  readonly secrets?: Readonly<Record<string, ResolvedMachine>>
   /** token → machine record. */
   readonly tokens?: Readonly<Record<string, ResolvedMachine>>
   /** pair code → the machine the DIRECTORY decides on (never the peer's request). */
@@ -101,10 +99,6 @@ export const fakeMachines = (seed: FakeMachinesSeed): FakeMachines => {
     pairRequests,
     tokenHints,
     observations,
-    verifyDaemonSecret: (secret, observed) => {
-      observations.push(observed)
-      return seed.secrets?.[secret] ?? null
-    },
     verifyMachineToken: (token, hint, observed) => {
       tokenHints.push(hint)
       observations.push(observed)
