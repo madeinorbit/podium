@@ -4,12 +4,28 @@
 `package.json#packageManager` mirrors that version for package tooling; `engines.bun`
 is the supported compatibility range. Neither package field changes the executable on PATH.
 
-Install [mise](https://mise.jdx.dev/installing-mise.html), then in the checkout:
+Install [mise](https://mise.jdx.dev/installing-mise.html) 2026.9.11 or newer (the
+minimum is declared in `mise.toml`), then in the checkout:
 
 ```sh
 mise trust
 mise install bun
 ```
+
+For linked worktrees, also trust `mise.toml` in the repository's **main checkout**
+(the first entry in `git worktree list`). Current mise shares that trust with linked
+worktrees, including the updater's disposable `/tmp/podium-dev-release-*/checkout`.
+Trusting only an issue worktree does not establish that repository-wide trust.
+
+```sh
+mise trust /path/to/main-checkout/mise.toml
+```
+
+Older mise versions, including 2026.5.3, reject each updater snapshot as untrusted.
+Upgrade mise before enabling its shims; do not solve this by trusting all of `/tmp`.
+For a standalone mise installation, `mise self-update --yes --no-plugins 2026.9.11`
+updates the manager without changing installed plugins. Package-managed installations
+should update through their package manager.
 
 For interactive Bash, keep `eval "$(mise activate bash)"` at the end of `~/.bashrc`.
 For login shells and applications launched from them, add this after other PATH changes

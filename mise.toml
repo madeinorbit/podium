@@ -17,6 +17,10 @@
 #
 # Dev setup: `mise install` (https://mise.jdx.dev), or install the exact versions by hand.
 
+# Linked updater worktrees must inherit trust from the main checkout.
+# Verified with this mise release; 2026.5.3 prompts separately for every snapshot.
+min_version = "2026.9.11"
+
 [tools]
 bun = "1.4.2"
 zig = "0.16.0"
