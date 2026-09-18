@@ -136,8 +136,8 @@ cost: residentSessionsOnMachine self **881.90 ms** and idleSessionSplit self
 ms**. Their shared file accounts for **1,626.54 ms inclusive** in the second
 connected window, versus 94.4 ms worklist derive. These scans are invoked during
 host-indicator rendering; snapshot isolation does not suppress their own store
-or timer-driven renders. The coordinator has been sent the measurements to own
-a bounded follow-up. No implementation is added to this measurement issue.
+or timer-driven renders. POD-4357 (Host session aggregate scans) records the measured follow-up as
+Proposed, unclaimed; the coordinator has been sent its measurements and ownership request. No implementation is added to this measurement issue.
 
 ## Switch classification and memory
 
