@@ -22,7 +22,11 @@
  *  - fatal errors, storage notices, sign-out erase → `./shell`
  */
 import type { Store } from '@podium/client-core/engine'
-import { useStore, useStoreSelector } from '@podium/client-core/react'
+import {
+  useHostMetrics as useCoreHostMetrics,
+  useStore,
+  useStoreSelector,
+} from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type {
@@ -118,7 +122,7 @@ export function useRepos(): GitRepositoryWire[] {
 /** Latest per-host health frames — the 5s daemon cadence. Only Pulse-grade
  *  surfaces should subscribe to this. */
 export function useHostMetrics(): HostMetricsWire[] {
-  return useStoreSelector<HostMetricsWire[], MobileTrpc>((s) => s.hostMetrics)
+  return useCoreHostMetrics()
 }
 
 /** Durable-outbox depth, for the inbox's pending badge. */

@@ -27,9 +27,9 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { GitRepositoryWire, IssueWire, MachineWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
-import { cleanup, screen } from '@testing-library/react'
+import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { useConnected, useIssues, useMobileStore, useSessions } from './hooks'
+import { useConnected, useHostMetrics, useIssues, useMobileStore, useSessions } from './hooks'
 import { renderWithMobileStore } from './test-support'
 
 afterEach(cleanup)
@@ -186,4 +186,25 @@ describe('placement fails closed on the phone too (doc §3.1.4 M5)', () => {
     expect(views[0]?.availability).toBe('available')
     expect(resolveSpawnTargetMachine(repoOn(['mine']), [], views).machineId).toBe('mine')
   })
+})
+
+
+it('updates the narrow host metrics hook without waking whole-store readers', async () => {
+  let broadRenders = 0
+  function BroadReader() {
+    useMobileStore()
+    broadRenders++
+    return null
+  }
+  function HostReader() {
+    const metrics = useHostMetrics()
+    return <span data-testid="hosts">{metrics.map((host) => host.hostname).join(',')}</span>
+  }
+  const { emit } = await renderWithMobileStore(<><BroadReader /><HostReader /></>)
+  const before = broadRenders
+  for (const hostname of ['first', 'second']) {
+    await act(async () => emit('hostMetrics', [{ hostname }]))
+    expect(screen.getByTestId('hosts').textContent).toBe(hostname)
+  }
+  expect(broadRenders).toBe(before)
 })

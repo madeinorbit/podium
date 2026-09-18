@@ -22,7 +22,6 @@ import type {
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
-  HostMetricsWire,
   IssueEventWire,
   IssueId,
   IssueProjection,
@@ -79,7 +78,6 @@ export interface EngineState {
   automationRuns: AutomationRunWire[]
   pendingSpawnIds: ReadonlySet<string>
   pendingSpawnPrompts: ReadonlyMap<string, string>
-  hostMetrics: HostMetricsWire[]
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests (popup). */
   approvals: ApprovalWire[]
@@ -684,7 +682,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     automationRuns: seed.automationRuns,
     pendingSpawnIds: EMPTY_ID_SET,
     pendingSpawnPrompts: new Map(),
-    hostMetrics: [],
     machines: [],
     approvals: [],
     pins: EMPTY_PINS,

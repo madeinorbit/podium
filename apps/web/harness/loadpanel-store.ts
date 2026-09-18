@@ -174,3 +174,5 @@ export const useStore = (): typeof store => store
 export const useReplicaIssues = (): never[] => []
 export const useStoreSelector = <T>(selector: Selector<T>): T => selector(store)
 export const useSlice = <T>(def: { derive: (s: unknown) => T }): T => def.derive(store)
+
+export const useHostMetrics = () => store.hostMetrics

@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
-import { useStoreSelector } from '@/app/store'
+import { useHostMetrics, useStoreSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
@@ -256,12 +256,12 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
  * state (and its poll) stays here so it survives switching tabs.
  */
 export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element {
-  const { trpc, settingsTab, setSettingsTab, hostMetrics } = useStoreSelector(
+  const hostMetrics = useHostMetrics()
+  const { trpc, settingsTab, setSettingsTab } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
       settingsTab: s.settingsTab,
       setSettingsTab: s.setSettingsTab,
-      hostMetrics: s.hostMetrics,
     }),
     shallowEqual,
   )

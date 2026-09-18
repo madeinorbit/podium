@@ -18,7 +18,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { useStoreSelector } from '@/app/store'
+import { useHostMetrics, useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -108,7 +108,7 @@ export function HostInfoView({
 
 /** Connection tab: live status, latency, and the explanatory detail line. */
 function ConnectionPanel(): JSX.Element {
-  const hostMetrics = useStoreSelector((s) => s.hostMetrics)
+  const hostMetrics = useHostMetrics()
   const health = useConnectionHealth()
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -160,11 +160,11 @@ function MemoryPanel({
   onClose: () => void
   machineId?: MachineId
 }): JSX.Element {
-  const { trpc, sessions, hostMetrics, setView, setSettingsTab } = useStoreSelector(
+  const hostMetrics = useHostMetrics()
+  const { trpc, sessions, setView, setSettingsTab } = useStoreSelector(
     (s) => ({
       trpc: s.trpc,
       sessions: s.sessions,
-      hostMetrics: s.hostMetrics,
       setView: s.setView,
       setSettingsTab: s.setSettingsTab,
     }),

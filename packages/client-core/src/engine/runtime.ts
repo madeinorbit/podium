@@ -48,6 +48,8 @@
  * authentication has produced a principal. The provider renders nothing instead.
  */
 
+import { createHostMetricsStore } from './host-metrics'
+
 import { machinesMaterialSignature } from './machines-material'
 
 import { createLogger } from '@podium/logger'
@@ -275,6 +277,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Where this client learns whether it is on screen (POD-2055 WP-C4). */
   private readonly visibility: VisibilitySource
+  private readonly hostMetricsStore = createHostMetricsStore()
+  readonly hostMetrics = {
+    subscribe: this.hostMetricsStore.subscribe,
+    getSnapshot: this.hostMetricsStore.getSnapshot,
+  }
+
   private readonly state: EngineState
   private readonly subStore: SubscriptionStore<Store<TApi>>
   /** The action methods + constant handles, spread into every snapshot so their
@@ -610,7 +618,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
     // (host metrics, machines, drafts) mirrors hub events into the snapshot.
-    offs.push(this.hub.on('hostMetrics', (m) => this.apply({ hostMetrics: m })))
+    offs.push(this.hub.on('hostMetrics', (m) => this.hostMetricsStore.publish(m)))
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
     // Apply the scoped machine snapshot immediately so a SEE revocation hides
     // its repositories, then reconcile repos and machines from one authorized
@@ -850,6 +858,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.dispose()
     this.destroyed = true
+    this.hostMetricsStore.destroy()
   }
 
   /** True once {@link destroy} has run. The provider asserts on this so a

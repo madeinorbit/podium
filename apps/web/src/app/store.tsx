@@ -181,3 +181,5 @@ export function useReplicaIssues(): IssueViewModel[] {
   const { replica, issueProjections, legacyIssues } = useReplicaIssueSources()
   return useAllIssueViewModels(replica, issueProjections, legacyIssues)
 }
+
+export { useHostMetrics } from '@podium/client-core/react'

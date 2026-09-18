@@ -9,7 +9,7 @@ import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from '
 import { logout } from '../client/auth'
 import { useConnectedDevices } from '../client/connected-devices'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
-import { useConnected, useMobileStore } from '../client/hooks'
+import { useConnected, useHostMetrics, useMobileStore } from '../client/hooks'
 import { useServerProfile } from '../client/ServerProfileGate'
 import { useMobileShell } from '../client/shell'
 import { Icon } from '../components/Icon'
@@ -37,7 +37,6 @@ export function SettingsScreen() {
   const bottomInset = useContentBottomInset()
   const {
     conversations,
-    hostMetrics,
     issues,
     machines,
     outboxDeadLetters,
@@ -46,6 +45,7 @@ export function SettingsScreen() {
     sessions,
     httpOrigin,
   } = useMobileStore()
+  const hostMetrics = useHostMetrics()
   const connected = useConnected()
   const { eraseLocalData } = useMobileShell()
   const {

@@ -14,7 +14,7 @@ import type { MachineId } from '@podium/model/browser'
 import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
-import { useReplicaIssues, useStoreSelector } from '@/app/store'
+import { useHostMetrics, useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { cn } from '@/lib/utils'
@@ -51,10 +51,8 @@ const LoadPanel = lazy(() =>
  * the per-process breakdown / connection detail.
  */
 export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
-  const { hostMetrics, outboxSize } = useStoreSelector(
-    (s) => ({ hostMetrics: s.hostMetrics, outboxSize: s.outboxSize }),
-    shallowEqual,
-  )
+  const hostMetrics = useHostMetrics()
+  const outboxSize = useStoreSelector((s) => s.outboxSize)
   const { health, visible: connVisible } = useStableConnection()
   const hibernation = useHibernationSetting()
   // The open host-info modal, plus which machine it's about. A memory chip opens
@@ -189,9 +187,9 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
  * instrument, not a third group in the well.
  */
 export function HeaderHostIndicators(): JSX.Element {
-  const { hostMetrics, machines, sessions, trpc } = useStoreSelector(
+  const hostMetrics = useHostMetrics()
+  const { machines, sessions, trpc } = useStoreSelector(
     (s) => ({
-      hostMetrics: s.hostMetrics,
       machines: s.machines,
       sessions: s.sessions,
       trpc: s.trpc,

@@ -71,6 +71,7 @@
  * principal namespace and is therefore unreadable until this provider has one.
  */
 
+import type { HostMetricsWire } from '@podium/model'
 import type { JSX } from 'react'
 import {
   createContext,
@@ -111,6 +112,10 @@ export type { FileTab } from '../viewmodels'
 
 /** The read seam the hooks consume — the runtime, structurally. */
 interface StoreHandle<TApi extends PodiumClientApi> {
+  readonly hostMetrics: {
+    subscribe(listener: () => void): () => void
+    getSnapshot(): HostMetricsWire[]
+  }
   subscribe(listener: () => void): () => void
   getSnapshot(): Store<TApi>
 }
@@ -397,4 +402,10 @@ export function useStoreSelector<T, TApi extends PodiumClientApi = PodiumClientA
     return selected
   }
   return useSyncExternalStore(handle.subscribe, getSelected)
+}
+
+/** Live telemetry subscribes independently of the entity snapshot. */
+export function useHostMetrics(): HostMetricsWire[] {
+  const { hostMetrics } = useStoreHandle()
+  return useSyncExternalStore(hostMetrics.subscribe, hostMetrics.getSnapshot)
 }

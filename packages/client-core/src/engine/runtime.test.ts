@@ -26,6 +26,9 @@ import {
   asSessionId,
   asUserId,
 } from '@podium/model'
+import { createElement, Profiler, act, useSyncExternalStore } from 'react'
+import { render } from '@testing-library/react'
+import { createSlicePublisher } from '../viewmodels/slices/publish'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import { asClientPrincipal } from '../principal'
@@ -590,7 +593,7 @@ describe('engine lifecycle', () => {
     expect(hub.subscribed('hostMetrics')).toBe(1)
     const metrics = [{ hostId: 'h1' }] as unknown as HostMetricsWire[]
     hub.emit('hostMetrics', metrics)
-    expect(engine.getSnapshot().hostMetrics).toBe(metrics)
+    expect(engine.hostMetrics.getSnapshot()).toBe(metrics)
     engine.dispose()
     expect(fatals).toEqual([])
   })
@@ -2933,5 +2936,85 @@ describe('issue visit baseline', () => {
       issueId: 'iss_2',
       readAt: visibleReadAt,
     })
+  })
+})
+
+
+describe('host metrics isolation', () => {
+  it('measures snapshot publishes, slice derivations and React commits against the old frame path', async () => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const results = []
+    for (const legacy of [true, false]) {
+      const { engine, hub } = makeEngine()
+      engine.start()
+      await settle()
+      // Counterfactual: reinstall the exact old frame handler alongside the new
+      // telemetry path. Without isolation these same instruments MUST move.
+      const undo = legacy ? hub.on('hostMetrics', (metrics) => {
+        ;(engine as unknown as { apply(patch: object): void }).apply({ hostMetrics: metrics })
+      }) : () => {}
+      const publisher = createSlicePublisher(engine.getSnapshot)
+      const slice = { name: 'snapshotProbe', derive: (s: ReturnType<typeof engine.getSnapshot>) => ({ sessions: s.sessions }) }
+      publisher.read(slice)
+      let publishes = 0
+      const off = engine.subscribe(() => { publishes++; publisher.read(slice) })
+      const commits = { snapshot: 0, metrics: 0 }
+      function SnapshotReader() {
+        useSyncExternalStore(engine.subscribe, engine.getSnapshot)
+        return null
+      }
+      function MetricsReader() {
+        const metrics = useSyncExternalStore(engine.hostMetrics.subscribe, engine.hostMetrics.getSnapshot)
+        return createElement('span', null, metrics[0]?.hostname ?? '')
+      }
+      const root = render(createElement('div', null,
+        createElement(Profiler, { id: 'snapshot', onRender: () => commits.snapshot++ }, createElement(SnapshotReader)),
+        createElement(Profiler, { id: 'metrics', onRender: () => commits.metrics++ }, createElement(MetricsReader)),
+      ))
+      commits.snapshot = 0
+      commits.metrics = 0
+      const before = publisher.derivations().snapshotProbe!
+      for (let frame = 1; frame <= 3; frame++) {
+        await act(async () => hub.emit('hostMetrics', [{ hostname: `host-${frame}` }] as HostMetricsWire[]))
+        expect(root.container.textContent).toBe(`host-${frame}`)
+      }
+      const counts = { publishes, derivations: publisher.derivations().snapshotProbe! - before, ...commits }
+      results.push({ legacy, ...counts })
+      expect(counts).toEqual({ publishes: legacy ? 3 : 0, derivations: legacy ? 3 : 0, snapshot: legacy ? 3 : 0, metrics: 3 })
+      await act(async () => root.unmount())
+      off()
+      undo()
+      engine.destroy()
+    }
+    console.info('hostMetrics-frame before/after (3 frames)', results)
+  })
+
+  it('drops metrics and retained callbacks at the principal boundary', async () => {
+    const old = makeEngine({ principal: 'old-user' })
+    const callbacks: Array<(...args: unknown[]) => void> = []
+    const on = old.hub.on.bind(old.hub)
+    vi.spyOn(old.hub, 'on').mockImplementation((kind, cb) => {
+      if (kind === 'hostMetrics') callbacks.push(cb)
+      return on(kind, cb)
+    })
+    old.engine.start()
+    await settle()
+    old.hub.emit('hostMetrics', [{ hostname: 'private-host' }])
+    const listener = vi.fn()
+    old.engine.hostMetrics.subscribe(listener)
+    old.engine.destroy()
+    expect(old.engine.hostMetrics.getSnapshot()).toEqual([])
+    for (const cb of callbacks) cb([{ hostname: 'late-private-host' }])
+    expect(old.engine.hostMetrics.getSnapshot()).toEqual([])
+    expect(listener).not.toHaveBeenCalled()
+    const next = makeEngine({ principal: 'new-user' })
+    expect(next.engine.hostMetrics).not.toBe(old.engine.hostMetrics)
+    expect(next.engine.hostMetrics.getSnapshot()).toEqual([])
+    next.engine.start()
+    await settle()
+    next.hub.emit('hostMetrics', [{ hostname: 'new-host' }])
+    expect(next.engine.hostMetrics.getSnapshot()).toEqual([{ hostname: 'new-host' }])
+    expect(old.engine.hostMetrics.getSnapshot()).toEqual([])
+    next.engine.destroy()
   })
 })

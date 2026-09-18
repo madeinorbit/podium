@@ -15,7 +15,6 @@ import type {
   ConversationSummaryWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
-  HostMetricsWire,
   IssueEventWire,
   IssueId,
   IssueProjection,
@@ -175,8 +174,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * Chat surfaces seed their pending bubble from this and keep it through the
    * later transcript reconciliation. */
   pendingSpawnPrompts: ReadonlyMap<string, string>
-  /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
-  hostMetrics: HostMetricsWire[]
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests. */
