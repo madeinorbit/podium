@@ -104,10 +104,11 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
             data.issues[4] = { ...data.issues[4]!, parentId: data.issues[5]!.id }
             await act(async () => { proof.updateIssue(data.issues[4]!); await settle() })
             expect(summaryValue).toEqual(oracle())
-            // Exercise family caching beyond the timed timestamp-only stream.
-            for (const patch of [{ archived: true }, { archived: false, issueId: 'i5' }, { issueId: 'i0' }]) {
-              data.sessions[0] = { ...data.sessions[0]!, ...patch } as typeof data.sessions[number]
-              await act(async () => { proof.update(data.sessions[0]!); await settle() })
+            // Exercise family caching beyond timestamps. Moving s5 to i4 and back
+            // preserves D1’s fixture/session membership order in both directions.
+            for (const patch of [{ archived: true }, { archived: false, issueId: 'i4' }, { issueId: 'i5' }]) {
+              data.sessions[5] = { ...data.sessions[5]!, ...patch } as typeof data.sessions[number]
+              await act(async () => { proof.update(data.sessions[5]!); await settle() })
               expect(summaryValue).toEqual(oracle())
               expect(domainValue(groupValue)).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW, counters()))
             }
