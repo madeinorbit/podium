@@ -890,17 +890,21 @@ export async function launchSpawn(
       const handle = handleFor(ctx, msg.sessionId)
       if (handle) driverTiming.sessionReady(handle.binding)
     }
+    // Permanent plain-terminal exemption, independent of the legacy rollout flag.
+    // Shells/profile-less hosts and login commands have no agent runtime session
+    // to create. Keep this predicate and their launch path when removing legacy.
+    const hostHasNoRuntimeSession = !profile || !!msg.loginHarness
     if (installedInstrumentation) {
       await launch(installedInstrumentation)
     } else if (
-      profile &&
+      !hostHasNoRuntimeSession &&
       ctx.agentRuntime &&
-      !msg.loginHarness &&
       runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)
     ) {
       await ctx.agentRuntime.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
     } else {
-      // Shell/login and injected legacy hosts have no runtime session to create.
+      // Permanent plain terminals also launch here; only the contract-disabled
+      // and missing-runtime populations are legacy. Do not delete this branch.
       const instrumentation = await prepareTerminalInstrumentation(
         {
           instrumentation:
