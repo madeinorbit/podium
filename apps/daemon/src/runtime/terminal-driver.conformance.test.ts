@@ -329,6 +329,17 @@ function makeWorld(options: WorldOptions): {
     durableLabel: labelFor,
     scopeUnit: () => undefined,
     durableHostAlive: async (label) => alive.get(label) === true,
+    recover: async (msg, ready) => {
+      if (!alive.get(msg.durableLabel)) throw new Error('session not found')
+      ready()
+      runtime?.observe({
+        type: 'bind',
+        sessionId: msg.sessionId,
+        cmd: 'fixture',
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+      })
+    },
     stopSession: ({ sessionId, durableLabel }) => {
       alive.set(durableLabel, false)
       bridgeOf.delete(sessionId)
@@ -697,7 +708,6 @@ describe('adversarial-pty with a synthetic archive locator', () => {
     world.target.reset()
   })
 })
-
 
 describe('terminal conformance interaction sources', () => {
   it.each([false, true])('injects the profile source (hookAnchoredAccept=%s)', async (hookAnchoredAccept) => {

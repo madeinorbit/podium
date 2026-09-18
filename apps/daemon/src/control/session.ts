@@ -2091,6 +2091,29 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     return
   }
 
+  const profile = terminalProfileFor(msg.agentKind)
+  // Plain terminals retain their host recovery route. Old harness rows need a
+  // driver too: absence of a persisted request is not a plain-terminal marker.
+  if (profile) {
+    if (!ctx.agentRuntime) throw new Error('terminal recovery runtime unavailable')
+    await ctx.agentRuntime.recoverTerminal(msg, profile)
+    return
+  }
+  await recoverTerminalHost(ctx, msg)
+}
+
+/** Shared host machinery. Agent recovery enters through TerminalRuntime; plain
+ * terminals call it directly. ready installs the handle after composition and
+ * before publishing bind, so failed attachment never creates a phantom handle. */
+export async function recoverTerminalHost(
+  ctx: DaemonContext,
+  msg: ReattachControl,
+  ready?: () => void,
+): Promise<void> {
+  const heldLabel = ctx.durableLabels.get(msg.sessionId)
+  if (heldLabel !== undefined && heldLabel !== msg.durableLabel) {
+    throw new Error('terminal recovery process identity mismatch')
+  }
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
     // Capture legacy state before observer replacement. A freshly fenced
@@ -2106,8 +2129,6 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         seedOnFrame: false,
       })
     }
-    await bindRuntimeContract(ctx, msg, true, terminalProfileFor(msg.agentKind))
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     const cmd = durableProcessFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
@@ -2125,6 +2146,10 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
+    ready?.()
+    const recoveryProfile = terminalProfileFor(msg.agentKind)
+    if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     ctx.send(
       bindFrame(appliedGeometryFor(ctx), {
         sessionId: msg.sessionId,
@@ -2242,12 +2267,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       }
     }
     if (!found) {
-      ctx.send({
-        type: 'reattachFailed',
-        sessionId: msg.sessionId,
-        reason: durable ? 'session not found' : 'durable backend unavailable',
-      })
-      return
+      throw new Error(durable ? 'session not found' : 'durable backend unavailable')
     }
     // NOTHING REPORTED, BECAUSE THE ATTACH APPLIED NOTHING (POD-3279). The only
     // geometry a reattach can honestly report is a resize this session was
@@ -2295,8 +2315,6 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // them both through the ordinary onResize path.
     const screens = applied ?? msg.lastKnownGeometry
     ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
-    await bindRuntimeContract(ctx, msg, true, terminalProfileFor(msg.agentKind))
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
       // The session's one TerminalScreen model (P2c), not a second emulator.
       ctx.composerEngine.attach(
@@ -2307,6 +2325,10 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
+    ready?.()
+    const recoveryProfile = terminalProfileFor(msg.agentKind)
+    if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     ctx.send(
       bindFrame(appliedGeometryFor(ctx), {
         sessionId: msg.sessionId,
@@ -2508,14 +2530,11 @@ export const sessionHandlers: Pick<
     })
   },
   reattach: (ctx, msg) => {
-    void handleReattach(ctx, msg).catch((err) => {
-      // Failure after acquiring a bridge must not leave a running, undisclosed
-      // agent. The server receives a recoverable failure instead of a bind.
-      if (ctx.bridges.has(msg.sessionId)) stopSessionProcess(ctx, msg)
+    void handleReattach(ctx, msg).catch((error) => {
       ctx.send({
         type: 'reattachFailed',
         sessionId: msg.sessionId,
-        reason: err instanceof Error ? err.message : String(err),
+        reason: error instanceof Error ? error.message : String(error),
       })
     })
   },

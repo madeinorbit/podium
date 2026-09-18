@@ -1,3 +1,4 @@
+import type { ReattachControl } from '../session-observers'
 import { withDeliveryQueue } from '@podium/agent-runtime'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import {
@@ -197,6 +198,9 @@ export interface TerminalRuntimeHost {
   /** Does a durable master still hold this label? The ONLY thing that makes an
    *  adopt exact rather than hopeful. */
   durableHostAlive(label: string): Promise<boolean>
+  /** Rebuild/reuse the exact process bridge, observer lease, screen and composer.
+   * Call ready after composition, before publishing bind or replaying redraw. */
+  recover(msg: ReattachControl, ready: () => void): Promise<void>
   /** The daemon half of the survival table — dispose the bridge, reap the host. */
   stopSession(input: { sessionId: SessionId; durableLabel: string }): void
   /** The existing spawn path. `create()`/`resume()` go through it rather than
@@ -494,6 +498,7 @@ export function turnEventForObservation(observation: AgentObservation): RuntimeE
 // ---------------------------------------------------------------------------
 
 export interface TerminalRuntime {
+  recoverWithId(msg: ReattachControl, profile: TerminalHarnessProfile): Promise<AgentSessionHandle>
   observeDraft(sessionId: SessionId, text: string): void
   /** Put a session behind the contract. Idempotent for the same binding version:
    *  a reconnect re-sends reattach, and re-registering must rebind rather than
@@ -887,6 +892,16 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   }
 
   function observe(msg: DaemonMessage): void {
+    const claimedId =
+      msg.type === 'agentObservation'
+        ? msg.observation.podiumSessionId
+        : 'sessionId' in msg
+          ? (msg.sessionId as SessionId)
+          : undefined
+    if (claimedId && pendingFrames.has(claimedId)) {
+      holdUntilRegistered(claimedId, msg)
+      return
+    }
     // `agentObservation` is keyed by `observation.podiumSessionId`, not by a
     // top-level `sessionId` — it is the one frame whose session id lives inside
     // its payload, so it is matched before the shared guard below.
@@ -1312,11 +1327,15 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       // version go UP and the conversation position does not move — which is
       // exactly the invariant the corpus pins across a supervisor restart.
       existing.observerGeneration = Math.max(
-        existing.observerGeneration + 1,
+        registration.observerGeneration === undefined
+          ? existing.observerGeneration + 1
+          : existing.observerGeneration,
         registration.observerGeneration ?? 0,
       )
       existing.bindingVersion = Math.max(
-        existing.bindingVersion + 1,
+        registration.bindingVersion === undefined
+          ? existing.bindingVersion + 1
+          : existing.bindingVersion,
         registration.bindingVersion ?? 0,
       )
       existing.alive = true
@@ -2034,8 +2053,76 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     }
   }
 
+  const recoveries = new Map<SessionId, Promise<AgentSessionHandle>>()
+
+  function recoverWithId(
+    msg: ReattachControl,
+    profile: TerminalHarnessProfile,
+    verifyDurable = false,
+  ): Promise<AgentSessionHandle> {
+    // Serialize one session's leases. The host's fan-out gate only bounds work
+    // across sessions; it cannot fence a late, older recovery of the same id.
+    const previous = recoveries.get(msg.sessionId)
+    const recovery = (async () => {
+      await previous?.catch(() => undefined)
+      const current = sessions.get(msg.sessionId)
+      if (
+        current &&
+        (current.label !== msg.durableLabel ||
+          (msg.observationGeneration !== undefined &&
+            msg.observationGeneration < current.observerGeneration) ||
+          (msg.observationBindingVersion !== undefined &&
+            msg.observationBindingVersion < current.bindingVersion))
+      )
+        throw new Error('terminal recovery identity or observation fence is stale')
+      return claiming(msg.sessionId, async () => {
+        if (verifyDurable && !(await host.durableHostAlive(msg.durableLabel))) {
+          throw new Error(`terminal driver: no surviving durable host for ${msg.durableLabel}`)
+        }
+        let handle: AgentSessionHandle | undefined
+        await host.recover(msg, () => {
+          handle = register(
+            {
+              sessionId: msg.sessionId,
+              agentKind: msg.agentKind,
+              cwd: msg.cwd,
+              resume: msg.resume ?? null,
+              ...(msg.observationGeneration !== undefined
+                ? { observerGeneration: msg.observationGeneration }
+                : {}),
+              ...(msg.observationBindingVersion !== undefined
+                ? { bindingVersion: msg.observationBindingVersion }
+                : {}),
+              rebind: true,
+            },
+            profile,
+          )
+          if (!current) {
+            const session = sessions.get(msg.sessionId)!
+            emit(
+              session,
+              { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
+              observedAt(),
+              'live',
+            )
+          }
+        })
+        if (!handle) throw new Error('terminal recovery did not compose a live host')
+        return handle
+      })
+    })()
+    recoveries.set(msg.sessionId, recovery)
+    void recovery
+      .finally(() => {
+        if (recoveries.get(msg.sessionId) === recovery) recoveries.delete(msg.sessionId)
+      })
+      .catch(() => undefined)
+    return recovery
+  }
+
   return {
     createWithId,
+    recoverWithId,
     register,
     handleFor: (sessionId) => handles.get(sessionId),
     bindings: () => [...handles.values()].map((handle) => handle.binding),
@@ -2088,49 +2175,30 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         },
 
         async adopt(bound: RuntimeSessionBinding): Promise<AgentSessionHandle> {
-          // EXACT IDENTITY, and it is checked against the world rather than
-          // against our own memory: the durable master either still holds this
-          // label or it does not. A heuristic match here adopts the wrong
-          // process, which is worse than not adopting at all.
-          //
-          // CLAIMED ACROSS THE PROBE, not after it: this is the window in which a
-          // surviving master's frames — the reattach `bind` above all — name a
-          // session this driver has just lost to a supervisor restart.
-          return claiming(bound.sessionId, async () => {
-            if (!(await host.durableHostAlive(bound.process.key))) {
-              throw new Error(`terminal driver: no surviving durable host for ${bound.process.key}`)
-            }
-            profiles.set(bound.sessionId, profile)
-            const handle = register(
-              {
-                sessionId: bound.sessionId,
-                agentKind: harness,
-                cwd: bound.workdir,
-                resume: bound.resume,
-                bindingVersion: bound.bindingVersion + 1,
-                rebind: true,
-              },
-              profile,
-            )
-            const session = sessions.get(bound.sessionId)
-            if (session) {
-              // A rebind is a NEW observer generation and a NEW binding version,
-              // so a stale one is rejectable. The conversation position — turn
-              // epoch, cursor — does not move.
-              session.observerGeneration = Math.max(
-                session.observerGeneration,
-                bound.bindingVersion + 1,
-              )
-              session.bindingVersion = bound.bindingVersion + 1
-              emit(
-                session,
-                { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
-                new Date(host.now()).toISOString(),
-                'live',
-              )
-            }
-            return handle
-          })
+          if (
+            bound.family !== 'terminal' ||
+            bound.driver !== profile.driverId ||
+            bound.harness !== harness ||
+            bound.process.key !== host.durableLabel(bound.sessionId)
+          ) {
+            throw new Error('terminal recovery process identity mismatch')
+          }
+          return recoverWithId(
+            {
+              type: 'reattach',
+              sessionId: bound.sessionId,
+              durableLabel: bound.process.key,
+              agentKind: harness,
+              cwd: bound.workdir,
+              ...(bound.resume ? { resume: bound.resume } : {}),
+              // Screen parser hint only; host recovery never applies this to PTY.
+              lastKnownGeometry: { cols: 80, rows: 24 },
+              observationBindingVersion: bound.bindingVersion + 1,
+              observationGeneration: bound.bindingVersion + 1,
+            },
+            profile,
+            true,
+          )
         },
       }
     },

@@ -23,7 +23,6 @@
 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { AgentSession } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
@@ -122,6 +121,8 @@ vi.mock('@podium/process/screen', async (importOriginal) => {
 })
 
 const { sessionHandlers } = await import('./session')
+const { createTerminalRuntime } = await import('../runtime/terminal-driver')
+const { daemonRuntimeHost } = await import('../runtime/host')
 
 type BindFrame = { type: 'bind'; geometry?: { cols: number; rows: number } }
 
@@ -152,28 +153,21 @@ function reattachMessage() {
 }
 
 function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonContext {
-  let handle: AgentSessionHandle | undefined
-  return {
-    agentRuntime: {
-      handleFor: () => handle,
-      has: () => handle !== undefined,
-      adoptJournalled: async () => ({ found: false }),
-      bindTerminal: async (registration: { sessionId: SessionId; agentKind: string }, profile: { driverId: string }) => {
-        handle = { binding: {
-          sessionId: registration.sessionId, harness: registration.agentKind,
-          family: 'terminal', driver: profile.driverId,
-        } } as AgentSessionHandle
-        return handle
-      },
-    },
+  const ctx = {
     backend: 'abduco',
     settingsDir: join(tmpdir(), 'podium-sizing-claims-reattach'),
     bridges: new Map<SessionId, AgentSession>(),
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     durableLabels: new Map<SessionId, string>(),
+    durableLabelFor: (id: SessionId) => `podium-${id}`,
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
-    observers: { clearSession: () => {}, initSessionObservers: () => {}, onResize: () => {} },
+    observers: {
+      trackedState: () => undefined,
+      clearSession: () => {},
+      initSessionObservers: () => {},
+      onResize: () => {},
+    },
     sessionCwdTracker: { clear: () => {}, setLaunchCwd: () => {} },
     primeInjector: { reset: () => {} },
     reattachGate: (fn: () => Promise<void>) => fn(),
@@ -185,6 +179,18 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
     // announced a size the pty had not been given yet.
     send: (m: { type: string }) => sent.push({ ...m, resizesBefore: stub.state.resizes.length }),
   } as unknown as DaemonContext
+  const send = ctx.send
+  const terminal = createTerminalRuntime(daemonRuntimeHost(ctx, send))
+  ctx.send = (msg) => {
+    terminal.observe(msg)
+    send(msg)
+  }
+  ctx.agentRuntime = {
+    recoverTerminal: terminal.recoverWithId,
+    handleFor: terminal.handleFor,
+    has: terminal.has,
+  } as unknown as NonNullable<DaemonContext['agentRuntime']>
+  return ctx
 }
 
 describe('C16: the daemon nudges the reattached session once more after bind', () => {
@@ -269,5 +275,72 @@ describe('C16: the daemon nudges the reattached session once more after bind', (
     expect(bind?.resizesBefore).toBe(1)
     // The held resize is consumed, not left to fire again on the next bind.
     expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+  })
+})
+
+describe('terminal recovery ownership', () => {
+  it('recovers an old agent row without a persisted driver request', async () => {
+    reset()
+    const sent: Array<{ type: string; resizesBefore: number }> = []
+    const ctx = ctxFor(sent)
+    sessionHandlers.reattach(ctx, reattachMessage())
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'bind')).toBe(true))
+    expect(ctx.agentRuntime?.handleFor(SESSION)?.binding.family).toBe('terminal')
+    expect(sent.find((m) => m.type === 'bind')).toMatchObject({
+      runtimeContract: true,
+      driverId: 'generic-pty',
+    })
+    expect(stub.state.redraws).toBe(1)
+  })
+
+  it('reuses a surviving bridge and forwards the observation checkpoint before redraw', async () => {
+    reset()
+    const sent: Array<{ type: string; resizesBefore: number }> = []
+    const ctx = ctxFor(sent)
+    ctx.bridges.set(SESSION, stub.session as unknown as AgentSession)
+    ctx.durableLabels.set(SESSION, 'podium-s-sizing-reattach')
+    const init = vi.spyOn(ctx.observers, 'initSessionObservers')
+    const msg = {
+      ...(reattachMessage() as object),
+      observationGeneration: 8,
+      observationBindingVersion: 5,
+      observationProviderSessionId: 'native-survivor',
+      observationCheckpoint: { retained: 'checkpoint' },
+    } as Parameters<typeof sessionHandlers.reattach>[1]
+    sessionHandlers.reattach(ctx, msg)
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'bind')).toBe(true))
+    expect(init).toHaveBeenCalledWith(msg, stub.session, expect.anything(), { seedOnFrame: false })
+    expect(stub.state.attachedAt).toHaveLength(0)
+    expect(stub.state.redraws).toBe(1)
+    expect((await ctx.agentRuntime!.handleFor(SESSION)!.snapshot()).observerGeneration).toBe(8)
+  })
+
+  it('keeps plain terminals independent of the agent runtime', async () => {
+    reset()
+    const sent: Array<{ type: string; resizesBefore: number }> = []
+    const ctx = ctxFor(sent)
+    ctx.agentRuntime = undefined
+    sessionHandlers.reattach(ctx, {
+      ...(reattachMessage() as object),
+      agentKind: 'shell',
+    } as Parameters<typeof sessionHandlers.reattach>[1])
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'bind')).toBe(true))
+    expect(sent.find((m) => m.type === 'bind')).not.toHaveProperty('runtimeContract')
+    expect(stub.state.redraws).toBe(1)
+  })
+
+  it('reports missing processes and wrong incarnations without publishing bind', async () => {
+    for (const wrongIncarnation of [false, true]) {
+      reset()
+      const sent: Array<{ type: string; resizesBefore: number }> = []
+      const ctx = ctxFor(sent)
+      if (wrongIncarnation) ctx.durableLabels.set(SESSION, 'podium-other-incarnation')
+      else ctx.durable = { locate: async () => undefined } as NonNullable<DaemonContext['durable']>
+      sessionHandlers.reattach(ctx, reattachMessage())
+      await vi.waitFor(() => expect(sent.some((m) => m.type === 'reattachFailed')).toBe(true))
+      expect(sent.some((m) => m.type === 'bind')).toBe(false)
+      expect(ctx.agentRuntime?.handleFor(SESSION)).toBeUndefined()
+      expect(stub.state.redraws).toBe(0)
+    }
   })
 })

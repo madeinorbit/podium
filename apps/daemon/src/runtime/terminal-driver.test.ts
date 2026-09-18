@@ -252,6 +252,17 @@ function makeWorld(
     durableLabel: (sessionId) => `podium-${sessionId}`,
     scopeUnit: () => undefined,
     durableHostAlive: async (label) => alive.get(label) === true,
+    recover: async (msg, ready) => {
+      if (!alive.get(msg.durableLabel)) throw new Error('session not found')
+      ready()
+      runtime?.observe({
+        type: 'bind',
+        sessionId: msg.sessionId,
+        cmd: 'fixture',
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+      })
+    },
     stopSession: ({ durableLabel }) => {
       alive.set(durableLabel, false)
     },
@@ -1829,6 +1840,81 @@ describe('adopt', () => {
     expect(after.binding.bindingVersion).toBeGreaterThan(checkpoint.binding.bindingVersion)
   })
 
+  it('composes the host before returning adoption and propagates reconstruction failure', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const binding = session.binding
+    world.runtime.control.restartSupervisor()
+    let composed = false
+    const recover = world.host.recover
+    world.host.recover = async (msg, ready) => {
+      expect(world.runtime.handleFor(msg.sessionId)).toBeUndefined()
+      expect(msg.durableLabel).toBe(binding.process.key)
+      await recover(msg, ready)
+      composed = true
+    }
+    const adopted = await driver.adopt(binding)
+    expect(composed).toBe(true)
+    expect(adopted.binding.process.key).toBe(binding.process.key)
+    world.runtime.control.restartSupervisor()
+    world.host.recover = async () => {
+      throw new Error('screen reconstruction failed')
+    }
+    await expect(driver.adopt(binding)).rejects.toThrow('screen reconstruction failed')
+    expect(world.runtime.handleFor(binding.sessionId)).toBeUndefined()
+  })
+
+  it('rejects a prefix or foreign incarnation before composing a host', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const binding = session.binding
+    world.host.recover = async () => {
+      throw new Error('must not compose')
+    }
+    for (const key of [binding.process.key.slice(0, -1), `${binding.process.key}-other`]) {
+      await expect(driver.adopt({ ...binding, process: { key } })).rejects.toThrow(
+        'identity mismatch',
+      )
+    }
+  })
+
+  it('buffers recovery observations until the new lease is installed and refuses stale reattach', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+    const recover = world.host.recover
+    world.host.recover = async (msg, ready) => {
+      world.observe(sessionId, { observerGeneration: 9, bindingVersion: 7, turnEpoch: 12 })
+      await recover(msg, ready)
+    }
+    const msg = {
+      type: 'reattach' as const,
+      sessionId,
+      agentKind: 'claude-code' as const,
+      durableLabel: session.binding.process.key,
+      cwd: SPEC.workdir,
+      lastKnownGeometry: { cols: 120, rows: 40 },
+      observationGeneration: 9,
+      observationBindingVersion: 7,
+      observationCheckpoint: { retained: 'opaque host checkpoint' },
+    }
+    const recovered = await world.runtime.recoverWithId(msg, CLAUDE)
+    const snapshot = await recovered.snapshot()
+    expect(snapshot.observerGeneration).toBe(9)
+    expect(snapshot.binding.bindingVersion).toBe(7)
+    expect(snapshot.turnEpoch).toBe(12)
+    await expect(
+      world.runtime.recoverWithId({ ...msg, observationGeneration: 8 }, CLAUDE),
+    ).rejects.toThrow('fence is stale')
+    // Repeated delivery of the same authoritative lease does not invent a fence.
+    const repeated = await world.runtime.recoverWithId(msg, CLAUDE)
+    expect((await repeated.snapshot()).observerGeneration).toBe(9)
+    expect(repeated.binding.bindingVersion).toBe(7)
+  })
+
   it('continues a live stream after its bounded replay buffer trims', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
@@ -1970,16 +2056,16 @@ describe('observation translation', () => {
             turnEpoch: epoch,
             state,
           })
-          if (order === 'state-first') {
-            poll()
-            observe()
-          } else {
-            observe()
-            poll()
-          }
-          expect((await session.snapshot()).turnEpoch).toBe(epoch)
+        if (order === 'state-first') {
+          poll()
+          observe()
+        } else {
+          observe()
+          poll()
         }
+        expect((await session.snapshot()).turnEpoch).toBe(epoch)
       }
+    }
 
       const turns = world.frames.flatMap((frame) =>
         frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],

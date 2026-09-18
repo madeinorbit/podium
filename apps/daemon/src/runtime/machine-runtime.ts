@@ -60,6 +60,7 @@ export type DaemonDriverResolution =
 
 export interface DaemonMachineRuntime extends MachineAgentRuntime {
   createTerminal: TerminalRuntime['createWithId']
+  recoverTerminal: TerminalRuntime['recoverWithId']
   /** The live driver's declaration for one session, read off its BINDING — see
    *  `capabilitiesFor` below for why the binding and not a family guess. The
    *  configure handler reports `configure.effective` from it (POD-3081). */
@@ -144,11 +145,11 @@ export function createDaemonMachineRuntime(input: {
       return Promise.resolve(input.terminal.register(pending.registration, pending.profile))
     },
     adopt(binding) {
-      const pending = terminalAdoptions.get(binding.sessionId)
-      if (!pending) {
-        throw new Error(`terminal session '${binding.sessionId}' has no pending adoption`)
+      const profile = terminalProfileFor(binding.harness as AgentKind)
+      if (!profile || profile.driverId !== binding.driver) {
+        throw new Error(`terminal session '${binding.sessionId}' has an incompatible driver`)
       }
-      return Promise.resolve(input.terminal.register(pending.registration, pending.profile))
+      return input.terminal.driverFor(binding.harness as AgentKind, profile).adopt(binding)
     },
   }
 
@@ -280,6 +281,7 @@ export function createDaemonMachineRuntime(input: {
   return {
     ...runtime,
     createTerminal: (...args) => input.terminal.createWithId(...args),
+    recoverTerminal: (...args) => input.terminal.recoverWithId(...args),
     capabilitiesFor,
     observe(message) {
       input.terminal.observe(message)
@@ -308,17 +310,7 @@ export function createDaemonMachineRuntime(input: {
           return await runtime.create(spec, registration.sessionId)
         }
 
-        const binding: SessionBinding = {
-          sessionId: registration.sessionId,
-          driver: profile.driverId,
-          family: 'terminal',
-          harness: registration.agentKind,
-          workdir: registration.cwd,
-          resume: registration.resume,
-          process: { key: registration.sessionId },
-          bindingVersion: Math.max(0, (registration.bindingVersion ?? 1) - 1),
-        }
-        return await runtime.adopt(binding)
+        throw new Error('terminal rebind requires recoverTerminal host composition')
       } finally {
         terminalAdoptions.delete(registration.sessionId)
       }
