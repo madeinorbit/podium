@@ -65,6 +65,7 @@ import {
   MachineUpdateExecutor,
   readMachineUpdateJournal,
 } from '../packages/runtime/src/machine-update'
+import { DaemonRpcService } from '../apps/server/src/modules/machines/rpc'
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
 import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
 import type { UpdateGrantMessage } from '@podium/protocol'
@@ -1617,13 +1618,60 @@ exec "$CANARY_REAL_CLI" "$@"
             agentExecution: true,
           })
         }
+        const assertStaleSourceRefused = async () => {
+          // Design Part B B10, rev 28: "the stale source is fenced by identity
+          // binding ... and refused with identity-mismatch". Use the manifest
+          // actually transferred and the promoted placement observed above, not
+          // a guessed source id. This is the production pre-dispatch RPC gate;
+          // transport below records admission without starting another transfer.
+          const staleManifest = read(source, '.server-transfer/journal.json').record.manifest
+          expect(staleManifest.sourceMachineId).toBe(sourceId)
+          const promoted = (await targetApi.machines.list.query()).filter(row => row.serviceAssignment?.server)
+          expect(promoted.map(row => row.id)).toEqual([targetId])
+          const routed: string[] = []
+          const unused = (): never => { throw new Error('B10 unexpectedly used an unrelated RPC dependency') }
+          const rpc: DaemonRpcService = new DaemonRpcService({
+            serverPlacement: { kind: 'fleet', machineId: asMachineId(promoted[0]!.id) },
+            memory: { canReadSession: unused, transcriptPathHint: unused, readTranscriptFromLake: unused, transcriptHasPredecessors: unused },
+            defaultMachine: unused, resolveMachine: unused, hasDaemon: unused,
+            machineName: unused, onlineMachineIds: unused, getSession: unused,
+            toMachine: (machineId, message) => {
+              if (message.type !== 'serverTransferPrepareRequest') throw new Error('unexpected B10 dispatch')
+              routed.push(machineId)
+              queueMicrotask(() => rpc.settleDaemonReply(machineId, {
+                type: 'serverTransferResult', requestId: message.requestId,
+                transferId: message.transferId, operation: 'prepare', ok: true, state: 'staging',
+                manifestDigest: message.manifestDigest,
+              }))
+            },
+          })
+          const nextTransfer = randomUUID()
+          const request = {
+            transferId: nextTransfer,
+            manifest: { ...staleManifest, transferId: nextTransfer, targetMachineId: observerId },
+            manifestDigest: 'a'.repeat(64), publicUrl: `http://127.0.0.1:${observer.port}`,
+            bindHost: '127.0.0.1' as const, port: observer.port, reachabilityToken: 'b'.repeat(64),
+          }
+          expect(await rpc.serverTransferPrepare(request, asMachineId(observerId))).toMatchObject({
+            ok: false, state: 'aborted', errorCode: 'identity-mismatch',
+          })
+          expect(routed).toEqual([])
+          // Correct current placement admits routing in the same fixture: the
+          // stale-source assertion cannot pass because all prepares are refused.
+          expect(await rpc.serverTransferPrepare({ ...request,
+            manifest: { ...request.manifest, sourceMachineId: targetId },
+          }, asMachineId(observerId))).toMatchObject({ ok: true, state: 'staging' })
+          expect(routed).toEqual([observerId])
+        }
         await assertTopology('stopped')
+        await assertStaleSourceRefused()
         for (const spec of [source, target]) await run(spec, ['stop'])
         // Restart the actual finalized durable state. The focused runtime tests
         // separately inject the config/assignment atomic-write crash window.
         await run(target, [])
         await run(source, [])
         await assertTopology('available')
+        await assertStaleSourceRefused()
         // A completed move must not hide failed presence callbacks behind the
         // SQLite fence. Check both the live seal and recovery-only reconnects.
         for (const spec of specs) {

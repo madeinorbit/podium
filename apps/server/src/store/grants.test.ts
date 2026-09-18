@@ -13,6 +13,8 @@
 
 import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { systemPrincipal, userCommandPrincipal } from '../command-principal'
+import { checkMachineUse, ownershipSnapshotFromMachines } from '../machine-access'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 
@@ -184,4 +186,32 @@ it('enrollment commits both personal edges and enforces one custodian', async ()
   })).rejects.toThrow('abort enrollment')
   expect(await store.machines.getMachine('abort')).toBeUndefined()
   expect(await store.grants.listForResource('machine', 'abort')).toEqual([])
+})
+
+
+// Design Part B, B5: "grant edge add/remove; last-grant release → unowned".
+it('B5: releasing the last personal grants leaves custody null and nobody can use the machine', async () => {
+  const id = asMachineId('released')
+  const owner = firstAdminMemberId()
+  await pair(id, owner)
+  const ownership = () => ownershipSnapshotFromMachines({
+    // Keep availability positive so only the real grant transition can deny use.
+    ownershipRows: () => [{ id, daemonAssigned: true, daemonAvailable: true }],
+    grantsForMachine: machine => store.grants.listForResource('machine', machine),
+  })
+  expect(checkMachineUse(userCommandPrincipal(owner, 'admin'), id, await ownership())).toBeUndefined()
+  expect(await store.grants.listForResource('machine', id)).toHaveLength(2)
+  await store.machines.setMachineOwner(id, null)
+  expect(await store.machines.getMachine(id)).toBeDefined()
+  expect(await store.machines.custodian(id)).toBeNull()
+  expect(await store.grants.listForResource('machine', id)).toEqual([])
+  const unowned = await ownership()
+  for (const principal of [userCommandPrincipal(owner, 'admin'),
+    userCommandPrincipal(asUserId(COLLEAGUE), 'member'),
+    userCommandPrincipal(asUserId('second-admin'), 'admin'), systemPrincipal('release-test')]) {
+    expect(checkMachineUse(principal, id, unowned)).not.toBeUndefined()
+  }
+  await store.machines.setMachineOwner(id, null)
+  expect(await store.machines.custodian(id)).toBeNull()
+  expect(await store.grants.listForResource('machine', id)).toEqual([])
 })

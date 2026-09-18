@@ -4,10 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
+import { signWithMachine } from '@podium/runtime/machine-credential'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { userCommandPrincipal } from './command-principal'
 import { mintPairingToken, openEnrollmentLedger, verifyPairingToken, type EnrollmentLedger } from './enrollment-ledger'
 import { canSeeMachine, checkMachineUse, checkMachineVerb, machineVerbsFor, ownershipSnapshotFromMachines } from './machine-access'
-import { MachinesService, sha256 } from './modules/machines/service'
+import { MachinesService, sha256, type PairingGrant, type MachinesDeps } from './modules/machines/service'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -26,9 +29,9 @@ function tempState(): string {
   return mkdtempSync(join(tmpdir(), 'podium-enroll-'))
 }
 
-function service(store: SessionStore, hostMachineId = store.hostMachineId) {
+function service(store: SessionStore, hostMachineId = store.hostMachineId, pairing?: MachinesDeps['pairing']) {
   return new MachinesService({
-    instanceId: 'default', store, hostMachineId,
+    instanceId: 'default', installationId: 'durability-installation', store, hostMachineId, pairing,
     userExists: async (id) => await store.users.get(id) !== undefined,
     sessionsChangedForMachine: () => {}, clients: () => [], machinesForPrincipal: async () => [],
   })
@@ -203,7 +206,8 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     const before = readFileSync(w.enrollment.path, 'utf8')
     await w.machines.revokeMachine(asMachineId(machineId), { by: OWNER })
     const row = await w.store.machines.getMachine(machineId)
-    expect(row).toMatchObject({ id: machineId, ownerUserId: OWNER, revokedAt: expect.any(String) })
+    expect(row).toMatchObject({ id: machineId, revokedAt: expect.any(String) })
+    expect(await w.store.machines.custodian(machineId)).toBe(OWNER)
     expect(readFileSync(w.enrollment.path, 'utf8')).toBe(before)
     expect(await hello(w.machines, machineId, token)).toEqual(DENIED)
     expect(await hello(service(w.store), machineId, token)).toEqual(DENIED)
@@ -270,5 +274,133 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     const ownership = await ownershipSnapshotFromMachines(w.machines)
     expect(await checkMachineVerb(userCommandPrincipal(OWNER, 'admin'), asMachineId(machineId), ownership, 'manage')).toBeUndefined()
     expect(await checkMachineUse(userCommandPrincipal(OWNER, 'admin'), asMachineId(machineId), ownership)).toBe('unauthorized')
+  })
+})
+
+
+describe('Part B incarnation transitions', () => {
+  let dir: string
+  let machines: MachinesService
+  beforeEach(() => { dir = tempState() })
+  afterEach(() => { machines?.dispose(); rmSync(dir, { recursive: true, force: true }) })
+
+  async function fixture() {
+    const w = await makeWorld(dir)
+    w.machines.dispose()
+    const codes = new Map<string, PairingGrant>()
+    let serial = 0
+    machines = service(w.store, w.store.hostMachineId, {
+      mint: (grant = {}) => {
+        const code = `replacement-${++serial}`
+        codes.set(code, { ...grant, installationId: 'durability-installation' })
+        return code
+      },
+      peek: code => codes.get(code),
+      redeem: code => { const grant = codes.get(code); codes.delete(code); return grant },
+    })
+    const paired = await seedStage1Remote(w.store, w.enrollment)
+    const id = asMachineId(paired.machineId)
+    const key = mintSigningKeyPair()
+    const frame = { type: 'pair' as const, machineId: id, hostname: 'replacement.local', publicKey: publicKeyWire(key) }
+    return { store: w.store, id, token: paired.token, key, frame }
+  }
+
+  // Design Part B, B8: "revoked_at; connections dropped; queued work cancelled".
+  it('B8: revoke closes the live credential connection and cancels offline control before replacement', async () => {
+    const { store, id, token, frame } = await fixture()
+    let closed = 0
+    const oldFence = machines.credentialFence()
+    machines.registerCredentialConnection(id, () => { closed += 1 })
+    const queued: ControlMessage = { type: 'inventoryRequest' }
+    machines.toMachine(id, queued)
+    expect((await hello(machines, id, token)).ok).toBe(true)
+    await machines.revokeMachine(id, { by: OWNER })
+    expect(closed).toBe(1)
+    expect(oldFence(id)).toBe(false)
+    expect(await hello(machines, id, token)).toEqual(DENIED)
+    await expect(machines.attach(id, () => {})).rejects.toThrow('revoked')
+    expect((await store.machines.getMachine(id))?.revokedAt).toEqual(expect.any(String))
+    const code = await machines.mintReplacementPairingCode(id, { ownerUserId: OWNER }, true)
+    expect((await machines.authenticateDaemon({ ...frame, code })).ok).toBe(true)
+    const delivered: ControlMessage[] = []
+    await machines.attach(id, message => { delivered.push(message) })
+    await machines.flushQueued(id)
+    expect(delivered).toEqual([])
+    machines.toMachine(id, queued)
+    expect(delivered).toEqual([queued]) // Positive transport control: cancellation, not a dead sender.
+    await machines.revokeMachine(id, { by: OWNER })
+    expect((await machines.listMachines()).find(machine => machine.id === id)?.online).toBe(false)
+    machines.toMachine(id, queued)
+    expect(delivered).toEqual([queued])
+  })
+
+  // Design Part B, M9: "Revoke with queued control, old connection,
+  // concurrent re-enrol" → "old incarnation cannot act after the transition".
+  it('M9: a live old credential and queued control lose authority during concurrent revoke and re-enrol', async () => {
+    const { id, token, frame } = await fixture()
+    const fence = machines.credentialFence()
+    let closed = 0
+    machines.registerCredentialConnection(id, () => { closed += 1 })
+    expect((await hello(machines, id, token)).ok).toBe(true)
+    machines.toMachine(id, { type: 'inventoryRequest' })
+    const revoking = machines.revokeMachine(id, { by: OWNER })
+    const replacing = (async () => {
+      // Mint queues behind revoke on the same transition lane, without the
+      // caller awaiting revoke; replacement binds the committed incarnation.
+      const code = await machines.mintReplacementPairingCode(id, { ownerUserId: OWNER }, true)
+      return machines.authenticateDaemon({ ...frame, code })
+    })()
+    machines.toMachine(id, { type: 'inventoryRequest' })
+    const [, replacement] = await Promise.all([revoking, replacing])
+    expect(replacement.ok).toBe(true)
+    expect(closed).toBe(1)
+    expect(fence(id)).toBe(false)
+    expect(await hello(machines, id, token)).toEqual(DENIED)
+    const delivered: ControlMessage[] = []
+    await machines.attach(id, message => { delivered.push(message) })
+    await machines.flushQueued(id)
+    expect(delivered).toEqual([])
+    machines.toMachine(id, { type: 'inventoryRequest' })
+    expect(delivered).toEqual([{ type: 'inventoryRequest' }])
+  })
+
+  // Design Part B, B2: "new credential incarnation; old connections dropped";
+  // M9: "Revoke with queued control, old connection, concurrent re-enrol" →
+  // "old incarnation cannot act after the transition". Rev 28 explicitly says
+  // "queued work cancelled with the old incarnation, re-issued by callers".
+  it.each(['revoke-first', 'replacement-first'] as const)('B2/M9: %s serializes revoke, queued control and replacement', async order => {
+    const { store, id, token, key, frame } = await fixture()
+    const oldFence = machines.credentialFence()
+    let closed = 0
+    machines.registerCredentialConnection(id, () => { closed += 1 })
+    machines.toMachine(id, { type: 'inventoryRequest' })
+    // Obtain a credential-bound replacement capability while the retained row is revoked.
+    await machines.revokeMachine(id, { by: OWNER })
+    const code = await machines.mintReplacementPairingCode(id, { ownerUserId: OWNER }, true)
+    const replace = () => machines.authenticateDaemon({ ...frame, code })
+    const revoke = () => machines.revokeMachine(id, { by: OWNER })
+    // Both promises start before either settles; the per-machine transition lane
+    // determines whether the new incarnation is active or itself revoked.
+    const pending = order === 'revoke-first' ? [revoke(), replace()] : [replace(), revoke()]
+    machines.toMachine(id, { type: 'inventoryRequest' })
+    const results = await Promise.all(pending)
+    expect(results[order === 'revoke-first' ? 1 : 0]).toMatchObject({ ok: true })
+    expect(closed).toBe(1)
+    expect(oldFence(id)).toBe(false)
+    expect(await hello(machines, id, token)).toEqual(DENIED)
+    expect(await store.machines.credentialIncarnation(id)).toBe(frame.publicKey)
+    const transcript = 'replacement-proof'
+    const signature = signWithMachine(key, transcript)
+    expect(await store.machines.verifyMachineSignature(id, transcript, signature)).toBe(order === 'revoke-first')
+    if (order === 'revoke-first') {
+      const delivered: ControlMessage[] = []
+      await machines.attach(id, message => { delivered.push(message) })
+      await machines.flushQueued(id)
+      expect(delivered).toEqual([])
+      machines.toMachine(id, { type: 'inventoryRequest' })
+      expect(delivered).toEqual([{ type: 'inventoryRequest' }])
+    } else {
+      await expect(machines.attach(id, () => {})).rejects.toThrow('revoked')
+    }
   })
 })

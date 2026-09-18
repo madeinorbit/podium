@@ -1,8 +1,10 @@
 import { readFileSync, renameSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { MachineId, UserId } from '@podium/model'
+import { createLogger } from '@podium/logger'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
+const log = createLogger('server:enrollment-import')
 const VERSION = 1
 export const RETIRED_MEMBER_MAPPING = 'retired_solo_member_id'
 export const LEDGER_IMPORT_MARKER = 'enrollment_ledger_imported'
@@ -116,8 +118,15 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
   const mapping = (db.prepare('SELECT value FROM meta WHERE key = ?').get(RETIRED_MEMBER_MAPPING) as { value: string } | undefined)?.value
   const users = new Set((db.prepare('SELECT id FROM users').all() as { id: string }[]).map((row) => row.id))
   const states = latestState(snapshot)
-  for (const state of states.values()) {
-    if (state.owner === 'user:sole') { if (mapping === undefined) throw new Error(`enrollment ledger requires ${RETIRED_MEMBER_MAPPING}`); state.owner = mapping }
+  const unmappedOwners = new Set<string>()
+  const importedUnowned: string[] = []
+  for (const [machineId, state] of states) {
+    if (state.owner === 'user:sole') {
+      // Missing provenance cannot authorize any member. Boot still completes:
+      // existing machines become explicitly unowned and admins may adopt them.
+      state.owner = mapping || null
+      if (!mapping) unmappedOwners.add(machineId)
+    }
     if (state.owner !== undefined && state.owner !== null && !users.has(state.owner)) {
       throw new Error(`enrollment ledger owner '${state.owner}' has no matching member`)
     }
@@ -133,6 +142,7 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
         // for it, and a grant edge without a machine would be an orphan.
         const exists = db.prepare('SELECT 1 AS one FROM machines WHERE id = ?').get(machineId)
         if (!exists) continue
+        if (unmappedOwners.has(machineId)) importedUnowned.push(machineId)
         // Custody is a personal grant edge (S5, POD-4151): the manage edge with custody=1
         // plus a use edge, written exactly as 20260917212210_machine-custody-grant-edges
         // wrote them from the old owner column. The previous custodian, if any, loses
@@ -169,6 +179,12 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
     db.exec('ROLLBACK')
     throw error
   }
+  // Publish only committed outcomes, never names from a rolled-back import.
+  if (importedUnowned.length > 0) log.warn('enrollment ledger imported machines as unowned', {
+    key: RETIRED_MEMBER_MAPPING,
+    reason: 'retired principal mapping is absent; administrator adoption required',
+    machineIds: importedUnowned.sort(),
+  })
   try {
     renameSync(path, `${path}.imported`)
   } catch {

@@ -215,13 +215,6 @@ export function runDrizzleMigrations(
     }
   }
 
-  // Refuse ambiguous provenance before any pending migration writes. Also runs
-  // when the mapping migration was already recorded by a build that silently
-  // skipped multi-member databases. This is a read-only guard, never repair.
-  if (known.has('20260917160000_record-retired-member-mapping')) {
-    assertRetiredMemberMapping(db)
-  }
-
   // Apply in folder-name order, and hand drizzle the SAME order: its array path
   // applies in array order (it filters by name but never sorts), so a sorted
   // input keeps the reported/applied order in lockstep even if a caller passes
@@ -317,7 +310,7 @@ export function runDrizzleMigrations(
   }
   record?.(pending.map((m) => m.name))
   if (known.has('20260917160000_record-retired-member-mapping')) {
-    assertRetiredMemberMapping(db)
+    warnMissingRetiredMemberMapping(db)
   }
   if (pending.some((m) => m.name === '20260917185720_session-delegation-record')) {
     const row = db
@@ -334,8 +327,8 @@ export function runDrizzleMigrations(
   return pending.map((m) => m.name)
 }
 
-/** Several identities cannot establish which one formerly carried the retired id. */
-function assertRetiredMemberMapping(db: SqlDatabase): void {
+/** Missing provenance denies literal resolution, not boot; never infer an owner. */
+function warnMissingRetiredMemberMapping(db: SqlDatabase): void {
   const tables = db.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('users', 'meta')",
   ).all()
@@ -346,7 +339,9 @@ function assertRetiredMemberMapping(db: SqlDatabase): void {
   if (mapping?.value) return
   const members = db.prepare('SELECT count(*) AS count FROM users').get() as { count: number }
   if (members.count > 1) {
-    throw new Error('Cannot migrate: meta key retired_solo_member_id is missing with several members')
+    log.warn('retired_solo_member_id is missing with several members; literal principal resolution is unavailable', {
+      key: 'retired_solo_member_id',
+    })
   }
 }
 

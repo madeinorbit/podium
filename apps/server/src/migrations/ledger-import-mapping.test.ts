@@ -58,20 +58,20 @@ describe('retired member mapping migration', () => {
   })
 })
 
-describe('retired mapping provenance refusal', () => {
+describe('retired mapping provenance without boot refusal', () => {
   function secondMember(db: SqlDatabase) {
     db.prepare(
       "INSERT INTO users (id, display_name, role, created_at) VALUES ('mem_second', 'Second', 'admin', '2000-01-01')",
     ).run()
   }
 
-  it('refuses before applying the pending mapping migration, naming the missing key', () => {
+  it('applies the pending mapping migration without guessing a member', () => {
     const db = beforeMapping()
     try {
       secondMember(db)
       const before = db.prepare('SELECT * FROM __drizzle_migrations').all()
-      expect(() => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)).toThrow('retired_solo_member_id')
-      expect(db.prepare('SELECT * FROM __drizzle_migrations').all()).toEqual(before)
+      expect(() => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)).not.toThrow()
+      expect(db.prepare('SELECT * FROM __drizzle_migrations').all().length).toBeGreaterThan(before.length)
       expect(db.prepare("SELECT * FROM meta WHERE key = 'retired_solo_member_id'").all()).toEqual(
         [],
       )
@@ -80,13 +80,14 @@ describe('retired mapping provenance refusal', () => {
     }
   })
 
-  it('also refuses when an earlier build already recorded the silent no-op', () => {
+  it('boots without inferring provenance when an earlier build already recorded the no-op', () => {
     const db = beforeMapping()
     try {
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
       secondMember(db)
       db.prepare("DELETE FROM meta WHERE key = 'retired_solo_member_id'").run()
-      expect(() => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)).toThrow('retired_solo_member_id')
+      expect(() => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)).not.toThrow()
+      expect(db.prepare("SELECT * FROM meta WHERE key = 'retired_solo_member_id'").all()).toEqual([])
     } finally {
       db.close()
     }

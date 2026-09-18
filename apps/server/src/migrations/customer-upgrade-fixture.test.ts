@@ -23,9 +23,14 @@ import { createHash } from 'node:crypto'
 import { loadMachineState } from '@podium/runtime/local-machine'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId } from '@podium/model'
+import { asMachineId, asUserId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { addSink, type LogRecord } from '@podium/logger'
+import { userCommandPrincipal } from '../command-principal'
+import { ownershipSnapshotFromMachines } from '../machine-access'
+import { MachinesService } from '../modules/machines/service'
+import { machinesForPrincipal } from '../modules/sessions/command-ctx'
 import {
   enrollmentLedger,
   manifest,
@@ -210,6 +215,103 @@ describe('customer upgrade fixture: server', () => {
     // The file step: renamed as imported, re-runnable, non-fatal.
     expect(existsSync(join(root, 'enrollment.ledger'))).toBe(false)
     expect(readFileSync(join(root, 'enrollment.ledger.imported'), 'utf8')).toBe(enrollmentLedger)
+  })
+
+  // Design Part B M3, coordinator's rev 29 ruling: exact principal
+  // continuity with recorded mapping; otherwise boot succeeds with affected
+  // ledger machines unowned and adoptable, never implicitly transferred.
+  it.each([true, false])('M3: disabled original plus second admin, recorded mapping=%s', async recorded => {
+    const root = customerState()
+    const disabledAt = '2026-09-01T00:00:00.000Z'
+    const second = asUserId('member-second-admin')
+    const originalBefore = withDb(root, db => {
+      if (recorded) {
+        // An already-retired installation with exact recorded provenance.
+        // The ledger import has NOT run; its historical literal still awaits resolution.
+        const mappingIndex = DRIZZLE_MIGRATIONS.findIndex(m => m.name.includes('record-retired-member-mapping'))
+        expect(mappingIndex).toBeGreaterThan(0)
+        db.exec('PRAGMA foreign_keys = OFF')
+        runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, mappingIndex))
+      }
+      const original = (db.prepare('SELECT id FROM users').get() as { id: string }).id
+      db.prepare('UPDATE users SET disabled_at = ?, display_name = ? WHERE id = ?')
+        .run(disabledAt, 'Original disabled member', original)
+      insert(db, 'users', { id: second, display_name: 'Second admin', role: 'admin',
+        created_at: '2026-09-02T00:00:00.000Z', disabled_at: null })
+      insert(db, 'user_credentials', { user_id: original, source: 'per-user-scrypt',
+        password_hash: 'original-password-hash', updated_at: disabledAt })
+      if (recorded) insert(db, 'meta', { key: RETIRED_MEMBER_MAPPING, value: original })
+      expect(db.prepare('SELECT id FROM users').all()).toHaveLength(2)
+      expect(meta(db, LEDGER_IMPORT_MARKER)).toBeUndefined()
+      return original
+    })
+    const logs: LogRecord[] = []
+    const removeSink = addSink({ name: 'm3-import', minLevel: 'warn', write: record => { logs.push(record) } })
+    try {
+      await upgrade(root)
+      const assertContinuity = () => withDb(root, db => {
+        const original = db.prepare('SELECT id, disabled_at FROM users WHERE display_name = ?')
+          .get('Original disabled member') as { id: string; disabled_at: string }
+        const member = original.id
+        expect(member).not.toBe(RETIRED)
+        expect(member).not.toBe(second)
+        expect(original.disabled_at).toBe(disabledAt)
+        expect(meta(db, RETIRED_MEMBER_MAPPING)).toBe(recorded ? originalBefore : undefined)
+        if (recorded) expect(member).toBe(originalBefore)
+        expect(db.prepare('SELECT id, role, disabled_at FROM users WHERE id = ?').get(second))
+          .toEqual({ id: second, role: 'admin', disabled_at: null })
+        expect(db.prepare('SELECT user_id, password_hash FROM user_credentials').all())
+          .toEqual([{ user_id: member, password_hash: 'original-password-hash' }])
+        const after = machines(db)
+        expect(after).toHaveLength(serverRows.machines.length)
+        for (const machine of after) {
+          const ambiguous = !recorded && ledgerMachines().includes(machine.id)
+          expect(machine.owner_user_id, machine.id).toBe(ambiguous ? null : member)
+          if (ambiguous) expect(db.prepare("SELECT * FROM grants WHERE resource_kind = 'machine' AND resource_id = ?").all(machine.id)).toEqual([])
+        }
+        expect(db.prepare('SELECT DISTINCT owner_user_id FROM sessions').all()).toEqual([{ owner_user_id: member }])
+        expect(db.prepare("SELECT count(*) AS c FROM grants WHERE resource_kind = 'machine' AND grantee = ?").get(second)).toEqual({ c: 0 })
+        expect(meta(db, LEDGER_IMPORT_MARKER)).toBeDefined()
+        return member
+      })
+      const original = assertContinuity()
+      expect(existsSync(join(root, 'enrollment.ledger.imported'))).toBe(true)
+      await upgrade(root)
+      expect(assertContinuity()).toBe(original)
+      const imports = logs.filter(record => record.ns === 'server:enrollment-import')
+      if (recorded) expect(imports).toEqual([])
+      else {
+        expect(logs).toContainEqual(expect.objectContaining({ ns: 'server:migrations', level: 'warn', key: RETIRED_MEMBER_MAPPING }))
+        expect(imports).toEqual([expect.objectContaining({ level: 'warn', key: RETIRED_MEMBER_MAPPING,
+          reason: 'retired principal mapping is absent; administrator adoption required',
+          machineIds: ledgerMachines().sort() })])
+      }
+      const store = await openTestStore(join(root, 'podium.db'), HOST)
+      const svc = new MachinesService({ instanceId: 'm3-fixture', store, hostMachineId: HOST,
+        userExists: async id => await store.users.get(id) !== undefined,
+        sessionsChangedForMachine: () => {}, clients: () => [], machinesForPrincipal: async () => [],
+      })
+      try {
+        const admin = userCommandPrincipal(second, 'admin')
+        const fleet = await machinesForPrincipal({ machines: svc }, admin, await ownershipSnapshotFromMachines(svc))
+        for (const id of ledgerMachines()) {
+          expect(fleet.find(machine => machine.id === id)).toMatchObject({
+            unowned: !recorded, adoptable: !recorded, owned: false, use: 'denied',
+          })
+        }
+        if (!recorded) {
+          const id = asMachineId(ledgerMachines()[0]!)
+          await svc.adoptMachine(id, second, second)
+          expect(await store.machines.custodian(id)).toBe(second)
+          const adopted = await machinesForPrincipal({ machines: svc }, admin, await ownershipSnapshotFromMachines(svc))
+          expect(adopted.find(machine => machine.id === id)).toMatchObject({ unowned: false, adoptable: false, owned: true })
+          expect(await store.settingsAudit.list()).toContainEqual(expect.objectContaining({
+            command: 'takeover', detail: { machineId: id, previousOwnerUserId: null, newOwnerUserId: second },
+          }))
+          for (const other of ledgerMachines().slice(1)) expect(await store.machines.custodian(other)).toBeNull()
+        }
+      } finally { svc.dispose(); await store.close() }
+    } finally { removeSink() }
   })
 
   it('repeat boot changes nothing', async () => {
