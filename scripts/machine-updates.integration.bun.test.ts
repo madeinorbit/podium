@@ -393,7 +393,9 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
           (event) =>
             event.type === 'reconnect-decision' &&
             event.detail.machineId === 'desktop' &&
-            event.detail.verdict.because === 'not-approved',
+            // Since POD-4167 a reconnect never earns a grant: only a human-started
+            // operation converges, so the newer publication is never inherited.
+            event.detail.verdict.because === 'human-operation-required',
         ),
       'new publication lacks inherited consent',
     )
@@ -414,7 +416,7 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
     )
     rmSync(join(group.state('desktop'), 'offline'))
     await until(decisions, (events) => events.length > before, 'same-version replacement reconnect')
-    expect(decisions().at(-1)?.detail.verdict.because).toBe('not-approved')
+    expect(decisions().at(-1)?.detail.verdict.because).toBe('human-operation-required')
     expect(group.journal('desktop')).toBeUndefined()
     writeFileSync(join(group.state('desktop'), 'offline'), '1')
     await delay(1700)
@@ -674,7 +676,7 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
       expect(group.events('daemon').some((event) => event.type === phase)).toBe(true)
   }, 45000)
 
-  it('rolls back a failed successor only when migrations prove it safe', async () => {
+  it('rolls back a failed successor that applied no migrations, whatever the release declares', async () => {
     const group = new Group()
     await group.bootFour()
     await group.grant('combined', group.artifact('2.0.0', { failSuccessor: true }))
@@ -689,15 +691,19 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
       JSON.parse(readFileSync(join(group.state('combined'), 'run/parent-outcome.json'), 'utf8'))
         .outcome,
     ).toBe('rolled-back')
-    const unsafe = group.artifact('3.0.0', { failSuccessor: true })
-    unsafe.schema = { migrations: ['new-schema'] }
-    await group.grant('combined', unsafe)
+    // Since POD-4168 rollback follows what this machine EXECUTED under the grant,
+    // not what the release declares: a successor that failed before migrating
+    // rolls back even though the release carries migrations. The refusal for an
+    // applied migration is covered by packages/runtime/src/parent-process.test.ts.
+    const declared = group.artifact('3.0.0', { failSuccessor: true })
+    declared.schema = { migrations: ['new-schema'] }
+    await group.grant('combined', declared)
     await group.phase('combined', 'stuck')
-    expect(readFileSync(join(group.install('combined'), 'VERSION'), 'utf8').trim()).toBe('3.0.0')
+    expect(readFileSync(join(group.install('combined'), 'VERSION'), 'utf8').trim()).toBe('1.0.0')
     expect(
       JSON.parse(readFileSync(join(group.state('combined'), 'run/parent-outcome.json'), 'utf8'))
         .outcome,
-    ).toBe('rollback-unavailable')
+    ).toBe('rolled-back')
   }, 45000)
 
   it('executes native desktop primitives in a separate shell stand-in under the same supervisor journal', async () => {
