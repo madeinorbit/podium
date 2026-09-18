@@ -1122,11 +1122,14 @@ describe('ParentProcess', () => {
     }
 
     it('refuses and names the migration actually applied by the server', async () => {
+      const report = vi.fn()
       const { install, state } = await successorCrashLoop(
         {
           [PARENT_RELEASE_MIGRATIONS_ENV]: '1',
         },
         ['20260916065900_new_schema'],
+        false,
+        report,
       )
       expect(report).toHaveBeenCalledWith(expect.objectContaining({
         reasonCode: 'rollback-refused-migrations',
