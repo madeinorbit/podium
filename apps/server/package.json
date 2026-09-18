@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
-    "@hono/trpc-server": "^0.3.4",
+    "@hono/trpc-server": "^0.4.2",
     "@podium/commands": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/harness": "workspace:*",
@@ -42,6 +42,6 @@
     "@libsql/client": "^0.18.0",
     "@types/ws": "^8.5.13",
     "typescript": "^6.0.3",
-    "vitest": "5.0.0-beta.6"
+    "vitest": "5.0.1"
   }
 }

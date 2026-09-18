@@ -22,7 +22,7 @@
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/telemetry:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {
-    "vitest": "5.0.0-beta.6"
+    "vitest": "5.0.1"
   },
   "dependencies": {
     "@podium/model": "workspace:*",

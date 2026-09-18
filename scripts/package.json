@@ -33,7 +33,7 @@
     "@trpc/client": "^11.0.0",
     "hono": "^4.6.14",
     "typescript": "^6.0.3",
-    "vitest": "5.0.0-beta.6",
+    "vitest": "5.0.1",
     "ws": "^8.18.0"
   }
 }

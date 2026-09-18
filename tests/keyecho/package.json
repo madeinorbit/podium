@@ -18,13 +18,13 @@
   },
   "dependencies": {
     "ink": "^6.0.0",
-    "react": "^19.0.0"
+    "react": "^19.3.0"
   },
   "devDependencies": {
     "@podium/process": "workspace:*",
     "@types/node": "^25.9.1",
     "@types/react": "^19.0.0",
     "tsx": "^4.22.4",
-    "vitest": "5.0.0-beta.6"
+    "vitest": "5.0.1"
   }
 }
