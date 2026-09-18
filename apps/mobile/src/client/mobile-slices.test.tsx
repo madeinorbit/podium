@@ -150,10 +150,13 @@ describe('mobile reads the published worklist slice', () => {
 })
 
 describe('placement fails closed on the phone too (doc §3.1.4 M5)', () => {
+  // These cases vary authorization and liveness on machines assigned to run agents.
+  // Without the assignment, structural eligibility correctly reports `incapable`.
+  const serviceAssignment = { server: false, agentExecution: true }
   const MACHINES: MachineWire[] = [
-    { id: 'mine', name: 'mine', online: true, use: 'granted' },
-    { id: 'theirs', name: 'theirs', online: true, use: 'denied' },
-    { id: 'asleep', name: 'asleep', online: false, use: 'granted' },
+    { id: 'mine', name: 'mine', online: true, use: 'granted', serviceAssignment },
+    { id: 'theirs', name: 'theirs', online: true, use: 'denied', serviceAssignment },
+    { id: 'asleep', name: 'asleep', online: false, use: 'granted', serviceAssignment },
   ] as unknown as MachineWire[]
 
   const repoOn = (ids: string[]) =>
@@ -181,7 +184,7 @@ describe('placement fails closed on the phone too (doc §3.1.4 M5)', () => {
     // The regression guard for the whole programme. `use` is optional and an
     // omission means NOT EVALUATED, read per LIST — reading it per machine as
     // denied-when-absent blanks every picker on today's deployments.
-    const unscoped = [{ id: 'mine', name: 'mine', online: true }] as unknown as MachineWire[]
+    const unscoped = [{ id: 'mine', name: 'mine', online: true, serviceAssignment }] as unknown as MachineWire[]
     const views = machineViewsFromWire(unscoped)
     expect(views[0]?.availability).toBe('available')
     expect(resolveSpawnTargetMachine(repoOn(['mine']), [], views).machineId).toBe('mine')
