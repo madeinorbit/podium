@@ -45,11 +45,51 @@ import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 const log = createLogger('daemon:connection')
 
+/**
+ * WHAT ACTUALLY CLOSED THE SOCKET (POD-4261).
+ *
+ * `String(error)` on a WebSocket `ErrorEvent` yields the literal string
+ * "[object ErrorEvent]" — it has no useful `toString`, and it is not an `Error`,
+ * so an `instanceof Error` guard falls through to exactly that. Every one of the
+ * 26 link losses during the contract-mode incident recorded that string and
+ * nothing else, which is the reason the outage could not be read from the logs.
+ *
+ * The real reason lives in sibling fields: `message` on the event, and a nested
+ * `error` carrying the `code` (ECONNREFUSED, EPIPE, ETIMEDOUT…). Read those
+ * before falling back, and keep the fallback describing the SHAPE rather than
+ * stringifying something that refuses to describe itself.
+ */
+export function describeSocketError(error: unknown): string {
+  if (error instanceof Error) {
+    const code = (error as NodeJS.ErrnoException).code
+    return code ? `${error.message} (${code})` : error.message
+  }
+  if (typeof error === 'object' && error !== null) {
+    const event = error as { type?: unknown; message?: unknown; error?: unknown }
+    const nested = event.error
+    const nestedDetail =
+      nested instanceof Error
+        ? `${nested.message}${(nested as NodeJS.ErrnoException).code ? ` (${(nested as NodeJS.ErrnoException).code})` : ''}`
+        : undefined
+    const parts = [
+      typeof event.message === 'string' && event.message ? event.message : undefined,
+      nestedDetail,
+      typeof event.type === 'string' && event.type ? `type=${event.type}` : undefined,
+    ].filter(Boolean)
+    if (parts.length > 0) return parts.join(' — ')
+    // Name the shape; "[object ErrorEvent]" is what this function exists to stop.
+    return `unreadable socket error (${Object.prototype.toString.call(error)})`
+  }
+  return String(error)
+}
+
 const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
 const SOCKET_OPEN_DEADLINE_MS = 10_000
 const PEER_HELLO_ACK_DEADLINE_MS = 10_000
 const QUEUE_DRAIN_RETRY_MS = 500
+/** Drops in a row before the link is called flapping and logged above info. */
+const FLAPPING_DROP_THRESHOLD = 3
 
 /**
  * How long a protocol-mismatch `podium update` may run before it is killed.
@@ -193,6 +233,16 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let queueDrainRetryTimer: unknown | undefined
   let runtimeEventRetryTimer: unknown | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
+  /**
+   * Consecutive drops with no successful connect in between (POD-4261).
+   *
+   * One drop is ordinary — a coordinator applying its own grant takes this link
+   * down, which is why the line below is deliberately `info`. A machine that
+   * drops REPEATEDLY is not ordinary, and at info it was invisible to any
+   * health check filtering on warn or error: that is exactly how a daemon
+   * flapping 26 times in 17 minutes was read as healthy.
+   */
+  let consecutiveDrops = 0
   let closing = false
   let started = false
   let lastSocketError: string | undefined
@@ -386,11 +436,22 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
      * `info` and bounded: one line per drop, one per return. A daemon that stays
      * connected writes none.
      */
-    log.info('daemon link lost; backing off before reconnecting', {
-      from,
-      retryBackoffMs: delay,
-      ...(lastSocketError ? { lastError: lastSocketError } : {}),
-    })
+    consecutiveDrops += 1
+    // Escalate on repetition, not on the first drop: keeps a healthy daemon
+    // silent and an unhealthy one visible above an info filter.
+    const flapping = consecutiveDrops >= FLAPPING_DROP_THRESHOLD
+    const line = flapping ? log.warn : log.info
+    line(
+      flapping
+        ? 'daemon link flapping; repeated drops without a stable connection'
+        : 'daemon link lost; backing off before reconnecting',
+      {
+        from,
+        retryBackoffMs: delay,
+        consecutiveDrops,
+        ...(lastSocketError ? { lastError: lastSocketError } : {}),
+      },
+    )
     report({
       state: 'disconnected',
       retryBackoffMs: delay,
@@ -504,6 +565,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     // ended, and clearing them first is how the field that names the cause ends
     // up permanently absent from the line that exists to report it.
     const recoveredFrom = lastSocketError
+    const droppedBefore = consecutiveDrops
+    consecutiveDrops = 0
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
     log.info('daemon link established', {
@@ -512,6 +575,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       // which is itself the distinction between "came back" and "just started".
       ...(recoveredAfterMs !== undefined ? { afterBackoffMs: recoveredAfterMs } : {}),
       ...(recoveredFrom ? { recoveredFrom } : {}),
+      ...(droppedBefore > 1 ? { droppedBefore } : {}),
     })
     const boot = deps.onConnected(legacyBindingOwners, bindingConfirmations) ?? {}
     convergedVersion = boot.convergedVersion ?? convergedVersion
@@ -603,7 +667,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     reason: 'unnegotiated' | 'malformed',
     error: unknown,
   ): void => {
-    const detail = error instanceof Error ? error.message : String(error)
+    const detail = describeSocketError(error)
     acceptedCaps.clear()
     lastSocketError = detail
     log.warn('closing daemon connection for invalid binary PTY input', {
@@ -651,7 +715,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (challenge.success && active) {
       void signChallenge(dialer, challenge.data).then((hello) => {
         if (!closing && socket === active && state === 'awaiting-ack') active.send(JSON.stringify(hello))
-      }).catch((error) => { lastSocketError = String(error); active.terminate() })
+      }).catch((error) => { lastSocketError = describeSocketError(error); active.terminate() })
       return
     }
     const step = dialer.receive(normalizeRawData(raw).toString())
@@ -720,7 +784,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   const retryLocalHandshake = (error: unknown): void => {
-    lastSocketError = String(error)
+    lastSocketError = describeSocketError(error)
     scheduleReconnect()
   }
 
@@ -803,7 +867,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       try {
         bindingSessionIds = deps.bindingSessionIds ? await deps.bindingSessionIds() : undefined
       } catch (error) {
-        lastSocketError = String(error)
+        lastSocketError = describeSocketError(error)
         active.terminate()
         return
       }
@@ -825,7 +889,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         active.send(JSON.stringify(firstHello(dialer)))
       } catch (error) {
         clearAcknowledgementDeadline(generation)
-        lastSocketError = String(error)
+        lastSocketError = describeSocketError(error)
         active.terminate()
       }
     })
@@ -855,7 +919,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     }
     active.on('error', (error) => {
       if (!isCurrent()) return
-      lastSocketError = error instanceof Error ? error.message : String(error)
+      lastSocketError = describeSocketError(error)
     })
     active.on('close', () => {
       if (socket !== active || socketGeneration !== generation) return
@@ -1001,7 +1065,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
             ),
           )
         } catch (error) {
-          lastSocketError = error instanceof Error ? error.message : String(error)
+          lastSocketError = describeSocketError(error)
         }
         return
       }

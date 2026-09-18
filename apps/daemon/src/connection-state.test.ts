@@ -27,7 +27,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { buildReport } from './build-report'
-import { createDaemonConnection } from './connection-state'
+import { createDaemonConnection, describeSocketError } from './connection-state'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { loadIdentity } from './identity'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
@@ -1334,4 +1334,35 @@ it('retries the whole local handshake when host recovery fails', async () => {
   } finally {
     await state.close()
   }
+})
+
+/**
+ * POD-4261. The daemon logged "[object ErrorEvent]" for all 26 link losses
+ * during the contract-mode outage, which is why it could not be diagnosed from
+ * the logs. These pin the shapes a WebSocket actually hands us.
+ */
+describe('describeSocketError', () => {
+  it('never returns the useless stringification of an ErrorEvent', () => {
+    // The real shape from `ws`: not an Error, no useful toString.
+    const errorEvent = { type: 'error', message: 'connect ECONNREFUSED 127.0.0.1:18787' }
+    const described = describeSocketError(errorEvent)
+    expect(described).not.toContain('[object')
+    expect(described).toContain('ECONNREFUSED')
+  })
+
+  it('surfaces the nested cause and its errno code', () => {
+    const nested = Object.assign(new Error('read ETIMEDOUT'), { code: 'ETIMEDOUT' })
+    expect(describeSocketError({ type: 'error', error: nested })).toContain('ETIMEDOUT')
+  })
+
+  it('names the shape when an object explains nothing about itself', () => {
+    // Must still not degrade to "[object Object]" — the whole defect.
+    const described = describeSocketError({})
+    expect(described).toContain('unreadable socket error')
+  })
+
+  it('keeps an ordinary Error message and code', () => {
+    const err = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })
+    expect(describeSocketError(err)).toBe('socket hang up (ECONNRESET)')
+  })
 })
