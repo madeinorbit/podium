@@ -1631,7 +1631,7 @@ export async function main(
     // `podium telemetry <command>`: opt-in telemetry consent + audit [spec:SP-f933].
     case 'telemetry': {
       const { telemetryCliMain } = await import('./telemetry-cli')
-      const code = telemetryCliMain(plan.args)
+      const code = await telemetryCliMain(plan.args)
       if (code !== 0) process.exit(code)
       return
     }

@@ -3,7 +3,7 @@
  * feature's load-bearing promises — "absent ≠ off ≠ on" and "DO_NOT_TRACK
  * suppresses the prompt too" are the ones a reviewer should be able to find.
  */
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { configPath, loadConfig, saveConfig } from '@podium/runtime/config'
@@ -13,9 +13,8 @@ import {
   DEFAULT_TELEMETRY_ENDPOINT,
   isTierOn,
   readTelemetryState,
-  resetInstallId,
   resolveTelemetryEndpoint,
-  setConsent,
+  stageInitialConsent,
   shouldAskForConsent,
   telemetrySuppressedBy,
 } from './consent'
@@ -111,10 +110,18 @@ describe('kill switches', () => {
   })
 })
 
-describe('setConsent — minting rules (D5)', () => {
+describe('stageInitialConsent — minting rules (D5)', () => {
+  it('refuses staging once any instance database exists, leaving config unchanged', () => {
+    saveConfig({ mode: 'server' })
+    const before = readFileSync(configPath(), 'utf8')
+    writeFileSync(join(dir, 'podium.db'), '')
+    expect(() => stageInitialConsent({ usage: 'on' })).toThrow('running server')
+    expect(readFileSync(configPath(), 'utf8')).toBe(before)
+  })
+
   it('mints an installId + clock on the first opt-in', () => {
     saveConfig({ mode: 'all-in-one' })
-    const state = setConsent({ usage: 'on' }, 1_700_000_000_000)
+    const state = stageInitialConsent({ usage: 'on' }, 1_700_000_000_000)
     expect(state.usage).toBe('on')
     expect(state.installId).toMatch(/^[0-9a-f-]{36}$/)
     expect(state.since).toBe(1_700_000_000_000)
@@ -123,7 +130,7 @@ describe('setConsent — minting rules (D5)', () => {
   it('does NOT mint an id for someone who opts OUT', () => {
     // Saying no must not leave you with an identifier.
     saveConfig({ mode: 'all-in-one' })
-    const state = setConsent({ usage: 'off', crash: 'off' })
+    const state = stageInitialConsent({ usage: 'off', crash: 'off' })
     expect(state.installId).toBeUndefined()
     expect(state.since).toBeUndefined()
     expect(state.usage).toBe('off')
@@ -131,23 +138,23 @@ describe('setConsent — minting rules (D5)', () => {
 
   it('keeps the same id across later tier changes', () => {
     saveConfig({ mode: 'all-in-one' })
-    const first = setConsent({ usage: 'on' })
-    const second = setConsent({ crash: 'on' })
+    const first = stageInitialConsent({ usage: 'on' })
+    const second = stageInitialConsent({ crash: 'on' })
     expect(second.installId).toBe(first.installId)
     expect(second.since).toBe(first.since)
   })
 
   it('preserves the id when a tier is turned back off (so re-opting in is not a new identity)', () => {
     saveConfig({ mode: 'all-in-one' })
-    const on = setConsent({ usage: 'on' })
-    const off = setConsent({ usage: 'off' })
+    const on = stageInitialConsent({ usage: 'on' })
+    const off = stageInitialConsent({ usage: 'off' })
     expect(off.installId).toBe(on.installId)
     expect(off.usage).toBe('off')
   })
 
   it('patches config.json without touching neighbouring keys', () => {
     saveConfig({ mode: 'server', publicUrl: 'https://box.example', updateChannel: 'edge' })
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
     const config = loadConfig()
     expect(config.mode).toBe('server')
     expect(config.publicUrl).toBe('https://box.example')
@@ -157,23 +164,10 @@ describe('setConsent — minting rules (D5)', () => {
 
   it('writes a config the schema accepts (no drift between writer and shape)', () => {
     saveConfig({ mode: 'all-in-one' })
-    setConsent({ usage: 'on', crash: 'on' })
+    stageInitialConsent({ usage: 'on', crash: 'on' })
     const raw = JSON.parse(readFileSync(configPath(), 'utf8'))
     expect(raw.telemetry.usage).toBe('on')
     expect(() => loadConfig()).not.toThrow()
-  })
-})
-
-describe('resetInstallId', () => {
-  it('produces a new, unlinkable id and restarts the clock', () => {
-    saveConfig({ mode: 'all-in-one' })
-    const before = setConsent({ usage: 'on' }, 1_000)
-    const after = resetInstallId(2_000)
-    expect(after.installId).not.toBe(before.installId)
-    // An age carried across the reset would re-link the two identities in the
-    // aggregate — which would defeat the point of being able to reset.
-    expect(after.since).toBe(2_000)
-    expect(after.usage).toBe('on')
   })
 })
 

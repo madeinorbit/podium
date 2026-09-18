@@ -1,6 +1,8 @@
+import { instanceDatabasePath } from '@podium/runtime/migration-ledger'
+import { telemetryClient } from './telemetry-cli'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
-import { renameSync, rmSync } from 'node:fs'
+import { existsSync, renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
 import {
   configPath,
@@ -22,7 +24,7 @@ import {
   networkOptionCommand,
   validatePublicUrl,
 } from '@podium/runtime/setup'
-import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
+import { indentExample, stageInitialConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
 import { isCancel, type SetupIO } from './setup-ui'
 
@@ -410,7 +412,12 @@ export async function telemetryStep(io: SetupIO, env: EnvSource = process.env): 
   )
   // Written even when both are 'no': an explicit 'off' is not the same as
   // 'absent', and recording the answer is how we know we asked (D11).
-  setConsent({ usage: usage ? 'on' : 'off', crash: crash ? 'on' : 'off' })
+  const consent = {
+    usage: usage ? ('on' as const) : ('off' as const),
+    crash: crash ? ('on' as const) : ('off' as const),
+  }
+  if (existsSync(instanceDatabasePath())) await telemetryClient().set.mutate(consent)
+  else stageInitialConsent(consent)
   if (usage || crash) {
     const on = [usage ? 'usage' : '', crash ? 'crash' : ''].filter(Boolean).join(' + ')
     io.success(`Thanks — ${on} reporting is on.`)

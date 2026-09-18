@@ -14,28 +14,25 @@
  * That is worth more trust than any amount of prose (Syncthing's lesson), so it
  * prints the real queue file — never a re-derived example.
  *
- * Every path here is read/write against config.json only: `podium telemetry
- * off` must work whether or not the server is running. These are operator
- * overrides above server-held Settings choices, not a second copy of them.
+ * Consent and identity changes use authenticated RPC to the instance settings
+ * store. An unavailable server is an error, never a file-override fallback.
  */
-import { loadConfig, stateDir } from '@podium/runtime/config'
+import { localServerUrl, resolvePort, stateDir } from '@podium/runtime/config'
 import {
   indentExample,
   readLastSent,
   readQueue,
-  readTelemetryState,
-  resetInstallId,
-  setConsent,
   type TelemetryState,
   type TelemetryTier,
 } from '@podium/telemetry'
+import { makeOperatorIssueClient } from './operator-client'
 import { declareFlags, flagTable, tryParseFlags } from './argv'
 
 export const TELEMETRY_USAGE = [
   'usage: podium telemetry [command]',
   '',
   'Commands:',
-  '  (none)                Show local operator overrides; see Settings for effective choices',
+  '  (none)                Show effective telemetry settings',
   '  on  [--usage] [--crash]   Turn tiers on  (no flag = both)',
   '  off [--usage] [--crash]   Turn tiers off (no flag = both)',
   '  show                  Print the exact pending + last-sent payloads',
@@ -58,7 +55,7 @@ export function tiersFromFlags(args: string[]): TelemetryTier[] | { error: strin
 
 function tierLabel(state: TelemetryState, tier: TelemetryTier): string {
   const value = state[tier]
-  const shown = value === 'absent' ? 'unset (server settings apply)' : value
+  const shown = value === 'absent' ? 'unset (off)' : value
   // A kill switch masks the stored value rather than erasing it — say so, so
   // "I set it to on and it says off" is never a mystery.
   return state.suppressedBy && value === 'on'
@@ -68,13 +65,12 @@ function tierLabel(state: TelemetryState, tier: TelemetryTier): string {
 
 export function statusText(state: TelemetryState): string {
   const lines = [
-    'Telemetry operator overrides (environment and config.json)',
-    'Effective choices are shown in Settings → Privacy.',
+    'Telemetry settings (Settings → Privacy)',
     '',
     `  usage      ${tierLabel(state, 'usage')}`,
     `  crash      ${tierLabel(state, 'crash')}`,
     `  endpoint   ${state.endpoint}`,
-    `  installId  ${state.installId ?? '(unset — server settings may supply it)'}`,
+    `  installId  ${state.installId ?? '(unset)'}`,
   ]
   if (state.suppressedBy) {
     lines.push('', `  ${state.suppressedBy} is set — nothing is collected or sent.`)
@@ -138,8 +134,37 @@ const TELEMETRY_FLAGS = flagTable(declareFlags({ known: [] }), {
   off: { booleans: ['usage', 'crash'] },
 })
 
-/** Returns the process exit code (0 ok, 2 usage error). */
-export function telemetryCliMain(argv: string[], io: TelemetryCliIO = realIO): number {
+export interface TelemetryClient {
+  state: { query(): Promise<TelemetryState> }
+  set: { mutate(input: Partial<Record<TelemetryTier, 'on' | 'off'>>): Promise<TelemetryState> }
+  resetId: { mutate(): Promise<TelemetryState> }
+}
+
+export function telemetryClient(): TelemetryClient {
+  return (makeOperatorIssueClient(localServerUrl(resolvePort())) as unknown as {
+    telemetry: TelemetryClient
+  }).telemetry
+}
+
+/** Returns 0 on success, 1 on RPC failure, or 2 on usage error. */
+export async function telemetryCliMain(
+  argv: string[],
+  io: TelemetryCliIO = realIO,
+  client?: TelemetryClient,
+): Promise<number> {
+  try {
+    return await runTelemetryCli(argv, io, () => client ?? telemetryClient())
+  } catch (error) {
+    io.printErr(`podium telemetry: ${error instanceof Error ? error.message : String(error)}`)
+    return 1
+  }
+}
+
+async function runTelemetryCli(
+  argv: string[],
+  io: TelemetryCliIO,
+  client: () => TelemetryClient,
+): Promise<number> {
   const [command, ...rest] = argv
 
   if (command === '--help' || command === '-h' || command === 'help') {
@@ -148,7 +173,7 @@ export function telemetryCliMain(argv: string[], io: TelemetryCliIO = realIO): n
   }
 
   if (command === undefined) {
-    io.print(statusText(readTelemetryState(loadConfig())))
+    io.print(statusText(await client().state.query()))
     return 0
   }
 
@@ -171,9 +196,9 @@ export function telemetryCliMain(argv: string[], io: TelemetryCliIO = realIO): n
   }
 
   if (command === 'reset-id') {
-    const state = resetInstallId()
+    const state = await client().resetId.mutate()
     io.print(`New install id: ${state.installId}`)
-    io.print('This operator override supplies the identity for future reports.')
+    io.print('Future reports use this identity.')
     return 0
   }
 
@@ -187,10 +212,10 @@ export function telemetryCliMain(argv: string[], io: TelemetryCliIO = realIO): n
     const updates = Object.fromEntries(tiers.map((t) => [t, command])) as Partial<
       Record<TelemetryTier, 'on' | 'off'>
     >
-    const state = setConsent(updates)
+    const state = await client().set.mutate(updates)
     io.print(statusText(state))
     // Turning a tier on while a kill switch is set would otherwise look like it
-    // silently did nothing — the config DID change; the env still wins.
+    // silently did nothing — the settings DID change; the env still wins.
     if (command === 'on' && state.suppressedBy) {
       io.print('')
       io.print(

@@ -1,3 +1,5 @@
+import { telemetryCliMain, type TelemetryClient } from '../../cli/src/telemetry-cli'
+import { stageInitialConsent } from '@podium/telemetry'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -116,6 +118,44 @@ describe('one-time config settings import', () => {
     expect(() => importConfigSettings(db, root)).toThrow()
     expect(db.prepare('SELECT * FROM meta').all()).toEqual([])
   })
+  it('CLI consent after import stays editable and never rewrites config, including reset and opt-out', async () => {
+    const { root, path } = fixture()
+    vi.stubEnv('PODIUM_STATE_DIR', root)
+    writeFileSync(path, JSON.stringify({ mode: 'server' }))
+    // Fresh install stages before the first database/boot, and the import consumes it.
+    stageInitialConsent({ usage: 'off', crash: 'off' })
+    const store = await openTestStore(join(root, 'podium.db'))
+    // Installer and server run in separate processes; discard the installer's
+    // bounded config cache before observing the server's imported settings.
+    forgetConfig(path)
+    expect(JSON.parse(readFileSync(path, 'utf8')).telemetry).toEqual({})
+    try {
+      const service = new InstanceService({ settings: store.settings })
+      expect(service.telemetryState()).toMatchObject({ usage: 'off', crash: 'off' })
+      const before = readFileSync(path, 'utf8')
+      expect(() => stageInitialConsent({ usage: 'on' })).toThrow('running server')
+      const client: TelemetryClient = {
+        state: { query: async () => service.telemetryState() },
+        set: { mutate: (input) => service.setConsent(input) },
+        resetId: { mutate: () => service.resetInstallId() },
+      }
+      const io = { print: () => {}, printErr: (error: string) => { throw new Error(error) } }
+      expect(await telemetryCliMain(['on'], io, client)).toBe(0)
+      expect(service.telemetryState()).toMatchObject({ usage: 'on', crash: 'on' })
+      expect(service.provenance().telemetryUsage.source).toBe('settings')
+      expect(service.provenance().telemetryCrash.source).toBe('settings')
+      const id = service.telemetryState().installId
+      expect(await telemetryCliMain(['reset-id'], io, client)).toBe(0)
+      expect(service.telemetryState().installId).not.toBe(id)
+      expect(await telemetryCliMain(['off'], io, client)).toBe(0)
+      // The exact service used by the Settings control still accepts writes.
+      await service.setConsent({ usage: 'on' })
+      expect(readFileSync(path, 'utf8')).toBe(before)
+    } finally {
+      await store.close()
+    }
+  })
+
   it('UI writes reach the existing row and synchronous consumers, survive reopen, and leave the file unchanged', async () => {
     const { root, path } = fixture()
     const raw = JSON.stringify({ mode: 'server', port: 19991 })

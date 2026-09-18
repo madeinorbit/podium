@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { setConsent } from './consent'
+import { stageInitialConsent } from './consent'
 import { TelemetryEmitter } from './emitter'
 import { readLastSent, readQueue } from './queue'
 import { TelemetryReport } from './schema'
@@ -85,7 +85,7 @@ describe('opt in → flush → the wire', () => {
   it('sends exactly what `podium telemetry show` printed, byte for byte', async () => {
     saveConfig({ mode: 'all-in-one' })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
 
     const e = emitter()
     e.recordSession('claude-code')
@@ -109,7 +109,7 @@ describe('opt in → flush → the wire', () => {
   it('the wire payload is valid against the schema the relay validates with', async () => {
     saveConfig({ mode: 'all-in-one' })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
     const e = emitter()
     e.recordSession('codex')
     await e.flush()
@@ -119,7 +119,7 @@ describe('opt in → flush → the wire', () => {
   it('sends the design-doc shape and nothing else', async () => {
     saveConfig({ mode: 'all-in-one' })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
     const e = emitter()
     e.recordSession('claude-code')
     await e.flush()
@@ -143,7 +143,7 @@ describe('opt in → flush → the wire', () => {
   it('drains the queue on success', async () => {
     saveConfig({ mode: 'all-in-one' })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
     const e = emitter()
     e.recordSession('codex')
     await e.flush()
@@ -165,14 +165,14 @@ describe('the negative case, end to end', () => {
   it('`podium telemetry off` mid-run stops the very next flush', async () => {
     saveConfig({ mode: 'all-in-one' })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
     const e = emitter()
     e.recordSession('claude-code')
     await e.flush()
     expect(relay.bodies).toHaveLength(1)
 
-    // The CLI writes config.json; the running emitter must notice with no restart.
-    setConsent({ usage: 'off' })
+    // The supplied configuration changes; the emitter must notice with no restart.
+    stageInitialConsent({ usage: 'off' })
     e.recordSession('codex')
     await e.flush()
     expect(relay.bodies).toHaveLength(1) // still 1 — nothing new went out
@@ -181,7 +181,7 @@ describe('the negative case, end to end', () => {
   it('DO_NOT_TRACK stops a fully consented install cold', async () => {
     saveConfig({ mode: 'all-in-one' })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
-    setConsent({ usage: 'on', crash: 'on' })
+    stageInitialConsent({ usage: 'on', crash: 'on' })
     process.env.DO_NOT_TRACK = '1'
     try {
       const e = emitter()
@@ -197,7 +197,7 @@ describe('the negative case, end to end', () => {
     saveConfig({ mode: 'all-in-one' })
     // Nothing is listening here.
     process.env.PODIUM_TELEMETRY_ENDPOINT = 'http://127.0.0.1:1/'
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
     const e = emitter()
     e.recordSession('codex')
     await expect(e.flush()).resolves.toBeUndefined()
@@ -209,7 +209,7 @@ describe('what the wire actually carries', () => {
   it('carries no path, username, or hostname anywhere in the body', async () => {
     saveConfig({ mode: 'all-in-one' })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
     const e = emitter()
     e.recordSession('claude-code')
     await e.flush()
@@ -222,7 +222,7 @@ describe('what the wire actually carries', () => {
   it('is small — a daily report is a few hundred bytes', async () => {
     saveConfig({ mode: 'all-in-one' })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
-    setConsent({ usage: 'on' })
+    stageInitialConsent({ usage: 'on' })
     const e = emitter()
     for (const kind of [
       'claude-code',

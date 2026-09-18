@@ -1,3 +1,4 @@
+import * as telemetryCli from './telemetry-cli'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { readMachineCredential, machinePublicKeyWire } from '@podium/runtime/machine-credential'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -9,6 +10,7 @@ import { encodeJoin } from '@podium/runtime/join'
 import { NETWORK_OPTIONS } from '@podium/runtime/setup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  telemetryStep,
   repairConfig,
   runCliSetup,
   runJoinSetup,
@@ -485,6 +487,26 @@ describe('runCliSetup', () => {
   // ------------------------------------------------------------------
   describe('telemetry step (the last step of the host flow)', () => {
     const HOST_ANSWERS: unknown[] = ['all-in-one', net(0), 'https://box.ts.net', 's3cret', false]
+
+    it('uses settings RPC for an existing database and never stages after an RPC failure', async () => {
+      saveConfig({ mode: 'server' })
+      const root = process.env.PODIUM_STATE_DIR!
+      writeFileSync(join(root, 'podium.db'), '')
+      const before = readFileSync(join(root, 'config.json'), 'utf8')
+      const mutate = vi.fn().mockResolvedValue({ usage: 'on', crash: 'off' })
+      const client = vi.spyOn(telemetryCli, 'telemetryClient').mockReturnValue({
+        state: { query: vi.fn() }, set: { mutate }, resetId: { mutate: vi.fn() },
+      })
+      try {
+        await telemetryStep(scriptedIO([true, false]).io)
+        expect(mutate).toHaveBeenCalledWith({ usage: 'on', crash: 'off' })
+        mutate.mockRejectedValueOnce(new Error('Server unavailable'))
+        await expect(telemetryStep(scriptedIO([false, false]).io)).rejects.toThrow('Server unavailable')
+        expect(readFileSync(join(root, 'config.json'), 'utf8')).toBe(before)
+      } finally {
+        client.mockRestore()
+      }
+    })
 
     it('is reached only AFTER the install works (step 8)', async () => {
       const order: string[] = []

@@ -128,7 +128,7 @@ const EVERY_SUBCOMMAND: ReadonlyArray<readonly [string, () => Promise<string>]> 
     'telemetry',
     async () => {
       const rec = ioRecorder()
-      telemetryCliMain(['show', BOGUS], rec.io)
+      await telemetryCliMain(['show', BOGUS], rec.io)
       return rec.text()
     },
   ],

@@ -1,5 +1,5 @@
 /**
- * Consent: the tri-state, its kill switches, and the only writer of
+ * Consent: the tri-state, its kill switches, and the first-install consent staging writer for
  * `config.telemetry` [spec:SP-f933].
  *
  * Tri-state per tier (D2): `on` | `off` | ABSENT. Absent and `off` both send
@@ -8,9 +8,8 @@
  * asked" fact, and collapsing it into on would be the thing this whole feature
  * exists not to do.
  *
- * State lives in config.json, not the settings blob (D8), so `podium telemetry
- * off` works whether or not the server is running — and so a user can turn this
- * off with a text editor and no daemon at all.
+ * Preferences live in the server settings store. Only fresh installers without
+ * an instance database may stage consent in config.json for the one-time import.
  *
  * Kill switches (checked before ANYTHING else, including the setup prompt):
  *   - DO_NOT_TRACK=1        the community standard (consoledonottrack.com)
@@ -19,6 +18,8 @@
  * be tracked must not be nagged about being tracked.
  */
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { instanceDatabasePath } from '@podium/runtime/migration-ledger'
 import { type EnvSource, loadConfig, type PodiumConfig, saveConfig } from '@podium/runtime/config'
 import type { TelemetryTier } from './schema'
 import { TELEMETRY_TIERS } from './schema'
@@ -132,17 +133,21 @@ export function shouldAskForConsent(env: EnvSource = process.env): boolean {
 }
 
 /**
- * Write one tier's consent. Minting rules (D5): the installId and its clock are
+ * Stage first-install consent before the first server boot. Minting rules (D5): the installId and its clock are
  * created on the first OPT-IN — not at install, and never by an opt-out — so a
  * user who says no never gets an identifier at all.
  *
- * Returns the resulting state. Callers write through this rather than
- * hand-patching config.json so the minting rule has exactly one home.
+ * Returns the staged state. Established instances use the server settings RPC.
  */
-export function setConsent(
+export function stageInitialConsent(
   updates: Partial<Record<TelemetryTier, 'on' | 'off'>>,
   now: number = Date.now(),
 ): TelemetryState {
+  // Existing databases must use the authenticated settings RPC, even if their
+  // import is pending. In particular a completed receipt can never be bypassed.
+  if (existsSync(instanceDatabasePath())) {
+    throw new Error('Telemetry consent requires the running server once an instance database exists.')
+  }
   const config = loadConfig()
   const current = config.telemetry ?? {}
   const next = { ...current, ...updates }
@@ -152,21 +157,5 @@ export function setConsent(
     next.since = now
   }
   saveConfig({ ...config, telemetry: next })
-  return readTelemetryState(loadConfig())
-}
-
-/**
- * `podium telemetry reset-id` — a new random installId, unlinkable from the old
- * one. Also restarts the clock: an installAge carried across a reset would
- * re-link the two identities in the aggregate, which is the whole point of
- * being able to reset.
- */
-export function resetInstallId(now: number = Date.now()): TelemetryState {
-  const config = loadConfig()
-  const current = config.telemetry ?? {}
-  saveConfig({
-    ...config,
-    telemetry: { ...current, installId: randomUUID(), since: now },
-  })
   return readTelemetryState(loadConfig())
 }

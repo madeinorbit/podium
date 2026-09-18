@@ -26,8 +26,6 @@ import {
 } from '@podium/runtime/setup'
 import {
   readTelemetryState,
-  resetInstallId,
-  setConsent,
   shouldAskForConsent,
 } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
