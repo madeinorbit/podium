@@ -250,7 +250,7 @@ describe('MachinesPanel version skew', () => {
    * them is anybody's problem. Nothing applies itself, so a pending offer is the
    * mechanism working; a machine that took the grant and never arrived is not.
    */
-  it('keeps the warning colour for the machine that is stuck, not the one that is waiting', async () => {
+  it('shows a current online machine refusal while leaving a waiting offer unmarked', async () => {
     const behind = {
       inventory: {
         os: 'linux' as const,
@@ -271,20 +271,28 @@ describe('MachinesPanel version skew', () => {
     expect(pending.className).not.toContain('warning')
     waiting.unmount()
 
-    storeState.machines = [machine(behind)]
+    storeState.machines = [machine({ ...behind, online: true, appVersion: '0.5.0', versionState: 'current' })]
     setTrpcWithVersion('0.5.0', [
       {
         id: storeState.machines[0]?.id,
         version: '0.4.1',
-        state: 'stuck',
+        state: 'current',
+        reason: {
+          code: 'daemon-refused',
+          message: 'Daemon refused to start: address already in use.',
+          source: 'machine',
+          at: 1000,
+        },
         online: true,
         busy: false,
       },
     ])
     render(<MachinesPanel />)
 
-    const stuck = await screen.findByText('stuck')
+    const stuck = await screen.findByText('Failed')
     expect(stuck.className).toContain('warning')
+    expect(screen.getByText('Daemon refused to start: address already in use.')).toBeTruthy()
+    expect(screen.getByText('reported by the machine')).toBeTruthy()
     expect(screen.queryByText(/update available/i)).toBeNull()
   })
 

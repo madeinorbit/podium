@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { UpdatesService } from './service'
-import { fleetSnapshot } from './trpc'
+import { fleetSnapshot, updateProcedures } from './trpc'
+import { t, type Context } from '../../trpc'
+import { userCommandPrincipal } from '../../command-principal'
+import { OPERATOR } from '../../test-support/capabilities'
 
 /**
  * WHAT THE PANEL IS ALLOWED TO OFFER (POD-2783).
@@ -59,6 +63,53 @@ async function serviceFor(machines: unknown[], platforms: readonly string[]) {
 }
 
 describe('the update offer', () => {
+  it('exposes the failed step sentence and machine reason through tRPC after withdrawal', async () => {
+    const svc = await serviceFor([machine('vps', { platform: 'linux-x86_64' })], ['linux-x86_64'])
+    await svc.onStatus(asMachineId('vps'), {
+      type: 'updateStatus', state: 'stuck', version: '0.4.1', detail: 'Disk is full.',
+    })
+    await svc.setTargetUnavailable('dev', 'Update op_failed failed: package preparation failed.')
+    const operation = {
+      id: 'op_failed', kind: 'update', state: 'failed',
+      error: { code: 'operation-failed', message: 'Generic operation failure.' },
+      steps: [{ id: 'prepare', state: 'failed', error: { code: 'preparation-failed', message: 'Package preparation failed: compiler exited with code 1.' } }],
+    }
+    const caller = t.router(updateProcedures()).createCaller({
+      principal: userCommandPrincipal(firstAdminMemberId(), 'admin'), capability: OPERATOR,
+      serverPlacement: { kind: 'fleet', machineId: 'vps' },
+      registry: { modules: { updates: svc, operations: { engine: {
+        active: async () => undefined,
+        history: async () => [{ operation }],
+      } } }, sessionStore: {} },
+    } as unknown as Context)
+    const snapshot = await caller.fleet()
+    expect(snapshot.operation).toEqual({ id: 'op_failed', failureReason: operation.steps[0]!.error.message })
+    expect(snapshot.allMachines[0]).toMatchObject({ state: 'stuck', reason: { message: 'Disk is full.', source: 'machine' } })
+  })
+  it('exposes a machine refusal on an online row in both fleet projections', async () => {
+    const svc = await serviceFor([machine('vps', { platform: 'linux-x86_64' })], ['linux-x86_64'])
+    await svc.onStatus(asMachineId('vps'), {
+      type: 'updateStatus',
+      state: 'rejected',
+      version: '0.4.1',
+      detail: 'Daemon refused: invalid configuration.',
+      reasonCode: 'daemon-refused',
+      reportedAt: 900,
+    })
+    const snapshot = await fleetSnapshot(svc, { kind: 'external' })
+    const expected = {
+      online: true,
+      state: 'rejected',
+      reason: {
+        code: 'daemon-refused',
+        message: 'Daemon refused: invalid configuration.',
+        source: 'machine',
+        at: 900,
+      },
+    }
+    expect(snapshot.machines[0]).toMatchObject(expected)
+    expect(snapshot.allMachines[0]).toMatchObject(expected)
+  })
   it('does not count a machine the release predates as behind', async () => {
     const svc = await serviceFor(
       [

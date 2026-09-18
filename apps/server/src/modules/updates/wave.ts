@@ -2,6 +2,8 @@ import { DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, versionSupport, type Wire
 import type { MachinePresenceSource, UpdateChannel } from '@podium/model'
 import type { ConvergenceState, UpdateTrustRoot } from '@podium/protocol'
 
+import type { MachineFailureReason } from './recovery-store'
+
 export interface WaveMachine {
   id: string
   name?: string
@@ -12,6 +14,7 @@ export interface WaveMachine {
   /** Busy is only a canary preference; sessions survive the restart. */
   busy: boolean
   detail?: string
+  reason?: MachineFailureReason
   /**
    * How far this machine's current phase has got, as its last heartbeat said
    * (POD-2101). Absent for a daemon that predates progress reporting, or for a

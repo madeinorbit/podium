@@ -100,6 +100,7 @@ export interface UpdateFleetMachine {
   online: boolean
   busy: boolean
   detail?: string
+  reason?: WaveMachine['reason']
 }
 
 export interface UpdateFleetBlocker {
@@ -156,6 +157,7 @@ export interface UpdateFleetSnapshot {
    * update panel picks up in its own issue. An old bundle ignores it (P8).
    */
   operationId?: string
+  operation?: { id: string; failureReason?: string }
   /**
    * A version published while the operation ran, waiting its turn (§3.2). Shown
    * so "0.4.4 arrived and will be offered when this finishes" is sayable rather
@@ -643,6 +645,13 @@ export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
   } catch {
     servedMobileWeb = undefined
   }
+  const operationRow =
+    active?.kind === UPDATE_OPERATION_KIND
+      ? active
+      : (await state.modules.operations.engine.history(UPDATE_OPERATION_KIND, 1))[0]
+  const operation = operationRow?.operation
+  const failedStep = operation?.steps?.find((step) => step.state === 'failed')
+  const failure = failedStep?.error ?? operation?.error
   const sourceDigest = serverBuildSourceDigest()
   return {
     ...fleet,
@@ -653,6 +662,21 @@ export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
     startability,
     ...(preparation ? { preparation } : {}),
     ...(active?.kind === UPDATE_OPERATION_KIND ? { operationId: active.id } : {}),
+    ...(operation
+      ? {
+          operation: {
+            id: operation.id,
+            ...(failure
+              ? {
+                  failureReason:
+                    failure.message ??
+                    failure.detail ??
+                    'The update failed without a recorded reason.',
+                }
+              : {}),
+          },
+        }
+      : {}),
     ...(queued ? { nextTargetVersion: queued.version } : {}),
   }
 }

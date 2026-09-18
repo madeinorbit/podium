@@ -3,6 +3,14 @@ import { CONVERGENCE_STATES, UpdateGrantMessage, UpdateTarget } from '@podium/pr
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { z } from 'zod'
 
+export const MachineFailureReason = z.object({
+  code: z.string().optional(),
+  message: z.string(),
+  source: z.enum(['machine', 'coordinator']),
+  at: z.number(),
+})
+export type MachineFailureReason = z.infer<typeof MachineFailureReason>
+
 const RecoveryState = z.object({
   projectedCurrent: z.boolean().optional(),
   channel: UpdateChannel,
@@ -11,6 +19,10 @@ const RecoveryState = z.object({
   version: z.string(),
   grantId: z.string().optional(),
   detail: z.string().optional(),
+  reason: MachineFailureReason.optional(),
+  lastReportAt: z.number().optional(),
+  lastReportedState: z.enum(CONVERGENCE_STATES).optional(),
+  targetVersion: z.string().optional(),
   percent: z.number().optional(),
   phaseDetail: z.string().optional(),
 })

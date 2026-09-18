@@ -94,6 +94,8 @@ export const UpdateStatusMessage = z.object({
   state: z.enum(CONVERGENCE_STATES),
   /** A label, never parsed or ordered as a semver. */
   version: z.string().min(1),
+  reasonCode: z.string().min(1).optional(),
+  reportedAt: z.number().int().optional(),
   /** Human-readable detail for rejected/stuck reports. */
   detail: z.string().optional(),
   reasonCode: z.string().min(1).optional(),

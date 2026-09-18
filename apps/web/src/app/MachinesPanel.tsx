@@ -1,3 +1,4 @@
+import { MachineFailureReason, type FailureReason } from '@/features/updates/MachineFailureReason'
 // This app-level surface composes settings, setup, and machine capabilities.
 
 import { relativeTime } from '@podium/client-core/focus'
@@ -88,6 +89,7 @@ export { SERVER_MOVE_CONFIRMATION }
 
 /** One machine's server-side convergence, as the fleet read model reports it. */
 export interface MachineConvergence {
+  reason?: FailureReason
   state: ConvergenceRowState
   detail?: string
 }
@@ -120,6 +122,7 @@ function useFleetConvergence(trpc: Store['trpc']): {
         for (const machine of fleet.allMachines ?? fleet.machines ?? []) {
           next.set(machine.id, {
             state: machine.state as ConvergenceRowState,
+            reason: machine.reason,
             ...(machine.detail ? { detail: machine.detail } : {}),
           })
         }
@@ -1171,7 +1174,11 @@ function MachineRow({
    * colour is kept for the machine that took the grant and never arrived, which
    * is the one nobody can fix by pressing anything.
    */
-  const skew = machineVersionSkew(machine, serverAppVersion, convergence?.state ?? null)
+  const skew = machineVersionSkew(
+    machine,
+    serverAppVersion,
+    convergence?.reason ? 'rejected' : (convergence?.state ?? null),
+  )
 
   const revoke = async () => {
     setRevoking(true)
@@ -1364,6 +1371,7 @@ function MachineRow({
                   </span>
                 </>
               )}
+              <MachineFailureReason reason={convergence?.reason} />
               {fleetState.tone === 'online' &&
                 assignment?.agentExecution === true &&
                 services?.agentExecution.state === 'available' && (

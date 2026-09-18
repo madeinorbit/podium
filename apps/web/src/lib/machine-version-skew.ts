@@ -77,6 +77,9 @@ export function machineVersionSkew(
   serverAppVersion: string | null = null,
   convergenceState: MachineConvergenceState | null = null,
 ): VersionSkewVerdict {
+  if (convergenceState === 'rejected' || convergenceState === 'stuck') {
+    return { label: 'Failed', badge: 'Failed', mark: 'unexpected' }
+  }
   if (machine.installKind === 'source') {
     return {
       label: 'Source checkout',
@@ -99,22 +102,6 @@ export function machineVersionSkew(
   // Behind, and the rest of this decides WHY.
   if (convergenceState && IN_FLIGHT.has(convergenceState)) {
     return { label: 'Updating…', badge: 'updating' }
-  }
-  if (convergenceState === 'rejected') {
-    return {
-      label: 'Update refused',
-      badge: 'update refused',
-      mark: 'unexpected',
-      note: 'This machine turned the update down. Its row says why, and can retry it.',
-    }
-  }
-  if (convergenceState === 'stuck') {
-    return {
-      label: 'Stuck behind target',
-      badge: 'stuck',
-      mark: 'unexpected',
-      note: 'This machine took the update and never arrived on it.',
-    }
   }
   // There is deliberately NO "managed by Podium Desktop" case here any more.
   // The macOS payload moved out of the .app (POD-2508), so a Mac is an ordinary

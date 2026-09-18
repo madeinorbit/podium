@@ -12,7 +12,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GrantCause } from './grant-cause'
 import { classifyMachineFailure } from './operation'
 import { UpdatesService, type UpdatesDeps } from './service'
-import type { UpdateRecoverySnapshot } from './recovery-store'
+import { UpdateRecoveryStore, type UpdateRecoverySnapshot } from './recovery-store'
+import { openDatabase } from '@podium/runtime/sqlite'
 
 /**
  * The causes these cases state. Every granting method REQUIRES one (POD-2907),
@@ -181,6 +182,125 @@ describe('UpdatesService', () => {
         },
       }
     }
+
+    it('lets late machine words replace inference and persists their provenance across restart', async () => {
+      const db = openDatabase(':memory:')
+      db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+      const recovery = new UpdateRecoveryStore(db)
+      try {
+        let now = 1_000
+        const h = await start({ recovery, now: () => now })
+        await h.svc.onStatus(asMachineId('a'), {
+          ...confirmed,
+          state: 'restarting',
+          phaseDetail: 'activating',
+        })
+        now = 61_000
+        await h.svc.abandonWait(['a'], 'The machines step deadline expired.')
+        expect((await h.svc.fleet())[0]?.reason).toEqual({
+          code: 'report-deadline',
+          source: 'coordinator',
+          at: 61_000,
+          message:
+            'No report for 60 s after it said restarting; last phase: activating. The machines step deadline expired.',
+        })
+        const boot = make(h.machines, { recovery, now: () => now })
+        const inferred = (await boot.svc.fleet())[0]?.reason
+        expect(inferred?.source).toBe('coordinator')
+        await boot.svc.onStatus(asMachineId('a'), { ...confirmed, state: 'stuck' })
+        expect((await boot.svc.fleet())[0]?.reason).toEqual(inferred)
+        await boot.svc.onStatus(asMachineId('a'), {
+          ...confirmed,
+          state: 'rejected',
+          reasonCode: 'daemon-refused',
+          reportedAt: 59_000,
+          detail: 'Daemon refused to start: address already in use.',
+        })
+        const reason = {
+          code: 'daemon-refused',
+          message: 'Daemon refused to start: address already in use.',
+          source: 'machine',
+          at: 59_000,
+        }
+        expect((await boot.svc.fleet())[0]).toMatchObject({ state: 'rejected', reason })
+        await boot.svc.abandonWait(['a'], 'Another deadline expired.')
+        await boot.svc.setTargetUnavailable('dev', 'Publication failed.')
+        expect((await boot.svc.fleet())[0]?.reason).toEqual(reason)
+        const reboot = make(h.machines, { recovery })
+        expect((await reboot.svc.fleet())[0]?.reason).toEqual(reason)
+      } finally {
+        db.close()
+      }
+    })
+
+    it('quotes the reported state even when the coordinator projects it as restarting', async () => {
+      let now = 1_000
+      const { svc } = await start({ now: () => now })
+      await svc.onStatus(asMachineId('a'), { ...confirmed, phaseDetail: 'activating' })
+      expect((await svc.fleet())[0]?.state).toBe('restarting')
+      now = 61_000
+      await svc.abandonWait(['a'], 'The machines step deadline expired.')
+      expect((await svc.fleet())[0]?.reason?.message).toContain('No report for 60 s after it said current; last phase: activating.')
+    })
+
+    it('retains an idle daemon refusal without a target across restart', async () => {
+      const recovery = memoryRecovery()
+      const machines = [m('a', { presenceSource: 'supervisor' })]
+      const { svc } = make(machines, { recovery })
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        state: 'current',
+        version: '0.4.1',
+        reasonCode: 'daemon-refused',
+        detail: 'Daemon configuration is invalid.',
+        reportedAt: 950,
+      })
+      const boot = make(machines, { recovery })
+      expect((await boot.svc.fleet())[0]).toMatchObject({
+        state: 'current',
+        online: true,
+        reason: {
+          code: 'daemon-refused',
+          message: 'Daemon configuration is invalid.',
+          source: 'machine',
+          at: 950,
+        },
+      })
+    })
+
+    it('accepts a late exact-grant failure after withdrawal without new fields', async () => {
+      const { svc } = await start()
+      await svc.setTargetUnavailable('dev', 'Update op_test failed: compilation failed.')
+      expect((await svc.fleet())[0]?.reason).toMatchObject({
+        source: 'coordinator',
+        message: 'Update op_test failed: compilation failed.',
+      })
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        state: 'stuck',
+        version: '0.4.1',
+        detail: 'The disk is full.',
+      })
+      expect((await svc.fleet())[0]?.reason).toMatchObject({
+        source: 'machine',
+        message: 'The disk is full.',
+      })
+    })
+
+    it('accepts old machine reports with words but no reason metadata', async () => {
+      const { svc } = await start()
+      await svc.onStatus(asMachineId('a'), {
+        ...confirmed,
+        state: 'rejected',
+        detail: 'Disk is full.',
+      })
+      expect((await svc.fleet())[0]?.reason).toEqual({
+        message: 'Disk is full.',
+        source: 'machine',
+        at: 1_000,
+      })
+    })
 
     it('restores exact pending authority before any target publication or fleet read', async () => {
       const recovery = memoryRecovery()

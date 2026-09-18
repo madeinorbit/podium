@@ -1,3 +1,4 @@
+import { MachineFailureReason, type FailureReason } from '@/features/updates/MachineFailureReason'
 import { shallowEqual } from '@podium/client-core/store'
 import type { MachineWire } from '@podium/model/browser'
 import type { Operation, ReleaseProposal } from '@podium/protocol'
@@ -31,6 +32,7 @@ import {
 import { componentVersions } from './version-rows'
 
 interface FleetMachine {
+  reason?: FailureReason
   id: string
   installKind?: string
   version: string
@@ -65,6 +67,7 @@ interface VersionInfo {
 }
 
 interface MachineVersionRow {
+  reason?: FailureReason
   id: string
   label: string
   version: string
@@ -371,6 +374,7 @@ export function UpdatesSection(): JSX.Element {
       ? machines.map((machine: MachineWire) => {
           const wave = fleetMachines.find((candidate) => candidate.id === machine.id)
           return {
+            reason: wave?.reason,
             id: machine.id,
             label: machine.name || machine.hostname || machine.id,
             version: formatDisplayedVersion(machine.appVersion ?? wave?.version ?? 'unreported'),
@@ -380,11 +384,16 @@ export function UpdatesSection(): JSX.Element {
             // behind-and-waiting-for-a-person are three different situations,
             // and the convergence phase is the only thing that tells them apart
             // (spec §2.2b, §8c decision 14).
-            skew: machineVersionSkew(machine, serverVersion ?? null, wave?.state ?? null),
+            skew: machineVersionSkew(
+              machine,
+              serverVersion ?? null,
+              wave?.reason ? 'rejected' : (wave?.state ?? null),
+            ),
           }
         })
       : fleetMachines.map((machine) => ({
           id: machine.id,
+          reason: machine.reason,
           label: machine.id,
           version: formatDisplayedVersion(machine.version),
           channelOverride: null,
@@ -399,7 +408,7 @@ export function UpdatesSection(): JSX.Element {
                 : 'unreported',
             } as Parameters<typeof machineVersionSkew>[0],
             serverVersion ?? null,
-            machine.state,
+            machine.reason ? 'rejected' : machine.state,
           ),
         }))
 
@@ -721,6 +730,7 @@ export function UpdatesSection(): JSX.Element {
                         description — a fleet of ten waiting machines repeating
                         the same sentence ten times is noise, and noise is what
                         makes the two lines that matter unreadable. */}
+                    <MachineFailureReason reason={machine.reason} />
                     {machine.skew.mark === 'unexpected' && machine.skew.note && (
                       <span className="block max-w-[36ch]">{machine.skew.note}</span>
                     )}

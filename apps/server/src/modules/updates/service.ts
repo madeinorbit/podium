@@ -15,7 +15,11 @@ import {
   type GrantRecord,
   type RecordGrant,
 } from './grant-cause'
-import type { UpdateRecoveryPersistence, UpdateRecoverySnapshot } from './recovery-store'
+import type {
+  MachineFailureReason,
+  UpdateRecoveryPersistence,
+  UpdateRecoverySnapshot,
+} from './recovery-store'
 import {
   decideWave,
   targetDaemonWireRefusal,
@@ -191,6 +195,10 @@ interface MachineConvergenceState {
   /** Present only when this state was correlated with an issued grant. */
   grantId?: string
   detail?: string
+  reason?: MachineFailureReason
+  lastReportAt?: number
+  lastReportedState?: ConvergenceState
+  targetVersion?: string
   /** Last reported progress within the phase, when the daemon reports one. */
   percent?: number
   phaseDetail?: string
@@ -441,7 +449,10 @@ export class UpdatesService {
       this.unavailableReasons.set(channel, withdrawal.reason)
     }
     for (const [channel, target] of saved.targets) this.targets.set(channel, target)
-    for (const [id, state] of saved.machines) this.machineStates.set(id, state)
+    for (const [id, state] of saved.machines) {
+      this.ensureFailureReason(state)
+      this.machineStates.set(id, state)
+    }
     for (const [id, grant] of saved.grants) this.pendingGrants.set(id, grant)
     for (const [id, grant] of saved.retiredGrants ?? []) this.retiredGrants.set(id, grant)
     // Execution proof is durable; permission to continue a wave is re-earned
@@ -455,8 +466,33 @@ export class UpdatesService {
     if (this.persistenceFailure) throw this.persistenceFailure
   }
 
+  private machineReason(
+    message: UpdateStatusMessage,
+    previous?: MachineFailureReason,
+  ): MachineFailureReason {
+    if (!message.detail && previous) return previous
+    return {
+      ...(message.reasonCode ? { code: message.reasonCode } : {}),
+      message: message.detail || `The machine reported ${message.state} without a reason; last phase: ${message.phaseDetail ?? 'unknown'}.`,
+      source: message.detail ? 'machine' : 'coordinator',
+      at: message.reportedAt ?? this.deps.now(),
+    }
+  }
+
+  /** Upgrade old checkpoints and coordinator writers without changing their state contract. */
+  private ensureFailureReason(state: MachineConvergenceState): void {
+    if (state.reason || (state.state !== 'rejected' && state.state !== 'stuck')) return
+    state.reason = {
+      ...(state.detail?.startsWith(TARGET_WITHDRAWN_TOKEN) ? { code: TARGET_WITHDRAWN_TOKEN } : {}),
+      message: state.detail ?? 'The update failed; no reason was recorded.',
+      source: 'coordinator',
+      at: this.deps.now(),
+    }
+  }
+
   private persistRecovery(): void {
     this.assertPersistence()
+    for (const state of this.machineStates.values()) this.ensureFailureReason(state)
     if (!this.deps.recovery || this.deps.recoveryOnly) return
     const snapshot: UpdateRecoverySnapshot = {
       format: 1,
@@ -584,6 +620,15 @@ export class UpdatesService {
         ...state,
         state: 'stuck',
         detail: `${TARGET_WITHDRAWN_TOKEN}: ${reason}`,
+        reason:
+          state.reason?.source === 'machine'
+            ? state.reason
+            : {
+                code: TARGET_WITHDRAWN_TOKEN,
+                message: reason.replace(/^(?:update-withdrawn:\s*)+/, ''),
+                source: 'coordinator',
+                at: this.deps.now(),
+              },
       })
     }
     this.persistRecovery()
@@ -1060,6 +1105,34 @@ export class UpdatesService {
     }
     const channel = this.channelOf(machine)
     const target = this.target(channel)
+    const existing = this.machineStates.get(machineId)
+    // An idle supervisor can refuse its daemon without an update grant or target.
+    // A withdrawn target can also receive its exact grant's late failure report.
+    const idleRefusal =
+      message.state === 'current' &&
+      message.reasonCode === 'daemon-refused' &&
+      !message.grantId &&
+      !this.pendingGrants.has(machineId)
+    const withdrawnReport =
+      !target &&
+      (message.state === 'rejected' || message.state === 'stuck') &&
+      existing?.channel === channel &&
+      ((message.grantId !== undefined && message.grantId === existing.grantId) ||
+        (message.targetVersion !== undefined && message.targetVersion === existing.targetVersion))
+    if (idleRefusal || withdrawnReport) {
+      this.machineStates.set(machineId, {
+        ...existing,
+        channel,
+        state: message.state,
+        version: message.version,
+        lastReportAt: this.deps.now(),
+        lastReportedState: message.state,
+        ...(message.detail ? { detail: message.detail } : {}),
+        reason: this.machineReason(message, existing?.reason),
+      })
+      this.persistRecovery()
+      return
+    }
     if (!target) {
       if (
         (message.state === 'rejected' ||
@@ -1116,8 +1189,16 @@ export class UpdatesService {
     // machine's terminal truth for this SAME target, so accept that narrowly;
     // targetVersion prevents an old crash report poisoning a later release.
     const terminal = message.state === 'rejected' || message.state === 'stuck'
+    const daemonRefused = message.state === 'current' && message.reasonCode === 'daemon-refused'
     const grantMismatch = message.grantId !== undefined && message.grantId !== pendingGrant?.grantId
-    const recoveredTerminal = grantMismatch && terminal && message.targetVersion === target.version
+    const previousReport = this.machineStates.get(machineId)
+    const recoveredTerminal =
+      grantMismatch &&
+      terminal &&
+      (message.targetVersion === target.version ||
+        (previousReport?.channel === channel &&
+          previousReport.grantId === message.grantId &&
+          previousReport.targetVersion === target.version && !pendingGrant))
     /**
      * A REPORT THIS SERVER CANNOT PLACE IS THE THING TO SAY OUT LOUD (POD-3170).
      *
@@ -1141,7 +1222,7 @@ export class UpdatesService {
       return
     }
 
-    if (retired && !pending && !terminal && !confirmedExecution) return
+    if (retired && !pending && !terminal && !confirmedExecution && !daemonRefused) return
 
     // The supervisor connects before parent.start(). Only the executor's terminal
     // report proves that this exact grant ran and all required roles passed boot
@@ -1152,13 +1233,20 @@ export class UpdatesService {
       requiresExecutionConfirmation &&
       this.machineStates.get(machineId)?.state === 'current' &&
       message.state === 'current' &&
-      !confirmedExecution
+      !confirmedExecution &&
+      !daemonRefused
     ) {
       return
     }
     // An unsolicited current heartbeat cannot erase a supervised failure after
     // its pending grant has been retired.
-    if (requiresExecutionConfirmation && message.state === 'current' && !executionGrant) return
+    if (
+      requiresExecutionConfirmation &&
+      message.state === 'current' &&
+      !executionGrant &&
+      !daemonRefused
+    )
+      return
     const effectiveState =
       message.state === 'current' && pendingGrant !== undefined && !confirmedExecution
         ? message.version === target.version
@@ -1223,6 +1311,12 @@ export class UpdatesService {
         : {}),
       requiresExecutionConfirmation,
       version: message.version,
+      lastReportAt: this.deps.now(),
+      lastReportedState: message.state,
+      targetVersion: target.version,
+      ...(terminal || daemonRefused
+        ? { reason: this.machineReason(message, previous?.reason) }
+        : {}),
       ...(pendingGrant && recoveredTerminal
         ? { grantId: pendingGrant.grantId }
         : message.grantId
@@ -1711,14 +1805,33 @@ export class UpdatesService {
       // A channel switch cannot reuse another authority's execution proof,
       // even when both channels publish the same version label.
       if (state?.requiresExecutionConfirmation && !currentState) {
-        return { ...machine, state: 'stuck', detail: 'Update confirmation belongs to another channel.' }
+        state.reason ??= {
+          message: 'Update confirmation belongs to another channel.',
+          source: 'coordinator',
+          at: this.deps.now(),
+        }
+        return {
+          ...machine,
+          state: 'stuck',
+          reason: state.reason,
+          detail: 'Update confirmation belongs to another channel.',
+        }
+      }
+      if (currentState?.state === 'current' && currentState.reason?.code === 'daemon-refused') {
+        return {
+          ...machine,
+          state: 'current',
+          reason: currentState.reason,
+          detail: currentState.detail,
+        }
       }
       // Legacy daemons announce after startup. A supervisor announces BEFORE
       // children start: preserve its grant (and failures) until onStatus accepts
       // exact healthy execution. Never let an early hello erase that fence.
       const pending = this.pendingGrants.get(machine.id)
       const awaitingSupervisorExecution =
-        (machine.presenceSource === 'supervisor' || currentState?.requiresExecutionConfirmation) &&
+        (machine.presenceSource === 'supervisor' ||
+          currentState?.requiresExecutionConfirmation) &&
         currentState !== undefined &&
         (currentState.state !== 'current' ||
           !(await this.executionMatchesTarget(machine.id, channel)))
@@ -1733,7 +1846,9 @@ export class UpdatesService {
       if (
         targetVersion !== undefined &&
         machine.version === targetVersion &&
-        !awaitingSupervisorExecution
+        !awaitingSupervisorExecution &&
+        currentState?.state !== 'rejected' &&
+        currentState?.state !== 'stuck'
       ) {
         if (currentState) {
           const rollout = this.rollout(channel)
@@ -1750,7 +1865,15 @@ export class UpdatesService {
         }
         return { ...machine, state: 'current', version: machine.version }
       }
-      if (!currentState) return { ...machine }
+      if (!currentState) {
+        if (machine.state === 'rejected' || machine.state === 'stuck') {
+          const fallback = { ...machine, channel }
+          this.ensureFailureReason(fallback)
+          return fallback
+        }
+        return { ...machine }
+      }
+      this.ensureFailureReason(currentState)
       // An accepted executor report and the directory must agree before either
       // fleet readers or explicit ticks can use it as running-version proof.
       if (currentState.requiresExecutionConfirmation && currentState.state === 'current') {
@@ -1763,6 +1886,7 @@ export class UpdatesService {
         state: currentState.state,
         version: currentState.version,
         ...(currentState.detail ? { detail: currentState.detail } : {}),
+        ...(currentState.reason ? { reason: currentState.reason } : {}),
         ...(currentState.percent !== undefined ? { percent: currentState.percent } : {}),
         ...(currentState.phaseDetail ? { phaseDetail: currentState.phaseDetail } : {}),
       }
@@ -1793,6 +1917,13 @@ export class UpdatesService {
       const machine = machines.find((candidate) => candidate.id === machineId)
       if (!machine || !IN_FLIGHT_STATES.has(machine.state)) continue
       const channel = this.channelOf(machine)
+      const previous = this.machineStates.get(machineId)
+      const lastAt = previous?.lastReportAt ?? this.pendingGrants.get(machineId)?.issuedAt
+      const silence =
+        lastAt === undefined
+          ? 'No report received'
+          : `No report for ${Math.max(0, Math.floor((this.deps.now() - lastAt) / 1000))} s`
+      const message = `${silence} after ${previous?.lastReportAt === undefined ? 'the update grant' : `it said ${previous.lastReportedState ?? previous.state}`}; last phase: ${previous?.phaseDetail ?? 'unknown'}. ${detail}`
       this.retireGrant(machineId)
       this.machineStates.set(machineId, {
         channel,
@@ -1801,6 +1932,18 @@ export class UpdatesService {
           this.machineStates.get(machineId)?.requiresExecutionConfirmation ??
           machine.presenceSource === 'supervisor',
         version: machine.version,
+        targetVersion: previous?.targetVersion ?? this.target(channel)?.version,
+        ...(previous?.grantId ? { grantId: previous.grantId } : {}),
+        ...(previous?.lastReportAt !== undefined ? { lastReportAt: previous.lastReportAt } : {}),
+        reason:
+          previous?.reason?.source === 'machine'
+            ? previous.reason
+            : {
+                code: 'report-deadline',
+                message,
+                source: 'coordinator',
+                at: this.deps.now(),
+              },
         detail,
       })
       abandoned.push(machineId)
@@ -2020,6 +2163,8 @@ export class UpdatesService {
       this.machineStates.set(machineId, {
         channel,
         state: 'granted',
+        grantId: grant.grantId,
+        targetVersion: target.version,
         requiresExecutionConfirmation: machine?.presenceSource === 'supervisor',
         version: machine?.version ?? '',
       })

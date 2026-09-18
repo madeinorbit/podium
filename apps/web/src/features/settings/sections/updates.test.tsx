@@ -679,15 +679,29 @@ describe('UpdatesSection', () => {
         appVersion: '0.4.2',
         targetVersion: '0.4.2',
         allMachines: [
-          { id: 'machine-ludovico', version: '0.4.1', state: 'stuck', online: true, busy: false },
+          {
+            id: 'machine-ludovico',
+            version: '0.4.1',
+            state: 'stuck',
+            online: true,
+            busy: false,
+            reason: {
+              message: 'No report for 60 s after it said restarting; last phase: activating.',
+              source: 'coordinator',
+              at: 1000,
+            },
+          },
         ],
       })
 
       render(<UpdatesSection />)
 
-      expect(await screen.findByText('Stuck behind target')).toBeTruthy()
+      expect(await screen.findByText('Failed')).toBeTruthy()
       expect(screen.queryByText('Update available')).toBeNull()
-      expect(document.body.textContent).toContain('never arrived on it')
+      expect(
+        screen.getByText('No report for 60 s after it said restarting; last phase: activating.'),
+      ).toBeTruthy()
+      expect(screen.getByText('inferred by the coordinator')).toBeTruthy()
     })
   })
 

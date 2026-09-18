@@ -31,6 +31,7 @@ interface Scene {
   wave: Array<{
     id: string
     version: string
+    reason?: { message: string; source: 'machine' | 'coordinator'; at: number }
     state: 'current' | 'granted' | 'downloading' | 'restarting' | 'rejected' | 'stuck'
   }>
 }
@@ -113,7 +114,16 @@ const SCENES: Record<SceneName, Scene> = {
       },
     ],
     wave: [
-      { id: 'm-ludovico', version: '0.1.1-edge.3', state: 'stuck' },
+      {
+        id: 'm-ludovico',
+        version: '0.1.1-edge.3',
+        state: 'stuck',
+        reason: {
+          message: 'Daemon refused to start: address already in use.',
+          source: 'machine',
+          at: 1000,
+        },
+      },
       { id: 'm-vmi', version: '0.1.1-edge.2', state: 'current' },
     ],
   },

@@ -34,7 +34,7 @@ describe('machineVersionSkew', () => {
 
   it('separates a machine that never arrived from one that was never asked', () => {
     expect(machineVersionSkew(machine(), null, 'stuck').mark).toBe('unexpected')
-    expect(machineVersionSkew(machine(), null, 'stuck').label).toBe('Stuck behind target')
+    expect(machineVersionSkew(machine(), null, 'stuck').label).toBe('Failed')
     expect(machineVersionSkew(machine(), null, 'rejected').mark).toBe('unexpected')
   })
 
