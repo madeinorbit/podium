@@ -3025,7 +3025,7 @@ describe('host metrics isolation', () => {
 })
 
 describe('opt-in runtime publication diagnostics', () => {
-  it('retains changed keys and distinguishes reaction publishes from outer publishes', async () => {
+  it('retains the union of changed keys without a separate reaction publication', async () => {
     const { storeStats, readStoreStats } = await import('../perf/store-stats')
     const { engine } = makeEngine()
     // Controlled reaction isolates the nesting boundary from unrelated timers.
@@ -3043,21 +3043,20 @@ describe('opt-in runtime publication diagnostics', () => {
       storeStats.enable()
       seam.apply({ view: 'issues' })
       expect(readStoreStats().publishes).toMatchObject([
-        { changedKeys: ['view'], nested: false, subscriberWakes: 1 },
-        { changedKeys: ['coarseNow'], nested: true, subscriberWakes: 1 },
+        { changedKeys: ['view', 'coarseNow'], nested: false, subscriberWakes: 1 },
       ])
       expect(readStoreStats().runtimes[0]).toMatchObject({
-        publishes: 2,
-        nestedPublishes: 1,
-        subscriberWakes: 2,
+        publishes: 1,
+        nestedPublishes: 0,
+        subscriberWakes: 1,
       })
-      expect(wakes).toBe(2)
+      expect(wakes).toBe(1)
       seam.apply({ view: 'issues' })
-      expect(readStoreStats().publishes).toHaveLength(2)
+      expect(readStoreStats().publishes).toHaveLength(1)
       storeStats.enable(false)
       seam.apply({ view: 'workspace' })
-      expect(wakes).toBe(3)
-      expect(readStoreStats().publishes).toHaveLength(2)
+      expect(wakes).toBe(2)
+      expect(readStoreStats().publishes).toHaveLength(1)
     } finally {
       reaction.mockRestore()
       off()
@@ -3204,7 +3203,7 @@ describe('atomic navigation publication', () => {
       storeStats.enable(false); engine.destroy()
     }
     expect(results).toEqual([
-      { publishes: scenario === 'warm' ? 3 : 5, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
+      { publishes: scenario === 'warm' ? 1 : 4, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
         url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session', baseline: 'nav-issue' },
       { publishes: 1, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
         url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session', baseline: 'nav-issue' },
@@ -3228,9 +3227,9 @@ describe('atomic navigation publication', () => {
     engine.destroy()
   })
 
-  it('nested batches retain deferred reads, last-write wins, and union changed keys', () => {
+  it('nested batches defer snapshots but expose immediate state, last-write wins, and union keys', () => {
     const { engine } = makeEngine()
-    const seam = engine as unknown as { batch(fn: () => void): void; apply(p: object): void; react(k: ReadonlySet<string>): void }
+    const seam = engine as unknown as { batch(fn: () => void): void; apply(p: object): void; react(k: ReadonlySet<string>): void; state: EngineState }
     const reaction = vi.spyOn(seam, 'react').mockImplementation(() => {})
     const before = engine.getSnapshot()
     const subscriber = vi.fn()
@@ -3240,11 +3239,205 @@ describe('atomic navigation publication', () => {
       seam.batch(() => seam.apply({ coarseNow: 123 }))
       seam.apply({ coarseNow: 456 })
       expect(engine.getSnapshot()).toBe(before)
+      expect(seam.state).toMatchObject({ paletteOpen: true, coarseNow: 456 })
       expect(subscriber).not.toHaveBeenCalled()
     })
     expect(subscriber).toHaveBeenCalledTimes(1)
     expect(reaction).toHaveBeenCalledWith(new Set(['paletteOpen', 'coarseNow']))
     expect(engine.getSnapshot()).toMatchObject({ paletteOpen: true, coarseNow: 456 })
+    engine.destroy()
+  })
+})
+
+// Frozen pre-B2 pipeline, used only as a negative control. The same real replica,
+// reactions and outbox run in both arms; production has no disable switch.
+type PublicationSeam = {
+  state: EngineState
+  apply(patch: Partial<EngineState>): void
+  batch(fn: () => void): void
+  react(keys: ReadonlySet<keyof EngineState>): void
+  buildSnapshot(): ReturnType<ReturnType<typeof makeEngine>['engine']['getSnapshot']>
+  subStore: { publish(snapshot: ReturnType<PublicationSeam['buildSnapshot']>, keys: ReadonlySet<keyof EngineState>, nested: boolean): void }
+  batchDepth: number
+  statsReactionDepth: number
+}
+function legacyPublications(engine: ReturnType<typeof makeEngine>['engine']): () => void {
+  const seam = engine as unknown as PublicationSeam
+  let depth = 0
+  let reacting = 0
+  let pending: Partial<EngineState> | null = null
+  const apply = vi.spyOn(seam, 'apply').mockImplementation((patch) => {
+    if (engine.isDestroyed) return
+    if (depth > 0) { pending = { ...pending, ...patch }; return }
+    const changed = new Set<keyof EngineState>()
+    for (const key of Object.keys(patch) as Array<keyof EngineState>) {
+      if (!Object.is(seam.state[key], patch[key])) {
+        ;(seam.state as unknown as Record<string, unknown>)[key] = patch[key]
+        changed.add(key)
+      }
+    }
+    if (!changed.size) return
+    seam.subStore.publish(seam.buildSnapshot(), changed, reacting > 0)
+    reacting++
+    try { seam.react(changed) } finally { reacting-- }
+  })
+  const batch = vi.spyOn(seam, 'batch').mockImplementation((fn) => {
+    depth++
+    try { fn() } finally {
+      depth--
+      if (depth === 0) {
+        const patch = pending
+        pending = null
+        if (patch) seam.apply(patch)
+      }
+    }
+  })
+  // Remove only B2's outer outbox wrapper. Optimism's pre-existing inner batch
+  // still runs through the frozen implementation above.
+  const originalSubscribe = engine.outbox.subscribe.bind(engine.outbox)
+  const subscribe = vi.spyOn(engine.outbox, 'subscribe').mockImplementation((listener) =>
+    originalSubscribe((size) => {
+      batch.mockImplementationOnce((fn) => fn())
+      listener(size)
+    }),
+  )
+  return () => { subscribe.mockRestore(); batch.mockRestore(); apply.mockRestore() }
+
+}
+
+describe('coalesced outbox and reaction publications', () => {
+  it.each(['outbox', 'fallback', 'worktree-follow', 'issue-follow', 'prune', 'visit-baseline', 'session-read', 'issue-read'] as const)(
+    'A/B %s preserves reaction outcomes and publishes once', async (scenario) => {
+      const results = []
+      for (const legacy of [true, false]) {
+        const api = makeApi()
+        // Keep network completion outside this event's measurement window.
+        api.sessions.rename.mutate = vi.fn(() => new Promise(() => {}))
+        api.sessions.markRead.mutate = vi.fn(() => new Promise(() => {}))
+        api.issues.markRead.mutate = vi.fn(() => new Promise(() => {}))
+        const { engine, hub } = makeEngine({ api, url: '/workspace', workspacePruneGraceMs: 0 })
+        const restore = legacy ? legacyPublications(engine) : () => {}
+        engine.start()
+        await settle()
+        const oldId = asIssueId('b2-old')
+        const newId = asIssueId('b2-new')
+        const issue = { id: oldId, title: 'B2', stage: 'in_progress', archived: false,
+          createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z',
+          readAt: '2099-01-01T00:00:00Z' } as IssueWire
+        const row = { ...session('b2-session', scenario === 'fallback' ? '/unregistered' : '/tmp/known-repo'),
+          issueId: oldId, readAt: '2099-01-01T00:00:00Z' } as SessionMeta
+        if (scenario !== 'visit-baseline') {
+          engine.replica.applyChanges('issues', [issue, { ...issue, id: newId }], [])
+        }
+        engine.replica.applyChanges('sessions', [row], [])
+        await settle()
+        engine.getSnapshot().navigateWorkspace({ selectedIssueId: oldId,
+          selectedWorktree: row.cwd, tabId: row.sessionId, firstPane: true })
+        await settle()
+        const oldKey = engine.getSnapshot().workspaceKey()
+        hub.viewStates.length = 0
+        const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
+        const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
+        storeStats.reset(); storeStats.enable()
+        const capture = storeStats.begin(scenario === 'outbox' ? 'gesture' : 'feed')
+        try {
+          switch (scenario) {
+            case 'outbox':
+              engine.outbox.enqueue('rename', { sessionId: row.sessionId, name: 'renamed' })
+              break
+            case 'fallback':
+            case 'prune':
+              engine.replica.applyChanges('sessions', [], [row.sessionId])
+              break
+            case 'worktree-follow':
+              engine.replica.applyChanges('sessions', [{ ...row, cwd: '/tmp/known-repo/.worktrees/wt1' }], [])
+              break
+            case 'issue-follow':
+              engine.replica.applyChanges('sessions', [{ ...row, issueId: newId }], [])
+              break
+            case 'visit-baseline':
+              engine.replica.applyChanges('issues', [issue], [])
+              break
+            case 'session-read':
+              engine.replica.applyChanges('sessions', [{ ...row, lastActiveAt: '2026-07-01T00:01:00Z', readAt: null, unread: true }], [])
+              break
+            case 'issue-read':
+              engine.replica.applyChanges('issues', [{ ...issue, updatedAt: '2100-07-01T00:01:00Z' }], [])
+              break
+          }
+          // Replica notifications and reactions are synchronous. End this
+          // event before the optimistic action's post-await handoff (POD-4351).
+          storeStats.end(capture)
+          const st = engine.getSnapshot()
+          const publications = readStoreStats().publishes.length
+          expect(publications).toBe(seen.length)
+          if (legacy) expect(publications).toBeGreaterThan(1)
+          else expect(publications).toBe(1)
+          if (scenario === 'outbox') {
+            expect(st.outboxSize).toBe(1)
+            expect(st.sessions[0]?.name).toBe('renamed')
+          }
+          if (scenario === 'fallback') expect(st.selectedWorktree).toBe('/tmp/known-repo')
+          if (scenario === 'worktree-follow') expect(st.selectedWorktree).toBe('/tmp/known-repo/.worktrees/wt1')
+          if (scenario === 'issue-follow') {
+            expect(st.selectedIssueId).toBe(newId)
+            expect(st.paneA).toBe(row.sessionId)
+            expect(allTabIds(st.workspaces[oldKey]!)).not.toContain(row.sessionId)
+            expect(st.issueVisitBaseline?.issueId).toBe(newId)
+            expect(hub.viewStates.at(-1)?.visible).toContain(row.sessionId)
+          }
+          if (scenario === 'prune') expect(st.paneA).toBeNull()
+          if (scenario === 'visit-baseline') expect(st.issueVisitBaseline?.issueId).toBe(oldId)
+          if (scenario === 'session-read') expect(st.sessions[0]?.unread).toBe(false)
+          if (scenario === 'issue-read') expect(st.issues.find((i) => i.id === oldId)?.readAt).not.toBe(issue.readAt)
+          results.push({ publications, selectedWorktree: st.selectedWorktree, selectedIssueId: st.selectedIssueId,
+            paneA: st.paneA, paneB: st.paneB, baseline: st.issueVisitBaseline?.issueId,
+            tabs: Object.values(st.workspaces).map((ws) => allTabIds(ws)),
+            reports: hub.viewStates, sessionReads: api.sessions.markRead.mutate.mock.calls.length,
+            issueReads: api.issues.markRead.mutate.mock.calls.length })
+        } finally {
+          off(); storeStats.enable(false); storeStats.reset()
+          await settle() // drain post-event action continuations before teardown
+          engine.destroy(); restore()
+        }
+      }
+      expect({ ...results[0], publications: 1 }).toEqual(results[1])
+      process.stdout.write(`B2 publication A/B ${scenario}: ${results.map((r) => r.publications).join(' -> ')}\n`)
+    },
+  )
+
+  it('keeps copied-listener unsubscribe semantics during the folded publication', () => {
+    const { engine } = makeEngine()
+    const seam = engine as unknown as PublicationSeam
+    const calls: string[] = []
+    let offSecond = () => {}
+    engine.subscribe(() => { calls.push('first'); offSecond() })
+    offSecond = engine.subscribe(() => calls.push('second'))
+    seam.batch(() => { seam.apply({ paletteOpen: true }); seam.apply({ coarseNow: 123 }) })
+    expect(calls).toEqual(['first', 'second'])
+    seam.apply({ coarseNow: 456 })
+    expect(calls).toEqual(['first', 'second', 'first'])
+    engine.destroy()
+  })
+
+  it('restores batch and reaction depths after a nested reaction throws', () => {
+    const { engine } = makeEngine()
+    const seam = engine as unknown as PublicationSeam
+    const reaction = vi.spyOn(seam, 'react').mockImplementation((changed) => {
+      if (changed.has('paletteOpen')) seam.apply({ coarseNow: 123 })
+      else throw new Error('reaction failed')
+    })
+    const listener = vi.fn()
+    engine.subscribe(listener)
+    expect(() => seam.batch(() => seam.apply({ paletteOpen: true }))).toThrow('reaction failed')
+    expect(seam.batchDepth).toBe(0)
+    expect(seam.statsReactionDepth).toBe(0)
+    expect(engine.getSnapshot()).toMatchObject({ paletteOpen: true, coarseNow: 123 })
+    expect(listener).toHaveBeenCalledTimes(1)
+    reaction.mockRestore()
+    seam.apply({ coarseNow: 456 })
+    expect(engine.getSnapshot().coarseNow).toBe(456)
+    expect(listener).toHaveBeenCalledTimes(2)
     engine.destroy()
   })
 })

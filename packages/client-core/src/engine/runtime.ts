@@ -309,7 +309,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private applyingHydratedUi = false
   /** > 0 while {@link batch} is coalescing applies into one snapshot. */
   private batchDepth = 0
-  private pendingBatch: Partial<EngineState> | null = null
+  private pendingChanges = new Set<keyof EngineState>()
+  private pendingReactions = new Set<keyof EngineState>()
   /** True when this runtime runs on the wire-v2 feed (POD-1223). */
   private readonly onFeed: boolean
   // ---- offline-first composer drafts (POD-2045) ----
@@ -582,9 +583,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // the entity lists too (a no-op publish when nothing visible changed).
     offs.push(
       this.outbox.subscribe((size) => {
-        this.apply({ outboxSize: size, outboxDeadLetters: this.outbox.deadLetters() })
-        this.replicatedLayout.outboxChanged()
-        this.optimism.recomputeAll()
+        this.batch(() => {
+          this.apply({ outboxSize: size, outboxDeadLetters: this.outbox.deadLetters() })
+          this.replicatedLayout.outboxChanged()
+          this.optimism.recomputeAll()
+        })
       }),
     )
     this.outbox.attach()
@@ -871,34 +874,34 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // ------------------------------------------------------------ state pipeline
 
-  /** THE state choke point: shallow-merge `patch` (Object.is per key), publish a
-   *  fresh snapshot when anything changed, then run the reactions that used to
-   *  be per-field useEffects. Reactions may nest apply() — each nested call
-   *  publishes + reacts for its own change set, and every reaction converges
-   *  (guards compare against current state, so a re-run is a no-op).
-   *
-   *  A DESTROYED runtime accepts nothing. This single guard is what makes the
-   *  principal boundary hold against every asynchronous path at once, rather
-   *  than requiring each of them to remember to check. */
+  /** Writes are immediate; subscribers see only the completed batch, including
+   *  its reaction cascade. Reactions read state(), never the published snapshot.
+   *  A destroyed runtime refuses every asynchronous writer at this boundary. */
   private apply(patch: Partial<EngineState>): void {
     if (this.destroyed) return
-    // Boot/repo refresh also replaces machines. Forget the hub signature so
-    // the next frame cannot compare against a snapshot we no longer publish.
     if ('machines' in patch) this.lastMachinesMaterial = undefined
-    if (this.batchDepth > 0) {
-      this.pendingBatch = { ...this.pendingBatch, ...patch }
-      return
-    }
-    const changed = new Set<keyof EngineState>()
-    for (const k of Object.keys(patch) as Array<keyof EngineState>) {
-      const next = patch[k]
-      if (!Object.is(this.state[k], next)) {
-        ;(this.state as unknown as Record<string, unknown>)[k as string] = next
-        changed.add(k)
+    this.batch(() => {
+      const changed = new Set<keyof EngineState>()
+      for (const k of Object.keys(patch) as Array<keyof EngineState>) {
+        const next = patch[k]
+        if (!Object.is(this.state[k], next)) {
+          ;(this.state as unknown as Record<string, unknown>)[k as string] = next
+          changed.add(k)
+          this.pendingChanges.add(k)
+        }
       }
-    }
-    if (changed.size === 0) return
-    this.subStore.publish(this.buildSnapshot(), changed, this.statsReactionDepth > 0)
+      if (changed.size === 0) return
+      if (this.statsReactionDepth > 0) {
+        // Preserve the synchronous reaction ordering: a nested selection write
+        // restores its panes before the next reaction reads the current state.
+        this.runReactions(changed)
+      } else {
+        for (const key of changed) this.pendingReactions.add(key)
+      }
+    })
+  }
+
+  private runReactions(changed: ReadonlySet<keyof EngineState>): void {
     this.statsReactionDepth++
     try {
       this.react(changed)
@@ -907,36 +910,31 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
   }
 
-  /**
-   * ONE SNAPSHOT FOR ONE EVENT (POD-1645).
-   *
-   * A replica delta touching sessions, issues and issue projections used to run
-   * three separate `apply` calls, so it published three snapshots — and every
-   * published slice keyed on snapshot identity re-derived three times. The
-   * worklist slice's ownership index was the expensive one: POD-1641 measured
-   * 93% of main-thread CPU across a multi-minute freeze under a single delta,
-   * with the rebuild running three times per frame.
-   *
-   * Coalescing is not merely cheaper, it is more honest: the three writes come
-   * from ONE event and no consumer should ever observe the intermediate states
-   * where sessions have advanced but the issues they belong to have not.
-   *
-   * Keys are last-write-wins across the batch, which is exactly `apply`'s own
-   * shallow-merge rule; reactions run once, after the merged patch lands, so
-   * they see final state rather than a half-applied world. Code INSIDE a batch
-   * must therefore not depend on `this.state` reflecting its own writes yet.
-   */
+  /** One snapshot for one event. Explicit batches defer reactions until all
+   *  writes land; reaction applies stay inside that same publication boundary.
+   *  Internal reads see writes immediately, while getSnapshot stays stable.
+   *  Finally blocks restore the boundary even if a reaction throws. */
   private batch(fn: () => void): void {
     if (this.destroyed) return
     this.batchDepth++
     try {
       fn()
     } finally {
-      this.batchDepth--
-      if (this.batchDepth === 0) {
-        const merged = this.pendingBatch
-        this.pendingBatch = null
-        if (merged) this.apply(merged)
+      try {
+        if (this.batchDepth === 1) {
+          const changed = this.pendingReactions
+          this.pendingReactions = new Set()
+          if (changed.size > 0) this.runReactions(changed)
+        }
+      } finally {
+        this.batchDepth--
+        if (this.batchDepth === 0) {
+          const changed = this.pendingChanges
+          this.pendingChanges = new Set()
+          // Clear bookkeeping before notifying: listeners may write again.
+          if (changed.size > 0 && !this.destroyed)
+            this.subStore.publish(this.buildSnapshot(), changed)
+        }
       }
     }
   }
