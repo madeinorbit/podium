@@ -1846,9 +1846,7 @@ export class UpdatesService {
       if (
         targetVersion !== undefined &&
         machine.version === targetVersion &&
-        !awaitingSupervisorExecution &&
-        currentState?.state !== 'rejected' &&
-        currentState?.state !== 'stuck'
+        !awaitingSupervisorExecution
       ) {
         if (currentState) {
           const rollout = this.rollout(channel)
