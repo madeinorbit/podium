@@ -574,6 +574,7 @@ export class ParentProcess {
 
   private updateReporter: ((failure: UpdateFailure, version?: string) => void) | undefined
   private daemonRefusalReporter: ((reason?: string) => void) | undefined
+  private daemonRefusalObservation: Promise<DaemonHandoverHealthProbe> | undefined
 
   setUpdateReporter(report: (failure: UpdateFailure, version?: string) => void, daemon: (reason?: string) => void): void {
     this.updateReporter = report
@@ -1503,11 +1504,26 @@ export class ParentProcess {
     await this.pollComponents()
     if (this.stopping || this.terminating) return
     await this.observeBootHealth()
-    if (!this.childOrder.includes('server') && this.requiresDaemon() && this.snap.phase !== 'handover_outgoing') {
+    // One outstanding daemon probe at a time: the boot observation and this
+    // idle refusal check share the probe, so a held probe is never re-entered.
+    if (
+      !this.childOrder.includes('server') &&
+      this.requiresDaemon() &&
+      this.snap.phase !== 'handover_outgoing' &&
+      !this.bootObservation &&
+      !this.daemonRefusalObservation
+    ) {
       const pid = this.childProcs.get('daemon')?.pid
       if (pid !== undefined) {
-        const probe = await this.deps.probeDaemonHealth({ pid })
-        this.daemonRefusalReporter?.(probe.blockedReason)
+        this.daemonRefusalObservation = this.deps.probeDaemonHealth({ pid })
+        try {
+          const probe = await this.daemonRefusalObservation
+          this.daemonRefusalReporter?.(probe.blockedReason)
+        } catch (error) {
+          log.warn('idle daemon refusal probe failed', { err: error })
+        } finally {
+          this.daemonRefusalObservation = undefined
+        }
       }
     }
     if (this.stopping || this.terminating) return
