@@ -129,6 +129,10 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
         db.prepare('DELETE FROM grants WHERE resource_kind = ? AND resource_id = ?').run('machine', machineId)
         db.prepare('DELETE FROM machines WHERE id = ?').run(machineId)
       } else if (state.owner !== undefined) {
+        // A ledger-only id has no row to hold custody: the old column update was a no-op
+        // for it, and a grant edge without a machine would be an orphan.
+        const exists = db.prepare('SELECT 1 AS one FROM machines WHERE id = ?').get(machineId)
+        if (!exists) continue
         // Custody is a personal grant edge (S5, POD-4151): the manage edge with custody=1
         // plus a use edge, written exactly as 20260917212210_machine-custody-grant-edges
         // wrote them from the old owner column. The previous custodian, if any, loses
