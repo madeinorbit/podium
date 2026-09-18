@@ -892,7 +892,11 @@ export async function launchSpawn(
     }
     // Permanent plain-terminal exemption, independent of the legacy rollout flag.
     // Shells/profile-less hosts and login commands have no agent runtime session
-    // to create. Keep this predicate and their launch path when removing legacy.
+    // to create. This is a driver-creation decision, not a subtree deletion boundary.
+    // Both paths share launch, durable host, bridge, observers, screen, draft engine,
+    // transcript source and reaper; terminal driver handles still need that machinery.
+    // The else-only step prepares instrumentation and calls launch without creating
+    // a driver. Keep the plain-terminal path and shared machinery when removing legacy.
     const hostHasNoRuntimeSession = !profile || !!msg.loginHarness
     if (installedInstrumentation) {
       await launch(installedInstrumentation)
