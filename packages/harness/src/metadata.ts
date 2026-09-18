@@ -113,3 +113,5 @@ export {
   isServerFamilyResumeKind,
   transcriptRecordMapperFor,
 } from './registry.js'
+
+export { isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from './session-title'

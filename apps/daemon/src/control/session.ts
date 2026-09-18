@@ -618,7 +618,7 @@ export function wireBridge(
   // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
   // title, so forward it for them.
   if (harnessCapabilitiesFor(agentKind)?.oscTitle ?? true) {
-    session.onTitle((title) => ctx.send({ type: 'title', sessionId, title }))
+    session.onTitle((title) => ctx.send({ type: 'title', sessionId, title, source: 'osc' }))
   }
   session.onExit((code) => {
     ctx.bridges.delete(sessionId)

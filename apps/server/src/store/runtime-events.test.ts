@@ -1,6 +1,6 @@
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
-import type { RuntimeEvent } from '@podium/protocol/daemon'
-import { describe, expect, it } from 'vitest'
+import type { ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
+import { describe, expect, it, vi } from 'vitest'
 import {
   RuntimeEventGate,
   type RuntimeEventGatePorts,
@@ -88,12 +88,12 @@ function terminalItemEvent(input: {
   }
 }
 
-async function bindContract(registry: SessionRegistry, store: SessionStore, runtimeContract = true) {
+async function bindContract(registry: SessionRegistry, store: SessionStore, runtimeContract = true, onCommand: (message: ControlMessage) => void = () => {}) {
   await store.machines.upsertMachine({
     id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
     ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
   })
-  await registry.gateway.attachDaemon(store.hostMachineId, () => {})
+  await registry.gateway.attachDaemon(store.hostMachineId, onCommand)
   const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/project',
@@ -1407,6 +1407,101 @@ it('projects draft changes after a completed turn without recording agent activi
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
     expect(await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'duplicate' })
   } finally {
+    await registry.dispose()
+    await store.close()
+  }
+})
+
+
+it('projects metadata after a closed turn, preserves recency, and deduplicates durable replay', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  try {
+    const sessionId = await bindContract(registry, store)
+    const gateway = registry.modules.sessions.runtimeGateway
+    const at = '2026-09-15T00:00:00.000Z'
+    await gateway.record(store.hostMachineId, { sessionId,
+      event: turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started', provenance: 'bootstrap' }) })
+    await gateway.record(store.hostMachineId, { sessionId,
+      event: turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }) })
+    const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
+    const event: RuntimeEvent = {
+      t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 },
+      at: '2099-09-16T00:00:00.000Z', provenance: 'live',
+      cursor: { segmentId: 'runtime-segment', components: { seq: 3 } }, observerGeneration: 1, turnEpoch: 1,
+    }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'accepted' })
+    await gateway.replayBoardProjection()
+    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 42, lastActiveAt: before })
+    expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'duplicate' })
+    await gateway.replayBoardProjection()
+    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 42, lastActiveAt: before })
+  } finally {
+    await registry.dispose()
+    await store.close()
+  }
+})
+
+
+it('admits native bootstrap after the same session early metadata prefix', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  try {
+    const sessionId = await bindContract(registry, store)
+    const gateway = registry.modules.sessions.runtimeGateway
+    const at = '2026-09-15T00:00:00.000Z'
+    const metadata: RuntimeEvent = { t: 'metadata', change: { kind: 'title', source: 'native', title: 'Early title' },
+      at, provenance: 'live', observerGeneration: 1, turnEpoch: 0,
+      cursor: { segmentId: 'driver:process', components: { seq: 1 } } }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: metadata })).toMatchObject({ kind: 'accepted' })
+    const seed: RuntimeEvent = { t: 'item', item: { kind: 'complete', item: {
+      id: 'first-user', role: 'user', text: 'First real prompt', ts: at,
+    } }, at, provenance: 'bootstrap', observerGeneration: 1, turnEpoch: 0,
+      cursor: { segmentId: 'driver:process', components: { seq: 2 } } }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: seed })).toMatchObject({ kind: 'accepted' })
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: seed })).toMatchObject({ kind: 'duplicate' })
+    const native: RuntimeEvent = { ...stateEvent({ at, seq: 3, observerGeneration: 1, turnEpoch: 0, provenance: 'bootstrap' }),
+      cursor: { segmentId: 'native', predecessorSegmentId: 'driver:process', components: { seq: 3 } } }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: native })).toMatchObject({ kind: 'accepted' })
+    await gateway.replayBoardProjection()
+  } finally { await registry.dispose(); await store.close() }
+})
+
+
+it('restores metadata through the actual bind snapshot RPC on reconnect without compatibility frames', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  let percent = 33
+  let seq = 1
+  const at = '2025-01-01T00:00:00.000Z'
+  const replies: Promise<void>[] = []
+  try {
+    const sessionId = await bindContract(registry, store, true, (message) => {
+      if (message.type !== 'runtimeSnapshotRequest') return
+      const event = { t: 'metadata' as const, change: { kind: 'context' as const, source: 'transcript' as const, percent },
+        at, provenance: 'live' as const, observerGeneration: 1, turnEpoch: 0,
+        cursor: { segmentId: 'native', components: { seq } } }
+      replies.push(registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeSnapshotResult', requestId: message.requestId, sessionId: message.sessionId,
+        result: { snapshot: {
+          binding: { sessionId: message.sessionId, driver: 'generic-pty', family: 'terminal', harness: 'codex',
+            workdir: '/project', resume: null, process: { key: 'process' }, bindingVersion: 1 },
+          state: {}, cursor: event.cursor, observerGeneration: 1, turnEpoch: 0,
+          interactions: [], metadata: [event], draft: '', at,
+        } },
+      }))
+    })
+    await vi.waitFor(async () => expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 33 }))
+    const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
+    percent = 0
+    seq = 2
+    await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'bind', sessionId, cmd: 'codex', cwd: '/project', agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 }, runtimeContract: true, driverId: 'generic-pty',
+    })
+    await vi.waitFor(async () => expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 0, lastActiveAt: before }))
+  } finally {
+    await Promise.all(replies)
     await registry.dispose()
     await store.close()
   }

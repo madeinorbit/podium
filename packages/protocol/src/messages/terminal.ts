@@ -858,10 +858,13 @@ export const TitleMessage = z.object({
   type: z.literal('title'),
   sessionId: SessionIdField,
   title: z.string(),
+  source: z.enum(['osc', 'native']).optional(),
 })
 // Daemon → server: the agent's `/color` accent, parsed from the transcript tail.
 export const AgentColorMessage = z.object({
   type: z.literal('agentColor'),
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
   sessionId: SessionIdField,
   color: z.string(),
 })
@@ -870,7 +873,9 @@ export const AgentColorMessage = z.object({
 // mid-session `/model` switches; rides the same transcript tail as agentColor.
 export const AgentModelMessage = z.object({
   type: z.literal('agentModel'),
-  sessionId: SessionIdField,
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
+  source: z.enum(['transcript', 'native']).optional(),  sessionId: SessionIdField,
   model: z.string(),
   /** The observed reasoning-effort tier (assistant records' top-level `effort`),
    *  when the transcript reports one. Optional for wire-compat with older daemons. */
@@ -880,6 +885,8 @@ export const AgentModelMessage = z.object({
 // transcript. Harnesses without a reliable numerator + window do not emit it.
 export const AgentContextMessage = z.object({
   type: z.literal('agentContext'),
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
   // Branded like every sibling frame in this file. main added this frame
   // (POD-1262) with a bare z.string(); the rewrite's ids are branded, and the
   // deletion ratchet flags exactly this shape — a key naming an entity id whose

@@ -51,6 +51,7 @@ export interface RuntimeStateProjection {
 }
 
 export interface RuntimeEventGatePorts {
+  metadata?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'metadata' }>): Promise<void>
   delivery?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'delivery' }>): Promise<void>
   events: Pick<
     EventsRepository,
@@ -211,7 +212,7 @@ export class RuntimeEventGate {
     await this.ports.write(
       sessionId,
       (draft) => {
-        if (event.t !== 'draft') session.recordRuntimeActivity(event.at, draft)
+        if (event.t !== 'draft' && event.t !== 'metadata') session.recordRuntimeActivity(event.at, draft)
         /**
          * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
          *
@@ -377,7 +378,9 @@ export class RuntimeEventGate {
     if (
       !replacing &&
       event.provenance === 'bootstrap' &&
-      !(event.t === 'state' && event.change.kind === 'state_snapshot')
+      !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
+      event.t !== 'metadata' &&
+      !(current.turnEpoch === 0 && event.turnEpoch === 0)
     ) {
       return { kind: 'rejected', reason: 'cursor-not-after-checkpoint' }
     }
@@ -394,6 +397,7 @@ export class RuntimeEventGate {
       event.t !== 'process' &&
       event.t !== 'delivery' &&
       event.t !== 'draft' &&
+      event.t !== 'metadata' &&
       !(event.t === 'state' && event.change.kind === 'state_snapshot')
     ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
@@ -415,6 +419,7 @@ export class RuntimeEventGate {
 
   private async projectBoard(record: RuntimeEventLogRecord): Promise<void> {
     const { event, id: eventId, sessionId } = record
+    if (event.t === 'metadata') await this.ports.metadata?.(sessionId, event)
     if (event.t === 'delivery') await this.ports.delivery?.(sessionId, event)
     if (event.t === 'workspace' && event.ev.ev === 'git-activity') {
       await this.ports.board({

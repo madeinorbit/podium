@@ -81,6 +81,7 @@ export interface SessionDaemonLifecyclePorts {
    * go, and because every existing fixture predates it — an unflagged session
    * produces none of these frames, so an absent sink is not a dropped fact.
    */
+  initializeRuntimeMetadata?(sessionId: SessionId, machineId: MachineId): Promise<void>
   runtimeEvents?: {
     record(
       machineId: MachineId,
@@ -466,6 +467,10 @@ export class SessionDaemonLifecycle {
         // Catchup (POD-859 §6): seed native with a chat draft edited while the
         // session was down — on BIND (the engine is attached by the time the daemon
         // reports draftSyncEngine), not on reattach (dispatched before attach).
+        if (msg.runtimeContract) {
+          void this.ports.initializeRuntimeMetadata?.(msg.sessionId, machineId)
+            .catch((error: unknown) => log.warn('runtime metadata bootstrap failed', { sessionId: msg.sessionId, err: error }))
+        }
         if (msg.runtimeContract || msg.draftSyncEngine) {
           void this.state.initializeRuntimeDraft(msg.sessionId, machineId)
             .catch((error: unknown) => log.warn('runtime draft bootstrap failed', { sessionId: msg.sessionId, err: error }))

@@ -560,6 +560,17 @@ describe('tailTranscript — observed model + effort (POD-121)', () => {
       },
     })
 
+  it('retains native metadata timestamps during the initial transcript replay', async () => {
+    const path = join(dir, 'metadata-time.jsonl')
+    const at = '2025-01-02T03:04:05.000Z'
+    const record = JSON.parse(assistantRecord('time', 'native-model', 'one', 'high'))
+    record.timestamp = at
+    writeFileSync(path, `${JSON.stringify(record)}\n`)
+    const seen: Array<string | undefined> = []
+    const { tailer, tick } = makeTailHarness(path, 10, { onModel: (_model, _effort, timestamp) => seen.push(timestamp) })
+    try { await tick(); expect(seen).toEqual([at]) } finally { tailer.stop() }
+  })
+
   it('emits onModel on first sighting and on change, not on repeats', async () => {
     const path = join(dir, 'tail-model.jsonl')
     writeFileSync(path, `${assistantRecord('m1', 'claude-fable-5', 'one')}\n`)

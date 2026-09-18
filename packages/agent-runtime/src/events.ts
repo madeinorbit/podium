@@ -59,7 +59,22 @@ export type RuntimeEvent = CausalEnvelope & RuntimeEventBody
  * building an event before stamping it needs this exact type, so it is named
  * here instead of re-derived (incorrectly) at each producer.
  */
+/** Native observations only: requested configuration and account usage are separate.
+ * Missing effort preserves the last observed effort; colour reset remains a value.
+ * Sources survive both the live event and snapshot paths. */
+export type SessionMetadataChange =
+  | { kind: 'title'; source: 'osc' | 'native'; title: string }
+  | { kind: 'model'; source: 'transcript' | 'native'; model: string; effort?: string }
+  | { kind: 'color'; source: 'transcript'; color: string }
+  | { kind: 'context'; source: 'transcript'; percent: number }
+
+export type SessionMetadataObservation = CausalEnvelope & {
+  t: 'metadata'
+  change: SessionMetadataChange
+}
+
 export type RuntimeEventBody =
+  | { t: 'metadata'; change: SessionMetadataChange }
   | { t: 'draft'; text: string }
   | { t: 'delivery'; rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }
   | {

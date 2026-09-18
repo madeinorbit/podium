@@ -78,9 +78,10 @@ export function stampRuntimeEvent(
  * rather than a fabricated one: the segment is the driver's own process key, so
  * it can never collide with a provider segment id, and `seq` counts events
  * within it so ordering and fencing still work. A consumer comparing it against
- * a real provider cursor sees a different segment and refuses to merge — which
- * is the correct outcome, and the one a zero-filled provider cursor would have
- * silently gotten wrong.
+ * a real provider cursor refuses to merge unless the driver explicitly joins
+ * that cursor to this prefix with predecessorSegmentId. The driver can prove
+ * that first handoff through its registered session; unrelated provider
+ * segments still cannot inherit this cursor's ordering.
  */
 export function driverLocalCursor(processKey: string, seq: number): ProviderCursor {
   return { segmentId: `driver:${processKey}`, components: { seq } }

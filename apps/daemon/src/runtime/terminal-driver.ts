@@ -86,6 +86,8 @@ import type {
   SessionHealth,
   SessionLease,
   SessionSnapshot,
+  SessionMetadataChange,
+  SessionMetadataObservation,
   SessionSpec,
   TerminalInjectionMachine,
   TimerHandle,
@@ -107,6 +109,7 @@ import {
   terminalCapabilities,
 } from '@podium/agent-runtime'
 
+import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '@podium/harness/metadata'
 import { canonicalDriverId } from '@podium/harness'
 import type {
   AgentStateEvent,
@@ -326,6 +329,7 @@ interface DriverSession {
   fencedTurnEpoch: number
   /** The newest cursor an observation gave us; null until one arrives. */
   providerCursor: ProviderCursor | null
+  publishedCursor: ProviderCursor | null
   /** Driver-local event counter — the `seq` inside a driver-local cursor, and
    *  the position an `events(after)` consumer resumes from. */
   seq: number
@@ -342,6 +346,7 @@ interface DriverSession {
   answered: Set<string>
   lease: SessionLease | null
   draft: string | undefined
+  metadata: Map<SessionMetadataChange['kind'], SessionMetadataObservation>
   contextUsedPercent: number | undefined
   observedStatePhase: AgentRuntimeState['phase'] | undefined
   transcriptVersions: Map<string, string>
@@ -506,7 +511,7 @@ export interface TerminalRuntime {
   has(sessionId: SessionId): boolean
   /** THE EVENT SOURCE. Tap on the daemon's outbound frame stream — see the
    *  header. Returns immediately for a session that is not registered. */
-  observe(msg: DaemonMessage): void
+  observe(msg: TerminalObservation): void
   observeState(observation: TerminalStateObservation): void
   /** The causal accept signal: a raw hook payload, before the observers fold it. */
   onHookPayload(sessionId: SessionId, payload: unknown): void
@@ -659,7 +664,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   ): ProviderCursor => {
     const base = provider ?? session.providerCursor
     if (!base) return driverLocalCursor(session.label, seq)
-    const previous = session.lastEmittedCursor
+    const previous = session.lastEmittedCursor ?? session.publishedCursor
     const predecessor =
       previous &&
       previous.segmentId !== base.segmentId &&
@@ -696,6 +701,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       turnEpoch: session.turnEpoch,
     })
     session.lastEmittedCursor = event.cursor
+    session.publishedCursor = event.cursor
+    if (event.t === 'metadata') session.metadata.set(event.change.kind, event)
     session.log.push({ seq: session.seq, event })
     const timingBinding = handles.get(session.sessionId)?.binding
     if (timingBinding) driverTiming.runtimeEvent(timingBinding, event)
@@ -922,7 +929,52 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     emit(session, { t: 'draft', text }, observedAt(), 'live')
   }
 
+  function observeMetadata(session: DriverSession, change: SessionMetadataChange, at?: string): void {
+    const prior = session.metadata.get(change.kind)
+    if (change.kind === 'title') {
+      if (isCommandWrapperText(change.title)) return
+      const title = stripSpinnerFrame(change.title)
+      if (isTransientTitle(title)) return
+      if (isGenericClaudeTitle(title) && prior?.change.kind === 'title' &&
+          !isGenericClaudeTitle(prior.change.title)) return
+      change = { ...change, title }
+    }
+    // Omitted effort is not a reset. Keep the latest pair in the snapshot even
+    // when the next assistant record names only its model.
+    if (change.kind === 'model' && change.effort === undefined && prior?.change.kind === 'model') {
+      change = { ...change, ...(prior.change.effort !== undefined ? { effort: prior.change.effort } : {}) }
+    }
+    if (JSON.stringify(prior?.change) === JSON.stringify(change)) return
+    // Prefer the native record's time. OSC and native callbacks without a
+    // timestamp have only a sighting time; snapshot/reconnect preserves it.
+    emit(session, { t: 'metadata', change }, at ?? observedAt(), 'live')
+  }
+
   function observe(msg: TerminalObservation): void {
+    if (msg.type === 'terminalState') {
+      const session = sessions.get(msg.sessionId)
+      if (!session) {
+        holdUntilRegistered(msg.sessionId, msg)
+        return
+      }
+      if (
+        msg.observerGeneration !== session.observerGeneration ||
+        msg.bindingVersion !== session.bindingVersion
+      )
+        return
+      const bootstrap =
+        msg.bootstrap === true ||
+        (session.observerGeneration > 1 && session.stateGeneration !== session.observerGeneration)
+      if (!bootstrap) applyStateLifecycle(session, msg.state)
+      else session.observedStatePhase = msg.state.phase
+      publishState(
+        session,
+        msg.state,
+        msg.state.stateObservedAt ?? msg.state.since,
+        bootstrap ? 'bootstrap' : 'live',
+      )
+      return
+    }
     const claimedId =
       msg.type === 'agentObservation'
         ? msg.observation.podiumSessionId
@@ -1051,30 +1103,27 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         observeDraft(session.sessionId, msg.text)
         return
       }
-      case 'terminalState': {
-        if (
-          msg.observerGeneration !== session.observerGeneration ||
-          msg.bindingVersion !== session.bindingVersion
-        )
-          return
-        const bootstrap =
-          msg.bootstrap === true ||
-          (session.observerGeneration > 1 && session.stateGeneration !== session.observerGeneration)
-        if (!bootstrap) applyStateLifecycle(session, msg.state)
-        else session.observedStatePhase = msg.state.phase
-        publishState(
-          session,
-          msg.state,
-          msg.state.stateObservedAt ?? msg.state.since,
-          bootstrap ? 'bootstrap' : 'live',
-        )
-        return
-      }
       case 'agentState':
         // Legacy transport is no longer a driver input.
         return
+      case 'title': {
+        const source = msg.source ?? 'native'
+        if (source === 'osc' && harnessCapabilitiesFor(session.agentKind)?.oscTitle === false) return
+        observeMetadata(session, { kind: 'title', source, title: msg.title })
+        return
+      }
+      case 'agentColor': {
+        observeMetadata(session, { kind: 'color', source: 'transcript', color: msg.color }, msg.at)
+        return
+      }
+      case 'agentModel': {
+        observeMetadata(session, { kind: 'model', source: msg.source ?? 'transcript', model: msg.model,
+          ...(msg.effort !== undefined ? { effort: msg.effort } : {}) }, msg.at)
+        return
+      }
       case 'agentContext': {
         session.contextUsedPercent = msg.percent
+        observeMetadata(session, { kind: 'context', source: 'transcript', percent: msg.percent }, msg.at)
         return
       }
       case 'sessionResumeRef': {
@@ -1452,6 +1501,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       turnEpoch: carried?.turnEpoch ?? 0,
       fencedTurnEpoch: carried?.fencedTurnEpoch ?? 0,
       providerCursor: null,
+      publishedCursor: null,
       seq: carried?.seq ?? 0,
       log: [],
       wakers: new Set(),
@@ -1461,6 +1511,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       lease: null,
       draft: undefined,
       contextUsedPercent: undefined,
+      metadata: new Map(),
       observedStatePhase: undefined,
       transcriptVersions: new Map(),
       injection: undefined as unknown as TerminalInjectionMachine,
@@ -1618,6 +1669,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
           interactions: [...session.interactions.values()],
+          metadata: [...session.metadata.values()],
           ...(session.draft !== undefined ? { draft: session.draft } : {}),
           at: new Date(host.now()).toISOString(),
         }

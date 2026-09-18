@@ -1123,12 +1123,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           recordToItems,
           statTick,
           // The agent's `/color` accent rides the same transcript tail.
-          onColor: (color) => send({ type: 'agentColor', sessionId, color }),
+          onColor: (color, at) => send({ type: 'agentColor', sessionId, color, ...(at ? { at } : {}) }),
           // As do the observed model + effort (assistant `message.model` / `effort`).
-          onModel: (model, effort) =>
-            send({ type: 'agentModel', sessionId, model, ...(effort ? { effort } : {}) }),
+          onModel: (model, effort, at) =>
+            send({ type: 'agentModel', sessionId, model, source: 'transcript', ...(at ? { at } : {}), ...(effort ? { effort } : {}) }),
           recordRuntime: transcriptRuntimeReaderFor(agentKind) ?? (() => ({})),
-          onContextUsage: (percent) => send({ type: 'agentContext', sessionId, percent }),
+          onContextUsage: (percent, at) => send({ type: 'agentContext', sessionId, percent, ...(at ? { at } : {}) }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,
@@ -1265,7 +1265,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           ...(confidence ? { confidence } : {}),
         })
       },
-      onTitle: (title) => send({ type: 'title', sessionId, title }),
+      onTitle: (title) => send({ type: 'title', sessionId, title, source: 'native' }),
       onStateEvents: (events) => {
         if (trackers.get(sessionId) === tracker) applyAgentStateEvents(sessionId, events)
       },
@@ -1287,7 +1287,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         })
       },
       onModel: (model, effort) =>
-        send({ type: 'agentModel', sessionId, model, ...(effort ? { effort } : {}) }),
+        send({ type: 'agentModel', sessionId, model, source: 'native', ...(effort ? { effort } : {}) }),
     }
   }
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isDurableRuntimeEvent,
   RuntimeEventMessage,
+  SessionSnapshot,
   RuntimeDurableSendRequestMessage,
   RuntimeSendRequestMessage,
   type RuntimeEventBody,
@@ -11,6 +12,7 @@ import {
 
 const at = '2026-09-18T12:00:00.000Z'
 const bodies = {
+  metadata: { t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 } },
   delivery: { t: 'delivery', rowId: 'row', outcome: 'delivered' },
   state: { t: 'state', change: { kind: 'activity' } },
   item: { t: 'item', item: { kind: 'complete', item: { id: 'item', role: 'system', text: 'Interrupted', ts: at } } },
@@ -30,7 +32,7 @@ function event(body: RuntimeEventBody, provenance: RuntimeEvent['provenance'] = 
 }
 
 describe('runtime event retention contract', () => {
-  it.each(['delivery', 'item', 'interaction', 'turn', 'process', 'open-url'] as const)(
+  it.each(['metadata', 'delivery', 'item', 'interaction', 'turn', 'process', 'open-url'] as const)(
     'retains %s because loss is not repaired by the next observation', (kind) => {
       expect(isDurableRuntimeEvent(event(bodies[kind]))).toBe(true)
     },
@@ -62,4 +64,16 @@ describe('durable admission command', () => {
     expect(RuntimeSendRequestMessage.safeParse(frame).success).toBe(false)
     expect(RuntimeDurableSendRequestMessage.safeParse({ ...frame, deliveryRecovery: undefined }).success).toBe(false)
   })
+})
+
+
+it('preserves title and causal metadata through the snapshot wire schema', () => {
+  const metadata = event(bodies.metadata)
+  const snapshot = {
+    binding: { sessionId: 'session', harness: 'claude-code', driver: 'terminal-claude', family: 'terminal', workdir: '/repo', resume: null,
+      bindingVersion: 1, process: { key: 'process' } },
+    state: {}, cursor: metadata.cursor, observerGeneration: 2, turnEpoch: 1,
+    interactions: [], title: 'Native title', metadata: [metadata], at,
+  }
+  expect(SessionSnapshot.parse(snapshot)).toMatchObject({ title: 'Native title', metadata: [metadata] })
 })

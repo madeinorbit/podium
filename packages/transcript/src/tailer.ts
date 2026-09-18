@@ -55,17 +55,17 @@ export interface TranscriptTailOptions {
   /** Extract an agent identity colour (`/color`) from a record, if any. Called
    *  alongside recordToItems; `onColor` fires when the value changes. */
   recordColor?: (record: unknown) => string | undefined
-  onColor?: (color: string) => void
+  onColor?: (color: string, at?: string) => void
   /** Extract the observed model id / effort tier from a record (assistant turns'
    *  `message.model` and top-level `effort`). `onModel` fires when either value
    *  changes (initial sighting included), with the latest of both. */
   recordModel?: (record: unknown) => string | undefined
   recordEffort?: (record: unknown) => string | undefined
-  onModel?: (model: string, effort: string | undefined) => void
+  onModel?: (model: string, effort: string | undefined, at?: string) => void
   /** Cross-harness runtime extraction. When supplied it supersedes the legacy
    * recordModel/recordEffort pair and may additionally report exact context use. */
   recordRuntime?: (record: unknown) => HarnessRuntimeObservation
-  onContextUsage?: (percent: number) => void
+  onContextUsage?: (percent: number, at?: string) => void
   /** Runs the tail's FIRST read (the multi-MB backfill seed — the expensive one)
    *  through a pacing gate; poll ticks hold off until the gated seed completes.
    *  Lets a caller standing up many tails at once (daemon reattach burst,
@@ -182,11 +182,16 @@ export function tailTranscript(
     } catch {
       return [] // torn write — skip the line
     }
+    const items = recordToItems(record)
+    const timestamp = items.find((item) => item.ts)?.ts ??
+      (typeof record === 'object' && record !== null && 'timestamp' in record ? record.timestamp : undefined)
+    const at = typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp))
+      ? new Date(timestamp).toISOString() : undefined
     // Identity colour rides the same tail — emit on change (last wins).
     const color = recordColor(record)
     if (color !== undefined && color !== lastColor) {
       lastColor = color
-      opts.onColor?.(color)
+      opts.onColor?.(color, at)
     }
     // The observed model + effort ride the same tail — one emit when either
     // changes (assistant records carry both), always with the latest pair.
@@ -198,14 +203,14 @@ export function tailTranscript(
     if (modelChanged) lastModel = model
     if (effortChanged) lastEffort = effort
     if ((modelChanged || effortChanged) && lastModel !== undefined) {
-      opts.onModel?.(lastModel, lastEffort)
+      opts.onModel?.(lastModel, lastEffort, at)
     }
     const contextUsagePercent = runtime?.contextUsagePercent
     if (contextUsagePercent !== undefined && contextUsagePercent !== lastContextUsagePercent) {
       lastContextUsagePercent = contextUsagePercent
-      opts.onContextUsage?.(contextUsagePercent)
+      opts.onContextUsage?.(contextUsagePercent, at)
     }
-    return stampCursors(recordToItems(record), fileId, lineOffset, recordUuid(record))
+    return stampCursors(items, fileId, lineOffset, recordUuid(record))
   }
 
   let firstEmissionReported = false

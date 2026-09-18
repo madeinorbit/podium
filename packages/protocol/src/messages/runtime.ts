@@ -284,6 +284,18 @@ export const GitActivity = z.object({
  * first place. `@podium/agent-runtime` re-narrows it to `AgentStateEvent` at its
  * own boundary, where the import is legal.
  */
+export const SessionMetadataChange = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('title'), source: z.enum(['osc', 'native']), title: z.string() }),
+  z.object({ kind: z.literal('model'), source: z.enum(['transcript', 'native']), model: z.string(), effort: z.string().optional() }),
+  z.object({ kind: z.literal('color'), source: z.literal('transcript'), color: z.string() }),
+  z.object({ kind: z.literal('context'), source: z.literal('transcript'), percent: z.number() }),
+])
+export type SessionMetadataChange = z.infer<typeof SessionMetadataChange>
+export const SessionMetadataObservation = z.intersection(CausalEnvelope, z.object({
+  t: z.literal('metadata'), change: SessionMetadataChange,
+}))
+export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
+
 export const RuntimeEventBody = z.discriminatedUnion('t', [
   z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional() }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
@@ -297,6 +309,7 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
     ev: z.object({ url: z.string(), intent: z.enum(['login', 'link']) }),
   }),
   z.object({ t: z.literal('draft'), text: z.string() }),
+  z.object({ t: z.literal('metadata'), change: SessionMetadataChange }),
 ])
 export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 
@@ -317,6 +330,8 @@ export type RuntimeEvent = z.infer<typeof RuntimeEvent>
  * Turn starts admit the next epoch; turn failures drive attention. Neither is
  * replaced by a transcript mirror. Receipts, process boundaries, interactions
  * and open-url requests are likewise one-shot effects, not replaceable snapshots.
+ * Metadata is retained too: the native sources emit on change, so a dropped
+ * update is not guaranteed to be repeated while the connection remains open.
  */
 export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
   if (isRuntimeFineEvent(event)) return false
@@ -326,6 +341,7 @@ export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
     case 'workspace':
     case 'draft':
       return false
+    case 'metadata':
     case 'delivery':
     case 'process':
     case 'interaction':
@@ -582,6 +598,8 @@ export const SessionSnapshot = z.object({
   turnEpoch: z.number().int().nonnegative(),
   interactions: z.array(PendingInteraction).readonly(),
   draft: z.string().optional(),
+  title: z.string().optional(),
+  metadata: z.array(SessionMetadataObservation).readonly().optional(),
   at: z.string().datetime(),
 })
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>

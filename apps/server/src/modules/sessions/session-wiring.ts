@@ -676,6 +676,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    * stay on compatibility frames until their own vertical slices migrate.
    */
   runtimeEventGate = new RuntimeEventGate({
+    metadata: (sessionId, event) => bag.daemonProjection.runtimeEvent(sessionId, event),
     delivery: (sessionId, event) => bag.inbox.deliveryOutcome(sessionId, event),
     events: store.events,
     session: (sessionId) => bag.sessions.get(sessionId),
@@ -790,6 +791,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       await bag.repository.persist(session)
       bag.broadcastSessions()
     }
+    await bag.daemonProjection.promptTitle(sessionId)
   })
   /**
    * THE PREVIEW PLANE (POD-2293), SUBSCRIBED TO A RECEIVER THAT ALREADY EXISTED.
@@ -869,6 +871,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     now: () => bag.now(),
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
+    initializeRuntimeMetadata: async (sessionId, machineId) => {
+      const session = bag.sessions.get(sessionId)
+      const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
+      if (!session || bag.sessions.get(sessionId) !== session || session.machineId !== machineId || !session.runtimeContract) return
+      if ('snapshot' in reply.result) await bag.daemonProjection.metadataSnapshot(sessionId, reply.result.snapshot)
+    },
     sessions: bag.sessions,
     bus: bag.bus,
     browserOpen: bag.browserOpen,
