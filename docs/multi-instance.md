@@ -164,6 +164,13 @@ The command combines four layers:
    named install/update target cannot overwrite the default bundle or command, and that the
    named identity reaches the `install-finish` handoff that configures it.
 
+The runtime lane also includes `legacy-daemon-rollback.integration.bun.test.ts`.
+It runs two plain-service launcher fixtures concurrently, applies a signed bundle whose
+executable exits before main, and verifies three failed boots, restoration of each retained
+bundle, and delivery of the durable rollback reason. The small acknowledged transport is a
+fixture; fleet terminal-state and explicit operator retry behavior are covered by the update
+service unit tests.
+
 The process test uses explicit temporary roots and six reserved ports, so it can run alongside
 an operator's normal Podium instance without reading or stopping it.
 

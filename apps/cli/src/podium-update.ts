@@ -1,3 +1,5 @@
+import { legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
+import { readPendingGrant, writePendingGrant } from '@podium/runtime/update-pending'
 /**
  * Explicit CLI consent resolves one exact signed target and submits it to the
  * machine supervisor. Legacy installations without a parent use the same executor
@@ -224,18 +226,48 @@ export async function runUpdate(
   // An unconfigured legacy installation has no persistent parent yet. This
   // command is its one-shot supervisor, using exactly the same journal and
   // verified installer. Preserve its explicit manual-restart contract.
+  const refusal = legacyRollbackRefusal(
+    readPendingGrant(runtimeDir),
+    version,
+    process.env.PODIUM_LEGACY_AUTO_UPDATE !== '1',
+    grant.grantId,
+  )
+  if (refusal) {
+    console.error(`[podium update] ${refusal}`)
+    process.exitCode = 1
+    return
+  }
+  const adapter = createHeadlessMachineUpdateAdapter({
+    installDir: dir,
+    runningVersion: cur,
+    runningDigest,
+    caps: ['update.delivery.feed'],
+    platform: target,
+    pubkey: pubkeyB64,
+    pinnedPubkey: () => undefined,
+    restart: async () => 'handover-pending',
+  })
+  if (
+    process.env.PODIUM_LEGACY_DAEMON_GUARD === 'child' ||
+    process.env.PODIUM_LEGACY_AUTO_UPDATE === '1' ||
+    readPendingGrant(runtimeDir)?.legacyHealth !== undefined
+  ) {
+    const activate = adapter.activate
+    adapter.activate = async (accepted, prepared) => {
+      writePendingGrant(runtimeDir, {
+        grantId: accepted.grantId,
+        targetVersion: accepted.target.version,
+        previousVersion: cur,
+        attempts: 1,
+        startedAt: Date.now(),
+        legacyHealth: { boots: 0 },
+      })
+      await activate(accepted, prepared)
+    }
+  }
   const executor = new MachineUpdateExecutor({
     runtimeDir,
-    adapter: createHeadlessMachineUpdateAdapter({
-      installDir: dir,
-      runningVersion: cur,
-      runningDigest,
-      caps: ['update.delivery.feed'],
-      platform: target,
-      pubkey: pubkeyB64,
-      pinnedPubkey: () => undefined,
-      restart: async () => 'handover-pending',
-    }),
+    adapter,
     report: (status) => {
       if (status.detail) console.error(`[podium update] ${status.detail}`)
     },

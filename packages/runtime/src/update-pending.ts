@@ -18,6 +18,8 @@ export interface PendingGrant {
   previousVersion: string
   attempts: number
   startedAt: number
+  /** Only plain-service daemons use this gate; parent health is unchanged. */
+  legacyHealth?: import('./legacy-daemon-update').LegacyUpdateHealth
 }
 
 const FILE = 'pending-update.json'
@@ -43,6 +45,31 @@ export function readPendingGrant(dir: string): PendingGrant | null {
       typeof g.startedAt !== 'number'
     ) {
       return null
+    }
+    if (g.legacyHealth !== undefined) {
+      const h = g.legacyHealth
+      if (
+        !h ||
+        typeof h !== 'object' ||
+        !Number.isInteger(h.boots) ||
+        h.boots < 0 ||
+        (h.firstBootAt !== undefined && !Number.isFinite(h.firstBootAt)) ||
+        (h.healthyAt !== undefined && !Number.isFinite(h.healthyAt)) ||
+        (h.lastExit !== undefined && typeof h.lastExit !== 'string') ||
+        (h.rollbackReason !== undefined && typeof h.rollbackReason !== 'string') ||
+        (h.restored !== undefined && typeof h.restored !== 'boolean') ||
+        (h.rejectedTargets !== undefined &&
+          (!h.rejectedTargets ||
+            typeof h.rejectedTargets !== 'object' ||
+            Object.values(h.rejectedTargets).some(
+              (value) =>
+                !value ||
+                typeof value !== 'object' ||
+                typeof value.grantId !== 'string' ||
+                typeof value.reason !== 'string',
+            )))
+      )
+        return null
     }
     return g as PendingGrant
   } catch {
@@ -112,6 +139,12 @@ export function writePendingGrant(
   // reproduce that unrelated boot ordering would make the rollback marker
   // conditional on topology again.
   mkdirSync(dir, { recursive: true })
+  // New legacy grants keep prior version vetoes. Explicit health confirmation
+  // supplies its own map to remove the target an operator successfully retried.
+  if (g.legacyHealth && g.legacyHealth.rejectedTargets === undefined) {
+    const rejectedTargets = readPendingGrant(dir)?.legacyHealth?.rejectedTargets
+    if (rejectedTargets) g = { ...g, legacyHealth: { ...g.legacyHealth, rejectedTargets } }
+  }
   const temp = join(dir, TEMP_FILE)
   writeBytes(temp, JSON.stringify(g))
   renameSync(temp, join(dir, FILE))

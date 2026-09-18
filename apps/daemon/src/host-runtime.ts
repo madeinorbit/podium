@@ -1,3 +1,4 @@
+import { legacyUpdateStatus, legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
 import { createRecoveryReadiness } from './recovery-readiness'
 import type { BindingConfirmations } from '@podium/protocol'
 import { mkdir, stat } from 'node:fs/promises'
@@ -718,6 +719,13 @@ export async function createDaemonHostRuntime(args: {
     if (!pending) return
 
     const runningVersion = build.appVersion ?? 'dev'
+    if (pending.legacyHealth && process.env.PODIUM_UNDER_PARENT !== '1') {
+      // connected() is invoked only after the server's authenticated helloOk.
+      // Keep the durable verdict for reconnect replay and same-target refusal.
+      const status = legacyUpdateStatus(instance.runtimeDir, runningVersion)
+      if (status) send(status)
+      return status?.state === 'current' ? pending.targetVersion : undefined
+    }
     const verdict = resolveOnBoot({ pending, runningVersion })
     if (!verdict) return
 
@@ -852,7 +860,18 @@ export async function createDaemonHostRuntime(args: {
       if (!installDir) throw new Error('binary delivery requires an installed daemon')
       return swapHeadlessBundle(bytes, installDir)
     },
-    refuse: (target) => convergenceRefusal ?? schemaGate(target),
+    legacyHealthGate: process.env.PODIUM_UNDER_PARENT !== '1',
+    refuse: (target, grant) =>
+      convergenceRefusal ??
+      (process.env.PODIUM_UNDER_PARENT !== '1'
+        ? legacyRollbackRefusal(
+            readPendingGrant(instance.runtimeDir),
+            target.version,
+            grant.retryRollback,
+            grant.grantId,
+          )
+        : undefined) ??
+      schemaGate(target),
     releaseHadMigrations: (target) => {
       try {
         return releaseCarriesNewMigrations(target, readAppliedMigrations())

@@ -61,6 +61,18 @@ function deps(over: Partial<Parameters<typeof applyGrant>[1]> = {}) {
 }
 
 describe('applyGrant', () => {
+  it('arms legacy crash recovery before the swap with the pre-swap version', async () => {
+    const order: string[] = []
+    const d = deps({ legacyHealthGate: true,
+      writePending: vi.fn(() => void order.push('pending')),
+      swap: vi.fn(() => void order.push('swap')),
+      restart: vi.fn(() => void order.push('restart')) })
+    await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
+    expect(order).toEqual(['pending', 'swap', 'restart'])
+    expect(d.writePending).toHaveBeenCalledWith(expect.objectContaining({
+      previousVersion: '0.4.1', targetVersion: '0.4.2', legacyHealth: { boots: 0 } }))
+  })
+
   it('reports current without swapping when already on the target', async () => {
     const d = deps({ currentVersion: () => '0.4.2' })
     await applyGrant({ type: 'updateGrant', grantId: 'g1', target }, d)
@@ -464,7 +476,7 @@ describe('applyGrant consults the refusal about the target itself', () => {
     const refuse = vi.fn(() => undefined)
     const d = deps({ refuse })
     await applyGrant({ type: 'updateGrant', grantId: 'g1', target: migratedTarget }, d)
-    expect(refuse).toHaveBeenCalledWith(migratedTarget)
+    expect(refuse).toHaveBeenCalledWith(migratedTarget, { type: 'updateGrant', grantId: 'g1', target: migratedTarget })
   })
 
   it('fetches nothing when the target cannot open this machine database', async () => {

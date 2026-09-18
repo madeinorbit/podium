@@ -1914,6 +1914,8 @@ export class UpdatesService {
           this.lastGrantAuthority + 1,
         )),
         ...(repair ? { repair: true } : {}),
+        ...(['operator-apply', 'operator-repair'].includes(cause.initiator.kind)
+          ? { retryRollback: true } : {}),
         target,
         ...(this.deps.updatePubkey ? { updatePubkey: this.deps.updatePubkey() } : {}),
       }

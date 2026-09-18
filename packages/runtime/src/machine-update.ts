@@ -132,6 +132,28 @@ function persist(runtimeDir: string, value: MachineUpdateJournal): void {
   }
 }
 
+/** The plain-service guard calls this only after the candidate exited and the
+ * retained bundle was restored. Supervisor journals retain their own owner. */
+export function recordLegacyMachineRollback(
+  runtimeDir: string,
+  grantId: string,
+  detail: string,
+): void {
+  const journal = readMachineUpdateJournal(runtimeDir)
+  if (!journal || journal.grant.grantId !== grantId || !committed(journal.phase)) return
+  persist(runtimeDir, {
+    ...journal,
+    phase: 'stuck',
+    detail,
+    percent: undefined,
+    updatedAt: Date.now(),
+    completed: {
+      ...journal.completed,
+      [grantId]: { fingerprint: journal.fingerprint, phase: 'stuck', detail },
+    },
+  })
+}
+
 export interface MachineUpdateAdapter {
   select?(grant: UpdateGrantMessage): void
   /** Running process identity, captured at boot; never read VERSION after a swap. */

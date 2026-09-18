@@ -65,6 +65,7 @@
     "./update-signing-key": "./src/update-signing-key.ts",
     "./update-install": "./src/update-install.ts",
     "./update-schema": "./src/update-schema.ts",
+    "./legacy-daemon-update": "./src/legacy-daemon-update.ts",
     "./update-pending": "./src/update-pending.ts",
     "./update-participant": "./src/update-participant.ts",
     "./source-version": "./src/source-version.ts",

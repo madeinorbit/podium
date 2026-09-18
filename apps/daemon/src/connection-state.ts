@@ -566,7 +566,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     // void, and so do both of its callers.
     const child = spawn(process.execPath, ['update'], {
       stdio: 'inherit',
-      env: { ...process.env },
+      env: { ...process.env, PODIUM_LEGACY_AUTO_UPDATE: '1' },
     })
     // The bound the sync version never had. Killed with SIGKILL because an
     // updater wedged badly enough to reach this point cannot be trusted to

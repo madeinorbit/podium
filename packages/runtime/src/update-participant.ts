@@ -36,7 +36,9 @@ export interface GrantApplyDeps {
     target: UpdateGrantMessage['target'],
     publisherPubkey?: string,
   ): Promise<{ releaseHadMigrations?: boolean }>
-  refuse?(target: UpdateGrantMessage['target']): string | undefined
+  refuse?(target: UpdateGrantMessage['target'], grant: UpdateGrantMessage): string | undefined
+  /** Arm the plain-service crash gate before replacing any live bytes. */
+  legacyHealthGate?: boolean
   releaseHadMigrations?(target: UpdateGrantMessage['target']): boolean | undefined
   writePending(grant: PendingGrant): void
   /**
@@ -161,7 +163,7 @@ export async function applyGrant(
       report(deps, grant, 'rejected', current, reason)
       return
     }
-    const refusal = deps.refuse?.(grant.target)
+    const refusal = deps.refuse?.(grant.target, grant)
     if (refusal) {
       deps.log?.('update grant refused by this machine', {
         grantId: grant.grantId,
@@ -247,17 +249,28 @@ export async function applyGrant(
         bytes: artifact.bytes.byteLength,
       })
       const swapAt = sinceMs()
+      if (deps.legacyHealthGate) {
+        deps.writePending({
+          grantId: grant.grantId,
+          targetVersion: grant.target.version,
+          previousVersion: current,
+          attempts: 1,
+          startedAt: deps.now(),
+          legacyHealth: { boots: 0 },
+        })
+      }
       await deps.swap(artifact.bytes)
       phase('update bundle swapped', { swapMs: sinceMs() - swapAt })
     }
     if (signal?.aborted) return
-    deps.writePending({
-      grantId: grant.grantId,
-      targetVersion: grant.target.version,
-      previousVersion: current,
-      attempts: 1,
-      startedAt: deps.now(),
-    })
+    if (!deps.legacyHealthGate)
+      deps.writePending({
+        grantId: grant.grantId,
+        targetVersion: grant.target.version,
+        previousVersion: current,
+        attempts: 1,
+        startedAt: deps.now(),
+      })
     report(deps, grant, 'restarting', current)
     // The last line this process writes about this grant. Anything after it
     // belongs to the successor, which is why the total is stated HERE.

@@ -415,6 +415,24 @@ DIR="$(cd "$(dirname "$SELF")" && pwd)"
 export PODIUM_HOME="$DIR"
 export PODIUM_WEB_DIR="\${PODIUM_WEB_DIR:-$DIR/web}"
 export PODIUM_MOBILE_WEB_DIR="\${PODIUM_MOBILE_WEB_DIR:-$DIR/mobile}"
+# A plain-service daemon keeps its known-good CLI outside the candidate. Parent
+# children already have a health owner and never enter this compatibility gate.
+COMMAND=""
+SKIP_INSTANCE=0
+for ARG in "$@"; do
+  if [ "$SKIP_INSTANCE" = 1 ]; then SKIP_INSTANCE=0; continue; fi
+  case "$ARG" in
+    --instance) SKIP_INSTANCE=1 ;;
+    --instance=*) ;;
+    *) COMMAND="$ARG"; break ;;
+  esac
+done
+if [ "$COMMAND" = daemon ] && [ "\${PODIUM_UNDER_PARENT:-}" != 1 ] && [ "\${PODIUM_LEGACY_DAEMON_GUARD:-}" != child ]; then
+  export PODIUM_LEGACY_DAEMON_GUARD=guard
+  if [ -f "$DIR.old/.legacy-daemon-guard" ] && [ -x "$DIR.old/podium-cli" ]; then
+    exec "$DIR.old/podium-cli" "$@"
+  fi
+fi
 exec "$DIR/podium-cli" "$@"
 `
 }

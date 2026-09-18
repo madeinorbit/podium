@@ -1478,6 +1478,21 @@ export async function main(
     process.exitCode = 2
     return
   }
+  // The POSIX installed launcher selects the retained known-good CLI for this
+  // branch. Run before materialization or loading any candidate host modules.
+  if (
+    process.env.PODIUM_LEGACY_DAEMON_GUARD === 'guard' &&
+    argv[0] === 'daemon' &&
+    process.env.PODIUM_UNDER_PARENT !== '1'
+  ) {
+    const { runLegacyDaemonGuard } = await import('@podium/runtime/legacy-daemon-update')
+    process.exitCode = await runLegacyDaemonGuard({
+      installDir: process.env.PODIUM_HOME!,
+      stateDir: stateDir(),
+      argv,
+    })
+    return
+  }
   await runtime.afterInstanceStateClaim?.()
 
   // ONE-SHOT CONFIG MIGRATIONS, before anything reads the config (POD-333).

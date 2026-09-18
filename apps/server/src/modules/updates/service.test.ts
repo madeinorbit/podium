@@ -63,6 +63,23 @@ const m = (id: string, over: Record<string, unknown> = {}) => ({
 })
 
 describe('UpdatesService', () => {
+  it('keeps rollback reports sticky and only an operator grant lifts the local veto', async () => {
+    const { svc, send } = make([m('a')])
+    svc.setTarget({ version: '0.4.2', critical: false,
+      artifacts: { headless: { delivery: 'feed', platforms: {} } } })
+    await svc.authorize()
+    expect(send.mock.calls[0]?.[1].retryRollback).toBeUndefined()
+    await svc.onStatus(asMachineId('a'), { type: 'updateStatus', grantId: 'g1',
+      targetVersion: '0.4.2', version: '0.4.1', state: 'stuck',
+      detail: 'rolled back from 0.4.2: exit 42 before acknowledgement' })
+    expect((await svc.fleet())[0]).toMatchObject({ state: 'stuck',
+      detail: 'rolled back from 0.4.2: exit 42 before acknowledgement' })
+    await svc.tick()
+    expect(send).toHaveBeenCalledTimes(1)
+    await svc.authorizeMachine(asMachineId('a'), TEST_APPLY)
+    expect(send.mock.calls[1]?.[1]).toMatchObject({ retryRollback: true })
+  })
+
   it('resolves a machine target without re-entering the enriched machine projection', async () => {
     const machines = vi.fn(() => {
       throw new Error('wire projection re-entered')

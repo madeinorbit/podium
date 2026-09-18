@@ -28,6 +28,8 @@ export const UpdateGrantMessage = z.object({
    * already matches. Optional so older peers read every ordinary grant unchanged.
    */
   repair: z.boolean().optional(),
+  /** Explicit operator re-apply may lift a legacy machine's rollback veto. */
+  retryRollback: z.boolean().optional(),
   /** Publisher key that made this artifact signature; diagnostic only on the daemon. */
   updatePubkey: z.string().min(1).optional(),
   target: UpdateTarget,
