@@ -1,7 +1,7 @@
 import { createCollection, createLiveQueryCollection, BasicIndex, eq, count, max, sum, caseWhen, coalesce, gt, type SyncConfig } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useEffect, useMemo } from 'react'
-import { GROUP, NOW, counters, band, worklistJS, type Fixture, type Session } from './model'
+import { GROUP, NOW, counters, band, worklistJS, type Fixture, type Issue, type Session } from './model'
 function source<T extends object>(rows: T[], getKey: (row: T) => string) {
   let sync!: Parameters<SyncConfig<T, string>['sync']>[0]
   const collection = createCollection<T, string>({ getKey, startSync: true, gcTime: 0, autoIndex: 'eager', defaultIndexType: BasicIndex,
@@ -57,6 +57,7 @@ export function createTanstackProof(data: Fixture) {
       return () => { for (const stop of stops) stop.unsubscribe() }
     },
     row(id: string, reader: number) { let query = rowQueries.get(reader); if (!query) { query = rowQuery(id); rowQueries.set(reader, query) }; return query },
+    updateIssue: (i: Issue) => issues.update(i),
     update: (s: Session) => sessions.update(s), tick: (now: number) => clock.update({ id: 'clock', now }),
     replace(next: Fixture) { issues.replace(next.issues); sessions.replace(next.sessions) },
     async dispose() { await Promise.all([...rowQueries.values(), ...queries].map(q => q.cleanup())); rowQueries.clear(); await Promise.all([sessions.collection.cleanup(), issues.collection.cleanup(), clock.collection.cleanup()]) } }

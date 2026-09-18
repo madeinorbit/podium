@@ -47,7 +47,17 @@ export function createMobxProof(data: Fixture) {
       sessions.set(s.sessionId, s)
     })
   }
-  return { counts, sessions, issues, byIssue, byParent, group, summary, update, replace,
+  function updateIssue(issue: Issue) {
+    runInAction(() => {
+      const old = issues.get(issue.id)
+      if (old?.parentId !== issue.parentId) {
+        if (old?.parentId) byParent.set(old.parentId, (byParent.get(old.parentId) ?? []).filter(id => id !== issue.id))
+        add(byParent, issue.parentId, issue.id)
+      }
+      issues.set(issue.id, issue)
+    })
+  }
+  return { counts, sessions, issues, byIssue, byParent, group, summary, update, updateIssue, replace,
     tick: (time: number) => runInAction(() => now.set(time)),
     dispose: async () => { summaries.clear(); runInAction(() => { sessions.clear(); issues.clear(); byIssue.clear(); byParent.clear() }) } }
 }

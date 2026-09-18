@@ -77,6 +77,19 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
               if (name === 'unrelated') { expect(reads).toBe(0); expect(commits).toBe(0); expect(summaryReads).toBe(0); expect(groupReads).toBe(0) }
               else { expect(reads).toBe(20 * (addressing === 'same' ? readers : 1)); expect(commits).toBe(reads); expect(summaryValue).toEqual(oracle()) }
             }
+            // Relational changes must update membership and shared summary, not just timestamps.
+            data.sessions[1] = { ...data.sessions[1]!, issueId: data.issues[0]!.id }
+            await act(async () => { proof.update(data.sessions[1]!); await settle() })
+            expect(summaryValue).toEqual(oracle())
+            data.issues[2] = { ...data.issues[2]!, stage: 'done' }
+            await act(async () => { proof.updateIssue(data.issues[2]!); await settle() })
+            expect(summaryValue).toEqual(oracle())
+            data.issues[0] = { ...data.issues[0]!, readAt: new Date(NOW + 60_000).toISOString() }
+            await act(async () => { proof.updateIssue(data.issues[0]!); await settle() })
+            expect(summaryValue).toEqual(oracle())
+            data.issues[4] = { ...data.issues[4]!, parentId: data.issues[5]!.id }
+            await act(async () => { proof.updateIssue(data.issues[4]!); await settle() })
+            expect(summaryValue).toEqual(oracle())
             const beforeTick = { ...proof.counts }
             await act(async () => { proof.tick(NOW + 120_000); await settle() })
             expect(groupValue).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW + 120_000, counters()))

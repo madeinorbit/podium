@@ -11,24 +11,13 @@
     "test-hermetic-*.ts",
     "scripts/package-vitest-config.ts"
   ],
-  "globalEnv": [
-    "PODIUM_CHECK_ENV_HASH"
-  ],
-  "globalPassThroughEnv": [
-    "PODIUM_VALIDATION_RESOURCE_HELD"
-  ],
+  "globalEnv": ["PODIUM_CHECK_ENV_HASH"],
+  "globalPassThroughEnv": ["PODIUM_VALIDATION_RESOURCE_HELD"],
   "tasks": {
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "!dist/**"
-      ],
-      "outputs": [
-        "dist/**"
-      ]
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!dist/**"],
+      "outputs": ["dist/**"]
     },
     "@podium/web#build": {
       "dependsOn": [],
@@ -71,9 +60,7 @@
         "$TURBO_ROOT$/scripts/web-bundle-budget.ts",
         "$TURBO_ROOT$/scripts/write-web-build-stamp.ts"
       ],
-      "outputs": [
-        "dist/**"
-      ]
+      "outputs": ["dist/**"]
     },
     "@podium/mobile#build": {
       "dependsOn": [],
@@ -104,9 +91,7 @@
         "$TURBO_ROOT$/scripts/precompress-dist.ts",
         "$TURBO_ROOT$/scripts/write-web-build-stamp.ts"
       ],
-      "outputs": [
-        "dist/**"
-      ]
+      "outputs": ["dist/**"]
     },
     "@podium/scripts#lint:span-effects": {
       "dependsOn": [],
@@ -128,29 +113,17 @@
       "outputs": []
     },
     "typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$"
-      ],
-      "outputs": [
-        "*.tsbuildinfo"
-      ]
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": ["*.tsbuildinfo"]
     },
     "@podium/model#typecheck": {
       "dependsOn": [],
-      "inputs": [
-        "$TURBO_DEFAULT$"
-      ],
-      "outputs": [
-        "*.tsbuildinfo"
-      ]
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": ["*.tsbuildinfo"]
     },
     "@podium/scripts#typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ],
+      "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/dist-bun/abduco.bin",
@@ -164,26 +137,15 @@
         "$TURBO_ROOT$/vitest.agent-smoke.config.ts",
         "$TURBO_ROOT$/vitest.integration.config.ts"
       ],
-      "outputs": [
-        "*.tsbuildinfo"
-      ]
+      "outputs": ["*.tsbuildinfo"]
     },
     "@podium/daemon#typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/server/src/**"
-      ],
-      "outputs": [
-        "*.tsbuildinfo"
-      ]
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/server/src/**"],
+      "outputs": ["*.tsbuildinfo"]
     },
     "@podium/server#typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ],
+      "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/cli/src/**",
@@ -192,26 +154,18 @@
         "$TURBO_ROOT$/packages/client-core/package.json",
         "$TURBO_ROOT$/packages/client-core/src/socket-transport/bootstrap-zstd.ts"
       ],
-      "outputs": [
-        "*.tsbuildinfo"
-      ]
+      "outputs": ["*.tsbuildinfo"]
     },
     "@podium/mobile#typecheck": {
-      "dependsOn": [
-        "^typecheck"
-      ],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/apps/web/src/features/setup/**"
-      ],
-      "outputs": [
-        "*.tsbuildinfo"
-      ]
+      "dependsOn": ["^typecheck"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/src/features/setup/**"],
+      "outputs": ["*.tsbuildinfo"]
     },
     "@podium/web#test": {
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/client-core/proofs/d1/*.{ts,tsx}",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",
@@ -220,8 +174,7 @@
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
         "$TURBO_ROOT$/packages/*/src/**",
-        "$TURBO_ROOT$/apps/daemon/src/**",
-        "$TURBO_ROOT$/packages/client-core/proofs/d1/*.{ts,tsx}"
+        "$TURBO_ROOT$/apps/daemon/src/**"
       ],
       "outputs": []
     },
@@ -568,6 +521,7 @@
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/client-core/proofs/d1/*.{ts,tsx}",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",
@@ -575,8 +529,7 @@
         "$TURBO_ROOT$/test-hermetic-env.ts",
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
-        "$TURBO_ROOT$/packages/*/src/**",
-        "$TURBO_ROOT$/packages/client-core/proofs/d1/*.{ts,tsx}"
+        "$TURBO_ROOT$/packages/*/src/**"
       ],
       "outputs": []
     },
