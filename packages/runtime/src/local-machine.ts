@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { asMachineId, type MachineId } from '@podium/model'
+import type { MachineId } from '@podium/model'
 import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -117,7 +117,7 @@ export function loadMachineState(dir = stateDir(), expectedId?: MachineId, allow
     }
     if (ids.size > 1) throw new Error('conflicting legacy machine identities; refusing to choose an owner')
     if (!ids.size && !expectedId && !allowCreate) throw new Error('machine identity is missing')
-    const machineId = asMachineId(ids.values().next().value ?? expectedId ?? randomUUID())
+    const machineId = (ids.values().next().value ?? expectedId ?? randomUUID()) as MachineId
     if (expectedId !== undefined && machineId !== expectedId) throw new LocalMachineIdentityConflictError(expectedId, machineId)
     const candidate: MachineState = { version: 1, machineId, ...sections, importedFiles }
     let published = false
