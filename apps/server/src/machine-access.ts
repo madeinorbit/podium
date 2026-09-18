@@ -217,8 +217,8 @@ export function machineVerbsFor(
   // and `'__local__'` were sentinels that routinely had no machines row, so a gate
   // reading "no row ⇒ absent" refused the product's own default state, and the fix was
   // a SYNTHESIZED row owned by the instance installer. POD-318 removed the premise —
-  // `ensureHostMachine` writes this host's row before the first session exists, and
-  // every other machine's row is written when it pairs — so an unknown machine id is
+  // explicit enrollment writes every machine row (including this host at setup),
+  // never boot or a resolver — so an unknown machine id is
   // now exactly what it says it is, and the default-closed reading is the only one.
   const row = ownership.rowFor(machineId)
   if (!row) return new Set()

@@ -4,7 +4,7 @@ import { bootStage } from './boot-timing'
  *
  * SessionStore is the store's COMPOSITION ROOT, nothing more: it opens the
  * database, runs the versioned migration chain (src/migrations/), sequences the
- * per-boot identity refusals and idempotent heals, and constructs the
+ * per-boot identity refusals and receipt-gated historical migrations, and constructs the
  * per-aggregate repositories in `./store/` — including the two cross-aggregate
  * late-bound lambdas (issues resolve their stable repo_id via the repos
  * aggregate; re-identifying a repo dual-writes onto its issues). Callers hold
@@ -47,6 +47,8 @@ import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
+import { eq } from 'drizzle-orm'
+import { meta } from './migrations/schema'
 import { isFeatureEnabled } from './features'
 import { importFingerprintKey } from './fingerprint-key-import'
 import { importConfigSettings } from './settings-config-import'
@@ -436,15 +438,14 @@ export class SessionStore {
   private async initialize(): Promise<void> {
     await this.settings.initializeSnapshot()
     // Per-boot runtime steps (environment-conditional FTS objects, the identity
-    // refusals and the remaining data heals) — never schema DDL.
+    // refusals and receipt-gated historical migrations) — never schema DDL.
     //
     // THE IDENTITY REFUSALS RUN FIRST, ahead of every reader in the process. The
     // one-time rewrites they replaced ran here for a reason that outlived them
     // (POD-318): it is not just that nothing may WRITE a pre-upgrade row, nothing
     // may READ one either. `SessionRegistry` loads the sessions map in its
-    // constructor, before the composition root can call `ensureHostMachine`. A
-    // check that ran there would let live Session objects be built on rows the
-    // process is about to declare unservable.
+    // constructor. Waiting until registry hydration would let live Session objects
+    // be built on rows the process is about to declare unservable.
     // Search is one switch (PDM-25): the `command-palette` flag that shows Cmd+K
     // also decides whether this boot carries a full-text index at all. Read ONCE,
     // here — flipping the toggle takes effect at the next boot, so nothing has to
@@ -467,9 +468,8 @@ export class SessionStore {
       await this.settings.getSettings(),
     )
     await this.conversations.ensureFts(this.searchIndexEnabledValue)
-    await this.superagent.seedGlobalThread()
     await this.issues.renumberCollidingIssueSeqs()
-    await this.healDanglingIssueReferences()
+    await this.migrateDanglingIssueReferences()
   }
 
   /** Run-once historical migration; no receipt until the host is enrolled. */
@@ -483,15 +483,22 @@ export class SessionStore {
     }
   }
 
-  /** Per-boot heal (idempotent): clear session pointers and letter counters whose
-   *  issue was hard-purged. Reports only when it actually found something. */
-  private async healDanglingIssueReferences(): Promise<void> {
-    const sessions = await this.sessions.detachDanglingIssueReferences()
-    const letters = await this.issues.pruneOrphanRefLetters()
-    if (sessions > 0 || letters > 0) {
+  /** Historical POD-1926 cleanup. The receipt and both writes commit together;
+   * later corruption belongs to explicit repair, never a repeated boot scrub. */
+  private async migrateDanglingIssueReferences(): Promise<void> {
+    const result = await this.queries.createOrJoinTransaction(async () => {
+      const db = this.queries.rootDb
+      const key = 'dangling_issue_references_v1'
+      if (await db.select({ value: meta.value }).from(meta).where(eq(meta.key, key)).get()) return
+      const sessions = await this.sessions.detachDanglingIssueReferences()
+      const letters = await this.issues.pruneOrphanRefLetters()
+      await db.insert(meta).values({ key, value: JSON.stringify({ sessions, letters }) }).run()
+      return { sessions, letters }
+    })
+    if (result && (result.sessions > 0 || result.letters > 0)) {
       console.warn(
-        `[podium:store] boot heal detached ${sessions} session(s) and dropped ` +
-          `${letters} ref-letter counter(s) pointing at deleted issues`,
+        `[podium:store] historical migration detached ${result.sessions} session(s) and dropped ` +
+          `${result.letters} ref-letter counter(s) pointing at deleted issues`,
       )
     }
   }

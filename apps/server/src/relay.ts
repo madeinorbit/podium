@@ -767,14 +767,8 @@ export class SessionRegistry {
     // Hosts is composed below the transfer service. The callback is rebound once
     // it exists; transfer actions cannot run until this constructor completes.
     let resumeHostPressureAfterTransferFence = async (): Promise<void> => {}
-    // THE HOST'S OWN ROW, PROVISIONED BY THE THING THAT CREATES ROWS. Every session
-    // this registry mints names a machine (POD-318), and a machine id with no row is
-    // a machine nobody may use — so the row has to exist before the registry can be
-    // asked for anything. It is NOT a construction invariant any more: the row is
-    // provisioned in `hydrate`, which is the only place that can await the write.
-    // The composition root calls `ensureHostMachine` again with the real hostname
-    // and the loopback bootstrap secret; that call is an idempotent UPDATE of this
-    // row, not a rival insert.
+    // Machine rows come from explicit enrollment (including setup for this host).
+    // Registry construction and hydration never provision a row or infer custody.
     // The fleet's log-level valve (POD-3156), built after the machine registry
     // it selects over. It reaches the registry through a PORT (online set, name,
     // one send) rather than holding the service: which machines a raise is for

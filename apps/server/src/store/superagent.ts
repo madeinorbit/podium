@@ -6,7 +6,6 @@
 
 import {
   asThreadId,
-  firstAdminMemberId,
   type SessionId,
   type ThreadId,
   type UserId,
@@ -19,7 +18,6 @@ import {
   superagentThreads,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { UsersRepository } from './users'
 import { currentTransaction } from './executor/sync-drizzle'
 import { parseJsonColumn } from './helpers'
 import type {
@@ -37,10 +35,7 @@ export class SuperagentRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  private readonly users: UsersRepository
-
   constructor(queries: StoreQueries) {
-    this.users = new UsersRepository(queries)
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -56,9 +51,8 @@ export class SuperagentRepository {
     return currentTransaction() ?? this.rootDb
   }
 
-  /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
-  async seedGlobalThread(ownerUserId?: UserId): Promise<void> {
-    ownerUserId ??= await firstAdminMemberId({ users: this.users })
+  /** Explicit seed for a supplied owner; production uses the authenticated thread action. */
+  async seedGlobalThread(ownerUserId: UserId): Promise<void> {
     const saNow = new Date().toISOString()
     // CONVERTED, and the enumeration is why [POD-3403 rule 31]. `INSERT OR IGNORE`
     // suppresses UNIQUE, PRIMARY KEY, NOT NULL and CHECK; `onConflictDoNothing()`
@@ -66,8 +60,8 @@ export class SuperagentRepository {
     // NOT NULL and no CHECK violation is reachable at this site, and here neither
     // is. Enumerated against the live DDL rather than assumed:
     //   NOT NULL columns: id, kind, created_at, updated_at (all supplied
-    //     non-null above), owner_user_id (supplied; its parameter defaults to
-    //     firstAdminMemberId()) and archived (not supplied, so its DEFAULT 0
+    //     non-null above), owner_user_id (required from the caller) and
+    //     archived (not supplied, so its DEFAULT 0
     //     applies). Nothing reaching this statement can be null.
     //   CHECK constraints: none on this table anywhere in the migration chain.
     //   Foreign keys: none — and they would not count anyway, because OR IGNORE

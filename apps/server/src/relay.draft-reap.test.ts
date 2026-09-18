@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
@@ -63,7 +64,7 @@ function draftFixture() {
     registries.add(registry)
     return registry
   }
-  return { openStore, createRegistry, closeStore, stopRegistry }
+  return { file, openStore, createRegistry, closeStore, stopRegistry }
 }
 
 async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
@@ -344,7 +345,7 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     expect(after?.refLetter).toBeNull()
   })
 
-  it('boot heals references a purge before this fix already left behind', async () => {
+  it('the run-once migration clears references a historical purge left behind', async () => {
     const fixture = draftFixture()
     const reg1 = await fixture.createRegistry()
     await reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
@@ -361,8 +362,14 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     await store.issues.deleteIssue(draft.id)
     expect((await store.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
 
-    // Reopening the store runs the boot heal ahead of every reader.
+    // Reconstruct a pre-migration database, then reopen ahead of every reader.
     await fixture.closeStore(store)
+    const legacy = openDatabase(fixture.file)
+    try {
+      legacy.prepare('DELETE FROM meta WHERE key = ?').run('dangling_issue_references_v1')
+    } finally {
+      legacy.close()
+    }
     const healed = await fixture.openStore()
     expect((await healed.sessions.getSession(sessionId))?.issueId).toBeNull()
     expect((await healed.sessions.getSession(sessionId))?.refIssueId).toBeNull()

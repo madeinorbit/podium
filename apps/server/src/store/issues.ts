@@ -686,7 +686,7 @@ export class IssuesRepository {
       .where(eq(issues.id, asIssueId(id))).returning().all(), 'delete')
   }
 
-  /** Per-boot heal (POD-1926): drop letter counters whose issue is already gone —
+  /** Historical migration (POD-1926): drop letter counters whose issue is already gone —
    *  rows a hard purge before {@link deleteIssue} scrubbed them left behind. The
    *  counter exists so a letter is never reused WITHIN an issue, so once the issue
    *  is deleted it protects nothing. Returns the number of rows dropped. */

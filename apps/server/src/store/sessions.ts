@@ -554,7 +554,7 @@ export class SessionsRepository {
   }
 
   /**
-   * Per-boot heal for references left behind by a purge that predates
+   * Run-once migration for references left behind by a purge that predates
    * {@link detachTombstonesFromIssue} (POD-1926). Idempotent, and unscoped by
    * `deleted_at` on purpose: it runs from the store facade's constructor, ahead
    * of every reader in the process, so no in-memory `Session` exists yet to

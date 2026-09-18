@@ -498,40 +498,32 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.enrollmentLedger,
     section: 'identity-and-deployment-scope',
-    title: 'Enrollment ledger (`<stateDir>/enrollment.ledger`)',
-    sites: [
-      'apps/server/src/enrollment-ledger.ts (`<stateDir>/enrollment.ledger`, mode 0600, append-only)',
-      'apps/server/src/modules/machines/enrollment.ts (the D19.4 verdict algorithm reads it)',
-    ],
+    title: 'Retired enrollment ledger (one-time import source)',
+    sites: ['apps/server/src/enrollment-ledger-import.ts (one-time legacy input, then retired)'],
     home: 'server',
-    idMinting:
-      'Server mints the instance pairing root once; enrollment serials are monotonic per append',
-    writers: ['system'],
+    idMinting: 'Retired: no new ledger identities or enrollment serials are minted.',
+    writers: [],
     replication: 'none',
     conflict: 'append',
-    conflictNote:
-      'Append-only with monotonic serials, and it is the COMMIT POINT rather than a projection (Amendment 2 D19.4d): where the ledger and the `machines` table disagree about enrollment, revocation or OWNER, the ledger wins and the row is reconciled from it. There is nothing to arbitrate because nothing else may write the fact first.',
+    conflictNote: 'Historical format only. The marker-gated import validates a snapshot once; the database is sole authority after import and the ledger is never reconciled.',
     tombstone: 'never-delete',
-    tombstoneNote:
-      'Never restored, rewound or reconciled backwards when the database is (D19.4a). A revocation entry that could be deleted or rolled back would be defeated by the exact event the ledger exists to survive.',
+    tombstoneNote: 'Legacy input is renamed after its import commits. Revocation retention is owned by database machine rows.',
     offline: 'never-enqueue',
     secret: 'secret-value',
-    secretNote:
-      'The instance pairing ROOT is the preimage every pairing token is MACed under — the same material class as `pairing-token`, and one root compromises every machine rather than one. The enrollment serials, recorded owner and revocation entries share the file because sharing ONE durability domain with the root is the correctness condition (D19.4a), so the whole store takes the strictest class present.',
+    secretNote: 'Legacy input contains credential material and remains secret even though its pairing root is dropped during import and no longer authenticates anything.',
     owner: {
       kind: 'none',
       reason: 'secret',
-      note: 'An unclassified store is not a scoped one, so this row is stated rather than inferred: the ledger is server-local credential material with no owner, for the reason `account-credential` and `pairing-token` have none (D15) — it AUTHENTICATES machines but is not anybody’s to grant or transfer. The per-machine facts it records are owned; their owner lives on `machine` (owned-compute), which this ledger is the durable SOURCE of, not a second copy of. Giving the ledger its own owner would create a second answer to "who owns this machine".',
+      note: 'Retired server-local secret input, with no independent ownership or grants. Imported machine authority lives only in the database.',
     },
     visibility: 'secret',
     grants: NO_GRANTS_SECRET,
     attribution: {
       actor: 'required',
       onBehalfOf: 'required',
-      note: 'An owner transition appended here records the human on whose behalf it happened — that recorded owner is what D19.4b restores after database loss, and it may never be re-derived from whoever is connected.',
+      note: 'Historical records retain their recorded attribution; import never infers a new owner.',
     },
-    systemWriter: 'may-write',
-    systemWriterRule: SYSTEM_WRITER_RULE,
+    systemWriter: 'never-writes',
     inheritanceOnCreate: {
       kind: 'not-applicable',
       reason: 'Secret: no owner and no grants exist to inherit (D15).',
@@ -539,7 +531,7 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
     visibilityMutability: {
       mutable: false,
       verbs: [],
-      note: 'Never replicated and excluded from every wire projection, so no principal’s view of it can change. Recovery reads it and never RECLASSIFIES what it recovers: the machine it re-enrols returns owned-compute with grants dropped (D19.4b).',
+      note: 'Retired secret input is never replicated or exposed in wire projections.',
     },
     open: [],
   },

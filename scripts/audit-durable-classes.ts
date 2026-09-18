@@ -409,12 +409,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
       'second mint cannot silently replace a key daemons have already pinned.',
     writeSites: ['apps/server/src/modules/updates/signing-key.ts'],
   },
-  {
-    store: '<stateDir>/enrollment.ledger',
-    kind: 'filesystem',
-    row: 'enrollment-ledger',
-    writeSites: ['apps/server/src/enrollment-ledger.ts'],
-  },
+
   {
     store: '<stateDir>/instance.json',
     kind: 'filesystem',
@@ -450,6 +445,10 @@ export const DURABLE_STORES: readonly DurableStore[] = [
  */
 export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly reason: string }[] =
   [
+    {
+      file: 'apps/server/src/enrollment-ledger.ts',
+      reason: 'Retired ledger implementation retained for legacy fixtures and parsing types. No production caller opens or appends it; enrollment-ledger-import.ts consumes the historical file once and retires it after its database transaction commits.',
+    },
     {
       file: 'packages/runtime/src/run-registry.ts',
       reason:

@@ -144,6 +144,7 @@ describe('TransferJournal', () => {
     })
     expect(serverTransferBootMode(root)).toBe('writable')
     expect(() => assertWritableServerBoot(root)).not.toThrow()
+    expect(reconcileSafeServerTransferBoot(root)).toEqual(recovered)
   })
 
   it('resumes a pre-fence journal only for an exact active operation identity', async () => {

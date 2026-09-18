@@ -279,9 +279,12 @@ export class TransferJournal {
   }
 }
 /**
- * Called before SessionStore opens its writable SQLite connection. The journal
- * is the boot recovery authority: fenced, uncertain, and committed sources may
- * never silently reopen as a server.
+ * Named boot exception: transient transfer crash fence (POD-4257).
+ * After reading the active operation, conservatively abort only stale pre-fence
+ * staging or mark an interrupted commit uncertain. Repeating either transition
+ * is a no-op. No database, identity, custody, placement or credential is written;
+ * promotion remains an explicit transfer action. The earlier read-only boot-mode
+ * check keeps fenced, uncertain and committed sources from reopening writable.
  */
 export function reconcileSafeServerTransferBoot(
   stateRoot: string,

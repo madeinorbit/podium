@@ -47,6 +47,13 @@ describe('the shipped repo passes its own membership gate', () => {
   })
 })
 
+it('does not classify the retired enrollment ledger as a live writer', () => {
+  expect(DURABLE_STORES.some((store) => store.store === '<stateDir>/enrollment.ledger')).toBe(false)
+  const row = OWNERSHIP_MATRIX_INDEX.get('enrollment-ledger')
+  expect(row?.writers).toEqual([])
+  expect(row?.systemWriter).toBe('never-writes')
+})
+
 describe('every check can say YES', () => {
   it('finds its planted fixture and spares the clean one, for all nine', () => {
     expect(probe()).toEqual([])

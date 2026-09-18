@@ -11,6 +11,7 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { deriveRepoId } from './repo-id'
@@ -965,8 +966,10 @@ describe('conversation index', () => {
 })
 
 describe('SessionStore superagent threads', () => {
-  it('creates a default global thread and scopes messages by thread', async () => {
+  it('creates a global thread only for an explicit owner and scopes messages by thread', async () => {
     const s = await openTestStore(':memory:')
+    expect(await s.superagent.getSuperagentThread('global')).toBeUndefined()
+    await s.superagent.seedGlobalThread(firstAdminMemberId())
     expect(
       (await s.superagent.listSuperagentThreads(firstAdminMemberId())).some(
         (t) => t.id === 'global',
@@ -996,6 +999,7 @@ describe('SessionStore superagent threads', () => {
   })
   it('defaults message ops to the global thread', async () => {
     const s = await openTestStore(':memory:')
+    await s.superagent.seedGlobalThread(firstAdminMemberId())
     await s.superagent.appendSuperagentMessage(asThreadId('global'), {
       role: 'user',
       content: 'legacy',
@@ -1019,6 +1023,7 @@ describe('SessionStore superagent threads', () => {
   })
   it('clears only the targeted thread', async () => {
     const s = await openTestStore(':memory:')
+    await s.superagent.seedGlobalThread(firstAdminMemberId())
     await s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'user', content: 'g' })
     await s.superagent.upsertSuperagentThread({
       ownerUserId: firstAdminMemberId(),
@@ -1038,6 +1043,7 @@ describe('SessionStore superagent threads', () => {
     // blank the entire thread's history — quarantine that field to undefined, keep
     // the message and the rest of the thread.
     const s = await openTestStore(':memory:')
+    await s.superagent.seedGlobalThread(firstAdminMemberId())
     await s.superagent.appendSuperagentMessage(asThreadId('global'), {
       role: 'assistant',
       content: 'a',
@@ -1055,5 +1061,80 @@ describe('SessionStore superagent threads', () => {
     expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
     expect(msgs[0]?.toolCalls).toBeUndefined()
     await s.close()
+  })
+})
+
+
+describe('historical dangling issue reference migration', () => {
+  const marker = 'dangling_issue_references_v1'
+
+  async function historicalDatabase() {
+    const file = await tmpDbPath()
+    await (await openTestStore(file)).close()
+    const db = openDatabase(file)
+    try {
+      db.prepare('DELETE FROM meta WHERE key = ?').run(marker)
+      db.prepare(`INSERT INTO sessions
+        (id, owner_user_id, agent_kind, cwd, title, origin_kind, status,
+         durable_label, created_at, last_active_at, machine_id, issue_id, ref_issue_id, ref_letter)
+        VALUES ('legacy-session', ?, 'codex', '/r', 'legacy', 'spawn', 'live',
+                'legacy', 't', 't', 'legacy-machine', 'gone', 'gone', 'a')`)
+        .run(firstAdminMemberId())
+      db.prepare('INSERT INTO issue_ref_letters (issue_id, next_index) VALUES (?, ?)').run('gone', 2)
+    } finally {
+      db.close()
+    }
+    return file
+  }
+
+  it('cleans historical rows once and never scrubs later corruption on restart', async () => {
+    const file = await historicalDatabase()
+    const migrated = await openTestStore(file)
+    try {
+      expect(await migrated.sessions.getSession(asSessionId('legacy-session'))).toMatchObject({
+        issueId: null, refIssueId: null, refLetter: null,
+      })
+    } finally {
+      await migrated.close()
+    }
+    const db = openDatabase(file)
+    try {
+      const receipt = db.prepare('SELECT value FROM meta WHERE key = ?').get(marker) as { value: string }
+      expect(JSON.parse(receipt.value)).toEqual({ sessions: 1, letters: 1 })
+      expect(db.prepare('SELECT * FROM issue_ref_letters WHERE issue_id = ?').get('gone')).toBeUndefined()
+      db.exec("UPDATE sessions SET issue_id = 'later-corruption' WHERE id = 'legacy-session'")
+    } finally {
+      db.close()
+    }
+    const reopened = await openTestStore(file)
+    try {
+      expect((await reopened.sessions.getSession(asSessionId('legacy-session')))?.issueId).toBe('later-corruption')
+    } finally {
+      await reopened.close()
+    }
+  })
+
+  it('rolls both cleanups back when the migration receipt cannot commit', async () => {
+    const file = await historicalDatabase()
+    const db = openDatabase(file)
+    try {
+      db.exec(`CREATE TRIGGER refuse_dangling_receipt BEFORE INSERT ON meta
+        WHEN NEW.key = '${marker}' BEGIN SELECT RAISE(ABORT, 'receipt blocked'); END`)
+    } finally {
+      db.close()
+    }
+    await expect(openTestStore(file)).rejects.toThrow()
+    const check = openDatabase(file)
+    try {
+      expect(check.prepare('SELECT issue_id FROM sessions WHERE id = ?').get('legacy-session'))
+        .toEqual({ issue_id: 'gone' })
+      expect(check.prepare('SELECT issue_id FROM issue_ref_letters WHERE issue_id = ?').get('gone'))
+        .toEqual({ issue_id: 'gone' })
+      expect(check.prepare('SELECT value FROM meta WHERE key = ?').get(marker)).toBeUndefined()
+      check.exec('DROP TRIGGER refuse_dangling_receipt')
+    } finally {
+      check.close()
+    }
+    await (await openTestStore(file)).close()
   })
 })
