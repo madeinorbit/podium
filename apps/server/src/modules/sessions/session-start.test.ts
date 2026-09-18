@@ -153,6 +153,7 @@ describe('resolved runtime driver projection', () => {
         message.type === 'reattach' && message.sessionId === sessionId,
     )
     expect(reattach?.requestedDriverId).toBe('opencode-server')
+    expect(reattach?.runtimeContract).toBe('codex-app-server')
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -506,9 +507,13 @@ describe('non-picker driver requests', () => {
 
 
 describe('driver admission recovery diagnosis', () => {
-  it.each([undefined, 'generic-pty'] as const)(
-    'keeps an old row (%s) headed and persists a failed reconnect reason',
-    async (selectedDriverId) => {
+  it.each([
+    { selectedDriverId: undefined, requestedDriverId: undefined },
+    { selectedDriverId: 'generic-pty', requestedDriverId: undefined },
+    { selectedDriverId: 'generic-pty', requestedDriverId: 'codex-app-server' },
+  ] as const)(
+    'keeps an old row ($selectedDriverId / $requestedDriverId) headed and persists a failed reconnect reason',
+    async ({ selectedDriverId, requestedDriverId }) => {
       const store = await openTestStore(':memory:')
       const first = await makeRegistry(store)
       const { sessionId } = await first.reg.modules.sessions.createSession({
@@ -518,9 +523,10 @@ describe('driver admission recovery diagnosis', () => {
         type: 'bind', sessionId, cmd: 'codex', cwd: '/proj', agentKind: 'codex',
         geometry: { cols: 80, rows: 24 },
         ...(selectedDriverId ? { driverId: selectedDriverId } : {}),
+        ...(requestedDriverId ? { requestedDriverId } : {}),
       })
       expect(await store.sessions.getSession(sessionId)).toMatchObject({
-        requestedDriverId: null, selectedDriverId: selectedDriverId ?? null,
+        requestedDriverId: requestedDriverId ?? null, selectedDriverId: selectedDriverId ?? null,
       })
       first.reg.gateway.detachDaemon(store.hostMachineId)
       await first.reg.dispose()
@@ -529,8 +535,12 @@ describe('driver admission recovery diagnosis', () => {
       registries.push(reloaded)
       const daemon: ControlMessage[] = []
       await reloaded.gateway.attachDaemon(store.hostMachineId, (message) => daemon.push(message))
-      expect(daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId))
-        .not.toHaveProperty('runtimeContract')
+      const reattach = daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId)
+      if (requestedDriverId) {
+        expect(reattach).toMatchObject({ runtimeContract: selectedDriverId, requestedDriverId })
+      } else {
+        expect(reattach).not.toHaveProperty('runtimeContract')
+      }
       const reason = 'terminal driver could not establish a handle; retry this session'
       await reloaded.gateway.routeDaemonFrame(store.hostMachineId, {
         type: 'reattachFailed', sessionId, reason,

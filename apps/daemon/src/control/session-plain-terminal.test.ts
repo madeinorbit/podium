@@ -217,7 +217,7 @@ function reconnectMessage() {
   } as Parameters<typeof sessionHandlers.reattach>[1]
 }
 
-it.each([undefined, 'generic-pty', 'codex-pty'] as const)(
+it.each([undefined, 'generic-pty', 'claude-pty'] as const)(
   'reconnects an old or terminal-selected row (%s) with a verified handle',
   async (runtimeContract) => {
     const ctx = contextForSpawn()
@@ -248,13 +248,15 @@ it('reports and reaps a reconnect whose handle cannot be constructed', async () 
   expect(dispose).toHaveBeenCalledOnce()
 })
 
-it('refuses explicit server reconnect without a recoverable binding instead of binding a PTY', async () => {
+it.each(['codex-app-server', 'codex-pty', 'unknown-driver'])(
+  'refuses unavailable explicit reconnect driver %s instead of binding a PTY', async (driver) => {
   const ctx = contextForSpawn()
   const { bindTerminal } = installRuntime(ctx)
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
-  sessionHandlers.reattach(ctx, { ...reconnectMessage(), runtimeContract: 'codex-app-server' })
+  ctx.bridges.set(reconnectMessage().sessionId, { redraw: vi.fn(), dispose } as never)
+  sessionHandlers.reattach(ctx, { ...reconnectMessage(), runtimeContract: driver })
   await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-    type: 'reattachFailed', reason: expect.stringContaining('codex-app-server'),
+    type: 'reattachFailed', reason: expect.stringContaining(driver),
   })))
   expect(bindTerminal).not.toHaveBeenCalled()
 })

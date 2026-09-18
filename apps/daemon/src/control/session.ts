@@ -7,6 +7,7 @@ import { attachKindsForDriver, configureFieldsForDriver } from '@podium/agent-ru
 import {
   agentStateProviderFor,
   bindHarnessLaunch,
+  canonicalDriverId,
   type DriverId,
   declaredValue,
   type HarnessVersionDiagnostic,
@@ -975,6 +976,11 @@ async function bindRuntimeContract(
   profile: ReturnType<typeof terminalProfileFor>,
 ): Promise<void> {
   if (!profile || ('loginHarness' in msg && msg.loginHarness)) return
+  // Reconnect can carry an old or unavailable explicit ID. It must obey the
+  // same canonical terminal identity as launch, rather than silently ignoring it.
+  if (typeof msg.runtimeContract === 'string' && canonicalDriverId(msg.runtimeContract) !== profile.driverId) {
+    throw new Error(`runtime driver '${msg.runtimeContract}' cannot bind as '${profile.driverId}'; retry with an available driver`)
+  }
   if (!ctx.agentRuntime) {
     throw new Error('agent runtime is unavailable; retry after the daemon recovers')
   }
