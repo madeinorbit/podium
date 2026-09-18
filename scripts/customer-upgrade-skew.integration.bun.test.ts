@@ -20,7 +20,7 @@
  * refuses the wire-3 daemon (versionSupport(3, wire 2)=too-new → 426).
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, createPrivateKey, sign, randomUUID } from 'node:crypto'
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -33,6 +33,9 @@ import { identityShapes, writeIdentityShape, type IdentityShape, serverReleaseMi
 import { mintUpdateSigningKey } from '../packages/runtime/src/update-signing-key'
 import { DRIZZLE_MIGRATIONS } from '../apps/server/src/migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from '../apps/server/src/migrations'
+import { developmentSourceVersion } from '../packages/runtime/src/source-version'
+import { readPendingGrant } from '../packages/runtime/src/update-pending'
+import type { UpdateStatusMessage } from '@podium/protocol'
 import type { AppRouter } from '../apps/server/src/router'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -87,7 +90,7 @@ function cleanEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
     'PODIUM_SUPERVISOR_MACHINE_ID', 'PODIUM_SUPERVISOR_MACHINE_TOKEN',
     'PODIUM_SUPERVISOR_UPDATE_PUBKEY', 'PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT',
     'PODIUM_PARENT_GENERATION', 'PODIUM_REHEARSAL',
-    'PODIUM_APP_VERSION',
+    'PODIUM_APP_VERSION', 'PODIUM_MACHINE_UPDATE_OWNER', 'PODIUM_SKEW_CONTROL_PORT',
   ]) {
     delete env[key]
   }
@@ -129,6 +132,7 @@ interface Server {
   port: number
   api: ReturnType<typeof createTRPCClient<AppRouter>>
   reachable(): Promise<boolean>
+  controlPort: number
 }
 
 /** Boot an all-in-one server from a given tree (current or an old checkout). */
@@ -136,10 +140,11 @@ async function bootServer(cli: string, cwd: string, tag: string, stateDir = join
   mkdirSync(stateDir, { recursive: true })
   writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
   const port = freePort()
+  const controlPort = freePort()
   const child = spawn(
     process.execPath,
     sourceOnly ? ['--conditions=@podium/source', join(ROOT, 'scripts/fixtures/customer-upgrade-server.ts')] : ['--conditions=@podium/source', cli, '--instance', `skew-${tag}`, cwd === OLD_DAEMON ? 'server' : 'parent', '--takeover'],
-    { cwd, detached: true, env: cleanEnv({ ...baseEnv(stateDir), PODIUM_INSTANCE: `skew-${tag}`, PODIUM_PORT: String(port) }), stdio: ['ignore', 'pipe', 'pipe'] },
+    { cwd, detached: true, env: cleanEnv({ ...baseEnv(stateDir), PODIUM_INSTANCE: `skew-${tag}`, PODIUM_PORT: String(port), ...(sourceOnly ? { PODIUM_SKEW_CONTROL_PORT: String(controlPort) } : {}) }), stdio: ['ignore', 'pipe', 'pipe'] },
   )
   let log = ''
   child.stdout?.on('data', (c) => (log += c))
@@ -154,11 +159,11 @@ async function bootServer(cli: string, cwd: string, tag: string, stateDir = join
   }
   await waitFor(async () => (await reachable()) || undefined, () => `${tag} server boot\n${log.slice(-1500)}`)
   const api = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: `http://127.0.0.1:${port}/trpc` })] })
-  return { port, api, reachable }
+  return { port, api, reachable, controlPort }
 }
 
 /** Run the tree's real daemon in the foreground, never its host persistence launcher. */
-async function launchDaemon(cli: string, cwd: string, tag: string, serverPort: number, pairCode?: string, identity?: { machineId: string; token?: string }, shape?: IdentityShape) {
+async function launchDaemon(cli: string, cwd: string, tag: string, serverPort: number, pairCode?: string, identity?: { machineId: string; token?: string }, shape?: IdentityShape, installDir?: string) {
   const stateDir = join(TEST_ROOT, `daemon-${tag}`)
   mkdirSync(stateDir, { recursive: true })
   const machineId = identity?.machineId ?? randomUUID()
@@ -171,13 +176,15 @@ async function launchDaemon(cli: string, cwd: string, tag: string, serverPort: n
     // checkout SHA is independently pinned above; this is the real release tree.
     ...(cwd === OLD_DAEMON ? { PODIUM_APP_VERSION: '0.1.0' } : {}),
     // Current CLI otherwise promotes remote daemon mode to a parent supervisor.
-    ...(cwd === ROOT && !pairCode ? { PODIUM_UNDER_PARENT: '1' } : {}),
+    ...(cwd === ROOT && !pairCode && !installDir ? { PODIUM_UNDER_PARENT: '1' } : {}),
 
+    ...(installDir ? { PODIUM_HOME: installDir } : {}),
   })
   // join-config chooses systemd persistence. A bare CLI then delegates launch to
   // the host service manager; an explicit daemon subcommand stays in this group.
-  const child = spawn(process.execPath, [
-    '--conditions=@podium/source', shape ? join(ROOT, 'scripts/fixtures/customer-upgrade-daemon.ts') : cli, 'daemon', ...(cwd === ROOT ? ['--takeover'] : []),
+  const installedCandidate = cwd === ROOT && installDir
+  const child = spawn(installedCandidate ? join(installDir, 'podium') : process.execPath, [
+    ...(installedCandidate ? [] : ['--conditions=@podium/source', shape ? join(ROOT, 'scripts/fixtures/customer-upgrade-daemon.ts') : cli]), 'daemon', ...(cwd === ROOT ? ['--takeover'] : []),
     '--server', `ws://127.0.0.1:${serverPort}`, ...(pairCode ? ['--pair', pairCode] : []),
   ], { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
   let log = ''
@@ -209,7 +216,7 @@ describe('customer upgrade skew lane', () => {
     oldServerCli = requireCheckout(OLD_SERVER, 'v0.1.1-edge.4')
   })
 
-  it('already-enrolled v0.1.0 daemon reconnects and becomes ready after server upgrade', async () => {
+  it('already-enrolled v0.1.0 daemon confirms its first grant after supervisor takeover', async () => {
     // Obtain a genuine v0.1.0 token with the real old server/daemon ceremony.
     const old = await bootServer(oldDaemonCli, OLD_DAEMON, 'enroll-v010')
     const pairing = await old.api.machines.pairingCode.mutate()
@@ -252,8 +259,11 @@ describe('customer upgrade skew lane', () => {
         .toEqual({ token_hash: tokenHash, owner_user_id: 'user:sole' })
     } finally { db.close() }
 
-    const server = await bootServer(currentCli, ROOT, 'upgraded', stateDir)
-    const daemon = await launchDaemon(oldDaemonCli, OLD_DAEMON, 'enrolled', server.port, undefined, identity)
+    const server = await bootServer(currentCli, ROOT, 'upgraded', stateDir, true)
+    const installDir = join(TEST_ROOT, 'legacy-install')
+    mkdirSync(installDir)
+    writeFileSync(join(installDir, 'VERSION'), '0.1.0\n')
+    const daemon = await launchDaemon(oldDaemonCli, OLD_DAEMON, 'enrolled', server.port, undefined, identity, undefined, installDir)
     const online = await waitFor(async () => (await server.api.machines.list.query())
       .find((m) => m.id === identity.machineId && m.online),
       () => `enrolled v0.1.0 ready after upgrade\n${daemon.log()}`)
@@ -270,6 +280,72 @@ describe('customer upgrade skew lane', () => {
         .toEqual({ credential_kind: 'bearer-hash', token_hash: tokenHash, public_key: null })
     } finally { upgraded.close() }
     expect(existsSync(join(stateDir, 'enrollment.ledger'))).toBe(false)
+
+    // Deliver through the real v0.1.0 verifier, swapper and pending-marker writer.
+    // The payload launches this candidate's real CLI and supervisor from source;
+    // only packaging is synthetic, neither old code nor its wire is relabelled.
+    const targetVersion = developmentSourceVersion(ROOT)
+    const staged = join(TEST_ROOT, 'takeover-bundle')
+    mkdirSync(join(staged, 'headless'), { recursive: true })
+    const shell = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+    const launcher = `#!/bin/sh
+export PODIUM_APP_VERSION=${shell(targetVersion)}
+if [ "$PODIUM_UNDER_PARENT" = 1 ]; then
+  echo boot >> "$PODIUM_STATE_DIR/candidate-daemon-boots"
+else
+  echo boot >> "$PODIUM_STATE_DIR/candidate-boots"
+fi
+# Source-mode parent commands already include Bun's flags and the entrypoint.
+if [ "$1" = --conditions=@podium/source ]; then exec ${shell(process.execPath)} "$@"; fi
+exec ${shell(process.execPath)} --conditions=@podium/source ${shell(currentCli)} "$@"
+`
+    for (const name of ['podium', 'podium-cli']) writeFileSync(join(staged, 'headless', name), launcher, { mode: 0o755 })
+    writeFileSync(join(staged, 'headless', 'VERSION'), targetVersion + '\n')
+    const archivePath = join(TEST_ROOT, 'takeover.tar.gz')
+    execFileSync('tar', ['-czf', archivePath, '-C', staged, 'headless'])
+    const archive = readFileSync(archivePath)
+    // Candidate startup consolidates its copy into SQLite and retires the JSON.
+    const key = JSON.parse(readFileSync(join(TEST_ROOT, 'srv-enroll-v010', 'update-signing-key.json'), 'utf8')) as { privateKey: string }
+    const artifact = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response(archive) })
+    try {
+      const outcome = await (await fetch(`http://127.0.0.1:${server.controlPort}`, { method: 'POST',
+        body: JSON.stringify({ machineId: identity.machineId, target: { version: targetVersion, critical: false,
+          artifacts: { headless: { delivery: 'bundle', platforms: { 'linux-x86_64': {
+            url: `http://127.0.0.1:${artifact.port}/bundle`,
+            digest: 'sha256-' + createHash('sha256').update(archive).digest('base64'),
+            signature: sign(null, archive, createPrivateKey({ key: Buffer.from(key.privateKey, 'base64'), format: 'der', type: 'pkcs8' })).toString('base64'),
+          } } } },
+        } }) })).json()
+      expect(outcome).toMatchObject({ result: 'granted' })
+      await waitFor(async () => daemon.exitCode() !== null || undefined, () => `old daemon applies first grant\n${daemon.log()}`)
+      expect(daemon.exitCode(), daemon.log()).toBe(0)
+      // This is the marker location produced by the actual old bootstrap, not
+      // one seeded by the test. Default installs use ~/.podium/runtime too.
+      const runtimeDir = join(daemon.stateDir, 'runtime')
+      const pending = readPendingGrant(runtimeDir)
+      expect(pending).toMatchObject({ targetVersion, previousVersion: '0.1.0' })
+      expect(existsSync(join(runtimeDir, 'machine-update.json'))).toBe(false)
+      const restartedAt = Date.now()
+      const candidate = await launchDaemon(currentCli, ROOT, 'enrolled', server.port, undefined, identity, undefined, installDir)
+      const evidence = await waitFor(async () => {
+        const result = await (await fetch(`http://127.0.0.1:${server.controlPort}`)).json() as {
+          grants: { grantId: string }[]; statuses: { machineId: string; message: UpdateStatusMessage }[];
+          fleet: { id: string; state: string; presenceSource?: string }[];
+        }
+        return result.fleet.some((m) => m.id === identity.machineId && m.state === 'current') &&
+          result.statuses.some(({ machineId, message }) => machineId === identity.machineId &&
+            message.grantId === pending!.grantId && message.state === 'current' && message.phaseDetail === 'current') ? result : undefined
+      }, () => `FIRST grant confirmation after supervisor takeover\n${candidate.log()}`, 45_000)
+      expect(Date.now() - restartedAt).toBeLessThan(45_000)
+      expect(evidence.fleet.find((m) => m.id === identity.machineId)?.presenceSource).toBe('supervisor')
+      expect(evidence.grants.map((g) => g.grantId)).toEqual([pending!.grantId])
+      expect(readPendingGrant(runtimeDir)).toBeNull()
+      expect(existsSync(join(runtimeDir, 'machine-update.json'))).toBe(false)
+      expect(readFileSync(join(daemon.stateDir, 'candidate-boots'), 'utf8').trim().split('\n')).toHaveLength(1)
+      expect(readFileSync(join(daemon.stateDir, 'candidate-daemon-boots'), 'utf8').trim().split('\n')).toHaveLength(1)
+      expect(candidate.exitCode(), candidate.log()).toBeNull()
+      console.log(JSON.stringify({ firstGrantConfirmed: pending!.grantId, confirmationMs: Date.now() - restartedAt, grants: evidence.grants.length, supervisorBoots: 1, daemonBoots: 1 }))
+    } finally { artifact.stop(true) }
     expect(await server.reachable()).toBe(true)
   }, 120_000)
 

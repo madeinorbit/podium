@@ -173,6 +173,40 @@ describe('UpdatesService', () => {
       phaseDetail: 'current',
     }
 
+    it.each(['daemon', 'supervisor'])('confirms the first legacy grant with %s presence', async (presenceSource) => {
+      const machines = [{ ...m('a', { deliveryCaps: ['update.delivery.feed'] }), presenceSource: 'daemon' }]
+      const { svc, send } = make(machines)
+      svc.setTarget({ version: '0.4.2', critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } } })
+      await svc.authorizeMachine(asMachineId('a'), TEST_APPLY)
+      expect(send).toHaveBeenCalledTimes(1)
+      machines[0]!.presenceSource = presenceSource
+      // Confirmation can race the directory's version refresh on takeover.
+      await svc.onStatus(asMachineId('a'), confirmed)
+      machines[0]!.presenceSource = 'supervisor'
+      machines[0]!.version = '0.4.2'
+      expect((await svc.fleet())[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+      expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
+      await svc.tick()
+      expect(send).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+      { grantId: undefined }, { grantId: 'unsolicited' }, { phaseDetail: undefined },
+      { targetVersion: '0.4.1' }, { version: '0.4.1' },
+    ])('keeps legacy takeover fenced without exact confirmation: %j', async (override) => {
+      const machines = [{ ...m('a', { deliveryCaps: ['update.delivery.feed'] }), presenceSource: 'daemon' }]
+      const { svc, send } = make(machines)
+      svc.setTarget({ version: '0.4.2', critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } } })
+      await svc.authorizeMachine(asMachineId('a'), TEST_APPLY)
+      machines[0]!.presenceSource = 'supervisor'
+      machines[0]!.version = '0.4.2'
+      await svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
+      expect((await svc.fleet())[0]?.state).not.toBe('current')
+      expect(send).toHaveBeenCalledTimes(1)
+    })
+
     const memoryRecovery = () => {
       let saved: UpdateRecoverySnapshot | undefined
       return {

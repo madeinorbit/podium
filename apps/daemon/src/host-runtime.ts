@@ -1,4 +1,4 @@
-import { legacyUpdateStatus, legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
+import { legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
 import { createRecoveryReadiness } from './recovery-readiness'
 import type { BindingConfirmations } from '@podium/protocol'
 import { mkdir, stat } from 'node:fs/promises'
@@ -48,7 +48,7 @@ import {
   SUPERVISOR_MACHINE_TOKEN_ENV,
   SUPERVISOR_UPDATE_PUBKEY_ENV,
 } from '@podium/runtime/machine-supervisor'
-import { readMachineUpdateJournal } from '@podium/runtime/machine-update'
+import { reconcilePendingUpdate } from './reconcile-pending-update'
 import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
 import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
@@ -67,12 +67,9 @@ import { reportInventory, startInventoryRefresh } from './control/inventory'
 import { rememberDurableSeq } from './control/session'
 import {
   createSchemaGate,
-  MAX_CONVERGENCE_ATTEMPTS,
   refuseConvergence,
   releaseCarriesNewMigrations,
-  resolveOnBoot,
   restartAfterGrant,
-  shouldClearPendingGrantOnBoot,
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
@@ -93,7 +90,7 @@ import { AGENT_RELAY_ENDPOINT, describePortConflict, HOOK_INGEST_ENDPOINT } from
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { OutputScheduler } from './output-scheduler'
-import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
+import { readPendingGrant, writePendingGrant } from './pending-grant'
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
@@ -710,89 +707,7 @@ export async function createDaemonHostRuntime(args: {
   const parentHasServer =
     process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
 
-  const reconcilePendingUpdate = (): string | undefined => {
-    if (process.env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor') {
-      const update = readMachineUpdateJournal(instance.runtimeDir)
-      return update?.grant.target.version === build.appVersion ? build.appVersion : undefined
-    }
-    if (parentHasServer) return
-    const pending = readPendingGrant(instance.runtimeDir)
-    if (!pending) return
 
-    const runningVersion = build.appVersion ?? 'dev'
-    if (pending.legacyHealth && process.env.PODIUM_UNDER_PARENT !== '1') {
-      // connected() is invoked only after the server's authenticated helloOk.
-      // Keep the durable verdict for reconnect replay and same-target refusal.
-      const status = legacyUpdateStatus(instance.runtimeDir, runningVersion)
-      if (status) send(status)
-      return status?.state === 'current' ? pending.targetVersion : undefined
-    }
-    const verdict = resolveOnBoot({ pending, runningVersion })
-    if (!verdict) return
-
-    let state: 'current' | 'rejected' | 'stuck'
-    let detail: string | undefined
-    if (verdict.action === 'confirm') {
-      state = 'current'
-    } else if (verdict.action === 'rollback') {
-      state = verdict.state
-      detail = verdict.detail
-    } else {
-      // A RETRY verdict is not "manual convergence is required" — this boot
-      // used one of the permitted attempts and another is still allowed. Report
-      // it as a failure the operator can retry, and KEEP the marker with the
-      // attempt spent, so the next grant is the last one the bound permits
-      // instead of restarting the count at zero.
-      state = 'rejected'
-      detail =
-        'attempt ' +
-        verdict.attempts +
-        ' of ' +
-        MAX_CONVERGENCE_ATTEMPTS +
-        ' did not reach ' +
-        pending.targetVersion +
-        ' (running ' +
-        runningVersion +
-        '); applying again will retry it'
-    }
-
-    /**
-     * WHAT THIS BOOT CONCLUDED ABOUT THE GRANT IT WAS APPLYING (POD-3224, q13).
-     *
-     * This is the only place that can answer "did the restart land on the
-     * version it was supposed to?", and it answers it from the machine's own
-     * disk rather than from a socket — which matters because the report below is
-     * dropped outright if the coordinator is still coming back up. Without this
-     * line, a machine that rolled back or spent one of its convergence attempts
-     * left the coordinator with silence and left itself with nothing.
-     */
-    updateLog.info('boot reconciled a pending update grant', {
-      grantId: pending.grantId,
-      targetVersion: pending.targetVersion,
-      previousVersion: pending.previousVersion,
-      runningVersion,
-      action: verdict.action,
-      attempts: pending.attempts,
-      reported: state,
-      ...(detail ? { detail } : {}),
-    })
-    send({
-      type: 'updateStatus',
-      grantId: pending.grantId,
-      targetVersion: pending.targetVersion,
-      state,
-      version: runningVersion,
-      ...(detail ? { detail } : {}),
-    })
-    if (verdict.action === 'retry') {
-      writePendingGrant(instance.runtimeDir, { ...pending, attempts: verdict.attempts })
-      return
-    }
-    if (shouldClearPendingGrantOnBoot({ verdict, parentHasServer })) {
-      clearPendingGrant(instance.runtimeDir)
-    }
-    return verdict.action === 'confirm' ? pending.targetVersion : undefined
-  }
 
   /**
    * Read ONCE, at boot, because it is a fact about how this process was started
@@ -1515,7 +1430,10 @@ export async function createDaemonHostRuntime(args: {
     if (facts === undefined) retryRecovery(recoveryEpoch)
     startConnectedServices()
     pushHostMetrics()
-    const convergedVersion = reconcilePendingUpdate()
+    const convergedVersion = reconcilePendingUpdate({
+      runtimeDir: instance.runtimeDir, appVersion: build.appVersion, env: process.env,
+      parentHasServer, send, log: (message, fields) => updateLog.info(message, fields),
+    })
     return convergedVersion ? { convergedVersion } : {}
   }
 

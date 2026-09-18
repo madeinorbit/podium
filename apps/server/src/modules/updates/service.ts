@@ -1175,7 +1175,6 @@ export class UpdatesService {
     // Retirement accepts only the executor's exact healthy result. Late progress
     // must not resurrect a wait, and no report may release a retired wave slot.
     const confirmedExecution =
-      requiresExecutionConfirmation &&
       executionGrant !== undefined &&
       message.grantId === executionGrant.grantId &&
       message.targetVersion === target.version &&
@@ -1309,7 +1308,9 @@ export class UpdatesService {
       (previous?.state === 'current' && effectiveState === 'current' && previous.projectedCurrent)
         ? { projectedCurrent: true }
         : {}),
-      requiresExecutionConfirmation,
+      // Exact proof also fences a legacy grant confirmed before supervisor presence
+      // catches up; issuance transport does not change the grant authority.
+      requiresExecutionConfirmation: requiresExecutionConfirmation || confirmedExecution,
       version: message.version,
       lastReportAt: this.deps.now(),
       lastReportedState: message.state,
