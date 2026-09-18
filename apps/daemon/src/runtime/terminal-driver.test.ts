@@ -3153,6 +3153,31 @@ describe('driver-owned prime boundary', () => {
     }
   })
 
+  it('fences retained callbacks and late prime fetches from a replacement session with the same id', async () => {
+    let resolve!: (result: { ok: boolean; result: string }) => void
+    const source = vi.fn()
+      .mockImplementationOnce(() => new Promise<{ ok: boolean; result: string }>((done) => { resolve = done }))
+      .mockResolvedValue({ ok: true, result: 'replacement prime' })
+    const world = makeWorld({ primeSource: source })
+    const sessionId = 'reused-prime' as SessionId
+    try {
+      const old = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {})
+      const callback = world.runtime.boundaryContextFor(sessionId)!
+      const pending = callback({ event: 'start' })
+      world.runtime.clear(sessionId)
+      const replacement = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {})
+      expect(await old.boundaryContext!({ event: 'start' })).toBeNull()
+      expect(await callback({ event: 'start' })).toBeNull()
+      expect(source).toHaveBeenCalledTimes(1)
+      resolve({ ok: true, result: 'old prime' })
+      expect(await pending).toBeNull()
+      expect(await replacement.boundaryContext!({ event: 'start' })).toBe('replacement prime')
+      expect(source).toHaveBeenCalledTimes(2)
+    } finally {
+      world.runtime.dispose()
+    }
+  })
+
   it('does not advertise hidden context on a terminal without instrumentation', async () => {
     const source = vi.fn(async () => ({ ok: true, result: 'prime' }))
     const world = makeWorld({ primeSource: source })

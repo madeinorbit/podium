@@ -583,7 +583,12 @@ export function createTerminalRuntime(
       context = createBoundaryContext(() => primeSource(sessionId))
       contexts.set(sessionId, context)
     }
-    return context.respond
+    const owner = context
+    return async (request) => {
+      if (contexts.get(sessionId) !== owner) return null
+      const result = await owner.respond(request)
+      return contexts.get(sessionId) === owner ? result : null
+    }
   }
 
   const sessions = new Map<SessionId, DriverSession>()
@@ -1750,8 +1755,10 @@ export function createTerminalRuntime(
       },
 
       ...(primeSource && profiles.get(session.sessionId)?.instrumentationRequired ? {
-        boundaryContext: (request: BoundaryContextRequest) =>
-          boundaryContextFor(session.sessionId)?.(request) ?? Promise.resolve(null),
+        boundaryContext: (request: BoundaryContextRequest) => {
+          if (session.disposed || sessions.get(session.sessionId) !== session) return Promise.resolve(null)
+          return boundaryContextFor(session.sessionId)?.(request) ?? Promise.resolve(null)
+        },
       } : {}),
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {

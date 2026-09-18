@@ -123,6 +123,25 @@ describe('composeResponders', () => {
     expect(await composed(asSessionId('s1'), {})).toBe('"second"')
   })
 
+  it('does not start reminders when the shared deadline expires during an earlier lookup', async () => {
+    let finish!: (value: string | null) => void
+    let reminders = 0
+    const controller = new AbortController()
+    const composed = composeResponders(
+      (_sessionId, _payload, signal) => {
+        expect(signal).toBe(controller.signal)
+        return new Promise<string | null>((resolve) => { finish = resolve })
+      },
+      async () => { reminders++; return 'persisted reminder' },
+    )
+    const response = composed(asSessionId('deadline'), {}, controller.signal)
+    controller.abort()
+    finish(null)
+    const result = await response
+    expect(reminders).toBe(0)
+    expect(result).toBeNull()
+  })
+
   it('returns null when all responders decline', async () => {
     const composed = composeResponders(
       async () => null,
