@@ -59,7 +59,7 @@ import {
   CAP_METADATA_DELTA,
   type ClientMessage,
   type ServerMessage,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import {
   GrantEdgeVisibilityPolicy,
@@ -175,7 +175,7 @@ const helloFrom = (clientId: string, caps: string[] = [CAP_METADATA_DELTA, 'sync
   clientId,
   viewport: { cols: 80, rows: 24, dpr: 1 },
   caps,
-  wireVersion: WIRE_VERSION,
+  wireVersion: CLIENT_WIRE_VERSION,
 })
 
 const commitIssue = (

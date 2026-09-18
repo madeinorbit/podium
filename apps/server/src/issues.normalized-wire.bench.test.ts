@@ -1,5 +1,5 @@
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import {
   issueMembershipScanCount,
@@ -142,7 +142,7 @@ async function world() {
   const attachScans = issueMembershipScanCount()
   registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
-    wireVersion: WIRE_VERSION,
+    wireVersion: CLIENT_WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
   })

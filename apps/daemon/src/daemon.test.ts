@@ -21,7 +21,7 @@ import type {
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asSessionId, asUserId, type SessionId } from '@podium/model'
-import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
 
 /**
  * A member id, as a FIXTURE (A2). The daemon opens no instance, so
@@ -268,7 +268,7 @@ function handshakeAndCollect(ws: WS, received: DaemonMessage[]): Promise<void> {
       authed = true
       const ok: PeerHelloReply = {
         type: 'peerHelloOk',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         caps: [],
         name: 'test',
       }
@@ -891,7 +891,7 @@ describe('daemon multi-bridge', () => {
             authed = true
             const ok: PeerHelloReply = {
               type: 'peerHelloOk',
-              v: WIRE_VERSION,
+              v: DAEMON_WIRE_VERSION,
               caps: [],
               name: 'test',
             }

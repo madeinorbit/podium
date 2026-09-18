@@ -6,7 +6,7 @@ import {
   parseServerVersion,
   type ServerVersion,
   type SkewVerdict,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { reportSkew } from '@/app/skew-notice'
@@ -154,7 +154,7 @@ export async function checkServerVersion(
     return 'ok' // unreachable or non-JSON /version → proceed rather than block
   }
 
-  const verdict = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
+  const verdict = classifySkew(server, { wire: CLIENT_WIRE_VERSION, digest: wireSchemaDigest() })
 
   if (verdict === 'ok') {
     clearReloadCounter()
@@ -194,7 +194,7 @@ export async function checkServerVersion(
       severe: false,
       message:
         `Your server is running an older version of Podium than this app ` +
-        `(wire ${server.wireVersion} against ${WIRE_VERSION}). Update your server to continue.`,
+        `(wire ${server.wireVersion} against ${CLIENT_WIRE_VERSION}). Update your server to continue.`,
     })
     return 'server-behind'
   }
@@ -223,7 +223,7 @@ export async function checkServerVersion(
     log.error('wire-version mismatch persists; not reloading again', {
       reloads,
       target,
-      bundleWire: WIRE_VERSION,
+      bundleWire: CLIENT_WIRE_VERSION,
       serverWire,
       serverMin,
     })

@@ -1,6 +1,6 @@
 import { IssueWire } from '@podium/model/browser'
 import { makeIssue } from './test-issue'
-import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { type KernelAssembly, openKernelAssembly } from './kernelReplica'
@@ -24,7 +24,7 @@ const meta = {
   epoch: 'e',
   seq: 1,
   minAvailableSeq: 0,
-  wireVersion: WIRE_VERSION,
+  wireVersion: CLIENT_WIRE_VERSION,
   wireSchemaDigest: wireSchemaDigest(),
   totalRows: 1,
 }

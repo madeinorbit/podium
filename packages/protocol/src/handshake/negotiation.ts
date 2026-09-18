@@ -12,7 +12,7 @@
  * (`./acceptor.order.test.ts`).
  */
 
-import { versionSupport } from '../version'
+import { versionSupport, type WireVersionOffer } from '../version'
 import {
   type HandshakeRejectReason,
   localVersionSupport,
@@ -29,11 +29,11 @@ export type VersionOutcome =
  * later on a malformed frame.
  */
 export const negotiateVersion = (
-  offered: number,
+  offered: WireVersionOffer,
   support: { wire: number; min: number } = localVersionSupport(),
 ): VersionOutcome => {
   const verdict = versionSupport(offered, support.wire, support.min)
-  if (verdict === 'ok') return { ok: true, agreed: offered }
+  if (verdict === 'ok') return { ok: true, agreed: Math.min(typeof offered === 'number' ? offered : offered.max, support.wire) }
   return {
     ok: false,
     rejection: {

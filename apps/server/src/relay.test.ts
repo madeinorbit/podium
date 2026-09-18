@@ -16,7 +16,7 @@ import {
   resolveTelegramPrincipal,
   type SessionId,
 } from '@podium/model'
-import { asDelegationRef, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { asDelegationRef, type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { advanceToComposerReady, expectSubmitStillDeferred } from './test-support/readiness-queue'
@@ -65,7 +65,7 @@ async function attachCurrent(reg: SessionRegistry, send: (message: ServerMessage
     caps: ['sync.http.v1'],
     clientId: id,
     viewport: { cols: 80, rows: 24, dpr: 1 },
-    wireVersion: WIRE_VERSION,
+    wireVersion: CLIENT_WIRE_VERSION,
   })
   await vi.waitFor(() => expect(bootstrapped).toBe(true))
   return id

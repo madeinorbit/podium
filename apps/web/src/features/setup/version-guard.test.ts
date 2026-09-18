@@ -2,7 +2,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { actorUser, asUserId, asMutationId } from '@podium/model'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { addSink, type LogRecord, resetLogging, setLogLevel } from '@podium/logger'
-import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { currentSkew, reportSkew, resetSkewNotice } from '@/app/skew-notice'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
@@ -90,8 +90,8 @@ describe('checkServerVersion', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION,
-          minSupportedVersion: WIRE_VERSION,
+          wireVersion: CLIENT_WIRE_VERSION,
+          minSupportedVersion: CLIENT_WIRE_VERSION,
           appVersion: 'test',
         }),
       ),
@@ -107,8 +107,8 @@ describe('checkServerVersion', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION + 1,
-          minSupportedVersion: WIRE_VERSION,
+          wireVersion: CLIENT_WIRE_VERSION + 1,
+          minSupportedVersion: CLIENT_WIRE_VERSION,
           appVersion: 'test',
         }),
       ),
@@ -120,7 +120,7 @@ describe('checkServerVersion', () => {
     expect(reload).toHaveBeenCalledTimes(1)
     // First reload recorded — AGAINST the build it is aimed at, which is what lets a later,
     // different build start over instead of inheriting this attempt (POD-2253).
-    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(WIRE_VERSION + 1), 1))
+    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(CLIENT_WIRE_VERSION + 1), 1))
   })
 
   it('does not reload when this client is ahead of its server', async () => {
@@ -128,8 +128,8 @@ describe('checkServerVersion', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION - 1,
-          minSupportedVersion: WIRE_VERSION - 1,
+          wireVersion: CLIENT_WIRE_VERSION - 1,
+          minSupportedVersion: CLIENT_WIRE_VERSION - 1,
           appVersion: 'test',
         }),
       ),
@@ -145,8 +145,8 @@ describe('checkServerVersion', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION - 1,
-          minSupportedVersion: WIRE_VERSION - 1,
+          wireVersion: CLIENT_WIRE_VERSION - 1,
+          minSupportedVersion: CLIENT_WIRE_VERSION - 1,
           appVersion: 'test',
         }),
       ),
@@ -165,8 +165,8 @@ describe('checkServerVersion', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION - 1,
-          minSupportedVersion: WIRE_VERSION - 1,
+          wireVersion: CLIENT_WIRE_VERSION - 1,
+          minSupportedVersion: CLIENT_WIRE_VERSION - 1,
         }),
       ),
     )
@@ -179,8 +179,8 @@ describe('checkServerVersion', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION,
-          minSupportedVersion: WIRE_VERSION + 1,
+          wireVersion: CLIENT_WIRE_VERSION,
+          minSupportedVersion: CLIENT_WIRE_VERSION + 1,
           appVersion: 'test',
         }),
       ),
@@ -192,7 +192,7 @@ describe('checkServerVersion', () => {
 
   it('blocks (no further reload) after two reloads at the same build, surfacing an error', async () => {
     // Already reloaded twice this session AT THIS BUILD — the loop the budget exists to stop.
-    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION + 1), 2))
+    store.set(COUNTER_KEY, budgetFor(targetOf(CLIENT_WIRE_VERSION + 1), 2))
     // A REAL sink with no pinned level, per the epic's testing note: the
     // diagnostic moved from the console to the logger, and a capture pinned at
     // `trace` would observe records a deployment never emits.
@@ -203,8 +203,8 @@ describe('checkServerVersion', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION + 1,
-          minSupportedVersion: WIRE_VERSION,
+          wireVersion: CLIENT_WIRE_VERSION + 1,
+          minSupportedVersion: CLIENT_WIRE_VERSION,
           appVersion: 'test',
         }),
       ),
@@ -244,14 +244,14 @@ describe('checkServerVersion', () => {
  * THE CHECK THE WIRE VERSION COULD NOT MAKE (POD-1610).
  *
  * The stale bundle and its server agreed on wire 2 for three days while failing
- * to understand each other, because `WIRE_VERSION` is coarse on purpose. These
+ * to understand each other, because `CLIENT_WIRE_VERSION` is coarse on purpose. These
  * cases pin the finer one — and, as importantly, pin the two ways it must NOT
  * fire: on a matched pair, and on a server too old to advertise a digest at all.
  */
 describe('checkServerVersion — schema digest', () => {
   const matched = {
-    wireVersion: WIRE_VERSION,
-    minSupportedVersion: WIRE_VERSION,
+    wireVersion: CLIENT_WIRE_VERSION,
+    minSupportedVersion: CLIENT_WIRE_VERSION,
     appVersion: 'test',
     wireSchemaDigest: wireSchemaDigest(),
   }
@@ -288,7 +288,7 @@ describe('checkServerVersion — schema digest', () => {
   })
 
   it('raises a VISIBLE notice once reloading has failed twice', async () => {
-    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION, 'deadbeefdeadbeef'), 2))
+    store.set(COUNTER_KEY, budgetFor(targetOf(CLIENT_WIRE_VERSION, 'deadbeefdeadbeef'), 2))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal(
       'fetch',
@@ -328,16 +328,16 @@ describe('checkServerVersion — schema digest', () => {
     )
 
   it('a budget spent against an EARLIER build does not strand the tab on a new one', async () => {
-    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION, spentDigest), 2))
+    store.set(COUNTER_KEY, budgetFor(targetOf(CLIENT_WIRE_VERSION, spentDigest), 2))
     serveDigest(nextDigest)
     expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
     expect(reload).toHaveBeenCalledTimes(1)
     // And the fresh attempt is booked against the NEW build, not added to the old tally.
-    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(WIRE_VERSION, nextDigest), 1))
+    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(CLIENT_WIRE_VERSION, nextDigest), 1))
   })
 
   it('CAN SAY NO: two reloads at the SAME digest still stop the loop', async () => {
-    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION, spentDigest), 2))
+    store.set(COUNTER_KEY, budgetFor(targetOf(CLIENT_WIRE_VERSION, spentDigest), 2))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     serveDigest(spentDigest)
     expect(await checkServerVersion(ORIGIN)).toBe('blocked')
@@ -353,24 +353,24 @@ describe('checkServerVersion — schema digest', () => {
     serveDigest(nextDigest)
     expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
     expect(reload).toHaveBeenCalledTimes(1)
-    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(WIRE_VERSION, nextDigest), 1))
+    expect(store.get(COUNTER_KEY)).toBe(budgetFor(targetOf(CLIENT_WIRE_VERSION, nextDigest), 1))
   })
 
   it('a server that advertises no digest is ONE target, not a new one every poll', async () => {
     // Otherwise silence would look like perpetual change and the budget would never bind.
     const { wireSchemaDigest: _omitted, ...noDigest } = matched
-    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION + 1), 2))
+    store.set(COUNTER_KEY, budgetFor(targetOf(CLIENT_WIRE_VERSION + 1), 2))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(versionResponse({ ...noDigest, wireVersion: WIRE_VERSION + 1 })),
+      vi.fn().mockResolvedValue(versionResponse({ ...noDigest, wireVersion: CLIENT_WIRE_VERSION + 1 })),
     )
     expect(await checkServerVersion(ORIGIN)).toBe('blocked')
     expect(reload).not.toHaveBeenCalled()
   })
 
   it('records the spent reload budget so the panel can explain it afterwards', async () => {
-    store.set(COUNTER_KEY, budgetFor(targetOf(WIRE_VERSION, 'deadbeefdeadbeef'), 2))
+    store.set(COUNTER_KEY, budgetFor(targetOf(CLIENT_WIRE_VERSION, 'deadbeefdeadbeef'), 2))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubGlobal(
       'fetch',
@@ -393,8 +393,8 @@ describe('checkServerVersion — schema digest', () => {
  */
 describe('recoverFromWireSkew', () => {
   const matched = {
-    wireVersion: WIRE_VERSION,
-    minSupportedVersion: WIRE_VERSION,
+    wireVersion: CLIENT_WIRE_VERSION,
+    minSupportedVersion: CLIENT_WIRE_VERSION,
     appVersion: 'test',
     wireSchemaDigest: wireSchemaDigest(),
   }
@@ -445,7 +445,7 @@ describe('recoverFromWireSkew', () => {
  */
 describe('checkServerVersion in iteration mode', () => {
   const mismatched = () =>
-    versionResponse({ wireVersion: WIRE_VERSION + 1, minSupportedVersion: WIRE_VERSION + 1 })
+    versionResponse({ wireVersion: CLIENT_WIRE_VERSION + 1, minSupportedVersion: CLIENT_WIRE_VERSION + 1 })
 
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -471,8 +471,8 @@ describe('checkServerVersion in iteration mode', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION,
-          minSupportedVersion: WIRE_VERSION,
+          wireVersion: CLIENT_WIRE_VERSION,
+          minSupportedVersion: CLIENT_WIRE_VERSION,
           wireSchemaDigest: 'a-different-build',
         }),
       ),
@@ -481,7 +481,7 @@ describe('checkServerVersion in iteration mode', () => {
     const message = currentSkew()?.message ?? ''
     expect(message).toMatch(/different commit/i)
     expect(message).toMatch(/wire schema/i)
-    expect(message).not.toMatch(new RegExp(`wire ${WIRE_VERSION}\\b`))
+    expect(message).not.toMatch(new RegExp(`wire ${CLIENT_WIRE_VERSION}\\b`))
   })
 
   it('spends no reload budget, so leaving iteration mode starts with a full one', async () => {
@@ -496,8 +496,8 @@ describe('checkServerVersion in iteration mode', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         versionResponse({
-          wireVersion: WIRE_VERSION,
-          minSupportedVersion: WIRE_VERSION,
+          wireVersion: CLIENT_WIRE_VERSION,
+          minSupportedVersion: CLIENT_WIRE_VERSION,
           wireSchemaDigest: wireSchemaDigest(),
         }),
       ),
@@ -529,7 +529,7 @@ describe('checkServedAssets', () => {
     resetSkewNotice()
   })
 
-  const SAME_WIRE = { wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }
+  const SAME_WIRE = { wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }
   const serving = (bundle: string) => ({
     ...SAME_WIRE,
     appVersion: '0.1.1-dev.1+a55ec3d',
@@ -666,7 +666,7 @@ describe('checkServedAssets and pages this server did not serve', () => {
   })
 
   const servingDesktop = {
-    wireVersion: WIRE_VERSION,
+    wireVersion: CLIENT_WIRE_VERSION,
     wireSchemaDigest: wireSchemaDigest(),
     web: { present: true, appVersion: '0.1.1', bundle: 'bundle+CFyX4Q_p' },
     mobileWeb: {
@@ -731,7 +731,7 @@ describe('HTTP cutover preserves queued work', () => {
     // Emulate a stale cached bundle: identical digest, next wire version.
     // This is the precise cap-only rollout signal, independent of schema changes.
     const fetch = vi.fn().mockResolvedValue(versionResponse({
-      wireVersion: WIRE_VERSION + 1, minSupportedVersion: 1, wireSchemaDigest: wireSchemaDigest(),
+      wireVersion: CLIENT_WIRE_VERSION + 1, minSupportedVersion: 1, wireSchemaDigest: wireSchemaDigest(),
     }))
     vi.stubGlobal('fetch', fetch)
     expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
@@ -741,7 +741,7 @@ describe('HTTP cutover preserves queued work', () => {
     expect(unregister).toHaveBeenCalledTimes(2)
     // The matching bundle succeeds and clears the budget after the upgrade.
     fetch.mockResolvedValue(versionResponse({
-      wireVersion: WIRE_VERSION, minSupportedVersion: 1, wireSchemaDigest: wireSchemaDigest(),
+      wireVersion: CLIENT_WIRE_VERSION, minSupportedVersion: 1, wireSchemaDigest: wireSchemaDigest(),
     }))
     expect(await checkServerVersion(ORIGIN)).toBe('ok')
     expect(store.has(COUNTER_KEY)).toBe(false)

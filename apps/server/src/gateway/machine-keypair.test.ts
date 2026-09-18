@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { asMachineId, asUserId } from '@podium/model'
-import { machineHelloTranscript, machineRotationTranscript, type MachineChallenge, WIRE_VERSION } from '@podium/protocol'
+import { machineHelloTranscript, machineRotationTranscript, type MachineChallenge, DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { machinePublicKeyWire, signWithMachine } from '@podium/runtime/machine-credential'
 import { mintSigningKeyPair, signMessage } from '@podium/runtime/signing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -15,7 +15,7 @@ const key = mintSigningKeyPair()
 const publicKey = machinePublicKeyWire(key)
 const stores: Awaited<ReturnType<typeof openTestStore>>[] = []
 afterEach(async () => { vi.restoreAllMocks(); for (const store of stores.splice(0)) await store.close() })
-const hello = (credential: unknown) => JSON.stringify({ type: 'peerHello', v: WIRE_VERSION,
+const hello = (credential: unknown) => JSON.stringify({ type: 'peerHello', v: DAEMON_WIRE_VERSION,
   peerRole: 'machine', caps: [], credential, claims: { machineId, hostname: 'box' } })
 const keyHello = () => hello({ kind: 'machineKey', machineHint: machineId })
 const proofHello = (challenge: MachineChallenge, signature = signWithMachine(key, machineHelloTranscript(challenge))) =>

@@ -1,6 +1,6 @@
 /** HTTP sync v1: UTF-8 NDJSON. See docs/spec/sync-http-stream.md. */
 import { z } from 'zod'
-import { WIRE_VERSION } from '../version'
+import { CLIENT_WIRE_VERSION } from '../version'
 import {
   CertifiedRangeFields,
   FeedBootstrapMessage,
@@ -58,7 +58,7 @@ const SyncMetaShape = z.object({
   seq: CertifiedRangeFields.seq,
   fromSeq: CertifiedRangeFields.fromSeq.optional(),
   minAvailableSeq: CertifiedRangeFields.minAvailableSeq,
-  wireVersion: z.literal(WIRE_VERSION),
+  wireVersion: z.literal(CLIENT_WIRE_VERSION),
   wireSchemaDigest: z.string().regex(/^[0-9a-f]{16}$/),
   totalRows: Count.optional(),
 })

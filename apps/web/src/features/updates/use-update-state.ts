@@ -34,7 +34,7 @@ import {
   type ReleaseProposal,
   ReleaseProposal as ReleaseProposalSchema,
   type ServerVersion,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -797,7 +797,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const sourceCannotTakeTarget = server.installKind === 'source' && serverDiffers
   const serverBehind = server.installKind !== 'source' && serverDiffers
   const phoneStale = targetWebDigest !== undefined && phoneBehind(server, targetWebDigest)
-  const skew = classifySkew(server, { wire: WIRE_VERSION, digest: wireSchemaDigest() })
+  const skew = classifySkew(server, { wire: CLIENT_WIRE_VERSION, digest: wireSchemaDigest() })
   /**
    * Is the website this page was loaded from still the one being served?
    * (POD-2721 — see `behind` below for why this is a fact of its own.)

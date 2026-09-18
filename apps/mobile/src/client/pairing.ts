@@ -6,7 +6,7 @@ import {
   type MobilePairingEnvelope,
   mobilePairingUrl,
   parseMobilePairingUrl,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import * as Crypto from 'expo-crypto'
 import { Platform } from 'react-native'
@@ -281,14 +281,14 @@ export async function preflightServer(
         transport,
       }
     }
-    const clientTooOld = WIRE_VERSION < version.minSupportedVersion
-    const serverTooOld = WIRE_VERSION > version.wireVersion
+    const clientTooOld = CLIENT_WIRE_VERSION < version.minSupportedVersion
+    const serverTooOld = CLIENT_WIRE_VERSION > version.wireVersion
     if (clientTooOld || serverTooOld) {
       return {
         ok: false,
         kind: 'version-mismatch',
         title: clientTooOld ? 'Update this app' : 'Update the server',
-        detail: `App wire ${WIRE_VERSION} and server range ${version.minSupportedVersion}–${version.wireVersion} are incompatible.`,
+        detail: `App wire ${CLIENT_WIRE_VERSION} and server range ${version.minSupportedVersion}–${version.wireVersion} are incompatible.`,
         transport,
       }
     }

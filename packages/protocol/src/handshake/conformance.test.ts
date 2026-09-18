@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { WIRE_VERSION } from '../version'
+import { DAEMON_WIRE_VERSION } from '../version'
 import { createHandshakeAcceptor } from './acceptor'
 import {
   type HandshakeEndProbe,
@@ -22,6 +22,7 @@ import {
   runHandshakeConformance,
 } from './conformance'
 import { createHandshakeDialer } from './dialer'
+import { negotiateVersion } from './negotiation'
 import { createAuthStrategyRegistry } from './strategies/registry'
 import type { PeerAuthStrategy } from './strategies/types'
 import {
@@ -94,7 +95,7 @@ const gatewayProbe = (): HandshakeEndProbe => {
         junk: () => 'not json at all',
         versionMismatch: () =>
           JSON.stringify(
-            helloFor({ kind: 'machineToken', token: 'tok-ok' }, { v: WIRE_VERSION + 5 }),
+            helloFor({ kind: 'machineToken', token: 'tok-ok' }, { v: DAEMON_WIRE_VERSION + 5 }),
           ),
       }
     },
@@ -109,7 +110,7 @@ const goodHello = (): string =>
 // --------------------------------------------------------------------------
 
 const okReply = (): string =>
-  JSON.stringify({ type: 'peerHelloOk', v: WIRE_VERSION, caps: [], name: 'vps' })
+  JSON.stringify({ type: 'peerHelloOk', v: DAEMON_WIRE_VERSION, caps: [], name: 'vps' })
 
 const daemonProbe = (): HandshakeEndProbe => ({
   end: 'daemon',
@@ -150,7 +151,7 @@ const daemonProbe = (): HandshakeEndProbe => ({
         JSON.stringify({
           type: 'peerHelloRejected',
           reason: 'unsupported-version',
-          support: { wire: WIRE_VERSION, min: WIRE_VERSION },
+          support: { wire: DAEMON_WIRE_VERSION, min: DAEMON_WIRE_VERSION },
         }),
     }
   },
@@ -211,7 +212,7 @@ describe('the two ends agree end to end', () => {
     const dialerStep = dialer.receive(JSON.stringify(step.reply))
     expect(dialerStep).toMatchObject({
       action: 'established',
-      agreedVersion: WIRE_VERSION,
+      agreedVersion: DAEMON_WIRE_VERSION,
       name: 'vps',
     })
     // The reserved token the dialer offered was neither accepted nor echoed.
@@ -243,4 +244,31 @@ describe('the two ends agree end to end', () => {
     expect(dialer.receive(JSON.stringify(step.reply))).toMatchObject({ action: 'rejected' })
     expect(dialer.state).toBe('failed')
   })
+})
+
+
+describe('daemon range dialer', () => {
+  it('offers the daemon window independently of the client version', () => {
+    const dialer = createHandshakeDialer({ credential: { kind: 'machineToken', token: 'tok' } })
+    expect(dialer.hello().v).toEqual(DAEMON_WIRE_VERSION)
+    expect(dialer.receive(JSON.stringify({ type: 'peerHelloOk', v: 1, caps: [] })))
+      .toMatchObject({ action: 'established', agreedVersion: 1 })
+  })
+  it('refuses an acceptor answer outside its offer', () => {
+    const dialer = createHandshakeDialer({ credential: { kind: 'machineToken', token: 'tok' }, support: { min: 1, wire: 2 } })
+    dialer.hello()
+    expect(dialer.receive(JSON.stringify({ type: 'peerHelloOk', v: 3, caps: [] })))
+      .toMatchObject({ action: 'rejected', reply: { reason: 'unsupported-version' } })
+  })
+})
+
+
+it.each([[2, 4], [4, 2]])('daemon %i and server %i establish the older common dialect', (daemonMax, serverMax) => {
+  const dialer = createHandshakeDialer({ credential: { kind: 'machineToken', token: 'tok-ok' }, support: { min: 1, wire: daemonMax } })
+  const hello = { ...dialer.hello(), v: { min: 1, max: daemonMax } }
+  const outcome = negotiateVersion(hello.v, { min: 1, wire: serverMax })
+  expect(outcome).toEqual({ ok: true, agreed: 2 })
+  if (!outcome.ok) throw new Error('expected overlap')
+  expect(dialer.receive(JSON.stringify({ type: 'peerHelloOk', v: outcome.agreed, caps: [] })))
+    .toMatchObject({ action: 'established', agreedVersion: 2 })
 })

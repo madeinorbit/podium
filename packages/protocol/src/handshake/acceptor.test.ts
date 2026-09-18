@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { WIRE_VERSION } from '../version'
+import { DAEMON_WIRE_VERSION } from '../version'
 import { createHandshakeAcceptor } from './acceptor'
 import type { PeerHello } from './envelope'
 import { createAuthStrategyRegistry } from './strategies/registry'
@@ -75,7 +75,7 @@ describe('handshake order — the gateway end', () => {
       registry: createAuthStrategyRegistry([spy]),
       transport: transportFacts({ endpoint: '/daemon' }),
     })
-    const step = a.receive(goodHello({ v: WIRE_VERSION + 5 }))
+    const step = a.receive(goodHello({ v: DAEMON_WIRE_VERSION + 5 }))
     expect(step.action === 'reject' && step.reply.reason).toBe('unsupported-version')
     expect(authenticate).not.toHaveBeenCalled()
     expect(a.state).toBe('closed')

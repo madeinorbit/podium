@@ -45,7 +45,7 @@ import {
   type MachineId,
   type SessionId,
 } from '@podium/model'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 
 import { SessionRegistry } from '../../relay'
@@ -285,7 +285,7 @@ export async function makeOracle(
   const clientId = attachTestClient(reg.clientGateway, (msg) => client.push(msg))
   reg.clientGateway.routeClientFrame(clientId, {
     type: 'hello',
-    wireVersion: WIRE_VERSION,
+    wireVersion: CLIENT_WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
   })

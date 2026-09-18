@@ -22,7 +22,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
@@ -57,7 +57,7 @@ describe('a same-site app host talking to an API on another host', () => {
   /** Resolve 'open' or 'rejected', with `Host` forged to the API's real name. */
   const socket = (origin: string, withCookie: boolean): Promise<'open' | 'rejected'> =>
     new Promise((resolve) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client?v=${WIRE_VERSION}`, {
+      const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}`, {
         headers: {
           host: 'api.localtest.me',
           origin,

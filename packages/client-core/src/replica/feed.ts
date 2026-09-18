@@ -31,7 +31,7 @@
 
 /** The replica cache format this build understands (ADR 2 D4 — the replica
  *  schema version, one of three independent version namespaces and NOT
- *  `WIRE_VERSION`). Bump when a persisted row shape changes incompatibly; the
+ *  `CLIENT_WIRE_VERSION`). Bump when a persisted row shape changes incompatibly; the
  *  bump is rung 6 — discard the cache and re-bootstrap. */
 export const REPLICA_SCHEMA_VERSION = 1
 

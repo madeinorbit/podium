@@ -14,7 +14,7 @@ import { attachTestClient } from '../../test-support/client-transport'
 
 import type { SessionId } from '@podium/model'
 import { asMachineId, asUserId, asSessionId, firstAdminMemberId } from '@podium/model'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -663,7 +663,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     await o.reg.clientGateway.routeClientFrame(controllerId, {
       type: 'hello',
     caps: ['sync.http.v1'],
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })

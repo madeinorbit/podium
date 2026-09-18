@@ -1,5 +1,5 @@
 import type { MobileWebIdentity } from '@podium/protocol'
-import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
+import { MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { registerVersionRoute } from './server'
@@ -41,8 +41,8 @@ describe('GET /version', () => {
   it('reports the wire + app version as JSON', async () => {
     const { status, body } = await fetchVersion()
     expect(status).toBe(200)
-    expect(body.wireVersion).toBe(WIRE_VERSION)
-    expect(body.minSupportedVersion).toBe(MIN_SUPPORTED_VERSION)
+    expect(body.wireVersion).toBe(CLIENT_WIRE_VERSION)
+    expect(body.minSupportedVersion).toBe(MIN_CLIENT_WIRE_VERSION)
     expect(typeof body.appVersion).toBe('string')
     expect(body.instanceId).toBe('default')
   })
@@ -61,8 +61,8 @@ describe('GET /version', () => {
     expect(status).toBe(200)
     expect(body.appVersion).toBe('9.9.9')
     // Full contract shape stays intact alongside the baked version.
-    expect(body.wireVersion).toBe(WIRE_VERSION)
-    expect(body.minSupportedVersion).toBe(MIN_SUPPORTED_VERSION)
+    expect(body.wireVersion).toBe(CLIENT_WIRE_VERSION)
+    expect(body.minSupportedVersion).toBe(MIN_CLIENT_WIRE_VERSION)
   })
 
   it('reports the source identity captured by the server at boot', async () => {

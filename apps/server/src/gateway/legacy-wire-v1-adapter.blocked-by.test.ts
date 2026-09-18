@@ -31,7 +31,7 @@
  */
 
 import type { ServerMessage } from '@podium/protocol'
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { type EdgePeer, type FeedFrame, WireFeedEdge } from './wire-feed-edge'
 
@@ -134,7 +134,7 @@ describe('v1 peers keep reading blockedBy after the POD-1530 rename', () => {
 
   it('leaves a v2 peer on the NEW key — the arm is a translation, not a second spelling', () => {
     const subject = edge()
-    const peer = new Peer('v2', WIRE_VERSION)
+    const peer = new Peer('v2', CLIENT_WIRE_VERSION)
     expect(subject.attach(peer)).toBeNull()
 
     const frame = initialDelta([upsert(1, 'issue', 'i1', issueV2('i1'))])

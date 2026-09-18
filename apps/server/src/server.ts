@@ -24,12 +24,12 @@ import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   type DaemonPtyInputBatch,
   type LocalDaemonLink,
-  MIN_SUPPORTED_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
   type MobileWebIdentity,
   PeerHelloReply,
   type ServedWebIdentity,
   type UpdateTarget,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -478,8 +478,8 @@ export function registerVersionRoute(
       daemon: { state: daemonConnected ? ('connected' as const) : ('disconnected' as const) },
     }
     return c.json({
-      wireVersion: WIRE_VERSION,
-      minSupportedVersion: MIN_SUPPORTED_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
+      minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
       /**
        * Structural fingerprint of this server's message schemas. Alongside the
        * wire version, it lets clients report build drift without treating it as

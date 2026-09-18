@@ -16,7 +16,7 @@ const HEADED_EXPECTED = 'DRIVER_OK'
 const HEADED_PROMPT = 'Reply with exactly DRIVER, then _, then OK; no spaces. Do not use tools.'
 const TIMING_NAMESPACE = 'daemon:agent-runtime-timing'
 const TIMING_MESSAGE = 'agent runtime timing stage'
-const WIRE_VERSION = 2
+const CLIENT_WIRE_VERSION = 2
 
 type Provider = 'claude' | 'codex' | 'grok' | 'opencode'
 type Mode = 'headed' | 'headless'
@@ -252,7 +252,7 @@ class NativeViewClient {
   static async connect(baseUrl: string): Promise<NativeViewClient> {
     const url = new URL(baseUrl)
     const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${url.host}/client?v=${WIRE_VERSION}`)
+    const socket = new WebSocket(`${protocol}//${url.host}/client?v=${CLIENT_WIRE_VERSION}`)
     await new Promise<void>((resolveOpen, reject) => {
       socket.once('open', resolveOpen)
       socket.once('error', reject)
@@ -262,7 +262,7 @@ class NativeViewClient {
         type: 'hello',
         clientId: `driver-comparison-${process.pid}`,
         viewport: { cols: 100, rows: 30, dpr: 1 },
-        wireVersion: WIRE_VERSION,
+        wireVersion: CLIENT_WIRE_VERSION,
       }),
     )
     await sleep(200)

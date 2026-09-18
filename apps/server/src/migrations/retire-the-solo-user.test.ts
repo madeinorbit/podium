@@ -43,7 +43,7 @@
  */
 
 import { MemberId, UserId } from '@podium/model'
-import { type ServerMessage, SubscriptionRegistry, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, SubscriptionRegistry, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL, FeedIdentityRegistry, Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
@@ -581,7 +581,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       const received: ServerMessage[] = []
       const peer = {
         id,
-        wireVersion: WIRE_VERSION,
+        wireVersion: CLIENT_WIRE_VERSION,
         acceptsDelta: true,
         send: (message: ServerMessage) => {
           received.push(message)

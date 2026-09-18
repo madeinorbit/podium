@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import { gzipSync, gunzipSync, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
-import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { clientAuthGuard } from '../auth-route'
 import { podiumCors as cors } from '../http-cors'
 import { SyncWorkerError, type BootstrapJob, type SyncMetaSummary } from '../sync-worker/worker-client'
@@ -34,7 +34,7 @@ function fixture() {
     }
     const summary: SyncMetaSummary = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: job.transferId,
       feedId: job.feedId, epoch: job.epoch, seq: 7, minAvailableSeq: 1, totalRows: 0,
-      wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }
+      wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }
     const text = JSON.stringify(summary) + '\n' + JSON.stringify({ type: 'syncComplete', transferId: job.transferId, seq: 7, records: 0, rows: 0 }) + '\n'
     const bytes = job.encoding === 'gzip' ? gzipSync(text) : job.encoding === 'zstd' ? zstdCompressSync(text) : Buffer.from(text)
     let sent = false

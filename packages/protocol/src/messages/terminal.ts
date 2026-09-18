@@ -13,6 +13,7 @@ import {
   UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
+import { WireVersionOffer } from '../version'
 import { PresenceIdentity } from '../planes/presence-rooms'
 import { FeedCursorField } from './feed'
 import { ClientLogOrigin } from './logs'
@@ -59,7 +60,7 @@ export const CAP_METADATA_DELTA = 'metadataDelta'
  *
  *  Only meaningful alongside {@link CAP_METADATA_DELTA} (there is no frame to
  *  stamp otherwise). Additive per ADR 2 D4 — new fields negotiate by
- *  capability, `WIRE_VERSION` stays 1 and moves only for breaking FRAMING
+ *  capability, `CLIENT_WIRE_VERSION` stays 1 and moves only for breaking FRAMING
  *  changes.
  *
  *  Deliberately NOT the gate on `sync.changesSince`: that is a tRPC query with
@@ -77,7 +78,7 @@ export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
  *  it unconditionally; a capless client receives the registered, session-free
  *  transitional IssueWire residue for attach paint and rolling compatibility.
  *
- *  Additive per ADR 2 D4 — negotiated by capability, `WIRE_VERSION` stays 1.
+ *  Additive per ADR 2 D4 — negotiated by capability, `CLIENT_WIRE_VERSION` stays 1.
  *  Unlike {@link CAP_SYNC_FEED_IDENTITY}, this capability selects which of the
  *  two unconditionally emitted collections the client consumes.
  */
@@ -101,7 +102,7 @@ export const HelloMessage = z.object({
    * field it was never built with, so the absence IS the advertisement. Every
    * newer build sends it, so absence stays unambiguous as the window moves.
    */
-  wireVersion: z.number().int().positive().optional(),
+  wireVersion: WireVersionOffer.optional(),
   /**
    * Where this replica's cache stands, so the server can pick a rung of ADR 2
    * D7's ladder instead of re-sending everything (`feedCursor.seq` resumes;
@@ -277,6 +278,7 @@ export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
 // ---- Server -> browser client: terminal control frames ----
 export const WelcomeMessage = z.object({
   type: z.literal('welcome'),
+  wireVersion: z.number().int().positive().optional(),
   clientId: z.string(),
   /** Capabilities negotiated for this connection. Absent from older servers. */
   caps: z.array(z.string()).optional(),

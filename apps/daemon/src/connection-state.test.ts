@@ -12,7 +12,7 @@ import {
   encodeBinaryEnvelope,
   type PeerHello,
   type PeerHelloReply,
-  WIRE_VERSION,
+  DAEMON_WIRE_VERSION,
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { readConnectivityForTest, writeConnectivity } from '@podium/runtime/connectivity'
@@ -46,7 +46,7 @@ const temp = (): string => {
   return root
 }
 
-const ok: PeerHelloReply = { type: 'peerHelloOk', v: WIRE_VERSION, caps: [], name: 'box' }
+const ok: PeerHelloReply = { type: 'peerHelloOk', v: DAEMON_WIRE_VERSION, caps: [], name: 'box' }
 
 function localOptions(
   capture: (hello: PeerHello) => void,

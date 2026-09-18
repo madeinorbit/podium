@@ -34,6 +34,7 @@ import {
   machineRotationTranscript,
   machineHelloTranscript,
   localVersionSupport,
+  negotiateVersion,
   type PeerBuild,
   PeerHello,
   type PeerHelloReply,
@@ -267,7 +268,7 @@ export async function prepareDaemonFrame(
       reply: { type: 'peerHelloRejected', reason: 'auth-failed' } } })
     const support = localVersionSupport()
     if ((hello.peerRole !== undefined && hello.peerRole !== 'machine')
-      || hello.v < support.min || hello.v > support.wire) return refuse()
+      || !negotiateVersion(hello.v, support).ok) return refuse()
     if (!credential.proof) {
       if (prepared.challenged || !prepared.deps.machines.installationId) return refuse()
       prepared.challenged = true

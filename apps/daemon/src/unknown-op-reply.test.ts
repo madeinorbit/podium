@@ -16,7 +16,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type WebSocket, WebSocketServer } from 'ws'
 import { startDaemon } from './daemon'
@@ -61,7 +61,7 @@ describe('unknown repo op is answered, not dropped (POD-1464)', () => {
       ws.once('message', () => {
         const reply: PeerHelloReply = {
           type: 'peerHelloOk',
-          v: WIRE_VERSION,
+          v: DAEMON_WIRE_VERSION,
           caps: [],
           issuedToken: 'tok-1',
           assignedId: 'm-1',

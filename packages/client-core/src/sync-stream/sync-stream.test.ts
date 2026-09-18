@@ -1,12 +1,12 @@
 import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { FeedSink } from '../replica/feed/sink'
 import { describe, expect, it, vi } from 'vitest'
-import { SYNC_LINE_MAX_BYTES, WIRE_VERSION } from '@podium/protocol'
+import { SYNC_LINE_MAX_BYTES, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { HttpBootstrapSource, HttpDeltaSource, NdjsonLineReader, readSyncStream, SyncAuthExpiredError, SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncLineTooLargeError, SyncNetworkError, SyncStreamFailed } from './index'
 
 const encoder = new TextEncoder()
 const cursor = { feedId: 'feed-1', epoch: 'epoch-1', seq: 5 }
-const meta = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 't', feedId: cursor.feedId, epoch: cursor.epoch, seq: 10, minAvailableSeq: 0, wireVersion: WIRE_VERSION, wireSchemaDigest: '0123456789abcdef', totalRows: 1 }
+const meta = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 't', feedId: cursor.feedId, epoch: cursor.epoch, seq: 10, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0123456789abcdef', totalRows: 1 }
 const row = { seq: 1, entity: 'future-kind', entityId: 'one', op: 'upsert', value: { title: 'é 🦊' } }
 const chunk = { type: 'feedBootstrap', feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: 0, seq: 10, minAvailableSeq: 0, changes: [row], last: true }
 const complete = { type: 'syncComplete', transferId: 't', seq: 10, records: 1, rows: 1 }

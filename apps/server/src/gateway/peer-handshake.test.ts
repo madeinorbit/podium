@@ -22,7 +22,7 @@ import {
   encodeBinaryEnvelope,
   createHandshakeDialer,
   machineUseAllowed,
-  WIRE_VERSION,
+  DAEMON_WIRE_VERSION,
 } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { mintPairingToken, openEnrollmentLedger } from '../enrollment-ledger'
@@ -196,7 +196,7 @@ const authenticatedSocket = async (caps: string[]) => {
     'message',
     frame({
       type: 'peerHello',
-      v: WIRE_VERSION,
+      v: DAEMON_WIRE_VERSION,
       caps,
       credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
     }),
@@ -209,7 +209,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const authenticateDaemon = vi.fn()
     const outcome = await receiveDaemonFrame(
       createDaemonAcceptor({ machines: { authenticateDaemon }, connectionId: 'retired-secret' }),
-      frame({ type: 'peerHello', v: WIRE_VERSION, caps: [],
+      frame({ type: 'peerHello', v: DAEMON_WIRE_VERSION, caps: [],
         credential: { kind: 'daemonSecret', secret: 'former-host-secret' } }),
     )
     expect(outcome).toMatchObject({ kind: 'rejected' })
@@ -221,7 +221,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const hello = (caps: string[]) =>
       frame({
         type: 'peerHello',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         caps,
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
       })
@@ -263,7 +263,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       'message',
       frame({
         type: 'peerHello',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         caps: [],
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
         claims: { hostname: 'box' },
@@ -289,7 +289,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       'message',
       frame({
         type: 'peerHello',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         caps: [CAP_TERMINAL_OUTPUT_BINARY_V1],
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
       }),
@@ -319,7 +319,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       'message',
       frame({
         type: 'peerHello',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         caps: [CAP_TERMINAL_INPUT_BINARY_V1],
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
       }),
@@ -461,7 +461,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       'message',
       frame({
         type: 'peerHello',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         caps: [],
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
         claims: { hostname: 'box' },
@@ -482,7 +482,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       'message',
       frame({
         type: 'peerHello',
-        v: WIRE_VERSION + 9,
+        v: DAEMON_WIRE_VERSION + 9,
         caps: [],
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
       }),
@@ -502,7 +502,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       'message',
       frame({
         type: 'peerHello',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         caps: ['peerRole:node', 'upstream.push', 'feed.f1'],
         feedId: 'feed-f1',
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
@@ -919,7 +919,7 @@ describe('legacy binding ownership handoff', () => {
         'message',
         frame({
           type: 'peerHello',
-          v: WIRE_VERSION,
+          v: DAEMON_WIRE_VERSION,
           caps: [],
           credential: { kind: 'machineToken', token: 'wrong', machineHint: 'm1' },
         }),

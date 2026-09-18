@@ -864,6 +864,7 @@ describe('buildDevBundle', () => {
       schemaMigrations: ['20260715135845_baseline'],
     })
     expect(target.schema).toEqual({ migrations: ['20260715135845_baseline'] })
+    expect(target.daemonWire).toEqual({ min: 1, max: 3 })
     // `feed`, like edge and stable: the manifest this publisher writes is
     // read by the same resolver, with the same parser (spec §1, §6 step 3).
     expect(target.artifacts.headless).toEqual({
@@ -2217,11 +2218,13 @@ describe('the dev feed manifest the publisher writes', () => {
      * release in the records the first one wrote.
      */
     stateDirectory: string = publisherDir(),
+    daemonWire = { min: 1, max: 3 },
   ) {
     const { bytes, signature, signingKey } = fixture
     return createDevBundlePublisher({
       ...publisherSeams(),
       publisherStateDir: stateDirectory,
+      daemonWireAt: async () => daemonWire,
       sourceCheckoutAvailable: true,
       readSourceStatus: () => '',
       readIgnoredSourceInputs: () => '',
@@ -2373,6 +2376,16 @@ describe('the dev feed manifest the publisher writes', () => {
         outcome: 'failure',
       }),
     )
+  })
+
+  it('refuses an incompatible daemon range before writing the release manifest', async () => {
+    const store = memoryFs()
+    const publisher = publisherFor(store, () => 'aaaaaaa', undefined, undefined, undefined, undefined, undefined, undefined, { min: 99, max: 100 })
+    await publisher.requestBuild(true)
+    expect((await publisher.feedManifest())?.daemonWire).toEqual({ min: 99, max: 100 })
+    expect(await publisher.publishFeed()).toBe(false)
+    expect(store.text.has(publisher.feedManifestPath())).toBe(false)
+    expect(publisher.unavailable()).toContain('does not overlap running server')
   })
 
   it('writes nothing until a release for this commit has actually been built', async () => {

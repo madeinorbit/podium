@@ -72,7 +72,7 @@ export interface AuditInput {
   sources(): string[]
 }
 
-const MIN_SUPPORTED_RE = /export const MIN_SUPPORTED_VERSION\s*=\s*(\d+)/
+const MIN_SUPPORTED_RE = /export const MIN_CLIENT_WIRE_VERSION\s*=\s*(\d+)/
 const EXPIRES_RE = /expiresWhenMinSupportedReaches:\s*(\d+)/
 const PERMANENT_LEGACY_RE = /expiry\s*[:=]\s*null/
 
@@ -87,7 +87,7 @@ export function runChecks(input: AuditInput): Finding[] {
       check: 'min-supported-readable',
       where: VERSION_FILE,
       detail:
-        'could not read MIN_SUPPORTED_VERSION. Every other check here is relative to the support ' +
+        'could not read MIN_CLIENT_WIRE_VERSION. Every other check here is relative to the support ' +
         'floor, so an unreadable floor is a broken gate, not a pass.',
     })
     return findings
@@ -102,7 +102,7 @@ export function runChecks(input: AuditInput): Finding[] {
         check: 'floor-follows-deletion',
         where: VERSION_FILE,
         detail:
-          `${ADAPTER_FILE} is gone but MIN_SUPPORTED_VERSION is still ${min}. The window still ` +
+          `${ADAPTER_FILE} is gone but MIN_CLIENT_WIRE_VERSION is still ${min}. The window still ` +
           'advertises wire 1 with nothing to serve it. Raise the floor to 2.',
       })
     }
@@ -112,7 +112,7 @@ export function runChecks(input: AuditInput): Finding[] {
   // Wire 3 deliberately changes admission, while the daemon floor stays at 1.
   // The wire-2 identity bridge must have its own mechanical retirement.
   const edge = input.read('apps/server/src/gateway/wire-feed-edge.ts')
-  const wire = Number(versionSource?.match(/export const WIRE_VERSION\s*=\s*(\d+)/)?.[1] ?? 0)
+  const wire = Number(versionSource?.match(/export const CLIENT_WIRE_VERSION\s*=\s*(\d+)/)?.[1] ?? 0)
   if (wire >= 3 && min < 3 && edge !== null &&
     !/version: 2,[\s\S]*expiresWhenMinSupportedReaches: 3/.test(edge)) {
     findings.push({ check: 'wire-two-window-covered',
@@ -134,7 +134,7 @@ export function runChecks(input: AuditInput): Finding[] {
       check: 'expired-adapter-still-present',
       where: ADAPTER_FILE,
       detail:
-        `MIN_SUPPORTED_VERSION is ${min} and this adapter expires at ${expiresAt}: its condition ` +
+        `MIN_CLIENT_WIRE_VERSION is ${min} and this adapter expires at ${expiresAt}: its condition ` +
         'has ARRIVED. Delete the file, its registration, its tests, this gate’s entry for it, and ' +
         'the `legacy-wire-v1-adapter` ratchet item. Do not disable it — a disabled translation is ' +
         'the placeholder this gate exists to stop.',
@@ -285,7 +285,7 @@ export const PROBES: { name: string; input: AuditInput; expect: string }[] = (()
     {
       name: 'expired adapter still present',
       expect: 'expired-adapter-still-present',
-      input: overlay({ [VERSION_FILE]: 'export const MIN_SUPPORTED_VERSION = 2\n' }),
+      input: overlay({ [VERSION_FILE]: 'export const MIN_CLIENT_WIRE_VERSION = 2\n' }),
     },
     {
       name: 'expiry is only a docstring',

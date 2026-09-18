@@ -12,7 +12,7 @@ import { attachTestClient } from '../test-support/client-transport'
 
 import { firstAdminMemberId, asSessionId, asUserId } from '@podium/model'
 import {
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CLIENT_PLANE_CLASS,
@@ -288,9 +288,10 @@ describe('the connection lifecycle', () => {
     )
     await h.feed.admissionSettled()
     expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type))).toEqual([])
-    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: WIRE_VERSION, caps: [CAP_SYNC_HTTP_V1] })
+    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: { min: 1, max: CLIENT_WIRE_VERSION + 1 }, caps: [CAP_SYNC_HTTP_V1] })
     await h.feed.admissionSettled()
     expect(sent.filter(msg => msg.type === 'feedResume')).toHaveLength(1)
+    expect(sent).toContainEqual(expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }))
     expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual([])
     expect(sent.some((msg) => msg.type === 'machinesChanged')).toBe(false)
     expect(sent.some((msg) => msg.type === 'approvalsChanged')).toBe(false)
@@ -328,7 +329,7 @@ describe('the connection lifecycle', () => {
       expect(sent[0]).toEqual({ type: 'welcome', clientId: id })
       expect(sent).toContainEqual({ type: 'pong' })
       expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type))).toEqual([])
-    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: WIRE_VERSION, caps: [CAP_SYNC_HTTP_V1] })
+    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: CLIENT_WIRE_VERSION, caps: [CAP_SYNC_HTTP_V1] })
     await h.feed.admissionSettled()
     expect(sent.filter(msg => msg.type === 'feedResume')).toHaveLength(1)
     expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap'].includes(msg.type))).toEqual([])
@@ -370,6 +371,7 @@ describe('the connection lifecycle', () => {
     h.mux.routeClientFrame(h.id, hello)
     expect(h.sent.at(-1)).toEqual({
       type: 'welcome',
+      wireVersion: 1,
       clientId: h.id,
       caps: [CAP_TERMINAL_INPUT_BINARY_V1],
     })

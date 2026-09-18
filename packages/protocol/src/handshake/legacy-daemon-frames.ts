@@ -21,7 +21,7 @@
 import { asMachineId } from '@podium/model'
 import type { z } from 'zod'
 import type { DaemonHandshake, DaemonHandshakeReply, PairFrame } from '../messages/daemon-handshake'
-import { WIRE_VERSION } from '../version'
+import { DAEMON_WIRE_VERSION } from '../version'
 import type { PeerHello, PeerHelloReply } from './envelope'
 
 /** Did this raw frame come from a pre-envelope daemon? */
@@ -45,7 +45,7 @@ export const helloFromLegacyDaemonFrame = (frame: DaemonHandshake): PeerHello =>
         // A legacy peer never negotiated a version on the frame; it is on the
         // upgrade query string (`?v=`), which the gateway already gates. Wire
         // version 1 is the only version those peers speak.
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         peerRole: 'machine',
         caps: [],
         credential: { kind: 'pairCode', code: frame.code },
@@ -53,7 +53,7 @@ export const helloFromLegacyDaemonFrame = (frame: DaemonHandshake): PeerHello =>
       }
     : {
         type: 'peerHello',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         peerRole: 'machine',
         caps: [],
         credential: { kind: 'machineToken', token: frame.token, machineHint: frame.machineId },

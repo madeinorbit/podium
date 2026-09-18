@@ -1,8 +1,8 @@
 import {
   encodePairingEnvelope,
-  MIN_SUPPORTED_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
   type MobilePairingEnvelope,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -122,8 +122,8 @@ describe('server preflight', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: WIRE_VERSION,
-            minSupportedVersion: MIN_SUPPORTED_VERSION,
+            wireVersion: CLIENT_WIRE_VERSION,
+            minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
             instanceId: 'lan',
             appVersion: 'dev',
           }),
@@ -158,8 +158,8 @@ describe('server preflight', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: WIRE_VERSION,
-            minSupportedVersion: MIN_SUPPORTED_VERSION,
+            wireVersion: CLIENT_WIRE_VERSION,
+            minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
             instanceId: 'lan',
             appVersion: 'dev',
           }),
@@ -211,8 +211,8 @@ describe('server preflight', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: WIRE_VERSION,
-            minSupportedVersion: MIN_SUPPORTED_VERSION,
+            wireVersion: CLIENT_WIRE_VERSION,
+            minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
             instanceId: 'lan',
             appVersion: 'dev',
           }),
@@ -299,8 +299,8 @@ describe('server preflight', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: WIRE_VERSION,
-            minSupportedVersion: MIN_SUPPORTED_VERSION,
+            wireVersion: CLIENT_WIRE_VERSION,
+            minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
             instanceId: 'podium',
           }),
           { status: 200 },
@@ -375,8 +375,8 @@ describe('workspace preflight routing', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            wireVersion: WIRE_VERSION,
-            minSupportedVersion: MIN_SUPPORTED_VERSION,
+            wireVersion: CLIENT_WIRE_VERSION,
+            minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
             instanceId: 'cloud',
             workspaceId: 'ws_blue',
             appVersion: 'dev',

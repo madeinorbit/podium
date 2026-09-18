@@ -1,5 +1,5 @@
 import { asIssueId, firstAdminMemberId, type SessionId } from '@podium/model'
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../apps/server/src/relay'
@@ -133,7 +133,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
           type: 'hello',
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
-          wireVersion: WIRE_VERSION,
+          wireVersion: CLIENT_WIRE_VERSION,
           caps: ['metadataDelta', 'sync.http.v1'],
         })
       }

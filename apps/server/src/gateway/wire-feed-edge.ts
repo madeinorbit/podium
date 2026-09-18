@@ -48,12 +48,12 @@ import type {
 } from '@podium/protocol'
 import {
   isUpgradeRequired,
-  MIN_SUPPORTED_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
   PeerVersionTelemetry,
   type UpgradeRequired,
   upgradeRequired,
   upgradeRequiredForScoping,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   type WireVersionAdapter,
   WireVersionAdapterRegistry,
 } from '@podium/protocol'
@@ -119,8 +119,8 @@ export interface FeedWireAdapter extends WireVersionAdapter<FeedFrame, ServerMes
 /** The current wire needs no translation, and saying that explicitly is what
  *  keeps "v2 is canonical" from being an assumption spread across call sites. */
 class IdentityWireAdapter implements FeedWireAdapter {
-  readonly version = WIRE_VERSION
-  readonly name = `identity-v${WIRE_VERSION}`
+  readonly version = CLIENT_WIRE_VERSION
+  readonly name = `identity-v${CLIENT_WIRE_VERSION}`
   /** PERMANENT — the identity path is not a translation and outlives every one
    *  of them. The registry refuses this on any other version. */
   readonly expiry = null
@@ -191,7 +191,7 @@ export class WireFeedEdge {
       translate: (frame) => [frame],
     })
     // TEMPORARY, and mechanically so — see `legacy-wire-v1-adapter.ts`. When
-    // MIN_SUPPORTED_VERSION reaches 2, `scripts/audit-wire-adapters.ts` fails
+    // MIN_CLIENT_WIRE_VERSION reaches 2, `scripts/audit-wire-adapters.ts` fails
     // while this registration exists.
     this.register(new LegacyWireV1Adapter({ diagnostics: () => deps.diagnostics() }))
     // A window that advertises a version with no adapter is a boot failure, not
@@ -367,7 +367,7 @@ export class WireFeedEdge {
 
   /** The window this server advertises, for the handshake and for /health. */
   support(): { wire: number; min: number } {
-    return { wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION }
+    return { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION }
   }
 
   /** Adapters whose expiry condition has arrived. Asserted by the audit; exposed
@@ -377,6 +377,6 @@ export class WireFeedEdge {
   }
 
   static refuse(offered: number): UpgradeRequired {
-    return upgradeRequired(offered, { wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION })
+    return upgradeRequired(offered, { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
   }
 }

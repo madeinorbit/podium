@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '../version'
+import { MIN_DAEMON_WIRE_VERSION, DAEMON_WIRE_VERSION } from '../version'
 import {
   isReservedCap,
   negotiateCapabilities,
@@ -9,21 +9,21 @@ import {
 
 describe('version negotiation (ADR 5 D3.1)', () => {
   it('agrees on a supported version', () => {
-    expect(negotiateVersion(WIRE_VERSION)).toEqual({ ok: true, agreed: WIRE_VERSION })
+    expect(negotiateVersion(DAEMON_WIRE_VERSION)).toEqual({ ok: true, agreed: DAEMON_WIRE_VERSION })
   })
 
   it('fails closed on a too-old peer and says what it supports', () => {
-    const outcome = negotiateVersion(MIN_SUPPORTED_VERSION - 1)
+    const outcome = negotiateVersion(MIN_DAEMON_WIRE_VERSION - 1)
     expect(outcome.ok).toBe(false)
     if (outcome.ok) return
     expect(outcome.rejection).toMatchObject({
       reason: 'unsupported-version',
-      support: { wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION },
+      support: { wire: DAEMON_WIRE_VERSION, min: MIN_DAEMON_WIRE_VERSION },
     })
   })
 
   it('fails closed on a too-new peer rather than guessing', () => {
-    expect(negotiateVersion(WIRE_VERSION + 1).ok).toBe(false)
+    expect(negotiateVersion(DAEMON_WIRE_VERSION + 1).ok).toBe(false)
   })
 
   it('fails closed on a non-integer version', () => {
@@ -75,5 +75,20 @@ describe('reserved node-peer capability surface (ADR 5 D4)', () => {
     const result = negotiateCapabilities(['upstream.sync'], ['upstream.sync'])
     expect(result.accepted).toEqual([])
     expect(result.reserved).toEqual(['upstream.sync'])
+  })
+})
+
+
+describe('range negotiation', () => {
+  it.each([
+    [{ min: 1, max: 4 }, { min: 1, wire: 2 }, 2],
+    [{ min: 1, max: 2 }, { min: 1, wire: 4 }, 2],
+    [2, { min: 1, wire: 4 }, 2],
+  ])('selects the highest overlap for %j against %j', (offer, support, agreed) => {
+    expect(negotiateVersion(offer, support)).toEqual({ ok: true, agreed })
+  })
+  it('refuses disjoint windows in both directions', () => {
+    expect(negotiateVersion({ min: 3, max: 4 }, { min: 1, wire: 2 }).ok).toBe(false)
+    expect(negotiateVersion({ min: 1, max: 2 }, { min: 3, wire: 4 }).ok).toBe(false)
   })
 })

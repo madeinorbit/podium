@@ -1,6 +1,6 @@
 import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
-import { WIRE_VERSION } from '@podium/protocol'
+import { DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { wireDaemonSocket } from './daemon-socket'
@@ -91,7 +91,7 @@ describe('build report on hello accept', () => {
       'message',
       frame({
         type: 'peerHello',
-        v: WIRE_VERSION,
+        v: DAEMON_WIRE_VERSION,
         caps: ['update.delivery.feed'],
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
         build: { appVersion: '0.4.2', wireSchemaDigest: 'abc', installKind: 'installed' },

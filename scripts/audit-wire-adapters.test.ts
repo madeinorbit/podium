@@ -14,8 +14,8 @@
  */
 
 import {
-  MIN_SUPPORTED_VERSION,
-  WIRE_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   WireVersionAdapterRegistry,
   WireVersionError,
 } from '@podium/protocol'
@@ -30,7 +30,7 @@ const edge = () =>
 describe('the shipped edge, as a running object', () => {
   it('covers the whole advertised window — it would refuse to boot otherwise', () => {
     expect(() => edge()).not.toThrow()
-    expect(edge().support()).toEqual({ wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION })
+    expect(edge().support()).toEqual({ wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
   })
 
   it('actually HOLDS a v1 translation, so the absence claims are not vacuous', () => {
@@ -40,7 +40,7 @@ describe('the shipped edge, as a running object', () => {
     const adapter = new LegacyWireV1Adapter({ diagnostics: () => [] })
     expect(adapter.version).toBe(1)
     expect(adapter.expiry).toBe(LEGACY_WIRE_V1_EXPIRY)
-    expect(adapter.expiry?.expiresWhenMinSupportedReaches).toBeGreaterThan(MIN_SUPPORTED_VERSION)
+    expect(adapter.expiry?.expiresWhenMinSupportedReaches).toBeGreaterThan(MIN_CLIENT_WIRE_VERSION)
   })
 
   it('reports nothing expired at the shipped floor', () => {

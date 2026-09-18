@@ -42,7 +42,7 @@ import {
   FeedSink,
   PushedBootstrapSource,
 } from '@podium/client-core/replica/feed'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/indexeddb'
 import { Replica } from '@podium/sync/replica'
 import type { FeedServerFrame } from '@podium/terminal-client'
@@ -136,7 +136,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
     })
 
     async function openSocket(): Promise<void> {
-      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/client?v=${WIRE_VERSION}`)
+      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}`)
       sockets.push(ws)
       socket = ws
       ws.on('message', (data) => {
@@ -159,7 +159,7 @@ describe('POD-376 · wire v2 feed into the kernel replica (live server)', () => 
               // THE ADVERTISEMENT. Without this field the server resolves the v1
               // edge adapter and not one feed frame arrives — which is exactly
               // what the shipped build does today with the flag off.
-              wireVersion: WIRE_VERSION,
+              wireVersion: CLIENT_WIRE_VERSION,
             }),
           )
           resolve()

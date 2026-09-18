@@ -1,6 +1,6 @@
 /** HTTP-only admission over the real Authority, ledger and publisher. */
 import type { ServerMessage } from '@podium/protocol'
-import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
+import { MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { feedTestPlumbing } from './feed-test-plumbing'
@@ -51,7 +51,7 @@ describe('HTTP-only feed admission', () => {
     const p = await feedTestPlumbing()
     await commit(p, 'session', 's1', { sessionId: 's1' })
     const bootstrap = vi.spyOn(p.authority, 'bootstrap')
-    const peer = new Peer('cold', WIRE_VERSION, true)
+    const peer = new Peer('cold', CLIENT_WIRE_VERSION, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     await p.serving.admissionSettled()
     expect(peer.types()).toEqual(['feedResume'])
@@ -63,7 +63,7 @@ describe('HTTP-only feed admission', () => {
   it('frames live changes contiguously from the granted head', async () => {
     const p = await feedTestPlumbing()
     await commit(p, 'session', 's1', { sessionId: 's1' })
-    const peer = new Peer('live', WIRE_VERSION, true)
+    const peer = new Peer('live', CLIENT_WIRE_VERSION, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     await p.serving.admissionSettled()
     await commit(p, 'session', 's2', { sessionId: 's2' })
@@ -75,7 +75,7 @@ describe('HTTP-only feed admission', () => {
 
   it('refuses peers outside the shared wire window without serving anything', async () => {
     const p = await feedTestPlumbing()
-    for (const version of [MIN_SUPPORTED_VERSION - 1, WIRE_VERSION + 1]) {
+    for (const version of [MIN_CLIENT_WIRE_VERSION - 1, CLIENT_WIRE_VERSION + 1]) {
       const peer = new Peer(`bad-${version}`, version)
       expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))?.status).toBe(426)
       await p.serving.admissionSettled()
@@ -92,7 +92,7 @@ describe('HTTP-only feed admission', () => {
       await pending
       return read()
     })
-    const peer = new Peer('duplicate', WIRE_VERSION, true)
+    const peer = new Peer('duplicate', CLIENT_WIRE_VERSION, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     await vi.waitFor(() => expect(cursor).toHaveBeenCalled())
     p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
@@ -111,7 +111,7 @@ describe('HTTP-only feed admission', () => {
       await pending
       return read()
     })
-    const peer = new Peer('gone', WIRE_VERSION, true)
+    const peer = new Peer('gone', CLIENT_WIRE_VERSION, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     await vi.waitFor(() => expect(cursor).toHaveBeenCalled())
     p.serving.detach(peer.id)
@@ -124,7 +124,7 @@ describe('HTTP-only feed admission', () => {
   it.each(['attach', 'renegotiate'] as const)('terminates a failed %s admission and releases the slot', async entry => {
     const p = await feedTestPlumbing()
     vi.spyOn(p.authority, 'cursor').mockRejectedValueOnce(new Error('cursor read failed'))
-    const peer = new Peer(entry, WIRE_VERSION, true)
+    const peer = new Peer(entry, CLIENT_WIRE_VERSION, true)
     p.serving[entry](peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     await p.serving.admissionSettled()
     expect(peer.terminate).toHaveBeenCalledOnce()
@@ -134,7 +134,7 @@ describe('HTTP-only feed admission', () => {
 
   it('detached peers receive no subsequent publications', async () => {
     const p = await feedTestPlumbing()
-    const peer = new Peer('detached', WIRE_VERSION, true)
+    const peer = new Peer('detached', CLIENT_WIRE_VERSION, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
     await p.serving.admissionSettled()
     p.serving.detach(peer.id)

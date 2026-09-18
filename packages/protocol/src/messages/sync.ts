@@ -144,7 +144,7 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  build's `MetadataEntityKind` does not list 'issueProjection', so these rows
    *  fall to {@link UnknownMetadataChange}, get ignored with a debug log, and the
    *  cursor ADVANCES past them — no quarantine, no heal loop. Additive per ADR 2
-   *  D4; `WIRE_VERSION` stays 1.
+   *  D4; `CLIENT_WIRE_VERSION` stays 1.
    *
    *  Emitted unconditionally after POD-797; CAP_ISSUES_NORMALIZED tells clients
    *  which issue collection to render. */
@@ -161,7 +161,7 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  Same additive contract as issueProjection: emitted unconditionally and
    *  invisible to a build whose `MetadataEntityKind` predates it — those rows
    *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
+   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('issueDep'), IssueDepProjection),
   /** A logical repo [POD-822] — today just `(repoId, prefix)`, the join input
    *  for `displayRef`.
@@ -205,7 +205,7 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  Same additive contract as the kinds above: emitted unconditionally and
    *  invisible to a build whose `MetadataEntityKind` predates it — those rows
    *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
+   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('issueEvent'), IssueEventWire),
   /** One blocking ask (POD-2020, spec §4) — the PendingInteraction aggregate on
    *  the feed, so "answering from any surface resolves it everywhere" is a
@@ -225,7 +225,7 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  Same additive contract as the kinds above: emitted unconditionally and
    *  invisible to a build whose `MetadataEntityKind` predates it — those rows
    *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
+   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('pendingInteraction'), PendingInteractionWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>

@@ -1,4 +1,4 @@
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { JSX } from 'react'
 import { BootScreen } from '@/app/BootScreen'
 import type { localBuildStamp } from './local-build-guard'
@@ -31,7 +31,7 @@ export function SetupStaleBuild({
       fields={[
         {
           label: 'Built-in interface',
-          value: `wire ${WIRE_VERSION}`,
+          value: `wire ${CLIENT_WIRE_VERSION}`,
         },
         {
           label: 'Your data was written by',

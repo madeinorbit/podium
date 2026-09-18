@@ -1,4 +1,4 @@
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
@@ -9,7 +9,7 @@ function fixture() {
   const bytes = new TextEncoder().encode('opaque worker bytes\n')
   const delta = vi.fn<SyncWorkerClient['delta']>(() => ({
     meta: Promise.resolve({ type: 'syncMeta', formatVersion: 1, mode: 'delta', transferId: 't',
-      feedId: 'f', epoch: 'e', fromSeq: 0, seq: 8, minAvailableSeq: 1, wireVersion: WIRE_VERSION, wireSchemaDigest: '0000000000000000' }),
+      feedId: 'f', epoch: 'e', fromSeq: 0, seq: 8, minAvailableSeq: 1, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0000000000000000' }),
     body: new ReadableStream({ start(controller) { controller.enqueue(bytes); controller.close() } }),
     completed: Promise.resolve({}),
   }))

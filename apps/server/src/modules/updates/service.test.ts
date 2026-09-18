@@ -1492,6 +1492,14 @@ describe('target refresh bookkeeping', () => {
     return { svc, advance: (ms: number) => (clock += ms) }
   }
 
+  it('refuses a disjoint manifest before rollout and exposes the reason to the fleet', async () => {
+    const { svc } = build(async () => ({ version: 'next', critical: false, artifacts: {}, daemonWire: { min: 99, max: 100 } }) as never)
+    expect(await svc.refreshTarget('stable')).toBe(false)
+    expect(svc.target('stable')).toBeUndefined()
+    expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toContain('does not overlap running server')
+    expect(svc.channelChecks()[0]?.outcome).toMatchObject({ status: 'unavailable', reason: expect.stringContaining('99–100') })
+  })
+
   it('records when a channel was checked and that it succeeded', async () => {
     const { svc } = build(async () => target)
     expect(await svc.refreshTarget('stable')).toBe(true)

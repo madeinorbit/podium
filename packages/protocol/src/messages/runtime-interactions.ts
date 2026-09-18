@@ -114,7 +114,7 @@ export function hasTranscriptCard(row: {
  * are normalized into one vocabulary, and four of the six have NO producer yet
  * (elicitation, login, recovery today; plan-approval from one source only). They
  * will change shape as W5's opencode driver and W6's codex driver land real
- * asks — and unlike the transport envelope, which `WIRE_VERSION` covers, a
+ * asks — and unlike the transport envelope, which `CLIENT_WIRE_VERSION` covers, a
  * payload change is invisible at the frame level. A consumer holding a durable
  * row written months earlier needs to know which vocabulary it is reading.
  *

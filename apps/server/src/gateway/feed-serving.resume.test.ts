@@ -22,7 +22,7 @@
  */
 
 import type { FeedCursorField, ServerMessage } from '@podium/protocol'
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
 import { feedTestPlumbing } from './feed-test-plumbing'
@@ -32,7 +32,7 @@ class Peer implements EdgePeer {
   readonly received: ServerMessage[] = []
   constructor(
     readonly id: string,
-    readonly wireVersion: number = WIRE_VERSION,
+    readonly wireVersion: number = CLIENT_WIRE_VERSION,
     readonly acceptsDelta = true,
     readonly syncHttp = false,
   ) {}
@@ -77,7 +77,7 @@ async function servedOnce(opts: Parameters<typeof feedTestPlumbing>[0] = {}) {
 async function reconnect(
   ctx: Awaited<ReturnType<typeof servedOnce>>,
   cursor: FeedCursorField | undefined,
-  wireVersion: number = WIRE_VERSION,
+  wireVersion: number = CLIENT_WIRE_VERSION,
 ): Promise<Peer> {
   const peer = new Peer(`resumed-${wireVersion}-${cursor?.seq ?? 'none'}`, wireVersion)
   ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), cursor)
@@ -196,7 +196,7 @@ describe('HTTP bootstrap capability', () => {
   it('grants the head to a cold peer and resumes three reconnects without a world', async () => {
     const ctx = await servedOnce()
     for (let i = 0; i < 4; i++) {
-      const peer = new Peer(`http-${i}`, WIRE_VERSION, true, true)
+      const peer = new Peer(`http-${i}`, CLIENT_WIRE_VERSION, true, true)
       ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), i === 0 ? undefined : ctx.held)
       await ctx.p.serving.admissionSettled()
       expect(peer.types()).toEqual(['feedResume'])
@@ -210,7 +210,7 @@ describe('HTTP bootstrap capability', () => {
     const peer = new Peer('version-http', 1)
     ctx.p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id))
     await ctx.p.serving.admissionSettled()
-    const upgraded = new Peer(peer.id, WIRE_VERSION, true, true)
+    const upgraded = new Peer(peer.id, CLIENT_WIRE_VERSION, true, true)
     ctx.p.serving.renegotiate(upgraded, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id))
     await ctx.p.serving.admissionSettled()
     expect(upgraded.types()).toEqual(['feedResume'])
@@ -218,7 +218,7 @@ describe('HTTP bootstrap capability', () => {
 
   it('keeps live delivery after epoch demotion without another socket or world', async () => {
     const ctx = await servedOnce()
-    const peer = new Peer('http-epoch', WIRE_VERSION, true, true)
+    const peer = new Peer('http-epoch', CLIENT_WIRE_VERSION, true, true)
     ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), ctx.held)
     await ctx.p.serving.admissionSettled()
     await ctx.p.serving.bumpEpoch('restore')
@@ -238,7 +238,7 @@ describe('HTTP bootstrap capability', () => {
     if (reason === 'epoch') cursor.epoch = 'foreign'
     if (reason === 'future') cursor.seq += 100
     if (reason === 'retention') cursor.seq = 0
-    const peer = new Peer('http-refused', WIRE_VERSION, true, true)
+    const peer = new Peer('http-refused', CLIENT_WIRE_VERSION, true, true)
     ctx.p.serving.renegotiate(peer, DEVICE_GRADE_PRINCIPAL, ctx.p.routingPrincipal(peer.id), cursor)
     await ctx.p.serving.admissionSettled()
     expect(peer.types()).toEqual(['feedResyncRequired'])

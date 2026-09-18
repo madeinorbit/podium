@@ -1,5 +1,5 @@
 import { addSink, type LogRecord, resetLogging } from '@podium/logger'
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createSyncTransferTelemetry,
@@ -19,7 +19,7 @@ const TRANSFER_ID = 'srv-transfer'
 function snapshot(records: number, rowsPer: number): unknown[] {
   const lines: unknown[] = [{
     type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: TRANSFER_ID, ...feed,
-    seq: SNAPSHOT_SEQ, minAvailableSeq: 0, wireVersion: WIRE_VERSION,
+    seq: SNAPSHOT_SEQ, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION,
     wireSchemaDigest: '0123456789abcdef', totalRows: records * rowsPer,
   }]
   for (let i = 0; i < records; i += 1) {
@@ -38,7 +38,7 @@ function snapshot(records: number, rowsPer: number): unknown[] {
 function deltaRange(from: number, to: number): unknown[] {
   return [
     { type: 'syncMeta', formatVersion: 1, mode: 'delta', transferId: TRANSFER_ID, ...feed,
-      seq: to, fromSeq: from, minAvailableSeq: 0, wireVersion: WIRE_VERSION, wireSchemaDigest: '0123456789abcdef' },
+      seq: to, fromSeq: from, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0123456789abcdef' },
     { type: 'feedDelta', ...feed, fromSeq: from, seq: to, minAvailableSeq: 0,
       changes: [{ seq: to, entity: 'future-kind', entityId: 'd', op: 'upsert', value: {} }] },
     { type: 'syncComplete', transferId: TRANSFER_ID, seq: to, records: 1, rows: 1 },

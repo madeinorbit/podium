@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { type DaemonMessage, parseDaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
@@ -58,7 +58,7 @@ describe('daemon boot with a taken hook port', () => {
           authed = true
           const ok: PeerHelloReply = {
             type: 'peerHelloOk',
-            v: WIRE_VERSION,
+            v: DAEMON_WIRE_VERSION,
             caps: [],
             name: 'test',
           }

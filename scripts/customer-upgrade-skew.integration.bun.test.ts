@@ -337,7 +337,7 @@ describe('customer upgrade skew lane', () => {
     }
     const status = async (v: number) =>
       (await fetch(`http://127.0.0.1:${server.port}/daemon?v=${v}`, { headers: upgrade })).status
-    // A wire above the old server's WIRE_VERSION (2) is refused outright.
+    // A wire above the old server's CLIENT_WIRE_VERSION (2) is refused outright.
     expect(await status(3)).toBe(426)
     // A wire the old server supports is NOT refused for version (the WS
     // handshake itself fails these synthetic headers, but never with 426).

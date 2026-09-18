@@ -4,7 +4,7 @@
  * The rollout question this answers is not "how many clients are old" but "may I
  * raise the floor yet", and those are different questions: the first is a
  * histogram, the second is a MINIMUM over currently connected peers. Raising
- * `MIN_SUPPORTED_VERSION` while one peer is still below it is the outage this
+ * `MIN_CLIENT_WIRE_VERSION` while one peer is still below it is the outage this
  * exists to prevent, and it is not observable from request counts — an old peer
  * that sits idle sends nothing and is invisible to traffic metrics while still
  * being very much connected.

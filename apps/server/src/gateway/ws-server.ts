@@ -8,7 +8,7 @@
  */
 
 import type { MachineWire, ServerReadiness, UserId, UserRole } from '@podium/model'
-import { CAP_SYNC_HTTP_V1, versionSupport } from '@podium/protocol'
+import { CAP_SYNC_HTTP_V1, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
 export interface NativeServer<T> {
@@ -495,7 +495,15 @@ export function attachWebSockets(
       if (pathname !== '/client' && pathname !== '/daemon' && pathname !== '/machine') return null
 
       const rawVersion = url.searchParams.get('v') ?? url.searchParams.get('pv')
-      if (rawVersion !== null && versionSupport(Number(rawVersion)) !== 'ok') {
+      const support = pathname === '/client'
+        ? { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION }
+        : { wire: DAEMON_WIRE_VERSION, min: MIN_DAEMON_WIRE_VERSION }
+      let offered: number | { min: number; max: number } = Number(rawVersion)
+      if (rawVersion?.startsWith('{')) {
+        try { offered = JSON.parse(rawVersion) } catch { return new Response('Upgrade Required', { status: 426 }) }
+        if (!offered || typeof offered !== 'object') return new Response('Upgrade Required', { status: 426 })
+      }
+      if (rawVersion !== null && (!WireVersionOffer.safeParse(offered).success || !negotiateVersion(offered, support).ok)) {
         return new Response('Upgrade Required', { status: 426 })
       }
       // Capabilities must be advertised before upgrade as well as in hello:

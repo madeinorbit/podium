@@ -9,7 +9,7 @@ import {
   type MachineId,
   SOLE_USER_ID,
 } from '@podium/model'
-import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
 
 /**
  * The owner the legacy-binding migration stamps: the RETIRED LITERAL, matching
@@ -33,7 +33,7 @@ import { daemonRuntimeHost } from './runtime/host'
 const roots: string[] = []
 const helloOk: PeerHelloReply = {
   type: 'peerHelloOk',
-  v: WIRE_VERSION,
+  v: DAEMON_WIRE_VERSION,
   caps: [],
   name: 'test-machine',
 }

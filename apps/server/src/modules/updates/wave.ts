@@ -1,3 +1,4 @@
+import { DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, versionSupport, type WireVersionRange } from '@podium/protocol'
 import type { MachinePresenceSource, UpdateChannel } from '@podium/model'
 import type { ConvergenceState, UpdateTrustRoot } from '@podium/protocol'
 
@@ -440,4 +441,11 @@ export function planWave(ctx: {
   coordinatorExcluded?: boolean
 }): string[] {
   return decideWave(ctx).selected
+}
+
+/** Publish-time fence: coordinator-last requires the running server to serve the target daemons. */
+export function targetDaemonWireRefusal(target: { daemonWire?: WireVersionRange }): string | undefined {
+  if (!target.daemonWire) return undefined // Legacy manifests predate range declarations.
+  if (versionSupport(target.daemonWire, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION) === 'ok') return undefined
+  return `Target daemon wire range ${target.daemonWire.min}–${target.daemonWire.max} does not overlap running server range ${MIN_DAEMON_WIRE_VERSION}–${DAEMON_WIRE_VERSION}.`
 }

@@ -1,6 +1,6 @@
 import { setImmediate as yieldLoop } from 'node:timers/promises'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { WIRE_VERSION, wireSchemaDigest, SYNC_BATCH_TARGET_BYTES, SYNC_BATCH_MAX_ROWS, SYNC_LINE_MAX_BYTES, type SyncComplete } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, wireSchemaDigest, SYNC_BATCH_TARGET_BYTES, SYNC_BATCH_MAX_ROWS, SYNC_LINE_MAX_BYTES, type SyncComplete } from '@podium/protocol'
 import { scopeChangesRange, DEFAULT_RESCOPE_THRESHOLD, ChangeRangeBootstrapRequired } from '@podium/sync/bootstrap-worker'
 import type { EntityRef } from '@podium/sync'
 import { createLogger } from '@podium/logger'
@@ -91,7 +91,7 @@ async function* produceRecords(
         let next = await iterator.next()
         if (!next.done && next.value.kind === 'rescope') throw new SyncWorkerError('rescope')
         const meta: SyncMetaSummary = { type: 'syncMeta', formatVersion: 1, mode: 'delta',
-          wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest(), transferId: job.transferId,
+          wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: wireSchemaDigest(), transferId: job.transferId,
           feedId: job.feedId, epoch: job.epoch, seq: target, fromSeq: job.from, minAvailableSeq }
         const bytes = line(meta)
         onMeta(meta)
@@ -140,7 +140,7 @@ async function* produceRecords(
     heapAfterPrefetch = process.memoryUsage().heapUsed
     const totalRows = visible.size
     phase('pass1', pass1)
-    const meta: SyncMetaSummary = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', wireVersion: WIRE_VERSION, wireSchemaDigest: wireSchemaDigest(), transferId: job.transferId, feedId: job.feedId, epoch: job.epoch, seq, minAvailableSeq, totalRows }
+    const meta: SyncMetaSummary = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: wireSchemaDigest(), transferId: job.transferId, feedId: job.feedId, epoch: job.epoch, seq, minAvailableSeq, totalRows }
     const metaBytes = line(meta)
     // Copy fields from the serialized first line, never a second world read.
     onMeta(JSON.parse(new TextDecoder().decode(metaBytes)) as SyncMetaSummary)

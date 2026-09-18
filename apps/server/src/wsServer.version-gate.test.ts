@@ -1,5 +1,5 @@
 import { firstAdminMemberId } from '@podium/model'
-import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
+import { MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
 import {
@@ -48,7 +48,9 @@ async function start(): Promise<string> {
 /** Resolve 'open' or 'rejected' for a connection attempt. */
 function attempt(url: string): Promise<'open' | 'rejected'> {
   return new Promise((resolve) => {
-    const ws = new WebSocket(url)
+    const target = new URL(url)
+    if (target.pathname === '/client') target.searchParams.append('cap', 'sync.http.v1')
+    const ws = new WebSocket(target)
     ws.on('open', () => {
       ws.close()
       resolve('open')
@@ -59,19 +61,19 @@ function attempt(url: string): Promise<'open' | 'rejected'> {
 }
 
 describe('WS version gate (?v with ?pv alias)', () => {
-  test('rejects a too-old wire version (below MIN_SUPPORTED_VERSION) with 426', async () => {
+  test('rejects a too-old wire version (below MIN_CLIENT_WIRE_VERSION) with 426', async () => {
     const base = await start()
-    expect(await attempt(`${base}/client?v=${MIN_SUPPORTED_VERSION - 1}`)).toBe('rejected')
+    expect(await attempt(`${base}/client?v=${MIN_CLIENT_WIRE_VERSION - 1}`)).toBe('rejected')
   })
 
-  test('rejects a too-new wire version (above WIRE_VERSION) with 426', async () => {
+  test('rejects a too-new wire version (above CLIENT_WIRE_VERSION) with 426', async () => {
     const base = await start()
-    expect(await attempt(`${base}/client?v=${WIRE_VERSION + 1}`)).toBe('rejected')
+    expect(await attempt(`${base}/client?v=${CLIENT_WIRE_VERSION + 1}`)).toBe('rejected')
   })
 
   test('accepts the current wire version (peer may upgrade to it)', async () => {
     const base = await start()
-    expect(await attempt(`${base}/client?v=${WIRE_VERSION}`)).toBe('open')
+    expect(await attempt(`${base}/client?v=${CLIENT_WIRE_VERSION}`)).toBe('open')
   })
 
   test('accepts a peer that sends no version param (older client)', async () => {
@@ -81,6 +83,14 @@ describe('WS version gate (?v with ?pv alias)', () => {
 
   test('accepts the deprecated pv alias for a supported version', async () => {
     const base = await start()
-    expect(await attempt(`${base}/client?pv=${WIRE_VERSION}`)).toBe('open')
+    expect(await attempt(`${base}/client?pv=${CLIENT_WIRE_VERSION}`)).toBe('open')
   })
+})
+
+
+test.each(['/client', '/daemon', '/machine'])('accepts an overlapping newer range on %s', async (path) => {
+  const base = await start()
+  const max = path === '/client' ? CLIENT_WIRE_VERSION : DAEMON_WIRE_VERSION
+  expect(await attempt(`${base}${path}?v=${encodeURIComponent(JSON.stringify({ min: 1, max: max + 1 }))}`)).toBe('open')
+  expect(await attempt(`${base}${path}?v=${encodeURIComponent(JSON.stringify({ min: max + 1, max: max + 2 }))}`)).toBe('rejected')
 })

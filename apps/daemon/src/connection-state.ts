@@ -10,6 +10,8 @@ import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   createHandshakeDialer,
+  DAEMON_WIRE_VERSION,
+  MIN_DAEMON_WIRE_VERSION,
   MachineChallenge,
   type PeerHello,
   DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
@@ -693,6 +695,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const reportUpdateIdentity = deps.reportUpdateIdentity !== false
     return createHandshakeDialer({
       peerRole: 'machine',
+      support: { wire: DAEMON_WIRE_VERSION, min: MIN_DAEMON_WIRE_VERSION },
       ...(bindingSessionIds === undefined ? {} : { bindingSessionIds }),
       credential: selected,
       caps: [

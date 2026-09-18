@@ -1,3 +1,4 @@
+import { WireVersionRange } from '../version'
 import { z } from 'zod'
 
 export const PlatformAsset = z.object({
@@ -103,6 +104,7 @@ export const UpdateTarget = z
      */
     trust: UpdateTrustRoot.optional(),
     schema: SchemaDeclaration.optional(),
+    daemonWire: WireVersionRange.optional(),
     notes: UpdateNotes.optional(),
     critical: z.boolean().default(false),
     minRequired: MinRequired.optional(),

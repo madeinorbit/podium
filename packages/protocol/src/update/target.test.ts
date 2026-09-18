@@ -191,3 +191,9 @@ describe('UpdateTarget schema declaration', () => {
     ).toThrow()
   })
 })
+
+
+it('preserves daemon wire ranges and refuses malformed windows', () => {
+  expect(UpdateTarget.parse({ ...feedTarget, daemonWire: { min: 2, max: 4 } }).daemonWire).toEqual({ min: 2, max: 4 })
+  expect(() => UpdateTarget.parse({ ...feedTarget, daemonWire: { min: 4, max: 2 } })).toThrow()
+})

@@ -106,7 +106,7 @@ describe('the contract-table scan itself', () => {
     // not be, and a scan that matched everything would report violations from
     // unrelated shapes rather than covering contracts.
     const names = TABLES.map((table) => table.export)
-    expect(names).not.toContain('WIRE_VERSION')
+    expect(names).not.toContain('CLIENT_WIRE_VERSION')
     expect(names.every((name) => name.toLowerCase().includes('command'))).toBe(true)
   })
 })

@@ -14,7 +14,7 @@
  *
  * Its expiry is not this paragraph. It is {@link LEGACY_WIRE_V1_EXPIRY}, checked
  * by `scripts/audit-wire-adapters.ts` and counted by the deletion ratchet's
- * `legacy-wire-v1-adapter` item: the day `MIN_SUPPORTED_VERSION` reaches 2, the
+ * `legacy-wire-v1-adapter` item: the day `MIN_CLIENT_WIRE_VERSION` reaches 2, the
  * gate fails while this file still exists, so every site that touches it is
  * forced to name a real answer at that moment. That is POD-1077's
  * `DeviceGradeUnscopedPolicy` pattern, and the difference between a scheduled
@@ -81,7 +81,7 @@ import type {
  * THE EXPIRY, as data.
  *
  * `expiresWhenMinSupportedReaches: 2` is the condition the gate reads. It is a
- * fact about the support floor, not a date: raising `MIN_SUPPORTED_VERSION` to 2
+ * fact about the support floor, not a date: raising `MIN_CLIENT_WIRE_VERSION` to 2
  * is the ACT of retiring the v1 wire, and it must not be possible to perform
  * that act while this translation is still registered and reachable.
  */

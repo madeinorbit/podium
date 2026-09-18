@@ -29,7 +29,7 @@ import { SessionDelegation } from '@podium/model'
 
 import { z } from 'zod'
 import { MachineServiceAssignment } from '@podium/model'
-import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '../version'
+import { MIN_DAEMON_WIRE_VERSION, DAEMON_WIRE_VERSION, WireVersionOffer } from '../version'
 
 /**
  * Peer roles — ADR 5 D2's closed set. `authority` is the server itself and never
@@ -295,8 +295,8 @@ export const PeerHello = z.object({
   type: z.literal('peerHello'),
   /** One complete connect-time inventory; older peers ignore this additive field. */
   bindingSessionIds: z.array(z.string().min(1)).optional(),
-  /** Wire version — negotiated against `WIRE_VERSION` / `MIN_SUPPORTED_VERSION`. */
-  v: z.number().int(),
+  /** Wire version — negotiated against `DAEMON_WIRE_VERSION` / `MIN_DAEMON_WIRE_VERSION`. */
+  v: WireVersionOffer,
   /**
    * ADR 5 D4.3: absent means "infer from the endpoint" (H1 keeps `/client` →
    * console, `/daemon` → machine). H2 must not require H1 peers to set it.
@@ -391,6 +391,6 @@ export const parsePeerHelloReply = (raw: string): PeerHelloReply =>
 
 /** The version pair this build offers. One place, so a dialer cannot drift. */
 export const localVersionSupport = (): { wire: number; min: number } => ({
-  wire: WIRE_VERSION,
-  min: MIN_SUPPORTED_VERSION,
+  wire: DAEMON_WIRE_VERSION,
+  min: MIN_DAEMON_WIRE_VERSION,
 })

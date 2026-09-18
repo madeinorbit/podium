@@ -1,6 +1,6 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 
 const connect = vi.hoisted(() => vi.fn().mockResolvedValue({ mode: 'all-in-one' }))
 
@@ -373,7 +373,7 @@ describe('SetupGate', () => {
     // wrote this box's replica — so it must not open the workspace, cached or not.
     vi.useFakeTimers()
     seedSyncedReplica('user-1')
-    stubShellLocalBuild({ wireVersion: WIRE_VERSION + 1, appVersion: '9.9.9' })
+    stubShellLocalBuild({ wireVersion: CLIENT_WIRE_VERSION + 1, appVersion: '9.9.9' })
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
     render(<SetupGate>{child}</SetupGate>)
     await exhaustRetries()
@@ -389,7 +389,7 @@ describe('SetupGate', () => {
     // server answering, the wire-version handshake in version-guard.ts is better informed and
     // owns the outcome; blocking here would ground a device that can fix itself.
     vi.useFakeTimers()
-    stubShellLocalBuild({ wireVersion: WIRE_VERSION + 1, appVersion: '9.9.9' })
+    stubShellLocalBuild({ wireVersion: CLIENT_WIRE_VERSION + 1, appVersion: '9.9.9' })
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ status: 200, ok: true, json: async () => ({}) }),

@@ -5,7 +5,7 @@
  * WHY A DIGEST WHEN THERE IS ALREADY A WIRE VERSION
  * ---------------------------------------------------------------------------
  *
- * `WIRE_VERSION` answers "can this peer be SERVED" and is deliberately COARSE:
+ * `CLIENT_WIRE_VERSION` answers "can this peer be SERVED" and is deliberately COARSE:
  * `version.ts` says in as many words to bump it only on a breaking framing
  * change, because additive kinds and fields negotiate by capability instead.
  * That is the right rule and this does not change it — which is exactly why the
@@ -180,7 +180,7 @@ export const SOURCE_DIGEST_META = 'podium-source-digest'
 export interface BuildStamp {
   /** {@link wireSchemaDigest} as computed by the build. */
   wireSchemaDigest?: string
-  /** WIRE_VERSION at build time — informational; negotiation is elsewhere. */
+  /** CLIENT_WIRE_VERSION at build time — informational; negotiation is elsewhere. */
   wireVersion?: number
   /**
    * ISO timestamp. No build writes this any more — the stamp is a pure function

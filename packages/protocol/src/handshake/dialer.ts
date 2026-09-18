@@ -16,6 +16,8 @@
  * dialer that hits it reports it rather than retrying blindly.
  */
 
+import { versionSupport } from '../version'
+
 import {
   type BindingConfirmations,
   type PeerBuild,
@@ -145,6 +147,11 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
       if (reply.type === 'peerHelloRejected') {
         state = 'failed'
         return { action: 'rejected', reply }
+      }
+      if (versionSupport(reply.v, support.wire, support.min) !== 'ok') {
+        state = 'failed'
+        return { action: 'rejected', reply: { type: 'peerHelloRejected',
+          reason: 'unsupported-version', message: 'acceptor selected a version outside the offered range', support } }
       }
       state = 'established'
       return {

@@ -15,7 +15,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { WriteFunnel } from '../apps/server/src/modules/funnel'
 import { SessionLifecycle } from '../apps/server/src/modules/sessions/lifecycle'
@@ -49,7 +49,7 @@ describe('the shipped objects have one serving tail', () => {
     const refusal = plumbing.serving.attach(
       {
         id: 'peer',
-        wireVersion: WIRE_VERSION,
+        wireVersion: CLIENT_WIRE_VERSION,
         acceptsDelta: false,
         send: (message) => received.push(message),
       },

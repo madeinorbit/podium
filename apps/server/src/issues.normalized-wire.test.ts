@@ -1,6 +1,6 @@
 import { feedPrincipalOf } from './gateway/client-principal'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
@@ -178,7 +178,7 @@ async function client(registry: SessionRegistry, caps: string[] | undefined): Pr
   const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
   await registry.clientGateway.routeClientFrame(id, {
     type: 'hello',
-    wireVersion: WIRE_VERSION,
+    wireVersion: CLIENT_WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
     caps: ['sync.http.v1', ...(caps ?? [])],
@@ -378,7 +378,7 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
     await registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       caps: ['sync.http.v1'],
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })

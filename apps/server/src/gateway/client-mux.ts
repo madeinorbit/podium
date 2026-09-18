@@ -1,3 +1,4 @@
+import { negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, type WireVersionOffer } from '@podium/protocol'
 /**
  * THE CLIENT SOCKET MUX (POD-390, under POD-317's gateway).
  *
@@ -369,7 +370,7 @@ export class ClientMux {
         event: 'hello',
         peerId: id,
         ...(msg.clientId ? { claimedPeerId: msg.clientId } : {}),
-        wireVersion: msg.wireVersion ?? 1,
+        wireVersion: conn.wireVersion,
         acceptsDelta: conn.caps.has(CAP_METADATA_DELTA),
         ageMs: attachedAt === undefined ? 0 : performance.now() - attachedAt,
       })
@@ -383,12 +384,14 @@ export class ClientMux {
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
     if (msg.type === 'hello') {
+      this.renegotiate(conn, msg.wireVersion, msg.feedCursor)
+      if (conn.entityServingRefused) return Promise.resolve(completion)
       this.deps.registry.deliver(conn, {
         type: 'welcome',
+        wireVersion: conn.wireVersion,
         clientId: conn.id,
         caps: conn.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ? [CAP_TERMINAL_INPUT_BINARY_V1] : [],
       })
-      this.renegotiate(conn, msg.wireVersion, msg.feedCursor)
     }
     return Promise.resolve(completion)
   }
@@ -406,12 +409,19 @@ export class ClientMux {
    */
   private renegotiate(
     conn: ClientConn,
-    announced: number | undefined,
+    announced: WireVersionOffer | undefined,
     feedCursor: FeedCursorField | undefined,
   ): void {
     // ABSENT MEANS 1. A pre-cutover client cannot send a field it was never built
     // with, so the absence is the advertisement.
-    conn.wireVersion = announced ?? 1
+    const version = negotiateVersion(announced ?? 1, { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
+    if (!version.ok) {
+      this.deps.feed.detach(conn.id)
+      conn.entityServingRefused = true
+      conn.terminate?.()
+      return
+    }
+    conn.wireVersion = version.agreed
     // FORWARDED, NEVER INTERPRETED (POD-2061). Whether a position can be resumed
     // from is a question about the change log's retention and the feed's
     // identity, and both live in `FeedServing`; a gateway that pre-screened it

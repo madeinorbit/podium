@@ -10,7 +10,7 @@
  */
 
 import type { ServerMessage } from '@podium/protocol'
-import { MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
+import { MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { FeedScopingGrade } from '@podium/sync'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { LegacyWireV1Adapter, LEGACY_WIRE_V1_EXPIRY } from './legacy-wire-v1-adapter'
@@ -71,7 +71,7 @@ describe('every peer is served from the one feed', () => {
   })
 
   it('serves a v2 peer the frame untranslated', () => {
-    const peer = new Peer('v2', WIRE_VERSION)
+    const peer = new Peer('v2', CLIENT_WIRE_VERSION)
     expect(subject.attach(peer)).toBeNull()
     const frame = delta(0, 1, [upsert(1, 'session', 's1', session('s1'))])
     subject.publish(frame)
@@ -144,7 +144,7 @@ describe('every peer is served from the one feed', () => {
 
   it('translates a watermark to nothing for v1 — and to a real frame for v2', () => {
     const legacy = new Peer('v1', 1, true)
-    const modern = new Peer('v2', WIRE_VERSION)
+    const modern = new Peer('v2', CLIENT_WIRE_VERSION)
     subject.attach(legacy)
     subject.attach(modern)
     const watermark = delta(1, 9, [])
@@ -177,7 +177,7 @@ describe('the v1 adapter REFUSES an evict rather than degrading it', () => {
   it('drops the peer instead of rendering a revocation as a deletion', () => {
     const subject = edge()
     const peer = new Peer('v1', 1, false)
-    const other = new Peer('v2', WIRE_VERSION)
+    const other = new Peer('v2', CLIENT_WIRE_VERSION)
     subject.attach(peer)
     subject.attach(other)
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -211,14 +211,14 @@ describe('version negotiation at the edge', () => {
   })
 
   it('refuses a peer ABOVE the window too', () => {
-    expect(edge().attach(new Peer('from-the-future', WIRE_VERSION + 1))).toMatchObject({
+    expect(edge().attach(new Peer('from-the-future', CLIENT_WIRE_VERSION + 1))).toMatchObject({
       status: 426,
     })
   })
 
   it('reports the minimum connected version, which is the rollout question', () => {
     const subject = edge()
-    subject.attach(new Peer('fresh', WIRE_VERSION))
+    subject.attach(new Peer('fresh', CLIENT_WIRE_VERSION))
     subject.attach(new Peer('stale-pwa', 1))
     expect(subject.versions().minimum).toBe(1)
     expect(subject.versions().canRaiseFloorTo(2)).toBe(false)
@@ -227,7 +227,7 @@ describe('version negotiation at the edge', () => {
   })
 
   it('advertises the window it can actually serve', () => {
-    expect(edge().support()).toEqual({ wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION })
+    expect(edge().support()).toEqual({ wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
   })
 })
 
@@ -240,7 +240,7 @@ describe('the legacy adapter carries a MECHANICAL expiry', () => {
   it('is NOT yet expired at the shipped floor — the gate can say NO', () => {
     // If this ever flips without the file being deleted, `audit-wire-adapters`
     // fails the build. Asserted here so the two cannot drift silently.
-    expect(MIN_SUPPORTED_VERSION).toBeLessThan(LEGACY_WIRE_V1_EXPIRY.expiresWhenMinSupportedReaches)
+    expect(MIN_CLIENT_WIRE_VERSION).toBeLessThan(LEGACY_WIRE_V1_EXPIRY.expiresWhenMinSupportedReaches)
     expect(edge().expiredAdapters()).toEqual([])
   })
 })
@@ -263,7 +263,7 @@ describe('POD-376 · a scoped authority refuses a wire that cannot express evict
     // Without this, the v1 refusal below would be satisfied by a gate that
     // refuses every peer whenever the grade is per-principal.
     const subject = edge('per-principal')
-    expect(subject.attach(new Peer('v2', WIRE_VERSION))).toBeNull()
+    expect(subject.attach(new Peer('v2', CLIENT_WIRE_VERSION))).toBeNull()
     expect(subject.versions().totalPeers).toBe(1)
   })
 

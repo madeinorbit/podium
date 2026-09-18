@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { MIN_SUPPORTED_VERSION, SUPPORTED_WIRE_VERSIONS, WIRE_VERSION } from '../version'
+import { MIN_CLIENT_WIRE_VERSION, SUPPORTED_CLIENT_WIRE_VERSIONS, CLIENT_WIRE_VERSION } from '../version'
 import {
   isUpgradeRequired,
   upgradeRequired,
@@ -150,11 +150,11 @@ describe('426 is the backstop beyond the window', () => {
 describe('the shipped window', () => {
   it('is derived once, not re-derived by callers', () => {
     const expectedVersions = []
-    for (let version = MIN_SUPPORTED_VERSION; version <= WIRE_VERSION; version++) {
+    for (let version = MIN_CLIENT_WIRE_VERSION; version <= CLIENT_WIRE_VERSION; version++) {
       expectedVersions.push(version)
     }
-    expect(SUPPORTED_WIRE_VERSIONS).toEqual(expectedVersions)
-    expect(SUPPORTED_WIRE_VERSIONS.at(0)).toBe(MIN_SUPPORTED_VERSION)
-    expect(SUPPORTED_WIRE_VERSIONS.at(-1)).toBe(WIRE_VERSION)
+    expect(SUPPORTED_CLIENT_WIRE_VERSIONS).toEqual(expectedVersions)
+    expect(SUPPORTED_CLIENT_WIRE_VERSIONS.at(0)).toBe(MIN_CLIENT_WIRE_VERSION)
+    expect(SUPPORTED_CLIENT_WIRE_VERSIONS.at(-1)).toBe(CLIENT_WIRE_VERSION)
   })
 })

@@ -5,7 +5,7 @@ import {
   firstAdminMemberId,
   type SessionMeta,
 } from '@podium/model'
-import { type MetadataChange, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type MetadataChange, type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
@@ -77,7 +77,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     await registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['metadataDelta'],
     })
@@ -1067,7 +1067,7 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
     await registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
       clientId: '',
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       viewport: { cols: 80, rows: 24, dpr: 1 },
       caps: ['sync.http.v1', ...caps],
     })

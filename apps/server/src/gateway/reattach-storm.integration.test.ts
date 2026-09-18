@@ -50,7 +50,7 @@ import {
   decodeBinaryEnvelope,
   PtyOutputBinaryMetadata,
   type ServerMessage,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -128,7 +128,7 @@ describe('a daemon reattach storm', () => {
         clientId: '',
         viewport: { cols: 80, rows: 24, dpr: 1 },
         caps: [CAP_METADATA_DELTA, 'sync.http.v1'],
-        wireVersion: WIRE_VERSION,
+        wireVersion: CLIENT_WIRE_VERSION,
       }),
     )
     await new Promise<void>((resolve, reject) => {

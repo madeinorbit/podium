@@ -18,6 +18,7 @@ import {
 import type { UpdateRecoveryPersistence, UpdateRecoverySnapshot } from './recovery-store'
 import {
   decideWave,
+  targetDaemonWireRefusal,
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
   machineCanTakeTargetPlatform,
@@ -589,6 +590,12 @@ export class UpdatesService {
     const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
     if (!target) throw new Error(`missing ${channel} update target`)
+    const wireRefusal = targetDaemonWireRefusal(target)
+    if (wireRefusal) {
+      this.unavailableReasons.set(channel, wireRefusal)
+      this.recordCheck(channel, { status: 'unavailable', reason: wireRefusal })
+      throw new Error(wireRefusal)
+    }
     if (this.setTargetResolved(channel, target, { active: false })) {
       this.notifyTargetChangedDeferred(channel)
     }
@@ -625,6 +632,12 @@ export class UpdatesService {
     const channel = typeof channelOrTarget === 'string' ? channelOrTarget : 'dev'
     const target = typeof channelOrTarget === 'string' ? maybeTarget : channelOrTarget
     if (!target) throw new Error(`missing ${channel} update target`)
+    const wireRefusal = targetDaemonWireRefusal(target)
+    if (wireRefusal) {
+      this.unavailableReasons.set(channel, wireRefusal)
+      this.recordCheck(channel, { status: 'unavailable', reason: wireRefusal })
+      throw new Error(wireRefusal)
+    }
     const [active, version] = await Promise.all([
       this.deps.exclusiveOperationActive?.() ?? Promise.resolve(false),
       this.deps.exclusiveOperationVersion?.(channel) ?? Promise.resolve(undefined),

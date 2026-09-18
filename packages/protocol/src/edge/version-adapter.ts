@@ -16,7 +16,7 @@
  * The CONCRETE adapters registered into it are not permanent and must not be
  * treated as though they were. Each one that translates a version the server is
  * migrating AWAY from carries {@link WireAdapterExpiry}, which is a mechanical
- * condition — "delete me when `MIN_SUPPORTED_VERSION` reaches N" — checked by
+ * condition — "delete me when `MIN_CLIENT_WIRE_VERSION` reaches N" — checked by
  * `scripts/audit-wire-adapters.ts` and counted by the deletion ratchet. That is
  * the difference between a scheduled deletion and a comment: a docstring saying
  * "remove after Phase 7" is satisfied by nobody reading it, whereas a gate
@@ -29,7 +29,7 @@
  * that makes it permanent rather than merely long-lived.
  */
 
-import { MIN_SUPPORTED_VERSION, SUPPORTED_WIRE_VERSIONS, WIRE_VERSION } from '../version'
+import { MIN_CLIENT_WIRE_VERSION, SUPPORTED_CLIENT_WIRE_VERSIONS, CLIENT_WIRE_VERSION } from '../version'
 
 /**
  * The mechanical expiry a legacy adapter carries.
@@ -43,7 +43,7 @@ import { MIN_SUPPORTED_VERSION, SUPPORTED_WIRE_VERSIONS, WIRE_VERSION } from '..
 export interface WireAdapterExpiry {
   /**
    * The adapter must be DELETED — not disabled, not left registered — once
-   * `MIN_SUPPORTED_VERSION` reaches this value. `scripts/audit-wire-adapters.ts`
+   * `MIN_CLIENT_WIRE_VERSION` reaches this value. `scripts/audit-wire-adapters.ts`
    * fails while an adapter whose condition has arrived still exists, so the act
    * of raising the floor forces every site to name a real answer.
    */
@@ -59,7 +59,7 @@ export interface WireAdapterExpiry {
  * One version's translator.
  *
  * `expiry: null` means PERMANENT, and exactly one kind of adapter may claim it:
- * the identity adapter for {@link WIRE_VERSION} itself, which is not a
+ * the identity adapter for {@link CLIENT_WIRE_VERSION} itself, which is not a
  * translation at all. {@link WireVersionAdapterRegistry} enforces that — an
  * adapter for an OLDER version with `expiry: null` is a legacy translator
  * declaring itself permanent, which is the exact mistake this whole file is
@@ -140,7 +140,7 @@ export class WireVersionAdapterRegistry<TFrame, TOut, TPeer = void> {
       readonly wire: number
       readonly min: number
       readonly versions: readonly number[]
-    } = { wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION, versions: SUPPORTED_WIRE_VERSIONS },
+    } = { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION, versions: SUPPORTED_CLIENT_WIRE_VERSIONS },
   ) {}
 
   register(adapter: WireVersionAdapter<TFrame, TOut, TPeer>): this {
@@ -220,7 +220,7 @@ export class WireVersionAdapterRegistry<TFrame, TOut, TPeer = void> {
 
 export function upgradeRequired(
   offered: number,
-  support: { wire: number; min: number } = { wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION },
+  support: { wire: number; min: number } = { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION },
 ): UpgradeRequired {
   const direction = offered < support.min ? 'too old' : 'too new'
   return {
@@ -246,7 +246,7 @@ export function upgradeRequired(
  */
 export function upgradeRequiredForScoping(
   offered: number,
-  support: { wire: number; min: number } = { wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION },
+  support: { wire: number; min: number } = { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION },
 ): UpgradeRequired {
   return {
     status: 426,

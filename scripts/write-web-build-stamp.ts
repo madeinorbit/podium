@@ -70,7 +70,7 @@ import {
   PRODUCT_VERSION_META,
   resolveProductVersion,
   SOURCE_DIGEST_META,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '../packages/protocol/src/index'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
@@ -158,7 +158,7 @@ export function webBuildStamp(
   const appVersion = resolveProductVersion(packagedVersion, sourceSha)
   return {
     wireSchemaDigest: wireSchemaDigest(),
-    wireVersion: WIRE_VERSION,
+    wireVersion: CLIENT_WIRE_VERSION,
     appVersion,
     ...(sourceSha ? { sourceSha } : {}),
     ...(bundleVersion ? { bundleVersion } : {}),

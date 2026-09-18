@@ -1,6 +1,6 @@
 import { IssueWire } from '@podium/model/browser'
 import { makeIssue } from './test-issue'
-import { WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
 import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
@@ -225,7 +225,7 @@ function syncResponse(
       epoch: 'epoch-1',
       seq,
       minAvailableSeq: 0,
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       wireSchemaDigest: wireSchemaDigest(),
       ...(mode === 'snapshot' ? { totalRows: changes.length } : { fromSeq: seq }),
     },

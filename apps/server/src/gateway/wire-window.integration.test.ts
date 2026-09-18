@@ -37,7 +37,7 @@
  *      builds). Absence means wire 1. Wire 1 cannot express `evict`, so against
  *      a per-principal authority the peer is refused at admission with
  *      `scoping-requires-eviction` — silence on the entity plane. The advertised
- *      window still includes 1 (`MIN_SUPPORTED_VERSION`); what refuses it is this
+ *      window still includes 1 (`MIN_CLIENT_WIRE_VERSION`); what refuses it is this
  *      deployment's visibility grade, not the version floor. (Under
  *      `device-unscoped` the same peer would be admitted; that arm is covered by
  *      `wire-feed-edge.test.ts`, not by a real-server integration.)
@@ -48,7 +48,7 @@
  *
  * The refusing arms depend on facts this file sets directly — a missing
  * `wireVersion` (→ 1) and a `wireVersion` outside
- * `[MIN_SUPPORTED_VERSION, WIRE_VERSION]` — and there is no privileged client
+ * `[MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION]` — and there is no privileged client
  * that skips the check. Do not raise the test deadline to paper over a refusal:
  * a fixed-deadline wait that always times out can no longer say NO.
  */
@@ -58,7 +58,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
-import { CAP_METADATA_DELTA, MIN_SUPPORTED_VERSION, WIRE_VERSION } from '@podium/protocol'
+import { CAP_METADATA_DELTA, MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { noJanitorWorkerForTests } from '../janitor-host'
@@ -163,9 +163,9 @@ describe('the wire window, over real sockets', () => {
     //    `GrantEdgeVisibilityPolicy` this is refused at admission (see header).
     const stale = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'] })
     // 2. THE CURRENT BUILD.
-    const current = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: WIRE_VERSION })
+    const current = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: CLIENT_WIRE_VERSION })
     // 3. BEYOND THE WINDOW.
-    const beyond = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: WIRE_VERSION + 1 })
+    const beyond = await connect({ caps: [CAP_METADATA_DELTA, 'sync.http.v1'], wireVersion: CLIENT_WIRE_VERSION + 1 })
 
     // Control plane works for every admitted socket (auth + welcome), including
     // the two peers the entity plane will refuse. Wait on current's world first
@@ -248,7 +248,7 @@ describe('the wire window, over real sockets', () => {
     expect(current.types().filter((t) => ENTITY_FRAMES.has(t)).length).toBeGreaterThan(0)
 
     // …and the contract its self-update is driven by. `apps/web`'s version guard
-    // fetches exactly this and hard-reloads when its own WIRE_VERSION is below
+    // fetches exactly this and hard-reloads when its own CLIENT_WIRE_VERSION is below
     // `minSupportedVersion` or differs from `wireVersion`, which is the working
     // half of the 426 backstop for a browser holding a cached bundle.
     // `feedScoping` is why wire 1 is refused here even though min is still 1.
@@ -258,12 +258,12 @@ describe('the wire window, over real sockets', () => {
       feedScoping: string
     }
     expect(version).toMatchObject({
-      wireVersion: WIRE_VERSION,
-      minSupportedVersion: MIN_SUPPORTED_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
+      minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
       feedScoping: 'per-principal',
     })
     // The floor still admits 1 in the advertised window — the stale refusal is
-    // the scoping gate, not a raised MIN_SUPPORTED_VERSION.
+    // the scoping gate, not a raised MIN_CLIENT_WIRE_VERSION.
     expect(version.minSupportedVersion).toBeLessThanOrEqual(1)
 
     for (const peer of [stale, current, beyond]) peer.ws.close()

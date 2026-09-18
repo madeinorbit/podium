@@ -2,7 +2,7 @@ import {
   classifySkew,
   parseServerVersion,
   type ServerVersion,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 
@@ -59,6 +59,6 @@ export function localBuildStamp(raw: unknown = injectedStamp()): ServerVersion |
 export function isTooOldForLocalData(stamp = localBuildStamp()): boolean {
   if (!stamp) return false
   return (
-    classifySkew(stamp, { wire: WIRE_VERSION, digest: wireSchemaDigest() }) === 'client-too-old'
+    classifySkew(stamp, { wire: CLIENT_WIRE_VERSION, digest: wireSchemaDigest() }) === 'client-too-old'
   )
 }

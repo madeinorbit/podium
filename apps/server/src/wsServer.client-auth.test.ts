@@ -5,7 +5,7 @@ import { firstAdminMemberId } from '@podium/model'
 import {
   decodeBinaryEnvelope,
   type ServerMessage,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
   CAP_SYNC_HTTP_V1,
 } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
@@ -174,7 +174,7 @@ async function connectDeltaClient(url: string) {
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
           caps: ['metadataDelta', 'sync.http.v1'],
-          wireVersion: WIRE_VERSION,
+          wireVersion: CLIENT_WIRE_VERSION,
         }),
       )
       resolve()

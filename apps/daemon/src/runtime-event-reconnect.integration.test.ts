@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type MachineId } from '@podium/model'
-import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
+import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage, parseControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
@@ -16,7 +16,7 @@ import { createRuntimeEventOutbox } from './runtime-event-outbox'
 const roots: string[] = []
 const helloOk: PeerHelloReply = {
   type: 'peerHelloOk',
-  v: WIRE_VERSION,
+  v: DAEMON_WIRE_VERSION,
   caps: [],
   name: 'test-machine',
 }

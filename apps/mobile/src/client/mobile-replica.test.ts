@@ -69,7 +69,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 // graph, whose direct React Native require cannot use Vite's web alias.
 vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 
-import { WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEMO_ISSUES } from './demoData'
 import type { MobileReplicaDeps } from './MobileClientProvider'
 import { LEGACY_HYDRATE_PREFIXES, openMobileReplica } from './MobileClientProvider'
@@ -330,7 +330,7 @@ async function open(args: {
             epoch: snapshot.epoch,
             seq: snapshot.seq,
             minAvailableSeq: 0,
-            wireVersion: WIRE_VERSION,
+            wireVersion: CLIENT_WIRE_VERSION,
             wireSchemaDigest: '0123456789abcdef',
             totalRows: snapshot.changes.length,
           },
@@ -1129,7 +1129,7 @@ describe('HTTP sync through the mobile assembly', () => {
       epoch: 'e1',
       seq: 1,
       minAvailableSeq: 0,
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       wireSchemaDigest: '0123456789abcdef',
       totalRows: 1,
     }

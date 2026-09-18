@@ -5,7 +5,7 @@ import {
   type FeedDeltaMessage,
   type ServerMessage,
   type SyncChangesSinceResult,
-  WIRE_VERSION,
+  CLIENT_WIRE_VERSION,
 } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -39,7 +39,7 @@ describe('metadata oplog e2e (live server)', () => {
   })
 
   function connect(caps?: string[]): { inbox: ServerMessage[]; ready: Promise<void> } {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/client?v=${WIRE_VERSION}&cap=sync.http.v1`)
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`)
     sockets.push(ws)
     const inbox: ServerMessage[] = []
     ws.on('message', (data) => inbox.push(JSON.parse(String(data)) as ServerMessage))
@@ -51,7 +51,7 @@ describe('metadata oplog e2e (live server)', () => {
             type: 'hello',
             clientId: '',
             viewport: { cols: 80, rows: 24, dpr: 1 },
-            wireVersion: WIRE_VERSION,
+            wireVersion: CLIENT_WIRE_VERSION,
             caps: ['sync.http.v1', ...(caps ?? [])],
           }),
         )

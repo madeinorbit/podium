@@ -18,7 +18,7 @@ import {
   type DeviceId,
   type UserId,
 } from '../planes/principal'
-import { WIRE_VERSION } from '../version'
+import { DAEMON_WIRE_VERSION } from '../version'
 import type { DelegationDirectory, DelegationLink } from './delegation-chain'
 import type { PeerHello } from './envelope'
 import type {
@@ -173,7 +173,7 @@ export const helloFor = (
   over: Partial<PeerHello> = {},
 ): PeerHello => ({
   type: 'peerHello',
-  v: WIRE_VERSION,
+  v: DAEMON_WIRE_VERSION,
   caps: [],
   credential,
   claims: HOSTILE_CLAIMS,

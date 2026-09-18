@@ -833,7 +833,7 @@ export const CHECKS: AuditCheck[] = [
      * POD-310's Phase 2 exit gate found a CONTRADICTION IN THE PLAN, not a
      * defect in the tree: POD-308's job was to BIRTH this adapter, its expiry
      * is declared as DATA (expiresWhenMinSupportedReaches: 2, deleteByPhase
-     * Phase 7) and that condition has not arrived because MIN_SUPPORTED_VERSION
+     * Phase 7) and that condition has not arrived because MIN_CLIENT_WIRE_VERSION
      * is still 1 — yet the item was mapped to a Phase-2 issue graded by a rule
      * saying its phase may not close while the count is non-zero. So a closed,
      * correct child could never pass its own phase-close gate, and the only ways

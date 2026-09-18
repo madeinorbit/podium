@@ -11,7 +11,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import { asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, MUST_NOT_CHANGE, makeOracle, provisional, waitFor } from './oracle-support'
@@ -209,7 +209,7 @@ describe('oracle: read state', () => {
     await o.reg.clientGateway.routeClientFrame(secondId, {
       type: 'hello',
     caps: ['sync.http.v1'],
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
@@ -434,7 +434,7 @@ describe('oracle: composer drafts', () => {
     await o.reg.clientGateway.routeClientFrame(authorId, {
       type: 'hello',
     caps: ['sync.http.v1'],
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
@@ -442,7 +442,7 @@ describe('oracle: composer drafts', () => {
     await o.reg.clientGateway.routeClientFrame(watcherId, {
       type: 'hello',
     caps: ['sync.http.v1'],
-      wireVersion: WIRE_VERSION,
+      wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })

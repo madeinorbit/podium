@@ -209,7 +209,7 @@ describe('RETIRED leaf-package + restricted-package-deps -> manifest-deps', () =
     expect(
       rulesFor(
         'packages/client-core/src/transport.ts',
-        `import { WIRE_VERSION } from '@podium/protocol'`,
+        `import { CLIENT_WIRE_VERSION } from '@podium/protocol'`,
       ),
     ).toEqual([])
   })

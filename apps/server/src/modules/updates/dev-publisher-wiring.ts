@@ -34,6 +34,7 @@ import { releaseTimingStagingDir } from './build-record'
 import {
   type BuiltDevBundle,
   createDevBundlePublisher,
+  readDaemonWireAt,
   DEV_ARTIFACT_ROUTE,
   DevBundleProposalMovedError,
   DevBundleUnavailableError,
@@ -317,6 +318,7 @@ export async function wireDevBundlePublisher(deps: {
   const publisher = sourceRoot
     ? (deps.createPublisher ?? createDevBundlePublisher)({
         sourceCheckoutAvailable: true,
+        daemonWireAt: (sha) => readDaemonWireAt(sourceRoot, sha),
         root: sourceRoot,
         instanceId,
         publisherStateDir: publisherStateDirectory,
@@ -555,9 +557,18 @@ export async function wireDevBundlePublisher(deps: {
       }
       throw error
     }
-    const published = await publisher.publishFeed()
-    if (published) await deps.refreshDevTarget?.()
-    return published
+    try {
+      const published = await publisher.publishFeed()
+      if (published) await deps.refreshDevTarget?.()
+      else {
+        const reason = publisher.unavailable()
+        if (reason?.startsWith('Target daemon wire range ')) throw new Error(reason)
+      }
+      return published
+    } catch (error) {
+      await deps.setTargetUnavailable?.(describeError(error))
+      throw error
+    }
   }
 
   const approval = createReleaseApprovalFlow({

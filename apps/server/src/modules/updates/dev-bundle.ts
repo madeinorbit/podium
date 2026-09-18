@@ -1,3 +1,5 @@
+import { targetDaemonWireRefusal } from './wave'
+import { DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, WireVersionRange } from '@podium/protocol'
 import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, type Dirent, existsSync, readFileSync, renameSync } from 'node:fs'
@@ -97,6 +99,13 @@ async function git(root: string, args: readonly string[]): Promise<string> {
     env: gitEnv(),
   })
   return stdout
+}
+
+/** Read the advertised range from the artifact's commit, never the publisher binary. */
+export async function readDaemonWireAt(root: string, sha: string): Promise<WireVersionRange> {
+  const source = await git(root, ['show', `${sha}:packages/protocol/src/version.ts`])
+  const read = (name: string): number => Number(source.match(new RegExp(`export const ${name}\\s*=\\s*(\\d+)`))?.[1])
+  return WireVersionRange.parse({ min: read('MIN_DAEMON_WIRE_VERSION'), max: read('DAEMON_WIRE_VERSION') })
 }
 
 /**
@@ -1742,6 +1751,7 @@ export function devTarget(
     platform?: string
     sourceRoot?: string
     webDigest?: string
+    daemonWire?: WireVersionRange
     schemaMigrations?: string[]
   } = {},
 ): UpdateTarget {
@@ -1770,6 +1780,7 @@ export function devTarget(
   const migrations = requireDefinedMigrations(opts.schemaMigrations, sha)
   return {
     version: built.version,
+    daemonWire: opts.daemonWire ?? { min: MIN_DAEMON_WIRE_VERSION, max: DAEMON_WIRE_VERSION },
     critical: false,
     minRequired: { desktopBridge: 1 },
     schema: { migrations },
@@ -1864,6 +1875,8 @@ export async function writeDevFeedManifest(
   root: string,
   target: UpdateTarget,
 ): Promise<string> {
+  const refusal = targetDaemonWireRefusal(target)
+  if (refusal) throw new Error(refusal)
   const path = devFeedManifestPath(root)
   await fs.writeText(path, `${JSON.stringify(target, null, 2)}\n`)
   return path
@@ -1968,6 +1981,7 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    * the one case where the two differ is a checkout moving backwards, which is
    * exactly the convergence that must be refused.
    */
+  daemonWireAt?: (sha: string) => Promise<WireVersionRange>
   migrationsAt?: (sha: string) => Promise<string[] | undefined>
   /**
    * Fetches one channel's standing shell manifest. Seam for tests; production reads GitHub.
@@ -2423,6 +2437,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       platform: deps.platform,
       sourceRoot: deps.root,
       schemaMigrations: settled.migrations,
+      daemonWire: await deps.daemonWireAt?.(settled.headSha),
     })
   }
 
@@ -2496,6 +2511,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       platform: deps.platform,
       sourceRoot: deps.root,
       schemaMigrations: migrations,
+      daemonWire: await deps.daemonWireAt?.(builtSha),
     })
   }
 

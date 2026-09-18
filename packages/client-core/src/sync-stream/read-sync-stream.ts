@@ -1,4 +1,4 @@
-import { parseSyncRecord, validateFeedFrame, WIRE_VERSION, type SyncComplete, type SyncMeta, type SyncRecordLenient } from '@podium/protocol'
+import { parseSyncRecord, validateFeedFrame, CLIENT_WIRE_VERSION, type SyncComplete, type SyncMeta, type SyncRecordLenient } from '@podium/protocol'
 import { SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncStreamFailed } from './errors'
 
 /** The consumer vocabulary retains unknown entity kinds, as the feed parser does. */
@@ -16,7 +16,7 @@ export async function* readSyncStream(lines: AsyncIterable<string>): AsyncGenera
     if (parsed.kind === 'refused') {
       if (parsed.reason === 'invalid-record') {
         const raw = JSON.parse(line)
-        if (raw?.type === 'syncMeta' && (raw.formatVersion !== 1 || raw.wireVersion !== WIRE_VERSION)) {
+        if (raw?.type === 'syncMeta' && (raw.formatVersion !== 1 || raw.wireVersion !== CLIENT_WIRE_VERSION)) {
           throw new SyncFormatError('unsupported-version')
         }
       }
