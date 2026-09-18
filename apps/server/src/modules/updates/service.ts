@@ -590,7 +590,7 @@ export class UpdatesService {
     await this.deps.onTargetChanged?.(channel)
   }
 
-  /** Failed operations revoke publication until a person starts another operation. */
+  /** Failed versions stay withdrawn until replaced or explicitly reapproved. */
   async withdrawFailedTarget(channel: UpdateChannel, target: UpdateTarget, reason: string): Promise<void> {
     const detail = `${TARGET_WITHDRAWN_TOKEN}: Target ${target.version} withdrawn. ${reason}`
     this.withdrawnTargets.set(channel, { target, reason: detail, withdrawnAt: this.deps.now() })
@@ -606,9 +606,13 @@ export class UpdatesService {
   async reapproveTarget(channel: UpdateChannel): Promise<void> {
     const withdrawal = this.withdrawnTargets.get(channel)
     if (!withdrawal) return
+    const offered = await this.deps.resolveTarget?.(channel)
+    if (offered?.version !== withdrawal.target.version) return
+    // A publication or another withdrawal may have arrived while resolving.
+    if (this.withdrawnTargets.get(channel) !== withdrawal) return
     this.withdrawnTargets.delete(channel)
     // Preserve terminal rows for this exact target. A new target clears them.
-    this.targets.set(channel, withdrawal.target)
+    this.targets.set(channel, offered)
     this.unavailableReasons.delete(channel)
     this.rollouts.set(channel, freshRollout())
     this.persistRecovery()
@@ -689,7 +693,8 @@ export class UpdatesService {
     target: UpdateTarget,
     operation: { active: boolean; version?: string },
   ): boolean {
-    if (this.withdrawnTargets.has(channel)) return false
+    const withdrawal = this.withdrawnTargets.get(channel)
+    if (withdrawal?.target.version === target.version) return false
     // Re-publishing the same label replaces its artifact descriptor without
     // invalidating the proof already made for that target: a dev+ identity
     // gaining its packed tarball is the SAME update acquiring its bytes it is
@@ -709,6 +714,7 @@ export class UpdatesService {
       if (standing && hasHeadlessBytes(standing) && !hasHeadlessBytes(target)) {
         return false
       }
+      this.withdrawnTargets.delete(channel)
       this.unavailableReasons.delete(channel)
       if (standing && updateFingerprint(standing) !== updateFingerprint(target)) {
         this.rollout(channel).canaryHealthy = false
@@ -725,6 +731,7 @@ export class UpdatesService {
       return false
     }
 
+    this.withdrawnTargets.delete(channel)
     this.unavailableReasons.delete(channel)
     this.targets.set(channel, target)
     this.rollouts.set(channel, freshRollout())
@@ -1726,8 +1733,7 @@ export class UpdatesService {
       if (
         targetVersion !== undefined &&
         machine.version === targetVersion &&
-        !awaitingSupervisorExecution &&
-        currentState?.state !== 'stuck' && currentState?.state !== 'rejected'
+        !awaitingSupervisorExecution
       ) {
         if (currentState) {
           const rollout = this.rollout(channel)

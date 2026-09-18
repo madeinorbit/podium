@@ -17,7 +17,9 @@ function harness() {
   }))
   const send = vi.fn()
   let saved: UpdateRecoverySnapshot | undefined
+  const resolveTarget = vi.fn(async (): Promise<UpdateTarget> => target)
   const deps = {
+    resolveTarget,
     machines: async () => machines,
     send, now: () => 1000, nextGrantId: () => 'grant', concurrency: 3,
     fleetChannel: () => 'dev' as const,
@@ -33,7 +35,7 @@ function harness() {
     id: 'op_failed_canary', kind: 'update', state,
     operation: { details: { channel: 'dev', target }, error: { code: 'canary-failed', message: 'Mac canary rejected the update.' } },
   }) as unknown as OperationRow
-  return { machines, send, updates, authorize, reconciler, observe, row, restart: () => new UpdatesService(deps) }
+  return { machines, send, resolveTarget, updates, authorize, reconciler, observe, row, restart: () => new UpdatesService(deps) }
 }
 
 afterEach(() => resetLogging())
@@ -103,12 +105,11 @@ describe('observation-only update reconciliation', () => {
     expect(h.send).not.toHaveBeenCalled()
   })
 
-  it('keeps withdrawal across restart and automatic publication until human reapproval', async () => {
+  it('keys persisted withdrawal to the failed version and allows human reapproval', async () => {
     const h = harness()
     await h.observe(h.row('failed'), 'running')
     const restored = h.restart()
     restored.setTarget('dev', target)
-    restored.setTarget('dev', { ...target, version: '0.4.3' })
     restored.publishNextTargets()
     expect(restored.target('dev')).toBeUndefined()
     expect(restored.targetUnavailableReasonForChannel('dev')).toContain('Mac canary rejected')
@@ -117,9 +118,43 @@ describe('observation-only update reconciliation', () => {
     expect(restored.targetUnavailableReasonForChannel('dev')).toBeUndefined()
     expect(h.send).not.toHaveBeenCalled()
     expect(h.restart().target('dev')).toEqual(target)
+
+    await restored.withdrawFailedTarget('dev', target, 'failed again')
+    restored.setTarget('dev', { ...target, version: '0.4.3' })
+    expect(restored.target('dev')?.version).toBe('0.4.3')
+    expect(restored.withdrawnTarget('dev')).toBeUndefined()
+    expect(restored.targetUnavailableReasonForChannel('dev')).toBeUndefined()
+    expect(h.restart().withdrawnTarget('dev')).toBeUndefined()
+    await restored.reapproveTarget('dev')
+    expect(restored.target('dev')?.version).toBe('0.4.3')
   })
 
-  it.each(['stuck', 'rejected'] as const)('preserves %s until a different target is published', async (state) => {
+  it('does not reapprove a failed version that the feed no longer offers', async () => {
+    const h = harness()
+    await h.observe(h.row('failed'), 'running')
+    h.resolveTarget.mockResolvedValue({ ...target, version: '0.4.3' })
+    await h.updates.reapproveTarget('dev')
+    expect(h.updates.target('dev')).toBeUndefined()
+    expect(h.updates.withdrawnTarget('dev')).toEqual(target)
+    expect(h.updates.targetUnavailableReasonForChannel('dev')).toContain('Mac canary rejected')
+    expect(h.send).not.toHaveBeenCalled()
+  })
+
+  it.each(['stuck', 'rejected'] as const)('clears an old %s row when a different version is published', async (state) => {
+    const h = harness()
+    await h.updates.authorize('dev')
+    await h.updates.onStatus(asMachineId('canary'), {
+      type: 'updateStatus', state, version: '0.4.1', targetVersion: target.version, detail: 'failed canary',
+    })
+    await h.observe(h.row('failed'), 'running')
+    h.send.mockClear()
+    h.updates.setTarget('dev', { ...target, version: '0.4.3' })
+    expect(h.updates.withdrawnTarget('dev')).toBeUndefined()
+    expect((await h.updates.fleet()).find((machine) => machine.id === 'canary')?.state).toBe('current')
+    expect(h.send).not.toHaveBeenCalled()
+  })
+
+  it.each(['stuck', 'rejected'] as const)('preserves %s while behind and accepts arrival at the target', async (state) => {
     const h = harness()
     await h.updates.authorize('dev')
     await h.updates.onStatus(asMachineId('canary'), {
@@ -128,9 +163,11 @@ describe('observation-only update reconciliation', () => {
     await h.observe(h.row('failed'), 'running')
     h.send.mockClear()
     await h.updates.reapproveTarget('dev')
-    h.machines[0]!.version = target.version
     await h.reconciler.onMachineConnected('canary')
     expect((await h.updates.fleet()).find((machine) => machine.id === 'canary')?.state).toBe(state)
+    h.machines[0]!.version = target.version
+    await h.reconciler.onMachineConnected('canary')
+    expect((await h.updates.fleet()).find((machine) => machine.id === 'canary')?.state).toBe('current')
     expect(h.send).not.toHaveBeenCalled()
     h.updates.setTarget('dev', { ...target, version: '0.4.3' })
     expect((await h.updates.fleet()).find((machine) => machine.id === 'canary')?.state).toBe('current')

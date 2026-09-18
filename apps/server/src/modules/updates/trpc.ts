@@ -100,16 +100,6 @@ export interface UpdateFleetMachine {
   online: boolean
   busy: boolean
   detail?: string
-  /**
-   * WHO MOVED THIS ROW (POD-2105, spec §3.6).
-   *
-   * Present only when the standing reconciliation drove this machine to the
-   * current target — a machine that was asleep during the update and converged
-   * on its own reconnect, with nobody watching and no operation to attribute it
-   * to. ADDITIVE and absent by default per the frozen-contract law (P8): no UI
-   * reads it yet, and Settings/history can label it later without a wire change.
-   */
-  convergedBy?: 'reconciler'
 }
 
 export interface UpdateFleetBlocker {
@@ -198,17 +188,12 @@ export interface UpdateFleetSnapshot {
 export async function fleetSnapshot(
   updates: UpdatesService,
   serverPlacement: ServerPlacement,
-  reconciler?: { convergedBy(machine: WaveMachine): 'reconciler' | undefined },
 ): Promise<UpdateFleetSnapshot> {
   const channel = await updates.operationChannel(serverPlacement)
-  const allMachines = (await updates.fleet()).map((machine) => {
-    const convergedBy = reconciler?.convergedBy(machine)
-    return {
-      ...machine,
-      id: asMachineId(machine.id),
-      ...(convergedBy ? { convergedBy } : {}),
-    }
-  })
+  const allMachines = (await updates.fleet()).map((machine) => ({
+    ...machine,
+    id: asMachineId(machine.id),
+  }))
   // `allMachines` remains the complete Settings inventory. The operation-facing
   // projection is narrower: a source checkout has no packaged install to swap.
   // Only the explicit source fact excludes; old/unknown reports stay visible.
@@ -632,7 +617,6 @@ export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
   const fleet = await fleetSnapshot(
     updates,
     serverPlacementOf(ctx),
-    state.modules.updatesReconciler,
   )
   const preparation = ctx.updatePreparation?.()
   const active = await state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)

@@ -23,7 +23,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { GrantRecord } from './grant-cause'
 import { startLocalUpdateParticipant } from './local-participant'
-import { decideReconciliation, UpdateReconciler } from './reconciler'
+import { UpdateReconciler } from './reconciler'
 import { UpdatesService } from './service'
 import type { WaveMachine } from './wave'
 
@@ -61,8 +61,7 @@ function row(id: string, name: string, coordinator = false): WaveMachine {
     id,
     name,
     // POD-3170's flag on the fleet projection, and the ONE answer to "is this
-    // this server?": `decideWave` holds this machine until last for it, and
-    // `decideReconciliation` refuses it outright for it.
+    // this server?": `decideWave` holds this machine until last for it.
     ...(coordinator ? { coordinator: true } : {}),
     version: RUNNING_VERSION,
     state: 'current',
@@ -184,19 +183,6 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
 
     expect(h.sentTo).toEqual([])
     expect(h.restarts, 'somebody else’s update restarted this server').toEqual([])
-  })
-
-  it('names the coordinator refusal rather than a fact about the target', async () => {
-    // ORDER MATTERS. The refusal must hold whatever is published and whatever
-    // the row's state is, so a reader of the log sees the real reason.
-    expect(
-      decideReconciliation({
-        machine: row(HOST, 'ludovico', true),
-        target: undefined,
-        operationActive: false,
-        attempts: 0,
-      }),
-    ).toEqual({ converge: false, because: 'coordinator' })
   })
 
   it('writes down who authorized a grant, and whether it replaces this process', async () => {
