@@ -90,6 +90,7 @@ export const HOST_EDGE_FRAMES = [
   'runtimeStageAttachmentRequest',
   'runtimeStageAttachmentResult',
   'runtimeSendRequest',
+  'runtimeDurableSendRequest',
   'runtimeSendResult',
   'runtimeQueueDrainAbandoned',
   'runtimeQueueDrainAbandonedAck',

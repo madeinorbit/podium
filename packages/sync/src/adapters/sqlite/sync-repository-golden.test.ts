@@ -193,6 +193,7 @@ describe('the statements themselves', () => {
       'id',
       'text',
       'attempts',
+      'delivery_owner',
       'input_origin',
       'principal_kind',
       'principal_ref',
@@ -388,11 +389,12 @@ describe('the session inbox', () => {
     expect(await enqueue('m1', 's1', 10)).toBe(true)
     expect(
       stored(
-        'SELECT attempts, input_origin, principal_kind, principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id FROM queued_messages',
+        'SELECT attempts, delivery_owner, input_origin, principal_kind, principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id FROM queued_messages',
       ),
     ).toEqual([
       {
         attempts: 0,
+        delivery_owner: null,
         input_origin: 'unknown',
         principal_kind: 'system',
         principal_ref: 'legacy-session-inbox',
@@ -425,6 +427,7 @@ describe('the session inbox', () => {
         id: 'm1',
         text: 'hello',
         attempts: 0,
+        deliveryOwner: null,
         inputOrigin: 'human',
         principalKind: 'agent',
         principalRef: 'agent-7',

@@ -79,6 +79,7 @@ export const runtimeHandlers: Pick<
   ControlHandlers,
   | 'runtimeStageAttachmentRequest'
   | 'runtimeSendRequest'
+  | 'runtimeDurableSendRequest'
   | 'runtimeInterruptRequest'
   | 'runtimeAnswerRequest'
   | 'runtimeLifecycleRequest'
@@ -150,6 +151,10 @@ export const runtimeHandlers: Pick<
       })
   },
 
+  runtimeDurableSendRequest: (ctx, msg) => {
+    runtimeHandlers.runtimeSendRequest(ctx, { ...msg, type: 'runtimeSendRequest' })
+  },
+
   runtimeSendRequest: (ctx, msg) => {
     const handle = handleFor(ctx, msg.sessionId)
     if (!handle) {
@@ -185,7 +190,7 @@ export const runtimeHandlers: Pick<
     driverTiming.promptRequested(handle.binding, msg.turnId)
     void handle
       .send(
-        { id: msg.turnId, rowId: msg.rowId, text: msg.text, attachments: msg.attachments },
+        { id: msg.turnId, rowId: msg.rowId, deliveryRecovery: msg.deliveryRecovery, initialPrompt: msg.initialPrompt, text: msg.text, attachments: msg.attachments },
         { origin: msg.origin, delivery: msg.delivery },
       )
       .then((receipt) => {

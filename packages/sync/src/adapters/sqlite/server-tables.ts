@@ -37,6 +37,7 @@ export type QueuedMessagesTable = SQLiteTable & {
   readonly text: SQLiteColumn
   readonly queuedAt: SQLiteColumn
   readonly attempts: SQLiteColumn
+  readonly deliveryOwner: SQLiteColumn
   readonly inputOrigin: SQLiteColumn
   readonly principalKind: SQLiteColumn
   readonly principalRef: SQLiteColumn

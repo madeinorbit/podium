@@ -572,6 +572,7 @@ export class SyncRepository {
     id: string
     text: string
     attempts: number
+    deliveryOwner: string | null
     inputOrigin: ObservationInputOrigin
     principalKind: 'user' | 'agent' | 'system'
     principalRef: string
@@ -588,6 +589,7 @@ export class SyncRepository {
         id: this.queuedMessages.id,
         text: this.queuedMessages.text,
         attempts: this.queuedMessages.attempts,
+        deliveryOwner: this.queuedMessages.deliveryOwner,
         inputOrigin: this.queuedMessages.inputOrigin,
         principalKind: this.queuedMessages.principalKind,
         principalRef: this.queuedMessages.principalRef,
@@ -607,6 +609,7 @@ export class SyncRepository {
       id: r.id as string,
       text: r.text as string,
       attempts: r.attempts as number,
+      deliveryOwner: (r.deliveryOwner as string | null) ?? null,
       inputOrigin: (r.inputOrigin as ObservationInputOrigin | null) ?? 'unknown',
       principalKind: r.principalKind as 'user' | 'agent' | 'system',
       principalRef: r.principalRef as string,
@@ -634,6 +637,14 @@ export class SyncRepository {
 
   async deleteQueuedMessage(id: string): Promise<void> {
     await this.db.delete(this.queuedMessages).where(eq(this.queuedMessages.id, id)).run()
+  }
+
+  /** Reserve custody before the RPC. A crash after this commit is ambiguous,
+   * never permission to type the row again on a replacement daemon. */
+  async reserveQueuedDelivery(id: string): Promise<void> {
+    await this.db.update(this.queuedMessages)
+      .set({ deliveryOwner: 'daemon', attempts: sql`max(${this.queuedMessages.attempts}, 1)` })
+      .where(eq(this.queuedMessages.id, id)).run()
   }
 
   async bumpQueuedAttempts(id: string): Promise<void> {

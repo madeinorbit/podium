@@ -194,6 +194,10 @@ function harness(
         return true
       },
       list: listQueue,
+      reserveDelivery: async (id) => {
+        const row = rows.find((candidate) => candidate.id === id)
+        if (row) { row.attempts = Math.max(row.attempts, 1); row.deliveryOwner = 'daemon' }
+      },
       bumpAttempts: async (id) => {
         const row = rows.find((candidate) => candidate.id === id)
         if (row) row.attempts += 1
@@ -2764,14 +2768,15 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.rows).toEqual([])
   })
 
-  it('does not poll or settle after a busy refusal', async () => {
+  it('reimports custody on explicit rearm after a busy refusal', async () => {
     vi.useFakeTimers()
     const h = harness({ contractDelivery: true, contractReceipts: [{ outcome: 'refused', refusal: { reason: 'busy' } }] })
     await queueOne(h, 'srv-4', 'msg_srv_4')
     await vi.advanceTimersByTimeAsync(30000)
     await h.inbox.drain(SID)
     await vi.advanceTimersByTimeAsync(0)
-    expect(h.contractCalls).toHaveLength(1)
+    expect(h.contractCalls).toHaveLength(2)
+    expect(h.contractCalls[1]).toMatchObject({ deliveryRecovery: true })
     expect(h.rows).toHaveLength(1)
     expect(h.applied).not.toHaveBeenCalled()
   })
@@ -2793,11 +2798,36 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.contractCalls).toHaveLength(1)
   })
 
-  it('forwards the next row without waiting for the first RPC reply', async () => {
+  it('honors a native-view hold acquired after custody was reserved', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractDelivery: true, contractReceipts: [] })
+    let release!: (rows: typeof h.rows) => void
+    let reserved = false
+    h.listQueue.mockImplementation(async () => {
+      if (h.rows.some((row) => row.deliveryOwner === 'daemon') && !reserved) {
+        reserved = true
+        return new Promise<typeof h.rows>((resolve) => { release = resolve })
+      }
+      return [...h.rows]
+    })
+    await queueOne(h, 'held-after-reservation')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(reserved).toBe(true)
+    h.setNativeView(true)
+    release([...h.rows])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toEqual([])
+    expect(h.rows).toHaveLength(1)
+  })
+
+  it('preserves FIFO admission while the first custody reply is delayed', async () => {
     vi.useFakeTimers()
     const h = harness({ contractDelivery: true, contractPending: true })
     await queueOne(h, 'first')
     await queueOne(h, 'second')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toHaveLength(1)
+    h.contractResolvers[0]!({ outcome: 'queued', position: 1, deliveredAs: 'queue', at: new Date().toISOString() })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.contractCalls).toHaveLength(2)
     expect(h.rows).toHaveLength(2)
@@ -3245,6 +3275,102 @@ describe('async ownership at attention delivery', () => {
 
 
 describe('headed contract delivery rollout', () => {
+  it.each([true, false])('retracts revoked persisted custody only when cancellation succeeds: %s', async (cancelled) => {
+    vi.useFakeTimers()
+    const h = harness({ runtimeContract: true, driverId: 'generic-pty', contractDelivery: true,
+      authorizeAtDrain: async () => ({ ok: false, reason: 'revoked' }), contractReceipts: [] })
+    h.rows.push({ id: 'revoked', sessionId: SID, queuedAt: 1, text: 'prior custody', attempts: 1,
+      deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
+    if (!cancelled) h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCancel).toHaveBeenCalledWith(SID, 'revoked')
+    expect(h.contractCalls).toEqual([])
+    expect(h.rows).toHaveLength(cancelled ? 0 : 1)
+    expect(h.rejected).toHaveLength(cancelled ? 1 : 0)
+  })
+
+  it.each([false, true])('recovers persisted daemon custody after restart with rollout %s', async (enabled) => {
+    vi.useFakeTimers()
+    const h = harness({ agentKind: 'codex', transcriptAvailable: true, runtimeContract: true,
+      driverId: 'generic-pty', contractDelivery: () => enabled, contractReceipts: [] })
+    // Fresh inbox instance, only durable state survived the server.
+    h.rows.push({ id: 'persisted', sessionId: SID, queuedAt: 1, text: 'already admitted', attempts: 1,
+      deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
+    h.session.queuedMessageCount = 1
+    await h.inbox.drain(SID, { justBound: true })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'persisted', deliveryRecovery: true })])
+    expect(h.sent).toEqual([])
+    expect(h.rows).toHaveLength(1)
+    expect(h.applied).not.toHaveBeenCalled()
+    await h.inbox.deliveryOutcome(SID, { rowId: 'persisted', outcome: 'failed', reason: 'ambiguous prior delivery' })
+    expect(h.getDraft()).toBe('already admitted')
+    expect(h.promptFailed).toHaveBeenCalledWith(expect.objectContaining({ text: 'already admitted' }))
+    expect(h.rows).toHaveLength(0)
+  })
+
+  it('imports legacy attempts after restart without re-entering the typing loop', async () => {
+    vi.useFakeTimers()
+    const h = harness({ runtimeContract: true, driverId: 'generic-pty', contractDelivery: true, contractReceipts: [] })
+    h.rows.push({ id: 'legacy', sessionId: SID, queuedAt: 1, text: 'already typed', attempts: 2,
+      inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: null })
+    await h.inbox.drain(SID)
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(h.contractCalls).toEqual([expect.objectContaining({ deliveryRecovery: true })])
+    expect(h.rows[0]).toMatchObject({ deliveryOwner: 'daemon', attempts: 2 })
+    expect(h.sent).toEqual([])
+  })
+
+  it('persists custody before the RPC and carries creation-prompt identity', async () => {
+    vi.useFakeTimers()
+    const h = harness({ runtimeContract: true, driverId: 'generic-pty', contractDelivery: true, contractPending: true })
+    await h.inbox.queueInitialPrompt({ sessionId: SID, text: 'create once' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows[0]).toMatchObject({ attempts: 1, deliveryOwner: 'daemon' })
+    expect(h.contractCalls).toEqual([expect.objectContaining({ initialPrompt: true, deliveryRecovery: false })])
+    expect(h.applied).not.toHaveBeenCalled()
+    h.contractResolvers[0]!({ outcome: 'queued', position: 1, deliveredAs: 'queue', at: new Date().toISOString() })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows).toHaveLength(1)
+    const event = { rowId: h.rows[0]!.id, outcome: 'failed' as const }
+    await Promise.all([h.inbox.deliveryOutcome(SID, event), h.inbox.deliveryOutcome(SID, event)])
+    expect(h.promptFailed).toHaveBeenCalledTimes(1)
+    expect(h.getDraft()).toBe('create once')
+  })
+
+  it('retains an unacknowledged row for late proof and retries only its custody import', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractDelivery: true, contractReceipts: [
+      { outcome: 'unverified', deliveredAs: 'when-ready', verificationWindowMs: 12000, at: new Date().toISOString() },
+    ] })
+    await h.inbox.queueText({ sessionId: SID, text: 'once', mutationId: asMutationId('lost'), sourceMessageId: 'mail' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.rows).toHaveLength(1)
+    expect(h.getDraft()).toBe('once')
+    expect(h.promptFailed).toHaveBeenCalledTimes(1)
+    await h.inbox.sweepQueuedInputs()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({ deliveryRecovery: false }),
+      expect.objectContaining({ deliveryRecovery: true }),
+    ])
+    await h.inbox.deliveryOutcome(SID, { rowId: 'lost', outcome: 'delivered' })
+    expect(h.rows).toHaveLength(0)
+    expect(h.applied).toHaveBeenCalledTimes(1)
+    expect(h.getDraft()).toBeUndefined()
+  })
+
+  it('does not overwrite a newer human draft on delivery failure', async () => {
+    vi.useFakeTimers()
+    const h = harness({ contractDelivery: true, contractReceipts: [] })
+    await h.inbox.queueText({ sessionId: SID, text: 'old', mutationId: asMutationId('old') })
+    await vi.advanceTimersByTimeAsync(0)
+    await h.setSessionDraft({ sessionId: SID, text: 'new human draft' })
+    await h.inbox.deliveryOutcome(SID, { rowId: 'old', outcome: 'failed' })
+    expect(h.getDraft()).toBe('new human draft')
+  })
+
   it('flips the actual config file off/on/off without recreating the inbox', async () => {
     vi.useFakeTimers()
     const dir = mkdtempSync(join(tmpdir(), 'podium-delivery-switch-'))

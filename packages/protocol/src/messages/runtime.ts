@@ -412,6 +412,8 @@ export function isRuntimeFineEvent(event: RuntimeEvent): event is RuntimeFineEve
 export const RuntimeSendRequestMessage = z.object({
   type: z.literal('runtimeSendRequest'),
   rowId: z.string().min(1).optional(),
+  deliveryRecovery: z.boolean().optional(),
+  initialPrompt: z.boolean().optional(),
   requestId: z.string(),
   /**
    * Stable delivery identity, distinct from the one-shot RPC correlation id.
@@ -431,6 +433,17 @@ export const RuntimeSendRequestMessage = z.object({
   attachments: z.array(RuntimeAttachmentRef).optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
+
+/** A distinct command prevents old daemons from stripping recovery metadata
+ * and treating a migration import as permission to type again. */
+export const RuntimeDurableSendRequestMessage = RuntimeSendRequestMessage.extend({
+  type: z.literal('runtimeDurableSendRequest'),
+  rowId: z.string().min(1),
+  deliveryRecovery: z.boolean(),
+  initialPrompt: z.boolean(),
+})
+export type RuntimeDurableSendRequestMessage = z.infer<typeof RuntimeDurableSendRequestMessage>
+
 
 export const RuntimeStageAttachmentRequestMessage = z.object({
   type: z.literal('runtimeStageAttachmentRequest'),
@@ -726,6 +739,7 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   // while one inserted mid-list re-indexes the ones after it.
   RuntimeConfigureRequestMessage,
   RuntimeDraftRequestMessage,
+  RuntimeDurableSendRequestMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -956,6 +970,7 @@ export type RuntimeMessage = z.infer<typeof RuntimeMessage>
 export const RUNTIME_FRAME_TYPES = [
   'runtimeStageAttachmentRequest',
   'runtimeSendRequest',
+  'runtimeDurableSendRequest',
   'runtimeInterruptRequest',
   'runtimeAnswerRequest',
   'runtimeLifecycleRequest',

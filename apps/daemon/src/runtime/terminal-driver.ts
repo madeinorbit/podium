@@ -371,6 +371,7 @@ interface DriverSession {
   /** Has the CLI finished starting? The drain types into `live` only — see
    *  `TerminalInjectionPorts.live`. */
   live: boolean
+  liveAtMs?: number
   /** This driver performed the teardown. The one thing that lets an exit be
    *  classified `killed` rather than guessed at from a code. */
   terminatedByDriver: boolean
@@ -942,6 +943,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // daemon already publishes. Everything before this is `starting`, which
         // is the state the queue drain must not type into.
         session.live = true
+        session.liveAtMs = host.now()
         return
       }
       case 'agentExit': {
@@ -1342,6 +1344,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           : existing.bindingVersion,
         registration.bindingVersion ?? 0,
       )
+      if (!existing.alive) {
+        existing.live = false
+        existing.liveAtMs = undefined
+      }
       existing.alive = true
       if (registration.resume) existing.resume = registration.resume
       emit(
@@ -1450,6 +1456,14 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       bindingVersion: session.bindingVersion,
     })
 
+    const deliveryReady = (): boolean => {
+      const liveAt = session.liveAtMs
+      if (!session.live || !session.alive || liveAt === undefined) return false
+      const now = host.now()
+      return now - liveAt >= 6000 ||
+        (session.lastOutputAtMs > liveAt && now - liveAt >= 800 &&
+          now - session.lastOutputAtMs >= 600)
+    }
     const handle: AgentSessionHandle = {
       get binding() {
         return binding()
@@ -1648,6 +1662,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // turn, so `steer` becomes `queue` and `deliveredAs` says so.
         const requested: TurnDelivery = options.delivery
         if (requested === 'steer' || requested === 'queue') return enqueue()
+        if (requested === 'when-ready' && (!deliveryReady() || ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? ''))) {
+          if (options.deliveryAttempt) return { outcome: 'refused', refusal: refuse('busy') }
+          return enqueue()
+        }
 
         if (requested === 'interrupt') {
           // The manifest key first, then the replacement prompt one CR-delay
@@ -1671,6 +1689,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
             origin: options.origin,
             delivery: 'when-ready',
             signal: options.signal,
+            durable: options.deliveryAttempt,
+            initialPrompt: input.initialPrompt,
           }),
         )
       },
@@ -1887,28 +1907,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       },
     }
 
-    let liveAt: number | undefined
-    let baseOutput = 0
     return withDeliveryQueue(
       handle,
       (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'),
-      () => {
-        if (!session.live || !session.alive) {
-          liveAt = undefined
-          return false
-        }
-        const now = host.now()
-        if (liveAt === undefined) {
-          liveAt = now
-          baseOutput = session.lastOutputAtMs
-        }
-        return (
-          now - liveAt >= 6000 ||
-          (session.lastOutputAtMs > baseOutput &&
-            now - liveAt >= 800 &&
-            now - session.lastOutputAtMs >= 600)
-        )
-      },
+      deliveryReady,
       () => !session.disposed,
     )
   }
@@ -1922,7 +1924,9 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     registrations.set(registration.sessionId, registration)
     profiles.set(registration.sessionId, profile)
     const session = openSession(registration, profile)
-    const handle = makeHandle(session)
+    // Rebinding the same daemon-owned process must preserve queued custody and
+    // completed outcome replay, including an acceptance still in flight.
+    const handle = handles.get(registration.sessionId) ?? makeHandle(session)
     handles.set(registration.sessionId, handle)
     replayHeldFrames(registration.sessionId)
     return handle

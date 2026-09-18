@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   isDurableRuntimeEvent,
   RuntimeEventMessage,
+  RuntimeDurableSendRequestMessage,
+  RuntimeSendRequestMessage,
   type RuntimeEventBody,
   type RuntimeEvent,
 } from './runtime'
@@ -47,5 +49,17 @@ describe('runtime event retention contract', () => {
   it.each(['live', 'bootstrap'] as const)('keeps fine fragments live-only for %s provenance', (provenance) => {
     expect(isDurableRuntimeEvent(event({ t: 'item', item: { kind: 'delta', itemId: 'item', textDelta: 'token' } }, provenance))).toBe(false)
     expect(isDurableRuntimeEvent(event({ t: 'item', item: { kind: 'partial', item: { id: 'tool', role: 'assistant', text: 'running', ts: at } } }, provenance))).toBe(false)
+  })
+})
+
+
+describe('durable admission command', () => {
+  it('requires migration discriminators and cannot parse as a legacy send', () => {
+    const frame = { type: 'runtimeDurableSendRequest', requestId: 'rpc', sessionId: 'session',
+      turnId: 'row', rowId: 'row', deliveryRecovery: true, initialPrompt: true,
+      text: 'create once', origin: 'human', delivery: 'when-ready' }
+    expect(RuntimeDurableSendRequestMessage.parse(frame)).toMatchObject(frame)
+    expect(RuntimeSendRequestMessage.safeParse(frame).success).toBe(false)
+    expect(RuntimeDurableSendRequestMessage.safeParse({ ...frame, deliveryRecovery: undefined }).success).toBe(false)
   })
 })

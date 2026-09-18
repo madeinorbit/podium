@@ -28,6 +28,10 @@ export type InputOrigin = ObservationInputOrigin
 export interface TurnInput {
   /** Durable inbox row; asks the owning daemon to deliver asynchronously. */
   rowId?: string
+  /** An earlier owner may already have written this row; never write it again. */
+  deliveryRecovery?: boolean
+  /** Creation prompts retain at-most-once submission across ambiguous receipts. */
+  initialPrompt?: boolean
   /**
    * Stable identity supplied by the caller when a later delivery outcome has
    * to reconcile durable state outside the driver. Drivers must carry it
@@ -41,6 +45,10 @@ export interface TurnInput {
    * rather than inventing an id the server would fail to find a row for.
    * A turn with no id is therefore never SILENTLY lost, but it is also never
    * receipt-corrected.
+   *
+   * The at-least-once discussion below applies to calls WITHOUT rowId.
+   * Durable row admissions reserve custody before dispatch and recover an
+   * unconfirmed earlier attempt as a visible failure instead of retyping it.
    *
    * THE WRITE PATH IS AT-LEAST-ONCE, AND THIS ID IS WHAT MAKES THAT SURVIVABLE
    * (POD-2297). A send whose outcome is UNKNOWN — an `unverified` receipt, an

@@ -384,6 +384,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           id: row.id,
           text: row.text,
           attempts: row.attempts,
+          deliveryOwner: row.deliveryOwner,
           inputOrigin: row.inputOrigin,
           principal: {
             kind: row.principalKind,
@@ -398,6 +399,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         }))
       },
       bumpAttempts: (id) => store.sync.bumpQueuedAttempts(id),
+      reserveDelivery: (id) => store.sync.reserveQueuedDelivery(id),
       resetAttempts: (id) => store.sync.resetQueuedAttempts(id),
       delete: (id) => store.sync.deleteQueuedMessage(id),
       // The same per-session tally that seeds Session.queuedMessageCount at
@@ -451,7 +453,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         })
       },
       promptFailed: async ({ ownerUserId, sessionId, text, reason, initialPrompt }) => {
-        const title = initialPrompt ? 'Initial prompt not delivered' : 'Input not delivered'
+        const title = initialPrompt ? 'Initial prompt unconfirmed' : 'Input delivery unconfirmed'
         const body = `${reason}. The queued text is still recoverable; check the session and send it again.`
         // Persist first. The bus attention event is intentionally only a live
         // notification; the event and queue are the recovery record even when
@@ -520,6 +522,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         sessionId: input.sessionId,
         turnId: input.turnId,
         rowId: input.turnId,
+        deliveryRecovery: input.deliveryRecovery,
+        initialPrompt: input.initialPrompt,
         text: input.text,
         origin: input.origin,
         delivery: 'when-ready',
@@ -834,11 +838,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     legacy: inbox,
     contract: { send: (input) => bag.runtimeGateway.send(input) },
     queue: durableQueue,
-    // REPORTED BY THE DAEMON ON BIND, never computed here: the daemon ORs a
-    // machine-wide env var it owns with the per-spawn field and declines the flag
-    // for harnesses with no turns to be honest about, so a server that inferred
-    // the answer would be wrong in both directions.
-    onContract: (sessionId: SessionId) => bag.sessions.get(sessionId)?.runtimeContract === true,
+    // Immediate and durable sends share rollout and active-custody routing.
+    onContract: (sessionId: SessionId) => {
+      const session = bag.sessions.get(sessionId)
+      return session ? bag.inbox.routesThroughContract(session) : false
+    },
     liveWithEmptyQueue: (sessionId: SessionId) => {
       const s = bag.sessions.get(sessionId)
       return s?.status === 'live' && s.queuedMessageCount === 0

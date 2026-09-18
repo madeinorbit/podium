@@ -1656,6 +1656,8 @@
       "wire": {
         "type": "runtimeSendRequest",
         "rowId": "rowId",
+        "deliveryRecovery": false,
+        "initialPrompt": false,
         "requestId": "requestId",
         "turnId": "turnId",
         "sessionId": "sessionId",
@@ -1675,7 +1677,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}]}"
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":false,\"initialPrompt\":false,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}]}"
     },
     {
       "schema": "RuntimeCommandMessage",
@@ -2141,6 +2143,55 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeDurableSendRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeDurableSendRequest",
+        "rowId": "rowId",
+        "deliveryRecovery": true,
+        "initialPrompt": true,
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "text": "text",
+        "origin": "human",
+        "delivery": "when-ready"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDurableSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\"}"
+    },
+    {
+      "schema": "RuntimeDurableSendRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeDurableSendRequest",
+        "rowId": "rowId",
+        "deliveryRecovery": true,
+        "initialPrompt": true,
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "text": "text",
+        "origin": "human",
+        "delivery": "when-ready",
+        "attachments": [
+          {
+            "id": "attachments[0].id",
+            "path": "attachments[0].path",
+            "filename": "attachments[0].filename",
+            "mediaType": "attachments[0].mediaType",
+            "kind": "image"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDurableSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}]}"
     },
     {
       "schema": "RuntimeEvent",
@@ -3996,6 +4047,8 @@
       "wire": {
         "type": "runtimeSendRequest",
         "rowId": "rowId",
+        "deliveryRecovery": true,
+        "initialPrompt": true,
         "requestId": "requestId",
         "turnId": "turnId",
         "sessionId": "sessionId",
@@ -4015,7 +4068,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}]}"
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}]}"
     },
     {
       "schema": "RuntimeSendResultMessage",

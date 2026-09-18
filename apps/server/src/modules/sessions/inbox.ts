@@ -202,6 +202,7 @@ export interface QueuedInboxMessage {
   id: string
   text: string
   attempts: number
+  deliveryOwner?: string | null
   inputOrigin: ObservationInputOrigin
   principal: InboxPrincipalReference
   sourceMessageId: string | null
@@ -220,6 +221,7 @@ export interface InboxQueuePort {
   list(sessionId: SessionId): Promise<QueuedInboxMessage[]>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   bumpAttempts(id: string): Promise<void>
+  reserveDelivery?(id: string): Promise<void>
   /** A FRESH PROCESS HAS NEVER BEEN TYPED INTO (POD-1242). Attempts bound how
    *  many copies of a row one CLI may receive; the count dies with that CLI.
    *  UNBRANDED BY DECISION: queue primary key, as above. */
@@ -361,6 +363,8 @@ export interface SessionInboxDeps {
   contractDeliver?(input: {
     sessionId: SessionId
     turnId: string
+    deliveryRecovery?: boolean
+    initialPrompt?: boolean
     text: string
     origin: ObservationInputOrigin
     principal: InboxPrincipalReference
@@ -674,6 +678,7 @@ export class SessionInbox {
    *  had a second (POD-2836). */
   markSessionBound(sessionId: SessionId): void {
     this.forwardedRows.delete(sessionId)
+    this.forwarding.delete(sessionId)
     this.invalidateDrain(sessionId)
     const session = this.deps.getSession(sessionId)
     if (!session) return
@@ -1240,7 +1245,7 @@ export class SessionInbox {
     )
     if (matches.length === 0) return false
     for (const row of matches) {
-      if (this.routesThroughContract(session)) {
+      if (row.deliveryOwner === 'daemon' || this.routesThroughContract(session)) {
         const result = await this.deps.contractCancel?.(sessionId, row.id)
         if (!result || !('ok' in result)) return false
       }
@@ -1331,7 +1336,7 @@ export class SessionInbox {
    * Legacy batches finish unchanged. On rollback, daemon rows settle (or the
    * operator cancels them) before newly queued input can use the legacy loop.
    */
-  private routesThroughContract(session: Session): boolean {
+  routesThroughContract(session: Session): boolean {
     if (session.runtimeContract === true && driverFamilyForId(session.driverId ?? '') !== 'terminal') {
       return true
     }
@@ -1347,7 +1352,10 @@ export class SessionInbox {
   /** Admission only: no readiness, confirmation, retry clocks or delivery polling. */
   private async forwardContractRows(session: Session, justBound: boolean): Promise<void> {
     const sessionId = session.sessionId
-    if (justBound) this.forwardedRows.delete(sessionId)
+    if (justBound) {
+      this.forwardedRows.delete(sessionId)
+      this.forwarding.delete(sessionId)
+    }
     const pending = this.forwarding.get(sessionId)
     if (pending) { await pending; return this.forwardContractRows(session, false) }
     const run = async () => {
@@ -1359,38 +1367,67 @@ export class SessionInbox {
       const binding = forwarded
       const current = () => !this.disposed && this.deps.getSession(sessionId) === session &&
         session.machineId === binding.machineId && this.forwardedRows.get(sessionId) === binding &&
-        session.status === 'live' && this.deps.contractDelivery?.(session) === true &&
+        (session.status === 'live' || session.status === 'starting') &&
+        (this.deps.contractDelivery?.(session) === true || session.runtimeContract === true) &&
         this.deps.nativeViewActive?.(sessionId) !== true &&
         !sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
       const rows = await this.deps.queue.list(sessionId)
-      // A server restart may have forgotten the active legacy batch. Its durable
-      // attempts still prove that typing began; enabling cannot replay it.
-      if (binding.ids.size === 0 && driverFamilyForId(session.driverId ?? '') === 'terminal' &&
-        rows.some((row) => row.attempts > 0)) {
-        this.legacyDeliveryBatches.add(session)
-        await this.drain(sessionId)
-        return
-      }
       for (const row of rows) {
-        if (!current() || this.deps.nativeViewActive?.(sessionId) || session.status !== 'live') return
+        if (!current() || this.deps.nativeViewActive?.(sessionId)) return
         if (binding.ids.has(row.id)) continue
-        if (!this.deps.contractDeliver) return
+        // Rollback stops new admissions, but persisted custody still belongs to
+        // the daemon after server restart. Never fall back to legacy typing.
+        if (this.deps.contractDelivery?.(session) !== true && row.deliveryOwner !== 'daemon') return
+        if (!this.deps.contractDeliver || !this.deps.queue.reserveDelivery) return
         const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId })
         if (!current()) return
         // A cancel can race asynchronous admission. The durable row remains the authority.
         if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
         if (!current()) return
         if (!allowed.ok) {
+          // Revocation cannot erase an existing owner's work or acceptance proof.
+          if (row.deliveryOwner === 'daemon') {
+            if (!this.deps.contractCancel) return
+            const cancelled = await this.deps.contractCancel(sessionId, row.id)
+            if (!current() || !('ok' in cancelled && cancelled.ok)) return
+            if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
+            if (!current()) return
+          }
           await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason: allowed.reason })
           await this.deps.queue.delete(row.id)
           continue
         }
+        const recovery = row.attempts > 0 || row.deliveryOwner === 'daemon'
+        // The durable reservation precedes every possible external write. On a
+        // replacement owner it means confirm-or-fail, never replay the prompt.
+        if (row.deliveryOwner !== 'daemon') await this.deps.queue.reserveDelivery(row.id)
+        if (!current()) return
+        if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
+        if (!current()) return
         binding.ids.add(row.id)
-        // Awaiting this RPC would put subsequent rows behind a slow transport reply.
-        // Receipts acknowledge custody only; the event stream owns settlement.
-        void this.deps.contractDeliver({ sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin, principal: row.principal }).catch((error) => {
+        try {
+          // Await custody in FIFO order. A queued receipt is NOT acceptance;
+          // only the fenced delivery event can settle the durable row.
+          const receipt = await this.deps.contractDeliver({
+            sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin,
+            principal: row.principal, deliveryRecovery: recovery,
+            initialPrompt: isInitialPromptRow(sessionId, row),
+          })
+          if (!current()) return
+          if (receipt.outcome !== 'queued' && receipt.outcome !== 'accepted') {
+            binding.ids.delete(row.id)
+            await this.reportContractUnconfirmed(sessionId, row, receipt.outcome === 'refused'
+              ? receipt.refusal.detail ?? receipt.refusal.reason
+              : 'the daemon did not acknowledge custody; delivery remains unconfirmed')
+            return
+          }
+        } catch (error) {
+          if (!current()) return
+          binding.ids.delete(row.id)
           log.warn('contract queue forwarding failed', { sessionId, err: error })
-        })
+          await this.reportContractUnconfirmed(sessionId, row, 'the daemon did not acknowledge custody; delivery remains unconfirmed')
+          return
+        }
       }
       if (current()) {
         const remaining = await this.deps.queue.list(sessionId)
@@ -1403,19 +1440,49 @@ export class SessionInbox {
     try { await operation } finally { if (this.forwarding.get(sessionId) === operation) this.forwarding.delete(sessionId) }
   }
 
+  /** Transport uncertainty keeps the row: a delayed proof may still settle it. */
+  private async reportContractUnconfirmed(sessionId: SessionId, row: QueuedInboxMessage, reason: string): Promise<void> {
+    if (this.reportedPromptFailures.has(row.id)) return
+    if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) return
+    this.reportedPromptFailures.add(row.id)
+    const draft = this.deps.draftText?.(sessionId)
+    if (draft === undefined || draft === '' || draft === row.text) {
+      await this.deps.setSessionDraft?.({ sessionId, text: row.text })
+    }
+    const ownerUserId = await this.deps.ownerOf(sessionId)
+    await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}),
+      sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
+  }
+
+  private readonly settlingDeliveries = new Map<string, Promise<void>>()
+
   /** Already ownership/generation-fenced by the runtime event gate. Repeat-safe by row id. */
   async deliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
+    const key = `${sessionId}:${event.rowId}`
+    const pending = this.settlingDeliveries.get(key)
+    if (pending) { await pending; return }
+    const settlement = this.settleDeliveryOutcome(sessionId, event)
+    this.settlingDeliveries.set(key, settlement)
+    try { await settlement } finally { this.settlingDeliveries.delete(key) }
+  }
+
+  private async settleDeliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
     const session = this.deps.getSession(sessionId)
     if (!session) return
     const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
     if (!row) return
     if (event.outcome === 'delivered') {
+      this.reportedPromptFailures.delete(row.id)
       if (row.sourceMessageId) await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
       if (this.deps.draftText?.(sessionId) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
     } else if (event.outcome === 'dropped') {
       await this.deps.authorization.interrupted?.({ sessionId, sourceMessageId: row.sourceMessageId })
     } else {
       const reason = event.reason ?? 'daemon could not confirm delivery'
+      const draft = this.deps.draftText?.(sessionId)
+      if (draft === undefined || draft === '' || draft === row.text) {
+        await this.deps.setSessionDraft?.({ sessionId, text: row.text })
+      }
       await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason })
       const ownerUserId = await this.deps.ownerOf(sessionId)
       await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}), sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
@@ -1430,7 +1497,13 @@ export class SessionInbox {
 
   async drain(sessionId: SessionId, opts?: { justBound?: boolean }): Promise<void> {
     const contractSession = this.deps.getSession(sessionId)
-    if (contractSession && this.routesThroughContract(contractSession)) {
+    const admissionGeneration = this.drainGenerations.get(sessionId)
+    if (!contractSession || this.disposed) return
+    const durableCustody = contractSession &&
+      (await this.deps.queue.list(sessionId)).some((row) => row.deliveryOwner === 'daemon')
+    if (this.disposed || this.deps.getSession(sessionId) !== contractSession ||
+      this.drainGenerations.get(sessionId) !== admissionGeneration) return
+    if (contractSession && (durableCustody || this.routesThroughContract(contractSession))) {
       if (this.deps.nativeViewActive?.(sessionId) === true) return
       void this.forwardContractRows(contractSession, opts?.justBound === true).catch((error) => {
         log.warn('contract admission failed', { sessionId, err: error })

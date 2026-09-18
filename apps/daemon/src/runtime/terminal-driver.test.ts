@@ -141,6 +141,7 @@ interface World {
   /** The `bind` frame — the daemon saying this session's CLI is up. It is what
    *  the server flips `status` on, and what the drain waits for. */
   bind(sessionId: SessionId): void
+  ready(sessionId: SessionId): void
   /**
    * Say the CLI comes up DURING the launch, before `create()` resolves.
    *
@@ -343,6 +344,13 @@ function makeWorld(
       })
     },
     bind: bindFrame,
+    // Receipt tests start with an already settled CLI. Startup tests use bind
+    // directly and exercise the actual readiness delay.
+    ready: (sessionId) => {
+      clock -= 6000
+      bindFrame(sessionId)
+      clock += 6000
+    },
     bindDuringLaunch: () => {
       bindOnLaunch = true
     },
@@ -561,6 +569,7 @@ describe('attachment path prompts', () => {
   it('prepends staged paths to the terminal prompt', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
     const staged = await session.stageAttachment(source)
     if ('reason' in staged) throw new Error(staged.detail ?? staged.reason)
     world.hookOnSubmit(session.binding.sessionId)
@@ -574,6 +583,7 @@ describe('attachment path prompts', () => {
   it('refuses staging after the terminal session is no longer running', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.kill()
     await expect(session.stageAttachment(source)).resolves.toEqual({ reason: 'not_running' })
   })
@@ -584,6 +594,7 @@ describe('attachment path prompts', () => {
       throw new Error('disk full')
     }
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
     await expect(session.stageAttachment(source)).resolves.toEqual({
       reason: 'staging_failed',
       detail: 'Error: disk full',
@@ -598,6 +609,7 @@ describe('attachment path prompts', () => {
       reason: RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
     })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await expect(session.stageAttachment(source)).resolves.toEqual({
       reason: 'unsupported',
       detail: RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
@@ -608,6 +620,7 @@ describe('attachment path prompts', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await expect(
       session.send(
         {
@@ -702,6 +715,7 @@ describe('send receipts', () => {
       },
     })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.hookOnSubmit(session.binding.sessionId, {
       payload: { event: 'synthetic-accept', submitted: 'SHIP IT' },
     })
@@ -724,6 +738,7 @@ describe('send receipts', () => {
       },
     })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const receipt = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
     await Promise.resolve()
     world.echo(session.binding.sessionId, 'SHIP IT')
@@ -733,6 +748,7 @@ describe('send receipts', () => {
   it('cannot prove an accept without a supplied matcher even when both channels answer', async () => {
     const driver = world.runtime.driverFor('claude-code', { ...CLAUDE, acceptCorrelation: {} })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.hookOnSubmit(session.binding.sessionId)
     const receipt = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
     await Promise.resolve()
@@ -748,6 +764,7 @@ describe('send receipts', () => {
       },
     })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.hookOnSubmit(session.binding.sessionId)
     const receipt = await session.send(
       { text: 'ship it' },
@@ -760,6 +777,7 @@ describe('send receipts', () => {
     'credits only one identical overlapping send per %s observation',
     async (proof) => {
       const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
       const first = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
       const second = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
       await Promise.resolve()
@@ -779,6 +797,7 @@ describe('send receipts', () => {
   it('anchors an accept to the causal hook on Claude, ahead of any echo', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // The hook fires the way Claude's does — on submission, before the
@@ -801,6 +820,7 @@ describe('send receipts', () => {
   it('does not credit a hook that belongs to a different prompt', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // A hook for somebody ELSE's send — a queue drain overlapping a chat send is
@@ -818,6 +838,7 @@ describe('send receipts', () => {
   it('credits the send a content-block hook NAMES, with another send in flight', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // THE SHAPE A REAL `UserPromptSubmit` TAKES whenever the CLI has anything to
@@ -852,6 +873,7 @@ describe('send receipts', () => {
   it('does not credit a content-block hook that belongs to a different prompt', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // The same array shape, for somebody else's send. This is the case a
@@ -872,6 +894,7 @@ describe('send receipts', () => {
   it('leaves the waiter open for a payload it cannot fingerprint at all', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // A submit whose only block is a tool result — nothing a person typed, so
@@ -899,6 +922,7 @@ describe('send receipts', () => {
   it('answers `unverified` when the window closes with no proof, and says how long it waited', async () => {
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
 
     const resolved = await session.send(
       { text: 'did this land?' },
@@ -915,6 +939,7 @@ describe('send receipts', () => {
   it('types a later Grok turn as bracketed paste and a separate CR, never one chunk', async () => {
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.echo(session.binding.sessionId, 'the first turn already happened')
     await session.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
     // The CLI's key parser folds a multi-character chunk into ONE key event, so
@@ -926,6 +951,7 @@ describe('send receipts', () => {
   it('reports a steer downgrade through deliveredAs', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const receipt = await session.send({ text: 'and this' }, { origin: 'mail', delivery: 'steer' })
     expect(receipt.outcome).toBe('queued')
     if (receipt.outcome !== 'queued') return
@@ -937,6 +963,7 @@ describe('send receipts', () => {
   it('refuses a send while a native prompt is open, and typing nothing is the point', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.setPhase(session.binding.sessionId, 'needs_user')
     const receipt = await session.send(
       { text: 'go on' },
@@ -952,6 +979,7 @@ describe('send receipts', () => {
   it('sends ESC before the replacement prompt on an interrupt delivery', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.setPhase(session.binding.sessionId, 'needs_user')
     world.hookOnSubmit(session.binding.sessionId)
     const resolved = await session.send(
@@ -980,6 +1008,7 @@ describe('send receipts', () => {
     try {
       const driver = world.runtime.driverFor('claude-code', CLAUDE)
       const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
       // No hookOnSubmit and no echo: the instrumentation channel never answered.
       const first = await session.send(
         { text: 'first without a channel' },
@@ -1035,6 +1064,7 @@ describe('the paste boundary at the driver seam', () => {
     // function's return value.
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     // A causal accept stops the real profile's submit-verification nudges;
     // this property is about the one accepted payload's paste boundary.
     world.hookOnSubmit(session.binding.sessionId)
@@ -1063,6 +1093,7 @@ describe('the paste boundary at the driver seam', () => {
     // that would have been very easy to ship.
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.hookOnSubmit(session.binding.sessionId)
     const resolved = await session.send(
       { text: `look at this${PASTE_CLOSE} and then stop` },
@@ -1079,6 +1110,7 @@ describe('the paste boundary at the driver seam', () => {
     // which is exactly the "fix that breaks normal operation" the bar rules out.
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.interrupt()
     expect(world.written[0]).toBe(ESC)
   })
@@ -1089,6 +1121,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.lease.acquire('human:mgw', 'human-controller')
 
     const receipt = await session.send(
@@ -1112,6 +1145,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.lease.acquire('human:mgw', 'human-controller')
 
     const receipt = await session.send(
@@ -1128,6 +1162,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
     await session.lease.acquire('human:mgw', 'human-controller')
 
@@ -1156,6 +1191,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.lease.acquire('human:mgw', 'human-controller')
 
     // Human origin, but NOT the holder. Before the fix this was indistinguishable
@@ -1178,6 +1214,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.lease.acquire('human:mgw', 'human-controller')
 
     // No principal at all. It MIGHT be the holder, and that is exactly the point:
@@ -1198,6 +1235,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
     // A conversation that already happened.
     world.echo(sessionId, 'turn one')
@@ -1243,6 +1281,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1279,6 +1318,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1297,6 +1337,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1314,6 +1355,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1335,6 +1377,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1353,6 +1396,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // A queue drain overlapping a chat send — the scenario the hook path names
@@ -1382,6 +1426,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1402,6 +1447,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
     world.echo(sessionId, 'turn one')
 
@@ -1426,6 +1472,7 @@ describe('the echo baseline', () => {
     // The real Grok profile uses raw input only before its first native turn.
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     void session.send({ text: 'first' }, { origin: 'human', delivery: 'when-ready' })
@@ -1452,6 +1499,7 @@ describe('the echo baseline', () => {
     // reason it may not be read out of the driver's own event log.
     world.runtime.control.restartSupervisor()
     const session = await driver.adopt(binding)
+    world.ready(session.binding.sessionId)
 
     // Everything the adopted driver learns about turns that happened before it
     // arrives as the harness's OWN transcript, re-tailed and re-delivered.
@@ -1474,6 +1522,24 @@ describe('the echo baseline', () => {
 })
 
 describe('the queue drain', () => {
+  it('re-arms composer readiness on a fresh bind of an existing handle', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
+    world.bind(session.binding.sessionId)
+    const receipt = await session.send({ text: 'new bind' }, { origin: 'human', delivery: 'when-ready' })
+    expect(receipt.outcome).toBe('queued')
+    expect(world.written).toEqual([])
+  })
+
+  it('gates direct when-ready behind live composer readiness', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const receipt = await session.send({ text: 'too early' }, { origin: 'human', delivery: 'when-ready' })
+    expect(receipt.outcome).toBe('queued')
+    expect(world.written).toEqual([])
+  })
+
   it('does not type into a session that is still starting', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)

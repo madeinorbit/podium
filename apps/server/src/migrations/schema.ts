@@ -1037,6 +1037,7 @@ export const queuedMessages = sqliteTable(
     queuedAt: integer('queued_at').notNull(),
     inputOrigin: text('input_origin').default('unknown').notNull(),
     attempts: integer().default(0).notNull(),
+    deliveryOwner: text('delivery_owner'),
     // Authorization identity is a REFERENCE, never a capability snapshot. Agent
     // rows carry the SessionBinding/delegation seam; every drain resolves it live.
     principalKind: text('principal_kind').default('system').notNull(),

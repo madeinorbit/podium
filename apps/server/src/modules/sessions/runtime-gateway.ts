@@ -117,6 +117,8 @@ export interface RuntimeDaemonRpcPort {
     input: {
       sessionId: SessionId
       rowId?: string
+      deliveryRecovery?: boolean
+      initialPrompt?: boolean
       turnId?: string
       text: string
       origin: ObservationInputOrigin
@@ -206,6 +208,8 @@ export class SessionRuntimeGateway {
   async send(input: {
     sessionId: SessionId
     rowId?: string
+    deliveryRecovery?: boolean
+    initialPrompt?: boolean
     turnId?: string
     text: string
     origin: ObservationInputOrigin

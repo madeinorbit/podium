@@ -823,6 +823,8 @@ export class DaemonRpcService {
     input: {
       sessionId: SessionId
       rowId?: string
+      deliveryRecovery?: boolean
+      initialPrompt?: boolean
       turnId?: string
       text: string
       origin: ObservationInputOrigin
@@ -841,8 +843,12 @@ export class DaemonRpcService {
         at: new Date().toISOString(),
       }),
       (requestId) => ({
-        type: 'runtimeSendRequest',
-        rowId: input.rowId,
+        ...(input.rowId ? {
+          type: 'runtimeDurableSendRequest' as const,
+          rowId: input.rowId,
+          deliveryRecovery: input.deliveryRecovery === true,
+          initialPrompt: input.initialPrompt === true,
+        } : { type: 'runtimeSendRequest' as const }),
         requestId,
         turnId: input.turnId ?? requestId,
         sessionId: input.sessionId,

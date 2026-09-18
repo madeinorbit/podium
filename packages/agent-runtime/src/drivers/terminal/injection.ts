@@ -277,6 +277,8 @@ export type QueueDrainAbandonedReason = Extract<
 >
 
 export interface DeliverOptions {
+  durable?: boolean
+  initialPrompt?: boolean
   signal?: AbortSignal
   origin: InputOrigin
   /** `when-ready` and `interrupt` reach here; `queue` is the queue below and
@@ -370,6 +372,8 @@ export function createTerminalInjection(
     hookWatch: AcceptWatch | undefined,
     echoWatch: AcceptWatch | undefined,
     signal?: AbortSignal,
+    durable = false,
+    initialPrompt = false,
   ): Promise<'hook' | 'transcript-echo' | null> {
     let hookFired = false
     let echoFired = false
@@ -381,9 +385,11 @@ export function createTerminalInjection(
     })
     let retriesLeft = ports.needsSubmitVerification() ? SUBMIT_MAX_RETRIES : 0
     let nudging = true
-    const deadline = ports.now() + VERIFICATION_WINDOW_MS
+    const windowMs = initialPrompt ? 30_000 : VERIFICATION_WINDOW_MS
+    let deadline = ports.now() + windowMs
+    const heldUntil = ports.now() + 30 * 60_000
 
-    while (ports.now() < deadline) {
+    while (ports.now() < deadline && ports.now() < heldUntil) {
       // Race BOTH proofs against the tick so a proof that has already landed is
       // not made to wait out a 1.6s poll it already answered.
       const tick = sleep(SUBMIT_VERIFY_DELAY_MS)
@@ -391,11 +397,11 @@ export function createTerminalInjection(
       if (hookWatch) settled.push(hookWatch.accepted)
       if (echoWatch) settled.push(echoWatch.accepted)
       await Promise.race(settled)
-      if (signal?.aborted) return null
       // THE DECLARED ORDER, and the hook wins a tie on purpose: it is the causal
       // signal, so where both landed the stronger one is the honest attribution.
       if (hookFired) return 'hook'
       if (echoFired) return 'transcript-echo'
+      if (signal?.aborted) return null
       // A dead session cannot echo and cannot be nudged. Stop; the caller gets
       // `unverified`, which is the truth: the bytes went out, nothing confirmed.
       if (!ports.running()) return null
@@ -404,6 +410,7 @@ export function createTerminalInjection(
       // and a stray CR into a busy composer is its own bug. Stop NUDGING — but
       // keep watching, because the echo may still be a moment away.
       if (phase !== undefined && phase !== 'idle') nudging = false
+      if (durable && (phase === 'working' || phase === 'compacting')) deadline = ports.now() + windowMs
       if (nudging && retriesLeft > 0) {
         retriesLeft -= 1
         ports.write('\r')
@@ -455,12 +462,13 @@ export function createTerminalInjection(
         if (!options.signal?.aborted && ports.running()) ports.write('\r')
       }, SUBMIT_CR_DELAY_MS)
 
-      const proof = await awaitProof(hookWatch, echoWatch, options.signal)
+      const verificationStartedAt = ports.now()
+      const proof = await awaitProof(hookWatch, echoWatch, options.signal, options.durable, options.initialPrompt)
       if (!proof) {
         return {
           outcome: 'unverified',
           deliveredAs: options.delivery,
-          verificationWindowMs: VERIFICATION_WINDOW_MS,
+          verificationWindowMs: ports.now() - verificationStartedAt,
           at: new Date(ports.now()).toISOString(),
         }
       }
