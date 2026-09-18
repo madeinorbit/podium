@@ -1,10 +1,10 @@
-import { createCollection, createLiveQueryCollection, eq, count, max, sum, caseWhen, coalesce, gt, type SyncConfig } from '@tanstack/db'
+import { createCollection, createLiveQueryCollection, BasicIndex, eq, count, max, sum, caseWhen, coalesce, gt, type SyncConfig } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { useEffect, useMemo } from 'react'
 import { GROUP, NOW, counters, band, worklistJS, type Fixture, type Session } from './model'
 function source<T extends object>(rows: T[], getKey: (row: T) => string) {
   let sync!: Parameters<SyncConfig<T, string>['sync']>[0]
-  const collection = createCollection<T, string>({ getKey, startSync: true, gcTime: 0,
+  const collection = createCollection<T, string>({ getKey, startSync: true, gcTime: 0, autoIndex: 'eager', defaultIndexType: BasicIndex,
     sync: { rowUpdateMode: 'full', sync(params) {
       sync = params; params.begin(); for (const value of rows) params.write({ type: 'insert', value })
       params.commit(); params.markReady()
@@ -17,10 +17,12 @@ export function createTanstackProof(data: Fixture) {
   const counts = counters()
   const sessions = source(data.sessions, s => s.sessionId)
   const issues = source(data.issues, i => i.id)
+  sessions.collection.createIndex(s => s.issueId)
+  issues.collection.createIndex(i => i.parentId)
   const clock = source([{ id: 'clock', now: NOW }], c => c.id)
   const phases = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
-    .groupBy(({ s }) => [s.issueId, s.agentState.phase])
-    .select(({ s }) => ({ issueId: s.issueId, phase: s.agentState.phase, count: count(s.sessionId) })) })
+    .groupBy(({ s }) => [s.issueId, coalesce(s.agentState?.phase, 'unknown')])
+    .select(({ s }) => ({ issueId: s.issueId, phase: coalesce(s.agentState?.phase, 'unknown'), count: count(s.sessionId) })) })
   const latest = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ s: sessions.collection })
     .groupBy(({ s }) => s.issueId).select(({ s }) => ({ issueId: s.issueId, latest: max(s.lastActiveAt) })) })
   const children = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: issues.collection })
@@ -50,6 +52,10 @@ export function createTanstackProof(data: Fixture) {
   const queries = [phases, latest, children, summary, summaryPhases, groupIssues, groupSessions, ranked, group]
   return { counts, sessions: sessions.collection, issues: issues.collection, phases, children, summary, summaryPhases,
     groupIssues, groupSessions, ranked, group,
+    observeNative() {
+      const stops = queries.map(q => q.subscribeChanges(changes => { counts.nativeOutputChanges += changes.length }))
+      return () => { for (const stop of stops) stop.unsubscribe() }
+    },
     row(id: string, reader: number) { let query = rowQueries.get(reader); if (!query) { query = rowQuery(id); rowQueries.set(reader, query) }; return query },
     update: (s: Session) => sessions.update(s), tick: (now: number) => clock.update({ id: 'clock', now }),
     replace(next: Fixture) { issues.replace(next.issues); sessions.replace(next.sessions) },

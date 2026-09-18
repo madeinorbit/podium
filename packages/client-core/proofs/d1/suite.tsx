@@ -55,6 +55,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
             </>
             const view = render(elements)
             await act(settle)
+            const stopNative = tanstack?.observeNative()
             const bootstrapMs = performance.now() - start
             gc(); const mountedHeapDeltaBytes = process.memoryUsage().heapUsed - heapBefore
             const oracle = () => summaryJS(data.issues[0]!, data.sessions.filter(s => s.issueId === 'i0'), data.issues.filter(i => i.parentId === 'i0'), counters())
@@ -86,7 +87,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
               await act(async () => { proof.replace(next); await settle() })
               rescope.push(performance.now() - t)
             }
-            view.unmount(); await settle()
+            view.unmount(); stopNative?.(); await settle()
             const beforeUnmounted = { ...proof.counts }
             proof.update({ ...data.sessions[0]!, lastActiveAt: new Date(NOW + 500_000).toISOString() })
             await new Promise(resolve => setTimeout(resolve, 20))

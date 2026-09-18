@@ -9,7 +9,7 @@ export const NOW = Date.parse('2026-09-18T12:00:00Z')
 export const GROUP = 200
 export type Session = SessionMeta
 export type Issue = IssueNavigationModel
-export const counters = () => ({ summary: 0, sessionVisits: 0, childVisits: 0, mission: 0, nesting: 0, rank: 0 })
+export const counters = () => ({ summary: 0, sessionVisits: 0, childVisits: 0, mission: 0, nesting: 0, rank: 0, nativeOutputChanges: 0 })
 export type Counts = ReturnType<typeof counters>
 export function fixture(scale: 'live' | 'growth' = 'live') {
   // A3 live/growth cardinalities and wire shapes, enriched with families and phases.
@@ -30,7 +30,7 @@ export function fixture(scale: 'live' | 'growth' = 'live') {
     title: `Session ${n}`, status: 'live', controllerId: `c${n}`, geometry: { cols: 80, rows: 24 },
     epoch: 1, clientCount: 1, createdAt: '2026-09-18T10:00:00Z', lastActiveAt: '2026-09-18T10:00:00Z',
     origin: { kind: 'spawn' }, archived: false, readAt: '2026-09-18T11:00:00Z', unread: false,
-    agentState: { phase: ['working', 'needs_user', 'idle'][n % 3], since: '2026-09-18T10:00:00Z' },
+    agentState: { phase: ['working', 'needs_user', 'done'][n % 3], since: '2026-09-18T10:00:00Z' },
   } as unknown as Session))
   return { issues, sessions }
 }
