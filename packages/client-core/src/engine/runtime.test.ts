@@ -376,6 +376,98 @@ describe('engine lifecycle', () => {
     engine.dispose()
   })
 
+  it('publishes one machine snapshot for duplicate bursts and reporting clock changes', async () => {
+    const { engine, hub } = makeEngine()
+    engine.start()
+    await settle()
+    const publish = vi.fn()
+    const machinePublish = vi.fn()
+    let previousMachines = engine.getSnapshot().machines
+    engine.subscribe(() => {
+      publish()
+      const machines = engine.getSnapshot().machines
+      if (machines !== previousMachines) machinePublish()
+      previousMachines = machines
+    })
+    const machine = {
+      id: 'machine-a', online: true, lastSeenAt: 'before', buildReportedAt: 'before',
+      services: { server: { state: 'available', observedAt: 'before' },
+        agentExecution: { state: 'available', observedAt: 'before' } },
+    }
+    hub.emit('machines', [machine])
+    const snapshot = engine.getSnapshot()
+    // The scope change also publishes reposLoading; count machine publications
+    // separately, then require duplicate/clock frames to publish nothing at all.
+    expect(machinePublish).toHaveBeenCalledTimes(1)
+    publish.mockClear()
+    hub.emit('machines', [structuredClone(machine)])
+    hub.emit('machines', [{ ...machine, lastSeenAt: 'after', buildReportedAt: 'after',
+      services: { server: { observedAt: 'after', state: 'available' },
+        agentExecution: { observedAt: 'after', state: 'available' } } }])
+    expect(publish).not.toHaveBeenCalled()
+    expect(engine.getSnapshot()).toBe(snapshot)
+    engine.dispose()
+    engine.start()
+    publish.mockClear()
+    hub.emit('machines', [structuredClone(machine)])
+    expect(publish).toHaveBeenCalledTimes(1)
+    engine.dispose()
+  })
+
+  it.each([
+    ['online', { online: false }],
+    ['inventory revision', { inventory: { rev: 2 } }],
+    ['harness versions', { harnessVersions: [{ harness: 'codex', version: '2' }] }],
+    ['use', { use: 'denied' }],
+    ['caps', { deliveryCaps: ['new-cap'] }],
+    ['crash ownership', { services: { crashOwner: 'supervisor' } }],
+    ['unknown future field', { futureField: { value: 2 } }],
+    ['unknown timestamp', { futureAt: 'later' }],
+    ['revocation', { revokedAt: 'later' }],
+  ])('publishes material machine changes: %s', async (_name, patch) => {
+    const { engine, hub } = makeEngine()
+    engine.start()
+    await settle()
+    const machine = { id: 'machine-a', online: true }
+    hub.emit('machines', [machine])
+    const publish = vi.fn()
+    engine.subscribe(publish)
+    hub.emit('machines', [{ ...machine, ...patch }])
+    expect(publish).toHaveBeenCalledTimes(1)
+    engine.dispose()
+  })
+
+  it('ignores membership order but publishes additions and removals', async () => {
+    const { engine, hub } = makeEngine()
+    engine.start()
+    await settle()
+    const a = { id: 'a', online: true }
+    const b = { id: 'b', online: true }
+    hub.emit('machines', [a, b])
+    const publish = vi.fn()
+    engine.subscribe(publish)
+    hub.emit('machines', [b, a])
+    expect(publish).not.toHaveBeenCalled()
+    hub.emit('machines', [a])
+    hub.emit('machines', [a, b])
+    expect(publish).toHaveBeenCalledTimes(2)
+    engine.dispose()
+  })
+
+  it('forgets the hub comparison when a repo refresh replaces machines', async () => {
+    const { engine, hub } = makeEngine()
+    engine.start()
+    await settle()
+    const machine = { id: 'a', online: true }
+    hub.emit('machines', [machine])
+    // The scope-triggered refresh returns an empty machine list.
+    await settle()
+    expect(engine.getSnapshot().machines).toEqual([])
+    hub.emit('machines', [machine])
+    expect(engine.getSnapshot().machines).toEqual([machine])
+    engine.dispose()
+  })
+
   it('refreshes an authorized repo snapshot when a machine event keeps the same online count', async () => {
     const api = makeApi()
     const { engine, hub } = makeEngine({ api })

@@ -48,6 +48,8 @@
  * authentication has produced a principal. The provider renders nothing instead.
  */
 
+import { machinesMaterialSignature } from './machines-material'
+
 import { createLogger } from '@podium/logger'
 import type {
   IssueId,
@@ -290,6 +292,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private workspaceKey: WorkspaceKey
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
+  private lastMachinesMaterial: string | undefined
   private started = false
   /** Set by destroy(). The state choke point refuses everything after it, so a
    *  superseded principal's late callback cannot reach any consumer. */
@@ -620,7 +623,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     let machineScopeSignature: string | undefined
     offs.push(
       this.hub.on('machines', (m) => {
-        this.apply({ machines: m })
+        // Scope equality below only gates repo refresh. Publication equality
+        // includes every material field, including unknown future wire fields.
+        const material = machinesMaterialSignature(m)
+        if (material === undefined || material !== this.lastMachinesMaterial) {
+          this.apply({ machines: m })
+          this.lastMachinesMaterial = material
+        }
         const nextSignature = m
           .map(
             (machine) =>
@@ -789,6 +798,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  (React StrictMode's dev double-mount). This is NOT the principal boundary
    *  — see {@link destroy}. */
   dispose(): void {
+    this.lastMachinesMaterial = undefined
     this.started = false
     bindSwitchTraceUi(null)
     if (this.connectTimer !== null) {
@@ -861,6 +871,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  than requiring each of them to remember to check. */
   private apply(patch: Partial<EngineState>): void {
     if (this.destroyed) return
+    // Boot/repo refresh also replaces machines. Forget the hub signature so
+    // the next frame cannot compare against a snapshot we no longer publish.
+    if ('machines' in patch) this.lastMachinesMaterial = undefined
     if (this.batchDepth > 0) {
       this.pendingBatch = { ...this.pendingBatch, ...patch }
       return
