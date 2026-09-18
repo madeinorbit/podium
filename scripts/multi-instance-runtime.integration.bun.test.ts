@@ -478,7 +478,7 @@ async function transferDiagnostics(specs: InstanceSpec[], marker: string): Promi
   return sections.join('\n')
 }
 
-function jsonOutput(result: CliResult): { data?: unknown } {
+function jsonOutput(result: CliResult): { data?: unknown; error?: string } {
   const line = result.stdout
     .trim()
     .split('\n')
@@ -1825,8 +1825,25 @@ exec "$CANARY_REAL_CLI" "$@"
     expect(namedOwnerRow.durableLabel).not.toContain('user:')
     await namedOwnerApi.sessions.kill.mutate({ sessionId: namedOwnerSession.sessionId })
 
+    // Fresh self-hosted CLI: a listening supervisor/daemon does not establish a
+    // repo placement. Exhaust the bounded wait and preserve the S9 refusal.
+    const refusedAt = Date.now()
+    const beforeDiscovery = await runCli(compat, [
+      'issue', 'create', '--repoPath', ROOT, '--title', 'Before discovery', '--json',
+    ])
+    expect(beforeDiscovery.code).toBe(1)
+    expect(jsonOutput(beforeDiscovery).error).toBe(
+      `no reporting machine for repo path ${ROOT}; choose a machine or wait for discovery`,
+    )
+    expect(Date.now() - refusedAt).toBeGreaterThanOrEqual(5_000)
+    expect(await trpc(compat).issues.list.query({})).toEqual([])
+
+    // This row proves instance routing. Explicitly register the fixture checkout
+    // on each daemon's machine, rather than relying on home discovery to find a
+    // worktree outside the fixture's private agent home. The first registration
+    // arrives while the real operator CLI is waiting for its first repo report.
     const title = 'Default runtime acceptance'
-    const created = await runCli(compat, [
+    const creating = runCli(compat, [
       'issue',
       'create',
       '--repoPath',
@@ -1835,9 +1852,15 @@ exec "$CANARY_REAL_CLI" "$@"
       title,
       '--json',
     ])
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    await trpc(compat).repos.add.mutate({ path: ROOT, machineId: compatMachineId })
+    await trpc(named).repos.add.mutate({ path: ROOT, machineId: namedMachineId })
+    const created = await creating
     expect(created.code, created.stderr).toBe(0)
     const compatList = await runCli(compat, ['issue', 'list', '--repoPath', ROOT, '--json'])
     const namedList = await runCli(named, ['issue', 'list', '--repoPath', ROOT, '--json'])
+    expect(compatList.code, compatList.stderr).toBe(0)
+    expect(namedList.code, namedList.stderr).toBe(0)
     const compatIssues = jsonOutput(compatList).data as Array<{ id: string; title: string }>
     const namedIssues = jsonOutput(namedList).data as Array<{ id: string; title: string }>
     const compatIssue = compatIssues.find((issue) => issue.title === title)

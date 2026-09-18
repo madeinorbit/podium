@@ -193,7 +193,7 @@ export async function resolveRepoArg(
 export async function runIssueCli(
   argv: string[],
   client: IssueTrpc,
-  opts?: { defaultAuthor?: string },
+  opts?: { defaultAuthor?: string; discoveryWaitMs?: number },
 ): Promise<string> {
   // `-h` ≡ `--help`; a leading `--help` reads as the `help` command (no command to attach to).
   const mapped = argv.map((a) => (a === '-h' ? '--help' : a))
@@ -226,12 +226,33 @@ export async function runIssueCli(
   // Fill in --repoPath from the cwd when the command takes one and it was omitted.
   // The infer call is best-effort: a mock client without `repos` (unit tests) throws
   // synchronously, which the try/catch swallows so the args pass through unchanged.
-  const resolved = await resolveRepoArg(command, args, async () => {
-    try {
-      const r = (await client.repos.inferFromPath.query({ path: process.cwd() })) as {
+  // Daemon readiness can precede its first repository report. Wait on
+  // reported roots only: never turn the local host or cwd into a placement.
+  // Only the direct operator entry enables this; explicit machines need no wait.
+  const discoveryDeadline = Date.now() + (opts?.discoveryWaitMs ?? 0)
+  const reportedRepo = async (path: string): Promise<string | undefined> => {
+    while (true) {
+      const result = (await client.repos.inferFromPath.query({ path })) as {
         repoPath: string | null
       }
-      return r.repoPath ?? undefined
+      if (result.repoPath) return result.repoPath
+      const remaining = discoveryDeadline - Date.now()
+      if (command !== 'create' || args.machine != null || remaining <= 0) return undefined
+      await new Promise((resolve) => setTimeout(resolve, Math.min(200, remaining)))
+    }
+  }
+  if (
+    command === 'create' &&
+    args.machine == null &&
+    typeof args.repoPath === 'string' &&
+    (opts?.discoveryWaitMs ?? 0) > 0
+  ) {
+    // A read failure must not mask the create endpoint's existing refusal.
+    await reportedRepo(args.repoPath).catch(() => undefined)
+  }
+  const resolved = await resolveRepoArg(command, args, async () => {
+    try {
+      return await reportedRepo(process.cwd())
     } catch {
       return undefined
     }
@@ -269,7 +290,10 @@ export async function issueCliMain(argv: string[]): Promise<void> {
     ? makeRelayIssueClient(relay, { outsideScope })
     : makeOperatorIssueClient(localServerUrl(resolvePort()))
   try {
-    console.log(await runIssueCli(argv, client, { defaultAuthor: relay ? 'agent' : 'operator' }))
+    console.log(await runIssueCli(argv, client, {
+      defaultAuthor: relay ? 'agent' : 'operator',
+      discoveryWaitMs: relay ? 0 : 5_000,
+    }))
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (argv.includes('--json')) {
