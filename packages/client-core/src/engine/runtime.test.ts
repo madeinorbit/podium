@@ -3125,7 +3125,7 @@ describe('shared session index', () => {
 
 // Same issue click, real runtime/reactions, old setters versus planned commit.
 describe('atomic navigation publication', () => {
-  it('A/B: one navigation publication with identical destination and focus report', async () => {
+  it.each(['warm', 'first-open'] as const)('A/B %s: one navigation publication with identical destination and focus report', async (scenario) => {
     const { storeStats, readRuntimeStoreStats, readStoreStats } = await import('../perf/store-stats')
     const results = []
     const readPublications = []
@@ -3141,6 +3141,19 @@ describe('atomic navigation publication', () => {
       engine.replica.applyChanges('issues', [issue], [])
       engine.replica.applyChanges('sessions', [session], [])
       await settle()
+      if (scenario === 'warm') {
+        // A1's warm path: both layouts already exist in the same worktree,
+        // and the workspace surface is already open. No first-open/view switch.
+        const otherIssue = { ...issue, id: asIssueId('other-issue') }
+        const otherSession = { ...session, sessionId: asSessionId('other-session'), issueId: otherIssue.id }
+        engine.replica.applyChanges('issues', [otherIssue], [])
+        engine.replica.applyChanges('sessions', [otherSession], [])
+        await settle()
+        engine.getSnapshot().navigateWorkspace({ selectedIssueId: issue.id,
+          selectedWorktree: issue.worktreePath, tabId: session.sessionId, firstPane: true })
+        engine.getSnapshot().navigateWorkspace({ selectedIssueId: otherIssue.id,
+          selectedWorktree: issue.worktreePath, tabId: otherSession.sessionId, firstPane: true })
+      }
       const focusBefore = hub.viewStates.length
       const snapshots: Array<ReturnType<typeof engine.getSnapshot>> = []
       const off = engine.subscribe(() => snapshots.push(engine.getSnapshot()))
@@ -3191,7 +3204,7 @@ describe('atomic navigation publication', () => {
       storeStats.enable(false); engine.destroy()
     }
     expect(results).toEqual([
-      { publishes: 5, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
+      { publishes: scenario === 'warm' ? 3 : 5, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
         url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session', baseline: 'nav-issue' },
       { publishes: 1, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
         url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session', baseline: 'nav-issue' },
@@ -3199,7 +3212,7 @@ describe('atomic navigation publication', () => {
     expect(readPublications[0]!.optimistic).toBeGreaterThan(0)
     expect(readPublications[0]!.network).toBeGreaterThan(0)
     expect(readPublications[1]).toEqual(readPublications[0])
-    console.info('B1 navigation A/B', { navigation: results, readPublications })
+    console.info('B1 navigation A/B', { scenario, navigation: results, readPublications })
     storeStats.reset()
   })
 
