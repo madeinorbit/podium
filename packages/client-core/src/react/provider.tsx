@@ -1,3 +1,4 @@
+import { recordStoreSelector } from '../perf/store-stats'
 /**
  * THE REACT BINDING — and the client's ONE principal-scoped composition root
  * (#262 [spec:SP-3fe2], POD-404).
@@ -394,6 +395,7 @@ export function useStoreSelector<T, TApi extends PodiumClientApi = PodiumClientA
     const snap = handle.getSnapshot()
     const c = cache.current
     if (c && c.snap === snap) return c.selected
+    recordStoreSelector(handle)
     const next = selectorRef.current(snap)
     // Keep the previous selected identity when equal, so useSyncExternalStore's
     // Object.is check sees "unchanged" and skips the re-render.

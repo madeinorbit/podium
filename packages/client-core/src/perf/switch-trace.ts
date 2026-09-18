@@ -1,3 +1,4 @@
+import { beginStoreStatsWindow, endStoreStatsWindow, markStoreStats } from './store-stats'
 /**
  * Client switch-latency collector [POD-701]: one correlated ClientSwitchTrace
  * per user gesture that switches the focused session, showing where the time
@@ -19,6 +20,7 @@ import { type ClientSwitchTrace, SWITCH_TRACE_MARKS, type SwitchMark } from '@po
 type MarkMeta = NonNullable<SwitchMark['meta']>
 
 interface ActiveTrace {
+  storeWindow?: number
   switchId: string
   startedAt: number
   sessionId: SessionId
@@ -229,6 +231,7 @@ function quiesced(marks: readonly SwitchMark[]): boolean {
 }
 
 function finalize(t: ActiveTrace, timedOut: boolean): void {
+  endStoreStatsWindow(t.storeWindow)
   if (active === t) active = null
   clearTimeout(t.timer)
   stopLongTaskObserver()
@@ -299,6 +302,7 @@ export function beginSwitch(input: { sessionId: SessionId; issueId?: IssueId | n
     }, QUIESCE_TIMEOUT_MS),
   }
   active = t
+  t.storeWindow = beginStoreStatsWindow('gesture', t.switchId)
   if (switchTraceEnabled()) startLongTaskObserver(t)
 }
 
@@ -312,6 +316,7 @@ export function markSwitch(sessionId: SessionId, name: string, meta?: MarkMeta):
   const t = active
   if (!t || t.sessionId !== sessionId) return
   if (ONCE_MARKS.has(name) && t.marks.some((m) => m.name === name)) return
+  markStoreStats(name)
   const bounded = meta ? boundedMarkMeta(meta) : undefined
   if (t.marks.length < MARKS_MAX) {
     t.marks.push({
@@ -342,7 +347,10 @@ export function setSwitchTraceReporter(fn: ((trace: ClientSwitchTrace) => void) 
 
 /** Test seam: drop the active trace (without reporting) and clear the ring. */
 export function resetSwitchTraces(): void {
-  if (active) clearTimeout(active.timer)
+  if (active) {
+    clearTimeout(active.timer)
+    endStoreStatsWindow(active.storeWindow)
+  }
   stopLongTaskObserver()
   active = null
   recent.length = 0

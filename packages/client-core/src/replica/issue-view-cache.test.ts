@@ -281,3 +281,29 @@ describe('shared issue view-model cache — incremental rebuild', () => {
     expect(models.some((model) => model.id === 'iss_7')).toBe(false)
   })
 })
+
+it('reports actual row builds through the opt-in runtime counter, including cache reuse', async () => {
+  const { storeStats, readStoreStats, bindStoreStatsOwner } = await import('../perf/store-stats')
+  const { replica, projections, legacy } = world()
+  bindStoreStatsOwner(replica, {})
+  storeStats.reset()
+  storeStats.enable()
+  try {
+    allIssueViewModels(replica, projections, legacy)
+    expect(readStoreStats().runtimes[0]?.rowBuilds).toBe(COUNT)
+    allIssueViewModels(replica, projections, legacy)
+    expect(readStoreStats().runtimes[0]?.rowBuilds).toBe(COUNT)
+    allIssueViewModels(
+      replica,
+      projections,
+      foldedLike(legacy, 7, { tuckedAt: '2026-08-14T11:00:00.000Z' } as Partial<IssueWire>),
+    )
+    expect(readStoreStats().runtimes[0]?.rowBuilds).toBe(COUNT + 1)
+    expect(readStoreStats().runtimes[0]?.rowBuilds).toBe(
+      issueViewModelProjectionStats(replica).rowBuilds,
+    )
+  } finally {
+    storeStats.enable(false)
+    storeStats.reset()
+  }
+})

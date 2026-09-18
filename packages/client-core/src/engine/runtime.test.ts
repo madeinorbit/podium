@@ -3018,3 +3018,47 @@ describe('host metrics isolation', () => {
     next.engine.destroy()
   })
 })
+
+describe('opt-in runtime publication diagnostics', () => {
+  it('retains changed keys and distinguishes reaction publishes from outer publishes', async () => {
+    const { storeStats, readStoreStats } = await import('../perf/store-stats')
+    const { engine } = makeEngine()
+    // Controlled reaction isolates the nesting boundary from unrelated timers.
+    const seam = engine as unknown as {
+      apply(patch: Record<string, unknown>): void
+      react(keys: ReadonlySet<string>): void
+    }
+    const reaction = vi.spyOn(seam, 'react').mockImplementation((keys) => {
+      if (keys.has('view')) seam.apply({ coarseNow: 123 })
+    })
+    let wakes = 0
+    const off = engine.subscribe(() => wakes++)
+    try {
+      storeStats.reset()
+      storeStats.enable()
+      seam.apply({ view: 'issues' })
+      expect(readStoreStats().publishes).toMatchObject([
+        { changedKeys: ['view'], nested: false, subscriberWakes: 1 },
+        { changedKeys: ['coarseNow'], nested: true, subscriberWakes: 1 },
+      ])
+      expect(readStoreStats().runtimes[0]).toMatchObject({
+        publishes: 2,
+        nestedPublishes: 1,
+        subscriberWakes: 2,
+      })
+      expect(wakes).toBe(2)
+      seam.apply({ view: 'issues' })
+      expect(readStoreStats().publishes).toHaveLength(2)
+      storeStats.enable(false)
+      seam.apply({ view: 'workspace' })
+      expect(wakes).toBe(3)
+      expect(readStoreStats().publishes).toHaveLength(2)
+    } finally {
+      reaction.mockRestore()
+      off()
+      engine.destroy()
+      storeStats.enable(false)
+      storeStats.reset()
+    }
+  })
+})

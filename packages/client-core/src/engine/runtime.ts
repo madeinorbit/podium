@@ -1,3 +1,4 @@
+import { bindStoreStatsOwner } from '../perf/store-stats'
 /**
  * THE CLIENT RUNTIME — the principal-scoped coordinator (POD-404).
  *
@@ -284,6 +285,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   private readonly state: EngineState
+  private statsReactionDepth = 0
   private readonly subStore: SubscriptionStore<Store<TApi>>
   /** The action methods + constant handles, spread into every snapshot so their
    *  identities never change for the runtime's lifetime. */
@@ -347,6 +349,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // THIS principal. Constructed synchronously so its persisted cursor can seed
     // the hub's first changesSince; entity hydration happens async in start().
     this.replica = init.createReplicaFn(init.principal)
+    bindStoreStatsOwner(this.replica, this)
     this.replicaBinding = createReplicaBinding({ replica: this.replica })
     this.visibility = init.visibility ?? domVisibility()
     this.hub = createEngineHub({
@@ -511,7 +514,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // server there is nothing else that would ever fill it in.
     this.state.drafts = this.hydrateDrafts()
     this.statics = this.buildStatics(actions)
-    this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot())
+    this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot(), undefined, this)
   }
 
   /** Read this device's persisted drafts into the ledger, and return the map the
@@ -896,8 +899,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       }
     }
     if (changed.size === 0) return
-    this.subStore.publish(this.buildSnapshot())
-    this.react(changed)
+    this.subStore.publish(this.buildSnapshot(), changed, this.statsReactionDepth > 0)
+    this.statsReactionDepth++
+    try {
+      this.react(changed)
+    } finally {
+      this.statsReactionDepth--
+    }
   }
 
   /**

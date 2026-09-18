@@ -11,3 +11,4 @@ export * from './use-model-catalog'
 // `hub.subscribeRoom` directly.
 export * from './use-presence-room'
 export * from './use-slice'
+export * from './store-stats-profiler'

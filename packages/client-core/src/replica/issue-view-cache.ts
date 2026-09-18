@@ -1,3 +1,4 @@
+import { recordIssueRowBuild } from '../perf/store-stats'
 /**
  * THE SHARED ISSUE VIEW-MODEL CACHE [ADR 4 D7.3] — one projection of the issue
  * world per replica notification, read by every surface and by the published
@@ -288,6 +289,7 @@ export function modelsFor(
       }
     }
     store.modelRowBuilds++
+    recordIssueRowBuild(replica)
     if (view === undefined) continue
     const next = buildIssueViewModel(snapshot, projection, legacy)
     if (next === undefined) continue

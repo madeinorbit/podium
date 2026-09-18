@@ -1,3 +1,5 @@
+import { recordStorePublish, recordStoreSubscriber } from './perf/store-stats'
+
 /**
  * Minimal external subscription store (Phase 4 client-core unification, #15):
  * a snapshot holder with subscribe/getSnapshot semantics, designed for React's
@@ -18,7 +20,7 @@ export interface SubscriptionStore<T> {
    * identity) is kept and nobody is notified. This is what stops a provider
    * re-render from fanning out when nothing actually changed.
    */
-  publish(next: T): void
+  publish(next: T, changedKeys?: ReadonlySet<string>, nested?: boolean): void
   /** Subscribe to snapshot changes. Returns the unsubscribe function. */
   subscribe(listener: StoreListener): () => void
 }
@@ -43,16 +45,21 @@ export function shallowEqual(a: unknown, b: unknown): boolean {
 export function createSubscriptionStore<T>(
   initial: T,
   isEqual: (a: T, b: T) => boolean = shallowEqual,
+  statsOwner: object = {},
 ): SubscriptionStore<T> {
   let snapshot = initial
   const listeners = new Set<StoreListener>()
   return {
     getSnapshot: () => snapshot,
-    publish(next: T): void {
+    publish(next: T, changedKeys?: ReadonlySet<string>, nested?: boolean): void {
       if (isEqual(snapshot, next)) return
       snapshot = next
+      const publication = recordStorePublish(statsOwner, changedKeys, nested)
       // Copy before iterating: a listener may unsubscribe (or subscribe) others.
-      for (const l of [...listeners]) l()
+      for (const l of [...listeners]) {
+        recordStoreSubscriber(statsOwner, publication)
+        l()
+      }
     },
     subscribe(listener: StoreListener): () => void {
       listeners.add(listener)

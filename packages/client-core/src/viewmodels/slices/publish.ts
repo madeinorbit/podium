@@ -1,3 +1,4 @@
+import { recordSliceDerivation } from '../../perf/store-stats'
 /**
  * SLICE PUBLICATION (POD-330) — compute each slice ONCE per change, no matter
  * how many components read it.
@@ -128,7 +129,10 @@ interface Entry {
  * `getSnapshot`, and the publisher's own lifetime is the runtime's, so nothing
  * survives a principal switch.
  */
-export function createSlicePublisher<TSource>(getSource: () => TSource): SlicePublisher<TSource> {
+export function createSlicePublisher<TSource>(
+  getSource: () => TSource,
+  statsOwner: object = getSource,
+): SlicePublisher<TSource> {
   const entries = new Map<string, Entry>()
   const counts = new Map<string, number>()
 
@@ -147,6 +151,7 @@ export function createSlicePublisher<TSource>(getSource: () => TSource): SlicePu
         entries.set(def.name, { source, value: cached.value })
         return cached.value as T
       }
+      recordSliceDerivation(statsOwner, def.name)
       const next = def.derive(source)
       counts.set(def.name, (counts.get(def.name) ?? 0) + 1)
       const isEqual = def.isEqual ?? Object.is

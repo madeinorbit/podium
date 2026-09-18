@@ -47,7 +47,7 @@ function publisherFor<TApi extends PodiumClientApi>(
 ): SlicePublisher<Store<TApi>> {
   const existing = publishers.get(handle as object)
   if (existing) return existing as unknown as SlicePublisher<Store<TApi>>
-  const created = createSlicePublisher(() => handle.getSnapshot())
+  const created = createSlicePublisher(() => handle.getSnapshot(), handle)
   publishers.set(handle as object, created as unknown as SlicePublisher<Store<PodiumClientApi>>)
   return created
 }
