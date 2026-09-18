@@ -139,4 +139,71 @@ describe('effective-state change contract (unwired reference publisher)', () => 
     source.subscribe(() => calls++)()
     expect(calls).toBe(0)
   })
+
+  it('finishes seed installation before delivering a nested write', () => {
+    const source = createEffectiveChanges(view([]))
+    const order: string[] = []
+    source.subscribe((event) => {
+      if (event.type === 'replace') {
+        order.push('seed:start')
+        source.publish({ type: 'update', view: view([row('nested')]), rows: [address], local: [] })
+        order.push('seed:end')
+      } else order.push('update')
+    })
+    expect(order).toEqual(['seed:start', 'seed:end', 'update'])
+  })
+
+  it('removes a throwing seed registration but drains its writes to other listeners', () => {
+    const source = createEffectiveChanges(view([]))
+    let existing = 0, failed = 0
+    source.subscribe((event) => { if (event.type === 'update') existing++ })
+    expect(() => source.subscribe(() => {
+      failed++
+      source.publish({ type: 'update', view: view([]), rows: [], local: [] })
+      throw new Error('seed failed')
+    })).toThrow(AggregateError)
+    source.publish({ type: 'update', view: view([]), rows: [], local: [] })
+    expect(existing).toBe(2)
+    expect(failed).toBe(1)
+  })
+
+  it('supports explicit keyed membership invalidation without tracked reads', () => {
+    const session = (id: string, issueId: string) => ({ ...row(id), sessionId: id, issueId })
+    const source = createEffectiveChanges(view([session('s', 'a'), session('t', 'b')]))
+    // Small contract consumer, not a production adapter: retain old membership,
+    // install the whole commit, then notify each affected bucket once.
+    const rows = new Map<string, Readonly<SessionMeta>>()
+    const observed: Array<[string, string[]]> = []
+    source.subscribe((event) => {
+      const dirty = new Set<string>()
+      const install = (id: string) => {
+        const old = rows.get(id), next = event.view.row('sessions', id)
+        if (old?.issueId) dirty.add(old.issueId)
+        if (next?.issueId) dirty.add(next.issueId)
+        if (next) rows.set(id, next)
+        else rows.delete(id)
+      }
+      if (event.type === 'replace') {
+        for (const old of rows.values()) if (old.issueId) dirty.add(old.issueId)
+        rows.clear()
+        for (const id of event.view.ids('sessions')) install(id)
+      } else {
+        for (const { kind, id } of event.rows) if (kind === 'sessions') install(id)
+      }
+      for (const key of dirty) observed.push([key, [...rows.values()].filter(s => s.issueId === key).map(s => s.sessionId)])
+    })
+    observed.length = 0
+    source.publish({ type: 'update', view: view([session('s', 'b'), session('t', 'a')]), rows: [address, { kind: 'sessions', id: 't' }], local: [] })
+    expect(observed).toEqual([['a', ['t']], ['b', ['s']]])
+    observed.length = 0
+    source.publish({ type: 'update', view: view([session('t', 'a')]), rows: [address], local: [] })
+    expect(observed).toEqual([['b', []]])
+    observed.length = 0
+    source.publish({ type: 'update', view: view([session('t', 'a'), session('s', 'b')]), rows: [address], local: [] })
+    expect(observed).toEqual([['b', ['s']]])
+    observed.length = 0
+    source.publish({ type: 'replace', reason: 'rescope', view: view([session('u', 'c')]) })
+    expect(observed).toEqual([['a', []], ['b', []], ['c', ['u']]])
+  })
+
 })

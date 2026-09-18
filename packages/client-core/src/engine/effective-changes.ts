@@ -39,7 +39,8 @@ export type EffectiveCommit =
   | {
       readonly type: 'update'
       readonly view: EffectiveReadView
-      /** Candidate addresses, including overlay-only writes. Duplicates allowed. */
+      /** Complete invalidation signal, including overlay-only writes and presence
+       * transitions. Reads do not discover dependencies. Duplicates allowed. */
       readonly rows: readonly EffectiveAddress[]
       readonly local: readonly EffectiveLocalKey[]
     }
@@ -55,11 +56,12 @@ export function createEffectiveChanges(initial: EffectiveReadView) {
   let current = initial
   let destroyed = false
   let draining = false
+  let seeding = 0
   const listeners = new Set<{ notify: (publication: EffectivePublication) => void }>()
   const pending: Array<{ publication: EffectivePublication; targets: Array<{ notify: (publication: EffectivePublication) => void }> }> = []
 
   function drain(): void {
-    if (draining) return
+    if (draining || seeding > 0) return
     draining = true
     const errors: unknown[] = []
     try {
@@ -84,8 +86,18 @@ export function createEffectiveChanges(initial: EffectiveReadView) {
       listeners.add(target)
       // Direct seed delivery also works inside a listener: it includes all
       // already accepted commits; that listener is excluded from queued deltas.
+      const errors: unknown[] = []
+      seeding++
       try { notify({ type: 'replace', reason: 'seed', view: current }) }
-      catch (error) { listeners.delete(target); throw error }
+      catch (error) { listeners.delete(target); errors.push(error) }
+      finally { seeding-- }
+      // A seed is a delivery boundary too: never re-enter its listener with a
+      // nested write before the complete seed has been installed.
+      try { drain() } catch (error) { errors.push(error) }
+      if (errors.length > 0) {
+        listeners.delete(target)
+        throw new AggregateError(errors, 'Effective-change subscription failed')
+      }
       return () => { listeners.delete(target) }
     },
     publish(commit: EffectiveCommit): void {
