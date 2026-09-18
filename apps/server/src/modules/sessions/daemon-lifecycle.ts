@@ -540,8 +540,12 @@ export class SessionDaemonLifecycle {
         // survivor that fails to reattach is a real death — mark it exited.
         if (s && s.status !== 'exited') {
           this.autoContinue.onSessionGone(s.sessionId) // cancel any armed retry promptly, not at the next backoff tick
-          // the durable host is gone; the agent died with it
-          await this.write(s, (draft) => s.onExit(-1, draft))
+          // Admission can fail even when a durable process survived. Preserve
+          // its diagnosis so the user can distinguish recovery from process loss.
+          await this.write(s, (draft) => {
+            s.onExit(-1, draft)
+            draft.spawnFailure = msg.reason.trim().slice(0, 2000) || 'unknown reattach failure'
+          })
           // Real death (not a boot-time probe of an already-exited row) —
           // notify lock auto-release etc. [spec:SP-85d1]. onExit keeps a
           // hibernated row 'hibernated'; only a genuine exit fires. (Fresh

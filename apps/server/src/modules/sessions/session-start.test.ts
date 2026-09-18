@@ -503,3 +503,45 @@ describe('non-picker driver requests', () => {
     expect(spawns(daemon).at(-1)).not.toHaveProperty('runtimeContract')
   })
 })
+
+
+describe('driver admission recovery diagnosis', () => {
+  it.each([undefined, 'generic-pty'] as const)(
+    'keeps an old row (%s) headed and persists a failed reconnect reason',
+    async (selectedDriverId) => {
+      const store = await openTestStore(':memory:')
+      const first = await makeRegistry(store)
+      const { sessionId } = await first.reg.modules.sessions.createSession({
+        agentKind: 'codex', cwd: '/proj',
+      })
+      await first.reg.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'bind', sessionId, cmd: 'codex', cwd: '/proj', agentKind: 'codex',
+        geometry: { cols: 80, rows: 24 },
+        ...(selectedDriverId ? { driverId: selectedDriverId } : {}),
+      })
+      expect(await store.sessions.getSession(sessionId)).toMatchObject({
+        requestedDriverId: null, selectedDriverId: selectedDriverId ?? null,
+      })
+      first.reg.gateway.detachDaemon(store.hostMachineId)
+      await first.reg.dispose()
+
+      const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+      registries.push(reloaded)
+      const daemon: ControlMessage[] = []
+      await reloaded.gateway.attachDaemon(store.hostMachineId, (message) => daemon.push(message))
+      expect(daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId))
+        .not.toHaveProperty('runtimeContract')
+      const reason = 'terminal driver could not establish a handle; retry this session'
+      await reloaded.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'reattachFailed', sessionId, reason,
+      })
+      expect((await reloaded.modules.sessions.listSessions(undefined, 'rpc'))
+        .find((session) => session.sessionId === sessionId)).toMatchObject({
+          status: 'exited', spawnFailure: reason,
+        })
+      expect(await store.sessions.getSession(sessionId)).toMatchObject({
+        spawnFailure: reason, selectedDriverId: selectedDriverId ?? null,
+      })
+    },
+  )
+})

@@ -37,7 +37,7 @@ import type { Tier } from '../output-scheduler'
 import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { driverTiming } from '../runtime/driver-timing'
-import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
+import { runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
@@ -749,6 +749,11 @@ export async function launchSpawn(
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)
     const profile = terminalProfileFor(msg.agentKind)
+    // Driver selection and handle admission are independent: omission still means
+    // headed, but every profile-bearing agent must have a runtime to bind it.
+    if (profile && !msg.loginHarness && !ctx.agentRuntime) {
+      throw new Error('agent runtime is unavailable; retry after the daemon recovers')
+    }
     const spec: SessionSpec = {
       harness: msg.agentKind,
       selection: {
@@ -835,7 +840,7 @@ export async function launchSpawn(
         ...(newSessionId ? { newSessionId } : {}),
       })
       ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
-      await bindRuntimeContract(ctx, msg, false)
+      await bindRuntimeContract(ctx, msg, false, profile)
       const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
       // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
       // session. attach() is a no-op for harnesses without a driver. Reads the
@@ -901,15 +906,11 @@ export async function launchSpawn(
     const hostHasNoRuntimeSession = !profile || !!msg.loginHarness
     if (installedInstrumentation) {
       await launch(installedInstrumentation)
-    } else if (
-      !hostHasNoRuntimeSession &&
-      ctx.agentRuntime &&
-      runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)
-    ) {
-      await ctx.agentRuntime.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
+    } else if (!hostHasNoRuntimeSession) {
+      await ctx.agentRuntime!.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
+      requireTerminalHandle(ctx, msg, profile)
     } else {
-      // Permanent plain terminals also launch here; only the contract-disabled
-      // and missing-runtime populations are legacy. Do not delete this branch.
+      // Permanent plain terminals still need instrumentation and shared PTY plumbing.
       const instrumentation = await prepareTerminalInstrumentation(
         {
           instrumentation:
@@ -928,6 +929,9 @@ export async function launchSpawn(
       await launch(instrumentation)
     }
   } catch (err) {
+    // A process may already exist when handle construction fails. Use the shared
+    // reaper before reporting failure; never acknowledge a driverless agent.
+    if (ctx.bridges.has(msg.sessionId)) stopSessionProcess(ctx, msg)
     removeSessionInstructions(ctx, msg.sessionId)
     // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
     // must not be applied to whatever is spawned for this id next.
@@ -944,56 +948,53 @@ export async function launchSpawn(
 export const MISSING_SESSION_BINDING_MESSAGE =
   'server-minted SessionBinding instruction is required'
 
-/**
- * Put this session behind the Agent Runtime contract, when the flag says so
- * (POD-1761 W3).
- *
- * CALLED FROM BOTH THE SPAWN AND THE REATTACH PATHS, immediately after the
- * observers are wired, because those are the two moments a session acquires a
- * live bridge — and a driver handle without a bridge would answer `not_running`
- * to everything, which is true but useless.
- *
- * FLAG OFF RETURNS ON THE FIRST LINE. That is the whole of the "zero diff"
- * claim on this path: no handle, no queue, no observation tap entry, and the
- * legacy machinery above ran exactly as it always has.
- */
+/** A selection is intent; only a registered, matching handle admits an agent. */
+function requireTerminalHandle(
+  ctx: DaemonContext,
+  msg: SpawnControl | ReattachControl,
+  profile: NonNullable<ReturnType<typeof terminalProfileFor>>,
+): void {
+  const handle = handleFor(ctx, msg.sessionId)
+  if (
+    !handle ||
+    handle.binding.sessionId !== msg.sessionId ||
+    handle.binding.harness !== msg.agentKind ||
+    handle.binding.family !== 'terminal' ||
+    handle.binding.driver !== profile.driverId
+  ) {
+    throw new Error(`terminal driver '${profile.driverId}' did not establish a handle; retry this session`)
+  }
+}
+
+/** Bind before publishing success, including historical rows with no driver ID.
+ * Shell, login and profile-less terminals have no agent runtime to construct. */
 async function bindRuntimeContract(
   ctx: DaemonContext,
   msg: SpawnControl | ReattachControl,
   rebind: boolean,
+  profile: ReturnType<typeof terminalProfileFor>,
 ): Promise<void> {
-  if (!ctx.agentRuntime) return
-  if (!runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)) return
-  const profile = terminalProfileFor(msg.agentKind)
-  // A shell has no turns, no transcript and no state channel — there is nothing
-  // for a driver to be honest about, so the flag simply does not reach it.
-  if (!profile) return
-  try {
-    await ctx.agentRuntime.bindTerminal(
-      {
-        sessionId: msg.sessionId,
-        agentKind: msg.agentKind,
-        cwd: msg.cwd,
-        resume: msg.resume ?? null,
-        ...(msg.observationGeneration !== undefined
-          ? { observerGeneration: msg.observationGeneration }
-          : {}),
-        ...(msg.observationBindingVersion !== undefined
-          ? { bindingVersion: msg.observationBindingVersion }
-          : {}),
-        rebind,
-      },
-      profile,
-    )
-  } catch (err) {
-    // A DRIVER THAT CANNOT BE BUILT MUST NOT TAKE THE SESSION DOWN WITH IT. The
-    // legacy path is already wired and working at this point; the flagged path is
-    // additive, so its failure is a diagnostic, not a spawn error.
-    log.warn('could not put the session behind the runtime contract', {
-      err,
-      sessionId: msg.sessionId,
-    })
+  if (!profile || ('loginHarness' in msg && msg.loginHarness)) return
+  if (!ctx.agentRuntime) {
+    throw new Error('agent runtime is unavailable; retry after the daemon recovers')
   }
+  await ctx.agentRuntime.bindTerminal(
+    {
+      sessionId: msg.sessionId,
+      agentKind: msg.agentKind,
+      cwd: msg.cwd,
+      resume: msg.resume ?? null,
+      ...(msg.observationGeneration !== undefined
+        ? { observerGeneration: msg.observationGeneration }
+        : {}),
+      ...(msg.observationBindingVersion !== undefined
+        ? { bindingVersion: msg.observationBindingVersion }
+        : {}),
+      rebind,
+    },
+    profile,
+  )
+  requireTerminalHandle(ctx, msg, profile)
 }
 
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
@@ -1502,6 +1503,7 @@ export async function launchServerDriverSession(
   msg: SpawnControl,
   probeDriver: ServerDriverAdmissionProbe = defaultServerDriverAdmissionProbe,
 ): Promise<ServerDriverLaunchResult> {
+  if (msg.loginHarness || !terminalProfileFor(msg.agentKind)) return { handled: false }
   const { preferred } = runtimeDriverIntentForSpawn({
     agentKind: msg.agentKind,
     perSpawn: msg.runtimeContract,
@@ -2065,6 +2067,19 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
    */
   if (await adoptOrResumeEmbeddedClaudeSession(ctx, msg)) return
   if (await adoptServerDriverSession(ctx, msg)) return
+  // An explicit nonterminal request cannot be satisfied by a surviving PTY.
+  // Old rows with omitted intent still recover through their headed profile.
+  if (
+    typeof msg.runtimeContract === 'string' &&
+    (isServerDriverId(msg.runtimeContract) || msg.runtimeContract === 'claude-sdk')
+  ) {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: `runtime driver '${msg.runtimeContract}' has no recoverable binding; retry this session`,
+    })
+    return
+  }
 
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
@@ -2081,7 +2096,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         seedOnFrame: false,
       })
     }
-    await bindRuntimeContract(ctx, msg, true)
+    await bindRuntimeContract(ctx, msg, true, terminalProfileFor(msg.agentKind))
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     const cmd = durableProcessFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
@@ -2270,7 +2285,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // them both through the ordinary onResize path.
     const screens = applied ?? msg.lastKnownGeometry
     ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
-    await bindRuntimeContract(ctx, msg, true)
+    await bindRuntimeContract(ctx, msg, true, terminalProfileFor(msg.agentKind))
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
       // The session's one TerminalScreen model (P2c), not a second emulator.
@@ -2474,10 +2489,25 @@ export const sessionHandlers: Pick<
   | 'sessionOpenUrlDismiss'
 > = {
   spawn: (ctx, msg) => {
-    void handleSpawn(ctx, msg)
+    void handleSpawn(ctx, msg).catch((err) => {
+      ctx.send({
+        type: 'spawnError',
+        sessionId: msg.sessionId,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    })
   },
   reattach: (ctx, msg) => {
-    void handleReattach(ctx, msg)
+    void handleReattach(ctx, msg).catch((err) => {
+      // Failure after acquiring a bridge must not leave a running, undisclosed
+      // agent. The server receives a recoverable failure instead of a bind.
+      if (ctx.bridges.has(msg.sessionId)) stopSessionProcess(ctx, msg)
+      ctx.send({
+        type: 'reattachFailed',
+        sessionId: msg.sessionId,
+        reason: err instanceof Error ? err.message : String(err),
+      })
+    })
   },
 
   kill: (ctx, msg) => {

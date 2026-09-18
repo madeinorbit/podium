@@ -1677,3 +1677,25 @@ describe('Session turn preview', () => {
     expect(late.sent.filter((m) => m.type === 'turnPreview')).toEqual([])
   })
 })
+
+
+describe('persisted lifecycle driver intent', () => {
+  it.each([
+    { selected: undefined, requested: undefined, expected: undefined },
+    { selected: 'generic-pty', requested: undefined, expected: undefined },
+    { selected: 'codex-pty', requested: undefined, expected: undefined },
+    { selected: 'codex-app-server', requested: undefined, expected: 'codex-app-server' },
+    { selected: 'claude-sdk', requested: undefined, expected: 'claude-sdk' },
+    { selected: 'generic-pty', requested: 'claude-pty', expected: 'claude-pty' },
+  ])('preserves old-row and explicit intent: $selected / $requested', ({ selected, requested, expected }) => {
+    const s = makeSession()
+    s.selectedDriverId = selected
+    s.requestedDriverId = requested
+    expect(s.lifecycleDriverRequest()).toBe(expected)
+    // Reattach and wake both consume this method. Omission remains headed;
+    // mandatory daemon admission must not reinterpret it as manifest policy.
+    expect(s.toRow()).toMatchObject({
+      selectedDriverId: selected ?? null, requestedDriverId: requested ?? null,
+    })
+  })
+})

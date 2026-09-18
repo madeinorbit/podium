@@ -23,6 +23,7 @@
 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { AgentSession } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
@@ -151,7 +152,20 @@ function reattachMessage() {
 }
 
 function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonContext {
+  let handle: AgentSessionHandle | undefined
   return {
+    agentRuntime: {
+      handleFor: () => handle,
+      has: () => handle !== undefined,
+      adoptJournalled: async () => ({ found: false }),
+      bindTerminal: async (registration: { sessionId: SessionId; agentKind: string }, profile: { driverId: string }) => {
+        handle = { binding: {
+          sessionId: registration.sessionId, harness: registration.agentKind,
+          family: 'terminal', driver: profile.driverId,
+        } } as AgentSessionHandle
+        return handle
+      },
+    },
     backend: 'abduco',
     settingsDir: join(tmpdir(), 'podium-sizing-claims-reattach'),
     bridges: new Map<SessionId, AgentSession>(),

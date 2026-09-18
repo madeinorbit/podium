@@ -1,36 +1,9 @@
 /**
- * THE FLAG THAT MAKES THE PARALLEL PATH REACHABLE (POD-1761 W3; extended by W5).
- *
- * ---------------------------------------------------------------------------
- * FLAG OFF MEANS ZERO DIFF, AND THAT IS AN ARCHITECTURAL CLAIM, NOT A HOPE
- * ---------------------------------------------------------------------------
- *
- * The terminal driver does not replace anything. It sits BESIDE the existing
- * spawn/observe/inject stack and composes the same machinery, so an unflagged
- * session never constructs a driver handle, never allocates a queue, never
- * registers an observer tap and never emits a `runtime*` frame. The one thing an
- * unflagged session pays is a `Map.has` on the daemon's outbound frame tap,
- * which is why the tap is a lookup rather than a translation.
- *
- * TWO SOURCES, OR-ED. A machine-wide env var is what an operator flips to try
- * the path; a per-spawn field is what lets ONE session be flagged while every
- * other session on the same daemon stays on the legacy path — which is exactly
- * what the e2e lane needs to prove the flag-on behaviour without a second
- * daemon. Neither is authoritative over the other: either one turning it on
- * turns it on, because both mean the same thing.
- *
- * ---------------------------------------------------------------------------
- * W5 WIDENED THE PER-SPAWN FIELD RATHER THAN ADDING A SECOND ONE
- * ---------------------------------------------------------------------------
- *
- * The same field now also carries a DRIVER ID, which is the operator's explicit
- * per-spawn choice of driver (spec §9 phase 3). `true` still means "drive this
- * through the contract, with whatever the manifest's policy picks"; a string
- * means "…with this driver". Driver selection is now independent of this
- * receipt-path flag: a server-capable harness prefers its admitted server driver
- * even when the spawn says nothing, while a fallback with no flag continues on
- * the legacy terminal path. `true` still means "use the contract path and let
- * the manifest choose"; it is not an engine picker.
+ * Compatibility readers for historical rollout settings and driver preferences.
+ * Agent launch/reconnect admission no longer consults the boolean: every agent
+ * needs a verified handle. Shell, login and profile-less terminals are exempt.
+ * Driver selection remains separate: omitted intent means headed, true asks the
+ * manifest policy, and a concrete ID preserves an explicit engine choice.
  */
 
 import type { RuntimeContractRequest } from '@podium/protocol'
@@ -40,16 +13,8 @@ import type { RuntimeContractRequest } from '@podium/protocol'
  *  worse failure than either setting. */
 export const RUNTIME_CONTRACT_ENV = 'PODIUM_RUNTIME_CONTRACT'
 
-/**
- * The machine-wide DEFAULT DRIVER, for an operator who wants every contract
- * session on one driver without editing each spawn.
- *
- * SEPARATE FROM THE BOOLEAN because it answers a different question. The boolean
- * is "is the parallel path on at all"; this is "which driver does it use when a
- * spawn does not say". A machine with this set but the boolean off still drives
- * nothing through the contract, which is the honest reading of two independent
- * switches.
- */
+/** Machine preference used when a caller explicitly delegates to manifest policy.
+ * Omitted per-spawn intent preserves the headed default regardless of this value. */
 export const RUNTIME_DRIVER_ENV = 'PODIUM_RUNTIME_DRIVER'
 
 /** Truthy exactly for `1` and `true`. A flag that accepted anything non-empty
@@ -68,7 +33,8 @@ export function runtimeDriverByEnv(env: NodeJS.ProcessEnv = process.env): string
   return raw ? raw : undefined
 }
 
-/** The per-session answer: the machine-wide switch OR this session's own field.
+/** Historical rollout answer, retained for compatibility readers and tests.
+ *  This is not agent admission: launch and reconnect always require a handle.
  *
  *  A DRIVER ID IMPLIES THE CONTRACT IS ON. Naming a driver and then not being
  *  driven by it is not a state anyone means to ask for. */
