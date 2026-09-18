@@ -39,3 +39,19 @@ runs from dependent queries back to their sources; a source-first armed control
 checks that the lifecycle assertion can detect the reversed order. The native
 query engine's internal operator count is not exposed: `nativeOutputChanges`
 counts output records, not hidden dataflow operations.
+
+## Hand-written comparison (D7)
+
+The third arm, `keyed.tsx`, uses plain immutable Maps, subscriber sets and
+`useSyncExternalStore`, with no added dependency. Run just MobX and keyed through
+the same suite, memory harness and bundle builder:
+
+```sh
+bun scripts/test-heavy.ts -- bun packages/client-core/proofs/d1/validate-d7.ts
+```
+
+`PODIUM_D7_PROOF=1` selects those two arms; D1's default now includes all three.
+The armed coarse control is unchanged. The D7 runner also requires and sets
+`PODIUM_D1_PROOF=1`, so ordinary tests still skip all expensive comparisons.
+See [the D7 decision](../../../../docs/decisions/4364-keyed-store-comparison.md)
+for measurements, cache boundaries, interpretation and the disable path.
