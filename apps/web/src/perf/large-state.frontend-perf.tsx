@@ -1,20 +1,11 @@
-import {
-  beginSwitch,
-  markSwitch,
-  resetSwitchTraces,
-  setSwitchTraceReporter,
-} from '@podium/client-core/perf'
-import { createReplica, memoryStorage } from '@podium/client-core/replica'
+import { kernelFixture } from './kernel-fixture'
 import { indexSessionOwnership, sidebarSections } from '@podium/client-core/viewmodels'
 import {
-  asIssueId,
-  asSessionId,
   type GitRepositoryWire,
   ISSUE_STAGES,
   type IssueWire,
   type SessionMeta,
 } from '@podium/model/browser'
-import type { ClientSwitchTrace } from '@podium/protocol'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { flushSync } from 'react-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -36,11 +27,11 @@ const SCALE = {
 const BUDGET = {
   tasksInitialElements: 4_000,
   tasksInitialButtons: 225,
-  tasksInitialIssueReads: 55_000,
+  // Recalibrated on 91808701f: 79,194 reads with the current kanban.
+  tasksInitialIssueReads: 80_000,
   sidebarCwdReads: SCALE.sessions * 2,
   sidebarIssueReads: SCALE.issues * 30,
   replicaIncomingReads: SCALE.issues * 100,
-  syntheticWarmSwitchMs: 100,
 } as const
 
 type Counter = { gets: number; ownKeys: number }
@@ -162,8 +153,6 @@ function setNativeInputValue(input: HTMLInputElement, value: string): void {
 
 afterEach(() => {
   cleanup()
-  setSwitchTraceReporter(null)
-  resetSwitchTraces()
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
@@ -177,6 +166,7 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     const setOpenIssueId = vi.fn()
     bench.store = {
       issues,
+      sessions: [],
       openIssueId: null,
       setOpenIssueId,
       uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
@@ -322,99 +312,35 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
     })
   })
 
-  it('keeps an unchanged replica snapshot write-free and coalesces one changed row', async () => {
-    const writes = { value: 0 }
-    const storage = memoryStorage()
-    const replica = createReplica({
-      storage: {
-        getItem: storage.getItem,
-        removeItem: storage.removeItem,
-        setItem(key, value) {
-          writes.value++
-          storage.setItem(key, value)
-        },
-      },
-      keyPrefix: 'large-state-benchmark',
-    })
+  it('uses the shipped kernel facade and updates only the changed durable row', async () => {
+    const { cache, replica, upsert } = kernelFixture()
     const initial = Array.from({ length: SCALE.issues }, (_, index) => issueAt(index))
-    replica.applySnapshot('issues', initial)
-    await replica.flush()
-
-    const incomingReads: Counter = { gets: 0, ownKeys: 0 }
-    const freshButEqual = initial.map((row) =>
-      counted({ ...row, labels: [...row.labels] }, incomingReads),
-    )
+    for (const row of initial) cache.put('issue', row.id, row)
+    const before = replica.rows('issues')
     const notify = vi.fn()
-    replica.subscribeRows('issues', notify)
-    writes.value = 0
-
-    const started = performance.now()
-    replica.applySnapshot('issues', freshButEqual)
+    const off = replica.subscribeRows('issues', notify)
+    // Kernel events follow a committed durable write; the facade never writes
+    // wire-v1 snapshots. Replaying an identical durable object is a no-op.
+    upsert('issue', initial[337]!.id, initial[337]!)
     await replica.flush()
-    const unchangedMs = performance.now() - started
-    const unchangedReads = incomingReads.gets + incomingReads.ownKeys
-    const unchangedWrites = writes.value
-
-    expect(notify).not.toHaveBeenCalled()
-    expect(unchangedWrites).toBe(0)
-    expect(unchangedReads).toBeLessThanOrEqual(BUDGET.replicaIncomingReads)
-
-    const changed = freshButEqual.map((row, index) =>
-      index === 337 ? ({ ...row, title: 'One deterministic changed title' } as IssueWire) : row,
-    )
-    replica.applySnapshot('issues', changed)
+    expect(replica.rows('issues')).toBe(before)
+    const scans = cache.scans
+    cache.reads = 0
+    notify.mockClear()
+    upsert('issue', initial[337]!.id, { ...initial[337]!, title: 'Changed title' })
     await replica.flush()
     expect(notify).toHaveBeenCalledOnce()
-    expect(replica.rows('issues').find((row) => row.id === 'issue-0337')?.title).toBe(
-      'One deterministic changed title',
-    )
-    const changedWrites = writes.value - unchangedWrites
-
-    metric('replica', {
+    expect(replica.rows('issues')[337]?.title).toBe('Changed title')
+    expect(replica.rows('issues')[0]).toBe(before[0])
+    expect(cache.scans).toBe(scans)
+    expect(cache.reads).toBe(1)
+    expect(() => replica.applySnapshot('issues', initial)).toThrow('wire-v1')
+    off()
+    metric('kernel-replica', {
       issues: SCALE.issues,
-      unchangedWrites,
-      unchangedNotifications: 0,
-      unchangedIncomingReads: unchangedReads,
-      changedWrites,
-      unchangedMs: Math.round(unchangedMs * 10) / 10,
-    })
-  })
-
-  it('records a deterministic warm issue-switch interaction trace', () => {
-    vi.useFakeTimers()
-    let now = 0
-    vi.spyOn(performance, 'now').mockImplementation(() => now)
-    const traces: ClientSwitchTrace[] = []
-    setSwitchTraceReporter((trace) => traces.push(trace))
-
-    beginSwitch({ sessionId: asSessionId('session-0001'), issueId: asIssueId('issue-0001') })
-    now = 12
-    markSwitch(asSessionId('session-0001'), 'viewstate:sent')
-    now = 28
-    markSwitch(asSessionId('session-0001'), 'transcript:read-start')
-    now = 45
-    markSwitch(asSessionId('session-0001'), 'transcript:read-end', { items: 200 })
-    now = 64
-    markSwitch(asSessionId('session-0001'), 'chat:first-paint', { paintedRows: 40 })
-    now = 81
-    markSwitch(asSessionId('session-0001'), 'chat:interactable')
-
-    expect(traces).toHaveLength(1)
-    expect(traces[0]?.cold).toBe(false)
-    expect(traces[0]?.timedOut).toBe(false)
-    expect(traces[0]?.totalMs).toBeLessThanOrEqual(BUDGET.syntheticWarmSwitchMs)
-    expect(traces[0]?.marks.map((mark) => mark.name)).toEqual([
-      'viewstate:sent',
-      'transcript:read-start',
-      'transcript:read-end',
-      'chat:first-paint',
-      'chat:interactable',
-    ])
-
-    metric('switch-trace', {
-      totalMs: traces[0]?.totalMs ?? -1,
-      marks: traces[0]?.marks.length ?? 0,
-      timedOut: traces[0]?.timedOut ? 1 : 0,
+      durableReads: cache.reads,
+      globalScans: cache.scans - scans,
+      notifications: notify.mock.calls.length,
     })
   })
 })

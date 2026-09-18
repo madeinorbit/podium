@@ -867,7 +867,7 @@ export function Workspace({
   // Warm panels span issue switches [POD-782] [spec:SP-0b2e]: issues are the MAIN
   // way to own sessions, so the deck of mounted panels is the current workspace's
   // tabs UNION the most-recently-viewed sessions from previously-viewed issues,
-  // kept warm up to an LRU cap (8 desktop / 3 mobile). Feeding the warm set the
+  // kept warm up to an LRU cap (3 desktop / 2 mobile). Feeding the warm set the
   // GLOBAL live-session universe (not just this workspace's tabs) is what lets a
   // foreign session stay in the recency list across the switch instead of being
   // pruned the moment its issue leaves the strip — so re-selecting it is a warm

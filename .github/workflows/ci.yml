@@ -374,8 +374,8 @@ jobs:
       # package/integration/agent-smoke lane split and package.json script shape.
       - name: unit tests (cached package tasks)
         run: bun run test:full -- --full-because="CI runs the whole unit graph on every push"
-      # Deterministic Ludovico-scale work/DOM budgets. Wall-clock values are
-      # diagnostics only; the gates use cardinality and operation proxies.
+      # Kernel-backed CI/live/growth profiles: A2 publication, derivation and
+      # row-build ceilings. Named-runner p50/p95 timings are diagnostics only.
       - name: large-state frontend benchmark
         run: bun run test:perf:frontend
 
