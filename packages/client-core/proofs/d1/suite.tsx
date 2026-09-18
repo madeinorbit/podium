@@ -8,6 +8,10 @@ import { createMobxProof, MobxRow, MobxSummary, MobxGroup } from './mobx'
 import { createTanstackProof, TanstackRow, TanstackSummary, TanstackGroup } from './tanstack'
 import { fixture, NOW, counters, summaryJS, worklistJS, GROUP, type Counts } from './model'
 
+// Compare wire/domain semantics; TanStack adds these four documented virtual
+// properties to query rows. Keep every application field and array order exact.
+const virtualKeys = new Set(['$synced', '$origin', '$key', '$collectionId'])
+const domainValue = (value: unknown) => JSON.parse(JSON.stringify(value, (key, item) => virtualKeys.has(key) ? undefined : item))
 const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve() }
 const gc = () => {
   const runtime = globalThis as typeof globalThis & { Bun?: { gc: (sync: boolean) => void }; gc?: () => void }
@@ -64,7 +68,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
             gc(); const mountedHeapDeltaBytes = process.memoryUsage().heapUsed - heapBefore
             const oracle = () => summaryJS(data.issues[0]!, data.sessions.filter(s => s.issueId === 'i0'), data.issues.filter(i => i.parentId === 'i0'), counters())
             expect(summaryValue).toEqual(oracle())
-            expect(groupValue).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW, counters()))
+            expect(domainValue(groupValue)).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW, counters()))
             const scenarios: Record<string, unknown> = {}
             for (const [name, index] of [['unrelated', 4000], ['relevant', 0]] as const) {
               reads = commits = summaryReads = groupReads = 0
@@ -96,7 +100,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
             expect(summaryValue).toEqual(oracle())
             const beforeTick = { ...proof.counts }
             await act(async () => { proof.tick(NOW + 120_000); await settle() })
-            expect(groupValue).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW + 120_000, counters()))
+            expect(domainValue(groupValue)).toEqual(worklistJS(data.issues.slice(0, GROUP), data.sessions.slice(0, GROUP), NOW + 120_000, counters()))
             const rescope: number[] = []
             for (let n = 0; n < 3; n++) {
               const next = fixture(n % 2 === 0 ? 'growth' : 'live')
