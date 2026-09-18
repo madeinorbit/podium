@@ -129,7 +129,33 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
         db.prepare('DELETE FROM grants WHERE resource_kind = ? AND resource_id = ?').run('machine', machineId)
         db.prepare('DELETE FROM machines WHERE id = ?').run(machineId)
       } else if (state.owner !== undefined) {
-        db.prepare('UPDATE machines SET owner_user_id = ? WHERE id = ?').run(state.owner, machineId)
+        // Custody is a personal grant edge (S5, POD-4151): the manage edge with custody=1
+        // plus a use edge, written exactly as 20260917212210_machine-custody-grant-edges
+        // wrote them from the old owner column. The previous custodian, if any, loses
+        // both edges; shares held by others stay as records.
+        const previous = db.prepare(
+          'SELECT grantee FROM grants WHERE resource_kind = ? AND resource_id = ? AND custody = 1',
+        ).get('machine', machineId) as { grantee: string } | undefined
+        if (previous && previous.grantee !== state.owner) {
+          db.prepare("DELETE FROM grants WHERE resource_kind = ? AND resource_id = ? AND grantee = ? AND verb IN ('use', 'manage')")
+            .run('machine', machineId, previous.grantee)
+        }
+        if (state.owner === null) {
+          if (previous) db.prepare("DELETE FROM grants WHERE resource_kind = ? AND resource_id = ? AND grantee = ? AND verb IN ('use', 'manage')")
+            .run('machine', machineId, previous.grantee)
+        } else {
+          const createdAt = new Date().toISOString()
+          for (const verb of ['use', 'manage'] as const) {
+            db.prepare(
+              'INSERT INTO grants (resource_kind, resource_id, grantee, verb, owner, visibility, created_at, actor_kind, actor_id, on_behalf_of, custody) ' +
+              'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+              'ON CONFLICT(resource_kind, resource_id, grantee, verb) DO UPDATE SET custody = excluded.custody',
+            ).run('machine', machineId, state.owner, verb, state.owner, 'owned-compute', createdAt, 'user', state.owner, state.owner, verb === 'manage' ? 1 : 0)
+          }
+          db.prepare(
+            'INSERT INTO grant_audiences (resource_kind, resource_id, grantee) VALUES (?, ?, ?) ON CONFLICT(resource_kind, resource_id, grantee) DO NOTHING',
+          ).run('machine', machineId, state.owner)
+        }
       }
     }
     db.prepare('UPDATE feed_identity SET epoch = ? WHERE singleton = 1').run(`ledger-import-${Date.now()}`)
