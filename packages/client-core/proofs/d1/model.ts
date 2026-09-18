@@ -9,7 +9,7 @@ export const NOW = Date.parse('2026-09-18T12:00:00Z')
 export const GROUP = 200
 export type Session = SessionMeta
 export type Issue = IssueNavigationModel
-export const counters = () => ({ summary: 0, sessionVisits: 0, childVisits: 0, mission: 0, nesting: 0, rank: 0, nativeOutputChanges: 0 })
+export const counters = () => ({ summary: 0, sessionVisits: 0, childVisits: 0, mission: 0, nesting: 0, rank: 0, sorts: 0, nativeOutputChanges: 0 })
 export type Counts = ReturnType<typeof counters>
 export function fixture(scale: 'live' | 'growth' = 'live') {
   // A3 live/growth cardinalities and wire shapes, enriched with families and phases.
@@ -48,7 +48,7 @@ export function summaryJS(issue: Issue, sessions: Session[], children: Issue[], 
   for (const child of children) { c.childVisits++; childDone += Number(child.stage === 'done') }
   return { phases, latest, unread: latest > (issue.readAt ?? ''), childDone }
 }
-export function worklistJS(issues: Issue[], sessions: Session[], now: number, c: Counts) {
+export function worklistJS(issues: Issue[], sessions: Session[], now: number, c: Counts, sort = true) {
   // Exact existing arbitrary rules, separately counted from native relational work.
   const rows: UnifiedIssueRow[] = issues.map(issue => {
     c.mission++
@@ -58,7 +58,10 @@ export function worklistJS(issues: Issue[], sessions: Session[], now: number, c:
       missionRollup: missionRollup(issues, sessions, issue.id) }
   })
   c.nesting++
-  return sortUnifiedWorkRows(nestStartedByIssues(rows, sessions, [], issues), now)
+  const nested = nestStartedByIssues(rows, sessions, [], issues)
+  if (!sort) return nested
+  c.sorts++
+  return sortUnifiedWorkRows(nested, now)
 }
 export function band(issue: Issue, now: number, c: Counts) {
   c.rank++

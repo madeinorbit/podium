@@ -42,8 +42,10 @@ export function createTanstackProof(data: Fixture) {
     .innerJoin({ i: groupIssues }, ({ s, i }) => eq(s.issueId, i.id)).select(({ s }) => s) })
   const ranked = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ i: groupIssues })
     .innerJoin({ clock: clock.collection }, ({ clock: c }) => eq(c.id, 'clock'))
-    .fn.select(({ i, clock: c }) => ({ id: i.id, band: band(i, c.now, counts), seq: i.seq }))
-    .orderBy(({ $selected }) => $selected.band, 'asc').orderBy(({ $selected }) => $selected.seq, 'desc') })
+    .fn.select(({ i, clock: c }) => ({ id: i.id, band: band(i, c.now, counts), seq: i.seq, key: i.sortKey || '\uffff', created: Date.parse(i.createdAt) || 0 }))
+    .orderBy(({ $selected }) => $selected.band, 'asc').orderBy(({ $selected }) => $selected.key, 'asc')
+    .orderBy(({ $selected }) => $selected.created, 'desc').orderBy(({ $selected }) => $selected.seq, 'desc')
+    .orderBy(({ $selected }) => $selected.id, 'asc') })
   const group = createLiveQueryCollection({ gcTime: 1, query: q => q.from({ clock: clock.collection })
     .select(({ clock: c }) => ({ id: c.id, now: c.now })) })
   function rowQuery(id: string) { return createLiveQueryCollection({ gcTime: 1,
@@ -80,6 +82,8 @@ export function TanstackGroup({ proof, read }: { proof: TanstackProof; read: (va
   const { data: ranks } = useLiveQuery(proof.ranked)
   const { data: clock } = useLiveQuery(proof.group)
   // Exact shared arbitrary-JS tail, not credited to native IVM.
-  const value = useMemo(() => worklistJS(issues, sessions, clock[0]?.now ?? NOW, proof.counts), [issues, sessions, clock, proof]); read(value)
+  const nested = useMemo(() => worklistJS(issues, sessions, clock[0]?.now ?? NOW, proof.counts, false), [issues, sessions, clock, proof])
+  const byId = new Map(nested.flatMap(row => row.kind === 'issue' ? [[row.issue.id, row] as const] : []))
+  const value = ranks.flatMap(rank => { const row = byId.get(rank.id); return row ? [row] : [] }); read(value)
   return <>{ranks.length}:{value.map(row => row.kind === 'issue' ? row.issue.id : '').join(',')}</>
 }
