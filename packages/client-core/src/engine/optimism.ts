@@ -43,6 +43,7 @@ import type {
 import { asIssueId, asMutationId, asSessionId, dedupeSessionsByResume } from '@podium/model'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
+import { shallowEqual } from '../store'
 import type { OutboxEntry } from '../outbox'
 import {
   assertSpawnPlacement,
@@ -136,6 +137,13 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
   private readonly ports: OptimismPorts<TApi>
   private readonly spawnConfirmGraceMs: number
   private spawnOverlays: PendingOverlay[] = []
+  // One bounded fold per entity. Retirement still runs on every recompute;
+  // only the pure paint is reusable across press → queue → awaiting truth.
+  private readonly folds = new Map<OverlayEntity, {
+    base: object[]
+    overlays: PendingOverlay[]
+    result: { rows: object[]; pendingInsertIds: ReadonlySet<string> }
+  }>()
   /** First turns keyed by optimistic session id. ChatView seeds its own pending
    * reconciliation state from this map before the transcript exists. */
   private spawnPrompts: ReadonlyMap<string, string> = new Map()
@@ -195,6 +203,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     // A pressed-but-undurable overlay belongs to the runtime being replaced; its
     // successor reads the queue from storage and paints whatever committed.
     this.localOverlays.clear()
+    this.folds.clear()
     this.spawnPrompts = new Map()
     if (this.awaitingSweepTimer !== null) {
       clearTimeout(this.awaitingSweepTimer)
@@ -294,15 +303,17 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     }
     for (const overlay of this.spawnOverlays) include(overlay)
     for (const awaiting of this.awaitingTruth) include(awaiting.overlay)
+    const queued = new Set<string>()
     for (const entry of this.ports.outbox.pending()) {
+      queued.add(entry.mutationId)
       const overlay = this.overlayFor(entry)
       if (overlay) include(overlay)
     }
     // Pressed, painted, not yet committed: nothing in the queue carries these
-    // yet. The flag clears the moment the enqueue settles, so an entry never
-    // paints from both here and the loop above.
-    for (const held of this.localOverlays.values()) {
-      if (held.unqueued) include(held.overlay)
+    // yet. A synchronous enqueue notifies before its await settles: queue
+    // membership already carries that paint, even while unqueued is true.
+    for (const [id, held] of this.localOverlays) {
+      if (held.unqueued && !queued.has(id)) include(held.overlay)
     }
     return out
   }
@@ -314,7 +325,40 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     base: T[],
     keyOf: (row: T) => string,
   ): { rows: T[]; pendingInsertIds: ReadonlySet<string> } {
-    return foldOverlays(base, this.overlaysFor(entity), keyOf)
+    return this.foldStable(entity, base, keyOf)
+  }
+
+  private foldStable<T extends object>(
+    entity: OverlayEntity,
+    base: T[],
+    keyOf: (row: T) => string,
+  ): { rows: T[]; pendingInsertIds: ReadonlySet<string> } {
+    const overlays = this.overlaysFor(entity)
+    const previous = this.folds.get(entity)
+    // Membership/stage and coverage predicates do not affect the pure fold.
+    // Compare the ordered paint, including edits to an existing queued entry.
+    if (previous?.base === base && previous.overlays.length === overlays.length &&
+      overlays.every((o, i) => {
+        const old = previous.overlays[i]!
+        return o.id === old.id && (o.op === 'patch' && old.op === 'patch'
+          ? shallowEqual(o.patch, old.patch)
+          : o.op === 'insert' && old.op === 'insert' && o.insert === old.insert)
+      })) {
+      return previous.result as { rows: T[]; pendingInsertIds: ReadonlySet<string> }
+    }
+    const result = foldOverlays(base, overlays, keyOf)
+    // Changed inputs can still compose to the same effective rows. Retain
+    // their identity without comparing serialized data or hiding new cells.
+    if (previous && previous.result.rows.length === result.rows.length &&
+      result.rows.every((row, i) => shallowEqual(row, previous.result.rows[i]))) {
+      result.rows = previous.result.rows as T[]
+    }
+    if (previous && previous.result.pendingInsertIds.size === result.pendingInsertIds.size &&
+      [...result.pendingInsertIds].every((id) => previous.result.pendingInsertIds.has(id))) {
+      result.pendingInsertIds = previous.result.pendingInsertIds
+    }
+    this.folds.set(entity, { base, overlays, result })
+    return result
   }
 
   /** Arm (once) a timer that forces a recompute shortly after the earliest
@@ -377,7 +421,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const base = this.ports.base().sessions
     const keyOf = (s: SessionMeta): string => s.sessionId
     this.retireCovered('sessions', base, keyOf)
-    const { rows, pendingInsertIds } = foldOverlays(base, this.overlaysFor('sessions'), keyOf)
+    const { rows, pendingInsertIds } = this.foldStable('sessions', base, keyOf)
     if ([...this.spawnPrompts.keys()].some((id) => !pendingInsertIds.has(id))) {
       this.spawnPrompts = new Map([...this.spawnPrompts].filter(([id]) => pendingInsertIds.has(id)))
     }
@@ -393,7 +437,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const base = this.ports.base().issues
     const keyOf = (i: IssueWire): string => i.id
     this.retireCovered('issues', base, keyOf)
-    const { rows } = foldOverlays(base, this.overlaysFor('issues'), keyOf)
+    const { rows } = this.foldStable('issues', base, keyOf)
     this.ports.publish({ issues: rows })
   }
 
@@ -401,7 +445,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const base = this.ports.base().issueProjections
     const keyOf = (i: IssueProjection): string => i.id
     this.retireCovered('issueProjections', base, keyOf)
-    const { rows } = foldOverlays(base, this.overlaysFor('issueProjections'), keyOf)
+    const { rows } = this.foldStable('issueProjections', base, keyOf)
     this.ports.publish({ issueProjections: rows })
   }
 

@@ -41,7 +41,8 @@ import { sessionById } from '../session-index'
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { Reactions } from './reactions'
 import type { EngineState } from './state'
-import { foldOverlays, insertOverlay } from './overlay'
+import { foldOverlays, insertOverlay, type OverlayEntity } from './overlay'
+import type { OptimismLedger } from './optimism'
 import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -1275,10 +1276,8 @@ describe('unified optimistic overlay (#263)', () => {
     expect(paintedAt).toBeTruthy()
 
     await pending
-    // The durable entry took over the overlay UNCHANGED. The row object itself
-    // is re-minted — the fold's base is the replica's unpainted row — but no
-    // visible cell moved, which is what keeps the view-model cache and the
-    // published worklist from re-deriving over the whole project.
+    // The durable entry takes over the overlay unchanged. B11 also retains
+    // the row/list identity, so no issue readers wake for the handoff.
     expect(engine.getSnapshot().issues[0]?.readAt).toBe(paintedAt)
     await settle()
     expect(engine.getSnapshot().issues[0]?.readAt).toBe(paintedAt)
@@ -2575,6 +2574,13 @@ describe('one delta, one snapshot (POD-1645)', () => {
     replica.applySnapshot('issueProjections', [{ id: 'i1', title: 'i1' }] as never)
 
     const { engine } = makeEngine({ storage })
+    // Construction already paints the seed. Change truth before the binding
+    // starts so this exercises a material delta, not a redundant seed repaint.
+    engine.replica.applySnapshot('sessions', [
+      { sessionId: 'a', name: 'changed', cwd: '/tmp/known-repo' },
+    ] as never)
+    engine.replica.applySnapshot('issues', [{ id: 'i1', title: 'changed', status: 'open' }] as never)
+    engine.replica.applySnapshot('issueProjections', [{ id: 'i1', title: 'changed' }] as never)
     // Count only the snapshots that move a REPLICA collection: start() also
     // publishes unrelated boot state (outbox dead letters, repo loading), and
     // counting those would make the number say something other than what this
@@ -2596,6 +2602,9 @@ describe('one delta, one snapshot (POD-1645)', () => {
     const state = engine.getSnapshot()
     expect(state.sessions.map((s) => s.sessionId)).toEqual(['a'])
     expect(state.issues.map((i) => i.id)).toEqual(['i1'])
+    expect(state.sessions[0]?.name).toBe('changed')
+    expect(state.issues[0]?.title).toBe('changed')
+    expect(state.issueProjections[0]?.title).toBe('changed')
     engine.dispose()
     await settle()
   })
@@ -3440,4 +3449,181 @@ describe('coalesced outbox and reaction publications', () => {
     expect(listener).toHaveBeenCalledTimes(2)
     engine.destroy()
   })
+})
+
+
+// Frozen pre-B11 pure fold: the production runtime, outbox and B2 batching are
+// identical in both arms. Removing fold reuse MUST fail the new budget.
+function legacyOptimisticFolds(engine: ReturnType<typeof makeEngine>['engine']): () => void {
+  const ledger = (engine as unknown as { optimism: OptimismLedger<PodiumClientApi> }).optimism
+  const seam = ledger as unknown as {
+    foldStable(entity: OverlayEntity, base: object[], keyOf: (row: object) => string): ReturnType<typeof foldOverlays>
+  }
+  const spy = vi.spyOn(seam, 'foldStable').mockImplementation((entity, base, keyOf) =>
+    foldOverlays(base, ledger.overlaysFor(entity), keyOf))
+  return () => spy.mockRestore()
+}
+
+const b11Issue = () => ({ id: asIssueId('b11-issue'), title: 'B11', stage: 'in_progress',
+  archived: false, createdAt: '2025-01-01T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z',
+  readAt: null }) as IssueWire
+
+function b11Counts(entity: 'issues' | 'sessions') {
+  const records = readStoreStats().publishes
+  const affected = records.filter((p) => p.changedKeys.includes(entity))
+  return { publications: records.length, entityPublications: affected.length,
+    readerWakes: records.reduce((n, p) => n + p.subscriberWakes, 0),
+    entityReaderWakes: affected.reduce((n, p) => n + p.subscriberWakes, 0) }
+}
+
+describe('stable optimistic folds (B11)', () => {
+  it.each(['read', 'rename', 'reaction-read'] as const)(
+    'A/B %s separates synchronous publication, async handoff, resolution and echo', async (scenario) => {
+      const results: Array<{
+        sync: ReturnType<typeof b11Counts>
+        handoff: ReturnType<typeof b11Counts>
+        resolution: ReturnType<typeof b11Counts>
+        echo: ReturnType<typeof b11Counts>
+        instant: string | null | undefined
+        final: string | null | undefined
+        queued: Array<{ kind: string; input: unknown; baseline?: string; chained?: boolean }>
+        baseline: Pick<NonNullable<EngineState['issueVisitBaseline']>, 'issueId' | 'readAt'> | null
+      }> = []
+      for (const legacy of [true, false]) {
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-18T12:00:00Z'))
+        const api = makeApi()
+        let confirm!: () => void
+        const response = new Promise<void>((resolve) => { confirm = resolve })
+        api.issues.markRead.mutate = vi.fn(() => response)
+        api.sessions.rename.mutate = vi.fn(() => response)
+        const { engine } = makeEngine({ api, url: '/workspace' })
+        const restore = legacy ? legacyOptimisticFolds(engine) : () => {}
+        const offs: Array<() => void> = []
+        try {
+          engine.start(); await settle(40)
+          const issue = b11Issue()
+          const row = session('b11-session', '/tmp/known-repo')
+          if (scenario === 'reaction-read') issue.readAt = '2099-01-01T00:00:00Z'
+          engine.replica.applyChanges('issues', [issue], [])
+          engine.replica.applyChanges('sessions', [row], [])
+          await settle()
+          if (scenario === 'reaction-read') {
+            engine.getSnapshot().navigateWorkspace({ selectedIssueId: issue.id,
+              selectedWorktree: row.cwd, firstPane: true })
+            await settle()
+          }
+          // The measured 23-reader cohort is explicitly installed, not inferred
+          // from publication count. A2 records every actual callback wake.
+          for (let i = 0; i < 23; i++) offs.push(engine.subscribe(() => {}))
+          const entity = scenario === 'rename' ? 'sessions' : 'issues'
+          const painted = () => scenario === 'rename' ? engine.getSnapshot().sessions[0]?.name
+            : engine.getSnapshot().issues[0]?.readAt
+          const phase = () => { const counts = b11Counts(entity); storeStats.reset(); return counts }
+          const visitBaseline = engine.getSnapshot().issueVisitBaseline
+          storeStats.reset(); storeStats.enable()
+          let command: Promise<void> | undefined
+          if (scenario === 'reaction-read') {
+            engine.replica.applyChanges('issues', [{ ...issue, updatedAt: '2100-01-01T00:00:00Z' }], [])
+          } else if (scenario === 'rename') {
+            command = engine.getSnapshot().renameSession(row.sessionId, 'renamed')
+          } else command = engine.getSnapshot().markIssueRead(issue.id)
+          const sync = phase()
+          const instant = painted()
+          expect(instant).toBe(scenario === 'rename' ? 'renamed' : '2026-09-18T12:00:00.000Z')
+          const entries = engine.outbox.pending()
+          const queued = entries.map(({ kind, input, baseline, chained }) => ({ kind, input, baseline, chained }))
+          expect(queued).toHaveLength(1)
+          await command; await settle()
+          const handoff = phase()
+          expect(painted()).toBe(instant)
+          confirm(); await settle()
+          const resolution = phase()
+          expect(painted()).toBe(instant)
+          expect(engine.outbox.size()).toBe(0)
+          expect(engine.outbox.awaiting()).toHaveLength(1)
+          if (scenario === 'rename') engine.replica.applyChanges('sessions', [{ ...row, name: 'renamed' }], [])
+          else engine.replica.applyChanges('issues', [{ ...issue, readAt: '2026-09-18T12:00:01.000Z' }], [])
+          const echo = phase()
+          const final = painted()
+          expect(final).toBe(scenario === 'rename' ? 'renamed' : '2026-09-18T12:00:01.000Z')
+          expect(engine.outbox.awaiting()).toHaveLength(0)
+          const assertBudget = () => {
+            expect(handoff.entityPublications).toBe(0)
+            expect(sync.entityPublications + handoff.entityPublications + resolution.entityPublications).toBe(1)
+          }
+          if (legacy) expect(assertBudget).toThrow()
+          else assertBudget()
+          if (scenario === 'reaction-read') expect(sync.publications).toBe(1) // B2 boundary stays separate
+          expect(engine.getSnapshot().issueVisitBaseline).toEqual(visitBaseline)
+          const calls = scenario === 'rename' ? api.sessions.rename.mutate.mock.calls : api.issues.markRead.mutate.mock.calls
+          expect(calls).toEqual([[{ ...(entries[0]!.input as object), mutationId: entries[0]!.mutationId }]])
+          results.push({ sync, handoff, resolution, echo, instant, final, queued,
+            baseline: visitBaseline && { issueId: visitBaseline.issueId, readAt: visitBaseline.readAt } })
+        } finally {
+          offs.forEach((off) => off()); engine.destroy(); restore(); clock.mockRestore()
+          storeStats.enable(false); storeStats.reset()
+        }
+      }
+      const controls = ({ instant, final, queued, baseline }: typeof results[number]) => ({ instant, final, queued, baseline })
+      expect(controls(results[0]!)).toEqual(controls(results[1]!))
+      const total = (r: typeof results[number]) => r.sync.entityPublications + r.handoff.entityPublications + r.resolution.entityPublications
+      expect(total(results[1]!)).toBeLessThan(total(results[0]!))
+      process.stdout.write(`B11 ${scenario} A/B: ${JSON.stringify(results.map(({ sync, handoff, resolution, echo }) => ({ sync, handoff, resolution, echo })))}\n`)
+    },
+  )
+
+  it.each(['sync-failure', 'persistence-failure', 'async-rejection', 'server-rejection', 'offline'] as const)(
+    'A/B %s preserves read command failure and durability behavior', async (scenario) => {
+      const results = []
+      for (const legacy of [true, false]) {
+        const storage = memoryStorage()
+        const api = makeApi()
+        if (scenario === 'offline') api.issues.markRead.mutate = vi.fn(async () => { throw new Error('offline') })
+        if (scenario === 'server-rejection') api.issues.markRead.mutate = vi.fn(async () => {
+          throw Object.assign(new Error('bad input'), { data: { code: 'BAD_REQUEST', httpStatus: 400 } })
+        })
+        const { engine, errors } = makeEngine({ api, storage })
+        const restore = legacy ? legacyOptimisticFolds(engine) : () => {}
+        let enqueue: ReturnType<typeof vi.spyOn> | undefined
+        try {
+          engine.start(); await settle(40)
+          const issue = b11Issue()
+          engine.replica.applyChanges('issues', [issue], []); await settle()
+          const failure = new Error('persistence refused')
+          if (scenario === 'persistence-failure') {
+            const seam = engine.outbox as unknown as { storage: { save(entries: unknown[]): void } }
+            enqueue = vi.spyOn(seam.storage, 'save').mockImplementation(() => { throw failure })
+          }
+          if (scenario === 'sync-failure') enqueue = vi.spyOn(engine.outbox, 'enqueue').mockImplementation(() => { throw failure })
+          if (scenario === 'async-rejection') {
+            // Exercise the async port contract even though today's outbox is sync.
+            enqueue = vi.spyOn(engine.outbox, 'enqueue').mockImplementation(() =>
+              Promise.reject(failure) as unknown as ReturnType<typeof engine.outbox.enqueue>)
+          }
+          const command = engine.getSnapshot().markIssueRead(issue.id)
+          if (scenario === 'sync-failure' || scenario === 'persistence-failure' || scenario === 'async-rejection') await expect(command).rejects.toBe(failure)
+          else await command
+          await settle()
+          const read = engine.getSnapshot().issues[0]?.readAt != null
+          // A real storage refusal retains the in-memory entry (POD-1231),
+          // but still rejects: only a pre-enqueue rejection removes all paint.
+          expect(read).toBe(scenario === 'offline' || scenario === 'persistence-failure')
+          expect(engine.outbox.size()).toBe(scenario === 'offline' || scenario === 'persistence-failure' ? 1 : 0)
+          const queued = engine.outbox.pending().map(({ kind, input }) => ({ kind, input }))
+          if (scenario === 'offline') {
+            expect(queued).toEqual([{ kind: 'issueMarkRead', input: { id: issue.id } }])
+            engine.dispose()
+            const reload = makeEngine({ api, storage }).engine
+            try {
+              expect(reload.getSnapshot().issues[0]?.readAt).toBeTruthy()
+              expect(reload.outbox.pending()).toHaveLength(1)
+              expect(reload.replica.rows('issues')[0]?.readAt).toBeNull()
+            } finally { reload.destroy() }
+          }
+          results.push({ read, queued, errors, dead: engine.outbox.deadLetters().map((d) => d.reason) })
+        } finally { enqueue?.mockRestore(); engine.destroy(); restore() }
+      }
+      expect(results[0]).toEqual(results[1])
+    },
+  )
 })
