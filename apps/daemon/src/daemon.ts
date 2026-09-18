@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
@@ -14,7 +13,7 @@ import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 import type { PortableStateControl } from './portable-state-fence'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
-import { createRuntimeEventOutbox } from './runtime-event-outbox'
+import { createRuntimeEventOutbox, prepareRuntimeEventDelivery } from './runtime-event-outbox'
 
 export type { DurableBackend } from './control/context'
 export { sessionRelayEnv } from './control/session'
@@ -135,9 +134,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     installDir,
     send: (message) => {
       if (message.type === 'runtimeEvent') {
-        const durable = { ...message, deliveryId: message.deliveryId ?? randomUUID() }
-        runtimeEventOutbox.enqueue(durable)
-        connection?.send(durable)
+        const outgoing = prepareRuntimeEventDelivery(runtimeEventOutbox, message)
+        connection?.send(outgoing)
         return
       }
       // The host exists briefly before its transport does. Persist the one frame

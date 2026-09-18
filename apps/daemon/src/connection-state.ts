@@ -24,7 +24,7 @@ import {
   type PeerCredential,
   type PeerHelloRejected,
 } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
+import { isDurableRuntimeEvent, type DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
@@ -1083,19 +1083,25 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     },
     send(msg) {
       const isQueueDrainReport = msg.type === 'runtimeQueueDrainAbandoned'
-      const isRuntimeEvent = msg.type === 'runtimeEvent'
+      // Preserve explicitly retained frames from older outboxes even when their
+      // kind is now live-only. New live observations have no delivery id.
+      const isRetainedRuntimeEvent =
+        msg.type === 'runtimeEvent' &&
+        (msg.deliveryId !== undefined || isDurableRuntimeEvent(msg.event))
       if (isQueueDrainReport) {
         if (!msg.reportId) {
           throw new Error('runtimeQueueDrainAbandoned requires reportId before daemon send')
         }
         deps.queueDrainOutbox.enqueue({ ...msg, reportId: msg.reportId })
       }
-      if (isRuntimeEvent) {
+      if (isRetainedRuntimeEvent) {
         if (!msg.deliveryId) throw new Error('runtimeEvent requires deliveryId before daemon send')
         deps.runtimeEventOutbox.enqueue({ ...msg, deliveryId: msg.deliveryId })
       }
       if (quiescedTransferId && msg.type !== 'serverEndpointResult') {
-        if (!isQueueDrainReport && !isRuntimeEvent) quiescedFrames.push(msg)
+        // Live runtime observations are replaceable; do not accumulate them
+        // during a handoff. Retained events replay from their outbox.
+        if (!isQueueDrainReport && msg.type !== 'runtimeEvent') quiescedFrames.push(msg)
         return
       }
       if (socket && invalidSockets.has(socket)) return
@@ -1108,7 +1114,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
       sendConnected(msg)
       if (isQueueDrainReport) scheduleQueueDrainRetry()
-      if (isRuntimeEvent) scheduleRuntimeEventRetry()
+      if (isRetainedRuntimeEvent) scheduleRuntimeEventRetry()
     },
     quiesceEndpoint(transferId) {
       // A final snapshot may replace the target stage (and therefore transfer id)

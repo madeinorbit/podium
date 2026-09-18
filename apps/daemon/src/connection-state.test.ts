@@ -1366,3 +1366,88 @@ describe('describeSocketError', () => {
     expect(describeSocketError(err)).toBe('socket hang up (ECONNRESET)')
   })
 })
+
+it('forwards superseded observations live and replays only retained events after reconnect', async () => {
+  const harness = timerHarness()
+  const delivered: DaemonMessage[] = []
+  const outbox = createRuntimeEventOutbox(temp())
+  const options = localOptions(() => {}, {
+    machineToken: 'local-secret',
+    reconnectTimers: harness.timers,
+    localLink: {
+      attach: async () => ({
+        established: true,
+        reply: ok,
+        machineId: MACHINE_ID,
+        deliver: (frame) => { delivered.push(frame) },
+        deliverOutput: vi.fn(),
+        close: vi.fn(),
+      }),
+    },
+  })
+  const conn = createDaemonConnection({
+    options,
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: {},
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(() => true),
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: outbox,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+  })
+  const envelope = {
+    at: '2026-09-18T12:00:00.000Z', provenance: 'live' as const,
+    observerGeneration: 1, turnEpoch: 1,
+    cursor: { segmentId: 'segment', components: { seq: 1 } },
+  }
+  const live: Extract<DaemonMessage, { type: 'runtimeEvent' }>[] = [
+    { type: 'runtimeEvent', sessionId: asSessionId('s'), event: { ...envelope, t: 'state', change: { kind: 'activity' } } },
+    { type: 'runtimeEvent', sessionId: asSessionId('s'), event: { ...envelope, t: 'workspace', ev: { ev: 'cwd-changed', cwd: '/repo' } } },
+    { type: 'runtimeEvent', sessionId: asSessionId('s'), event: { ...envelope, t: 'draft', text: 'draft' } },
+  ]
+  const bootstrap = {
+    ...live[0]!, deliveryId: 'bootstrap',
+    event: { ...live[0]!.event, provenance: 'bootstrap' as const },
+  }
+  const receipt = {
+    type: 'runtimeEvent' as const, deliveryId: 'receipt', sessionId: asSessionId('s'),
+    event: { ...envelope, t: 'delivery' as const, rowId: 'row', outcome: 'delivered' as const },
+  }
+  const legacy = { ...live[0]!, deliveryId: 'retained-before-upgrade' }
+  try {
+    // Loss while offline is intentional; durable/bootstrap frames still fsync.
+    for (const frame of live) conn.send(frame)
+    expect(outbox.pending()).toEqual([])
+    expect(() => conn.send({ ...receipt, deliveryId: undefined })).toThrow('requires deliveryId')
+    expect(() => conn.send({ ...bootstrap, deliveryId: undefined })).toThrow('requires deliveryId')
+    conn.send(bootstrap)
+    conn.send(receipt)
+    conn.send(legacy)
+    await conn.start()
+    expect(delivered).toEqual([bootstrap, receipt, legacy])
+    delivered.length = 0
+    for (const frame of live) conn.send(frame)
+    expect(delivered).toEqual(live)
+    expect(outbox.pending()).toEqual([bootstrap, receipt, legacy])
+    delivered.length = 0
+    conn.retryHandshake()
+    for (const frame of live) conn.send(frame)
+    // The already-scheduled durable retry and reconnect share the 500ms delay.
+    harness.runNext(500)
+    harness.runNext(500)
+    await vi.waitFor(() => expect(conn.state).toBe('connected'))
+    expect(delivered).toEqual([bootstrap, receipt, legacy])
+    for (const frame of [bootstrap, receipt, legacy]) conn.acknowledgeRuntimeEvent(frame.deliveryId)
+    expect(outbox.pending()).toEqual([])
+    delivered.length = 0
+    for (const frame of live) conn.send(frame)
+    expect(delivered).toEqual(live)
+    expect(outbox.pending()).toEqual([])
+    expect(harness.next(500)).toBeUndefined()
+  } finally {
+    await conn.close()
+    outbox.close()
+  }
+})

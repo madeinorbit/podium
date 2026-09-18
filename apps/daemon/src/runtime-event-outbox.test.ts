@@ -2,8 +2,9 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileS
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
+import { CausalEnvelope, type RuntimeEventMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
-import { type DurableRuntimeEvent, createRuntimeEventOutbox } from './runtime-event-outbox'
+import { type DurableRuntimeEvent, createRuntimeEventOutbox, prepareRuntimeEventDelivery } from './runtime-event-outbox'
 
 const roots: string[] = []
 afterEach(() => {
@@ -22,8 +23,9 @@ function event(deliveryId: string, seq = 1): DurableRuntimeEvent {
     deliveryId,
     sessionId: 'session-1' as SessionId,
     event: {
-      t: 'state',
-      change: { kind: 'activity' },
+      t: 'delivery',
+      rowId: `row-${seq}`,
+      outcome: 'delivered',
       at: '2026-08-20T00:00:00.000Z',
       provenance: 'bootstrap',
       cursor: { segmentId: 'segment-1', components: { seq } },
@@ -140,6 +142,57 @@ describe('coarse runtime event outbox', () => {
     const snapshot = readFileSync(join(dir, 'runtime-event-outbox.json'), 'utf8')
     expect(JSON.parse(snapshot).events.length).toBeGreaterThan(0)
     expect(createRuntimeEventOutbox(dir).pending()).toHaveLength(600)
+    outbox.close()
+  })
+})
+
+
+describe('runtime event delivery preparation', () => {
+  it.each(['state', 'workspace', 'draft'] as const)('sends live %s without touching the journal', (kind) => {
+    const dir = makeDir()
+    const outbox = createRuntimeEventOutbox(dir)
+    const { deliveryId: _id, ...base } = event('unused')
+    const body = kind === 'state'
+      ? { t: 'state' as const, change: { kind: 'activity' } }
+      : kind === 'workspace'
+        ? { t: 'workspace' as const, ev: { ev: 'cwd-changed' as const, cwd: '/repo' } }
+        : { t: 'draft' as const, text: 'latest input' }
+    const message: RuntimeEventMessage = {
+      ...base, event: { ...CausalEnvelope.parse(base.event), ...body, provenance: 'live' },
+    }
+    const before = readFileSync(join(dir, 'runtime-event-outbox.log'))
+    expect(prepareRuntimeEventDelivery(outbox, message)).toBe(message)
+    expect(message.deliveryId).toBeUndefined()
+    expect(outbox.pending()).toEqual([])
+    expect(readFileSync(join(dir, 'runtime-event-outbox.log'))).toEqual(before)
+    outbox.close()
+  })
+
+  it('retains bootstrap state synchronously before the transport exists', () => {
+    const dir = makeDir()
+    const outbox = createRuntimeEventOutbox(dir)
+    const { deliveryId: _id, ...base } = event('unused')
+    const message: RuntimeEventMessage = {
+      ...base,
+      event: { ...CausalEnvelope.parse(base.event), t: 'state', change: { kind: 'activity' }, observerGeneration: 2 },
+    }
+    const prepared = prepareRuntimeEventDelivery(outbox, message)
+    expect(prepared.deliveryId).toEqual(expect.any(String))
+    // Reopen before close/ack: the call returning, not a timer, is the crash boundary.
+    const reopened = createRuntimeEventOutbox(dir)
+    expect(reopened.pending()).toEqual([prepared])
+    reopened.close()
+    outbox.close()
+  })
+
+  it('keeps the delivery id and retention of a previously retained live observation', () => {
+    const outbox = createRuntimeEventOutbox(makeDir())
+    const old: DurableRuntimeEvent = {
+      ...event('old-state'),
+      event: { ...CausalEnvelope.parse(event('old-state').event), t: 'state', change: { kind: 'activity' }, provenance: 'live' },
+    }
+    expect(prepareRuntimeEventDelivery(outbox, old)).toEqual(old)
+    expect(outbox.pending()).toEqual([old])
     outbox.close()
   })
 })

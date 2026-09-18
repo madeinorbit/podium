@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
   appendFileSync,
   closeSync,
@@ -13,6 +14,7 @@ import {
 import { join } from 'node:path'
 import {
   RuntimeEventMessage,
+  isDurableRuntimeEvent,
   type RuntimeEventMessage as RuntimeEventFrame,
 } from '@podium/protocol/daemon'
 
@@ -38,6 +40,18 @@ export interface RuntimeEventOutbox {
   pending(): readonly DurableRuntimeEvent[]
   /** Release the journal handle. For shutdown and for tests; the data is already durable. */
   close(): void
+}
+
+/** Prepare at the host boundary, including the window before transport exists.
+ * Explicit ids retain their original delivery contract across upgrades. */
+export function prepareRuntimeEventDelivery(
+  outbox: RuntimeEventOutbox,
+  message: RuntimeEventFrame,
+): RuntimeEventFrame {
+  if (message.deliveryId === undefined && !isDurableRuntimeEvent(message.event)) return message
+  const retained = { ...message, deliveryId: message.deliveryId ?? randomUUID() }
+  outbox.enqueue(retained)
+  return retained
 }
 
 function fsyncDirectory(dir: string): void {

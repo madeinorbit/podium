@@ -70,8 +70,10 @@ export * from './runtime-interactions'
  *     failed RPC the caller already has to handle, not a durability hole.
  *   - `runtimeEvent` → `control.entity`. POD-2411 makes coarse events
  *     the sole board/recency input after readiness, so the daemon fsync-retains
- *     each one until the server commits its oplog row and restart checkpoint,
- *     then acknowledges the delivery. `runtimeFineEvent` is the separate
+ *     durable events until the server commits its oplog row and restart checkpoint,
+ *     then acknowledges the delivery. Superseded coarse observations travel without
+ *     a delivery id (see `isDurableRuntimeEvent`) but retain server projections.
+ *     `runtimeFineEvent` is the separate
  *     `stream.live` token-delta frame and is never retained or persisted.
  *   - `runtimeInteractionAsked` stays OUT, and is the reason this section says
  *     twelve rather than thirteen. Its producer is W2's interactions aggregate,
@@ -300,6 +302,43 @@ export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 
 export const RuntimeEvent = z.intersection(CausalEnvelope, RuntimeEventBody)
 export type RuntimeEvent = z.infer<typeof RuntimeEvent>
+
+/**
+ * Daemon retention, independent of the server's coarse-event projection path.
+ * State, workspace and draft observations are superseded by later observations:
+ * send them live, without a delivery id, fsync, retry or acknowledgement. They
+ * can be lost across a link drop. Fine item fragments remain live-only too.
+ *
+ * Bootstrap overrides the coarse kind: the server needs it to admit a replacement
+ * observer generation, so losing it can strand later durable events as well.
+ *
+ * Complete items remain durable: transcriptDelta is also lossy while offline,
+ * and native history cannot reconstruct Podium-generated SDK interruption notes.
+ * Turn starts admit the next epoch; turn failures drive attention. Neither is
+ * replaced by a transcript mirror. Receipts, process boundaries, interactions
+ * and open-url requests are likewise one-shot effects, not replaceable snapshots.
+ */
+export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
+  if (isRuntimeFineEvent(event)) return false
+  if (event.provenance === 'bootstrap') return true
+  switch (event.t) {
+    case 'state':
+    case 'workspace':
+    case 'draft':
+      return false
+    case 'delivery':
+    case 'process':
+    case 'interaction':
+    case 'open-url':
+    case 'item':
+    case 'turn':
+      return true
+    default: {
+      const unclassified: never = event
+      throw new Error(`Unclassified runtime event: ${unclassified}`)
+    }
+  }
+}
 
 /**
  * The only payloads legal on the live-only fine plane.
@@ -860,8 +899,10 @@ export const RuntimeInteractionAskedMessage = z.object({
 })
 export type RuntimeInteractionAskedMessage = z.infer<typeof RuntimeInteractionAskedMessage>
 
-/** daemon → server: one retained coarse event. The delivery id is optional only
- * during a rolling upgrade from the former unacknowledged stream. */
+/** daemon → server: one coarse event. Durable kinds carry a delivery id and are
+ * retained until acknowledged. Superseded observations omit it: the server still
+ * records/projects the event, but sends no ack. Also accepts older unacknowledged
+ * senders during a rolling upgrade. See `isDurableRuntimeEvent`. */
 export const RuntimeEventMessage = z.object({
   type: z.literal('runtimeEvent'),
   deliveryId: z.string().min(1).optional(),
