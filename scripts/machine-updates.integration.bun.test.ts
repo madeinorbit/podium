@@ -422,6 +422,11 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
     await delay(1700)
     await socketRequest(group.socket, '/publish', approved)
     rmSync(join(group.state('desktop'), 'offline'))
+    // Reconnecting alone converges nothing since POD-4167; the machine takes the
+    // approved target only once a human starts an operation for it.
+    await until(decisions, (events) => events.length > before + 1, 'approved target reconnect')
+    expect(group.journal('desktop')).toBeUndefined()
+    await socketRequest(group.socket, '/approve', { version: approved.version, machines: ['desktop'] })
     const journal = await group.phase('desktop', 'current')
     expect(journal?.grant.target).toEqual(approved)
     expect(group.events('desktop').some((event) => event.version === '3.0.0')).toBe(false)
