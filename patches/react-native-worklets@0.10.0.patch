@@ -26,6 +26,7 @@ index 7080b1ba47ba02e7d934c2cd5f7af0b67071d283..92d8663004d9ba65fa50d880e7894591
      exports2.processIfWorkletClass = processIfWorkletClass;
 -    var generator_1 = __importDefault(require("@babel/generator"));
 +    var generator_1 = __importDefault(require(require.resolve("@babel/generator", { paths: [require.resolve("@babel/core")] })));
-     var traverse_1 = __importDefault(require("@babel/traverse"));
+-    var traverse_1 = __importDefault(require("@babel/traverse"));
++    var traverse_1 = __importDefault(require(require.resolve("@babel/traverse", { paths: [require.resolve("@babel/core")] })));
      var types_12 = require("@babel/types");
      var assert_1 = require("assert");
