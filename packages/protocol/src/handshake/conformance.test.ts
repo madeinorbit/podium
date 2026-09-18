@@ -250,7 +250,7 @@ describe('the two ends agree end to end', () => {
 describe('daemon range dialer', () => {
   it('offers the daemon window independently of the client version', () => {
     const dialer = createHandshakeDialer({ credential: { kind: 'machineToken', token: 'tok' } })
-    expect(dialer.hello().v).toEqual(DAEMON_WIRE_VERSION)
+    expect(dialer.hello().v).toEqual({ min: 1, max: DAEMON_WIRE_VERSION })
     expect(dialer.receive(JSON.stringify({ type: 'peerHelloOk', v: 1, caps: [] })))
       .toMatchObject({ action: 'established', agreedVersion: 1 })
   })
@@ -265,7 +265,7 @@ describe('daemon range dialer', () => {
 
 it.each([[2, 4], [4, 2]])('daemon %i and server %i establish the older common dialect', (daemonMax, serverMax) => {
   const dialer = createHandshakeDialer({ credential: { kind: 'machineToken', token: 'tok-ok' }, support: { min: 1, wire: daemonMax } })
-  const hello = { ...dialer.hello(), v: { min: 1, max: daemonMax } }
+  const hello = dialer.hello()
   const outcome = negotiateVersion(hello.v, { min: 1, wire: serverMax })
   expect(outcome).toEqual({ ok: true, agreed: 2 })
   if (!outcome.ok) throw new Error('expected overlap')

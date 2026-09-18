@@ -52,6 +52,7 @@ import {
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   CLIENT_WIRE_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
   type PendingInteractionWire,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
@@ -868,7 +869,7 @@ export class SocketHub {
         // cannot be made to send a field it was never built with"), so a hub
         // with no feed sink must keep saying nothing rather than announcing a
         // version it has nowhere to put.
-        ...(this.opts.feed ? { wireVersion: CLIENT_WIRE_VERSION } : {}),
+        ...(this.opts.feed ? { wireVersion: { min: MIN_CLIENT_WIRE_VERSION, max: CLIENT_WIRE_VERSION } } : {}),
         // WHERE THIS REPLICA STANDS (POD-2061), filled by the sink and spread
         // unread — see `FeedSinkPort.helloFields`. Present, and the server may
         // answer with a resume grant and no world; absent, and this is exactly

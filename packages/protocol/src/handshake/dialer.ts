@@ -105,7 +105,7 @@ export const createHandshakeDialer = (deps: DialerDeps): HandshakeDialer => {
         ...(deps.bindingSessionIds === undefined
           ? {}
           : { bindingSessionIds: [...deps.bindingSessionIds] }),
-        v: support.wire,
+        v: { min: support.min, max: support.wire },
         ...(deps.peerRole === undefined ? {} : { peerRole: deps.peerRole }),
         caps: [...offered],
         ...(deps.build === undefined ? {} : { build: deps.build }),
