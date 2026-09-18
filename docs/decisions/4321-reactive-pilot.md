@@ -2,6 +2,15 @@
 
 **Decision: use MobX 7.0.3 and mobx-react-lite 5.0.3 for the disabled pilot.**
 
+> **Read this with [D7](4364-keyed-store-comparison.md).** This record answers "which
+> library, if a library". D7 answers the prior question, "is a library needed at all",
+> and recommends **no**: a 130-line hand-written keyed store matches every isolation
+> assertion here, uses 37–42% less mounted heap, adds zero library bytes, and cuts
+> mission calls per relevant delta from 200 to 5 and group session visits from 40,000
+> to 200 — a reduction neither library achieved. The two records do not conflict: this
+> one stands as the library choice should the operator want one. The operator has not
+> chosen between them.
+
 Date: 2026-09-19. Owner: POD-4321, coordinated by POD-4286. This freezes the pilot conventions; it does not enable a feature, migrate a production consumer, or approve a production rollout.
 
 Both candidates met the same row-isolation and semantic assertions. MobX has substantially lower bootstrap, full-rescope and mounted-heap costs in this topology. TanStack DB expresses the relational summary and ordering natively, but leaves the mission/provenance/nesting work in JavaScript. Those benefits do not offset its measured per-reader graph cost here. Legend State was not invoked: MobX passed React 19, Vite and Expo native-module builds. No additional framework is introduced.
