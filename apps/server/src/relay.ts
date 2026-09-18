@@ -1741,6 +1741,7 @@ export class SessionRegistry {
       getSettings: async () => await this.store.settings.getSettingsFor((await firstAdminMemberId(this.store))),
       spawnSession: async (o) =>
         await sessionsSvc.createSession({
+          requestTerminalDriver: true,
           ...(o.sessionId ? { sessionId: o.sessionId } : {}),
           cwd: o.cwd,
           agentKind: o.agentKind as AgentKind,
@@ -2029,7 +2030,7 @@ export class SessionRegistry {
       // budget → cooldown all bite before this seam is reached.
       spawnOnWake: makeSpawnOnWake({
         issues,
-        createSession: async (o) => await sessionsSvc.createSession(o),
+        createSession: async (o) => await sessionsSvc.createSession({ ...o, requestTerminalDriver: true }),
       }),
       // Cross-machine provenance [POD-658]: name the sender's machine in the
       // envelope note so the receiver knows to `podium workspace fetch`.
@@ -2268,6 +2269,7 @@ export class SessionRegistry {
         awaitMachineInventory: async (machineId) => await machines.waitForInventory(machineId),
         spawnSession: async (o) =>
           await sessionsSvc.createSession({
+            requestTerminalDriver: true,
             ownerUserId: o.ownerUserId,
             cwd: o.cwd,
             agentKind: o.agentKind as AgentKind,
@@ -2349,7 +2351,7 @@ export class SessionRegistry {
     const automations = new AutomationsService({
       store: this.store.automations,
       ledger,
-      createSession: async (o) => await sessionsSvc.createSession(o),
+      createSession: async (o) => await sessionsSvc.createSession({ ...o, requestTerminalDriver: true }),
       // MIGRATED AT THE PORT, NOT IN THE SERVICE (POD-1761 W4, C4). Automations
       // already names its two transports as ports and asks nothing about session
       // phase — the delivery decision it makes is "durable outbox for a fresh

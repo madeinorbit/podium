@@ -13,7 +13,9 @@
 
 import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { runAgentCli } from '../../../../cli/src/agent-cli'
+import { runtimeContractEnabledByEnv, runtimeContractEnabledFor } from '../../../../daemon/src/runtime/flag'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -25,6 +27,13 @@ afterEach(async () => {
 })
 
 async function makeRegistry(store?: SessionStore): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+  store ??= await openTestStore(':memory:')
+  await store.machines.upsertMachine({
+    id: store.hostMachineId, name: 'test-host', hostname: 'test-host', tokenHash: 'test',
+    ownerUserId: await firstAdminMemberId(store),
+    assignment: { server: true, agentExecution: true },
+  })
+  for (const path of ['/r', '/proj']) await store.repos.addRepo(path, store.hostMachineId)
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
@@ -431,5 +440,66 @@ describe('SessionStart: live session-id collision guard', () => {
     )
     // No second spawn frame — an overwrite would re-fire spawn for the same id.
     expect(spawns(daemon).filter((m) => m.sessionId === sessionId)).toHaveLength(1)
+  })
+})
+
+describe('non-picker driver requests', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('CLI agent spawn requests the advertised headed driver with the environment absent', async () => {
+    vi.stubEnv('PODIUM_RUNTIME_CONTRACT', undefined)
+    expect(process.env.PODIUM_RUNTIME_CONTRACT).toBeUndefined()
+    expect(runtimeContractEnabledByEnv()).toBe(false)
+    const { reg, daemon } = await makeRegistry()
+    const machineId = reg.sessionStore.hostMachineId
+    await reg.modules.machines.recordInventory(machineId, {
+      os: 'linux', arch: 'x64', tools: [],
+      agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
+      runtimeDrivers: [
+        { harness: 'codex', id: 'codex-app-server', family: 'server' },
+        { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+        { harness: 'codex', id: 'codex-pty', family: 'terminal' },
+      ],
+    })
+    const issue = await reg.issues.create({
+      repoPath: '/proj', title: 'CLI contract request', startNow: false,
+      defaultAgent: 'codex', machineId,
+    })
+    const output = await runAgentCli(['spawn', '--issue', issue.id, '--prompt', 'hello', '--json'], {
+      messages: {
+        spawnAgent: { mutate: (input) => reg.modules.messageGate.dispatch(
+          { role: 'admin', scope: { kind: 'all' }, actorUser: firstAdminMemberId(), onBehalfOf: firstAdminMemberId() }, undefined, 'spawnAgent', input,
+        ) },
+        awaitAgent: { mutate: async () => undefined },
+      },
+      sessions: { status: { query: async () => undefined } },
+    })
+    const { data: { sessionId } } = JSON.parse(output)
+    const frame = spawns(daemon).find((m) => m.sessionId === sessionId)
+    expect(frame).toMatchObject({ agentKind: 'codex', runtimeContract: 'codex-pty' })
+    expect(runtimeContractEnabledFor(runtimeContractEnabledByEnv(), frame?.runtimeContract)).toBe(true)
+    const row = await reg.sessionStore.sessions.getSession(sessionId)
+    expect(row?.requestedDriverId).toBe('codex-pty')
+  })
+
+  it('refuses a missing headed driver instead of silently spawning legacy', async () => {
+    const { reg, daemon } = await makeRegistry()
+    await expect(reg.modules.sessions.createSession({
+      cwd: '/proj', agentKind: 'codex', requestTerminalDriver: true,
+    })).rejects.toThrow('no advertised terminal runtime driver for codex')
+    expect(spawns(daemon)).toEqual([])
+  })
+
+  it('preserves explicit driver choices and shell exemptions', async () => {
+    const { reg, daemon } = await makeRegistry()
+    await reg.modules.sessions.createSession({
+      cwd: '/proj', agentKind: 'codex', requestTerminalDriver: true,
+      runtimeContract: 'codex-app-server',
+    })
+    expect(spawns(daemon).at(-1)?.runtimeContract).toBe('codex-app-server')
+    await reg.modules.sessions.createSession({
+      cwd: '/proj', agentKind: 'shell', requestTerminalDriver: true,
+    })
+    expect(spawns(daemon).at(-1)).not.toHaveProperty('runtimeContract')
   })
 })

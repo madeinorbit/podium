@@ -196,6 +196,16 @@ export const Inventory = z.object({
 })
 export type Inventory = z.infer<typeof Inventory>
 
+/** The headed driver is selected from the destination's admitted inventory. */
+export function terminalRuntimeDriver(
+  machine: { inventory?: Inventory } | undefined,
+  harness?: AgentKind,
+): NonNullable<Inventory['runtimeDrivers']>[number] | undefined {
+  return machine?.inventory?.runtimeDrivers?.find(
+    (driver) => driver.family === 'terminal' && (harness === undefined || driver.harness === harness),
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Machine identity + health (was messages/host.ts)
 // ---------------------------------------------------------------------------

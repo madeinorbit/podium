@@ -54,6 +54,7 @@ import type { Attribution, ResumeRef } from '@podium/model'
 import {
   type AccountId,
   AgentKind,
+  terminalRuntimeDriver,
   asMachineId,
   asSessionId,
   firstAdminMemberId,
@@ -200,25 +201,13 @@ export class SessionStart {
     use?: MachineUseResolver
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     loginHarness?: Exclude<AgentKind, 'shell'>
-    /**
-     * THE OPERATOR'S PER-SPAWN DRIVER CHOICE (POD-1761 W5; spec §9 phase 3).
-     *
-     * `true` drives this session through the Agent Runtime contract with
-     * whatever the harness manifest's `select()` policy picks — which is the
-     * terminal driver for every harness today. A DRIVER ID names one
-     * explicitly, and is how a single opencode session runs on
-     * `opencode-server` while every other session on the same daemon stays
-     * terminal.
-     *
-     * ABSENT IS THE DEFAULT AND CHANGES NOTHING. The daemon takes the OR of this
-     * and its machine-wide flag, so a spawn that says nothing is byte-for-byte
-     * the spawn it was before this field existed.
-     *
-     * NO UI, deliberately (the epic's non-goals): a settings/CLI lever and this
-     * field are what an operator needs to test a driver, and a picker in the
-     * spawn dialog would be a product decision nobody has made.
-     */
+    /** Explicit driver request from a picker or API caller. A concrete ID
+     * selects that driver; true delegates selection to the daemon manifest.
+     * Non-picker producers use requestTerminalDriver to resolve an omitted
+     * request from the target machine's inventory instead of the UI flag. */
     runtimeContract?: RuntimeContractRequest
+    /** Non-picker producers request the advertised headed driver after placement. */
+    requestTerminalDriver?: boolean
   }): Promise<SessionSpawnResult> {
     if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
@@ -243,6 +232,14 @@ export class SessionStart {
       agentKind,
       input.use,
     )
+    let runtimeContract = input.runtimeContract
+    if (runtimeContract === undefined && input.requestTerminalDriver && agentKind !== 'shell') {
+      const machine = await this.ports.store.machines.getMachine(machineId)
+      runtimeContract = terminalRuntimeDriver(machine, agentKind)?.id
+      if (!runtimeContract) {
+        throw new Error(`machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`)
+      }
+    }
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
     // spawn side effect [spec:SP-cc60].
     const { forced } = assertModelSelectionValid(
@@ -326,7 +323,7 @@ export class SessionStart {
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
-      ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
+      ...(runtimeContract !== undefined ? { runtimeContract } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
