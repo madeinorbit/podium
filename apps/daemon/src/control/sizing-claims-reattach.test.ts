@@ -24,6 +24,7 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
+import { createDurableProcess } from '@podium/process/durable'
 import type { AgentSession } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
@@ -189,6 +190,7 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
     recoverTerminal: terminal.recoverWithId,
     handleFor: terminal.handleFor,
     has: terminal.has,
+    adoptJournalled: async () => ({ found: false }),
   } as unknown as NonNullable<DaemonContext['agentRuntime']>
   return ctx
 }
@@ -335,7 +337,7 @@ describe('terminal recovery ownership', () => {
       const sent: Array<{ type: string; resizesBefore: number }> = []
       const ctx = ctxFor(sent)
       if (wrongIncarnation) ctx.durableLabels.set(SESSION, 'podium-other-incarnation')
-      else ctx.durable = { locate: async () => undefined } as NonNullable<DaemonContext['durable']>
+      else ctx.durable = { ...createDurableProcess('abduco', { host: false, abduco: true }), locate: async () => undefined }
       sessionHandlers.reattach(ctx, reattachMessage())
       await vi.waitFor(() => expect(sent.some((m) => m.type === 'reattachFailed')).toBe(true))
       expect(sent.some((m) => m.type === 'bind')).toBe(false)

@@ -179,6 +179,9 @@ const PENDING_FRAME_LIMIT = 256
  * interface is the contract's own discipline applied one layer down: it names
  * what it needs, and `apps/daemon/src/host-runtime.ts` satisfies it structurally.
  */
+/** Refusing a foreign identity or stale lease must never reap the current owner. */
+export class TerminalRecoveryRefusal extends Error {}
+
 export interface TerminalRuntimeHost {
   /** Outbound daemon frames. The driver's only path to the server. */
   send(msg: DaemonMessage): void
@@ -2067,7 +2070,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     const recovery = (async () => {
       await previous?.catch(() => undefined)
       if (typeof msg.runtimeContract === 'string' && canonicalDriverId(msg.runtimeContract) !== profile.driverId) {
-        throw new Error(`runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`)
+        throw new TerminalRecoveryRefusal(`runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`)
       }
       const current = sessions.get(msg.sessionId)
       if (
@@ -2079,7 +2082,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
           (msg.observationBindingVersion !== undefined &&
             msg.observationBindingVersion < current.bindingVersion))
       )
-        throw new Error('terminal recovery identity or observation fence is stale')
+        throw new TerminalRecoveryRefusal('terminal recovery identity or observation fence is stale')
       return claiming(msg.sessionId, async () => {
         if (verifyDurable && !(await host.durableHostAlive(msg.durableLabel))) {
           throw new Error(`terminal driver: no surviving durable host for ${msg.durableLabel}`)
@@ -2186,7 +2189,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
             bound.harness !== harness ||
             bound.process.key !== host.durableLabel(bound.sessionId)
           ) {
-            throw new Error('terminal recovery process identity mismatch')
+            throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
           }
           return recoverWithId(
             {

@@ -1443,7 +1443,7 @@ describe('the echo baseline', () => {
   it('does not type a raw first turn into an ADOPTED conversation whose replay buffer has rolled', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
-    const created = await driver.create(SPEC)
+    const created = await driver.create({ ...SPEC, harness: 'grok' })
     const sessionId = created.binding.sessionId
     const binding = created.binding
 

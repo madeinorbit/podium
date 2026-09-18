@@ -1,3 +1,5 @@
+import { recoverTerminalHost } from './session'
+import { canonicalDriverId } from '@podium/harness'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -148,10 +150,19 @@ function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'w
     await launch({ args: [] })
     return handles.get(id)
   })
+  const recoverTerminal = vi.fn(async (...[msg, profile]: Parameters<NonNullable<DaemonContext['agentRuntime']>['recoverTerminal']>) => {
+    if (typeof msg.runtimeContract === 'string' && canonicalDriverId(msg.runtimeContract) !== profile.driverId) {
+      throw new Error(`runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`)
+    }
+    await bindTerminal({ sessionId: msg.sessionId, agentKind: msg.agentKind, cwd: msg.cwd, resume: msg.resume ?? null, rebind: true }, profile)
+    await recoverTerminalHost(ctx, msg, () => {})
+    return handles.get(msg.sessionId)
+  })
   ctx.runtimeContractEnabled = false
   ctx.agentRuntime = {
     createTerminal,
     bindTerminal,
+    recoverTerminal,
     handleFor: (id: string) => handles.get(id),
     has: (id: string) => handles.has(id),
     clearTerminal: (id: string) => handles.delete(id),

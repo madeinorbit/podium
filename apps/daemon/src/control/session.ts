@@ -60,6 +60,7 @@ import {
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
+import { TerminalRecoveryRefusal } from '../runtime/terminal-driver'
 import { beginServerDriverReap } from '../runtime/server-reap'
 import {
   type InstalledTerminalInstrumentation,
@@ -2112,7 +2113,7 @@ export async function recoverTerminalHost(
 ): Promise<void> {
   const heldLabel = ctx.durableLabels.get(msg.sessionId)
   if (heldLabel !== undefined && heldLabel !== msg.durableLabel) {
-    throw new Error('terminal recovery process identity mismatch')
+    throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
   }
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
@@ -2531,6 +2532,11 @@ export const sessionHandlers: Pick<
   },
   reattach: (ctx, msg) => {
     void handleReattach(ctx, msg).catch((error) => {
+      // A refused lease belongs to another/newer owner. Only a composition
+      // failure may reap an acquired bridge, as required by agent admission.
+      if (!(error instanceof TerminalRecoveryRefusal) && ctx.bridges.has(msg.sessionId)) {
+        stopSessionProcess(ctx, msg)
+      }
       ctx.send({
         type: 'reattachFailed',
         sessionId: msg.sessionId,
