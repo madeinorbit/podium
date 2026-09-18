@@ -1,7 +1,7 @@
 /** One sequential proof lane; invoke through scripts/test-heavy.ts. */
 const commands = [
   ['bun', 'run', 'typecheck', '--', '--filter', '@podium/web', '--filter', '@podium/mobile'],
-  ['bun', 'run', 'test:file', '--', 'apps/web/src/perf/d1-reactivity.test.tsx', 'apps/mobile/src/d1-reactivity.test.tsx'],
+  ['bun', 'run', 'test:file', '--', 'apps/web/src/perf/d1-reactivity.test.tsx', 'apps/mobile/src/d1-reactivity.test.tsx', 'packages/client-core/src/replica/replica.sqlite.test.ts', 'packages/client-core/src/replica/contract.test.ts'],
   ['bun', 'packages/client-core/proofs/d1/build.ts'],
   ['bun', 'run', 'build:clients'],
 ]
