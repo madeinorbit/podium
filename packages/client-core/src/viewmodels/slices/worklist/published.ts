@@ -50,6 +50,13 @@ import type { IssueNavigationModel } from '../issues'
 import { defineSlice } from '../publish'
 import { groupUnifiedWorkRows, splitPinnedWork, type UnifiedWorkGroup } from './folds'
 import { reposVisibleOnMachines } from './machine-scope'
+import {
+  worklistIssuesEqual,
+  worklistMachinesEqual,
+  worklistPinsEqual,
+  worklistReposEqual,
+  worklistSessionsEqual,
+} from './material'
 import { type SidebarSections, sidebarSections } from './nav'
 import type { UnifiedWorkRow } from './row-types'
 import { unifiedWorkList } from './rows'
@@ -163,45 +170,23 @@ function issuesOf<TApi extends PodiumClientApi>(store: Store<TApi>): IssueNaviga
  */
 export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>({
   name: 'worklist',
-  // Worklist derivation is one of the largest client-side projections. The
-  // store also carries transcript, connection, approval and host-metric
-  // updates that cannot affect this slice, so keep the published value across
-  // those snapshots. Every field named here is read by `derive` above; rows
-  // and collections remain identity-keyed so an eviction/rescope always
-  // invalidates the worklist.
-  //
-  // THE ISSUE DEPENDENCY IS THE DERIVED MODELS, NOT THE RAW ARRAYS (POD-1053),
-  // and that is a tightening rather than a loosening. `derive` does not read
-  // `store.issues`; it reads `issuesOf(store)`, and every optimistic fold hands
-  // the store a new `issues` array for a one-row patch — so naming the raw array
-  // re-derived the whole worklist (1026 issues × 530 sessions) on every press
-  // AND again on the server echo that painted the same values back. The models
-  // are a pure function of `(replica, issueProjections, issues)`, they are
-  // memoized per snapshot, and their array identity moves whenever any visible
-  // cell of any issue moves — including a row LEAVING, which is what makes this
-  // correct under evict and rescope: a shrunken slice is a shorter array, never
-  // an equal one. The raw-array comparison stays as the fallback for the first
-  // snapshot after construction, when the previous models were never asked for.
+  // Guard the inputs, never the derived rows. Membership/order changes always
+  // miss; unrelated terminal and machine reporting frames keep all readers at
+  // the same published value. The coarse clock still owns snooze/decay lapses.
   sourceEqual: (previous, next) => {
+    if (previous === next) return true
     if (
-      previous.repos !== next.repos ||
-      previous.machines !== next.machines ||
-      previous.sessions !== next.sessions ||
-      previous.pins !== next.pins ||
       previous.coarseNow !== next.coarseNow ||
-      previous.selectedIssueId !== next.selectedIssueId
-    ) {
+      previous.selectedIssueId !== next.selectedIssueId ||
+      !worklistReposEqual(previous.repos, next.repos) ||
+      !worklistMachinesEqual(previous.machines, next.machines) ||
+      !worklistSessionsEqual(previous.sessions, next.sessions) ||
+      !worklistPinsEqual(previous.pins, next.pins)
+    )
       return false
-    }
-    const previousModels = issueModelsBySnapshot.get(previous)
-    // Always resolve the NEW snapshot's models, even on the fallback path: it is
-    // a memo read when nothing moved, and it is what populates the entry the
-    // next comparison reads for `previous`.
-    const nextModels = issuesOf(next)
-    if (previousModels === undefined) {
-      return previous.issues === next.issues && previous.issueProjections === next.issueProjections
-    }
-    return previousModels === nextModels
+    // Resolve against the correct snapshot, including after a guard hit. The
+    // old fallback skipped replica-only changes when no earlier model was read.
+    return worklistIssuesEqual(issuesOf(previous), issuesOf(next))
   },
   derive: (store) => {
     const issues = issuesOf(store)
