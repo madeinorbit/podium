@@ -177,6 +177,46 @@ it.each(['codex', 'claude-code', 'grok', 'opencode', 'cursor'] as const)(
   },
 )
 
+// Exercise admission after createTerminal returns, independently of the check
+// inside its launch callback. A factory resolving is not proof of a valid handle.
+it.each(['no-handle', 'sessionId', 'harness', 'family', 'driver'] as const)(
+  'rejects createTerminal returning with %s handle corruption',
+  async (corruption) => {
+    const ctx = contextForSpawn()
+    const { createTerminal, handles } = installRuntime(ctx)
+    const msg = spawnMessage()
+    createTerminal.mockImplementationOnce(async (id, _spec, profile) => {
+      if (corruption === 'no-handle') return undefined
+      const binding = {
+        sessionId: id,
+        harness: msg.agentKind,
+        family: 'terminal',
+        driver: profile.driverId,
+        [corruption]: {
+          sessionId: 'another-session',
+          harness: 'claude-code',
+          family: 'server',
+          driver: 'codex-app-server',
+        }[corruption],
+      }
+      // Deliberately malformed registry output at the runtime boundary.
+      const handle = { binding } as unknown as AgentSessionHandle
+      handles.set(id, handle)
+      return handle
+    })
+
+    await expect(launchSpawn(ctx, msg, {}, undefined, true)).rejects.toThrow(
+      `terminal driver '${terminalProfileFor(msg.agentKind)!.driverId}' did not establish a handle`,
+    )
+    expect(createTerminal).toHaveBeenCalledOnce()
+    expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'spawnError',
+      message: expect.stringContaining('did not establish a handle'),
+    }))
+    expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
+  },
+)
+
 it('refuses an agent before starting its process when the runtime is missing', async () => {
   const ctx = contextForSpawn()
   ctx.send = vi.fn()

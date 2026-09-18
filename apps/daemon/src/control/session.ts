@@ -908,7 +908,11 @@ export async function launchSpawn(
     if (installedInstrumentation) {
       await launch(installedInstrumentation)
     } else if (!hostHasNoRuntimeSession) {
-      await ctx.agentRuntime!.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
+      const runtime = ctx.agentRuntime
+      if (!runtime) {
+        throw new Error('agent runtime is unavailable; retry after the daemon recovers')
+      }
+      await runtime.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
       requireTerminalHandle(ctx, msg, profile)
     } else {
       // Permanent plain terminals still need instrumentation and shared PTY plumbing.
