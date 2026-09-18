@@ -9,9 +9,13 @@ import {
   renameSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { readAppliedMigrations } from './migration-ledger'
 import { UpdateGrantMessage, type UpdateStatusMessage, type UpdateTarget } from '@podium/protocol'
 import { z } from 'zod'
+
+/** Pins the installed update across parent/server process boundaries. */
+export const MACHINE_UPDATE_GRANT_ENV = 'PODIUM_MACHINE_UPDATE_GRANT'
 
 export const MachineUpdatePhase = z.enum([
   'accepted',
@@ -55,6 +59,24 @@ function authorityDomain(authority?: MachineUpdateAuthority): string {
   return `coordinator:${updateFingerprint(endpoint.href)}`
 }
 
+export const AppliedUpdateMigration = z.object({
+  id: z.string().min(1),
+  appliedAt: z.number().finite(),
+})
+export type AppliedUpdateMigration = z.infer<typeof AppliedUpdateMigration>
+const MigrationReceipt = z.object({
+  grantId: z.string(),
+  appliedMigrations: z.array(AppliedUpdateMigration),
+  // A durable intent closes the SQLite-commit / receipt-write crash window.
+  pending: z
+    .object({
+      dbPath: z.string(),
+      ids: z.array(z.string()),
+      startedAt: z.number().finite(),
+    })
+    .optional(),
+})
+
 const Journal = z.object({
   format: z.literal(1),
   grant: UpdateGrantMessage,
@@ -62,6 +84,7 @@ const Journal = z.object({
   previousVersion: z.string(),
   phase: MachineUpdatePhase,
   prepared: PreparedUpdate.optional(),
+  appliedMigrations: z.array(AppliedUpdateMigration).default([]),
   detail: z.string().optional(),
   percent: z.number().optional(),
   updatedAt: z.number(),
@@ -108,11 +131,88 @@ export function readMachineUpdateJournal(runtimeDir: string): MachineUpdateJourn
   const path = machineUpdateJournalPath(runtimeDir)
   if (!existsSync(path)) return undefined
   // Corrupt durable authority must fail closed, never become an empty history.
-  return Journal.parse(JSON.parse(readFileSync(path, 'utf8')))
+  const journal = Journal.parse(JSON.parse(readFileSync(path, 'utf8')))
+  journal.appliedMigrations = appliedMigrationsForJournal(runtimeDir, journal)
+  return journal
+}
+
+/**
+ * Server writer and parent reader share <state>/runtime/machine-update-migrations/<sha256(grantId)>.json.
+ * Separate from machine-update.json so the server cannot overwrite executor transitions.
+ * Hashing keeps opaque grant IDs (including path separators) inside the runtime directory.
+ */
+export function machineUpdateMigrationsPath(runtimeDir: string, grantId: string): string {
+  return join(runtimeDir, 'machine-update-migrations', createHash('sha256').update(grantId).digest('hex') + '.json')
+}
+function readMigrationReceipt(
+  runtimeDir: string,
+  grantId: string,
+): z.infer<typeof MigrationReceipt> {
+  const path = machineUpdateMigrationsPath(runtimeDir, grantId)
+  if (!existsSync(path)) return { grantId, appliedMigrations: [] }
+  const receipt = MigrationReceipt.parse(JSON.parse(readFileSync(path, 'utf8')))
+  if (receipt.grantId !== grantId) throw new Error('migration receipt grant mismatch')
+  return receipt
+}
+export function readAppliedUpdateMigrations(
+  runtimeDir: string,
+  grantId: string,
+): AppliedUpdateMigration[] {
+  const receipt = readMigrationReceipt(runtimeDir, grantId)
+  const applied = new Map(receipt.appliedMigrations.map((entry) => [entry.id, entry]))
+  if (receipt.pending) {
+    // SQLite's committed ledger is the execution witness if the server died
+    // between COMMIT and receipt publication. Never infer application from intent.
+    const names = readAppliedMigrations(receipt.pending.dbPath)
+    if (names === undefined) throw new Error('migration receipt database is missing')
+    for (const id of receipt.pending.ids) {
+      if (names.includes(id) && !applied.has(id))
+        applied.set(id, { id, appliedAt: receipt.pending.startedAt })
+    }
+  }
+  return [...applied.values()]
+}
+
+/** Brackets the migrator's transaction; call the returned function with only committed IDs. */
+export function beginMachineUpdateMigrations(
+  runtimeDir: string,
+  grantId: string,
+  dbPath: string,
+  ids: string[],
+  now = Date.now(),
+): (appliedIds: string[]) => void {
+  const appliedMigrations = readAppliedUpdateMigrations(runtimeDir, grantId)
+  const path = machineUpdateMigrationsPath(runtimeDir, grantId)
+  persistJson(path, { grantId, appliedMigrations, pending: { dbPath, ids, startedAt: now } })
+  return (appliedIds) => {
+    const applied = new Map(appliedMigrations.map((entry) => [entry.id, entry]))
+    for (const id of appliedIds) {
+      if (!applied.has(id)) applied.set(id, { id, appliedAt: Date.now() })
+    }
+    persistJson(path, { grantId, appliedMigrations: [...applied.values()] })
+  }
+}
+function appliedMigrationsForJournal(
+  runtimeDir: string,
+  journal: MachineUpdateJournal,
+): AppliedUpdateMigration[] {
+  // The executor's checkpoint is a second durable copy of acknowledged receipts.
+  // Preserve it even if a receipt file is subsequently lost; both belong to this grant.
+  return [
+    ...new Map(
+      [
+        ...readAppliedUpdateMigrations(runtimeDir, journal.grant.grantId),
+        ...journal.appliedMigrations,
+      ].map((entry) => [entry.id, entry]),
+    ).values(),
+  ]
 }
 function persist(runtimeDir: string, value: MachineUpdateJournal): void {
+  persistJson(machineUpdateJournalPath(runtimeDir), value)
+}
+function persistJson(path: string, value: unknown): void {
+  const runtimeDir = dirname(path)
   mkdirSync(runtimeDir, { recursive: true, mode: 0o700 })
-  const path = machineUpdateJournalPath(runtimeDir)
   const temporary = `${path}.${process.pid}.tmp`
   const fd = openSync(temporary, 'w', 0o600)
   try {
@@ -191,7 +291,11 @@ export class MachineUpdateExecutor {
     if (this.journal) deps.adapter.select?.(this.journal.grant)
   }
   snapshot(): MachineUpdateJournal | undefined {
-    return this.journal && structuredClone(this.journal)
+    if (!this.journal) return undefined
+    return structuredClone({
+      ...this.journal,
+      appliedMigrations: appliedMigrationsForJournal(this.deps.runtimeDir, this.journal),
+    })
   }
   private status(journal: MachineUpdateJournal): UpdateStatusMessage {
     const phase = journal.phase
@@ -233,6 +337,7 @@ export class MachineUpdateExecutor {
         phase,
         ...(this.journal.detail ? { detail: this.journal.detail } : {}),
       }
+    this.journal.appliedMigrations = appliedMigrationsForJournal(this.deps.runtimeDir, this.journal)
     persist(this.deps.runtimeDir, this.journal)
     this.deps.log?.(phase, {
       grantId: this.journal.grant.grantId,
@@ -317,6 +422,7 @@ export class MachineUpdateExecutor {
         fingerprint,
         previousVersion: this.deps.adapter.runningVersion(),
         phase: 'accepted',
+        appliedMigrations: [],
         updatedAt: this.deps.now?.() ?? Date.now(),
         activationHeld: holdActivation,
         // Preserve the old reader's global fence when rolling back binaries.

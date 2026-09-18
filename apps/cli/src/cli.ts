@@ -1791,6 +1791,7 @@ export async function main(
           assignment: configuredAssignment,
         }),
         releaseHadMigrations: pendingUpdate?.prepared?.releaseHadMigrations,
+        updateGrantId: pendingUpdate?.grant.grantId,
         childEnv: () => ({
           [LOOP_PROFILE_ENV]: loopProfile.level,
           // The sampler's period, which is a JSC option read once at VM start,
@@ -1931,7 +1932,7 @@ export async function main(
         caps: deliveryCaps,
         pinnedPubkey: () => supervisorState.updatePubkey,
         restart: async (grant, prepared) => {
-          parent.setUpdateMigrationKnowledge(prepared.releaseHadMigrations)
+          parent.setUpdateMigrationKnowledge(prepared.releaseHadMigrations, grant.grantId)
           await parent.handover(grant.target.version)
         },
       })

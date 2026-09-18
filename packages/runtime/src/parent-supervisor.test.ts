@@ -417,50 +417,47 @@ describe('spawnShapeFault', () => {
 })
 
 describe('rollbackDecision', () => {
-  it('rolls back on crash-loop only when .old exists and release had no migrations', () => {
+  it('rolls back when this grant applied nothing', () => {
     expect(
       rollbackDecision({
         crashLoop: true,
         oldBundlePresent: true,
-        releaseHadMigrations: false,
+        appliedMigrations: [],
       }),
     ).toEqual({ action: 'rollback' })
   })
 
-  it('reports WHY when migrations block rollback', () => {
+  it('names each applied migration when a forward fix is required', () => {
     const d = rollbackDecision({
       crashLoop: true,
       oldBundlePresent: true,
-      releaseHadMigrations: true,
+      appliedMigrations: [{ id: '20260916065900_new_schema', appliedAt: 123 }],
     })
     expect(d).toMatchObject({ action: 'unavailable' })
-    if (d.action === 'unavailable') expect(d.why).toMatch(/migrations/)
+    if (d.action === 'unavailable') {
+      expect(d.why).toContain('20260916065900_new_schema')
+      expect(d.why).toContain('forward-fix required')
+    }
   })
 
   it('reports WHY when .old is missing', () => {
     const d = rollbackDecision({
       crashLoop: true,
       oldBundlePresent: false,
-      releaseHadMigrations: false,
+      appliedMigrations: [],
     })
     expect(d).toMatchObject({ action: 'unavailable' })
     if (d.action === 'unavailable') expect(d.why).toMatch(/\.old/)
   })
 
-  /**
-   * Re-review R1. A parent that does not KNOW must not act as if the answer were
-   * "no migrations": restoring old code over a migrated database corrupts data.
-   * The successor read `undefined` and, because the call site coerced it with
-   * `=== true`, rolled back across migrating releases.
-   */
-  it('refuses, and says so, when the migration fact is UNKNOWN rather than false', () => {
+  it('fails closed on an unreadable execution journal', () => {
     const d = rollbackDecision({
       crashLoop: true,
       oldBundlePresent: true,
-      releaseHadMigrations: undefined,
+      appliedMigrations: undefined,
     })
     expect(d).toMatchObject({ action: 'unavailable' })
-    if (d.action === 'unavailable') expect(d.why).toMatch(/cannot tell/)
+    if (d.action === 'unavailable') expect(d.why).toMatch(/cannot read/)
   })
 
   it('continues when the crash-loop threshold is not met', () => {
@@ -468,7 +465,7 @@ describe('rollbackDecision', () => {
       rollbackDecision({
         crashLoop: false,
         oldBundlePresent: true,
-        releaseHadMigrations: false,
+        appliedMigrations: [],
       }),
     ).toEqual({ action: 'continue' })
   })

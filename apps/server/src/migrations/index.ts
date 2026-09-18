@@ -17,6 +17,7 @@
  * open it — that transition is complete for the founders' databases.)
  */
 
+import { beginMachineUpdateMigrations } from '@podium/runtime/machine-update'
 import { createLogger } from '@podium/logger'
 import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium/runtime/migration-ledger'
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
@@ -191,7 +192,11 @@ function hasAnyDataTable(db: SqlDatabase): boolean {
 export function runDrizzleMigrations(
   db: SqlDatabase,
   migrations: DrizzleMigration[],
-  opts: { dbPath?: string; skipSchemaRepair?: boolean } = {},
+  opts: {
+    dbPath?: string
+    skipSchemaRepair?: boolean
+    update?: { runtimeDir: string; grantId: string }
+  } = {},
 ): string[] {
   const applied = appliedDrizzleNames(db)
 
@@ -268,16 +273,39 @@ export function runDrizzleMigrations(
   // writes the ledger. Passing only pending migrations is essential for aliases:
   // drizzle cannot know that an old ledger name already performed the canonical
   // migration SQL, and replaying it could add the same column twice.
-  migrate(
-    // `client` is @podium/runtime's deliberately narrow structural view of the
-    // bun:sqlite handle (packages/runtime/src/sqlite/bun.ts names only the methods
-    // we call, so that module stays importable under Node). drizzle's `client` slot
-    // names bun:sqlite's real `Database` class, which materializes only in a program
-    // that loads @types/bun — this file's own lane resolves `bun:sqlite` to `any`,
-    // the scripts typecheck lane does not (POD-1122). Same object at runtime.
-    drizzle({ client: client as unknown as DrizzleBunClient }),
-    pending.map((m) => ({ name: m.name, timestamp: folderMillis(m.name), sql: mintIdsIn(m.sql) })),
-  )
+  // This is also the parent's rollback witness:
+  // <state>/runtime/machine-update-migrations/<sha256(grantId)>.json.
+  // Record the intent BEFORE SQLite, then committed IDs BEFORE repairs/logging.
+  const record =
+    opts.update && opts.dbPath && opts.dbPath !== ':memory:'
+      ? beginMachineUpdateMigrations(
+          opts.update.runtimeDir,
+          opts.update.grantId,
+          opts.dbPath,
+          pending.map((m) => m.name),
+        )
+      : undefined
+  try {
+    migrate(
+      // `client` is @podium/runtime's deliberately narrow structural view of the
+      // bun:sqlite handle (packages/runtime/src/sqlite/bun.ts names only the methods
+      // we call, so that module stays importable under Node). drizzle's `client` slot
+      // names bun:sqlite's real `Database` class, which materializes only in a program
+      // that loads @types/bun — this file's own lane resolves `bun:sqlite` to `any`,
+      // the scripts typecheck lane does not (POD-1122). Same object at runtime.
+      drizzle({ client: client as unknown as DrizzleBunClient }),
+      pending.map((m) => ({
+        name: m.name,
+        timestamp: folderMillis(m.name),
+        sql: mintIdsIn(m.sql),
+      })),
+    )
+  } catch (error) {
+    // Drizzle rolls back the entire batch. Do not name attempted SQL as applied.
+    record?.([])
+    throw error
+  }
+  record?.(pending.map((m) => m.name))
   if (pending.some((m) => m.name === '20260917185720_session-delegation-record')) {
     const row = db
       .prepare('SELECT count(*) AS count FROM sessions WHERE delegation IS NULL')

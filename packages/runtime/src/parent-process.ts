@@ -36,7 +36,17 @@ import {
   NODE_CHANNEL_FD_ENV,
   type ParentIdentity,
 } from './lifecycle-channel'
-import { prepareSetupEnrollment, confirmSetupEnrollment, signMachineHello } from './setup-enrollment'
+import {
+  prepareSetupEnrollment,
+  confirmSetupEnrollment,
+  signMachineHello,
+} from './setup-enrollment'
+import {
+  MACHINE_UPDATE_GRANT_ENV,
+  readMachineUpdateJournal,
+  readAppliedUpdateMigrations,
+  type AppliedUpdateMigration,
+} from './machine-update'
 import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import {
   clearParentRequest,
@@ -100,18 +110,7 @@ export const PARENT_HAS_SERVER_ENV = 'PODIUM_PARENT_HAS_SERVER'
  * children the successor was about to replace. See invariant 2.
  */
 export const PARENT_SUCCESSOR_ENV = 'PODIUM_PARENT_SUCCESSOR'
-/**
- * `1` / `0`: did the release now on disk carry migrations this database had not
- * applied?
- *
- * ONLY THE PARENT THAT RAN THE SWAP CAN ANSWER THAT — it is the process that
- * compared the target's declared migrations against the live ledger — and that
- * parent EXITS at the end of a successful handover. The successor is then the
- * only process that can observe a post-update crash loop, so the fact has to
- * travel with it. Without this, the successor read `undefined`, took it for
- * `false`, and would roll a migrating release back: exactly what decision 4
- * exists to forbid (re-review R1).
- */
+/** Release metadata carried for diagnostics only; never authorizes or blocks rollback. */
 export const PARENT_RELEASE_MIGRATIONS_ENV = 'PODIUM_PARENT_RELEASE_MIGRATIONS'
 
 /** Termination signals the parent handles itself, from before the first spawn. */
@@ -191,8 +190,10 @@ export interface ParentProcessDeps {
    * gate has passed. Wired by the composition root; absent for daemon-only tests.
    */
   finalizePendingGrant?: (expectedVersion: string) => void
-  /** Whether the release that just swapped carried new migrations (decision 4). */
+  /** Whether the release carried migrations; diagnostic metadata only. */
   releaseHadMigrations?: boolean
+  /** The grant that installed the supervised bundle, not a later queued grant. */
+  updateGrantId?: string
   /** Notify systemd (READY / MAINPID / WATCHDOG). */
   notify?: (state: string) => void
   /** Report successor PID to a desktop shell (macOS). */
@@ -496,6 +497,7 @@ export class ParentProcess {
     ParentProcessDeps
   private readonly installDir: string
   private readonly installBinary: string
+  private updateGrantId: string | undefined
   private readonly env: NodeJS.ProcessEnv
   /** True while children are being torn down on purpose (stop / rollback). */
   private stopping = false
@@ -526,6 +528,7 @@ export class ParentProcess {
 
   constructor(deps: ParentProcessDeps) {
     this.env = { ...(deps.env ?? process.env) }
+    this.updateGrantId = this.env[MACHINE_UPDATE_GRANT_ENV] ?? deps.updateGrantId
     this.installDir = deps.installDir ?? resolveInstallDir(this.env)
     this.installBinary = deps.installBinary ?? defaultInstallBinary(this.installDir, this.env)
     this.childOrder = [...(deps.children ?? CHILD_START_ORDER)]
@@ -567,8 +570,9 @@ export class ParentProcess {
     }
   }
 
-  setUpdateMigrationKnowledge(value: boolean | undefined): void {
+  setUpdateMigrationKnowledge(value: boolean | undefined, grantId?: string): void {
     this.deps.releaseHadMigrations = value
+    this.updateGrantId = grantId
   }
 
   private readyPath(): string {
@@ -1362,6 +1366,7 @@ export class ParentProcess {
       ...(this.deps.childEnv?.() ?? {}),
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
+      [MACHINE_UPDATE_GRANT_ENV]: this.updateGrantId,
       PODIUM_UNDER_PARENT: '1',
       [PARENT_HAS_SERVER_ENV]: this.childOrder.includes('server') ? '1' : '0',
       // A child's stdio is ours (see childStdio), so its records belong in the
@@ -1529,12 +1534,30 @@ export class ParentProcess {
     this.lastProbeJanitor = probe.janitor
   }
 
+  private appliedUpdateMigrations(): AppliedUpdateMigration[] | undefined {
+    try {
+      // The server writes <state>/runtime/machine-update-migrations/<sha256(grantId)>.json.
+      // Read fresh for this grant: a successor may have migrated since our last tick,
+      // even if the machine's assignment no longer includes a server.
+      const runtimeDir = join(this.deps.stateDir ?? stateDir(), 'runtime')
+      const journal = readMachineUpdateJournal(runtimeDir)
+      const grantId = this.updateGrantId ?? journal?.grant.grantId
+      if (!grantId) return []
+      return journal?.grant.grantId === grantId
+        ? journal.appliedMigrations
+        : readAppliedUpdateMigrations(runtimeDir, grantId)
+    } catch (error) {
+      log.error('could not read applied migration journal', { err: error })
+      return undefined
+    }
+  }
+
   private async considerRollback(): Promise<void> {
     if (!isPostUpdateCrashLoop(this.snap, this.deps.now())) return
     const decision = rollbackDecision({
       crashLoop: true,
       oldBundlePresent: oldBundlePresent(this.installDir),
-      releaseHadMigrations: this.deps.releaseHadMigrations,
+      appliedMigrations: this.appliedUpdateMigrations(),
     })
     if (decision.action === 'continue') return
     if (decision.action === 'unavailable') {
@@ -1556,7 +1579,11 @@ export class ParentProcess {
    * it adopts — see {@link writeParentOutcome}.
    */
   private reportRollbackUnavailable(why: string, because: string): void {
-    log.error('rollback unavailable', { why, because })
+    log.error('rollback unavailable', {
+      why,
+      because,
+      releaseHadMigrations: this.deps.releaseHadMigrations,
+    })
     this.snap = markRollbackUnavailable(this.snap, why)
     this.publish()
     try {
@@ -1588,6 +1615,19 @@ export class ParentProcess {
     this.publish()
     log.warn('rolling back to .old bundle', { because })
     await this.stopChildren()
+    // A server can finish its migration while graceful shutdown is in flight.
+    // Re-read the execution witness after stopping writers, immediately before
+    // restoring code; the earlier crash-loop/handover check was only admission.
+    const decision = rollbackDecision({
+      crashLoop: true,
+      oldBundlePresent: oldBundlePresent(this.installDir),
+      appliedMigrations: this.appliedUpdateMigrations(),
+    })
+    if (decision.action === 'unavailable') {
+      this.reportRollbackUnavailable(decision.why, because)
+      for (const child of this.childOrder) await this.spawnChild(child)
+      return
+    }
     restoreOldBundle(this.installDir)
     const restored = await this.readInstalledVersion()
     log.warn('rolled back; the machine is on the previous bundle again', {
@@ -1655,6 +1695,7 @@ export class ParentProcess {
       ...this.env,
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
+      [MACHINE_UPDATE_GRANT_ENV]: this.updateGrantId,
       [PARENT_SUCCESSOR_ENV]: '1',
       // The successor is the NEXT incarnation of this machine's parent, and it
       // has to be able to say so before it says anything else: from here until
@@ -1666,9 +1707,7 @@ export class ParentProcess {
       [PARENT_HANDOVER_DEADLINE_ENV]: String(deadline),
       [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: expectedVersion,
       [PARENT_POST_UPDATE_ENV]: '1',
-      // The migration fact travels WITH the successor, or the successor guesses
-      // — and a guess here is a data-loss bug (R1). Omitted when this parent
-      // does not know either, so the successor refuses rather than assuming.
+      // Preserve release metadata for diagnostics, independently of execution receipts.
       ...(this.deps.releaseHadMigrations !== undefined
         ? { [PARENT_RELEASE_MIGRATIONS_ENV]: this.deps.releaseHadMigrations ? '1' : '0' }
         : {}),
@@ -1841,13 +1880,15 @@ export class ParentProcess {
     try {
       this.deps.reclaimUpdateControl?.()
     } catch (error) {
-      log.error('could not restore supervisor control endpoint after a failed handover', { err: error })
+      log.error('could not restore supervisor control endpoint after a failed handover', {
+        err: error,
+      })
     }
     const decision = oldBundlePresent(this.installDir)
       ? rollbackDecision({
           crashLoop: true,
           oldBundlePresent: true,
-          releaseHadMigrations: this.deps.releaseHadMigrations,
+          appliedMigrations: this.appliedUpdateMigrations(),
         })
       : ({ action: 'continue' } as const)
 

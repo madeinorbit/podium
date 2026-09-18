@@ -22,6 +22,11 @@ import {
   type ParentIdentity,
 } from './lifecycle-channel'
 import { configureProcessLogging } from './logging'
+import {
+  MachineUpdateExecutor,
+  beginMachineUpdateMigrations,
+  MACHINE_UPDATE_GRANT_ENV,
+} from './machine-update'
 import { PARENT_GENERATION_ENV } from './machine-supervisor'
 import { type ParentOutcome, readParentOutcome } from './parent-control'
 import {
@@ -40,6 +45,31 @@ import {
   type HandoverHealthProbe,
   spawnShapeFault,
 } from './parent-supervisor'
+
+/** Separate executor/runner writes exercise the same disk bridge as real processes. */
+async function migrationJournal(state: string, ids: string[] = []): Promise<MachineUpdateExecutor> {
+  const runtimeDir = join(state, 'runtime')
+  const executor = new MachineUpdateExecutor({
+    runtimeDir,
+    adapter: {
+      runningVersion: () => '2.0.0',
+      runningDigest: () => 'new',
+      prepare: async () => ({ digest: 'new', releaseHadMigrations: true }),
+      activate: async () => {},
+      restart: async () => 'handover-pending',
+      discard: async () => {},
+    },
+    report: () => {},
+  })
+  await executor.accept({
+    type: 'updateGrant',
+    grantId: 'parent-update',
+    issuedAt: 1,
+    target: { version: '2.0.0', critical: false, artifacts: {} },
+  })
+  if (ids.length) beginMachineUpdateMigrations(runtimeDir, 'parent-update', 'unused.db', ids)(ids)
+  return executor
+}
 
 /**
  * A supervised child, including the private lifecycle line `spawn` gives it
@@ -967,24 +997,68 @@ describe('ParentProcess', () => {
     expect(outcomeIn(state)?.why).toMatch(/successor exited before becoming healthy/)
   })
 
-  /**
-   * RE-REVIEW R1 — a SUCCESSOR is the only process that can see a post-update
-   * crash loop (the parent that ran the swap has exited), and it used to have no
-   * way of knowing whether the release carried migrations. It read `undefined`,
-   * a `=== true` coercion turned that into "no migrations", and it rolled a
-   * MIGRATING release back — decision 4 inverted, and the one failure mode that
-   * costs data rather than time.
-   *
-   * Three cases, because the fix is only real if the flag is actually READ: it
-   * has to refuse on `1`, roll back on `0`, and refuse again when nobody said.
-   */
-  describe('a successor and the migration fact (R1)', () => {
-    async function successorCrashLoop(env: NodeJS.ProcessEnv): Promise<{
+  it('rechecks execution after a server commits during rollback shutdown', async () => {
+    const { install, state } = installDirs('2.0.0')
+    await migrationJournal(state)
+    const clock = fakeClock()
+    let nextPid = 950
+    let commitOnStop = true
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installDir: install,
+        stateDir: state,
+        installBinary: join(install, 'podium'),
+        children: ['server'],
+        updateGrantId: 'parent-update',
+        env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
+        spawn: (_cmd, args, options) => {
+          const child = channelChild(nextPid++, args, options)
+          const kill = child.kill.bind(child)
+          child.kill = (signal) => {
+            if (commitOnStop) {
+              commitOnStop = false
+              const ids = ['20260916065900_late_commit']
+              beginMachineUpdateMigrations(
+                join(state, 'runtime'),
+                'parent-update',
+                'unused.db',
+                ids,
+              )(ids)
+            }
+            return kill(signal)
+          }
+          return child as unknown as ReturnType<SpawnChildFn>
+        },
+        probeHealth: async () => healthy('2.0.0'),
+        notify: () => {},
+        sleep: async () => clock.advance(250),
+        now: clock.now,
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    retainBackup(install, '1.0.0')
+    await parent.rollback()
+    expect(versionAt(install)).toBe('2.0.0')
+    expect(existsSync(`${install}.old`)).toBe(true)
+    expect(outcomeIn(state)?.why).toContain('20260916065900_late_commit')
+    expect(parent.snapshot().children.server.status).toBe('running')
+  })
+
+  // Successor parents must read actual execution, irrespective of release metadata.
+  describe('a successor and per-grant migration execution', () => {
+    async function successorCrashLoop(
+      env: NodeJS.ProcessEnv,
+      ids: string[] = [],
+      acceptLater = false,
+    ): Promise<{
       install: string
       state: string
       parent: ParentProcess
     }> {
       const { install, state } = installWithBackup('2.0.0', '1.0.0')
+      const executor = await migrationJournal(state, ids)
       const clock = fakeClock()
       const kids: FakeChild[] = []
       let nextPid = 700
@@ -1006,6 +1080,7 @@ describe('ParentProcess', () => {
             [PARENT_SUCCESSOR_ENV]: '1',
             [PARENT_HANDOVER_EXPECTED_VERSION_ENV]: '2.0.0',
             [PARENT_POST_UPDATE_ENV]: '1',
+            [MACHINE_UPDATE_GRANT_ENV]: 'parent-update',
             NOTIFY_SOCKET: '/dev/null',
             ...env,
           },
@@ -1019,6 +1094,20 @@ describe('ParentProcess', () => {
       )
       await parent.start()
       expect(parent.snapshot().postUpdateSinceMs, 'the successor must boot ARMED').toBeDefined()
+      if (acceptLater) {
+        await executor.confirmBoot(true)
+        await executor.accept(
+          {
+            type: 'updateGrant',
+            grantId: 'later-grant',
+            issuedAt: 2,
+            target: { version: '3.0.0', critical: false, artifacts: {} },
+          },
+          true,
+          true,
+        )
+        expect(executor.snapshot()?.appliedMigrations).toEqual([])
+      }
       // Three crashes inside the 60s window: the rollback threshold.
       for (let i = 0; i < 3; i++) {
         kids[kids.length - 1]?.die(1)
@@ -1028,20 +1117,29 @@ describe('ParentProcess', () => {
       return { install, state, parent }
     }
 
-    it('REFUSES to roll back when the predecessor said the release carried migrations', async () => {
-      const { install, state } = await successorCrashLoop({
-        [PARENT_RELEASE_MIGRATIONS_ENV]: '1',
-      })
+    it('refuses and names the migration actually applied by the server', async () => {
+      const { install, state } = await successorCrashLoop(
+        {
+          [PARENT_RELEASE_MIGRATIONS_ENV]: '1',
+        },
+        ['20260916065900_new_schema'],
+      )
       expect(versionAt(install), 'rolled back across a MIGRATING release').toBe('2.0.0')
       expect(existsSync(`${install}.old`), 'the backup must be left alone').toBe(true)
       const outcome = outcomeIn(state)
       expect(outcome?.outcome).toBe('rollback-unavailable')
-      expect(outcome?.why).toMatch(/migrations/)
+      expect(outcome?.why).toContain('20260916065900_new_schema')
     })
 
-    it('DOES roll back when the predecessor said it carried none', async () => {
+    it('keeps the installed grant witness when a later grant is accepted', async () => {
+      const { install, state } = await successorCrashLoop({}, ['20260916065900_new_schema'], true)
+      expect(versionAt(install)).toBe('2.0.0')
+      expect(outcomeIn(state)?.why).toContain('20260916065900_new_schema')
+    })
+
+    it('rolls back a migration-carrying release when the server failed before migrating', async () => {
       const { install, state } = await successorCrashLoop({
-        [PARENT_RELEASE_MIGRATIONS_ENV]: '0',
+        [PARENT_RELEASE_MIGRATIONS_ENV]: '1',
       })
       expect(versionAt(install), 'the machine must be back on the old bundle').toBe('1.0.0')
       expect(existsSync(`${install}.old`), '.old is consumed by the restore').toBe(false)
@@ -1049,10 +1147,10 @@ describe('ParentProcess', () => {
       expect(outcomeIn(state)?.version).toBe('1.0.0')
     })
 
-    it('refuses, and says it cannot tell, when nothing carried the fact at all', async () => {
+    it('rolls back with empty execution even when release metadata is absent', async () => {
       const { install, state } = await successorCrashLoop({})
-      expect(versionAt(install), 'a GUESS must not undo a possible migration').toBe('2.0.0')
-      expect(outcomeIn(state)?.why).toMatch(/cannot tell/)
+      expect(versionAt(install)).toBe('1.0.0')
+      expect(outcomeIn(state)?.outcome).toBe('rolled-back')
     })
   })
 
@@ -1060,12 +1158,14 @@ describe('ParentProcess', () => {
    * R1's other half: the fact only reaches the successor if the parent that RAN
    * the swap puts it on the wire. This is the producer side of the env var.
    */
-  it('hands the migration fact to the successor it spawns', async () => {
+  it('hands the installed grant to its server and successor, with release metadata for logging', async () => {
     const clock = fakeClock()
+    let serverEnv: NodeJS.ProcessEnv | undefined
     let successorEnv: NodeJS.ProcessEnv | undefined
     let nextPid = 800
     const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
       if (args[0] === 'parent') successorEnv = options.env
+      if (args[0] === 'server') serverEnv = options.env
       return channelChild(nextPid++, args, options) as unknown as ReturnType<SpawnChildFn>
     }
     const parent = track(
@@ -1076,6 +1176,7 @@ describe('ParentProcess', () => {
         env: { PODIUM_APP_VERSION: '1.0.0', NOTIFY_SOCKET: '/dev/null' },
         children: ['server'],
         releaseHadMigrations: true,
+        updateGrantId: 'previous-grant',
         spawn: spawnImpl,
         probeHealth: async () => healthy('2.0.0'),
         notify: () => {},
@@ -1085,9 +1186,12 @@ describe('ParentProcess', () => {
       }),
     )
     await parent.start()
+    expect(serverEnv?.[MACHINE_UPDATE_GRANT_ENV]).toBe('previous-grant')
+    parent.setUpdateMigrationKnowledge(true, 'installed-grant')
     await parent.handover('2.0.0')
 
     expect(successorEnv?.[PARENT_RELEASE_MIGRATIONS_ENV]).toBe('1')
+    expect(successorEnv?.[MACHINE_UPDATE_GRANT_ENV]).toBe('installed-grant')
   })
 
   /**
@@ -1151,14 +1255,17 @@ describe('ParentProcess', () => {
   describe('a failed handover and the suspect bundle (R2)', () => {
     async function abortHandoverOn(deps: {
       releaseHadMigrations?: boolean
+      appliedIds?: string[]
+      children?: ('server' | 'daemon')[]
     }): Promise<{ install: string; state: string; kids: FakeChild[]; parent: ParentProcess }> {
       const { install, state } = installDirs('2.0.0')
+      await migrationJournal(state, deps.appliedIds)
       const clock = fakeClock()
       const kids: FakeChild[] = []
       let nextPid = 900
       const spawnImpl: SpawnChildFn = (_cmd, args, options) => {
         const child = channelChild(nextPid++, args, options)
-        if (args[0] === 'server') kids.push(child)
+        if (args[0] !== 'parent') kids.push(child)
         return child as unknown as ReturnType<SpawnChildFn>
       }
       const parent = track(
@@ -1173,6 +1280,7 @@ describe('ParentProcess', () => {
           spawn: spawnImpl,
           // The successor never serves 9.9.9, so the gate never closes.
           probeHealth: async () => healthy('2.0.0'),
+          probeDaemonHealth: async () => daemonHealthy('2.0.0'),
           notify: () => {},
           sleep: async () => clock.advance(250),
           now: clock.now,
@@ -1203,9 +1311,19 @@ describe('ParentProcess', () => {
       expect(outcome?.why).toMatch(/never became healthy on 9\.9\.9/)
     })
 
+    it('a daemon-only machine rolls back even when the release declares migrations', async () => {
+      const { install, state } = await abortHandoverOn({
+        children: ['daemon'],
+        releaseHadMigrations: true,
+      })
+      expect(versionAt(install)).toBe('1.0.0')
+      expect(outcomeIn(state)?.outcome).toBe('rolled-back')
+    })
+
     it('KEEPS the arming and reports why when migrations forbid the rollback', async () => {
       const { install, state, kids, parent } = await abortHandoverOn({
         releaseHadMigrations: true,
+        appliedIds: ['20260916065900_new_schema'],
       })
       expect(versionAt(install)).toBe('2.0.0')
       expect(existsSync(`${install}.old`), 'the backup stays for a human to use').toBe(true)
@@ -1272,7 +1390,9 @@ describe('ParentProcess', () => {
           claimRole: () => {
             claims.push('boot')
           },
-          reclaimUpdateControl: () => { claims.push('control') },
+          reclaimUpdateControl: () => {
+            claims.push('control')
+          },
           reclaimRole: () => {
             claims.push('abort')
           },
@@ -1293,7 +1413,8 @@ describe('ParentProcess', () => {
 
     it('takes it back even when migrations forbid the rollback', async () => {
       const claims: string[] = []
-      const { install } = installDirs('2.0.0')
+      const { install, state } = installDirs('2.0.0')
+      await migrationJournal(state, ['20260916065900_new_schema'])
       const clock = fakeClock()
       const kids: FakeChild[] = []
       let nextPid = 900
@@ -1306,6 +1427,7 @@ describe('ParentProcess', () => {
         new ParentProcess({
           port: 19099,
           installDir: install,
+          stateDir: state,
           installBinary: join(install, 'podium'),
           children: ['server'],
           env: { PODIUM_APP_VERSION: '2.0.0', NOTIFY_SOCKET: '/dev/null' },
@@ -2055,22 +2177,50 @@ describe('control requests on a child line', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-parent-enrollment-'))
     roots.push(dir)
     const { server } = await parentWithChild({ stateDir: dir })
-    const ask = (requestId: string, fields: Record<string, unknown>) => server.deliver(encodeLifecycle({
-      type: 'control-request', requestId,
-      request: { requestId, expectedVersion: 'setup', requestedAt: new Date().toISOString(), ...fields },
-    }))
+    const ask = (requestId: string, fields: Record<string, unknown>) =>
+      server.deliver(
+        encodeLifecycle({
+          type: 'control-request',
+          requestId,
+          request: {
+            requestId,
+            expectedVersion: 'setup',
+            requestedAt: new Date().toISOString(),
+            ...fields,
+          },
+        }),
+      )
     ask('prepare', { kind: 'enrollment', enrollment: { action: 'prepare', agentExecution: true } })
     await vi.waitFor(() => expect(answers(server)).toHaveLength(1))
-    const enrollment = answers(server)[0]?.enrollment as { requestId: string; publicKey: string; machineId: string }
+    const enrollment = answers(server)[0]?.enrollment as {
+      requestId: string
+      publicKey: string
+      machineId: string
+    }
     expect(enrollment.publicKey).toBeTruthy()
-    ask('confirm', { kind: 'enrollment', enrollment: { action: 'confirm', agentExecution: true,
-      setupRequestId: enrollment.requestId, publicKey: enrollment.publicKey } })
+    ask('confirm', {
+      kind: 'enrollment',
+      enrollment: {
+        action: 'confirm',
+        agentExecution: true,
+        setupRequestId: enrollment.requestId,
+        publicKey: enrollment.publicKey,
+      },
+    })
     await vi.waitFor(() => expect(answers(server)).toHaveLength(2))
     expect(answers(server)[1]).toMatchObject({ ok: true })
     for (let n = 0; n < 2; n++) {
-      ask(`sign-${n}`, { kind: 'signHello', challenge: { type: 'machineChallenge',
-        machineId: enrollment.machineId, installationId: 'installation', connectionId: `connection-${n}`,
-        nonce: `nonce-${n}`, expiresAtMs: Date.now() + 30_000 } })
+      ask(`sign-${n}`, {
+        kind: 'signHello',
+        challenge: {
+          type: 'machineChallenge',
+          machineId: enrollment.machineId,
+          installationId: 'installation',
+          connectionId: `connection-${n}`,
+          nonce: `nonce-${n}`,
+          expiresAtMs: Date.now() + 30_000,
+        },
+      })
       await vi.waitFor(() => expect(answers(server)).toHaveLength(3 + n))
       expect(answers(server)[2 + n]).toMatchObject({ ok: true, signature: expect.any(String) })
     }

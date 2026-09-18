@@ -490,36 +490,23 @@ export function watchdogPetDecision(input: {
   return { pet: true, advance: input.advance, wedged: false }
 }
 
-/**
- * Rollback availability after a post-update crash loop (decision 4): only when
- * the release carried no new migrations AND `.old` still exists.
- *
- * `releaseHadMigrations` is deliberately `boolean | undefined`, and UNDEFINED IS
- * NOT FALSE. Only the process that ran the swap can compare the release's
- * declared migrations against the live ledger; any other process — a successor
- * parent spawned by a predecessor too old to pass the fact on, a parent that
- * found a `.old` it did not create — is guessing. Restoring old code over a
- * migrated database corrupts data rather than merely inconveniencing the user,
- * so a parent that cannot answer the question refuses and says so. (Contrast
- * `releaseCarriesNewMigrations`, where an explicit empty declaration is
- * knowledge, not absence of it.)
- */
+/** Rollback follows this machine's execution under the current grant, not release contents. */
 export function rollbackDecision(input: {
   crashLoop: boolean
   oldBundlePresent: boolean
-  releaseHadMigrations: boolean | undefined
+  appliedMigrations: readonly { id: string; appliedAt: number }[] | undefined
 }): { action: 'rollback' } | { action: 'unavailable'; why: string } | { action: 'continue' } {
   if (!input.crashLoop) return { action: 'continue' }
-  if (input.releaseHadMigrations === undefined) {
+  if (input.appliedMigrations === undefined) {
     return {
       action: 'unavailable',
-      why: 'rollback unavailable: this parent cannot tell whether the release carried schema migrations — forward-fix required',
+      why: 'rollback unavailable: cannot read applied migration journal — forward-fix required',
     }
   }
-  if (input.releaseHadMigrations) {
+  if (input.appliedMigrations.length > 0) {
     return {
       action: 'unavailable',
-      why: 'rollback unavailable: release carried schema migrations — forward-fix required',
+      why: `rollback unavailable: this update applied migrations ${input.appliedMigrations.map((m) => m.id).join(', ')} — forward-fix required`,
     }
   }
   if (!input.oldBundlePresent) {

@@ -8,11 +8,20 @@
  * never trusted on its own.
  */
 
-import { mkdtempSync, readdirSync } from 'node:fs'
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  beginMachineUpdateMigrations,
+  MACHINE_UPDATE_GRANT_ENV,
+  MachineUpdateExecutor,
+  readMachineUpdateJournal,
+  readAppliedUpdateMigrations,
+} from '@podium/runtime/machine-update'
+import { rollbackDecision } from '@podium/runtime/parent-supervisor'
+import { migrateStoreConnection } from './store-lifecycle'
 import { appliedDrizzleNames, type DrizzleMigration, runDrizzleMigrations } from './index'
 
 const A: DrizzleMigration = {
@@ -35,8 +44,15 @@ function hasTable(db: SqlDatabase, name: string): boolean {
   )
 }
 
+const roots: string[] = []
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  vi.unstubAllEnvs()
+})
 function tmpDbFile(name: string): string {
-  return join(mkdtempSync(join(tmpdir(), 'podium-applier-')), name)
+  const root = mkdtempSync(join(tmpdir(), 'podium-applier-'))
+  roots.push(root)
+  return join(root, name)
 }
 
 describe('runDrizzleMigrations', () => {
@@ -149,5 +165,140 @@ describe('runDrizzleMigrations', () => {
     expect(backupsIn().length).toBeGreaterThan(0)
 
     db.close()
+  })
+})
+
+describe('per-grant migration execution receipts', () => {
+  async function updateFixture() {
+    const dbPath = tmpDbFile('podium.db')
+    const runtimeDir = join(dirname(dbPath), 'runtime')
+    const executor = new MachineUpdateExecutor({
+      runtimeDir,
+      adapter: {
+        runningVersion: () => '1.0.0',
+        prepare: async () => ({ digest: 'new', releaseHadMigrations: true }),
+        activate: async () => {},
+        restart: async () => 'handover-pending',
+        discard: async () => {},
+      },
+      report: () => {},
+    })
+    await executor.accept({
+      type: 'updateGrant',
+      grantId: 'server-update',
+      issuedAt: 1,
+      target: { version: '2.0.0', critical: false, artifacts: {} },
+    })
+    return { dbPath, runtimeDir, executor, update: { runtimeDir, grantId: 'server-update' } }
+  }
+
+  it('records only this run, and the parent refuses with the applied ID', async () => {
+    const { dbPath, runtimeDir, executor, update } = await updateFixture()
+    const db = openDatabase(dbPath)
+    try {
+      runDrizzleMigrations(db, [A])
+      runDrizzleMigrations(db, [A, B], { dbPath, update })
+      const entries = [{ id: B.name, appliedAt: expect.any(Number) }]
+      expect(executor.snapshot()?.appliedMigrations).toEqual(entries)
+      runDrizzleMigrations(db, [A, B], { dbPath, update })
+      const appliedMigrations = readMachineUpdateJournal(runtimeDir)?.appliedMigrations
+      expect(appliedMigrations).toEqual(entries)
+      const decision = rollbackDecision({
+        crashLoop: true,
+        oldBundlePresent: true,
+        appliedMigrations,
+      })
+      expect(decision).toEqual({ action: 'unavailable', why: expect.stringContaining(B.name) })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('a failed transaction records nothing and leaves rollback available', async () => {
+    const { dbPath, runtimeDir, update } = await updateFixture()
+    const db = openDatabase(dbPath)
+    try {
+      expect(() =>
+        runDrizzleMigrations(db, [A, { ...B, sql: 'INVALID SQL' }], { dbPath, update }),
+      ).toThrow()
+      expect(appliedDrizzleNames(db)).toEqual(new Set())
+      const appliedMigrations = readMachineUpdateJournal(runtimeDir)?.appliedMigrations
+      expect(appliedMigrations).toEqual([])
+      expect(
+        rollbackDecision({ crashLoop: true, oldBundlePresent: true, appliedMigrations }),
+      ).toEqual({ action: 'rollback' })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('publishes committed IDs even if post-migration boot work throws', async () => {
+    const { dbPath, runtimeDir, update } = await updateFixture()
+    const db = openDatabase(dbPath)
+    const migration = { name: '20260917185720_session-delegation-record', sql: A.sql }
+    try {
+      // The post-migration diagnostic needs sessions; this synthetic DB lacks it.
+      expect(() => runDrizzleMigrations(db, [migration], { dbPath, update })).toThrow()
+      expect(appliedDrizzleNames(db)).toEqual(new Set([migration.name]))
+      expect(readMachineUpdateJournal(runtimeDir)?.appliedMigrations).toEqual([
+        { id: migration.name, appliedAt: expect.any(Number) },
+      ])
+    } finally {
+      db.close()
+    }
+  })
+
+  it.each([
+    false,
+    true,
+  ])('recovers actual commit state after interrupted receipt publication (committed=%s)', async (committed) => {
+    const { dbPath, runtimeDir, update } = await updateFixture()
+    const db = openDatabase(dbPath)
+    try {
+      // Simulate death after intent, either before SQL or after SQLite committed.
+      beginMachineUpdateMigrations(runtimeDir, update.grantId, dbPath, [A.name], 123)
+      if (committed) runDrizzleMigrations(db, [A])
+    } finally {
+      db.close()
+    }
+    expect(readAppliedUpdateMigrations(runtimeDir, update.grantId)).toEqual(
+      committed ? [{ id: A.name, appliedAt: 123 }] : [],
+    )
+  })
+
+  it('the server records against its inherited installed grant, not a later queued update', async () => {
+    const { dbPath, runtimeDir } = await updateFixture()
+    vi.stubEnv('PODIUM_STATE_DIR', dirname(dbPath))
+    vi.stubEnv(MACHINE_UPDATE_GRANT_ENV, 'installed-grant')
+    const db = openDatabase(dbPath)
+    try {
+      const applied = migrateStoreConnection(db, dbPath)
+      expect(applied.length).toBeGreaterThan(0)
+      expect(
+        readAppliedUpdateMigrations(runtimeDir, 'installed-grant').map((entry) => entry.id),
+      ).toEqual(applied)
+      expect(readMachineUpdateJournal(runtimeDir)?.appliedMigrations).toEqual([])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('the production store boot discovers the current grant and records its migrations', async () => {
+    const { dbPath, runtimeDir } = await updateFixture()
+    vi.stubEnv('PODIUM_STATE_DIR', dirname(dbPath))
+    const db = openDatabase(dbPath)
+    try {
+      const applied = migrateStoreConnection(db, dbPath)
+      expect(applied.length).toBeGreaterThan(0)
+      expect(
+        readMachineUpdateJournal(runtimeDir)?.appliedMigrations.map((entry) => entry.id),
+      ).toEqual(applied)
+      expect(migrateStoreConnection(db, dbPath)).toEqual([])
+      expect(
+        readMachineUpdateJournal(runtimeDir)?.appliedMigrations.map((entry) => entry.id),
+      ).toEqual(applied)
+    } finally {
+      db.close()
+    }
   })
 })
