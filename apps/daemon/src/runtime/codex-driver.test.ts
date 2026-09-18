@@ -25,7 +25,7 @@ import { addSink, type LogRecord } from '@podium/logger'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { startFakeAppServer } from '../../../../packages/agent-runtime/src/drivers/codex/test-support/fake-app-server'
-import { createMailInjector } from '../mail-injector'
+import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
 import { createDaemonCodexRuntime } from './codex-driver'
 
 /** Just enough app-server to complete a handshake and resume a thread. */
@@ -420,18 +420,21 @@ describe('the abandonment is said out loud before it is made durable — POD-229
 
 
 describe('issue mail without terminal callbacks', () => {
-  it('continues a completed turn with inbox context, but never loops on its own continuation', async () => {
+  it.each(['unread', 'reminder', 'empty', 'failed'] as const)('handles %s at completion with the correct active state and no mail loop', async (mode) => {
     const base = world()
     const server = startFakeAppServer()
     let now = 0
     let polls = 0
     const mail = createMailInjector(async () => {
       polls++
-      return { ok: true, result: { unread: 2, senders: ['coordinator'] } }
+      if (mode === 'failed') throw new Error('relay offline')
+      return { ok: true, result: { unread: mode === 'unread' ? 2 : 0, senders: ['coordinator'] } }
     }, () => now)
+    const ack = createAckReminderInjector(async () => ({ ok: true, result:
+      mode === 'reminder' ? [{ id: 'msg_reply', from: 'coordinator' }] : [] }), () => now)
     const runtime = createDaemonCodexRuntime({
       send: () => {},
-      boundaryContext: mail.pendingContext,
+      boundaryContext: composeMailContext(mail, ack).pendingContext,
       host: {
         ...base.host,
         launch: async () => ({
@@ -451,8 +454,16 @@ describe('issue mail without terminal callbacks', () => {
       await handle.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
       expect(polls).toBe(0)
       server.completeTurn('completed')
+      if (mode === 'empty' || mode === 'failed') {
+        await expect.poll(() => polls).toBe(1)
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        expect(server.turnStarts).toBe(1)
+        expect((await handle.state()).phase).toBe('idle')
+        return
+      }
       await expect.poll(() => server.turnStarts).toBe(2)
-      expect(JSON.stringify(server.lastTurnInput)).toContain('podium issue mail inbox')
+      expect((await handle.state()).phase).toBe('working')
+      expect(JSON.stringify(server.lastTurnInput)).toContain(mode === 'unread' ? 'podium issue mail inbox' : 'podium mail reply msg_reply')
       expect(JSON.stringify(server.lastTurnInput)).toContain('coordinator')
       // Even when the cooldown expires, the mail turn cannot remind itself.
       now = 120_000
@@ -460,6 +471,7 @@ describe('issue mail without terminal callbacks', () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
       expect(server.turnStarts).toBe(2)
       expect(polls).toBe(1)
+      expect((await handle.state()).phase).toBe('idle')
     } finally {
       runtime.dispose()
       base.runtime.dispose()

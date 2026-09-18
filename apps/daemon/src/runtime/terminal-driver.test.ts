@@ -1,3 +1,5 @@
+import { composeMailContext, createMailInjector, createAckReminderInjector } from '../mail-injector'
+import { startHookIngest } from '../hook-ingest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -3046,5 +3048,55 @@ describe('answer script ownership', () => {
       expect(world.written).toEqual(['1', '\r'])
       expect(answeredEvents(world)).toHaveLength(1)
     } finally { world.runtime.dispose(); vi.useRealTimers() }
+  })
+})
+
+describe('driver-private mail hook intervention', () => {
+  it.each(['stop', 'tool'] as const)('returns the %s veto through the real hook endpoint and preserves the active turn', async (kind) => {
+    const world = makeWorld()
+    const unread = vi.fn(async () => ({ ok: true, result: { unread: 1, senders: ['parent'] } }))
+    const ack = vi.fn(async () => ({ ok: true, result: [{ id: 'reply-1', from: 'parent' }] }))
+    world.host.boundaryContext = composeMailContext(createMailInjector(unread), createAckReminderInjector(ack)).pendingContext
+    const session = await world.runtime.driverFor(kind === 'stop' ? 'claude-code' : 'grok', kind === 'stop' ? CLAUDE : GROK).create({
+      ...SPEC, harness: kind === 'stop' ? 'claude-code' : 'grok',
+    })
+    const id = session.binding.sessionId
+    world.setPhase(id, 'working')
+    const before = await session.snapshot()
+    const ing = await startHookIngest({ port: 0, onPayload: world.runtime.onHookPayload, respondTo: world.runtime.respondToHook })
+    const post = async (payload: unknown) => (await fetch(ing.endpointFor(id), {
+      method: 'POST', body: JSON.stringify(payload),
+    })).json() as Promise<{ decision?: string; reason?: string }>
+    try {
+      const payload = kind === 'stop' ? { hook_event_name: 'Stop' } : { hookEventName: 'PreToolUse', toolName: 'Bash' }
+      const response = await post(payload)
+      expect(response.decision).toBe(kind === 'stop' ? 'block' : 'deny')
+      expect(response.reason).toContain('from parent')
+      expect((await session.state()).phase).toBe('working')
+      expect((await session.snapshot()).turnEpoch).toBe(before.turnEpoch)
+      expect(world.written).toEqual([]) // response veto, never an injected recursive prompt
+      expect(ack).not.toHaveBeenCalled()
+      if (kind === 'stop') {
+        expect(await post({ ...payload, stop_hook_active: true })).toEqual({})
+        expect(ack).not.toHaveBeenCalled()
+      }
+      // Unread cooldown lets the second policy supply its one persisted reminder.
+      expect((await post(payload)).reason).toContain('podium mail reply reply-1')
+      expect(await post(payload)).toEqual({})
+      expect(unread).toHaveBeenCalledTimes(1)
+      expect(ack).toHaveBeenCalledTimes(1)
+    } finally {
+      await ing.close()
+      world.runtime.dispose()
+    }
+  })
+
+  it('does not poll mail for a session the terminal driver does not own', async () => {
+    const world = makeWorld()
+    const source = vi.fn(async () => 'mail')
+    world.host.boundaryContext = source
+    expect(await world.runtime.respondToHook('foreign-session' as SessionId, { hook_event_name: 'Stop' })).toBeNull()
+    expect(source).not.toHaveBeenCalled()
+    world.runtime.dispose()
   })
 })

@@ -582,6 +582,31 @@ export function describeDriverConformance(target: ConformanceTarget): void {
     // -----------------------------------------------------------------------
 
     describe('send — the four outcomes', () => {
+      it('boundary delivery waits for completion and opens an active mail turn, or explicitly refuses support', async () => {
+        const { handle, control, driver } = setup()
+        const session = await handle
+        const id = session.binding.sessionId
+        await session.send({ text: 'work first' }, { origin: 'human', delivery: 'when-ready' })
+        const before = await session.snapshot()
+        const receipt = await session.send({ text: 'read issue mail' }, {
+          origin: 'mail', delivery: 'at-boundary', principal: { kind: 'system', ref: 'issue-mail' },
+        })
+        if (!driver.capabilities().send.native.includes('at-boundary')) {
+          expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
+          return
+        }
+        expect(receipt).toMatchObject({ outcome: 'queued', deliveredAs: 'at-boundary' })
+        expect(control.textDeliveries(id)).toBe(1)
+        expect((await session.snapshot()).turnEpoch).toBe(before.turnEpoch)
+        await control.completeTurn(id)
+        await expect.poll(() => control.textDeliveries(id)).toBe(2)
+        await expect.poll(async () => (await session.state()).phase).toBe('working')
+        expect((await session.snapshot()).turnEpoch).toBeGreaterThan(before.turnEpoch)
+        const events = await drainUntil(session.events(before.cursor),
+          (e) => e.t === 'turn' && e.ev.ev === 'started' && e.ev.origin === 'mail')
+        expect(events.some((e) => e.t === 'turn' && e.ev.ev === 'completed')).toBe(true)
+      })
+
       it('ACCEPTED opens a turn and reports the delivery actually used', async () => {
         const { handle, control, driver } = setup()
         const session = await handle

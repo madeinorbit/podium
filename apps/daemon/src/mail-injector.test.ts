@@ -1,11 +1,24 @@
+import { respondToMailBoundary } from './runtime/mail-boundary'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   composeResponders,
-  createAckReminderInjector,
-  createMailInjector,
+  createAckReminderInjector as ackPolicy,
+  createMailInjector as mailPolicy,
   MAIL_BLOCK_COOLDOWN_MS,
 } from './mail-injector'
+
+
+const createMailInjector = (...args: Parameters<typeof mailPolicy>) => {
+  const source = mailPolicy(...args)
+  return { ...source, respondTo: (id: Parameters<typeof respondToMailBoundary>[1], payload: unknown) =>
+    respondToMailBoundary(source.pendingContext, id, payload) }
+}
+const createAckReminderInjector = (...args: Parameters<typeof ackPolicy>) => {
+  const source = ackPolicy(...args)
+  return { ...source, respondTo: (id: Parameters<typeof respondToMailBoundary>[1], payload: unknown) =>
+    respondToMailBoundary(source.pendingContext, id, payload) }
+}
 
 const unreadRelay = (unread: number) => async () => ({ ok: true, result: { unread } })
 

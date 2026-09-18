@@ -1,3 +1,4 @@
+import { respondToMailBoundary, type MailBoundaryContext } from './mail-boundary'
 import type { ReattachControl } from '../session-observers'
 import { withDeliveryQueue } from '@podium/agent-runtime'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
@@ -184,6 +185,7 @@ const PENDING_FRAME_LIMIT = 256
 export class TerminalRecoveryRefusal extends Error {}
 
 export interface TerminalRuntimeHost {
+  boundaryContext?: MailBoundaryContext
   /** Outbound daemon frames. The driver's only path to the server. */
   send(msg: DaemonMessage): void
   stageAttachment: AttachmentStager
@@ -508,6 +510,7 @@ export interface TerminalRuntime {
   observeState(observation: TerminalStateObservation): void
   /** The causal accept signal: a raw hook payload, before the observers fold it. */
   onHookPayload(sessionId: SessionId, payload: unknown): void
+  respondToHook(sessionId: SessionId, payload: unknown, signal?: AbortSignal): Promise<string | null>
   /**
    * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
    * (POD-2413).
@@ -2295,6 +2298,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     observeState: (observation) => observe({ type: 'terminalState', ...observation }),
     observeDraft,
     onHookPayload,
+    async respondToHook(sessionId, payload, signal) {
+      const session = sessions.get(sessionId)
+      if (!session) return null
+      const response = await respondToMailBoundary(host.boundaryContext, sessionId, payload, signal)
+      return sessions.get(sessionId) === session ? response : null
+    },
     reportOomKill(sessionId, scopeUnit) {
       const session = sessions.get(sessionId)
       if (!session) return

@@ -87,7 +87,7 @@ import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { dumpLoopTotals, reportLongTick, startLoopAttribution } from './loop-attribution'
 import { AGENT_RELAY_ENDPOINT, describePortConflict, HOOK_INGEST_ENDPOINT } from './loopback-listen'
-import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
+import { composeMailContext, composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { OutputScheduler } from './output-scheduler'
 import { readPendingGrant, writePendingGrant } from './pending-grant'
@@ -629,10 +629,10 @@ export async function createDaemonHostRuntime(args: {
       input: {},
     }),
   )
+  const mailContext = composeMailContext(mailInjector, ackReminder)
   const respondTo = composeResponders(
     (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
-    (sessionId, payload) => mailInjector.respondTo(sessionId, payload),
-    (sessionId, payload) => ackReminder.respondTo(sessionId, payload),
+    async (sessionId, payload) => terminalRuntime?.respondToHook(sessionId, payload) ?? null,
   )
   const ingest = await startHookIngest({
     port: opts.hooks?.port ?? resolveHookPort(config),
@@ -1082,12 +1082,13 @@ export async function createDaemonHostRuntime(args: {
   // Built AFTER the context because the driver hosts need that context. The
   // single assignment at the end closes the wiring cycle: handlers reach every
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
-  const contractHost = daemonRuntimeHost(ctx, send, stageAttachment)
+  const contractHost = { ...daemonRuntimeHost(ctx, send, stageAttachment), boundaryContext: mailContext.pendingContext }
   terminalRuntime = createTerminalRuntime(contractHost)
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   const opencode2Executable = generationInventory?.commandEnvironment.resolve('opencode2')
   claudeRuntime = createDaemonClaudeSdkRuntime({
     send,
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1112,6 +1113,7 @@ export async function createDaemonHostRuntime(args: {
    */
   opencodeRuntime = createDaemonOpencodeRuntime({
     send,
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1139,6 +1141,7 @@ export async function createDaemonHostRuntime(args: {
   })
   opencode2Runtime = createDaemonOpencodeRuntime({
     send,
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1182,7 +1185,7 @@ export async function createDaemonHostRuntime(args: {
    */
   codexRuntime = createDaemonCodexRuntime({
     send,
-    boundaryContext: (sessionId) => mailInjector.pendingContext(sessionId),
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1222,6 +1225,7 @@ export async function createDaemonHostRuntime(args: {
   })
   grokRuntime = createDaemonGrokRuntime({
     send,
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),

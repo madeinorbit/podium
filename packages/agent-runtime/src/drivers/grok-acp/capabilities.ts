@@ -7,7 +7,7 @@ export function grokAcpCapabilities(): DriverCapabilities {
       readiness: { kind: 'driver-managed' },
       // ACP has no steer method. A send made while a prompt is open is held in
       // the driver's durable in-memory queue and reports that downgrade.
-      native: ['when-ready', 'queue', 'interrupt'],
+      native: ['at-boundary', 'when-ready', 'queue', 'interrupt'],
       proof: ['protocol-ack'],
       mayReturnUnverified: false,
     },

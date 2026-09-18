@@ -51,6 +51,7 @@ import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import { driverTiming } from './driver-timing'
+import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
 import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:opencode-driver')
@@ -58,6 +59,7 @@ const log = createLogger('daemon:opencode-driver')
 /** The narrow slice of the daemon this driver's session lifecycle needs. */
 export interface OpencodeSessionHost {
   send(msg: DaemonMessage): void
+  boundaryContext?: MailBoundaryContext
   host: OpencodeRuntimeHost
   /**
    * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
@@ -129,8 +131,12 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
     if (!handle) return
     void (async () => {
       try {
+        const boundary = createMailContinuation(handle, deps.boundaryContext,
+          () => runtime.handleFor(sessionId) === handle,
+          (error) => log.warn('issue mail boundary delivery failed', { sessionId, error }))
         for await (const event of handle.events('bootstrap')) {
           translate(sessionId, event)
+          boundary(event)
         }
       } catch (err) {
         log.warn('opencode runtime event stream ended', { err, sessionId })

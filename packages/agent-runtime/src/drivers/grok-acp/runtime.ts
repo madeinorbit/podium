@@ -1226,7 +1226,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     session: DriverSession,
     input: TurnInput,
     options: SendOptions,
-    deliveredAs: 'when-ready' | 'queue' | 'interrupt',
+    deliveredAs: 'when-ready' | 'queue' | 'interrupt' | 'at-boundary',
   ): TurnReceipt {
     const at = iso()
     const promise = session.client.call<unknown>(GROK_ACP_METHODS.sessionPrompt, {
@@ -1533,9 +1533,6 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
       },
 
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.delivery === 'at-boundary') {
-          return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
-        }
         if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
         if (options.deliveryAttempt && (session.busy || session.lease?.kind === 'human-controller')) {
           return { outcome: 'refused', refusal: { reason: session.busy ? 'busy' : 'lease_held' } }
@@ -1552,9 +1549,15 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           return {
             outcome: 'queued',
             position: session.queue.length,
-            deliveredAs: 'queue',
+            deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
             at: iso(),
           }
+        }
+        if (options.delivery === 'at-boundary' && session.queue.length > 0) {
+          session.queue.push({ input, options })
+          const position = session.queue.length
+          void drainQueue(session)
+          return { outcome: 'queued', position, deliveredAs, at: iso() }
         }
         if (session.busy) {
           /**
@@ -1590,7 +1593,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
           return {
             outcome: 'queued',
             position: session.queue.length,
-            deliveredAs: 'queue',
+            deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
             at: iso(),
           }
         }
