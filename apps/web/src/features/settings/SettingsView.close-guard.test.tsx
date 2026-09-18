@@ -142,15 +142,25 @@ describe('Settings sheet — closing with unsaved edits', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  it('shows bootstrap Network settings read-only without a save path', async () => {
+  it('uses the shared save and discard bar for Network settings', async () => {
     storeState.settingsTab = 'network'
     render(<SettingsView onClose={onClose} />)
-    expect(await screen.findByText('https://old.tail.ts.net')).toBeTruthy()
-    expect(screen.queryByLabelText('Podium URL')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Save changes' })).toBeNull()
-    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
-    expect(storeState.trpc.setup.complete.mutate).not.toHaveBeenCalled()
-    fireEvent.keyDown(window, { key: 'Escape' })
-    expect(onClose).toHaveBeenCalledTimes(1)
+
+    const input = (await screen.findByLabelText('Podium URL')) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'https://new.tail.ts.net' } })
+
+    expect(await screen.findByText('Unsaved changes')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    await waitFor(() => expect(input.value).toBe('https://old.tail.ts.net'))
+
+    fireEvent.change(input, { target: { value: 'https://new.tail.ts.net' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Save changes' }))
+    await waitFor(() =>
+      expect(storeState.trpc.setup.complete.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ publicUrl: 'https://new.tail.ts.net' }),
+      ),
+    )
+    expect(await screen.findByText('Saved ✓')).toBeTruthy()
   })
 })

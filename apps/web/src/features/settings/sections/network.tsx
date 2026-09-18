@@ -2,7 +2,8 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { type ForcedSetting, useForcedSetting } from '../use-forced-setting'
+import { type NetworkSaveController, NetworkStep } from '@/features/setup/network-step'
+import { forcedNotice, useForcedSetting } from '../use-forced-setting'
 import { Row, Section } from './shared'
 
 interface NetworkInfo {
@@ -15,12 +16,18 @@ interface NetworkInfo {
   allowedOrigins?: string[]
 }
 
-function configurationSource(setting: Extract<ForcedSetting, { forced: true }>): string {
-  return setting.source === 'file' ? 'Configured in config.json.' : `Configured by ${setting.env}.`
-}
-
-/** Settings reads bootstrap configuration; only installer/operator flows write it. */
-export function NetworkSection(): JSX.Element {
+/**
+ * Network — view + change how this server is reached (its `publicUrl`) after first-run setup.
+ * The join tokens handed to new machines embed this URL, so it's the thing to change when you
+ * switch from a throwaway tunnel to a stable one. Reuses the setup reachability step. Worker
+ * (`daemon`) / viewer (`client`) boxes show which server they connect to instead (change = re-run
+ * setup). Fills the gap where the CLI's `podium setup → change URL` had no web equivalent.
+ */
+export function NetworkSection({
+  onSaveStateChange,
+}: {
+  onSaveStateChange?: (state: NetworkSaveController | null) => void
+} = {}): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const forcedPublicUrl = useForcedSetting('publicUrl')
   const forcedAppUrl = useForcedSetting('appUrl')
@@ -90,15 +97,19 @@ export function NetworkSection(): JSX.Element {
   return (
     <Section
       title="Network"
-      hint="Network bootstrap configuration is managed on the server with podium setup or deployment configuration."
+      hint="Choose how phones, browsers, and other machines reach this Podium server."
     >
-      <Row label="Public URL">
-        <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
-          {info.publicUrl ?? <span className="text-muted-foreground">not set</span>}
-        </span>
-      </Row>
-      {forcedPublicUrl.forced && (
-        <p className="mt-2 settings-prose text-warning">{configurationSource(forcedPublicUrl)}</p>
+      {forcedPublicUrl.forced ? (
+        <>
+          <Row label="Public URL">
+            <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
+              {info.publicUrl ?? <span className="text-muted-foreground">not set</span>}
+            </span>
+          </Row>
+          <p className="mt-2 settings-prose text-warning">{forcedNotice(forcedPublicUrl)}</p>
+        </>
+      ) : (
+        <NetworkStep embedded trpc={trpc} onSaved={load} onSaveStateChange={onSaveStateChange} />
       )}
       {/*
         WHERE THE UI IS, when it is not here. Read-only and shown only when set:
@@ -120,7 +131,7 @@ export function NetworkSection(): JSX.Element {
           </Row>
           {forcedAppUrl.forced && (
             <p className="mt-2 settings-prose text-muted-foreground">
-              {configurationSource(forcedAppUrl)}
+              {forcedNotice(forcedAppUrl)}
             </p>
           )}
         </>
@@ -137,7 +148,7 @@ export function NetworkSection(): JSX.Element {
           </Row>
           {forcedOrigins.forced && (
             <p className="mt-2 settings-prose text-muted-foreground">
-              {configurationSource(forcedOrigins)}
+              {forcedNotice(forcedOrigins)}
             </p>
           )}
         </>
