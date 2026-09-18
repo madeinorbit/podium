@@ -78,6 +78,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     setPane,
     fileTabs,
     setView,
+    navigateWorkspace,
     markIssueRead,
     markSessionRead,
     setIssueTucked,
@@ -99,6 +100,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       setPane: s.setPane,
       fileTabs: s.fileTabs,
       setView: s.setView,
+      navigateWorkspace: s.navigateWorkspace,
       markIssueRead: s.markIssueRead,
       markSessionRead: s.markSessionRead,
       setIssueTucked: s.setIssueTucked,
@@ -182,25 +184,9 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       beginSwitch({ sessionId: asSessionId(target), issueId })
     }
   }
+  const lastIssueNavigation = useRef<string | null>(null)
   const selectIssue = (issue: IssueNavigationModel, paneSession?: SessionId) => {
     const root = missionRootFor(issues, issue.id)
-    setSelectedIssueId(root?.id ?? issue.id)
-    setFocusedIssueId(issue.id)
-    // Opening an issue marks IT read (email-style, #126): clear the row's unread
-    // emphasis optimistically. Its member sessions keep their own unread until
-    // each is opened. No-op when already read.
-    void markIssueRead(issue.id)
-    // A lapsed defer is transient like the session snooze: OPENING an "Unsnoozed"
-    // issue clears the stale defer so the tag doesn't linger (email-read semantics).
-    // This is the CLEAR path — deliberately defer(null), which nulls deferUntil so
-    // `issueReturnedFromDefer` goes false. (It's distinct from the menu's "Unsnooze",
-    // issues.undefer, which BACKDATES deferUntil to float the row to the top of WORK
-    // WITH the tag — #133.) A still-snoozed issue is left alone.
-    // Outboxed too (POD-781): the "Unsnoozed" tag leaves with the click that
-    // opened the row rather than a round trip later, and the swallowed rejection
-    // goes with it — the queue keeps the clear and replays it.
-    if (issueReturnedFromDefer(issue, now)) void deferIssue(issue.id, null)
-    if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
     // Open a pane too (#108): keep the current one if it already belongs to this
     // issue (session or file tab), else the issue's most recently active session.
     // The pane candidates span the whole MISSION, not just the clicked task, so
@@ -227,14 +213,26 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     traceSwitchTo(target, issue.id)
     // Sessionless task focus follows the inspector while the current chat stays
     // put. Selecting work must never manufacture or require a session.
-    if (target) setPane('A', target)
-    setView('workspace')
+    const changed = navigateWorkspace({
+      selectedIssueId: root?.id ?? issue.id,
+      ...(issue.worktreePath ? { selectedWorktree: issue.worktreePath } : {}),
+      tabId: target,
+      firstPane: true,
+    })
+    setFocusedIssueId(issue.id)
+    const commandKey = JSON.stringify([issue.id, paneSession, issue.updatedAt])
+    if (!changed && lastIssueNavigation.current === commandKey) return
+    lastIssueNavigation.current = commandKey
+    // Commands follow a fully validated navigation. Their optimistic and
+    // network publications are separate from the one navigation publication.
+    void markIssueRead(issue.id)
+    if (issueReturnedFromDefer(issue, now)) void deferIssue(issue.id, null)
+    if (paneSession) void markSessionRead(paneSession)
   }
   const selectPanelForIssue = (issue: IssueNavigationModel, sessionId: SessionId) => {
     selectIssue(issue, sessionId)
-    // Opening a specific member session marks THAT session read too (#126).
-    void markSessionRead(sessionId)
   }
+
   const selectWorktree = (path: string) => {
     setSelectedIssueId(null)
     setSelectedWorktree(path)

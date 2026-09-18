@@ -84,13 +84,12 @@ import {
   routeDefaults,
 } from '../ui-state'
 import {
-  allTabIds,
   openTab,
-  type RecentFileEntry,
   reposToViews,
   type WorkspaceKey,
 } from '../viewmodels'
-import { createEngineActions, type EngineActions } from './actions'
+import { createEngineActions, type EngineActions, type EngineActionRuntime } from './actions'
+import { planNavigation, type NavigationIntent } from './navigation'
 import { BootFetches } from './boot'
 import { dedupeSessions, OptimismLedger } from './optimism'
 import { Reactions } from './reactions'
@@ -1055,6 +1054,30 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // ------------------------------------------------------------------- routing
 
+  private committingNavigation = false
+
+  private navigate(intent: NavigationIntent): boolean {
+    if (this.destroyed) return false
+    const plan = planNavigation(this.state, this.router.current(), intent, {
+      visible: this.visibility.isVisible(), now: new Date().toISOString(),
+    })
+    const changed = Object.entries(plan.patch).some(([key, value]) =>
+      !Object.is(this.state[key as keyof EngineState], value))
+    // History validates/serializes before state is committed. Its synchronous
+    // callback must not independently adopt the same destination and publish.
+    this.committingNavigation = true
+    try {
+      if (plan.replace) this.router.replace(plan.route)
+      else this.router.navigate(plan.route)
+    } finally {
+      this.committingNavigation = false
+    }
+    this.prevRoute = this.router.current()
+    this.workspaceKey = plan.key
+    this.apply(plan.patch)
+    return changed
+  }
+
   /**
    * URL ⇄ workspace pane state. While the workspace is the surface, the
    * selection mirrors into the query (replace — no history spam) so the URL
@@ -1076,6 +1099,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    * provider, and a `?user=` in the address bar is inert by construction.
    */
   private onRouteChanged(route: RouteState): void {
+    if (this.committingNavigation) return
     const prev = this.prevRoute
     this.prevRoute = route
     const st = this.state
@@ -1286,54 +1310,18 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   // the issue explorer) must switch to the workspace through the router.
   // Selecting the tab's issue/worktree keeps fileTabsForWorkspace from dropping
   // the tab and bouncing the pane.
-  private revealFileTab(args: {
-    tabId: string
-    worktreePath?: string
-    issueId?: IssueId
-    permanent?: boolean
-  }): void {
-    const selection = {
+  private revealFileTab(args: Parameters<EngineActionRuntime<TApi>['revealFileTab']>[0]): void {
+    this.navigate({
+      view: 'workspace',
       ...(args.issueId ? { selectedIssueId: args.issueId } : {}),
       ...(args.worktreePath ? { selectedWorktree: args.worktreePath } : {}),
-    }
-    this.apply({
-      ...selection,
-      // The tab is a real member of the landing workspace, not just a pane
-      // value — otherwise the strip would not show what the pane is rendering.
-      // Its mirror sets paneA/focusedPane, so nothing here writes them twice.
-      ...this.openWorkspaceTab(args.tabId, selection, args.permanent !== false),
+      tabId: args.tabId,
+      permanent: args.permanent !== false,
+      ...(args.fileTab ? { fileTab: args.fileTab } : {}),
+      ...(args.recentFile ? { recentFile: args.recentFile } : {}),
+      retireOrphanFiles: true,
+      history: 'push',
     })
-    // A PREVIEW open retires the temporary tab it replaces, and the layout is
-    // the only thing that knows which. `closeFileTab` drops the record with the
-    // layout entry for exactly this reason — a record with no tab anywhere is a
-    // file listed as open with nothing rendering it — so the retirement path
-    // owes the same sweep.
-    this.dropOrphanFileTabs()
-    this.router.navigate({
-      ...routeDefaults('workspace'),
-      ...(args.worktreePath ? { worktree: args.worktreePath } : {}),
-      pane: args.tabId,
-    })
-  }
-
-  /** Forget `fileTabs` records no workspace layout still holds a tab for. */
-  private dropOrphanFileTabs(): void {
-    const live = new Set(
-      Object.values(this.state.workspaces).flatMap((ws) => (ws ? allTabIds(ws) : [])),
-    )
-    const kept = this.state.fileTabs.filter((tab) => live.has(tab.id))
-    if (kept.length !== this.state.fileTabs.length) this.apply({ fileTabs: kept })
-  }
-
-  // Remember an opened file for the "+"-menu Recent-files list (POD-149) —
-  // strict issue scoping hides a tab from every other issue's strip, so this
-  // list is how a closed-over file stays reachable across the checkout.
-  private recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void {
-    const key = (e: Omit<RecentFileEntry, 'openedAt'>): string =>
-      `${e.worktreePath}\u0000${e.path}\u0000${e.artifact?.artifactId ?? ''}`
-    const k = key(entry)
-    const rest = this.state.recentFiles.filter((e) => key(e) !== k)
-    this.apply({ recentFiles: [{ ...entry, openedAt: Date.now() }, ...rest].slice(0, 30) })
   }
 
   private createActions(): EngineActions<TApi> {
@@ -1347,11 +1335,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       onLayoutBaseInstalled: (snapshot) => this.persistLayoutBase(snapshot),
       state: () => this.state,
       apply: (patch) => this.apply(patch),
+      navigate: (intent) => this.navigate(intent),
       subscribe: (listener) => this.subscribe(listener),
       enqueueOverlayed: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
         this.optimism.enqueueOverlayed(kind, input),
       revealFileTab: (args) => this.revealFileTab(args),
-      recordRecentFile: (entry) => this.recordRecentFile(entry),
       spawnDraftAgent: (args: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]) =>
         this.optimism.spawnDraftAgent(args),
       spawnIssueAgent: (args: Parameters<OptimismLedger<TApi>['spawnIssueAgent']>[0]) =>

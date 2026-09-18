@@ -1,3 +1,5 @@
+import { planNavigation, type NavigationIntent } from './navigation'
+import type { EngineState } from './state'
 import type { IssueWire, LayoutSnapshot, SessionMeta } from '@podium/model'
 import { asIssueId, asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -70,6 +72,7 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
     sidebarSettings: { repoSort: 'lastUsed' as const, repoOrder: [], groupByRepo: false },
     fileTabs: [],
     recentFiles: [],
+    issueVisitBaseline: null,
   }
   const enqueue = vi.fn(async (kind: keyof OutboxKinds, input: unknown) => {
     queued.push({ kind, input })
@@ -117,6 +120,15 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
       ? { onLayoutBaseInstalled: (snapshot: LayoutSnapshot) => layout.installed?.push(snapshot) }
       : {}),
     state: () => state,
+    navigate: (intent: NavigationIntent) => {
+      const plan = planNavigation(state as unknown as EngineState, router.current(), intent, {
+        visible: true, now: '2026-09-18T00:00:00.000Z',
+      })
+      state = { ...state, ...plan.patch } as typeof state
+      router.navigate(plan.route)
+      publish()
+      return true
+    },
     apply: (patch: Partial<typeof state>) => {
       state = { ...state, ...patch }
       publish()
@@ -666,5 +678,25 @@ describe('focusIssueSession waits for the session a launch started', () => {
     expect(await h.actions.focusIssueSession(issueId, { timeoutMs: 1 })).toBeNull()
     expect(h.state().selectedIssueId).toBe(issueId)
     expect(h.navigated).toEqual([])
+  })
+})
+
+describe('navigation read command coalescing', () => {
+  it('shares the reaction and click read until its optimistic overlay is published', async () => {
+    const h = harness()
+    const issueId = asIssueId('issue-1')
+    const first = h.actions.markIssueRead(issueId)
+    const duplicate = h.actions.markIssueRead(issueId)
+    const session = h.actions.markSessionRead(sessionId)
+    const duplicateSession = h.actions.markSessionRead(sessionId)
+    expect(duplicate).toBe(first)
+    expect(duplicateSession).toBe(session)
+    expect(h.queued).toEqual([
+      { kind: 'issueMarkRead', input: { id: issueId } },
+      { kind: 'sessionMarkRead', input: { sessionId } },
+    ])
+    await Promise.all([first, session])
+    await h.actions.markIssueRead(issueId)
+    expect(h.queued).toHaveLength(3)
   })
 })

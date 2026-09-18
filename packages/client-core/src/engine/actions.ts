@@ -25,7 +25,8 @@ import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podi
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
-import { type Router, routeDefaults } from '../ui-state'
+import type { Router } from '../ui-state'
+import type { NavigationIntent } from './navigation'
 import type {
   DockTab,
   FileScope,
@@ -97,6 +98,7 @@ export const UI_LOCAL_ACTIONS = [
   'focusWorkspacePane',
   'resizeWorkspaceSplit',
   'navigateToSession',
+  'navigateWorkspace',
   'focusIssueSession',
   'setDockShell',
   'setDockVisibleSession',
@@ -220,6 +222,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   onLayoutBaseInstalled?(snapshot: LayoutSnapshot): void
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
+  navigate(intent: NavigationIntent): boolean
   /**
    * Every published snapshot, for the actions that must WAIT for replicated
    * state rather than read it once. The runtime publishes on any state change,
@@ -245,8 +248,9 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     /** Default true. False opens the file as the workspace's ONE preview tab —
      *  the file tree's single click (POD-788). */
     permanent?: boolean
+    fileTab?: FileTab
+    recentFile?: Omit<RecentFileEntry, 'openedAt'>
   }): void
-  recordRecentFile(entry: Omit<RecentFileEntry, 'openedAt'>): void
   spawnDraftAgent(args: SpawnDraftAgentArgs): {
     sessionId: SessionId
     issueId: IssueId
@@ -394,6 +398,19 @@ export function createEngineActions<TApi extends PodiumClientApi>(
 ): EngineActions<TApi> {
   const api = rt.api
   let transcriptRevealNonce = 0
+  // The navigation reaction and the row gesture can request the same read
+  // before durable enqueue has painted its overlay. Share that in-flight act.
+  const pendingReads = new Map<string, Promise<void>>()
+  const markRead = <K extends 'issueMarkRead' | 'sessionMarkRead'>(
+    kind: K, id: string, input: OutboxKinds[K],
+  ): Promise<void> => {
+    const key = `${kind}:${id}`
+    const pending = pendingReads.get(key)
+    if (pending) return pending
+    const write = Promise.resolve(rt.enqueueOverlayed(kind, input)).finally(() => pendingReads.delete(key))
+    pendingReads.set(key, write)
+    return write
+  }
   const replicatedLayout = createReplicatedLayoutController({
     outbox: rt.outbox,
     api,
@@ -449,26 +466,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       ...(meta.issueId ? { selectedIssueId: meta.issueId } : {}),
       ...(worktree ? { selectedWorktree: worktree } : {}),
     }
-    rt.apply({
-      ...selection,
-      // Landing on a session opens it as a real tab in the workspace it
-      // belongs to — otherwise the pane would show a session the strip has no
-      // tab for, and the next layout write would mirror it away. The mirror
-      // that comes back sets the pane scalars: forcing `paneA` on top of it
-      // put the session in BOTH panes of a split layout (the tab opened in
-      // the focused pane B, and the literal repeated it in A), blanking the
-      // other half.
-      ...workspaceEdit(
-        { ...state, ...selection },
-        (ws) => openTab(ws, meta.sessionId, { permanent: true }),
-        selection,
-      ),
-    })
-    rt.router.navigate({
-      ...routeDefaults('workspace'),
-      ...(worktree ? { worktree } : {}),
-      pane: meta.sessionId,
-    })
+    rt.navigate({ view: 'workspace', ...selection, tabId: meta.sessionId, history: 'push' })
   }
 
   return {
@@ -493,15 +491,9 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         throw error
       }
     },
+    navigateWorkspace: (intent) => rt.navigate({ ...intent, view: 'workspace' }),
     setView: (view) => {
-      const current = rt.router.current()
-      if (current.view !== view) {
-        rt.router.navigate({
-          ...routeDefaults(view),
-          worktree: current.worktree,
-          pane: current.pane,
-        })
-      }
+      if (rt.router.current().view !== view) rt.navigate({ view })
     },
     setSettingsTab: (tab) => {
       const current = rt.router.current()
@@ -747,20 +739,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       const issueId = existing
         ? existing.issueId
         : (session?.issueId ?? state.selectedIssueId ?? undefined)
-      rt.apply({
-        fileTabs: existing
-          ? state.fileTabs
-          : [...state.fileTabs, { id, scope, path, worktreePath, ...(issueId ? { issueId } : {}) }],
-      })
       rt.revealFileTab({
         tabId: id,
         ...(worktreePath ? { worktreePath } : {}),
         ...(issueId ? { issueId } : {}),
-      })
-      rt.recordRecentFile({
-        path,
-        worktreePath,
-        ...(session?.machineId ? { machineId: session.machineId } : {}),
+        fileTab: existing ?? { id, scope, path, worktreePath, ...(issueId ? { issueId } : {}) },
+        recentFile: { path, worktreePath, ...(session?.machineId ? { machineId: session.machineId } : {}) },
       })
     },
     openFileInWorktree: (args) => {
@@ -771,30 +755,13 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       const issueId = existing
         ? existing.issueId
         : (args.issueId ?? state.selectedIssueId ?? undefined)
-      rt.apply({
-        fileTabs: existing
-          ? state.fileTabs
-          : [
-              ...state.fileTabs,
-              {
-                id,
-                scope,
-                path: args.path,
-                worktreePath: args.root,
-                ...(issueId ? { issueId } : {}),
-              },
-            ],
-      })
       rt.revealFileTab({
         tabId: id,
         worktreePath: args.root,
         ...(issueId ? { issueId } : {}),
         ...(args.permanent === false ? { permanent: false } : {}),
-      })
-      rt.recordRecentFile({
-        path: args.path,
-        worktreePath: args.root,
-        ...(args.machineId ? { machineId: args.machineId } : {}),
+        fileTab: existing ?? { id, scope, path: args.path, worktreePath: args.root, ...(issueId ? { issueId } : {}) },
+        recentFile: { path: args.path, worktreePath: args.root, ...(args.machineId ? { machineId: args.machineId } : {}) },
       })
     },
     openArtifact: (args) => {
@@ -804,30 +771,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         artifactId: args.artifactId,
       }
       const id = tabIdFor(scope, args.path)
-      const state = rt.state()
-      if (!state.fileTabs.some((tab) => tab.id === id)) {
-        rt.apply({
-          fileTabs: [
-            ...state.fileTabs,
-            {
-              id,
-              scope,
-              path: args.path,
-              worktreePath: args.worktreePath ?? '',
-              issueId: args.issueId,
-            },
-          ],
-        })
-      }
       rt.revealFileTab({
         tabId: id,
         issueId: args.issueId,
         ...(args.worktreePath ? { worktreePath: args.worktreePath } : {}),
-      })
-      rt.recordRecentFile({
-        path: args.path,
-        worktreePath: args.worktreePath ?? '',
-        artifact: { issueId: args.issueId, artifactId: args.artifactId },
+        fileTab: { id, scope, path: args.path, worktreePath: args.worktreePath ?? '', issueId: args.issueId },
+        recentFile: { path: args.path, worktreePath: args.worktreePath ?? '', artifact: { issueId: args.issueId, artifactId: args.artifactId } },
       })
     },
     closeFileTab: (id) => {
@@ -984,9 +933,9 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       rt.enqueueOverlayed('setWorkState', { sessionId, workState }),
     setSnooze: async (sessionId, until) => rt.enqueueOverlayed('snoozeSet', { sessionId, until }),
     clearSnooze: async (sessionId) => rt.enqueueOverlayed('snoozeClear', { sessionId }),
-    markSessionRead: async (sessionId) => rt.enqueueOverlayed('sessionMarkRead', { sessionId }),
+    markSessionRead: (sessionId) => markRead('sessionMarkRead', sessionId, { sessionId }),
     markSessionUnread: async (sessionId) => rt.enqueueOverlayed('sessionMarkUnread', { sessionId }),
-    markIssueRead: async (id) => rt.enqueueOverlayed('issueMarkRead', { id }),
+    markIssueRead: (id) => markRead('issueMarkRead', id, { id }),
     markIssueUnread: async (id) => rt.enqueueOverlayed('issueMarkUnread', { id }),
     setIssueTucked: async (id, tucked) => rt.enqueueOverlayed('issueSetTucked', { id, tucked }),
     // The curation writes (POD-781). Nothing here but the enqueue: the queued

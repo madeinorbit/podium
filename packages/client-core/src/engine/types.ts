@@ -1,3 +1,4 @@
+import type { NavigationIntent } from './navigation'
 /**
  * Engine-facing shared types (#262 [spec:SP-3fe2]): the server-config, notice,
  * user-focus, and store-snapshot seams the non-React engine and the thin React
@@ -448,6 +449,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   autoContinuePromptSessionId: SessionId | null
   closeAutoContinuePrompt: () => void
   /** [spec:SP-a1c0] Central navigate-to-session (#411): accepts a UUID or birth ref and is the ONLY way UI surfaces jump to a session. */
+  navigateWorkspace: (intent: Omit<NavigationIntent, 'view'>) => boolean
   navigateToSession: (sessionIdOrRef: string) => void
   /**
    * Select an issue and land on the session a launch just started or added,

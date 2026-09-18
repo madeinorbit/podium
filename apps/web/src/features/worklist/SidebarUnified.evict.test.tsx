@@ -25,6 +25,7 @@ import { SidebarUnified } from './SidebarUnified'
 
 const { setSelectedIssueId, issueGet } = vi.hoisted(() => ({
   setSelectedIssueId: vi.fn(),
+    navigateWorkspace: vi.fn(() => true),
   issueGet: vi.fn(async () => ({})),
 }))
 

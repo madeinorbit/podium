@@ -129,6 +129,7 @@ vi.mock('@/app/store', () => {
     setSelectedWorktree,
     selectedIssueId: null,
     setSelectedIssueId,
+    navigateWorkspace: vi.fn((intent) => { setSelectedIssueId(intent.selectedIssueId); return true }),
     setOpenIssueId: vi.fn(),
     paneA: null,
     setPane: vi.fn(),

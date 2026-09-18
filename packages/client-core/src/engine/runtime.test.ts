@@ -35,7 +35,7 @@ import { asClientPrincipal } from '../principal'
 import { issueViewModelsFromReplica } from '../replica/issue-view-models'
 import { createReplica, memoryStorage, type StorageApi } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
-import { type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
+import { type Router, routeDefaults, type RouterWindow, SIDEBAR_COLLAPSED_KEY, SUPERAGENT_MODE_KEY } from '../ui-state'
 import { allTabIds } from '../viewmodels'
 import { sessionById } from '../session-index'
 import { readStoreStats, storeStats } from '../perf/store-stats'
@@ -3120,5 +3120,118 @@ describe('shared session index', () => {
     const retired = foldOverlays(base, [], (s) => s.sessionId).rows
     expect(sessionById(retired).get(pending.sessionId)).toBeUndefined()
     expect(sessionById([pending]).get(pending.sessionId)).toBe(pending)
+  })
+})
+
+// Same issue click, real runtime/reactions, old setters versus planned commit.
+describe('atomic navigation publication', () => {
+  it('A/B: one navigation publication with identical destination and focus report', async () => {
+    const { storeStats, readRuntimeStoreStats, readStoreStats } = await import('../perf/store-stats')
+    const results = []
+    const readPublications = []
+    for (const legacy of [true, false]) {
+      const { engine, hub, rw } = makeEngine({ url: '/issues' })
+      engine.start()
+      await settle()
+      const issue = { id: asIssueId('nav-issue'), title: 'Navigation', stage: 'in_progress',
+        readAt: '2026-09-02T00:00:00Z', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+        archived: false, worktreePath: '/tmp/known-repo/.worktrees/wt1' } as IssueWire
+      const session = { sessionId: asSessionId('nav-session'), cwd: issue.worktreePath,
+        issueId: issue.id, name: 'Navigation', unread: false } as SessionMeta
+      engine.replica.applyChanges('issues', [issue], [])
+      engine.replica.applyChanges('sessions', [session], [])
+      await settle()
+      const focusBefore = hub.viewStates.length
+      const snapshots: Array<ReturnType<typeof engine.getSnapshot>> = []
+      const off = engine.subscribe(() => snapshots.push(engine.getSnapshot()))
+      storeStats.enable(); storeStats.reset()
+      const window = storeStats.begin('gesture')
+      const actions = engine.getSnapshot()
+      if (legacy) {
+        actions.setSelectedIssueId(issue.id)
+        actions.setSelectedWorktree(issue.worktreePath)
+        actions.setPane('A', session.sessionId)
+        const router = (engine as unknown as { router: Router }).router
+        router.navigate({ ...routeDefaults('workspace'), worktree: router.current().worktree, pane: router.current().pane })
+      } else {
+        actions.navigateWorkspace({ selectedIssueId: issue.id, selectedWorktree: issue.worktreePath,
+          tabId: session.sessionId, firstPane: true })
+      }
+      storeStats.end(window)
+      const final = engine.getSnapshot()
+      const result = { publishes: readRuntimeStoreStats(engine)?.publishes,
+        selected: final.selectedIssueId, pane: final.paneA, view: final.view,
+        focus: hub.viewStates.length - focusBefore, url: rw.url(), baseline: final.issueVisitBaseline?.issueId }
+      results.push(result)
+      if (!legacy) {
+        expect(snapshots).toHaveLength(1)
+        expect(snapshots[0]).toMatchObject({ selectedIssueId: issue.id, paneA: session.sessionId,
+          view: 'workspace', issueVisitBaseline: { issueId: issue.id } })
+        const writes = rw.writes.length
+        actions.navigateWorkspace({ selectedIssueId: issue.id, selectedWorktree: issue.worktreePath,
+          tabId: session.sessionId, firstPane: true })
+        expect(snapshots).toHaveLength(1)
+        expect(rw.writes).toHaveLength(writes)
+      }
+      off()
+      storeStats.reset()
+      const optimisticWindow = storeStats.begin('gesture')
+      await actions.markIssueRead(issue.id)
+      await settle()
+      storeStats.end(optimisticWindow)
+      const optimistic = readStoreStats().publishes.filter((p) => p.changedKeys.includes('issues')).length
+      expect(engine.getSnapshot().issues.find((i) => i.id === issue.id)?.readAt).not.toBe(issue.readAt)
+      storeStats.reset()
+      const networkWindow = storeStats.begin('feed')
+      engine.replica.applyChanges('issues', [{ ...issue, readAt: '2099-01-01T00:00:00.000Z' }], [])
+      await settle()
+      storeStats.end(networkWindow)
+      const network = readStoreStats().publishes.filter((p) => p.changedKeys.includes('issues')).length
+      readPublications.push({ optimistic, network })
+      storeStats.enable(false); engine.destroy()
+    }
+    expect(results).toEqual([
+      { publishes: 5, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
+        url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session', baseline: 'nav-issue' },
+      { publishes: 1, selected: 'nav-issue', pane: 'nav-session', view: 'workspace', focus: 1,
+        url: '/workspace?wt=%2Ftmp%2Fknown-repo%2F.worktrees%2Fwt1&pane=nav-session', baseline: 'nav-issue' },
+    ])
+    expect(readPublications[0]!.optimistic).toBeGreaterThan(0)
+    expect(readPublications[0]!.network).toBeGreaterThan(0)
+    expect(readPublications[1]).toEqual(readPublications[0])
+    console.info('B1 navigation A/B', { navigation: results, readPublications })
+    storeStats.reset()
+  })
+
+  it('history failure leaves the snapshot, selection and reactions untouched', async () => {
+    const { engine, rw, hub } = makeEngine({ url: '/issues' })
+    engine.start(); await settle()
+    const before = engine.getSnapshot()
+    const focus = hub.viewStates.length
+    vi.spyOn(rw.win.history, 'pushState').mockImplementation(() => { throw new Error('history failed') })
+    expect(() => before.navigateWorkspace({ selectedIssueId: asIssueId('unknown') })).toThrow('history failed')
+    expect(engine.getSnapshot()).toBe(before)
+    expect(hub.viewStates).toHaveLength(focus)
+    engine.destroy()
+  })
+
+  it('nested batches retain deferred reads, last-write wins, and union changed keys', () => {
+    const { engine } = makeEngine()
+    const seam = engine as unknown as { batch(fn: () => void): void; apply(p: object): void; react(k: ReadonlySet<string>): void }
+    const reaction = vi.spyOn(seam, 'react').mockImplementation(() => {})
+    const before = engine.getSnapshot()
+    const subscriber = vi.fn()
+    engine.subscribe(subscriber)
+    seam.batch(() => {
+      seam.apply({ paletteOpen: true })
+      seam.batch(() => seam.apply({ coarseNow: 123 }))
+      seam.apply({ coarseNow: 456 })
+      expect(engine.getSnapshot()).toBe(before)
+      expect(subscriber).not.toHaveBeenCalled()
+    })
+    expect(subscriber).toHaveBeenCalledTimes(1)
+    expect(reaction).toHaveBeenCalledWith(new Set(['paletteOpen', 'coarseNow']))
+    expect(engine.getSnapshot()).toMatchObject({ paletteOpen: true, coarseNow: 456 })
+    engine.destroy()
   })
 })
