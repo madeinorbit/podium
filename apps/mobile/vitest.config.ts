@@ -152,7 +152,7 @@ export default defineConfig({
         // Gesture Handler and Worklets publish extensionless internal imports;
         // Reanimated imports a directory; Safe Area and SVG otherwise reach
         // React Native's Flow source through externalized CommonJS entries.
-        inline: [...mobileVitestResolution.inlineDependencies],
+        inline: [...mobileVitestResolution.inlineDependencies, 'mobx-react-lite', '@tanstack/react-db', 'use-sync-external-store'],
       },
     },
     // `one-react.ts` last: it turns a drifted checkout into a message that names the
