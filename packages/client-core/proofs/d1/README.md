@@ -27,3 +27,14 @@ wrapper visits and calls; they do not claim to count internal library steps.
 The harness is experimental comparison code, not a production library adapter.
 Remove this directory and its two app test entries to disable it. Revert the
 manifest/lockfile edits to remove the candidate dependency upgrade.
+
+The runner sets `PODIUM_D1_PROOF=1`; ordinary unit runs skip this expensive
+comparison and do not rewrite measurements. The fresh-process memory step is
+necessary because sequential test-process heap deltas can be negative when old
+cases are collected. Only `results/memory.json` is used to compare retained heap.
+
+TanStack source and derived join keys have explicit BasicIndex indexes. Cleanup
+runs from dependent queries back to their sources; a source-first armed control
+checks that the lifecycle assertion can detect the reversed order. The native
+query engine's internal operator count is not exposed: `nativeOutputChanges`
+counts output records, not hidden dataflow operations.

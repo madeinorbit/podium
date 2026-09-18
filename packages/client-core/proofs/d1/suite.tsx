@@ -27,6 +27,7 @@ export function registerProofSuite(platform: string, { act, cleanup, render }: P
   const results: unknown[] = []
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
   afterAll(() => {
+    if (process.env.PODIUM_D1_PROOF !== '1') return
     let root = process.cwd()
     while (!existsSync(join(root, 'packages/client-core/package.json')) && dirname(root) !== root) root = dirname(root)
     if (!existsSync(join(root, 'packages/client-core/package.json'))) throw new Error('D1 repository root not found')
