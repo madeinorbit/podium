@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asUserId, controlPlaneAvailable, firstAdminMemberId } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { BREAK_GLASS_LABEL, mintBreakGlassSession } from '@podium/runtime/session-mint'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -29,7 +30,12 @@ let store: SessionStore
 
 function makeApp(opts: Parameters<typeof registerAuthRoute>[1] = {}) {
   const app = new Hono()
-  registerAuthRoute(app, { store: store.auth, users: store.users, ...opts })
+  registerAuthRoute(app, {
+    store: store.auth,
+    users: store.users,
+    settings: store.settings,
+    ...opts,
+  })
   return app
 }
 
@@ -980,26 +986,17 @@ describe('client session store', () => {
   })
 })
 
-/**
- * WHICH MEMBER A LOGIN IS FOR (A2, spec §5.6 "Existing installs").
- *
- * The login screen sends one password field and no name, because there was one
- * account and the server knew which. It still means "this instance's first
- * admin" — the server just resolves that member now instead of compiling its id
- * in. And the id that member USED to have stays accepted, because an upgrade
- * that locks the operator out of their own instance to tidy up a string is not
- * a trade worth making.
- */
+/** The retired identifier names the recorded member; authentication is separate. */
 describe('the login identifier', () => {
-  test('with no identifier, means the earliest admin member', async () => {
-    expect(await resolveLoginIdentifier(undefined, store.users)).toBe(
-      (await store.users.earliestAdmin())?.id,
+  test('with no identifier, means the recorded member', async () => {
+    expect(await resolveLoginIdentifier(undefined, store.users, store.settings)).toBe(
+      await store.settings.retiredSoloMemberId(),
     )
   })
 
   test('accepts the retired literal, and resolves it to the same member', async () => {
-    expect(await resolveLoginIdentifier('user:sole', store.users)).toBe(
-      (await store.users.earliestAdmin())?.id,
+    expect(await resolveLoginIdentifier('user:sole', store.users, store.settings)).toBe(
+      await store.settings.retiredSoloMemberId(),
     )
   })
 
@@ -1011,13 +1008,8 @@ describe('the login identifier', () => {
     ).toBeUndefined()
   })
 
-  test('has no answer when no member may act as the first admin', async () => {
-    // Every admin disabled. The caller answers this as a failed login, which is
-    // what it is from the outside: there is no account with that (absent) name.
-    const none = { earliestAdmin: async () => undefined } as Parameters<
-      typeof resolveLoginIdentifier
-    >[1]
-    expect(await resolveLoginIdentifier(undefined, none)).toBeUndefined()
+  test('has no answer when no member or mapping exists', async () => {
+    expect(await resolveLoginIdentifier(undefined, undefined)).toBeUndefined()
   })
 
   test('a password set on the first admin still logs in with no identifier sent', async () => {
@@ -1053,7 +1045,7 @@ describe('email sign-in', () => {
       body: JSON.stringify({ email, password }),
     })
 
-  test('resolves normalized email, preserves display name, and retires legacy login after setting email', async () => {
+  test('resolves normalized email and preserves the recorded legacy identity after setting email', async () => {
     await setPassword('hunter2')
     const before = await store.users.get(firstAdminMemberId())
     const app = makeApp()
@@ -1068,7 +1060,7 @@ describe('email sign-in', () => {
       memberId: firstAdminMemberId(),
     })
     expect(cookieValue(response)).toBeTruthy()
-    expect((await login(app, 'user:sole')).status).toBe(401)
+    expect((await login(app, 'user:sole')).status).toBe(200)
     expect(
       (
         await app.request('/auth/login', {
@@ -1076,7 +1068,7 @@ describe('email sign-in', () => {
           body: JSON.stringify({ password: 'hunter2' }),
         })
       ).status,
-    ).toBe(401)
+    ).toBe(200)
     expect((await login(app, firstAdminMemberId())).status).toBe(401)
     expect(
       (
@@ -1122,7 +1114,7 @@ describe('email sign-in', () => {
     const app = makeApp({ throttle: { maxFailures: 1 } })
     expect((await login(app, 'missing@example.com')).status).toBe(401)
     expect((await login(app, 'missing@example.com')).status).toBe(429)
-    expect((await login(app, '')).status).toBe(400)
+    expect((await login(app, '')).status).toBe(200)
     expect((await login(app, 'user:sole')).status).toBe(200)
   })
 
@@ -1296,7 +1288,7 @@ describe('phone client against the real auth route', () => {
     expect(await expired.json()).toMatchObject({ needsAuth: true, authed: false })
     const replacement = await expectMember(await signIn('admin@example.com'), firstAdminMemberId())
     expect(replacement).not.toBe(token)
-    expect(await signIn()).toMatchObject({ ok: false })
+    await expectMember(await signIn(), firstAdminMemberId())
     expect(await signIn('unknown@example.com')).toMatchObject({ ok: false })
     expect(await signIn('admin@example.com', 'wrong')).toMatchObject({ ok: false })
   })
@@ -1320,14 +1312,14 @@ describe('phone client against the real auth route', () => {
     expect(await signIn('admin@example.com', 'member-password')).toMatchObject({ ok: false })
   })
 
-  test('explicit legacy identifier works only until the first admin sets email', async () => {
+  test('legacy identifiers keep the recorded identity after the member sets email', async () => {
     await setPassword('hunter2')
     connectPhone()
     await expectMember(await signIn(), firstAdminMemberId())
     await expectMember(await signIn('user:sole'), firstAdminMemberId())
     await store.users.setEmail(firstAdminMemberId(), 'upgraded@example.com')
-    expect(await signIn()).toMatchObject({ ok: false })
-    expect(await signIn('user:sole')).toMatchObject({ ok: false })
+    await expectMember(await signIn(), firstAdminMemberId())
+    await expectMember(await signIn('user:sole'), firstAdminMemberId())
     await expectMember(await signIn('upgraded@example.com'), firstAdminMemberId())
   })
 })
@@ -1352,5 +1344,98 @@ test.each([
   expect(await login.json()).toMatchObject({
     syncBoundaryId: boundary,
     memberId: firstAdminMemberId(),
+  })
+})
+
+describe('retired member mapping at login', () => {
+  beforeEach(async () => {
+    await store.close()
+    store = await openTestStore(join(dir, 'podium.db'))
+  })
+
+  function removeMapping() {
+    const db = openDatabase(join(dir, 'podium.db'))
+    try {
+      db.prepare("DELETE FROM meta WHERE key = 'retired_solo_member_id'").run()
+    } finally {
+      db.close()
+    }
+  }
+
+  async function addMember() {
+    await store.users.create(
+      {
+        id: 'mem_second',
+        displayName: 'Second',
+        role: 'admin',
+        createdAt: '2000-01-01T00:00:00.000Z',
+        disabledAt: null,
+      },
+      await hashPassword('second-password'),
+    )
+  }
+
+  test('a migrated login uses the mapping even when an earlier admin exists', async () => {
+    await setPassword('hunter2')
+    const mapped = await store.settings.retiredSoloMemberId()
+    expect(mapped).toBe(firstAdminMemberId())
+    await addMember()
+    expect((await store.users.earliestAdmin())?.id).toBe('mem_second')
+    const response = await makeApp().request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ userId: 'user:sole', password: 'hunter2' }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ userId: mapped })
+  })
+
+  test.each(['user:sole', ''])('refuses %j with several members and no mapping', async (email) => {
+    await setPassword('hunter2')
+    await addMember()
+    removeMapping()
+    const response = await makeApp().request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password: 'hunter2' }),
+    })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      error: expect.stringContaining('retired_solo_member_id'),
+    })
+    expect(cookieValue(response)).toBeUndefined()
+  })
+
+  test('a sole member without a mapping resolves without recording new provenance', async () => {
+    removeMapping()
+    await setPassword('hunter2')
+    await store.users.setEmail(firstAdminMemberId(), 'sole@example.com')
+    const response = await makeApp().request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: '', password: 'hunter2' }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ userId: firstAdminMemberId() })
+    expect(await store.settings.retiredSoloMemberId()).toBeNull()
+  })
+
+  test('disabled mapped member never resolves to another admin', async () => {
+    await setPassword('hunter2')
+    const mapped = await store.settings.retiredSoloMemberId()
+    await addMember()
+    const db = openDatabase(join(dir, 'podium.db'))
+    try {
+      db.prepare('UPDATE users SET disabled_at = ? WHERE id = ?').run('2026-09-18', mapped)
+    } finally {
+      db.close()
+    }
+    expect(await resolveLoginIdentifier('user:sole', store.users, store.settings)).toBe(mapped)
+    const response = await makeApp().request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ userId: 'user:sole', password: 'second-password' }),
+    })
+    expect(response.status).toBe(401)
+    removeMapping()
+    await expect(resolveLoginIdentifier('user:sole', store.users, store.settings)).rejects.toThrow(
+      'retired_solo_member_id',
+    )
   })
 })

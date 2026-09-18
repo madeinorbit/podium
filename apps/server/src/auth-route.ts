@@ -5,7 +5,6 @@ import {
   asUserId,
   type CredentialSource,
   type ServerReadiness,
-  SOLE_USER_ID,
   type UserId,
   type UserRole,
 } from '@podium/model'
@@ -282,9 +281,8 @@ export function clientAuthGuard(opts: {
 
 export interface AccountCredentialStore {
   get(userId: UserId): Promise<{ role: UserRole } | undefined>
-  /** The member a login with no identifier — or with the retired literal — means.
-   *  See {@link resolveLoginIdentifier}. */
-  earliestAdmin(): Promise<{ id: string; email: string | null } | undefined>
+  /** All identities, including disabled members; never a role-based selector. */
+  memberIds(): Promise<UserId[]>
   byEmail(email: string): Promise<{ id: string } | undefined>
   create(
     account: {
@@ -302,19 +300,32 @@ export interface AccountCredentialStore {
   hasPerUserCredentials(): Promise<boolean>
 }
 
-/** Email identifies a member. The retired literal only names an email-less first admin.
- * Missing identifiers remain a bridge for the existing password-only gate until A4.
+/** Legacy password-only clients resolve through the recorded retirement fact.
+ * The sole-member exception is identical to the mapping migration, without writes.
+ * Identity resolution does not grant permission: credentials still reject disabled members.
  */
 export async function resolveLoginIdentifier(
   requested: string | undefined,
   users: AccountCredentialStore | undefined,
+  settings?: { retiredSoloMemberId(): Promise<UserId | null> },
 ): Promise<UserId | undefined> {
-  if (requested !== undefined && requested !== SOLE_USER_ID) {
+  if (requested && requested !== 'user:sole') {
     const member = await users?.byEmail(requested)
     return member ? asUserId(member.id) : undefined
   }
-  const first = await users?.earliestAdmin()
-  return first && first.email === null ? asUserId(first.id) : undefined
+  const mapped = await settings?.retiredSoloMemberId()
+  if (mapped) return mapped
+  const members = (await users?.memberIds()) ?? []
+  if (members.length > 1) throw new MissingRetiredMemberMappingError()
+  return members[0]
+}
+
+class MissingRetiredMemberMappingError extends Error {
+  constructor() {
+    super(
+      'Cannot resolve retired member: meta key retired_solo_member_id is missing with several members',
+    )
+  }
 }
 
 export interface AuthRouteOptions {
@@ -344,6 +355,7 @@ export interface AuthRouteOptions {
   ) => Promise<{ signedIn: boolean; deniedReason?: string } | undefined>
   store?: ClientSessionStore
   users?: AccountCredentialStore
+  settings?: { retiredSoloMemberId(): Promise<UserId | null> }
   /**
    * Resolve the request's transport principal at the server composition root.
    *
@@ -518,20 +530,20 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         nativeLogin = parsed.data
       }
       if (body?.email !== undefined) {
-        if (typeof body.email !== 'string' || !body.email.trim() || body.email.length > 254) {
+        if (typeof body.email !== 'string' || body.email.length > 254) {
           return c.json({ error: 'invalid email' }, 400)
         }
         identifier = body.email.trim().toLowerCase()
       } else if (body?.userId !== undefined) {
-        if (body.userId !== SOLE_USER_ID) return c.json({ error: 'email is required' }, 400)
-        identifier = SOLE_USER_ID
+        if (body.userId !== 'user:sole') return c.json({ error: 'email is required' }, 400)
+        identifier = 'user:sole'
       }
       if (typeof body?.password === 'string') password = body.password
     } catch {
       // fall through — empty password fails verification below
     }
 
-    const key = identifier ?? SOLE_USER_ID
+    const key = !identifier || identifier === 'user:sole' ? '' : identifier
     const previous = attempts.get(key)
     if (previous && previous.expiresAt <= at) attempts.delete(key)
     const attempt = attempts.get(key) ?? { failures: 0, lockedUntil: 0, expiresAt: at + lockoutMs }
@@ -556,7 +568,15 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       attempts.delete(victim)
     }
     attempts.set(key, attempt)
-    const userId = await resolveLoginIdentifier(identifier, users)
+    let userId: UserId | undefined
+    try {
+      userId = await resolveLoginIdentifier(identifier, users, opts.settings)
+    } catch (error) {
+      if (error instanceof MissingRetiredMemberMappingError) {
+        return c.json({ error: error.message }, 409)
+      }
+      throw error
+    }
 
     // ONE WAY IN (POD-1554). A login is a per-account credential match or it is nothing.
     // Two arms used to live here: a `source === 'instance-password'` arm that verified

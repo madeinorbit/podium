@@ -101,3 +101,30 @@ it('reports platform revocation failure instead of claiming sign-out succeeded',
     'Cloud sign-out failed: 503',
   )
 })
+
+it('sends an empty identifier for password-only native login', async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue(
+      Response.json({
+        ok: true,
+        delivery: 'native',
+        token: 'phone-token',
+        userId: 'mem_original',
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      }),
+    )
+  vi.stubGlobal('fetch', fetchMock)
+  await expect(login('https://podium.example', 'secret')).resolves.toEqual({
+    ok: true,
+    bearer: 'phone-token',
+  })
+  expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toEqual({
+    email: '',
+    password: 'secret',
+    delivery: 'native',
+    deviceId: 'mobile-manual-login',
+    deviceName: 'ios phone',
+    platform: 'ios',
+  })
+})

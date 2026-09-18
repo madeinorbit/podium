@@ -233,6 +233,11 @@ export class UsersRepository {
     }
   }
 
+  /** Identity census includes disabled members and does not select by role. */
+  async memberIds(): Promise<UserId[]> {
+    return (await this.db.select({ id: users.id }).from(users).all()).map((row) => row.id)
+  }
+
   async list(): Promise<UserAccountRow[]> {
     const rows = await this.db
       .select({ id: users.id })

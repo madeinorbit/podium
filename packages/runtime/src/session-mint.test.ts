@@ -24,7 +24,6 @@ import {
   saveCachedSessionToken,
   sessionTokenPath,
 } from './session-mint'
-import { earliestAdminMember } from './earliest-admin'
 import { openDatabase } from './sqlite'
 
 let dir: string
@@ -47,7 +46,10 @@ function seedDatabase(at: string): void {
        label TEXT NOT NULL DEFAULT 'login'
      )`,
   ).run()
+  db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+  db.exec("INSERT INTO meta VALUES ('retired_solo_member_id', 'mem_original')")
   db.close?.()
+  seedUsers(at, 1)
 }
 
 beforeEach(() => {
@@ -228,7 +230,7 @@ it('POD-1402: mint needs only state-dir write access — no password, no princip
 function seedUsers(at: string, n: number): void {
   const db = openDatabase(join(at, 'podium.db'))
   db.prepare(
-    `CREATE TABLE users (
+    `CREATE TABLE IF NOT EXISTS users (
        id TEXT PRIMARY KEY,
        display_name TEXT NOT NULL,
        role TEXT NOT NULL,
@@ -236,9 +238,10 @@ function seedUsers(at: string, n: number): void {
        disabled_at TEXT
      )`,
   ).run()
+  db.exec('DELETE FROM users')
   for (let i = 0; i < n; i++) {
     db.prepare('INSERT INTO users (id, display_name, role, created_at) VALUES (?, ?, ?, ?)').run(
-      i === 0 ? 'user:sole' : `user:other-${i}`,
+      i === 0 ? 'mem_original' : `user:other-${i}`,
       i === 0 ? 'Operator' : `Other ${i}`,
       i === 0 ? 'admin' : 'member',
       '2026-08-04T00:00:00.000Z',
@@ -280,13 +283,7 @@ it('POD-1637: mints on a single-account instance, and the token validates', () =
   expect(row?.expires_at).toBe(minted.expiresAt)
 })
 
-// ─── A2: the session is minted FOR the earliest admin member ───────────────
-//
-// The owner used to be the compile-time `FIRST_ADMIN_USER_ID`. It is now read
-// out of the database by `EARLIEST_ADMIN_MEMBER_SQL`, so these assert the value
-// the mint actually wrote — a mint carrying an id no member has would hand the
-// operator a token that authenticates as nobody, and the 401 that follows would
-// look like the mint having failed for some other reason.
+// The session carries the recorded identity, not an admin selected by role.
 
 const mintedOwner = (at: string, token: string): string | undefined => {
   const db = openDatabase(join(at, 'podium.db'))
@@ -306,47 +303,60 @@ it('A2: mints for the member the database names, not a compiled-in id', () => {
   seedUsers(dir, 1)
   const db = openDatabase(join(dir, 'podium.db'))
   db.prepare("UPDATE users SET id = 'mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv'").run()
+  db.exec(
+    "UPDATE meta SET value = 'mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv' WHERE key = 'retired_solo_member_id'",
+  )
   db.close?.()
 
   const minted = mintBreakGlassSession({ stateDir: dir })
   expect(mintedOwner(dir, minted.token)).toBe('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
 })
 
-it('A2: mints for the EARLIEST admin when a later admin exists', () => {
-  // The rule, at the one call site where getting it wrong is silent: a mint for
-  // the newest admin would still produce a working token, for the wrong person.
+it('refuses several members without the recorded mapping, writing no session', () => {
   seedDatabase(dir)
-  seedUsers(dir, 1)
+  seedUsers(dir, 2)
   const db = openDatabase(join(dir, 'podium.db'))
-  db.prepare("UPDATE users SET id = 'mem_first', created_at = '2026-01-01T00:00:00.000Z'").run()
-  db.prepare(
-    "INSERT INTO users (id, display_name, role, created_at) VALUES ('mem_later', 'Later', 'admin', '2026-09-01T00:00:00.000Z')",
-  ).run()
-  db.close?.()
+  db.exec("DELETE FROM meta WHERE key = 'retired_solo_member_id'")
+  db.close()
+  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/retired_solo_member_id/)
+  expect(sessionRowCount(dir)).toBe(0)
+})
 
-  // Two accounts, so the POD-1637 guard refuses — which is the correct outcome
-  // and not what this case is about. Removing the second account would remove
-  // the ordering question with it, so the rule is asserted where it lives.
-  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/refusing to mint/)
+it('uses the sole member without recording provenance or selecting by role', () => {
+  seedDatabase(dir)
+  const db = openDatabase(join(dir, 'podium.db'))
+  db.exec("DELETE FROM meta WHERE key = 'retired_solo_member_id'")
+  db.exec("UPDATE users SET role = 'member'")
+  db.close()
+  const minted = mintBreakGlassSession({ stateDir: dir })
+  expect(mintedOwner(dir, minted.token)).toBe('mem_original')
   const reader = openDatabase(join(dir, 'podium.db'))
   try {
-    expect(earliestAdminMember(reader)).toBe('mem_first')
+    expect(reader.prepare('SELECT * FROM meta').all()).toEqual([])
   } finally {
-    reader.close?.()
+    reader.close()
   }
 })
 
-it('A2: refuses when every admin is disabled, writing no session row', () => {
-  // There is a `users` table, so this instance CAN name a member — it just has
-  // none that may act. Different from the pre-accounts case below, and the two
-  // must not collapse into one answer.
+it('does not replace a recorded mapping that names a missing member', () => {
+  seedDatabase(dir)
+  const db = openDatabase(join(dir, 'podium.db'))
+  db.exec("UPDATE meta SET value = 'mem_missing'")
+  db.close()
+  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/recorded member is missing/)
+  expect(sessionRowCount(dir)).toBe(0)
+})
+
+it('refuses a disabled mapped member, writing no session row', () => {
   seedDatabase(dir)
   seedUsers(dir, 1)
   const db = openDatabase(join(dir, 'podium.db'))
   db.prepare("UPDATE users SET disabled_at = '2026-09-01T00:00:00.000Z'").run()
   db.close?.()
 
-  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/every admin.*is disabled/s)
+  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(
+    /recorded member is missing or disabled/,
+  )
   expect(sessionRowCount(dir), 'a refused mint must leave no credential behind').toBe(0)
 })
 
@@ -374,10 +384,11 @@ it('POD-1637: counts a disabled second account', () => {
   expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/refusing to mint/)
 })
 
-// No `users` table = a pre-multi-user schema, which cannot express a second human at all.
-// That is the ACCEPT case D14 argued for, so it must still mint — and it is what every
-// other test in this file relies on.
-it('POD-1637: still mints against a schema with no users table', () => {
+it('refuses a pre-account schema instead of minting the retired literal', () => {
   seedDatabase(dir)
-  expect(mintBreakGlassSession({ stateDir: dir }).token.length).toBeGreaterThan(20)
+  const db = openDatabase(join(dir, 'podium.db'))
+  db.exec('DROP TABLE users; DROP TABLE meta')
+  db.close()
+  expect(() => mintBreakGlassSession({ stateDir: dir })).toThrow(/retired_solo_member_id.*upgrade/)
+  expect(sessionRowCount(dir)).toBe(0)
 })

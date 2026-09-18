@@ -143,8 +143,8 @@ export async function login(
       workspaceId ? { workspaceId } : undefined,
     ),
     body: JSON.stringify({
-      // The explicit retired identifier only selects an email-less first admin.
-      email: email.trim() || 'user:sole',
+      // An empty identifier lets the server resolve the recorded member.
+      email: email.trim(),
       password,
       ...(Platform.OS === 'web'
         ? {}

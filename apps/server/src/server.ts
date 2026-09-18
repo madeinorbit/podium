@@ -1602,6 +1602,7 @@ export async function startServer(
     admission: async (request) => await auth.admission?.(request),
     store: store.auth,
     users: store.users,
+    settings: store.settings,
     // One principal resolver for every human-client transport. The status route
     // reports this result; it does not recreate the open/dev bootstrap fallback.
     //
