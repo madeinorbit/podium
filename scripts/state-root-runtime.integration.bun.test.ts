@@ -1,10 +1,11 @@
 /** Real two-named-runtime proof for the consolidated box-bound machine files. */
 import { expect, it } from 'bun:test'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { stagePasswordForFirstBoot } from '../packages/runtime/src/auth-store'
 import { ensureInstanceStateIdentity } from '../packages/runtime/src/instance'
 import { prepareSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
 
@@ -35,11 +36,13 @@ it('keeps consolidated machine files independent across two named runtimes', asy
   const git = Bun.which('git')
   if (git) symlinkSync(git, join(bin, 'git'))
   try {
-    const instances = ['blue', 'green'].map((id) => {
+    const instances = await Promise.all(['blue', 'green'].map(async (id) => {
       const stateDir = join(root, id)
       ensureInstanceStateIdentity({ instanceId: id, dir: stateDir })
       prepareSetupEnrollment(true, true, stateDir)
       writeFileSync(join(stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
+      await stagePasswordForFirstBoot(`password-${id}`, stateDir)
+      expect(readdirSync(stateDir).sort()).toEqual(['auth.json', 'config.json', 'instance.json', 'machine.json', 'machine.key'])
       const webDir = join(root, `${id}-web`)
       mkdirSync(webDir)
       const env = { ...process.env }
@@ -64,7 +67,7 @@ it('keeps consolidated machine files independent across two named runtimes', asy
       child.stdout?.on('data', (data) => { output += data })
       child.stderr?.on('data', (data) => { output += data })
       return { id, stateDir, httpPort, child, output: () => output }
-    })
+    }))
     const identities = new Set<string>()
     for (const instance of instances) {
       await until(async () => {
@@ -86,6 +89,42 @@ it('keeps consolidated machine files independent across two named runtimes', asy
       }
       expect(existsSync(join(instance.stateDir, 'machine.key'))).toBe(true)
       expect(existsSync(join(instance.stateDir, 'daemon.secret'))).toBe(true)
+      // Quiesce writers before the census: an atomic machine.json replacement
+      // may legitimately have a temporary file while the supervisor is running.
+      // After graceful shutdown, leftover staging files must fail the fence.
+      instance.child.kill('SIGTERM')
+      await until(() => instance.child.exitCode !== null || instance.child.signalCode !== null,
+        `${instance.id} census shutdown`, 15_000)
+      // Enumerate EVERY root entry: no blanket directory/file exclusions. runtime/
+      // owns sockets/process scratch; run/ and logs/ are the process registry
+      // and its logs. These are directories, never persistent state-root files.
+      // pending-update.json belongs only to an in-flight update; this fresh boot
+      // has none. auth.json belongs only to the pre-boot setup handoff above.
+      const allowedFiles = new Set([
+        'cli-session.json', 'config.json', 'daemon.secret',
+        'instance.json', 'machine.json', 'machine.key',
+        // Existing process lock, explicitly outside the persistent-file census.
+        'daemon.lock',
+        // Source-mode developer publisher token (design's developer-only exception).
+        'dev-artifact-token',
+        // The database and its SQLite sidecars are the master-data home.
+        'podium.db', 'podium.db-wal', 'podium.db-shm', 'podium.db.snapshots.json',
+      ])
+      // bin/ holds extracted PTY executables, not master data.
+      const allowedDirectories = new Set(['runtime', 'run', 'logs', 'bin'])
+      const entries = readdirSync(instance.stateDir, { withFileTypes: true })
+      expect(entries.map((entry) => entry.name).filter((name) =>
+        !allowedFiles.has(name) && !allowedDirectories.has(name)),
+      'unexpected state-root entries').toEqual([])
+      for (const entry of entries) {
+        if (allowedDirectories.has(entry.name)) expect(entry.isDirectory()).toBe(true)
+        else {
+          expect(entry.isFile()).toBe(true)
+          expect(allowedFiles.has(entry.name), `unexpected state-root entry: ${entry.name}`).toBe(true)
+        }
+      }
+      expect(existsSync(join(instance.stateDir, 'auth.json'))).toBe(false)
+      expect(existsSync(join(instance.stateDir, 'pending-update.json'))).toBe(false)
     }
     expect(identities.size).toBe(2)
   } finally {

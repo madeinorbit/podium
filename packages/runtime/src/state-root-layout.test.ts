@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import { deleteLegacyInstancePasswordFile, readLegacyInstancePasswordHash, stagePasswordForFirstBoot, verifyPasswordHash } from './auth-store'
+import { clearPendingGrant, writePendingGrant } from './update-pending'
 import { saveConfig } from './config'
 import { writeConnectivity } from './connectivity'
 import { readMachineState, readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
@@ -35,7 +37,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-it('fresh machine writers create only the approved transitional state-root files', () => {
+it('fresh machine writers create only the approved transitional state-root files', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-layout-'))
   roots.push(dir)
   saveConfig({ mode: 'all-in-one' }, join(dir, 'config.json'))
@@ -50,6 +52,20 @@ it('fresh machine writers create only the approved transitional state-root files
   writeConnectivity({ state: 'disconnected', processId: process.pid }, dir)
   saveCachedSessionToken({ token: 'test-session', expiresAt: '2099-01-01T00:00:00Z' }, dir)
 
+  // auth.json is the setup → first successful boot handoff, never persistent state.
+  await stagePasswordForFirstBoot('layout-test-password', dir)
+  expect(readdirSync(dir).sort()).toEqual(['auth.json', ...ALLOWED_PERSISTENT_FILES])
+  // Exercise the runtime handoff API here; the real-runtime test proves the
+  // server calls deletion only after adopting the credential at first boot.
+  const stagedHash = readLegacyInstancePasswordHash(dir)
+  expect(await verifyPasswordHash('layout-test-password', stagedHash ?? '')).toBe(true)
+  deleteLegacyInstancePasswordFile(dir)
+  expect(readdirSync(dir).sort()).toEqual(ALLOWED_PERSISTENT_FILES)
+
+  // Update recovery has its own bounded marker; it is not a permanent seventh file.
+  writePendingGrant(dir, { grantId: 'layout', targetVersion: 'next', previousVersion: 'old', attempts: 0, startedAt: 1 })
+  expect(readdirSync(dir).sort()).toEqual([...ALLOWED_PERSISTENT_FILES, 'pending-update.json'])
+  clearPendingGrant(dir)
   expect(readdirSync(dir).sort()).toEqual(ALLOWED_PERSISTENT_FILES)
   expect(readOrCreateLocalMachineId(dir)).toBe(machineId)
   expect(readOrCreateDaemonSecret(dir)).toBe(maintenanceToken)
