@@ -1,4 +1,5 @@
 import { respondToMailBoundary, type MailBoundaryContext } from './mail-boundary'
+import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '@podium/agent-runtime'
 import type { ReattachControl } from '../session-observers'
 import { withDeliveryQueue } from '@podium/agent-runtime'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
@@ -496,6 +497,9 @@ export interface TerminalStateObservation {
 type TerminalObservation = DaemonMessage | ({ type: 'terminalState' } & TerminalStateObservation)
 
 export interface TerminalRuntime {
+  /** Undefined means this session has no driver-owned context channel. */
+  boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined
+
   recoverWithId(msg: ReattachControl, profile: TerminalHarnessProfile): Promise<AgentSessionHandle>
   observeDraft(sessionId: SessionId, text: string): void
   /** Put a session behind the contract. Idempotent for the same binding version:
@@ -567,7 +571,21 @@ export interface TerminalRuntimeControl {
   askInteraction(sessionId: SessionId, interaction: PendingInteraction): void
 }
 
-export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntime {
+export function createTerminalRuntime(
+  host: TerminalRuntimeHost,
+  primeSource?: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
+): TerminalRuntime {
+  const contexts = new Map<SessionId, ReturnType<typeof createBoundaryContext>>()
+  function boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined {
+    if (!primeSource || !profiles.get(sessionId)?.instrumentationRequired) return undefined
+    let context = contexts.get(sessionId)
+    if (!context) {
+      context = createBoundaryContext(() => primeSource(sessionId))
+      contexts.set(sessionId, context)
+    }
+    return context.respond
+  }
+
   const sessions = new Map<SessionId, DriverSession>()
   /**
    * Stream position and turn epoch, per PROCESS identity.
@@ -1731,6 +1749,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         }
       },
 
+      ...(primeSource && profiles.get(session.sessionId)?.instrumentationRequired ? {
+        boundaryContext: (request: BoundaryContextRequest) =>
+          boundaryContextFor(session.sessionId)?.(request) ?? Promise.resolve(null),
+      } : {}),
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (options.delivery === 'at-boundary') {
@@ -2172,6 +2194,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   }
 
   function clear(sessionId: SessionId): void {
+    contexts.get(sessionId)?.reset()
+    contexts.delete(sessionId)
     const session = sessions.get(sessionId)
     if (session) {
       session.answerScript?.cancel('the driver was disposed')
@@ -2233,6 +2257,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     launch: (instrumentation: InstalledTerminalInstrumentation) => Promise<void>,
     resume?: ResumeRef,
   ): Promise<AgentSessionHandle> {
+    contexts.get(sessionId)?.reset()
+    contexts.delete(sessionId)
     profiles.set(sessionId, profile)
     // Claim before installation/launch: initial frames can arrive during either await.
     try {
@@ -2255,7 +2281,11 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         )
       })
     } catch (error) {
-      if (!handles.has(sessionId)) profiles.delete(sessionId)
+      if (!handles.has(sessionId)) {
+        contexts.get(sessionId)?.reset()
+        contexts.delete(sessionId)
+        profiles.delete(sessionId)
+      }
       throw error
     }
   }
@@ -2340,6 +2370,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   }
 
   return {
+    boundaryContextFor,
     createWithId,
     recoverWithId,
     register,

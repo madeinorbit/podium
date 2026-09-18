@@ -3,6 +3,7 @@
 
 import type { AgentRuntimeState, ResumeRef, TranscriptItem } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
+import type { BoundaryContextOperation } from './boundary-context.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from './attach.js'
 import type { SessionArchive, SessionBinding, SessionSnapshot } from './binding.js'
 import type {
@@ -63,6 +64,10 @@ export interface AgentSessionHandle {
   /** daemon-internal (POD-3990): no server-side frame, no prod caller today;
    *  the implementations serve the claude-sdk archive path (native store). */
   export(): Promise<SessionArchive>
+
+  /** Provider-facing hidden context boundary. Absent means unsupported; never
+   * emulate it with send(). Drivers own startup/resume and compaction rearming. */
+  readonly boundaryContext?: BoundaryContextOperation
 
   // ---- Turns and control (CORE) ----
   send(input: TurnInput, options: SendOptions): Promise<TurnReceipt>

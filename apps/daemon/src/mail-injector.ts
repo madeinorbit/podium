@@ -136,12 +136,13 @@ export function composeMailContext(...sources: MailContextSource[]): MailContext
 
 /** First non-null response wins; a responder that throws is skipped (fail-open). */
 export function composeResponders(
-  ...fns: Array<(sessionId: SessionId, payload: unknown) => Promise<string | null>>
-): (sessionId: SessionId, payload: unknown) => Promise<string | null> {
-  return async (sessionId, payload) => {
+  ...fns: Array<(sessionId: SessionId, payload: unknown, signal?: AbortSignal) => Promise<string | null>>
+): (sessionId: SessionId, payload: unknown, signal?: AbortSignal) => Promise<string | null> {
+  return async (sessionId, payload, signal) => {
     for (const fn of fns) {
+      if (signal?.aborted) return null
       try {
-        const r = await fn(sessionId, payload)
+        const r = await fn(sessionId, payload, signal)
         if (r !== null) return r
       } catch {
         // fail-open: a broken responder must not silence the others

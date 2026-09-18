@@ -92,7 +92,7 @@ import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { OutputScheduler } from './output-scheduler'
 import { readPendingGrant, writePendingGrant } from './pending-grant'
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
-import { createPrimeInjector } from './prime-injector'
+import { createPrimeInjector, primeHookResponse } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
@@ -605,14 +605,14 @@ export async function createDaemonHostRuntime(args: {
       return classify?.(url)
     },
   })
-  const primeInjector = createPrimeInjector((sessionId) =>
+  const primeSource = (sessionId: SessionId) =>
     agentRelayHub.relay({
       sessionId,
       router: 'issues',
       proc: 'prime',
       input: {},
-    }),
-  )
+    })
+  const primeInjector = createPrimeInjector(primeSource)
   const mailInjector = createMailInjector((sessionId) =>
     agentRelayHub.relay({
       sessionId,
@@ -631,12 +631,19 @@ export async function createDaemonHostRuntime(args: {
   )
   const mailContext = composeMailContext(mailInjector, ackReminder)
   const respondTo = composeResponders(
-    (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
-    async (sessionId, payload) => terminalRuntime?.respondToHook(sessionId, payload) ?? null,
+    (sessionId, payload, signal) => terminalRuntime?.boundaryContextFor(sessionId)
+      ? Promise.resolve(null)
+      : primeInjector.respondTo(sessionId, payload, signal),
+    async (sessionId, payload, signal) => terminalRuntime?.respondToHook(sessionId, payload, signal) ?? null,
   )
   const ingest = await startHookIngest({
     port: opts.hooks?.port ?? resolveHookPort(config),
     ...(instance.hookSocketPath ? { socketPath: instance.hookSocketPath } : {}),
+    // Driver context is a transport boundary, independent of optional legacy responders.
+    boundaryContext: async (sessionId, payload, signal) => {
+      const operation = terminalRuntime?.boundaryContextFor(sessionId)
+      return operation ? primeHookResponse(operation, payload, signal) : null
+    },
     respondTo,
     beforeAck: async (sessionId, payload) => {
       if (!(await bindingStore.acceptsNativeKind(sessionId, 'codex-thread'))) return
@@ -1083,7 +1090,7 @@ export async function createDaemonHostRuntime(args: {
   // single assignment at the end closes the wiring cycle: handlers reach every
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
   const contractHost = { ...daemonRuntimeHost(ctx, send, stageAttachment), boundaryContext: mailContext.pendingContext }
-  terminalRuntime = createTerminalRuntime(contractHost)
+  terminalRuntime = createTerminalRuntime(contractHost, primeSource)
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   const opencode2Executable = generationInventory?.commandEnvironment.resolve('opencode2')
   claudeRuntime = createDaemonClaudeSdkRuntime({

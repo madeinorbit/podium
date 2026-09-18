@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pageHistory } from '@podium/agent-runtime'
 import * as codexHooks from '../codex-hooks'
+import { primeHookResponse } from '../prime-injector'
 import { installTerminalInstrumentation } from './terminal-instrumentation'
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
@@ -167,7 +168,7 @@ interface World {
 }
 
 function makeWorld(
-  options: { readTranscript?: TerminalRuntimeHost['readTranscript'] } = {},
+  options: { readTranscript?: TerminalRuntimeHost['readTranscript']; primeSource?: Parameters<typeof createTerminalRuntime>[1] } = {},
 ): World {
   let clock = Date.UTC(2026, 7, 14)
   let timers: VirtualTimer[] = []
@@ -325,7 +326,7 @@ function makeWorld(
     },
   }
 
-  runtime = createTerminalRuntime(host)
+  runtime = createTerminalRuntime(host, options.primeSource)
 
   return {
     runtime,
@@ -3098,5 +3099,71 @@ describe('driver-private mail hook intervention', () => {
     expect(await world.runtime.respondToHook('foreign-session' as SessionId, { hook_event_name: 'Stop' })).toBeNull()
     expect(source).not.toHaveBeenCalled()
     world.runtime.dispose()
+  })
+})
+
+describe('driver-owned prime boundary', () => {
+  it.each(['claude-code', 'codex', 'grok'] as const)(
+    '%s preserves startup, duplicate, compaction, failed fetch, scope and resume behavior', async (harness) => {
+      const source = vi.fn(async (sessionId: SessionId) => ({ ok: true, result: `prime:${sessionId}` }))
+      const world = makeWorld({ primeSource: source })
+      const profile = terminalProfileFor(harness)!
+      const spec = { ...SPEC, harness }
+      const driver = world.runtime.driverFor(harness, profile)
+      try {
+        const handle = await driver.create(spec)
+        const sessionId = handle.binding.sessionId
+        const event = (name: string) => harness === 'grok'
+          ? { hookEventName: name } : { hook_event_name: name }
+        const respond = (name: string) => primeHookResponse(handle.boundaryContext!, event(name))
+        expect(JSON.parse((await respond('SessionStart'))!)).toEqual({
+          hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `prime:${sessionId}` },
+        })
+        expect(await respond('SessionStart')).toBeNull()
+        expect(await respond('UserPromptSubmit')).toBeNull()
+        expect(source).toHaveBeenCalledTimes(1)
+        expect(await respond('PreCompact')).toBeNull()
+        source.mockResolvedValueOnce({ ok: false, result: '' })
+        expect(await respond('UserPromptSubmit')).toBeNull()
+        expect(JSON.parse((await respond('UserPromptSubmit'))!).hookSpecificOutput.additionalContext)
+          .toBe(`prime:${sessionId}`)
+        expect(source.mock.calls.every(([id]) => id === sessionId)).toBe(true)
+        expect(world.written).toEqual([])
+        expect(world.frames.some((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn')).toBe(false)
+        const kind = harness === 'codex' ? 'codex-thread' : harness === 'grok' ? 'grok-session' : 'claude-session'
+        const resumed = await driver.resume({ kind, value: 'native' }, spec)
+        expect(await resumed.boundaryContext!({ event: 'start' })).toBe(`prime:${resumed.binding.sessionId}`)
+        expect(await resumed.boundaryContext!({ event: 'prompt' })).toBeNull()
+      } finally {
+        world.runtime.dispose()
+      }
+    },
+  )
+
+  it('owns the startup boundary before the harness launch completes', async () => {
+    const world = makeWorld({ primeSource: async () => ({ ok: true, result: 'early' }) })
+    const sessionId = 'early-prime' as SessionId
+    try {
+      const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {
+        expect(await world.runtime.boundaryContextFor(sessionId)?.({ event: 'start' })).toBe('early')
+      })
+      expect(await handle.boundaryContext!({ event: 'start' })).toBeNull()
+    } finally {
+      world.runtime.dispose()
+    }
+  })
+
+  it('does not advertise hidden context on a terminal without instrumentation', async () => {
+    const source = vi.fn(async () => ({ ok: true, result: 'prime' }))
+    const world = makeWorld({ primeSource: source })
+    try {
+      const handle = await world.runtime.driverFor('opencode', shippedProfile('opencode'))
+        .create({ ...SPEC, harness: 'opencode' })
+      expect(handle.boundaryContext).toBeUndefined()
+      expect(world.runtime.boundaryContextFor(handle.binding.sessionId)).toBeUndefined()
+      expect(source).not.toHaveBeenCalled()
+    } finally {
+      world.runtime.dispose()
+    }
   })
 })

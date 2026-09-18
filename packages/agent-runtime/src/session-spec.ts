@@ -17,9 +17,9 @@ import type { InteractionKind } from './interactions.js'
  *  `developer_instructions`, `--rules`. Declared because the transport differs
  *  and some harnesses have none.
  *
- *  RE-PRIMED AFTER COMPACTION — that is why it is part of the SPEC rather than a
- *  launch argument: the driver owns re-delivering it at the compaction boundary
- *  reported by `{ t: 'state' }` events. */
+ *  This static launch channel is not the capability-scoped issue prime. Dynamic
+ *  startup/compaction context uses the driver's boundaryContext operation;
+ *  observing a compaction event alone does not deliver instructions. */
 export interface InstructionChannel {
   /** Attributed machine-authored context, kept out of the visible user turn.
    *  `AgentInstruction` is `@podium/protocol`'s existing `{ source, content }`

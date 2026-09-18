@@ -1,3 +1,7 @@
+import { createBoundaryContext } from '@podium/agent-runtime'
+import { primeHookResponse } from './prime-injector'
+import { createPrimeInjector } from './prime-injector'
+import { composeResponders } from './mail-injector'
 import { access, mkdtemp, rm } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -323,4 +327,59 @@ describe('hook-ingest respondTo', () => {
       await ing.close()
     }
   })
+})
+
+
+describe('prime response deadline', () => {
+  it('cancels a timed-out fetch without consuming prime or calling later responders', async () => {
+    let resolve!: (value: { ok: boolean; result: string }) => void
+    let calls = 0
+    let laterCalls = 0
+    const injector = createPrimeInjector(async () => {
+      if (++calls === 1) return new Promise<{ ok: boolean; result: string }>((done) => { resolve = done })
+      return { ok: true, result: 'fresh prime' }
+    })
+    const ing = await startHookIngest({
+      port: 0,
+      onPayload: () => {},
+      respondTimeoutMs: 30,
+      boundaryContext: injector.respondTo,
+      respondTo: composeResponders(async () => { laterCalls++; return null }),
+    })
+    try {
+      const endpoint = ing.endpointFor(asSessionId('deadline'))
+      expect((await post(endpoint, { hook_event_name: 'SessionStart' })).text).toBe('{}')
+      const next = await post(endpoint, { hook_event_name: 'UserPromptSubmit' })
+      expect(JSON.parse(next.text).hookSpecificOutput.additionalContext).toBe('fresh prime')
+      resolve({ ok: true, result: 'expired prime' })
+      await new Promise<void>((done) => setImmediate(done))
+      expect(laterCalls).toBe(0)
+      expect((await post(endpoint, { hook_event_name: 'UserPromptSubmit' })).text).toBe('{}')
+      expect(laterCalls).toBe(1)
+      expect(calls).toBe(2)
+    } finally {
+      await ing.close()
+    }
+  })
+})
+
+
+it('delivers driver prime even when all legacy responders are absent', async () => {
+  const context = createBoundaryContext(async () => ({ ok: true, result: 'driver prime' }))
+  const ing = await startHookIngest({
+    port: 0,
+    onPayload: () => {},
+    boundaryContext: (_sessionId, payload, signal) => primeHookResponse(context.respond, payload, signal),
+  })
+  try {
+    const endpoint = ing.endpointFor(asSessionId('driver-only'))
+    const first = await post(endpoint, { hook_event_name: 'SessionStart' })
+    expect(JSON.parse(first.text).hookSpecificOutput.additionalContext).toBe('driver prime')
+    expect((await post(endpoint, { hook_event_name: 'UserPromptSubmit' })).text).toBe('{}')
+    expect((await post(endpoint, { hook_event_name: 'PreCompact' })).text).toBe('{}')
+    const next = await post(endpoint, { hook_event_name: 'UserPromptSubmit' })
+    expect(JSON.parse(next.text).hookSpecificOutput.additionalContext).toBe('driver prime')
+  } finally {
+    await ing.close()
+  }
 })
