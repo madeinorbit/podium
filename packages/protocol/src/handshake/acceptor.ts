@@ -182,7 +182,7 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
 
       // Rule 2: version before credentials. Nothing below this line runs for an
       // incompatible peer, so an unsupported version can never touch auth.
-      const version = negotiateVersion(hello.v, support)
+      const version = negotiateVersion({ min: hello.vmin ?? hello.v, max: hello.v }, support)
       if (!version.ok) {
         state = 'closed'
         return { action: 'reject', reply: version.rejection, diagnostic: 'wire version mismatch' }
@@ -245,7 +245,7 @@ export const createHandshakeAcceptor = (deps: AcceptorDeps): HandshakeAcceptor =
         action: 'establish',
         reply: {
           type: 'peerHelloOk',
-          v: support.wire,
+          v: version.agreed,
           // The ACCEPTED intersection — never the offer echoed back, and never a
           // reserved token (ADR 5 D4.2).
           caps: [...caps.accepted],

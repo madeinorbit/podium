@@ -13,7 +13,6 @@ import {
   UserIdField,
 } from '@podium/model'
 import { z } from 'zod'
-import { WireVersionOffer } from '../version'
 import { PresenceIdentity } from '../planes/presence-rooms'
 import { FeedCursorField } from './feed'
 import { ClientLogOrigin } from './logs'
@@ -102,7 +101,9 @@ export const HelloMessage = z.object({
    * field it was never built with, so the absence IS the advertisement. Every
    * newer build sends it, so absence stays unambiguous as the window moves.
    */
-  wireVersion: WireVersionOffer.optional(),
+  wireVersion: z.number().int().positive().optional(),
+  /** Additive support floor; absent offers only wireVersion. */
+  wireVersionMin: z.number().int().positive().optional(),
   /**
    * Where this replica's cache stands, so the server can pick a rung of ADR 2
    * D7's ladder instead of re-sending everything (`feedCursor.seq` resumes;

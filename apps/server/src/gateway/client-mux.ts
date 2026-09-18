@@ -384,7 +384,7 @@ export class ClientMux {
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
     if (msg.type === 'hello') {
-      this.renegotiate(conn, msg.wireVersion, msg.feedCursor)
+      this.renegotiate(conn, { min: msg.wireVersionMin ?? msg.wireVersion ?? 1, max: msg.wireVersion ?? 1 }, msg.feedCursor)
       if (conn.entityServingRefused) return Promise.resolve(completion)
       this.deps.registry.deliver(conn, {
         type: 'welcome',

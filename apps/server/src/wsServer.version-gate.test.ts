@@ -91,6 +91,6 @@ describe('WS version gate (?v with ?pv alias)', () => {
 test.each(['/client', '/daemon', '/machine'])('accepts an overlapping newer range on %s', async (path) => {
   const base = await start()
   const max = path === '/client' ? CLIENT_WIRE_VERSION : DAEMON_WIRE_VERSION
-  expect(await attempt(`${base}${path}?v=${encodeURIComponent(JSON.stringify({ min: 1, max: max + 1 }))}`)).toBe('open')
-  expect(await attempt(`${base}${path}?v=${encodeURIComponent(JSON.stringify({ min: max + 1, max: max + 2 }))}`)).toBe('rejected')
+  expect(await attempt(`${base}${path}?v=${max + 1}&vmin=1`)).toBe('open')
+  expect(await attempt(`${base}${path}?v=${max + 2}&vmin=${max + 1}`)).toBe('rejected')
 })

@@ -12,6 +12,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
+import { PeerHello } from './envelope'
 import { DAEMON_WIRE_VERSION } from '../version'
 import { createHandshakeAcceptor } from './acceptor'
 import {
@@ -22,7 +24,6 @@ import {
   runHandshakeConformance,
 } from './conformance'
 import { createHandshakeDialer } from './dialer'
-import { negotiateVersion } from './negotiation'
 import { createAuthStrategyRegistry } from './strategies/registry'
 import type { PeerAuthStrategy } from './strategies/types'
 import {
@@ -250,7 +251,7 @@ describe('the two ends agree end to end', () => {
 describe('daemon range dialer', () => {
   it('offers the daemon window independently of the client version', () => {
     const dialer = createHandshakeDialer({ credential: { kind: 'machineToken', token: 'tok' } })
-    expect(dialer.hello().v).toEqual({ min: 1, max: DAEMON_WIRE_VERSION })
+    expect(dialer.hello()).toMatchObject({ vmin: 1, v: DAEMON_WIRE_VERSION })
     expect(dialer.receive(JSON.stringify({ type: 'peerHelloOk', v: 1, caps: [] })))
       .toMatchObject({ action: 'established', agreedVersion: 1 })
   })
@@ -266,9 +267,32 @@ describe('daemon range dialer', () => {
 it.each([[2, 4], [4, 2]])('daemon %i and server %i establish the older common dialect', (daemonMax, serverMax) => {
   const dialer = createHandshakeDialer({ credential: { kind: 'machineToken', token: 'tok-ok' }, support: { min: 1, wire: daemonMax } })
   const hello = dialer.hello()
-  const outcome = negotiateVersion(hello.v, { min: 1, wire: serverMax })
-  expect(outcome).toEqual({ ok: true, agreed: 2 })
-  if (!outcome.ok) throw new Error('expected overlap')
-  expect(dialer.receive(JSON.stringify({ type: 'peerHelloOk', v: outcome.agreed, caps: [] })))
+  const acceptor = createHandshakeAcceptor({
+    support: { min: 1, wire: serverMax },
+    transport: transportFacts({ endpoint: '/daemon' }),
+    registry: createAuthStrategyRegistry([
+      createMachineTokenStrategy({
+        machines: fakeMachines({ tokens: { 'tok-ok': machineRecord('mach-vps', { owner: 'usr-ada' }) } }),
+        mint: createRecordingMinter(),
+      }),
+    ]),
+  })
+  const outcome = acceptor.receive(JSON.stringify(hello))
+  expect(outcome.action).toBe('establish')
+  if (outcome.action !== 'establish') throw new Error('expected overlap')
+  expect(outcome.peer.agreedVersion).toBe(2)
+  expect(outcome.reply.v).toBe(2)
+  expect(dialer.receive(JSON.stringify(outcome.reply)))
     .toMatchObject({ action: 'established', agreedVersion: 2 })
+})
+
+it('serializes a dialer hello that the deployed integer-only schema parses', () => {
+  // dev/mw PeerHello is a non-strict z.object with v: z.number().int().
+  // All other fields are unchanged; remove the additive floor to pin that parser.
+  const deployedPeerHello = PeerHello.omit({ vmin: true }).extend({ v: z.number().int() })
+  const dialer = createHandshakeDialer({ credential: { kind: 'machineToken', token: 'tok-ok' } })
+  const frame = JSON.parse(JSON.stringify(dialer.hello()))
+  expect(frame).toMatchObject({ v: DAEMON_WIRE_VERSION, vmin: 1 })
+  expect(deployedPeerHello.parse(frame)).toMatchObject({ v: DAEMON_WIRE_VERSION })
+  expect(deployedPeerHello.parse(frame)).not.toHaveProperty('vmin')
 })

@@ -498,10 +498,9 @@ export function attachWebSockets(
       const support = pathname === '/client'
         ? { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION }
         : { wire: DAEMON_WIRE_VERSION, min: MIN_DAEMON_WIRE_VERSION }
-      let offered: number | { min: number; max: number } = Number(rawVersion)
-      if (rawVersion?.startsWith('{')) {
-        try { offered = JSON.parse(rawVersion) } catch { return new Response('Upgrade Required', { status: 426 }) }
-        if (!offered || typeof offered !== 'object') return new Response('Upgrade Required', { status: 426 })
+      const offered = {
+        min: Number(url.searchParams.get('vmin') ?? rawVersion),
+        max: Number(rawVersion),
       }
       if (rawVersion !== null && (!WireVersionOffer.safeParse(offered).success || !negotiateVersion(offered, support).ok)) {
         return new Response('Upgrade Required', { status: 426 })

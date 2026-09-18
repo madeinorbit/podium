@@ -288,7 +288,7 @@ describe('the connection lifecycle', () => {
     )
     await h.feed.admissionSettled()
     expect(sent.filter(msg => ['sessionsChanged', 'feedBootstrap', 'feedResume'].includes(msg.type))).toEqual([])
-    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: { min: 1, max: CLIENT_WIRE_VERSION + 1 }, caps: [CAP_SYNC_HTTP_V1] })
+    await h.mux.routeClientFrame(id, { type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 }, wireVersion: CLIENT_WIRE_VERSION + 1, wireVersionMin: 1, caps: [CAP_SYNC_HTTP_V1] })
     await h.feed.admissionSettled()
     expect(sent.filter(msg => msg.type === 'feedResume')).toHaveLength(1)
     expect(sent).toContainEqual(expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }))
@@ -569,4 +569,18 @@ describe('HTTP sync hello enforcement', () => {
     expect(vi.mocked(h.ports.sessions.onSessionClientFrame).mock.calls).toHaveLength(dispatches)
     expect(h.sent.some(frame => ['feedBootstrap', 'feedResume', 'feedDelta'].includes(frame.type))).toBe(false)
   })
+})
+
+
+it('serves a newer client at the server maximum and welcomes it with that dialect', async () => {
+  const h = await harness()
+  const sent: ServerMessage[] = []
+  const id = attachTestClient(h.mux, (msg) => sent.push(msg))
+  await h.mux.routeClientFrame(id, {
+    type: 'hello', clientId: id, viewport: { cols: 80, rows: 24, dpr: 1 },
+    wireVersion: CLIENT_WIRE_VERSION + 1, wireVersionMin: 1, caps: [CAP_SYNC_HTTP_V1],
+  })
+  expect(h.registry.get(id)?.wireVersion).toBe(CLIENT_WIRE_VERSION)
+  expect(sent).toContainEqual(expect.objectContaining({ type: 'welcome', wireVersion: CLIENT_WIRE_VERSION }))
+  h.mux.detachClient(id)
 })

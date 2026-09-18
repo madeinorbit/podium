@@ -1,3 +1,6 @@
+import { z } from 'zod'
+import { HelloMessage, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, versionSupport } from '@podium/protocol'
+import { parseServerOrigin, resolveServerConfig } from '../transport'
 import { addSink } from '@podium/logger'
 import { asMachineId, asSessionId } from '@podium/model'
 import {
@@ -1998,4 +2001,40 @@ describe('SocketHub reconnect jitter and connectNow', () => {
     vi.advanceTimersByTime(30_000)
     expect(sockets).toHaveLength(1)
   })
+})
+
+it('sends client hello and web/mobile URLs that deployed integer-only gates accept', () => {
+  // dev/mw HelloMessage uses a non-strict z.object and this integer field.
+  const deployedHello = HelloMessage.omit({ wireVersionMin: true }).extend({
+    wireVersion: z.number().int().positive().optional(),
+  })
+  const sent: string[] = []
+  const socket: WebSocketLike = {
+    onopen: null, onmessage: null, onclose: null, onerror: null,
+    send(data) { sent.push(data) }, close() {},
+  }
+  const hub = new SocketHub({
+    url: 'ws://compat.test/client', makeSocket: () => socket,
+    feed: { syncHttp: true, helloFields: () => null, connected() {}, disconnected() {}, frame() {} },
+  })
+  try {
+    hub.connect()
+    socket.onopen?.({})
+    const hello = sent.map(raw => JSON.parse(raw)).find(frame => frame.type === 'hello')
+    expect(hello).toMatchObject({ wireVersion: CLIENT_WIRE_VERSION, wireVersionMin: MIN_CLIENT_WIRE_VERSION })
+    expect(deployedHello.parse(hello).wireVersion).toBe(CLIENT_WIRE_VERSION)
+    expect(deployedHello.parse(hello)).not.toHaveProperty('wireVersionMin')
+    const urls = [
+      parseServerOrigin('https://compat.test')!.wsClientUrl,
+      resolveServerConfig({ protocol: 'https:', host: 'compat.test', origin: 'https://compat.test', search: '' }).wsClientUrl,
+    ]
+    for (const raw of urls) {
+      const url = new URL(raw)
+      expect(url.searchParams.get('v')).toBe(String(CLIENT_WIRE_VERSION))
+      expect(url.searchParams.get('vmin')).toBe(String(MIN_CLIENT_WIRE_VERSION))
+      expect(versionSupport(Number(url.searchParams.get('v')))).toBe('ok')
+    }
+  } finally {
+    hub.dispose()
+  }
 })

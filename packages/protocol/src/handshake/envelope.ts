@@ -29,7 +29,7 @@ import { SessionDelegation } from '@podium/model'
 
 import { z } from 'zod'
 import { MachineServiceAssignment } from '@podium/model'
-import { MIN_DAEMON_WIRE_VERSION, DAEMON_WIRE_VERSION, WireVersionOffer } from '../version'
+import { MIN_DAEMON_WIRE_VERSION, DAEMON_WIRE_VERSION } from '../version'
 
 /**
  * Peer roles — ADR 5 D2's closed set. `authority` is the server itself and never
@@ -296,7 +296,9 @@ export const PeerHello = z.object({
   /** One complete connect-time inventory; older peers ignore this additive field. */
   bindingSessionIds: z.array(z.string().min(1)).optional(),
   /** Wire version — negotiated against `DAEMON_WIRE_VERSION` / `MIN_DAEMON_WIRE_VERSION`. */
-  v: WireVersionOffer,
+  v: z.number().int(),
+  /** Additive floor: old acceptors still read v as a bare integer. */
+  vmin: z.number().int().positive().optional(),
   /**
    * ADR 5 D4.3: absent means "infer from the endpoint" (H1 keeps `/client` →
    * console, `/daemon` → machine). H2 must not require H1 peers to set it.

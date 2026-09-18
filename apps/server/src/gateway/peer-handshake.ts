@@ -268,7 +268,7 @@ export async function prepareDaemonFrame(
       reply: { type: 'peerHelloRejected', reason: 'auth-failed' } } })
     const support = localVersionSupport()
     if ((hello.peerRole !== undefined && hello.peerRole !== 'machine')
-      || !negotiateVersion(hello.v, support).ok) return refuse()
+      || !negotiateVersion({ min: hello.vmin ?? hello.v, max: hello.v }, support).ok) return refuse()
     if (!credential.proof) {
       if (prepared.challenged || !prepared.deps.machines.installationId) return refuse()
       prepared.challenged = true

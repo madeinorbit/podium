@@ -51,7 +51,7 @@ export function parseServerOrigin(
   const httpProto = secure ? 'https:' : 'http:'
   const selector = selected ?? selectorFromUrl(url)
   const workspace = selectorValue(selector)
-  const wsUrl = new URL(`${wsProto}//${hostWithPort}/client?v=${encodeURIComponent(JSON.stringify({ min: MIN_CLIENT_WIRE_VERSION, max: CLIENT_WIRE_VERSION }))}`)
+  const wsUrl = new URL(`${wsProto}//${hostWithPort}/client?v=${CLIENT_WIRE_VERSION}&vmin=${MIN_CLIENT_WIRE_VERSION}`)
   if (workspace) wsUrl.searchParams.set('workspace', workspace)
   return {
     wsClientUrl: wsUrl.href,
@@ -69,7 +69,7 @@ export function resolveServerConfig(loc: LocationLike, injected?: string): Serve
   if (parsed) return { ...parsed, override: true }
   const wsProto = loc.protocol === 'https:' ? 'wss:' : 'ws:'
   const workspace = selectorValue(selected)
-  const wsUrl = new URL(`${wsProto}//${loc.host}/client?v=${encodeURIComponent(JSON.stringify({ min: MIN_CLIENT_WIRE_VERSION, max: CLIENT_WIRE_VERSION }))}`)
+  const wsUrl = new URL(`${wsProto}//${loc.host}/client?v=${CLIENT_WIRE_VERSION}&vmin=${MIN_CLIENT_WIRE_VERSION}`)
   if (workspace) wsUrl.searchParams.set('workspace', workspace)
   return {
     wsClientUrl: wsUrl.href,

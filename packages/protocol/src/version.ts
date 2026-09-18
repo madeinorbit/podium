@@ -1,3 +1,56 @@
+/**
+ * Podium WIRE protocol versions — the protocol/FRAMING version of the
+ * client↔server and server↔daemon message shapes in this package. One of three
+ * INDEPENDENT version namespaces, which are never conflated (ADR 2 D4):
+ *
+ *  1. wire versions — peer-to-peer compatibility, sent on the WS URL (`/client?v=`);
+ *  2. the replica schema version — the CLIENT's local store shape, owned by the
+ *     client (ADR 6);
+ *  3. the server's drizzle journal [spec:SP-4428] — server-internal, NEVER on
+ *     the wire, never compared with a peer, never sent to a client.
+ *
+ * Conflating 1 and 3 is wrong in both directions: a migration that adds an index
+ * moves the journal and changes NOTHING observable on the wire, while a reshaped
+ * projection composed in code may touch no table at all. Different owners,
+ * different lifecycles, different failure modes.
+ *
+ * **Bump ONLY on a breaking framing change.** Additive features — new fields, new
+ * entity kinds on the change feed — negotiate by CAPABILITY instead (`hello.caps`,
+ * e.g. CAP_METADATA_DELTA / CAP_SYNC_FEED_IDENTITY). That is why the oplog and
+ * feed identity both shipped without a bump. Distinct from the MCP spec-date
+ * constant in apps/server/src/mcp-route.ts.
+ *
+ * DAEMON_WIRE_VERSION and MIN_DAEMON_WIRE_VERSION own daemon framing;
+ * CLIENT_WIRE_VERSION and MIN_CLIENT_WIRE_VERSION own client framing. A
+ * client-only feature never moves the daemon constant. Each peer offers its
+ * inclusive [min,max] window; the acceptor answers the highest common version.
+ * On the wire the maximum stays a bare integer (v / wireVersion / URL ?v=),
+ * with an additive floor (vmin / wireVersionMin / URL &vmin=). An absent floor
+ * offers only the maximum, preserving deployed parsers during rolling upgrades.
+ *
+ * Peers compare via {@link versionSupport} — the RANGE — not {@link isProtocolCompatible}.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SUPPORT WINDOW IS PERMANENT ARCHITECTURE; WHAT SITS IN IT IS NOT
+ * ---------------------------------------------------------------------------
+ *
+ * `[MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION]` is a WINDOW, not two constants that
+ * happen to differ. A Podium client is a PWA: a browser may hold a cached build
+ * from before the deploy, and a phone may not open the app for a week. A server
+ * that only ever accepted its own version would break every one of those on every
+ * breaking release — so the window, the per-version edge adapters (`./edge/`),
+ * the minimum-connected-version telemetry and the 426 backstop are KEPT
+ * architecture. Deleting them recreates the next rollout's problem.
+ *
+ * What is temporary is whatever CONCRETE adapter currently fills the window. At
+ * wire 2 that is `apps/server/src/gateway/legacy-wire-v1-adapter.ts`, which
+ * carries a mechanical expiry (`scripts/audit-wire-adapters.ts`) rather than a
+ * date in a docstring. When it goes, `MIN_CLIENT_WIRE_VERSION` rises to 2 and the
+ * window closes to a single version — the mechanism unchanged and unused, which
+ * is the correct resting state for a mechanism whose whole job is the NEXT
+ * rollout.
+ */
+
 import { z } from 'zod'
 
 /** Client framing evolves independently of daemon framing. Bump only for breaking
