@@ -96,6 +96,9 @@ export function runClaudeSdkChildTurn(
   opts: ClaudeSdkChildOptions = {},
 ): ClaudeSdkChildHandle {
   const child = opts.spawnHost ? opts.spawnHost() : spawnDefaultHost(spec)
+  let closed = false
+  let resolveClosed!: () => void
+  const childClosed = new Promise<void>((resolve) => { resolveClosed = resolve })
 
   /** The last session id the host reported. Kept OUTSIDE the frame loop because
    *  its whole job is to still be here when the frame loop stops early. */
@@ -249,6 +252,8 @@ export function runClaudeSdkChildTurn(
   })
 
   child.on('close', (code, signal) => {
+    closed = true
+    resolveClosed()
     clearTimeout(timer)
     if (killTimer) clearTimeout(killTimer)
     frames.close()
@@ -309,9 +314,26 @@ export function runClaudeSdkChildTurn(
       })
     },
     dispose: () => {
-      if (settled) return
-      send({ t: 'interrupt' })
-      child.kill('SIGKILL')
+      const retirement = (async () => {
+        if (closed) return
+        send({ t: 'interrupt' })
+        child.kill('SIGKILL')
+        let deadline: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            childClosed,
+            new Promise<never>((_, reject) => {
+              deadline = setTimeout(() => reject(new Error('SDK child retirement timed out')), 5_000)
+            }),
+          ])
+        } finally {
+          if (deadline) clearTimeout(deadline)
+        }
+      })()
+      // Legacy owners dispose without awaiting; observe the same rejection they
+      // may ignore while contract lifecycle callers still receive the failure.
+      void retirement.catch(error => log.warn('SDK child retirement failed', { error }))
+      return retirement
     },
   }
 }

@@ -29,6 +29,7 @@ import type {
   RuntimeHistoryResultMessage,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
+import { stopSessionProcess } from '../control/session'
 import { runtimeAttachmentBelongsToSession } from './attachment-staging'
 import { driverTiming } from './driver-timing'
 import type { ControlHandlers, DaemonContext } from '../control/context'
@@ -286,32 +287,23 @@ export const runtimeHandlers: Pick<
 
   runtimeLifecycleRequest: (ctx, msg) => {
     const handle = handleFor(ctx, msg.sessionId)
-    const answer = (result: { ok: true } | { reason: 'not_running' | 'no_resume_ref' }): void => {
-      ctx.send({
-        type: 'runtimeLifecycleResult',
-        requestId: msg.requestId,
-        sessionId: msg.sessionId,
-        result,
-      })
+    const answer = (result: { ok: true; retirement: 'confirmed' } | { reason: 'not_running' | 'no_resume_ref'; detail?: string }): void => {
+      ctx.send({ type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
     }
-    if (!handle) {
-      answer({ reason: 'not_running' })
+    // Refusal is checked before touching any process. Registry loss is not
+    // proof of death: stop/kill must still reach the host's orphan reapers.
+    if (msg.verb === 'hibernate' && !handle?.binding.resume) {
+      answer({ reason: handle ? 'no_resume_ref' : 'not_running' })
       return
     }
-    const verb =
-      msg.verb === 'hibernate'
-        ? handle.hibernate()
-        : msg.verb === 'kill'
-          ? handle.kill().then(() => ({ ok: true as const }))
-          : handle.stop().then(() => ({ ok: true as const }))
-    void verb
-      .then((result) => {
-        // `hibernate` legitimately REFUSES without a resume ref. That is an
-        // outcome the caller handles, not an error, so it travels as the value
-        // the handle returned.
-        answer('ok' in result ? { ok: true } : { reason: result.reason as 'no_resume_ref' })
-      })
-      .catch(() => answer({ reason: 'not_running' }))
+    void (async () => {
+      const retired = handle?.binding.family === 'terminal'
+        ? await (msg.verb === 'hibernate' ? handle.hibernate() : msg.verb === 'kill' ? handle.kill() : handle.stop()).then((result) => !result || 'ok' in result)
+        : await stopSessionProcess(ctx, { sessionId: msg.sessionId }, { retire: msg.verb === 'kill' })
+      answer(retired
+        ? { ok: true, retirement: 'confirmed' }
+        : { reason: 'not_running', detail: 'process retirement was not confirmed' })
+    })().catch((error) => answer({ reason: 'not_running', detail: String(error) }))
   },
 
   /**

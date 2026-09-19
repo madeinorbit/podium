@@ -341,9 +341,10 @@ describe('a Claude turn in a child process', () => {
       },
     })
 
-    handle.dispose?.()
-    await expect(handle.done).rejects.toThrow('Claude model host process exited')
+    const outcome = expect(handle.done).rejects.toThrow('Claude model host process exited')
+    await handle.dispose?.()
     expect(child?.signalCode).toBe('SIGKILL')
+    await outcome
   })
 })
 

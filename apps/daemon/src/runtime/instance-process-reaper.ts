@@ -234,6 +234,7 @@ export async function reapInstanceSessionProcesses(input: {
       termSignalled += 1
     } catch (error) {
       log.warn('instance process TERM failed', { err: error, pid: candidate.pid })
+      if (io.pidAlive(candidate.pid) && sameIdentity(candidate, identityAt(io, candidate.pid))) remaining += 1
       continue
     }
 
@@ -252,6 +253,7 @@ export async function reapInstanceSessionProcesses(input: {
       killSignalled += 1
     } catch (error) {
       log.warn('instance process KILL failed', { err: error, pid: candidate.pid })
+      if (io.pidAlive(candidate.pid) && sameIdentity(candidate, identityAt(io, candidate.pid))) remaining += 1
       continue
     }
 
@@ -263,6 +265,13 @@ export async function reapInstanceSessionProcesses(input: {
     if (afterKill === 'alive') remaining += 1
   }
 
+  const initialPids = new Set(candidates.map((candidate) => candidate.pid))
+  for (const pid of io.listPids()) {
+    if (pid === process.pid || initialPids.has(pid)) continue
+    const identity = identityAt(io, pid)
+    if (identity?.instanceUuid === input.instanceUuid && identity.sessionId === String(input.sessionId) && io.pidAlive(pid))
+      remaining += 1
+  }
   return {
     examined: candidates.length,
     termSignalled,

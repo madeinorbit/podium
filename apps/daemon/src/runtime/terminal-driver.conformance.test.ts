@@ -340,9 +340,10 @@ function makeWorld(options: WorldOptions): {
         agentKind: msg.agentKind,
       })
     },
-    stopSession: ({ sessionId, durableLabel }) => {
+    stopSession: async ({ sessionId, durableLabel }) => {
       alive.set(durableLabel, false)
       bridgeOf.delete(sessionId)
+      return true
     },
     launch: async (msg) => {
       const label = labelFor(msg.sessionId)

@@ -2376,11 +2376,39 @@ export async function recoverTerminalHost(
  * reimplemented any part of this would be the second place a session's teardown
  * lived.
  */
+const pendingSessionStops = new WeakMap<DaemonContext, Map<SessionId, Promise<boolean>>>()
+
 export function stopSessionProcess(
   ctx: DaemonContext,
   msg: { sessionId: SessionId; durableLabel?: string },
   opts: { retire?: boolean } = {},
-): void {
+): Promise<boolean> {
+  let pending = pendingSessionStops.get(ctx)
+  if (!pending) pendingSessionStops.set(ctx, pending = new Map())
+  const previous = pending.get(msg.sessionId)
+  // A timeout retry must observe the same retirement, not the now-empty
+  // registry. Binding retirement may strengthen a park after it completes.
+  if (previous && !opts.retire) return previous
+  const work = (previous ? previous.catch(() => false) : Promise.resolve()).then(
+    () => stopSessionProcessOnce(ctx, msg, opts),
+  ).catch((error) => {
+    log.warn('session retirement failed', { error, sessionId: msg.sessionId })
+    return false
+  })
+  pending.set(msg.sessionId, work)
+  void work.finally(() => {
+    if (pending.get(msg.sessionId) === work) pending.delete(msg.sessionId)
+  })
+  return work
+}
+
+async function stopSessionProcessOnce(
+  ctx: DaemonContext,
+  msg: { sessionId: SessionId; durableLabel?: string },
+  opts: { retire?: boolean } = {},
+): Promise<boolean> {
+  const reaps: Promise<boolean>[] = []
+  let measured = false
   const session = ctx.bridges.get(msg.sessionId)
   const runtimeHandle = ctx.agentRuntime?.handleFor(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
@@ -2402,12 +2430,7 @@ export function stopSessionProcess(
   // registry is discarded. Server-family handles stay with beginServerDriverReap,
   // which owns their bounded transport teardown and process proof.
   if (runtimeHandle?.binding.family === 'embedded') {
-    void runtimeHandle.kill().catch((error) => {
-      log.warn('could not stop the embedded runtime session', {
-        error,
-        sessionId: msg.sessionId,
-      })
-    })
+    reaps.push((opts.retire ? runtimeHandle.kill() : runtimeHandle.stop()).then(() => { measured = true; return true }))
   }
   // A server-family session has no bridge and no durable host — its process is
   // behind a runtime handle (or, post-restart, a binding-journal entry), and
@@ -2419,37 +2442,41 @@ export function stopSessionProcess(
   // receipts for one session are harmless — the server acts only on
   // `killed:false`, and a receipt for an identity that was never there is a
   // truthful "nothing to kill".
-  void beginServerDriverReap(ctx, msg.sessionId, { retire: opts.retire === true }).catch((err) => {
-    log.warn('could not start reaping the server-driver session', {
-      err,
-      sessionId: msg.sessionId,
-    })
-  })
-  void reapInstanceSessionProcesses({
-    instanceUuid: ctx.instanceUuid,
-    sessionId: msg.sessionId,
-  })
-    .then((result) => {
-      if (result.examined > 0 && result.remaining > 0)
-        log.warn('instance-owned session processes survived escalation', {
-          sessionId: msg.sessionId,
-          ...result,
-        })
-    })
-    .catch((err) => {
-      log.warn('could not reap instance-owned session processes', { err, sessionId: msg.sessionId })
-    })
+  reaps.push((async () => {
+    let retired = false
+    const owned = await beginServerDriverReap(ctx, msg.sessionId, {
+      retire: opts.retire === true,
+      completed: (value) => { retired = value; measured = true },
+    }, ctx.serverReapIo)
+    return !owned || retired
+  })())
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.
   if (ctx.backend !== 'none') {
     const durableLabel =
       msg.durableLabel ?? ctx.durableLabels.get(msg.sessionId) ?? ctx.durableLabelFor(msg.sessionId)
-    void reapDurableHost(ctx, msg.sessionId, durableLabel)
+    reaps.push(reapDurableHost(ctx, msg.sessionId, durableLabel).then((retired) => {
+      measured = true
+      return retired
+    }))
   }
   ctx.durableLabels.delete(msg.sessionId)
   removeSessionUploads(msg.sessionId, ctx.portableStateFence)
   removeSessionInstructions(ctx, msg.sessionId)
+  const results = await Promise.allSettled(reaps)
+  // Give cooperative teardown its flush window before escalating descendants.
+  const descendants = await reapInstanceSessionProcesses({ instanceUuid: ctx.instanceUuid, sessionId: msg.sessionId })
+  measured ||= descendants.examined > 0
+  if (descendants.remaining > 0) ctx.send({
+    type: 'sessionKillResult', sessionId: msg.sessionId,
+    durableLabel: msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId),
+    killed: false, reason: 'instance-owned descendants survived process retirement',
+  })
+  const retired = measured && descendants.remaining === 0 &&
+    results.every((result) => result.status === 'fulfilled' && result.value)
+  if (!retired) log.warn('session process retirement was not confirmed', { sessionId: msg.sessionId })
+  return retired
 }
 
 /**
@@ -2466,7 +2493,7 @@ async function reapDurableHost(
   ctx: DaemonContext,
   sessionId: SessionId,
   durableLabel: string,
-): Promise<void> {
+): Promise<boolean> {
   const durable = durableProcessFor(ctx)
   const stillRunning = async (): Promise<boolean> => (await durable?.has(durableLabel)) ?? false
   try {
@@ -2487,17 +2514,18 @@ async function reapDurableHost(
       killed: !alive,
       ...(alive ? { reason: 'the durable host is still running' } : {}),
     })
+    return !alive
   } catch (err) {
     // A reap that THREW proves nothing about the process, so report what is
     // there rather than a guess — an unreported throw is the silent no-op again.
     log.warn('could not reap the durable host', { err, sessionId, durableLabel })
+    const alive = await stillRunning().catch(() => undefined)
     ctx.send({
-      type: 'sessionKillResult',
-      sessionId,
-      durableLabel,
-      killed: !(await stillRunning().catch(() => false)),
+      type: 'sessionKillResult', sessionId, durableLabel,
+      killed: alive === false,
       reason: err instanceof Error ? err.message : String(err),
     })
+    return alive === false
   }
 }
 export const sessionHandlers: Pick<

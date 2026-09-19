@@ -213,7 +213,7 @@ export interface TerminalRuntimeHost {
    * Call ready after composition, before publishing bind or replaying redraw. */
   recover(msg: ReattachControl, ready: () => void): Promise<void>
   /** The daemon half of the survival table — dispose the bridge, reap the host. */
-  stopSession(input: { sessionId: SessionId; durableLabel: string }): void
+  stopSession(input: { sessionId: SessionId; durableLabel: string }): Promise<boolean>
   /** The existing spawn path. `create()`/`resume()` go through it rather than
    *  around it, which is what keeps a contract-driven session byte-identical to
    *  a server-spawned one. */
@@ -1670,7 +1670,8 @@ export function createTerminalRuntime(
         // process under the same label is a different conversation, and carrying
         // a position across would fence its first events out as already-seen.
         streamPositions.delete(session.label)
-        host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
+        if (!await host.stopSession({ sessionId: session.sessionId, durableLabel: session.label }))
+          throw new Error('terminal process retirement was not confirmed')
       },
 
       async hibernate() {
@@ -1681,7 +1682,8 @@ export function createTerminalRuntime(
         session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
-        host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
+        if (!await host.stopSession({ sessionId: session.sessionId, durableLabel: session.label }))
+          throw new Error('terminal process retirement was not confirmed')
         return { ok: true as const }
       },
 
@@ -1690,7 +1692,8 @@ export function createTerminalRuntime(
         session.alive = false
         session.terminatedByDriver = true
         streamPositions.delete(session.label)
-        host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
+        if (!await host.stopSession({ sessionId: session.sessionId, durableLabel: session.label }))
+          throw new Error('terminal process retirement was not confirmed')
       },
 
       async health(): Promise<SessionHealth> {

@@ -273,8 +273,9 @@ function makeWorld(
         agentKind: msg.agentKind,
       })
     },
-    stopSession: ({ durableLabel }) => {
+    stopSession: async ({ durableLabel }) => {
       alive.set(durableLabel, false)
+      return true
     },
     launch: async (msg) => {
       alive.set(`podium-${msg.sessionId}`, true)
@@ -3264,6 +3265,31 @@ describe('native identity publication', () => {
     discover('guess', 1, 'heuristic')
     expect(handle.binding.resume?.value).toBe('current')
     expect(world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding')).toHaveLength(1)
+    world.runtime.dispose()
+  })
+})
+
+describe('terminal retirement completion', () => {
+  it.each(['stop', 'kill'] as const)('%s waits for host measurement and propagates failure', async (verb) => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    let finish!: (retired: boolean) => void
+    world.host.stopSession = () => new Promise<boolean>(resolve => { finish = resolve })
+    let settled = false
+    const pending = handle[verb]().finally(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finish(false)
+    await expect(pending).rejects.toThrow('retirement was not confirmed')
+    world.runtime.dispose()
+  })
+
+  it('refuses hibernate without a resume reference before asking the host to retire', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const stop = vi.spyOn(world.host, 'stopSession')
+    await expect(handle.hibernate()).resolves.toMatchObject({ reason: 'no_resume_ref' })
+    expect(stop).not.toHaveBeenCalled()
     world.runtime.dispose()
   })
 })

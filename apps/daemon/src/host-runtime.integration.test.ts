@@ -10,6 +10,7 @@ import { buildReport } from './build-report'
 import { createDaemonHostRuntime } from './host-runtime'
 import type { DaemonMachineRuntime } from './runtime/machine-runtime'
 import { isServerDriver } from './runtime/registry'
+import { SERVER_HANDLE_VERB_TIMEOUT_MS } from './runtime/server-teardown-budget'
 import type { ServerReapIo } from './runtime/server-reap'
 
 const SESSION = 'full-reap-session' as SessionId
@@ -238,7 +239,7 @@ describe('full-reap daemon close', () => {
     const { host, sent, cleanup } = await createCloseHost(runtime, io)
     let closing: Promise<void> | undefined
     let boundTimer: ReturnType<typeof setTimeout> | undefined
-    const boundMs = 5_000
+    const boundMs = 2 * SERVER_HANDLE_VERB_TIMEOUT_MS + 1_000
     try {
       const startedAt = Date.now()
       closing = host.close({ reapSessions: true })
@@ -302,5 +303,27 @@ describe('legacy member recovery at host boot', () => {
       await fixture.host.close()
       fixture.cleanup()
     }
+  })
+})
+
+
+describe('detach-only daemon close', () => {
+  it('does not retire a surviving server process without reapSessions', async () => {
+    const state = { alive: true }
+    const kill = vi.fn(async () => { state.alive = false })
+    const disposed = vi.fn()
+    const binding = { sessionId: SESSION, family: 'server', process: { key: 'survivor', pid: 4321 } }
+    const handle = { binding, kill } as unknown as AgentSessionHandle
+    const { host, sent, cleanup } = await createCloseHost({
+      registeredBindings: () => [handle.binding], serverHandleFor: () => handle,
+      journalledServerProcess: () => undefined, dispose: disposed,
+    }, reapIo(state))
+    try {
+      await host.close()
+      expect(state.alive).toBe(true)
+      expect(kill).not.toHaveBeenCalled()
+      expect(disposed).toHaveBeenCalledOnce()
+      expect(sent.some(message => message.type === 'sessionKillResult')).toBe(false)
+    } finally { await host.close(); cleanup() }
   })
 })
