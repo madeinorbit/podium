@@ -130,10 +130,10 @@ describe('worklist structure rows/selection split', () => {
     struct.updateTime(NOW)
     let rows = sortUnifiedWorkRows(fixture(), NOW)
     const first = struct.place(rows)
-    // Display-only: rename + touch a status word source that is not placement.
-    const renamed = rows.map(r =>
+    // Display-only: rename. Title is read only by rowDisplayOf, never placement.
+    const renamed: UnifiedWorkRow[] = rows.map(r =>
       r.kind === 'issue' && r.issue.id === 'a1'
-        ? { ...r, issue: { ...r.issue, title: 'Renamed', description: { value: 'words' } } }
+        ? { ...r, issue: { ...r.issue, title: 'Renamed' } }
         : r)
     expect(rowDisplayOf(renamed.find(r => stableRowId(r) === 'issue:a1')!).title).toBe('Renamed')
     const before = struct.stats()
@@ -146,7 +146,7 @@ describe('worklist structure rows/selection split', () => {
     }))
 
     // Pin moves a2 out of group A into the pinned section: only group A regenerates.
-    rows = sortUnifiedWorkRows(renamed.map(r =>
+    rows = sortUnifiedWorkRows(renamed.map((r): UnifiedWorkRow =>
       r.kind === 'issue' && r.issue.id === 'a2' ? { ...r, issue: { ...r.issue, pinned: true } } : r), NOW)
     const pinned = struct.place(rows)
     expect(laneIds(pinned.pinned)).toContain('issue:a2')
@@ -158,14 +158,14 @@ describe('worklist structure rows/selection split', () => {
     }))
 
     // Snooze b1: only group B regenerates, and the row lands in its snoozed fold.
-    rows = sortUnifiedWorkRows(rows.map(r =>
+    rows = sortUnifiedWorkRows(rows.map((r): UnifiedWorkRow =>
       r.kind === 'issue' && r.issue.id === 'b1' ? { ...r, issue: { ...r.issue, deferUntil: iso(3600_000) } } : r), NOW)
     const snoozed = struct.place(rows)
     expect(laneIds(snoozed.groups.find(g => g.key === 'repo-b')!.snoozedRows)).toContain('issue:b1')
     expect(snoozed.groups.find(g => g.key === 'repo-a')).toBe(pinned.groups.find(g => g.key === 'repo-a'))
 
     // Tuck c2: only group B regenerates, into the closed fold.
-    rows = rows.map(r =>
+    rows = rows.map((r): UnifiedWorkRow =>
       r.kind === 'issue' && r.issue.id === 'c2' ? { ...r, issue: { ...r.issue, tuckedAt: iso(0) } } : r)
     const tucked = struct.place(rows)
     expect(laneIds(tucked.groups.find(g => g.key === 'repo-b')!.closedRows)).toContain('issue:c2')
@@ -202,10 +202,10 @@ describe('worklist structure rows/selection split', () => {
     const anchor = NOW - SIDEBAR_FINISHED_GRACE_MS
     const mk = (finishIso: string) => row('g', 'a', { stage: 'done', closedReason: 'done', closedAt: finishIso, updatedAt: finishIso })
     const atGrace = struct.place([mk(new Date(anchor).toISOString())])
-    expect(atGrace.groups[0].rows.length).toBe(1)
+    expect(atGrace.groups[0]!.rows.length).toBe(1)
     const pastGrace = struct.place([mk(new Date(anchor - 1).toISOString())])
-    expect(pastGrace.groups[0].rows.length).toBe(0)
-    expect(laneIds(pastGrace.groups[0].closedRows)).toEqual(['issue:g'])
+    expect(pastGrace.groups[0]!.rows.length).toBe(0)
+    expect(laneIds(pastGrace.groups[0]!.closedRows)).toEqual(['issue:g'])
   })
 
   it('advances a quiet snooze only from explicit time and rejects bad inputs', () => {
@@ -213,14 +213,14 @@ describe('worklist structure rows/selection split', () => {
     struct.updateTime(NOW)
     const rows = [row('s', 'a', { deferUntil: iso(60_000) })]
     const first = struct.place(rows)
-    expect(laneIds(first.groups[0].snoozedRows)).toEqual(['issue:s'])
+    expect(laneIds(first.groups[0]!.snoozedRows)).toEqual(['issue:s'])
     // No clock read inside place: re-placing without updateTime keeps the fold.
     const frozen = struct.place(rows)
     expect(frozen.groups[0]).toBe(first.groups[0])
     struct.updateTime(NOW + 60_000)
     const lapsed = struct.place(rows)
-    expect(laneIds(lapsed.groups[0].snoozedRows)).toEqual([])
-    expect(laneIds(lapsed.groups[0].rows)).toEqual(['issue:s'])
+    expect(laneIds(lapsed.groups[0]!.snoozedRows)).toEqual([])
+    expect(laneIds(lapsed.groups[0]!.rows)).toEqual(['issue:s'])
     expect(() => struct.updateTime(NaN)).toThrow()
     expect(() => createWorklistStructure().place(rows)).toThrow()
   })

@@ -1,4 +1,4 @@
-import { issueReturnedFromDefer, isIssueDeferred } from '@podium/model'
+import { issueReturnedFromDefer, isIssueDeferred, type IssueId } from '@podium/model'
 import {
   issueClosedFoldAt,
   rowInClosedFold,
@@ -54,7 +54,7 @@ import {
  * this layer never re-sorts open rows).
  */
 export interface WorklistSelection {
-  selectedIssueId: string | null
+  selectedIssueId: IssueId | null
   selectedIssueWasFolded?: boolean
 }
 
@@ -85,7 +85,7 @@ export function rowDisplayOf(row: UnifiedWorkRow): { title: string } {
 
 function sameLane(a: readonly UnifiedWorkRow[], b: readonly UnifiedWorkRow[]): boolean {
   if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i += 1) if (stableRowId(a[i]) !== stableRowId(b[i])) return false
+  for (let i = 0; i < a.length; i += 1) if (stableRowId(a[i]!) !== stableRowId(b[i]!)) return false
   return true
 }
 
@@ -109,7 +109,7 @@ function laneNeedsSelection(row: UnifiedWorkRow): boolean {
 type Placement = {
   rowRef: UnifiedWorkRow
   placedNow: number
-  placedSel: string | null
+  placedSel: IssueId | null
   placedFoldLatch: boolean
   groupKey: string
   snoozed: boolean
@@ -172,7 +172,7 @@ export function createWorklistStructure() {
       stats.places++
       const { pinned, rest } = splitPinnedWork([...rows])
       const priorGroups = new Map(last.groups.map(g => [g.key, g]))
-      const next = new Map<string, { label: string; rows: UnifiedWorkRow[]; snoozedRows: UnifiedIssueRowOf[]; closedRows: UnifiedWorkRow[] }>()
+      const next = new Map<string, { label: string; rows: UnifiedWorkRow[]; snoozedRows: UnifiedWorkRow[]; closedRows: UnifiedWorkRow[] }>()
       const order: string[] = []
       for (const row of rest) {
         const p = place(row, selection)
@@ -231,6 +231,3 @@ export function createWorklistStructure() {
     },
   }
 }
-
-// Local structural alias: snoozed lanes hold issue rows only.
-type UnifiedIssueRowOf = Extract<UnifiedWorkRow, { kind: 'issue' }>
