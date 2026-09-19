@@ -857,11 +857,14 @@ export function createHeadlessRuntime(
     if (session.ended) return
     const live = session.liveTurn
     if (live) {
-      live.interrupted = true
+      // No interrupted flag: the live record is dropped first, so the turn's
+      // late rejection is ignored rather than fenced — the process exit below
+      // is the session's terminal event, and a fence for a dead session would
+      // have nobody waiting on it.
       try {
         live.handle.interrupt()
       } catch {
-        // Teardown is best-effort; the rejection still fences the turn below.
+        // Teardown is best-effort.
       }
       session.liveTurn = undefined
     }

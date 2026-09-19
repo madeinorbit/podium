@@ -428,9 +428,11 @@ describe('headless dispatch', () => {
     let calls = 0
     const failing: HeadlessDriverRunners & { turns: FakeTurn[] } = {
       ...runners,
-      runTurn: () => {
+      runTurn: (spec, emit) => {
         calls += 1
-        throw new Error('spawn ENOENT')
+        // First dispatch throws; the retry below must take over the same epoch.
+        if (calls === 1) throw new Error('spawn ENOENT')
+        return runners.runTurn(spec, emit)
       },
     }
     const now = 1_000_000
@@ -463,6 +465,13 @@ describe('headless dispatch', () => {
         refusal: { reason: 'not_running', detail: expect.stringContaining('ENOENT') },
       })
       expect(calls).toBe(1)
+      // The failed dispatch rewound its claimed epoch: the retry opens epoch 1.
+      const retry = await handle.send(makeTurn(sessionId, { turnId: 'x2' }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      expect(retry).toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
+      expect(calls).toBe(2)
     } finally {
       runtime.dispose()
     }
@@ -849,6 +858,16 @@ describe('headless turn endings', () => {
       await handle.send(makeTurn(sessionId), { origin: 'system', delivery: 'when-ready' })
       // No resume yet and a turn running: still refused, never a loss.
       expect(await handle.hibernate()).toMatchObject({ reason: 'no_resume_ref' })
+      const resumed = await runtime.resumeWithId(
+        asSessionId('headless-hib-1'),
+        { kind: 'claude-session', value: 'h-hib' },
+        makeSpec('claude-code'),
+      )
+      await resumed.send(makeTurn(asSessionId('headless-hib-1'), { turnId: 'run' }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      expect(await resumed.hibernate()).toMatchObject({ reason: 'busy' })
     } finally {
       runtime.dispose()
     }
