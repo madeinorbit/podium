@@ -10,13 +10,12 @@ import {
   bindHarnessLaunch,
   canonicalDriverId,
   type DriverId,
-  declaredValue,
   type HarnessVersionDiagnostic,
   harnessCapabilitiesFor,
   type LaunchFile,
-  manifestFor,
   parseHarnessVersion,
 } from '@podium/harness'
+import { managementLoginCommandFor } from '../harness-management.js'
 import { createLogger } from '@podium/logger'
 import {
   type AgentKind,
@@ -701,13 +700,12 @@ export async function launchSpawn(
       !msg.resume && harnessCapabilitiesFor(msg.agentKind)?.newSessionIdFlag
         ? randomUUID()
         : undefined
+    // MANAGEMENT OWNERSHIP (POD-4305 F12): the native login argv resolves before
+    // any agent handle can exist — static manifest declaration only, bound to the
+    // generation's verified executable below. Never a shell manifest/driver
+    // (POD-4278 owns that exemption); unknown/unsupported harnesses throw here.
     const loginCommand = msg.loginHarness
-      ? declaredValue(
-          manifestFor(msg.loginHarness)?.inventory.loginCommand ?? {
-            supported: false,
-            reason: 'unknown harness',
-          },
-        )
+      ? managementLoginCommandFor(msg.loginHarness)
       : undefined
     if (msg.loginHarness && !loginCommand) {
       throw new Error(`${msg.loginHarness} does not declare a native login command`)

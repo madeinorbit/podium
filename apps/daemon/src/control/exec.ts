@@ -12,6 +12,9 @@ import { executeBufferedHarnessTurn } from '../buffered-harness.js'
 import { scanQuotaHistory } from '../quota-history-scan'
 import { repoOpCommand } from '../repo-op'
 import { scanHostUsageSources, UsageScanCache } from '../usage-scan'
+import type {
+  HarnessManagementContext,
+} from '../harness-management.js'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const execFileAsync = promisify(execFile)
@@ -141,9 +144,20 @@ const USAGE_MEMO_TTL_MS = 120_000
  */
 // Keyed by context, never module-global: two daemon runtimes in one process (the
 // test lane makes them routinely) must not share one another's in-flight scan.
-const usageRescans = new WeakMap<DaemonContext, Promise<void>>()
+const usageRescans = new WeakMap<HarnessManagementContext, Promise<void>>()
 
-function rescanUsage(ctx: DaemonContext, sinceMs: number): Promise<void> {
+/**
+ * MANAGEMENT OWNERSHIP (POD-4305 F11): historical usage, account quota and quota
+ * boot seed are non-live harness-management services. They read account/disk
+ * evidence (transcripts, quota endpoints, rollout files) — never a live
+ * `AgentSessionHandle`. `handle.usage()` reports one live session's context
+ * percentage only and cannot replace them. These handlers take
+ * `HarnessManagementContext` so legacy turn-path removal cannot delete them as
+ * "legacy control" and live-session cleanup cannot retire them. Memoization
+ * (usage memo + quota TTL), historical-source attribution (`sources`,
+ * `sourcesSinceMs`) and instance isolation (`homeDir`) stay with the owner.
+ */
+function rescanUsage(ctx: HarnessManagementContext, sinceMs: number): Promise<void> {
   // One scan at a time — concurrent pollers must not stack copies of a
   // CPU-bound walk onto the loop they are already competing with.
   const pending = usageRescans.get(ctx)
@@ -172,7 +186,7 @@ function rescanUsage(ctx: DaemonContext, sinceMs: number): Promise<void> {
 }
 
 async function runUsageScan(
-  ctx: DaemonContext,
+  ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'usageRequest' }>,
 ): Promise<void> {
   const sinceMs = msg.sinceMs ?? Date.now() - 7 * 24 * 3_600_000
@@ -205,7 +219,7 @@ async function runUsageScan(
 }
 
 async function runAgentQuotaScan(
-  ctx: DaemonContext,
+  ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'agentQuotaRequest' }>,
 ): Promise<void> {
   const agents = await ctx.quotaFetcher.getAgentQuota(msg.refresh ?? false)
@@ -221,7 +235,7 @@ async function runAgentQuotaScan(
  * would be memory spent on nothing.
  */
 async function runQuotaHistoryScan(
-  ctx: DaemonContext,
+  ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'quotaHistoryRequest' }>,
 ): Promise<void> {
   let samples: QuotaHistorySampleWire[] = []
