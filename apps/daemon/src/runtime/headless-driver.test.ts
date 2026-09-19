@@ -15,7 +15,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   canonicalHeadlessContractFacts,
-  DriverRefusalError,
   resolveProcedures,
   type AgentSessionHandle,
   type RuntimeEvent,

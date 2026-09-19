@@ -326,6 +326,7 @@ interface HeadlessDriverSession {
     toolPolicy?: 'none'
     mcpConfig?: string
     executablePath?: string
+    structuredPermissions?: true
   }
   ended: boolean
   disposed: boolean
@@ -826,8 +827,11 @@ export function createHeadlessRuntime(
         ? { resumeValue: (input.resumeValue ?? session.resume?.value) as string }
         : {}),
       ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
-      ...(input.structuredPermissions !== undefined
-        ? { structuredPermissions: input.structuredPermissions }
+      ...((input.structuredPermissions ?? session.sticky.structuredPermissions) !== undefined
+        ? {
+            structuredPermissions: (input.structuredPermissions ??
+              session.sticky.structuredPermissions) as true,
+          }
         : {}),
       env: host.sessionEnv({
         sessionId: session.sessionId,
@@ -869,17 +873,8 @@ export function createHeadlessRuntime(
         refusal: refuse('unsupported', 'headless turns carry text only'),
       }
     }
-    // An open permission blocks the next write until it is answered — the same
-    // `needs_user` fence every other driver honours. Without it a second send
-    // would pile a new turn onto a model that is still waiting for a verdict on
-    // the last tool call.
-    if (session.interactions.size > 0) {
-      return {
-        outcome: 'refused',
-        refusal: refuse('needs_user', 'a permission ask is waiting for an answer'),
-      }
-    }
-    const structured = input.structuredPermissions === true
+    const structured =
+      (input.structuredPermissions ?? session.sticky.structuredPermissions) === true
     if (structured && !headlessSupportsStructuredPermissions(session.agentKind)) {
       return {
         outcome: 'refused',
@@ -947,10 +942,11 @@ export function createHeadlessRuntime(
     const live = session.liveTurn
     if (live) {
       // Reconnect replay of the exact same turn re-arms the same epoch without
-      // a rerun; a same-turnId collision with different identity refuses
-      // outright (never a reuse); anything else while a turn is open is a busy
-      // collision, never a queue — except an explicit interrupt delivery, which
-      // fences the live turn first (interrupt-and-send).
+      // a rerun — even while a permission ask is open, where the reconnect is
+      // rejoining the wait rather than piling on; a same-turnId collision with
+      // different identity refuses outright (never a reuse); anything else
+      // while a turn is open is a collision, never a queue — except an explicit
+      // interrupt delivery, which fences the live turn first (interrupt-and-send).
       if (live.turnId === turnId) {
         if (live.requestDigest === input.requestDigest && live.accountId === accountId) {
           return {
@@ -967,6 +963,17 @@ export function createHeadlessRuntime(
         }
       }
       if (options.delivery !== 'interrupt') {
+        // An open permission blocks the next write until it is answered — the
+        // same `needs_user` fence every other driver honours. Without it a
+        // second send would pile a new turn onto a model that is still waiting
+        // for a verdict on the last tool call. A running turn with no open ask
+        // is plain `busy`.
+        if (session.interactions.size > 0) {
+          return {
+            outcome: 'refused',
+            refusal: refuse('needs_user', 'a permission ask is waiting for an answer'),
+          }
+        }
         return { outcome: 'refused', refusal: refuse('busy', 'turn already running') }
       }
       live.interrupted = true
@@ -974,6 +981,16 @@ export function createHeadlessRuntime(
         await live.handle.interrupt()
       } catch {
         // Fencing is best-effort; the old turn's rejection still reports it.
+      }
+    }
+
+    // Defensive: the turn fence above expires open asks with the turn, so an
+    // ask with no live turn is an orphan that must never be silently orphaned
+    // further by dispatching over it.
+    if (session.interactions.size > 0) {
+      return {
+        outcome: 'refused',
+        refusal: refuse('needs_user', 'a permission ask is waiting for an answer'),
       }
     }
 
@@ -1397,6 +1414,15 @@ export function createHeadlessRuntime(
     // Fail fast on a harness this build cannot drive headlessly — creating a
     // session that can never turn is worse than refusing.
     headlessNoTools(spec.harness)
+    if (spec.structuredPermissions !== undefined && !headlessSupportsStructuredPermissions(spec.harness)) {
+      throw new DriverRefusalError(
+        {
+          reason: 'unsupported',
+          detail: `structuredPermissions needs an SDK permission callback; harness '${spec.harness}' has none`,
+        },
+        'headless create',
+      )
+    }
     if (spec.initialPrompt !== undefined) {
       throw new DriverRefusalError(
         {
@@ -1431,6 +1457,9 @@ export function createHeadlessRuntime(
           ? { mcpConfig: spec.mcpServers.value.config }
           : {}),
         ...(spec.executablePath !== undefined ? { executablePath: spec.executablePath } : {}),
+        ...(spec.structuredPermissions !== undefined
+          ? { structuredPermissions: spec.structuredPermissions }
+          : {}),
       },
       ended: false,
       disposed: false,
