@@ -912,3 +912,85 @@ it('issues a new receipt after a machine move even when native identity and inca
   expect(current.id).not.toBe(old.id)
   expect(await store.acknowledgePendingReceipt(alice, sessionId, resume, current)).toBe(true)
 })
+
+describe('pending receipt fencing (POD-4299)', () => {
+  it('skips a pending receipt fenced by owner change', async () => {
+    const store = await BindingStore.open({ dir: join(await tempRoot(), 'bindings') })
+    const sessionId = asSessionId('fenced-owner')
+    await store.ensureBinding({ sessionId, agentKind: 'codex', claimantMachineId: machine,
+      attemptId: 'attempt-1', observationGeneration: 1, delegation: serverDelegation('actor', alice) })
+    await store.recordPendingCodexReceipt(sessionId, 'native-owner', 'native-hook')
+    // Positive control: the receipt is pending before the owner moves.
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([
+      { sessionId, nativeKind: 'codex-thread', value: 'native-owner' },
+    ])
+    await store.ensureBinding({ sessionId, agentKind: 'codex', claimantMachineId: machine,
+      attemptId: 'attempt-1', observationGeneration: 1, delegation: serverDelegation('actor', bob) })
+    const binding = requiredBinding(await store.read(sessionId))
+    // The superseded evidence stays on disk; only its replay is fenced.
+    expect(binding.observations).toHaveLength(1)
+    expect(binding.observations[0].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-owner' })
+    expect(binding.observations[0].receipt?.ownerId).toBe(alice)
+    // The stale receipt must be skipped for the new owner, not acknowledged.
+    expect(await store.pendingReceiptsForOwner(bob)).toEqual([])
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([])
+    expect(await store.replayPendingReceiptsForOwner(bob, () => { throw new Error('stale receipt replayed') })).toBe(0)
+  })
+
+  it('skips a pending receipt fenced by attempt change', async () => {
+    const store = await BindingStore.open({ dir: join(await tempRoot(), 'bindings') })
+    const sessionId = asSessionId('fenced-attempt')
+    await store.ensureBinding({ sessionId, agentKind: 'codex', claimantMachineId: machine,
+      attemptId: 'attempt-1', observationGeneration: 1, delegation: serverDelegation('actor', alice) })
+    await store.recordPendingCodexReceipt(sessionId, 'native-attempt', 'native-hook')
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([
+      { sessionId, nativeKind: 'codex-thread', value: 'native-attempt' },
+    ])
+    await store.ensureBinding({ sessionId, agentKind: 'codex', claimantMachineId: machine,
+      attemptId: 'attempt-2', observationGeneration: 1, delegation: serverDelegation('actor', alice) })
+    const binding = requiredBinding(await store.read(sessionId))
+    expect(binding.observations).toHaveLength(1)
+    expect(binding.observations[0].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-attempt' })
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([])
+    expect(await store.replayPendingReceiptsForOwner(alice, () => { throw new Error('stale receipt replayed') })).toBe(0)
+  })
+
+  it('skips a pending receipt fenced by observation-generation change', async () => {
+    const store = await BindingStore.open({ dir: join(await tempRoot(), 'bindings') })
+    const sessionId = asSessionId('fenced-generation')
+    await store.ensureBinding({ sessionId, agentKind: 'codex', claimantMachineId: machine,
+      attemptId: 'attempt-1', observationGeneration: 1, delegation: serverDelegation('actor', alice) })
+    await store.recordPendingCodexReceipt(sessionId, 'native-generation', 'native-hook')
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([
+      { sessionId, nativeKind: 'codex-thread', value: 'native-generation' },
+    ])
+    await store.ensureBinding({ sessionId, agentKind: 'codex', claimantMachineId: machine,
+      attemptId: 'attempt-1', observationGeneration: 2, delegation: serverDelegation('actor', alice) })
+    const binding = requiredBinding(await store.read(sessionId))
+    expect(binding.observations).toHaveLength(1)
+    expect(binding.observations[0].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-generation' })
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([])
+    expect(await store.replayPendingReceiptsForOwner(alice, () => { throw new Error('stale receipt replayed') })).toBe(0)
+  })
+
+  it('preserves superseded evidence without replaying it over a newer binding', async () => {
+    const store = await BindingStore.open({ dir: join(await tempRoot(), 'bindings') })
+    const sessionId = asSessionId('fenced-superseded')
+    await store.ensureBinding({ sessionId, agentKind: 'codex', claimantMachineId: machine,
+      attemptId: 'attempt-1', observationGeneration: 1, delegation: serverDelegation('actor', alice) })
+    await store.recordPendingCodexReceipt(sessionId, 'native-old', 'native-hook')
+    await store.recordPendingCodexReceipt(sessionId, 'native-new', 'native-hook')
+    const binding = requiredBinding(await store.read(sessionId))
+    // Both observations stay on disk with their pending state intact.
+    expect(binding.observations.map((entry) => entry.value)).toEqual(['native-old', 'native-new'])
+    expect(binding.observations[0].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-old' })
+    expect(binding.observations[1].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-new' })
+    // Only the latest observation replays; the superseded one is never replayed over it.
+    expect(await store.pendingReceiptsForOwner(alice)).toEqual([
+      { sessionId, nativeKind: 'codex-thread', value: 'native-new' },
+    ])
+    const frames: import('@podium/protocol/daemon').DaemonMessage[] = []
+    expect(await store.replayPendingReceiptsForOwner(alice, (frame) => frames.push(frame))).toBe(1)
+    expect(frames).toMatchObject([{ resume: { value: 'native-new' } }])
+  })
+})
