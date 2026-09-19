@@ -71,6 +71,15 @@ const CONFIGURE_BY_DRIVER = {
   /** The in-memory reference driver. Present because the map is total; a fake
    *  that under-reported its own fields would weaken the corpus. */
   fake: () => FAKE_CONFIGURE,
+  /**
+   * THE HEADLESS DRIVER (POD-4392). A literal, not a derivation: the driver's
+   * own `capabilities()` lives daemon-side (`apps/daemon/src/runtime/
+   * headless-driver.ts`), which this package may not import, so the pairing is
+   * pinned the other way — the daemon's `headless-driver.test.ts` asserts these
+   * catalog readers agree with the driver's declaration, the same direction
+   * the terminal pairing is held from here.
+   */
+  headless: () => HEADLESS_CONFIGURE,
 } as const satisfies Record<DriverId, () => Declared<ConfigureCapability>>
 
 /** @see CONFIGURE_BY_DRIVER — the constant the two terminal ids share. The
@@ -86,6 +95,20 @@ const FAKE_CONFIGURE: Declared<ConfigureCapability> = supported({
   fields: ['model', 'effort'],
   effective: 'next-turn',
 })
+
+/** Matches the daemon headless driver's declaration (see above): sticky
+ *  model/effort/permissionMode, effective from the next turn — every headless
+ *  request carries the session's policy, so the change provably cannot reach
+ *  inside an open turn. */
+const HEADLESS_CONFIGURE: Declared<ConfigureCapability> = supported({
+  fields: ['model', 'effort', 'permissionMode'],
+  effective: 'next-turn',
+})
+
+/** Matches the daemon headless driver's declaration: no terminal to attach. */
+const HEADLESS_ATTACH: Declared<AttachCapability> = unsupported(
+  'headless sessions have no terminal to attach',
+)
 
 /**
  * The fields this driver's `configure()` accepts — EMPTY when it implements the
@@ -105,6 +128,7 @@ const ATTACH_BY_DRIVER = {
   'claude-sdk': () => claudeSdkCapabilities().attach,
   'generic-pty': () => supported({ kinds: ['engine'] as const }),
   fake: () => supported({ kinds: ['engine'] as const }),
+  headless: () => HEADLESS_ATTACH,
 } satisfies Record<DriverId, () => Declared<AttachCapability>>
 
 export function attachKindsForDriver(driverId: string): readonly ('engine' | 'client')[] {

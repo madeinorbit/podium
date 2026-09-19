@@ -66,6 +66,7 @@ import {
   canonicalHeadlessContractFacts,
   type AgentSessionHandle,
   type AttachEndpoint,
+  type AttachmentStageResult,
   type ConfigureRequest,
   type DriverCapabilities,
   type DriverProcedureOverrides,
@@ -96,7 +97,6 @@ import {
 import {
   declaredValue,
   harnessAdapterFor,
-  type HarnessAgent,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
@@ -106,6 +106,8 @@ import {
   type AccountId,
   type AgentKind,
   type AgentRuntimeState,
+  type HarnessAgent,
+  type Inventory,
   type ResumeRef,
   type SessionId,
 } from '@podium/model'
@@ -115,6 +117,7 @@ import type {
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import { isRuntimeFineEvent } from '@podium/protocol/daemon'
 import type { DurableProcess } from '@podium/process/durable'
 import {
   type HeadlessEmit,
@@ -161,15 +164,22 @@ export interface HeadlessDriverHost {
    *  and every turn is an in-process child. */
   durable(): DurableProcess | undefined
   /** Fail closed when the live native login no longer matches a tool-less turn.
-   *  Throws with the same wording `control/headless.ts` reports today. */
-  assertNativeAccount(agent: HarnessAgent, accountId: AccountId): void
+   *  Throws with the same wording `control/headless.ts` reports today. The
+   *  inventory slice comes from the same snapshot the dispatch runs under, so
+   *  the check cannot pass on a login the launch does not see. */
+  assertNativeAccount(
+    agent: HarnessAgent,
+    accountId: AccountId,
+    inventory: Pick<Inventory, 'agents'>,
+  ): void
   /** The instance-owned child environment for one turn (HOME + relay routing +
    *  tool-less account HOME). Mirrors the `spawnEnv` composition the legacy
-   *  path builds per request. */
+   *  path builds per request, over the same snapshot the dispatch runs under. */
   sessionEnv(input: {
     sessionId: SessionId
     agent: HarnessAgent
     toolPolicyNone: boolean
+    snapshot: ResolvedHarnessInventory
   }): Record<string, string>
   /** The exact durable host label for a session (stable across restarts — it is
    *  the process identity `adopt()` matches on). */
@@ -258,7 +268,10 @@ interface HeadlessDriverSession {
    *  per id (and re-arming only when the id changes) mirrors the legacy path:
    *  a redundant rebind per turn would restart the observation it just built. */
   boundResume?: string
-  lastVerdict?: { kind: 'done' } | { kind: 'interrupted' } | { kind: 'failed'; error: string }
+  lastVerdict?:
+    | { kind: 'done' }
+    | { kind: 'interrupted' }
+    | { kind: 'failed'; error: string; retryable: boolean }
   /** Sticky session policy (POD-4386 `SessionSpec` headless defaults);
    *  per-turn `TurnInput` values win over these at dispatch. */
   sticky: {
@@ -369,11 +382,15 @@ export function createHeadlessRuntime(
   const handles = new Map<SessionId, AgentSessionHandle>()
 
   function publish(sessionId: SessionId, event: RuntimeEvent): void {
-    if (event.t === 'item' && event.item.kind === 'partial') {
-      host.send({ type: 'runtimeFineEvent', sessionId, event })
-    } else {
-      host.send({ type: 'runtimeEvent', sessionId, event })
-    }
+    // The one predicate every producer and the server's durable gate reads
+    // (POD-2293): partial previews ride the live-only fine plane, everything
+    // else the durable coarse one. A producer disagreeing with the gate strands
+    // acks or restart heads, so this never grows a local second copy.
+    host.send(
+      isRuntimeFineEvent(event)
+        ? { type: 'runtimeFineEvent', sessionId, event }
+        : { type: 'runtimeEvent', sessionId, event },
+    )
   }
 
   function emit(
@@ -411,7 +428,7 @@ export function createHeadlessRuntime(
         phase: 'errored',
         since: at,
         nativeSubagentCount: 0,
-        error: { class: 'provider-error', detail: verdict.error },
+        error: { class: 'provider-error', retryable: verdict.retryable, detail: verdict.error },
       }
     }
     return {
@@ -493,8 +510,8 @@ export function createHeadlessRuntime(
       )
       return
     }
-    if (current) session.lastVerdict = { kind: 'failed', error: outcome.error }
     const timedOut = /timed out/i.test(outcome.error)
+    if (current) session.lastVerdict = { kind: 'failed', error: outcome.error, retryable: timedOut }
     emit(
       session,
       {
@@ -618,6 +635,7 @@ export function createHeadlessRuntime(
     session: HeadlessDriverSession,
     input: TurnInput,
     identity: { accountId: AccountId; toolPolicy: 'none' | undefined },
+    snapshot: ResolvedHarnessInventory,
   ): HeadlessTurnSpec {
     const agent = session.agentKind as HarnessAgent
     const overridesModel =
@@ -659,6 +677,7 @@ export function createHeadlessRuntime(
         sessionId: session.sessionId,
         agent,
         toolPolicyNone: identity.toolPolicy === 'none',
+        snapshot,
       }),
       durableLabel: session.label,
     }
@@ -714,6 +733,18 @@ export function createHeadlessRuntime(
 
     const agent = session.agentKind as HarnessAgent
     const toolPolicy = input.toolPolicy ?? session.sticky.toolPolicy
+    // One snapshot per send, shared by the account fence and the dispatch
+    // below — the check cannot pass on a login the launch does not see, and a
+    // refused send pays no inventory read at all (digest first, snapshot after).
+    let snapshot: ResolvedHarnessInventory
+    try {
+      snapshot = await host.snapshot()
+    } catch (error) {
+      return {
+        outcome: 'refused',
+        refusal: refuse('not_running', error instanceof Error ? error.message : String(error)),
+      }
+    }
     if (toolPolicy === 'none') {
       // Fail closed before anything spawns: the harness must own a tested
       // all-tools-off mode AND the turn must carry the exact native login the
@@ -737,7 +768,7 @@ export function createHeadlessRuntime(
         }
       }
       try {
-        host.assertNativeAccount(agent, asAccountId(accountId))
+        host.assertNativeAccount(agent, asAccountId(accountId), snapshot.inventory)
       } catch (error) {
         return {
           outcome: 'refused',
@@ -789,13 +820,17 @@ export function createHeadlessRuntime(
       startedAt,
     )
 
-    const spec = buildTurnSpec(session, input, {
-      accountId: asAccountId(accountId),
-      toolPolicy,
-    })
+    const spec = buildTurnSpec(
+      session,
+      input,
+      {
+        accountId: asAccountId(accountId),
+        toolPolicy,
+      },
+      snapshot,
+    )
     let handle: HeadlessTurnHandle
     try {
-      const snapshot = await host.snapshot()
       const durable = host.durable()
       const emitFn: HeadlessEmit = (event) => {
         const current = session.liveTurn
@@ -1250,7 +1285,10 @@ export function createHeadlessRuntime(
   }
 
   function driverFor(harness: string): RuntimeDriver {
-    const procedures: DriverProcedureOverrides = {
+    // Partial on purpose: the generic one-shot cannot mint headless durable
+    // identity (no digest, no turnId), so it would only refuse at the send —
+    // the askAndAwait override below is the procedure this driver offers.
+    const procedures: Partial<DriverProcedureOverrides> = {
       // The generic composition cannot name a headless turn: the durable
       // identity rides `TurnInput.id` on the wire, so the override carries it
       // into the procedure that owns the journal and the deadline, and returns

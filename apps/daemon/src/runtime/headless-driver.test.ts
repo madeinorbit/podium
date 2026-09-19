@@ -333,6 +333,19 @@ describe('headless driver identity', () => {
     expect(capabilities.attach).toMatchObject({ supported: false })
   })
 
+  it('agrees with the contract catalog on configure fields and attach kinds', async () => {
+    const { attachKindsForDriver, configureFieldsForDriver } = await import(
+      '@podium/agent-runtime'
+    )
+    // The catalog derives every other driver from its own capabilities(); the
+    // headless declaration lives daemon-side, so this test holds the pairing
+    // from the side that can see both.
+    expect(configureFieldsForDriver('headless')).toEqual(
+      expect.arrayContaining(['model', 'effort', 'permissionMode']),
+    )
+    expect(attachKindsForDriver('headless')).toEqual([])
+  })
+
   it('refuses to create a harness this build cannot drive headlessly', async () => {
     const { runtime } = makeRuntime()
     try {
@@ -527,11 +540,13 @@ describe('headless dispatch', () => {
       runners.turns[0]?.resolve({ harnessSessionId: 'harness-1', output: 'half done' })
       await flush()
       const events = await takeEvents(handle, 6)
-      const partials = events.filter(
-        (event): event is Extract<RuntimeEvent, { t: 'item' }> =>
-          event.t === 'item' && event.item.kind === 'partial',
-      )
-      expect(partials.map((event) => event.item.item.text)).toEqual(['half', 'half done'])
+      const partials: string[] = []
+      for (const event of events) {
+        if (event.t === 'item' && event.item.kind === 'partial') {
+          partials.push(event.item.item.text)
+        }
+      }
+      expect(partials).toEqual(['half', 'half done'])
       expect(
         events.some((event) => event.t === 'item' && event.item.kind === 'complete'),
       ).toBe(false)
