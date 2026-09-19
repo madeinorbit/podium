@@ -23,6 +23,30 @@ describe('prime injector', () => {
     expect(JSON.parse(again!).hookSpecificOutput.additionalContext).toBe('PRIME2')
   })
 
+  // REAL-HARNESS GAP, PINNED (this issue, POD-4395): Codex compacts without a
+  // PreCompact subscription — Podium's hooks.json never installs one — so the
+  // only post-compaction signal is SessionStart with source 'compact' (per the
+  // Codex release hooks reference: SessionStart matcher source runs on
+  // startup|resume|clear|compact, and PreCompact supports only the common
+  // output fields, never additionalContext). This mapping reads only the event
+  // name, so that SessionStart answers null: Codex is NOT re-primed after
+  // compaction today. The fix is to re-arm on SessionStart source=compact, not
+  // to subscribe PreCompact (which cannot carry context). Verified against the
+  // real Codex 0.155.0 binary for the consumption half (stdout additionalContext
+  // lands as developer-role hooks.additional_context messages); live
+  // post-compaction firing was not driven (quota-blocked) and rests on the
+  // vendor reference until then.
+  it('does not re-prime on a post-compaction SessionStart (source compact)', async () => {
+    const inj = createPrimeInjector(okRelay('PRIME2'))
+    await inj.respondTo(asSessionId('s1'), { hook_event_name: 'SessionStart', source: 'startup' })
+    expect(
+      await inj.respondTo(asSessionId('s1'), { hook_event_name: 'SessionStart', source: 'compact' }),
+    ).toBeNull()
+    expect(
+      await inj.respondTo(asSessionId('s1'), { hookEventName: 'SessionStart', source: 'compact' }),
+    ).toBeNull()
+  })
+
   it('returns null when relay fails or result is empty', async () => {
     const bad = createPrimeInjector(async () => ({ ok: false }))
     expect(await bad.respondTo(asSessionId('s1'), { hook_event_name: 'SessionStart' })).toBeNull()

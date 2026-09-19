@@ -226,6 +226,17 @@ describe('Podium Grok hook command', () => {
   // is what Grok consumes. (Whether Grok's TUI renders additionalContext is
   // a real-binary question, tracked separately — the daemon and the wrapper
   // both do their half here.)
+  //
+  // REAL-HARNESS VERDICT (POD-4395, grok 1.0.30): it does NOT. A real `grok -p`
+  // run with SessionStart/UserPromptSubmit hooks returning
+  // hookSpecificOutput.additionalContext markers recorded both hook runs as
+  // success in updates.jsonl, but the markers appear nowhere in the session
+  // record (chat_history, updates, events, prompt_context, system_prompt) —
+  // matching the bundled 10-hooks.md contract: SessionStart stdout is ignored,
+  // and an allowing UserPromptSubmit's stdout is discarded (no
+  // additionalContext). Grok prime via these hooks is deliberate non-delivery
+  // at the harness layer; the daemon still sends and the wrapper still relays,
+  // so a future Grok that reads them needs no Podium change.
   it('relays a driver prime response from the hook endpoint to stdout', async () => {
     const context = createBoundaryContext(async () => ({ ok: true, result: 'grok prime' }))
     const ing = await startHookIngest({

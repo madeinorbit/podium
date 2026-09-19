@@ -293,6 +293,16 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
   // the command: the stub daemon answers with prime and nothing reaches the
   // hook command's stdout. Surfacing responses to Codex needs a wrapper
   // change AND proof the harness consumes the new output.
+  //
+  // REAL-HARNESS PROOF (POD-4395, codex-cli 0.155.0): the harness WOULD consume
+  // it. A real `codex exec` run with SessionStart/UserPromptSubmit hooks echoing
+  // hookSpecificOutput.additionalContext markers recorded both markers in the
+  // rollout as role-developer messages tagged
+  // content_item_kinds:["hooks.additional_context"] before any model request —
+  // so prime non-delivery on Codex is purely this wrapper's choice, and lifting
+  // it is a wrapper change away. (The probe turn itself errored on quota before
+  // reaching the model, which cost nothing and changed nothing: the injection
+  // is recorded by the framework, not the model.)
   it.skipIf(process.platform === 'win32').each([
     { transport: 'socket', useUrl: false },
     { transport: 'url-fallback', useUrl: true },
