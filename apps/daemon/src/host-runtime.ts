@@ -1,7 +1,7 @@
 import { legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
 import { createRecoveryReadiness } from './recovery-readiness'
 import type { BindingConfirmations } from '@podium/protocol'
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { createOpencode2Client, DriverRefusalError } from '@podium/agent-runtime'
@@ -82,7 +82,7 @@ import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
-import { sweepHandoffStage } from './handoff-package'
+import { sweepHandoffStage, transcriptForExport } from './handoff-package'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
@@ -1334,6 +1334,14 @@ export async function createDaemonHostRuntime(args: {
         hasMore: slice.hasMore,
       }
     },
+    archiveTranscript: (input) =>
+      transcriptForExport({
+        agentKind: input.agentKind,
+        cwd: input.cwd,
+        resumeValue: input.resumeValue,
+        home: ctx.homeDir ?? process.env.HOME ?? '',
+      }),
+    readFileBytes: async (path) => new Uint8Array(await readFile(path)),
     now: () => Date.now(),
   })
   agentRuntime = createDaemonMachineRuntime({

@@ -59,11 +59,17 @@
  * - Per-turn `contextPrompt` and `timeoutMs` have no contract carriers: sticky
  *   instructions ride `systemPrompt`, and the turn budget stays the runner
  *   default. The caller-migration issue owns carrying them.
- * - `structuredPermissions: true` is REFUSED `unsupported` here. The legacy wire
- *   never carried it either, and accepting it without a permission-answer
- *   channel would silently park the turn on a prompt nobody answers.
- * - `export()` is `unsupported`: headless handoff archives stay with the
- *   transcript-archive path until a per-harness versioned form is proven.
+ * - `structuredPermissions: true` routes claude-code turns through the SDK
+ *   child with its `canUseTool` callback wired to contract PendingInteractions
+ *   (open/answer/close). Other harnesses refuse `unsupported`: their
+ *   child-process drivers have no permission callback to route. Structured
+ *   turns bypass the durable CLI journal — the durable runner speaks the
+ *   non-interactive `claude -p` surface, so a permission that needs a live
+ *   answer cannot survive there — and run as in-process SDK turns with the
+ *   same digest fence and transcript bind, but no cross-restart replay.
+ * - `export()` ships the harness-native transcript file (the same locator the
+ *   terminal driver's `export()` and the handoff package use) for harnesses
+ *   that declare one, and refuses `unsupported` for those that do not.
  */
 
 import { createHash, randomUUID } from 'node:crypto'
@@ -102,6 +108,8 @@ import {
 import {
   declaredValue,
   harnessAdapterFor,
+  supported,
+  unsupported,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
@@ -116,7 +124,7 @@ import {
   type ResumeRef,
   type SessionId,
 } from '@podium/model'
-import type { HeadlessTurnEvent, ObservationProvenance } from '@podium/protocol'
+import { PermissionAnswer, type HeadlessTurnEvent, type ObservationProvenance } from '@podium/protocol'
 import type {
   DaemonMessage,
   RuntimeHistoryPage,
@@ -206,7 +214,31 @@ export interface HeadlessDriverHost {
       direction?: RuntimeHistoryRange['direction']
     },
   ): Promise<RuntimeHistoryPage>
+  /** Locate the harness-native transcript for an archive, or throw with the
+   *  harness's own reason when it declares none. Same locator the terminal
+   *  driver's `export()` uses (`transcriptForExport`). */
+  archiveTranscript(input: {
+    agentKind: AgentKind
+    cwd: string
+    resumeValue: string
+  }): Promise<{ path: string; relativeDir?: string }>
+  readFileBytes(path: string): Promise<Uint8Array>
   now(): number
+}
+
+/** One SDK permission ask, as the `canUseTool` callback reports it. */
+export interface HeadlessPermissionRequest {
+  id: string
+  toolName: string
+  input?: unknown
+  suggestions?: readonly unknown[]
+}
+
+/** Live SDK callbacks a structured-permission turn routes into interactions.
+ *  Only honoured on the in-process SDK path; the durable CLI runner has no
+ *  permission channel and never receives these. */
+export interface HeadlessRunnerHooks {
+  onPermission?: (request: HeadlessPermissionRequest) => void
 }
 
 /** The turn-execution seam. Production passes the real headless functions;
@@ -216,6 +248,7 @@ export interface HeadlessDriverRunners {
     spec: HeadlessTurnSpec,
     emit: HeadlessEmit,
     snapshot: ResolvedHarnessInventory,
+    hooks?: HeadlessRunnerHooks,
   ): HeadlessTurnHandle
   runDurableTurn(
     turnId: string,
@@ -228,7 +261,7 @@ export interface HeadlessDriverRunners {
 }
 
 const defaultRunners: HeadlessDriverRunners = {
-  runTurn: (spec, emit, snapshot) => runHeadlessTurn(spec, emit, snapshot),
+  runTurn: (spec, emit, snapshot, hooks) => runHeadlessTurn(spec, emit, snapshot, hooks),
   runDurableTurn: (turnId, sessionId, spec, emit, snapshot, durable) =>
     runDurableHeadlessTurn(turnId, sessionId, spec, emit, snapshot, durable),
 }
@@ -268,6 +301,12 @@ interface HeadlessDriverSession {
   log: { seq: number; event: RuntimeEvent }[]
   wakers: Set<() => void>
   watchers: Map<'coarse' | 'fine', number>
+  /** Open structured permission asks for the live SDK turn, by interaction id.
+   *  Only populated for claude-code `structuredPermissions` turns; every other
+   *  harness never opens one. */
+  interactions: Map<string, PendingInteraction>
+  /** Answered interaction ids, for idempotent `answer()` (`already-answered`). */
+  answered: Set<string>
   liveTurn?: LiveTurn
   /** The harness conversation id the transcript tail is bound to. Binding once
    *  per id (and re-arming only when the id changes) mirrors the legacy path:
@@ -296,7 +335,25 @@ interface HeadlessDriverSession {
 // Capabilities
 // ---------------------------------------------------------------------------
 
-export function headlessCapabilities(): DriverCapabilities {
+/** Whether this harness can open a structured permission ask on a headless
+ *  turn. Only the Claude Agent SDK exposes a `canUseTool` callback to route;
+ *  every child-process driver speaks a non-interactive CLI surface. */
+function headlessSupportsStructuredPermissions(harness: string): boolean {
+  return harness === 'claude-code'
+}
+
+/** Whether this harness declares a locatable harness-native transcript — the
+ *  thing that makes `export()` byte-faithful. Mirrors the terminal family's
+ *  `archivable` profile, derived from the same `handoffTranscript` axis. */
+function headlessArchivable(harness: string): boolean {
+  const manifest = harnessAdapterFor(harness as AgentKind)
+  if (!manifest) return false
+  return declaredValue(manifest.handoffTranscript) !== undefined
+}
+
+export function headlessCapabilities(harness?: string): DriverCapabilities {
+  const permissionHarness = harness ?? 'claude-code'
+  const archivableHarness = harness ?? 'claude-code'
   return {
     instrumentation: 'none',
     send: {
@@ -316,11 +373,16 @@ export function headlessCapabilities(): DriverCapabilities {
       // rejection IS the fence. No provider round-trip confirms it.
       fenceOnProviderConfirmation: false,
     },
-    interactions: {
-      supported: false,
-      reason:
-        'headless turns open no contract interactions in v1; structured permission routing is a filed gap, so structuredPermissions refuses unsupported rather than parking on an unanswered prompt',
-    },
+    interactions: headlessSupportsStructuredPermissions(permissionHarness)
+      ? supported({
+          kinds: ['permission'],
+          source: 'sdk-callback',
+          answerable: 'structured',
+          atLeastOnce: false,
+        })
+      : unsupported(
+          'only claude-code headless turns expose an SDK permission callback; structuredPermissions refuses unsupported elsewhere',
+        ),
     observation: { watchLevels: ['coarse', 'fine'], cursorMaterial: 'event-seq' },
     transcript: { supported: true, value: { history: true } },
     staging: {
@@ -336,11 +398,9 @@ export function headlessCapabilities(): DriverCapabilities {
       reason: 'no human terminal to take over on a headless session',
     },
     snapshot: { supported: true, value: { includesDraft: false } },
-    archive: {
-      supported: false,
-      reason:
-        'headless handoff archives stay with the transcript-archive path until a per-harness versioned form is proven',
-    },
+    archive: headlessArchivable(archivableHarness)
+      ? supported({ formatVersion: 1, byteFaithful: true })
+      : unsupported('this harness declares no handoff transcript locator'),
     resumeRefTiming: 'first-turn',
     placement: 'dedicated',
     draft: { supported: false, reason: 'headless sessions have no composer' },
@@ -396,6 +456,14 @@ export function createHeadlessRuntime(
         ? { type: 'runtimeFineEvent', sessionId, event }
         : { type: 'runtimeEvent', sessionId, event },
     )
+    // A protocol ask opens in the W2 aggregate through `runtimeInteractionAsked`;
+    // the coarse stream above carries all three arms so the same driver also
+    // retires it. Without this second frame the session would park on a prompt
+    // no surface ever shows — the exact silence the old `unsupported` refusal
+    // was fenced against.
+    if (event.t === 'interaction' && event.ev.ev === 'asked') {
+      host.send({ type: 'runtimeInteractionAsked', sessionId, interaction: event.ev.interaction })
+    }
   }
 
   function emit(
@@ -419,10 +487,82 @@ export function createHeadlessRuntime(
     publish(session.sessionId, event)
   }
 
+  function summarizePermissionInput(input: unknown): string | undefined {
+    if (input === undefined) return undefined
+    try {
+      const text = typeof input === 'string' ? input : JSON.stringify(input)
+      return text.length > 240 ? `${text.slice(0, 237)}...` : text
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Open one structured permission ask around the SDK's `canUseTool` callback.
+   *  The interaction id IS the SDK callback's id: `answer()` routes back to
+   *  `handle.answerPermission` under the same id, so no mapping table is needed
+   *  and a wrong id is `unknown-interaction` rather than a misdelivered grant. */
+  function openPermission(
+    session: HeadlessDriverSession,
+    request: HeadlessPermissionRequest,
+  ): void {
+    if (!session.liveTurn || session.disposed || session.ended) return
+    if (session.interactions.has(request.id) || session.answered.has(request.id)) return
+    const summary = summarizePermissionInput(request.input)
+    const interaction: PendingInteraction = {
+      id: request.id,
+      sessionId: session.sessionId,
+      kind: 'permission',
+      payload: {
+        v: 1,
+        toolName: request.toolName,
+        ...(summary ? { inputSummary: summary } : {}),
+        canAlwaysAllow: (request.suggestions?.length ?? 0) > 0,
+        ...(request.suggestions?.length ? { suggestions: request.suggestions } : {}),
+      },
+      askedAt: new Date(host.now()).toISOString(),
+      source: 'sdk-callback',
+      answerable: 'structured',
+    }
+    session.interactions.set(request.id, interaction)
+    emit(session, { t: 'interaction', ev: { ev: 'asked', interaction } }, 'live')
+  }
+
+  /** Retire every open ask when its turn stops owning the SDK callback — an
+   *  interrupt, a failure, or a teardown. The callback promise is denied
+   *  host-side (the SDK child's teardown denies pending permissions), so the
+   *  grant can never land late; `expired` says visibly that the question died
+   *  with the turn rather than leaving the session parked on it. */
+  function expireOpenPermissions(session: HeadlessDriverSession): void {
+    if (session.interactions.size === 0) return
+    const at = new Date(host.now()).toISOString()
+    for (const id of [...session.interactions.keys()]) {
+      session.interactions.delete(id)
+      session.answered.add(id)
+      emit(session, { t: 'interaction', ev: { ev: 'expired', id, at } }, 'live')
+    }
+  }
+
   function stateFor(session: HeadlessDriverSession): AgentRuntimeState {
     const at = new Date(host.now()).toISOString()
     if (session.ended) {
       return { phase: 'ended', since: at, nativeSubagentCount: 0 }
+    }
+    if (session.interactions.size > 0) {
+      const first = [...session.interactions.values()][0]
+      const summary =
+        first?.kind === 'permission' ? first.payload.toolName : (first?.kind ?? 'permission')
+      return {
+        phase: 'needs_user',
+        since: at,
+        nativeSubagentCount: 0,
+        need: {
+          kind: 'permission',
+          summary,
+          ...(first?.kind === 'permission' && first.payload.inputSummary
+            ? { ask: { toolName: first.payload.toolName, detail: first.payload.inputSummary } }
+            : {}),
+        },
+      }
     }
     if (session.liveTurn) {
       return { phase: 'working', since: session.liveTurn.startedAt, nativeSubagentCount: 0 }
@@ -496,6 +636,11 @@ export function createHeadlessRuntime(
     // Only the CURRENT turn may move the session's own state.
     const current = session.liveTurn === live
     if (current) session.liveTurn = undefined
+    // The SDK callback died with the turn: retire any ask it opened before the
+    // terminal event, so the session never parks on a question nobody can answer.
+    // Only the current turn owns the callback; a superseded epoch's late
+    // rejection must not expire the replacement turn's fresh ask.
+    if (current) expireOpenPermissions(session)
     if (outcome.harnessSessionId) bindTranscript(session, outcome.harnessSessionId)
     if (outcome.error === undefined) {
       if (current) session.lastVerdict = { kind: 'done' }
@@ -616,6 +761,9 @@ export function createHeadlessRuntime(
           ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
           ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
           ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
+          ...(input.structuredPermissions !== undefined
+            ? { structuredPermissions: input.structuredPermissions }
+            : {}),
           turnId,
           sessionId,
           accountId,
@@ -678,6 +826,9 @@ export function createHeadlessRuntime(
         ? { resumeValue: (input.resumeValue ?? session.resume?.value) as string }
         : {}),
       ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
+      ...(input.structuredPermissions !== undefined
+        ? { structuredPermissions: input.structuredPermissions }
+        : {}),
       env: host.sessionEnv({
         sessionId: session.sessionId,
         agent,
@@ -718,12 +869,23 @@ export function createHeadlessRuntime(
         refusal: refuse('unsupported', 'headless turns carry text only'),
       }
     }
-    if (input.structuredPermissions !== undefined) {
+    // An open permission blocks the next write until it is answered — the same
+    // `needs_user` fence every other driver honours. Without it a second send
+    // would pile a new turn onto a model that is still waiting for a verdict on
+    // the last tool call.
+    if (session.interactions.size > 0) {
+      return {
+        outcome: 'refused',
+        refusal: refuse('needs_user', 'a permission ask is waiting for an answer'),
+      }
+    }
+    const structured = input.structuredPermissions === true
+    if (structured && !headlessSupportsStructuredPermissions(session.agentKind)) {
       return {
         outcome: 'refused',
         refusal: refuse(
           'unsupported',
-          'structured permission routing has no answer channel on headless turns yet',
+          `structuredPermissions needs an SDK permission callback; harness '${session.agentKind}' has none`,
         ),
       }
     }
@@ -836,15 +998,30 @@ export function createHeadlessRuntime(
     )
     let handle: HeadlessTurnHandle
     try {
-      const durable = host.durable()
+      const durable = structured ? undefined : host.durable()
       const emitFn: HeadlessEmit = (event) => {
         const current = session.liveTurn
         if (current && current.turnEpoch === turnEpoch) onTurnEvent(session, current, event)
       }
+      // A structured turn needs the SDK's live `canUseTool` callback, which the
+      // durable CLI runner cannot offer — it speaks the non-interactive `claude
+      // -p` surface. So structured turns bypass the durable journal and run as
+      // in-process SDK turns, with the same digest fence and transcript bind
+      // but no cross-restart replay. The bypass is deliberate and visible: the
+      // capability declares the permission channel, and the receipt still proves
+      // `protocol-ack`.
+      const hooks: HeadlessRunnerHooks | undefined = structured
+        ? {
+            onPermission: (request) => {
+              const current = session.liveTurn
+              if (current && current.turnEpoch === turnEpoch) openPermission(session, request)
+            },
+          }
+        : undefined
       handle =
         durable !== undefined
           ? runners.runDurableTurn(turnId, session.sessionId, spec, emitFn, snapshot, durable)
-          : runners.runTurn(spec, emitFn, snapshot)
+          : runners.runTurn(spec, emitFn, snapshot, hooks)
     } catch (error) {
       // Dispatch itself failed (no spawn, no journal beyond the durable
       // identity the durable runner owns exactly as the legacy path does):
@@ -895,6 +1072,7 @@ export function createHeadlessRuntime(
 
   function endSession(session: HeadlessDriverSession, killed: boolean): void {
     if (session.ended) return
+    expireOpenPermissions(session)
     const live = session.liveTurn
     if (live) {
       // No interrupted flag: the live record is dropped first, so the turn's
@@ -940,6 +1118,8 @@ export function createHeadlessRuntime(
       },
       async hibernate(): Promise<Refusal | { ok: true }> {
         if (!session.resume) return refuse('no_resume_ref', 'hibernating would lose the session')
+        if (session.interactions.size > 0)
+          return refuse('needs_user', 'a permission ask is waiting for an answer')
         if (session.liveTurn) return refuse('busy', 'a turn is running')
         // Between turns a headless session holds no process: the harness owns
         // the conversation on disk and the durable journal (where there is one)
@@ -959,18 +1139,56 @@ export function createHeadlessRuntime(
           cursor: driverLocalCursor(session.label, session.seq),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
-          interactions: [],
+          interactions: [...session.interactions.values()],
           at: new Date(host.now()).toISOString(),
         }
       },
       async export(): Promise<SessionArchive> {
-        throw new DriverRefusalError(
-          {
-            reason: 'unsupported',
-            detail: 'headless handoff archives stay with the transcript-archive path',
+        // THE DECLARATION IS CHECKED FIRST, same order as the terminal driver:
+        // "no locator" is permanent (`unsupported`, never retry), "not written
+        // yet" is `no_resume_ref` (retry after a turn). Reporting `no_resume_ref`
+        // for a harness that will never have an archive sends a scheduler round
+        // a loop it cannot leave.
+        if (!headlessArchivable(session.agentKind)) {
+          throw new DriverRefusalError(
+            {
+              reason: 'unsupported',
+              detail: `${session.agentKind} declares no handoff transcript locator`,
+            },
+            'headless export',
+          )
+        }
+        if (!session.resume) {
+          throw new DriverRefusalError({ reason: 'no_resume_ref' }, 'headless export')
+        }
+        const located = await host.archiveTranscript({
+          agentKind: session.agentKind,
+          cwd: session.cwd,
+          resumeValue: session.resume.value,
+        })
+        const bytes = await host.readFileBytes(located.path)
+        const name = located.path.split('/').pop() ?? `${session.sessionId}.jsonl`
+        return {
+          harness: session.agentKind,
+          formatVersion: 1,
+          resume: session.resume,
+          files: [
+            {
+              // ARCHIVE-RELATIVE. An absolute path is a promise about the
+              // DESTINATION machine that the source machine cannot make.
+              path: located.relativeDir ? `${located.relativeDir}/${name}` : name,
+              bytes,
+            },
+          ],
+          binding: {
+            sessionId: session.sessionId,
+            driver: HEADLESS_DRIVER_ID,
+            family: 'server',
+            harness: session.agentKind,
+            workdir: session.cwd,
+            resume: session.resume,
           },
-          'headless export',
-        )
+        }
       },
       send: (input, options) => send(session, input, options),
       async cancelDelivery(rowId: string): Promise<Refusal | { ok: true }> {
@@ -1000,11 +1218,87 @@ export function createHeadlessRuntime(
           // request failure that never happened.
         }
       },
-      async answer(): Promise<InteractionAnswerOutcome> {
-        return { ok: false, reason: 'unknown-interaction' }
+      async answer(
+        interactionId: string,
+        answer: unknown,
+        options?: { principal?: { kind: 'user' | 'agent' | 'system'; ref: string } },
+      ): Promise<InteractionAnswerOutcome> {
+        if (session.answered.has(interactionId)) return { ok: false, reason: 'already-answered' }
+        const interaction = session.interactions.get(interactionId)
+        if (!interaction) return { ok: false, reason: 'unknown-interaction' }
+        if (interaction.kind !== 'permission') {
+          return {
+            ok: false,
+            reason: 'not-yet-supported',
+            detail: `headless turns open only permission asks; cannot answer '${interaction.kind}'`,
+          }
+        }
+        const raw =
+          typeof answer === 'object' && answer !== null ? (answer as Record<string, unknown>) : {}
+        // Accept the UI's shorthand `allow` as `allow-once`; the contract's
+        // `PermissionAnswer` is the same shape the embedded SDK driver parses.
+        const decision = raw.decision
+        const candidate =
+          decision === 'allow'
+            ? { ...raw, kind: 'permission', decision: 'allow-once' }
+            : decision === 'allow-once' || decision === 'allow-always' || decision === 'deny'
+              ? { ...raw, kind: 'permission' }
+              : answer
+        const parsed = PermissionAnswer.safeParse(candidate)
+        if (!parsed.success) {
+          return { ok: false, reason: 'not-yet-supported', detail: parsed.error.message }
+        }
+        if (parsed.data.decision === 'allow-always' && !interaction.payload.canAlwaysAllow) {
+          return {
+            ok: false,
+            reason: 'not-yet-supported',
+            detail: 'provider offered no persistent permission rule',
+          }
+        }
+        const live = session.liveTurn
+        if (!live?.handle.answerPermission) {
+          return {
+            ok: false,
+            reason: 'delivery-failed',
+            detail: 'the SDK turn no longer owns this interaction',
+          }
+        }
+        try {
+          await live.handle.answerPermission(interactionId, {
+            decision:
+              parsed.data.decision === 'allow-once'
+                ? 'allow-once'
+                : parsed.data.decision === 'allow-always'
+                  ? 'allow-always'
+                  : 'deny',
+            ...(parsed.data.feedback ? { feedback: parsed.data.feedback } : {}),
+          })
+        } catch (error) {
+          return {
+            ok: false,
+            reason: 'delivery-failed',
+            detail: error instanceof Error ? error.message : String(error),
+          }
+        }
+        session.interactions.delete(interactionId)
+        session.answered.add(interactionId)
+        emit(
+          session,
+          {
+            t: 'interaction',
+            ev: {
+              ev: 'answered',
+              id: interactionId,
+              answeredBy: options?.principal?.kind === 'agent' ? 'superagent' : 'human',
+              at: new Date(host.now()).toISOString(),
+            },
+          },
+          'live',
+        )
+        return { ok: true }
       },
       async interactions(): Promise<readonly PendingInteraction[]> {
-        return []
+        return [...session.interactions.values()]
       },
       events(after: EventStreamStart): AsyncIterable<RuntimeEvent> {
         return createRuntimeEventStream(after, {
@@ -1125,6 +1419,8 @@ export function createHeadlessRuntime(
       log: [],
       wakers: new Set(),
       watchers: new Map(),
+      interactions: new Map(),
+      answered: new Set(),
       sticky: {
         ...(spec.model.model !== undefined ? { model: spec.model.model } : {}),
         ...(spec.model.effort !== undefined ? { effort: spec.model.effort } : {}),
@@ -1268,6 +1564,8 @@ export function createHeadlessRuntime(
       log: [],
       wakers: new Set(),
       watchers: new Map(),
+      interactions: new Map(),
+      answered: new Set(),
       sticky: {},
       ended: false,
       disposed: false,
@@ -1311,7 +1609,10 @@ export function createHeadlessRuntime(
       id: HEADLESS_DRIVER_ID,
       harness,
       family: 'server',
-      capabilities: headlessCapabilities,
+      // Per-harness: claude-code opens structured permission asks and (like
+      // codex) ships a locatable native transcript; other harnesses declare
+      // both gaps as `unsupported` rather than a silent absence.
+      capabilities: () => headlessCapabilities(harness),
       create: (spec) => createWithId(asSessionId(randomUUID()), spec),
       resume: (ref, spec) => resumeWithId(asSessionId(randomUUID()), ref, spec),
       adopt: (binding) => adoptBinding(binding),

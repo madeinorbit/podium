@@ -54,6 +54,8 @@ interface FakeTurn {
   turnId?: string
   spec: HeadlessTurnSpec
   emit: HeadlessEmit
+  onPermission?: (request: { id: string; toolName: string; input?: unknown; suggestions?: readonly unknown[] }) => void
+  answered: { interactionId: string; answer: { decision: string; feedback?: string } }[]
   interrupted: boolean
   interruptCalls: number
   resolve: (outcome: HeadlessTurnOutcome) => void
@@ -62,7 +64,13 @@ interface FakeTurn {
 
 function makeRunners(): HeadlessDriverRunners & { turns: FakeTurn[] } {
   const turns: FakeTurn[] = []
-  const start = (durable: boolean, turnId: string | undefined, spec: HeadlessTurnSpec, emit: HeadlessEmit) => {
+  const start = (
+    durable: boolean,
+    turnId: string | undefined,
+    spec: HeadlessTurnSpec,
+    emit: HeadlessEmit,
+    hooks?: { onPermission?: FakeTurn['onPermission'] },
+  ) => {
     let resolve!: (outcome: HeadlessTurnOutcome) => void
     let reject!: (error: unknown) => void
     const done = new Promise<HeadlessTurnOutcome>((res, rej) => {
@@ -74,6 +82,8 @@ function makeRunners(): HeadlessDriverRunners & { turns: FakeTurn[] } {
       ...(turnId !== undefined ? { turnId } : {}),
       spec,
       emit,
+      ...(hooks?.onPermission ? { onPermission: hooks.onPermission } : {}),
+      answered: [],
       interrupted: false,
       interruptCalls: 0,
       resolve,
@@ -86,11 +96,14 @@ function makeRunners(): HeadlessDriverRunners & { turns: FakeTurn[] } {
         turn.interrupted = true
         turn.interruptCalls += 1
       },
+      answerPermission: (interactionId: string, answer: { decision: string; feedback?: string }) => {
+        turn.answered.push({ interactionId, answer })
+      },
     }
   }
   return {
     turns,
-    runTurn: (spec, emit) => start(false, undefined, spec, emit),
+    runTurn: (spec, emit, _snapshot, hooks) => start(false, undefined, spec, emit, hooks),
     runDurableTurn: (turnId, _sessionId, spec, emit) => start(true, turnId, spec, emit),
   }
 }
@@ -141,6 +154,8 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount' | 'useDur
       items: host.historyItems.map((item) => ({ ...item, ts: new Date(now).toISOString() })),
       hasMore: false,
     }),
+    archiveTranscript: async () => ({ path: '/tmp/claude-session.jsonl' }),
+    readFileBytes: async () => new TextEncoder().encode('{"transcript":"bytes"}'),
     now: () => now,
   }
   const runtime = createHeadlessRuntime(host, runners)
@@ -173,6 +188,7 @@ function digestFor(input: {
   mcpConfig?: string
   resumeValue?: string
   sessionUuid?: string
+  structuredPermissions?: true
 }): string {
   return createHash('sha256')
     .update(
@@ -186,6 +202,9 @@ function digestFor(input: {
         ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
         ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
         ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
+        ...(input.structuredPermissions !== undefined
+          ? { structuredPermissions: input.structuredPermissions }
+          : {}),
         turnId: input.turnId,
         sessionId: input.sessionId,
         accountId: input.accountId,
@@ -208,6 +227,7 @@ function makeTurn(
     mcpConfig?: string
     resumeValue?: string
     sessionUuid?: string
+    structuredPermissions?: true
     digest?: string
   } = {},
 ): TurnInput {
@@ -229,6 +249,9 @@ function makeTurn(
       ...(fields.mcpConfig !== undefined ? { mcpConfig: fields.mcpConfig } : {}),
       ...(fields.resumeValue !== undefined ? { resumeValue: fields.resumeValue } : {}),
       ...(fields.sessionUuid !== undefined ? { sessionUuid: fields.sessionUuid } : {}),
+      ...(fields.structuredPermissions !== undefined
+        ? { structuredPermissions: fields.structuredPermissions }
+        : {}),
     })
   return {
     id: turnId,
@@ -249,6 +272,9 @@ function makeTurn(
     ...(fields.mcpConfig !== undefined ? { mcpConfig: fields.mcpConfig } : {}),
     ...(fields.resumeValue !== undefined ? { resumeValue: fields.resumeValue } : {}),
     ...(fields.sessionUuid !== undefined ? { sessionUuid: fields.sessionUuid } : {}),
+    ...(fields.structuredPermissions !== undefined
+      ? { structuredPermissions: fields.structuredPermissions }
+      : {}),
   }
 }
 
@@ -318,7 +344,7 @@ describe('headless driver identity', () => {
   })
 
   it('declares send, interrupt, history and next-turn configure', () => {
-    const capabilities = headlessCapabilities()
+    const capabilities = headlessCapabilities('claude-code')
     expect(capabilities.send.native).toContain('when-ready')
     expect(capabilities.send.proof).toContain('protocol-ack')
     expect(capabilities.send.mayReturnUnverified).toBe(false)
@@ -328,9 +354,21 @@ describe('headless driver identity', () => {
       supported: true,
       value: { effective: 'next-turn' },
     })
-    expect(capabilities.interactions).toMatchObject({ supported: false })
+    expect(capabilities.interactions).toMatchObject({ supported: true })
     expect(capabilities.staging).toMatchObject({ supported: false })
     expect(capabilities.attach).toMatchObject({ supported: false })
+  })
+
+  it('declares per-harness permission and archive gaps', () => {
+    // claude-code opens SDK permission asks and ships a locatable transcript.
+    expect(headlessCapabilities('claude-code').interactions).toMatchObject({ supported: true })
+    expect(headlessCapabilities('claude-code').archive).toMatchObject({ supported: true })
+    // codex archives but never asks: no SDK callback on the exec driver.
+    expect(headlessCapabilities('codex').interactions).toMatchObject({ supported: false })
+    expect(headlessCapabilities('codex').archive).toMatchObject({ supported: true })
+    // grok declares neither a permission channel nor a handoff transcript.
+    expect(headlessCapabilities('grok').interactions).toMatchObject({ supported: false })
+    expect(headlessCapabilities('grok').archive).toMatchObject({ supported: false })
   })
 
   it('agrees with the contract catalog on configure fields and attach kinds', async () => {
@@ -441,11 +479,11 @@ describe('headless dispatch', () => {
     let calls = 0
     const failing: HeadlessDriverRunners & { turns: FakeTurn[] } = {
       ...runners,
-      runTurn: (spec, emit, snapshot) => {
+      runTurn: (spec, emit, snapshot, hooks) => {
         calls += 1
         // First dispatch throws; the retry below must take over the same epoch.
         if (calls === 1) throw new Error('spawn ENOENT')
-        return runners.runTurn(spec, emit, snapshot)
+        return runners.runTurn(spec, emit, snapshot, hooks)
       },
     }
     const now = 1_000_000
@@ -464,6 +502,8 @@ describe('headless dispatch', () => {
       durableLabel: (sessionId) => `podium-${sessionId}`,
       bindHeadlessSession: () => {},
       readHistory: async () => ({ items: [], hasMore: false }),
+      archiveTranscript: async () => ({ path: '/tmp/claude-session.jsonl' }),
+      readFileBytes: async () => new TextEncoder().encode('{"transcript":"bytes"}'),
       now: () => now,
     }
     const runtime = createHeadlessRuntime(host, failing)
@@ -704,17 +744,59 @@ describe('headless fences', () => {
     }
   })
 
-  it('refuses structured permissions without an answer channel', async () => {
+  it('refuses structured permissions where the harness has no SDK callback', async () => {
     const { runtime, runners } = makeRuntime()
     try {
-      const { handle, sessionId } = await createHandle(runtime)
-      const input = { ...makeTurn(sessionId), structuredPermissions: true as const }
+      const { handle, sessionId } = await createHandle(runtime, 'codex')
+      const input = makeTurn(sessionId, {
+        turnId: 'perm-no-channel',
+        accountId: 'native:codex:fp-1',
+        structuredPermissions: true,
+      })
       const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
       expect(receipt).toMatchObject({
         outcome: 'refused',
         refusal: { reason: 'unsupported' },
       })
       expect(runners.turns).toHaveLength(0)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('binds structuredPermissions into the digest', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      // Minted unstructured, delivered structured: the facts changed, so the
+      // digest must refuse rather than run the wrong permission posture.
+      const input = makeTurn(sessionId, { turnId: 'perm-digest' })
+      const receipt = await handle.send(
+        { ...input, structuredPermissions: true as const },
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
+      expect(runners.turns).toHaveLength(0)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('routes structured claude turns through the SDK path even with a durable host', async () => {
+    const { runtime, runners } = makeRuntime({ useDurable: true })
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const receipt = await handle.send(
+        makeTurn(sessionId, { turnId: 'perm-sdk', structuredPermissions: true }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt).toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
+      expect(runners.turns).toHaveLength(1)
+      // The durable CLI journal cannot answer a permission: structured turns
+      // bypass it for the live SDK child.
+      expect(runners.turns[0]).toMatchObject({ durable: false })
+      expect(runners.turns[0]?.spec).toMatchObject({ structuredPermissions: true })
+      expect(typeof runners.turns[0]?.onPermission).toBe('function')
     } finally {
       runtime.dispose()
     }
@@ -978,7 +1060,7 @@ describe('headless history and rebind', () => {
     }
   })
 
-  it('answers, exports and attaches as unsupported; usage likewise', async () => {
+  it('answers unknown asks as unknown-interaction; attaches and usage stay unsupported', async () => {
     const { runtime } = makeRuntime()
     try {
       const { handle } = await createHandle(runtime)
@@ -987,7 +1069,6 @@ describe('headless history and rebind', () => {
         reason: 'unknown-interaction',
       })
       expect(await handle.interactions()).toEqual([])
-      await expect(handle.export()).rejects.toBeInstanceOf(DriverRefusalError)
       expect(await handle.attach({ mode: 'peek', holder: 'test' })).toMatchObject({
         reason: 'unsupported',
       })
@@ -995,6 +1076,52 @@ describe('headless history and rebind', () => {
       expect(await handle.usage()).toMatchObject({ reason: 'unsupported' })
       expect(await handle.stageAttachment({ bytes: new Uint8Array(), filename: 'a', mediaType: 't' })).toMatchObject({
         reason: 'unsupported',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('exports the harness-native transcript once a resume ref exists', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      // No conversation yet: the harness has minted nothing to archive.
+      await expect(handle.export()).rejects.toMatchObject({ refusal: { reason: 'no_resume_ref' } })
+      await handle.send(makeTurn(sessionId), { origin: 'system', delivery: 'when-ready' })
+      runners.turns[0]?.resolve({ harnessSessionId: 'h-export-1', output: 'done' })
+      await flush()
+      const archive = await handle.export()
+      expect(archive).toMatchObject({
+        harness: 'claude-code',
+        formatVersion: 1,
+        resume: { value: 'h-export-1' },
+      })
+      expect(archive.files).toHaveLength(1)
+      expect(archive.files[0]?.path).not.toMatch(/^\//)
+      expect(archive.binding).toMatchObject({
+        sessionId,
+        driver: 'headless',
+        family: 'server',
+        harness: 'claude-code',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('refuses export where the harness declares no handoff transcript', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime, 'grok')
+      await handle.send(makeTurn(sessionId, { accountId: 'native:grok:fp-1' }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      runners.turns[0]?.resolve({ harnessSessionId: 'grok-1', output: 'done' })
+      await flush()
+      await expect(handle.export()).rejects.toMatchObject({
+        refusal: { reason: 'unsupported' },
       })
     } finally {
       runtime.dispose()
@@ -1037,6 +1164,122 @@ describe('headless history and rebind', () => {
       } finally {
       if (previous === undefined) delete process.env.PODIUM_STATE_DIR
       else process.env.PODIUM_STATE_DIR = previous
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Structured permissions (claude-sdk turns)
+// ---------------------------------------------------------------------------
+
+describe('headless structured permissions', () => {
+  it('opens a permission ask around the SDK callback and answers it into the child', async () => {
+    const { runtime, host, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      await handle.send(
+        makeTurn(sessionId, { turnId: 'perm-1', structuredPermissions: true }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      const turn = runners.turns[0]
+      expect(turn?.spec).toMatchObject({ structuredPermissions: true })
+      expect(typeof turn?.onPermission).toBe('function')
+      turn?.onPermission?.({ id: 'perm-ask-1', toolName: 'Bash', input: { command: 'rm -rf /' } })
+      await flush()
+      const open = await handle.interactions()
+      expect(open).toHaveLength(1)
+      expect(open[0]).toMatchObject({
+        id: 'perm-ask-1',
+        kind: 'permission',
+        source: 'sdk-callback',
+        answerable: 'structured',
+      })
+      expect((await handle.state()).phase).toBe('needs_user')
+      expect(await handle.snapshot().then((snap) => snap.interactions)).toHaveLength(1)
+      // The ask reaches the server aggregate through its own frame, not just
+      // the coarse event stream.
+      expect(
+        host.sent.some(
+          (msg) => msg.type === 'runtimeInteractionAsked' && msg.interaction.id === 'perm-ask-1',
+        ),
+      ).toBe(true)
+      // A second send while blocked refuses needs_user rather than piling on.
+      expect(
+        await handle.send(makeTurn(sessionId, { turnId: 'perm-2' }), {
+          origin: 'system',
+          delivery: 'when-ready',
+        }),
+      ).toMatchObject({ outcome: 'refused', refusal: { reason: 'needs_user' } })
+      const outcome = await handle.answer('perm-ask-1', {
+        kind: 'permission',
+        decision: 'deny',
+        feedback: 'not today',
+      })
+      expect(outcome).toEqual({ ok: true })
+      expect(turn?.answered).toEqual([
+        { interactionId: 'perm-ask-1', answer: { decision: 'deny', feedback: 'not today' } },
+      ])
+      expect(await handle.interactions()).toEqual([])
+      expect(await handle.answer('perm-ask-1', { kind: 'permission', decision: 'deny' })).toMatchObject(
+        { ok: false, reason: 'already-answered' },
+      )
+      turn?.resolve({ harnessSessionId: 'h-perm-1', output: 'done' })
+      await flush()
+      expect((await handle.state()).phase).toBe('idle')
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('refuses allow-always the provider never offered and expires asks with the turn', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      await handle.send(
+        makeTurn(sessionId, { turnId: 'perm-2', structuredPermissions: true }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      const turn = runners.turns[0]
+      turn?.onPermission?.({ id: 'perm-ask-2', toolName: 'Edit' })
+      await flush()
+      expect(
+        await handle.answer('perm-ask-2', { kind: 'permission', decision: 'allow-always' }),
+      ).toMatchObject({ ok: false, reason: 'not-yet-supported' })
+      expect(await handle.interactions()).toHaveLength(1)
+      // The turn dies with the ask still open: the ask expires rather than
+      // parking the session on a callback that no longer exists.
+      runners.turns[0]?.reject(new Error('turn interrupted'))
+      await flush()
+      expect(await handle.interactions()).toEqual([])
+      const events = await takeEvents(handle, 8)
+      expect(
+        events.some((event) => event.t === 'interaction' && event.ev.ev === 'expired'),
+      ).toBe(true)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('accepts the UI allow shorthand and allow-always with suggestions', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      await handle.send(
+        makeTurn(sessionId, { turnId: 'perm-3', structuredPermissions: true }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      const turn = runners.turns[0]
+      turn?.onPermission?.({
+        id: 'perm-ask-3',
+        toolName: 'Write',
+        suggestions: [{ type: 'allow' }],
+      })
+      await flush()
+      // `allow` is the UI shorthand for a one-shot grant.
+      expect(await handle.answer('perm-ask-3', { decision: 'allow' })).toEqual({ ok: true })
+      expect(turn?.answered[0]?.answer.decision).toBe('allow-once')
+    } finally {
+      runtime.dispose()
     }
   })
 })

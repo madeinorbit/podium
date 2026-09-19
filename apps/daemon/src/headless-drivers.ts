@@ -552,15 +552,41 @@ const DRIVER_IMPLS: Record<HarnessHeadless['driver'], HeadlessDriver> = {
   'resume-exec': resumeExecDriver,
 }
 
+/** Live SDK callbacks a contract caller may route into PendingInteractions.
+ *  Only the `claude-sdk` driver kind honours `onPermission`; child-process
+ *  drivers have no permission channel and ignore these hooks. */
+export interface HeadlessTurnHooks {
+  onPermission?: (request: {
+    id: string
+    toolName: string
+    input?: unknown
+    suggestions?: readonly unknown[]
+  }) => void
+  onToolCall?: (call: { toolUseId: string; toolName: string; input?: unknown }) => void
+  onToolResult?: (result: { toolUseId: string; output: string; isError?: boolean }) => void
+}
+
 /** Driver selection by agent — an adapter registry lookup (#249). */
 export function runHeadlessTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   snapshot: ResolvedHarnessInventory,
+  hooks?: HeadlessTurnHooks,
 ): HeadlessTurnHandle {
   const headless = headlessFor(spec.agent)
   if (spec.toolPolicy === 'none' && headless.noTools !== 'enforced') {
     throw new Error(`harness ${spec.agent} cannot enforce a no-tools headless turn`)
+  }
+  if (headless.driver === 'claude-sdk') {
+    return runClaudeSdkChildTurn(
+      { ...spec, executablePath: resolvedHarnessPath(snapshot, 'claude-code') },
+      emit,
+      {
+        ...(hooks?.onPermission ? { onPermission: hooks.onPermission } : {}),
+        ...(hooks?.onToolCall ? { onToolCall: hooks.onToolCall } : {}),
+        ...(hooks?.onToolResult ? { onToolResult: hooks.onToolResult } : {}),
+      },
+    )
   }
   return DRIVER_IMPLS[headless.driver](spec, emit, snapshot)
 }

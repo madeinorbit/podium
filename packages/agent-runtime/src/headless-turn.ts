@@ -57,6 +57,11 @@ function canonicalJson(value: unknown): string {
  * ids and the durable session/account identity. Transport ids (rowId, RPC
  * requestId) deliberately do not affect it — a reconnect replays the SAME turn,
  * not a new one.
+ *
+ * `structuredPermissions` rides the digest when present (absent-means-absent):
+ * it flips the SDK's effective permission mode (`default` vs `auto`) when no
+ * explicit `permissionMode` is set, so a turn minted unstructured must never
+ * verify as structured.
  */
 export function canonicalHeadlessContractFacts(input: {
   prompt: string
@@ -68,6 +73,7 @@ export function canonicalHeadlessContractFacts(input: {
   mcpConfig?: string
   resumeValue?: string
   sessionUuid?: string
+  structuredPermissions?: true
   turnId: string
   sessionId: string
   accountId: string
