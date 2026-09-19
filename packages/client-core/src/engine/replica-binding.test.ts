@@ -184,7 +184,7 @@ describe('addressed replica binding (pilot remains opt-in)', () => {
       const value = session('s42', '2026-09-19T12:00:00Z')
       cache.put('session', 's42', value)
       // Deliberately stale payload: only the committed cache is authoritative.
-      replica.onKernelEvent({ type: 'upserted', record: { entity: 'session', entityId: 's42', value: session('wrong'), provenance: { seq: 1 } } })
+      replica.onKernelEvent({ type: 'upserted', readmitted: false, record: { entity: 'session', entityId: 's42', value: session('wrong'), provenance: { seq: 1 } } })
       expect(final).toBe(value)
       const delta = { arrays: arrays.mock.calls.length, scans: scans.mock.calls.length, reads: reads.mock.calls.length }
       stop()
@@ -213,7 +213,7 @@ describe('addressed replica binding (pilot remains opt-in)', () => {
     })
     const upsert = (id: string) => {
       cache.put('session', id, session(id))
-      replica.onKernelEvent({ type: 'upserted', record: cache.read('session', id)! })
+      replica.onKernelEvent({ type: 'upserted', readmitted: false, record: cache.read('session', id)! })
     }
     const remove = (id: string) => {
       cache.drop('session', id)
@@ -274,10 +274,10 @@ describe('addressed replica binding (pilot remains opt-in)', () => {
     const batches: ReplicaAddressedBatch[] = []
     const legacy: unknown[] = []
     replica.subscribeRows('sessions', () => legacy.push(replica.rows('sessions')))
-    replica.subscribeRowBatch((kinds) => { for (const kind of kinds) replica.rows(kind) })
+    replica.subscribeRowBatch!((kinds) => { for (const kind of kinds) replica.rows(kind) })
     binding.subscribeAddressedBatch!((batch) => batches.push(batch))
     cache.put('session', 's', session('s'))
-    replica.onKernelEvent({ type: 'upserted', record: cache.read('session', 's')! })
+    replica.onKernelEvent({ type: 'upserted', readmitted: false, record: cache.read('session', 's')! })
     expect(legacy).toEqual([[session('s')]])
     expect(batches).toEqual([{ type: 'update', rows: [{ kind: 'sessions', id: 's' }] }])
     expect(binding.row!('sessions', 's')).toEqual(session('s'))

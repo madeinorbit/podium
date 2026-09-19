@@ -3799,7 +3799,7 @@ describe('addressed kernel runtime publications', () => {
     const upsert = (id: string, name: string) => {
       const record = { entity: 'session', entityId: id, value: { ...session(id, '/tmp/known-repo'), name }, provenance: { seq: 1 } }
       records.set(`session:${id}`, record)
-      replica.onKernelEvent({ type: 'upserted', record: { ...record, value: { ...record.value, name: 'stale event' } } })
+      replica.onKernelEvent({ type: 'upserted', readmitted: false, record: { ...record, value: { ...record.value, name: 'stale event' } } })
     }
     const remove = (id: string) => {
       records.delete(`session:${id}`)
