@@ -33,6 +33,41 @@ export interface TurnInput {
   /** Creation prompts retain at-most-once submission across ambiguous receipts. */
   initialPrompt?: boolean
   /**
+   * HEADLESS PER-TURN POLICY (POD-4386).
+   *
+   * The legacy headless port carried these per turn (HeadlessTurnRequestMessage:
+   * allowedTools, permissionMode, toolPolicy, mcpConfig, resumeValue,
+   * sessionUuid, accountId, requestDigest). The contract carried none of them,
+   * so superagent/shipwright could not migrate. They are OPTIONAL and
+   * ABSENT-MEANS-ABSENT: a driver that does not implement a field refuses
+   * `unsupported` rather than silently dropping it, and a turn that names no
+   * field behaves exactly as before.
+   *
+   * `accountId`/`requestDigest` are the durable identity: the exact
+   * native-login fingerprint and the SHA-256 of the canonical immutable facts.
+   * See `canonicalHeadlessContractFacts` / `verifyHeadlessDigest` in
+   * `./headless-turn.ts`. Drivers verify both before dispatch and refuse on
+   * mismatch, exactly as `apps/daemon/src/control/headless.ts` does today.
+   */
+  /** Tools pre-approved for THIS TURN ONLY. Session default lives on SessionSpec. */
+  allowedTools?: string[]
+  /** Permission mode for THIS TURN ONLY (e.g. 'auto', 'bypassPermissions'). */
+  permissionMode?: string
+  /** Requests the adapter's tested all-tools-off mode for THIS TURN ONLY. */
+  toolPolicy?: 'none'
+  /** MCP config JSON ({ mcpServers: … }) for THIS TURN ONLY. */
+  mcpConfig?: string
+  /** Harness session id to resume; absent = first turn (mint a new session). */
+  resumeValue?: string
+  /** Claude only: mint the first-turn session with this UUID. */
+  sessionUuid?: string
+  /** Exact native-login fingerprint selected by the server. */
+  accountId?: string
+  /** SHA-256 of the canonical immutable turn facts. */
+  requestDigest?: string
+  /** Route SDK tool authorization through structured RuntimeDriver interactions. */
+  structuredPermissions?: true
+  /**
    * Stable identity supplied by the caller when a later delivery outcome has
    * to reconcile durable state outside the driver. Drivers must carry it
    * through any local queue unchanged.

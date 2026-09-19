@@ -87,6 +87,30 @@ export interface SessionSpec {
   env?: Readonly<Record<string, string>>
   /** A first prompt delivered as part of the spawn where the harness accepts one. */
   initialPrompt?: string
+  /**
+   * HEADLESS SESSION DEFAULTS (POD-4386).
+   *
+   * The legacy headless port carried per-session durable identity
+   * (durableLabel, executablePath) plus session-level tool policy that the
+   * contract could not name. All OPTIONAL and ABSENT-MEANS-ABSENT. Per-turn
+   * values on TurnInput win over these session defaults; a driver that does
+   * not implement a field refuses `unsupported` rather than silently dropping
+   * it.
+   */
+  /** Exact durable host label for the owning instance/session. */
+  durableLabel?: string
+  /** Absolute executable captured from the current generation. */
+  executablePath?: string
+  /** Route SDK tool authorization through structured RuntimeDriver interactions. */
+  structuredPermissions?: true
+  /** Session-default tools pre-approved; per-turn TurnInput.allowedTools wins. */
+  allowedTools?: string[]
+  /** Session-default permission mode; per-turn TurnInput.permissionMode wins. */
+  permissionMode?: string
+  /** Session-default all-tools-off mode; per-turn TurnInput.toolPolicy wins. */
+  toolPolicy?: 'none'
+  /** Exact native-login fingerprint for the session (durable identity). */
+  accountId?: string
 }
 
 /**
