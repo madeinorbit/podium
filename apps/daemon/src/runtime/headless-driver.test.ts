@@ -410,6 +410,78 @@ describe('headless dispatch', () => {
     }
   })
 
+  it('refuses creation prompts at the session level', async () => {
+    const { runtime } = makeRuntime()
+    try {
+      await expect(
+        runtime
+          .driverFor('claude-code')
+          .create({ ...makeSpec('claude-code'), initialPrompt: 'hi' }),
+      ).rejects.toMatchObject({ refusal: { reason: 'unsupported' } })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('reports dispatch failures as not-running without consuming an epoch', async () => {
+    const runners = makeRunners()
+    let calls = 0
+    const failing: HeadlessDriverRunners & { turns: FakeTurn[] } = {
+      ...runners,
+      runTurn: () => {
+        calls += 1
+        throw new Error('spawn ENOENT')
+      },
+    }
+    const now = 1_000_000
+    const host: FakeHost = {
+      binds: [],
+      sent: [],
+      envs: [],
+      nativeAccount: 'ok',
+      useDurable: false,
+      historyItems: [],
+      send: () => {},
+      snapshot: async () => testHarnessSnapshot(),
+      durable: () => undefined,
+      assertNativeAccount: () => {},
+      sessionEnv: () => ({}),
+      durableLabel: (sessionId) => `podium-${sessionId}`,
+      bindHeadlessSession: () => {},
+      readHistory: async () => ({ items: [], hasMore: false }),
+      now: () => now,
+    }
+    const runtime = createHeadlessRuntime(host, failing)
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const refused = await handle.send(makeTurn(sessionId, { turnId: 'x1' }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      expect(refused).toMatchObject({
+        outcome: 'refused',
+        refusal: { reason: 'not_running', detail: expect.stringContaining('ENOENT') },
+      })
+      expect(calls).toBe(1)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('cancels only the delivery row it names', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const input = { ...makeTurn(sessionId, { turnId: 'rowed' }), rowId: 'row-1' }
+      await handle.send(input, { origin: 'system', delivery: 'when-ready' })
+      expect(await handle.cancelDelivery('row-other')).toMatchObject({ reason: 'not_running' })
+      expect(await handle.cancelDelivery('row-1')).toMatchObject({ ok: true })
+      expect(runners.turns[0]?.interrupted).toBe(true)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
   it('completes a turn with done verdict, resume learning and one bind', async () => {
     const { runtime, host, runners } = makeRuntime()
     try {
@@ -508,7 +580,12 @@ describe('headless fences', () => {
         const input = { ...full }
         delete input[missing]
         const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
-        expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
+        // The presence fence answers, not the digest fence: neutering this
+        // check must change the detail, not just the refusal.
+        expect(receipt).toMatchObject({
+          outcome: 'refused',
+          refusal: { reason: 'invalid_value', detail: expect.stringContaining('requires') },
+        })
       }
       expect(runners.turns).toHaveLength(0)
     } finally {
@@ -729,7 +806,9 @@ describe('headless turn endings', () => {
       expect(receipt).toMatchObject({ outcome: 'accepted', turnEpoch: 2 })
       expect(runners.turns[0]?.interrupted).toBe(true)
       expect(runners.turns).toHaveLength(2)
-      runners.turns[0]?.reject(new Error('turn interrupted'))
+      // A generic kill error, not the 'turn interrupted' string: only the
+      // interrupt flag earned by the delivery above may report it as fenced.
+      runners.turns[0]?.reject(new Error('signal: killed'))
       runners.turns[1]?.resolve({ harnessSessionId: 'h-2', output: 'second' })
       await flush()
       const events = await takeEvents(handle, 8)
