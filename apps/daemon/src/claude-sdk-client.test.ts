@@ -342,7 +342,11 @@ describe('a Claude turn in a child process', () => {
     })
 
     const outcome = expect(handle.done).rejects.toThrow('Claude model host process exited')
-    await handle.dispose?.()
+    // Contract lifecycle callers receive retirement through the returned
+    // promise — a fire-and-forget dispose would return undefined here.
+    const retirement = handle.dispose?.()
+    expect(retirement).toBeInstanceOf(Promise)
+    await retirement
     expect(child?.signalCode).toBe('SIGKILL')
     await outcome
   })

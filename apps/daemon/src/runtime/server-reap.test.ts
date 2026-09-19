@@ -1005,6 +1005,41 @@ describe('the choke point: every teardown frame lands in stopSessionProcess', ()
 
     expect(calls).toEqual(['kill'])
   })
+
+  it('nothing measured means nothing confirmed — an unowned session resolves false', async () => {
+    const { handle } = fakeHandle({})
+    const { ctx } = wiringCtx(handle)
+    Object.assign(ctx, {
+      agentRuntime: {
+        handleFor: () => undefined,
+        serverHandleFor: () => undefined,
+        journalledServerProcess: () => undefined,
+        clearTerminal: () => {},
+      },
+    })
+    // No bridge, no handle, no journal, backend 'none': no family measured
+    // anything, so the shared choke point must not report retirement.
+    await expect(stopSessionProcess(ctx, { sessionId: SESSION })).resolves.toBe(false)
+  })
+
+  it('a timeout retry observes the same retirement instead of reaping twice', async () => {
+    const state: FakeProcessState = { alive: true, diesOn: 'SIGTERM' }
+    const { handle, calls } = fakeHandle({
+      pid: 4321,
+      onStop: () => { state.alive = false },
+    })
+    const { ctx } = wiringCtx(handle)
+    Object.assign(ctx, { serverReapIo: fakeIo(state) })
+    const [first, second] = await Promise.all([
+      stopSessionProcess(ctx, { sessionId: SESSION }),
+      stopSessionProcess(ctx, { sessionId: SESSION }),
+    ])
+    expect(first).toBe(true)
+    expect(second).toBe(true)
+    // The handle verb ran once: the second caller joined the same retirement
+    // rather than reaping the now-empty registry a second time.
+    expect(calls).toEqual(['stop'])
+  })
 })
 
 
@@ -1034,6 +1069,60 @@ describe('retirement evidence', () => {
     expect(sent).toEqual([])
     finish()
     await vi.waitFor(() => expect(sent).toContainEqual(expect.objectContaining({ result: { ok: true, retirement: 'confirmed' } })))
+  })
+
+  it('a durable reap that throws reports unconfirmed rather than guessing', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = {
+      backend: 'host',
+      durable: {
+        kill: async () => { throw new Error('scope bus unavailable') },
+        has: async () => { throw new Error('scope bus unavailable') },
+      },
+      settingsDir: '/nonexistent/podium-test-settings',
+      bridges: new Map(),
+      pendingResizes: new Map(),
+      durableLabels: new Map(),
+      durableLabelFor: (sessionId: SessionId) => `podium-${sessionId}`,
+      observers: { clearSession: () => {} },
+      outputScheduler: { remove: () => {} },
+      portableStateFence: { runSync: (fn: () => void) => fn() },
+      agentRuntime: {
+        handleFor: () => undefined,
+        serverHandleFor: () => undefined,
+        journalledServerProcess: () => undefined,
+        clearTerminal: () => {},
+      },
+      instanceUuid: undefined,
+      send: (msg: DaemonMessage) => void sent.push(msg),
+    } as unknown as DaemonContext
+    // The kill threw AND the follow-up probe threw: nothing was measured, so
+    // the receipt must not claim the process is gone.
+    await expect(stopSessionProcess(ctx, { sessionId: SESSION })).resolves.toBe(false)
+    expect(killResult(sent)).toMatchObject({ killed: false, reason: 'scope bus unavailable' })
+  })
+
+  it('a journalled reap that throws after corroboration keeps killed:false and the journal', async () => {
+    const { ctx, sent, journalCleared } = fakeCtx('opencodeRuntime', {
+      journalEntry: journalEntryFor('opencode'),
+    })
+    let probes = 0
+    const io = {
+      ...fakeIo({ alive: true, diesOn: 'never' }),
+      signal: () => { throw new Error('signal bus unavailable') },
+      probeOpencode: async () => {
+        probes += 1
+        if (probes > 1) throw new Error('probe bus unavailable')
+        return true
+      },
+    }
+    await beginServerDriverReap(ctx, SESSION, { retire: true }, io)
+    await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+    // Corroborated alive, then the signal threw and the re-probe threw: the
+    // process may still be running, so the receipt stays unconfirmed and the
+    // journal — the only recovery identity — is retained.
+    expect(killResult(sent)).toMatchObject({ killed: false, reason: 'signal bus unavailable' })
+    expect(journalCleared).toEqual([])
   })
 })
 
