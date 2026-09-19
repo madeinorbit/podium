@@ -141,6 +141,37 @@ describe('reconcileSupervision', () => {
     expect(result.actions).toEqual(kind === 'changed' ? ['refresh-parent', 'noop'] : ['noop'])
   })
 
+  it('refreshes a stale dev-profile parent unit as a dev unit, keeping its source root', async () => {
+    const { deps, installed, enabled, commands } = fixture()
+    installed.clear()
+    installed.add('podium.service')
+    enabled.add('podium.service')
+    const devUnit = renderParentUnit({
+      instanceId: 'default',
+      port: resolvePort(loadConfig()),
+      profile: 'dev',
+      home: '/home/mgw',
+      repoRoot: '/home/mgw/src/other/podium/.worktrees/dev-mw',
+    })
+    const written: string[] = []
+    const result = await reconcileSupervision({
+      ...deps,
+      readUnit: () => devUnit.replace('WatchdogSec=90', 'WatchdogSec=60'),
+      writeUnit: (unit: string, body: string) => {
+        written.push(body)
+        return deps.writeUnit(unit, body)
+      },
+      unitActive: () => true,
+      parentHealthy: () => true,
+    })
+    expect(commands).toEqual(['write:podium.service', 'reload'])
+    expect(result.actions).toEqual(['refresh-parent', 'noop'])
+    expect(written).toEqual([devUnit])
+    expect(written[0]).toContain(
+      'Environment=PODIUM_DEV_SOURCE_ROOT=/home/mgw/src/other/podium/.worktrees/dev-mw',
+    )
+  })
+
   it('reports unavailable systemd without changing desired persistence or writing units', async () => {
     const { deps, commands } = fixture()
     const result = await reconcileSupervision({ ...deps, hasUserSystemd: () => false })

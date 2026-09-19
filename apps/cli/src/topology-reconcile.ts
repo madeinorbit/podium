@@ -35,6 +35,7 @@ import {
   enableSystemdUnits,
   maskSystemdUnitsRuntime,
   removeUserUnits,
+  parentUnitRenderOptions,
   renderParentUnit,
   startSystemdUnits,
   systemdUnitActive,
@@ -190,7 +191,8 @@ export async function reconcileSupervision(
   if (obs.persistence === 'systemd' && obs.parentUnitPresent) {
     const path = join((deps.unitDir ?? userUnitDir)(), desiredParentUnit(instanceId))
     const current = (deps.readUnit ?? ((path) => readFileSync(path, 'utf8')))(path)
-    const desired = renderParentUnit({ instanceId, port })
+    // Same profile as the unit on disk: a dev host's unit stays a dev unit.
+    const desired = renderParentUnit({ ...parentUnitRenderOptions(current), instanceId, port })
     if (current.startsWith(GENERATED_UNIT_NOTICE) && current !== desired) {
       ;(deps.writeUnit ?? writeUserUnit)(desiredParentUnit(instanceId), desired)
       ;(deps.reloadUnits ?? reloadUserSystemd)()

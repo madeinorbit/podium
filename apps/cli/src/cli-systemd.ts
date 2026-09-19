@@ -239,6 +239,24 @@ WantedBy=default.target
 `
 }
 
+/**
+ * The render options an INSTALLED generated parent unit was produced with, so
+ * a refresh re-renders the same profile instead of the packaged default.
+ *
+ * A development host's unit is the dev profile: it carries the checkout as
+ * `PODIUM_DEV_SOURCE_ROOT` (the publisher opt-in, see development-runtime.ts)
+ * and the account's HOME. Nothing else records that choice — config has no
+ * profile field — so the unit body is the only place to read it back from.
+ * Re-rendering it as packaged silently dropped the opt-in on this host, and
+ * with it every release proposal (POD-4384).
+ */
+export function parentUnitRenderOptions(unitBody: string): SystemdRenderOptions {
+  const repoRoot = unitBody.match(/^Environment=PODIUM_DEV_SOURCE_ROOT=(.+)$/m)?.[1]?.trim()
+  if (!repoRoot) return {}
+  const home = unitBody.match(/^Environment=HOME=(.+)$/m)?.[1]?.trim()
+  return { profile: 'dev', repoRoot, ...(home ? { home } : {}) }
+}
+
 /** Single parent unit that owns server + daemon children [POD-2506]. */
 export function renderParentUnit(opts: SystemdRenderOptions = {}): string {
   const c = context(opts)
