@@ -43,10 +43,10 @@ import type { DaemonContext } from './control/context'
 import { nativeClientInteractionAnswered, nativeClientStateObserved } from './control/session'
 
 export interface FrameSinkPorts {
-  /** The real transport. Every frame reaches it, tapped or not. */
+  /** The transport. Driver-owned identity inputs are replaced by contract events. */
   upstream(message: DaemonMessage): void
   /** The machine runtime's observation tap, once it is built. */
-  runtime(): { observe(message: DaemonMessage): void } | undefined
+  runtime(): { observe(message: DaemonMessage): boolean | void } | undefined
   /** The daemon context, once the bootstrap has one. */
   context(): DaemonContext | undefined
 }
@@ -70,7 +70,9 @@ export function createFrameSink(ports: FrameSinkPorts): (message: DaemonMessage)
      * own output. `runtimeFineEvent` is the same stream at token granularity.
      */
     if (message.type !== 'runtimeEvent' && message.type !== 'runtimeFineEvent') {
-      ports.runtime()?.observe(message)
+      // A registered terminal publishes native discovery through its durable
+      // contract stream. The binding store still retains its independent receipt.
+      if (ports.runtime()?.observe(message) === true && message.type === 'sessionResumeRef') return
     }
     // Fold the contract stream for native retry admission. Stale generations
     // and replayed cursors cannot re-arm an attachment refused by newer state.

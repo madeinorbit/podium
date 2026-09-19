@@ -13,6 +13,7 @@ import {
 const at = '2026-09-18T12:00:00.000Z'
 const bodies = {
   metadata: { t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 } },
+  binding: { t: 'binding', resume: { kind: 'codex-thread', value: 'native' }, confidence: 'exact', bindingVersion: 1, ackRequested: true },
   delivery: { t: 'delivery', rowId: 'row', outcome: 'delivered' },
   state: { t: 'state', change: { kind: 'activity' } },
   item: { t: 'item', item: { kind: 'complete', item: { id: 'item', role: 'system', text: 'Interrupted', ts: at } } },
@@ -33,7 +34,7 @@ function event(body: RuntimeEventBody, provenance: RuntimeEvent['provenance'] = 
 }
 
 describe('runtime event retention contract', () => {
-  it.each(['metadata', 'delivery', 'item', 'transcript-reset', 'interaction', 'turn', 'process', 'open-url'] as const)(
+  it.each(['metadata', 'binding', 'delivery', 'item', 'transcript-reset', 'interaction', 'turn', 'process', 'open-url'] as const)(
     'retains %s because loss is not repaired by the next observation', (kind) => {
       expect(isDurableRuntimeEvent(event(bodies[kind]))).toBe(true)
     },

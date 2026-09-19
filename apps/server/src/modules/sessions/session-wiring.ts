@@ -677,6 +677,17 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    */
   runtimeEventGate = new RuntimeEventGate({
     metadata: (sessionId, event) => bag.daemonProjection.runtimeEvent(sessionId, event),
+    binding: async (sessionId, event) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) return
+      const lease = bag.observationLeases.get(sessionId)
+      if (lease && (lease.observationGeneration !== event.observerGeneration ||
+          lease.bindingVersion !== event.bindingVersion)) return
+      await bag.bindingReceipts.observeResumeRef(session.machineId, {
+        type: 'sessionResumeRef', sessionId, resume: event.resume,
+        confidence: event.confidence, ackRequested: event.ackRequested, receipt: event.receipt,
+      })
+    },
     delivery: (sessionId, event) => bag.inbox.deliveryOutcome(sessionId, event),
     events: store.events,
     session: (sessionId) => bag.sessions.get(sessionId),

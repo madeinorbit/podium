@@ -1,3 +1,4 @@
+import { NativeBindingReceipt } from './native-binding'
 import { SessionDelegation } from '@podium/model'
 import {
   AgentKind,
@@ -33,6 +34,7 @@ export const SessionResumeRefAckMessage = z.object({
   resume: ResumeRef,
   /** Binding owner resolved by the server; absent from older rolling peers. */
   ownerId: UserIdField.optional(),
+  receipt: NativeBindingReceipt.optional(),
 })
 
 /** Server verdict for an exact native-id collision. Both host observations

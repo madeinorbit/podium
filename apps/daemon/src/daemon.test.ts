@@ -20,7 +20,7 @@ import type {
 } from '@podium/agent-runtime'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
-import { asSessionId, asUserId, type SessionId } from '@podium/model'
+import { asAgentIdentityId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
 
 /**
@@ -257,7 +257,10 @@ type FlatFrame = { sessionId: SessionId; data: string }
 // therefore answer the handshake. This helper replies `helloOk` to the first frame (the
 // hello), then records every subsequent DaemonMessage — exactly what the old bare
 // `on('message')` did, minus the (now non-DaemonMessage) handshake frame.
-function handshakeAndCollect(ws: WS, received: DaemonMessage[]): Promise<void> {
+function handshakeAndCollect(
+  ws: WS, received: DaemonMessage[],
+  bindingConfirmations?: import('@podium/protocol').BindingConfirmations,
+): Promise<void> {
   let authed = false
   let resolveHandshake!: () => void
   const handshake = new Promise<void>((resolve) => {
@@ -271,6 +274,7 @@ function handshakeAndCollect(ws: WS, received: DaemonMessage[]): Promise<void> {
         v: DAEMON_WIRE_VERSION,
         caps: [],
         name: 'test',
+        ...(bindingConfirmations ? { bindingConfirmations } : {}),
       }
       ws.send(JSON.stringify(ok), resolveHandshake)
       return
@@ -2912,6 +2916,7 @@ describe('Codex identity receipt recovery', () => {
   it.skipIf(process.platform === 'win32')(
     'replays after authentication and removes only the server-acknowledged binding',
     async () => {
+      const machineId = asMachineId('receipt-machine')
       const settingsDir = trackTmp('podium-hooks-')
       const receiptDir = join(settingsDir, 'codex-identity-receipts')
       const receiptPath = join(receiptDir, 'pane-a.json')
@@ -2925,13 +2930,19 @@ describe('Codex identity receipt recovery', () => {
       const connected = new Promise<void>((resolve) => {
         wss.once('connection', (ws) => {
           serverSocket = ws
-          handshakeAndCollect(ws, received)
+          handshakeAndCollect(ws, received, {
+            'pane-a': { owner: A_MEMBER, machineId, closed: false, delegation: {
+              actor: asAgentIdentityId('receipt-agent'), onBehalfOf: A_MEMBER,
+              grantedScope: { kind: 'none' }, parentBindingId: null, revision: 1,
+            } },
+          })
           resolve()
         })
       })
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${(wss.address() as { port: number }).port}`,
         machineToken: 'test',
+        machineId,
         backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
@@ -2966,12 +2977,18 @@ describe('Codex identity receipt recovery', () => {
         )
         expect(await readFile(bindingPath, 'utf8')).toContain('pendingServerAck')
 
+        const replay = received.find(
+          (msg): msg is Extract<DaemonMessage, { type: 'sessionResumeRef' }> =>
+            msg.type === 'sessionResumeRef' && msg.sessionId === 'pane-a',
+        )
+        expect(replay?.receipt).toMatchObject({ ownerId: A_MEMBER, machineId })
         serverSocket.send(
           encode({
             type: 'sessionResumeRefAck',
             sessionId: asSessionId('pane-a'),
             resume: { kind: 'codex-thread', value: 'thread-a' },
             ownerId: A_MEMBER,
+            receipt: replay?.receipt,
           }),
         )
         await waitFor(() => !readFileSync(bindingPath, 'utf8').includes('pendingServerAck'))

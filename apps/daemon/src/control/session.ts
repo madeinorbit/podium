@@ -2824,7 +2824,7 @@ export const sessionHandlers: Pick<
   },
   sessionResumeRefAck: (ctx, msg) => {
     void ctx.sessionBinding
-      .acknowledgeReceipt(msg.ownerId, msg.sessionId, msg.resume)
+      .acknowledgeReceipt(msg.ownerId, msg.sessionId, msg.resume, msg.receipt)
       .catch((err) => log.warn('could not acknowledge the Codex identity receipt', { err }))
   },
   sessionPriority: (ctx, msg) => {

@@ -1259,3 +1259,26 @@ describe('SessionBinding transition vocabulary', () => {
     expect(found).toEqual(['delegation.grantedScope'])
   })
 })
+
+
+it('carries an outstanding native receipt through same-process reattach with a fresh ack token', async () => {
+  const bindings = await store()
+  const original = await spawn(bindings, 'receipt-reattach', 'codex', { attemptId: 'same-process' })
+  await bindings.recordPendingCodexReceipt(original.sessionId, 'native', 'native-hook')
+  const before = (await bindings.read(original.sessionId))!.observations.at(-1)!.receipt!
+  const rebound = applied(await bindings.transition({
+    event: 'reattach', transitionId: 'receipt-reattach:2', sessionId: original.sessionId,
+    claimantMachineId: machineA, machineAccess: 'allowed', sessionAccess: 'allowed',
+    principal: { kind: 'user', userId: alice }, requestedGeneration: 2,
+    delegation: serverDelegation(original.sessionId),
+  }))
+  const after = rebound.observations.at(-1)!.receipt!
+  expect(after).toMatchObject({ attemptId: 'same-process', observerGeneration: 2, ownerId: alice })
+  expect(after.id).not.toBe(before.id)
+  const frames: import('@podium/protocol/daemon').DaemonMessage[] = []
+  expect(await bindings.replayPendingReceiptForSession(original.sessionId, (frame) => frames.push(frame))).toBe(1)
+  expect(frames).toMatchObject([{ resume: { value: 'native' }, receipt: after }])
+  const resume = { kind: 'codex-thread', value: 'native' }
+  expect(await bindings.acknowledgePendingReceipt(alice, original.sessionId, resume, before)).toBe(false)
+  expect(await bindings.acknowledgePendingReceipt(alice, original.sessionId, resume, after)).toBe(true)
+})

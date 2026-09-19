@@ -1551,3 +1551,62 @@ describe('durable transcript replacement windows', () => {
     }
   })
 })
+
+it('projects native binding receipts after a closed turn and restores the projection on replay', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  try {
+    const sessionId = await bindContract(registry, store)
+    const at = '2026-09-18T00:00:00.000Z'
+    const send = (event: RuntimeEvent) => registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent', sessionId, deliveryId: `native-${event.cursor.components.seq}`, event,
+    })
+    await send(turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started' }))
+    await send(turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }))
+    const event: RuntimeEvent = { t: 'binding', resume: { kind: 'codex-thread', value: 'native-thread' },
+      confidence: 'exact', ackRequested: true, bindingVersion: 1, at, provenance: 'live',
+      observerGeneration: 1, turnEpoch: 1, cursor: { segmentId: 'runtime-segment', components: { seq: 3 } } }
+    await send(event)
+    await registry.modules.sessions.runtimeGateway.replayBoardProjection()
+    expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
+    await send(event)
+    await registry.modules.sessions.runtimeGateway.replayBoardProjection()
+    expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
+    await send({ ...event, resume: { kind: 'codex-thread', value: 'wrong-generation' },
+      observerGeneration: 0, cursor: { segmentId: 'runtime-segment', components: { seq: 4 } } })
+    await registry.modules.sessions.runtimeGateway.replayBoardProjection()
+    expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
+  } finally {
+    await registry.dispose()
+    await store.close()
+  }
+})
+
+it('retains the binding projection cursor when receipt persistence fails', async () => {
+  let cursor = 0
+  let fail = true
+  const sessionId = asSessionId('binding-retry')
+  const event: RuntimeEvent = { t: 'binding', resume: { kind: 'codex-thread', value: 'native' },
+    confidence: 'exact', bindingVersion: 1, ackRequested: true, at: '2026-09-18T00:00:00.000Z',
+    provenance: 'live', observerGeneration: 1, turnEpoch: 0,
+    cursor: { segmentId: 'native', components: { seq: 1 } } }
+  const projected: string[] = []
+  const ports: RuntimeEventGatePorts = {
+    events: {
+      runtimeEventProjectionCursor: async () => cursor,
+      saveRuntimeEventProjectionCursor: async (_name: string, next: number) => { cursor = next },
+      listRuntimeEventsAfter: async (after: number) => after < 1 ? [{ id: 1, sessionId, event }] : [],
+    } as unknown as RuntimeEventGatePorts['events'],
+    session: () => undefined, persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
+    binding: async (_id, receipt) => {
+      if (fail) throw new Error('binding persistence unavailable')
+      projected.push(receipt.resume.value)
+    },
+  }
+  await expect(new RuntimeEventGate(ports).replayBoardProjection()).rejects.toThrow('binding persistence unavailable')
+  expect(cursor).toBe(0)
+  fail = false
+  await new RuntimeEventGate(ports).replayBoardProjection()
+  expect(cursor).toBe(1)
+  expect(projected).toEqual(['native'])
+})

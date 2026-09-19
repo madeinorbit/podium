@@ -52,6 +52,7 @@ export interface RuntimeStateProjection {
 
 export interface RuntimeEventGatePorts {
   metadata?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'metadata' }>): Promise<void>
+  binding?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'binding' }>): Promise<void>
   delivery?(sessionId: SessionId, event: Extract<RuntimeEvent, { t: 'delivery' }>): Promise<void>
   events: Pick<
     EventsRepository,
@@ -398,6 +399,7 @@ export class RuntimeEventGate {
       event.turnEpoch <= current.closedTurnEpoch &&
       event.t !== 'process' &&
       event.t !== 'delivery' &&
+      event.t !== 'binding' &&
       event.t !== 'draft' &&
       event.t !== 'metadata' &&
       !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
@@ -423,6 +425,7 @@ export class RuntimeEventGate {
   private async projectBoard(record: RuntimeEventLogRecord): Promise<void> {
     const { event, id: eventId, sessionId } = record
     if (event.t === 'metadata') await this.ports.metadata?.(sessionId, event)
+    if (event.t === 'binding') await this.ports.binding?.(sessionId, event)
     if (event.t === 'delivery') await this.ports.delivery?.(sessionId, event)
     if (event.t === 'workspace' && event.ev.ev === 'git-activity') {
       await this.ports.board({

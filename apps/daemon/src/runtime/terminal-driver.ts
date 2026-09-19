@@ -314,6 +314,8 @@ interface LoggedEvent {
 }
 
 interface DriverSession {
+  resumeConfidence?: 'exact' | 'heuristic'
+  identityGeneration?: number
   sessionId: SessionId
   agentKind: AgentKind
   driverId: DriverId
@@ -1165,7 +1167,27 @@ export function createTerminalRuntime(
         // The harness minted its native id. Captured as EARLY as the harness
         // allows, per `resumeRefTiming` — this is that moment for every terminal
         // harness, and it is what unblocks `hibernate()` and `export()`.
+        if (
+          (msg.observerGeneration !== undefined && msg.observerGeneration !== session.observerGeneration) ||
+          (msg.bindingVersion !== undefined && msg.bindingVersion !== session.bindingVersion)
+        ) return
+        if (msg.confidence !== 'exact' && session.resumeConfidence === 'exact') return
+        if (!msg.receipt && session.resume?.kind === msg.resume.kind &&
+            session.resume.value === msg.resume.value &&
+            session.resumeConfidence === (msg.confidence ?? 'heuristic')) return
         session.resume = msg.resume
+        session.resumeConfidence = msg.confidence ?? 'heuristic'
+        const identityBootstrap = session.observerGeneration > 1 &&
+          session.identityGeneration !== session.observerGeneration &&
+          session.stateGeneration !== session.observerGeneration
+        session.identityGeneration = session.observerGeneration
+        emit(session, {
+          t: 'binding', resume: msg.resume,
+          confidence: msg.confidence ?? 'heuristic',
+          bindingVersion: session.bindingVersion,
+          ...(msg.ackRequested ? { ackRequested: true } : {}),
+          ...(msg.receipt ? { receipt: msg.receipt } : {}),
+        }, observedAt(), identityBootstrap ? 'bootstrap' : 'live')
         return
       }
       case 'agentFrame':
@@ -1531,6 +1553,7 @@ export function createTerminalRuntime(
       cwd: registration.cwd,
       label,
       resume: registration.resume,
+      resumeConfidence: registration.resume ? 'exact' : undefined,
       bindingVersion: registration.bindingVersion ?? 1,
       observerGeneration: registration.observerGeneration ?? 1,
       turnEpoch: carried?.turnEpoch ?? 0,

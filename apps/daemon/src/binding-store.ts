@@ -90,6 +90,7 @@ export interface BindingObservation {
    * the load-bearing legacy receipt file.
    */
   pendingServerAck?: { nativeKind: string; value: string }
+  receipt?: NonNullable<Extract<DaemonMessage, { type: 'sessionResumeRef' }>['receipt']>
   /** Unknown future fields are retained by read-modify-write. */
   [key: string]: unknown
 }
@@ -1261,13 +1262,21 @@ export class BindingStore {
   /** Receipt reads are owner-scoped before any session/native value leaves the store. */
   async pendingReceiptsForOwner(
     owner: UserId,
+    sessionId?: SessionId,
   ): Promise<Array<{ sessionId: SessionId; nativeKind: string; value: string }>> {
     const receipts = new Map<string, { sessionId: SessionId; nativeKind: string; value: string }>()
-    for (const binding of await this.allBindings()) {
+    const selected = sessionId ? [await this.read(sessionId)].filter((row): row is SessionBindingRecord => row !== null) : await this.allBindings()
+    for (const binding of selected) {
       if (this.isQuarantined(binding.sessionId) || this.bindingOwner(binding) !== owner) continue
+      const latest = binding.observations.findLast((entry) => entry.receipt !== undefined)
       for (const observation of binding.observations) {
+        // Preserve superseded evidence, but never replay it over a newer binding.
+        if (latest && observation !== latest) continue
         const pending = observation.pendingServerAck
         if (!pending) continue
+        if (observation.receipt && (observation.receipt.ownerId !== owner ||
+            observation.receipt.attemptId !== binding.attemptId ||
+            observation.receipt.observerGeneration !== binding.observationGeneration)) continue
         const receipt = { sessionId: binding.sessionId, ...pending }
         receipts.set(
           `${receipt.sessionId}\u0000${receipt.nativeKind}\u0000${receipt.value}`,
@@ -1285,43 +1294,83 @@ export class BindingStore {
     source: 'native-hook' | 'process',
     observedAt = this.now(),
   ): Promise<boolean> {
-    const binding = await this.read(sessionId)
-    if (
-      !nativeId ||
-      !binding ||
-      !this.bindingAcceptsNativeKind(binding, 'codex-thread') ||
-      this.bindingOwner(binding) === null
-    ) {
-      return false
-    }
-    await this.observe({
-      sessionId,
-      channel: source === 'process' ? 'process-ownership' : 'resume-ref',
-      value: nativeId,
-      nativeKind: 'codex-thread',
-      confidence: 'exact',
-      source,
-      observedAt,
-      pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
+    return this.recordPendingNativeReceipt(sessionId, { kind: 'codex-thread', value: nativeId }, source, observedAt)
+  }
+
+  async recordPendingNativeReceipt(
+    sessionId: SessionId,
+    resume: { kind: string; value: string },
+    source: 'native-hook' | 'process',
+    observedAt = this.now(),
+  ): Promise<boolean> {
+    const nativeId = resume.value
+    const expected = await this.read(sessionId)
+    if (!nativeId || !expected || !this.bindingAcceptsNativeKind(expected, resume.kind) ||
+        !this.bindingOwner(expected)) return false
+    let recorded = false
+    await this.update(sessionId, (current) => {
+      if (!current) throw new Error(`binding ${sessionId} disappeared before receipt persistence`)
+      if (current.state === 'retired' || current.state === 'exported' ||
+          current.claimantMachineId !== expected.claimantMachineId ||
+          current.attemptId !== expected.attemptId ||
+          current.observationGeneration !== expected.observationGeneration ||
+          this.bindingOwner(current) !== this.bindingOwner(expected)) return current
+      const ownerId = this.bindingOwner(current)!
+      const head = current.observations.findLast((entry) => entry.receipt !== undefined)
+      const same = head?.value === nativeId && head.source === source && head.nativeKind === resume.kind && head.receipt?.ownerId === ownerId &&
+        head.receipt.machineId === current.claimantMachineId &&
+        head.receipt.attemptId === current.attemptId &&
+        head.receipt.observerGeneration === current.observationGeneration
+      const observation: BindingObservation = same ? {
+        ...head, pendingServerAck: { nativeKind: resume.kind, value: nativeId },
+      } : {
+        observationId: randomUUID(), channel: source === 'process' ? 'process-ownership' : 'resume-ref',
+        value: nativeId, nativeKind: resume.kind, confidence: 'exact', source,
+        observedAt, recordedAt: this.now(), supersedes: head?.observationId ?? null,
+        pendingServerAck: { nativeKind: resume.kind, value: nativeId },
+        receipt: { id: randomUUID(), ownerId, machineId: current.claimantMachineId, attemptId: current.attemptId,
+          observerGeneration: current.observationGeneration },
+      }
+      recorded = true
+      return { ...current, state: current.state === 'unbound' ? 'bound' : current.state, observations: same
+        ? current.observations.map((entry) => entry === head ? observation : entry)
+        : [...current.observations, observation] }
     })
-    return true
+    return recorded
+  }
+
+  /** Hook ingress must not enumerate every session before acknowledging one. */
+  async replayPendingReceiptForSession(sessionId: SessionId, send: (msg: DaemonMessage) => void): Promise<number> {
+    const binding = await this.read(sessionId)
+    const owner = binding && this.bindingOwner(binding)
+    return owner ? this.replayPendingReceiptsForOwner(owner, send, sessionId) : 0
   }
 
   async replayPendingReceiptsForOwner(
     owner: UserId,
     send: (msg: DaemonMessage) => void,
+    sessionId?: SessionId,
   ): Promise<number> {
-    const receipts = await this.pendingReceiptsForOwner(owner)
+    const receipts = await this.pendingReceiptsForOwner(owner, sessionId)
+    let replayed = 0
     for (const receipt of receipts) {
+      const binding = await this.read(receipt.sessionId)
+      if (!binding || this.bindingOwner(binding) !== owner) continue
+      const latest = binding.observations.findLast((entry) => entry.receipt !== undefined)
+      if (latest && (latest.value !== receipt.value || latest.receipt!.ownerId !== owner ||
+          latest.receipt!.attemptId !== binding.attemptId ||
+          latest.receipt!.observerGeneration !== binding.observationGeneration)) continue
       send({
         type: 'sessionResumeRef',
         sessionId: receipt.sessionId,
         resume: { kind: receipt.nativeKind, value: receipt.value },
         confidence: 'exact',
         ackRequested: true,
+        ...(latest?.receipt ? { receipt: latest.receipt } : {}),
       })
+      replayed += 1
     }
-    return receipts.length
+    return replayed
   }
 
   /** Clear only the exact receipt on the binding owned by the acknowledged human. */
@@ -1329,8 +1378,9 @@ export class BindingStore {
     owner: UserId | undefined,
     sessionId: SessionId,
     resume: { kind: string; value: string },
+    receipt?: NonNullable<Extract<DaemonMessage, { type: 'sessionResumeRef' }>['receipt']>,
   ): Promise<boolean> {
-    if (!owner || resume.kind !== 'codex-thread') return false
+    if (!owner) return false
     const binding = await this.read(sessionId)
     if (!binding || this.bindingOwner(binding) !== owner) return false
     let acknowledged = false
@@ -1338,6 +1388,10 @@ export class BindingStore {
       if (!current || this.bindingOwner(current) !== owner) return current ?? binding
       const observations = current.observations.map((entry) => {
         if (
+          (entry.receipt !== undefined && (!receipt || !stableEqual(entry.receipt, receipt) ||
+            (receipt.machineId !== undefined && receipt.machineId !== current.claimantMachineId) ||
+            receipt.attemptId !== current.attemptId ||
+            receipt.observerGeneration !== current.observationGeneration)) ||
           entry.pendingServerAck?.nativeKind !== resume.kind ||
           entry.pendingServerAck.value !== resume.value
         ) {
@@ -1875,6 +1929,20 @@ export class BindingStore {
       if (!changed) throw new Error(`binding transition ${input.event} produced no outcome`)
       if ((input.event === 'spawn' || input.event === 'reattach') && input.delegation) {
         changed.delegation = SessionDelegation.parse(input.delegation)
+      }
+      // Reattaching the same process grants a new observer incarnation. Carry
+      // outstanding evidence forward atomically, with a new ack token; an old
+      // in-flight acknowledgement must not clear the replacement receipt.
+      if (input.event === 'reattach' && current && changed.attemptId === current.attemptId &&
+          this.bindingOwner(changed) === this.bindingOwner(current)) {
+        changed.observations = changed.observations.map((entry) =>
+          entry.pendingServerAck && entry.receipt &&
+          entry.receipt.attemptId === changed.attemptId &&
+          entry.receipt.ownerId === this.bindingOwner(changed) &&
+          entry.receipt.observerGeneration !== changed.observationGeneration
+            ? { ...entry, receipt: { ...entry.receipt, id: randomUUID(),
+                observerGeneration: changed.observationGeneration } }
+            : entry)
       }
       await atomicBindingWrite(this.pathFor(input.sessionId), changed)
       return { status: 'applied', event: input.event, binding: changed }

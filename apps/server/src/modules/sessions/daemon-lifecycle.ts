@@ -1033,7 +1033,13 @@ export class SessionDaemonLifecycle {
           break
         }
         let result: import('./runtime-event-gate').RuntimeEventGateResult | undefined
-        if (owner?.machineId === machineId) {
+        const identityLease = msg.event.t === 'binding'
+          ? this.observationLeases.get(msg.sessionId) : undefined
+        if (msg.event.t === 'binding' && identityLease &&
+            (identityLease.observationGeneration !== msg.event.observerGeneration ||
+             identityLease.bindingVersion !== msg.event.bindingVersion)) {
+          result = { kind: 'rejected', reason: 'stale-observer-generation' }
+        } else if (owner?.machineId === machineId) {
           if (runtimeEvents) {
             const completion: Promise<import('./runtime-event-gate').RuntimeEventGateResult> =
               runtimeEvents.record(machineId, msg)

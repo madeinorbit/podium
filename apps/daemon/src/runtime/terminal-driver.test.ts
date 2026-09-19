@@ -3214,3 +3214,56 @@ describe('terminal transcript replacement events', () => {
     expect(events[3]).toMatchObject({ t: 'item', item: { kind: 'complete', item } })
   })
 })
+
+describe('native identity publication', () => {
+  it('publishes late native discovery and repin with exact confidence, independently of snapshots', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    for (const value of ['first-native', 'repinned-native']) {
+      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
+        resume: { kind: 'claude-session', value }, confidence: 'exact',
+        observerGeneration: 1, bindingVersion: handle.binding.bindingVersion })
+    }
+    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding')
+      .map((frame) => frame.type === 'runtimeEvent' && frame.event)).toMatchObject([
+      { t: 'binding', resume: { value: 'first-native' }, confidence: 'exact', observerGeneration: 1 },
+      { t: 'binding', resume: { value: 'repinned-native' }, confidence: 'exact', observerGeneration: 1 },
+    ])
+    expect(handle.binding.resume?.value).toBe('repinned-native')
+    world.runtime.dispose()
+  })
+
+  it('holds discovery before registration and retains receipt metadata', async () => {
+    const world = makeWorld()
+    const sessionId = 'early-native' as SessionId
+    const receipt = { id: 'receipt', ownerId: 'owner' as import('@podium/model').UserId,
+      attemptId: 'attempt', observerGeneration: 1 }
+    const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {
+      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
+        resume: { kind: 'claude-session', value: 'early' }, confidence: 'exact',
+        ackRequested: true, receipt, observerGeneration: 1, bindingVersion: 1 })
+    })
+    expect(handle.binding.resume?.value).toBe('early')
+    expect(world.frames.find((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding'))
+      .toMatchObject({ event: { t: 'binding', receipt, ackRequested: true } })
+    world.runtime.dispose()
+  })
+
+  it('rejects wrong-generation discovery and heuristic replacement of an exact identity', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    const discover = (value: string, observerGeneration: number, confidence: 'exact' | 'heuristic') =>
+      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
+        resume: { kind: 'claude-session', value }, confidence, observerGeneration,
+        bindingVersion: handle.binding.bindingVersion })
+    discover('current', 1, 'exact')
+    discover('stale', 0, 'exact')
+    discover('future', 2, 'exact')
+    discover('guess', 1, 'heuristic')
+    expect(handle.binding.resume?.value).toBe('current')
+    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding')).toHaveLength(1)
+    world.runtime.dispose()
+  })
+})

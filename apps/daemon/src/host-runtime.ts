@@ -12,6 +12,7 @@ import {
   type HarnessEnvironment,
   harnessDetectLogin,
   harnessLoginReadEnv,
+  manifestFor,
   resolvedHarnessPath,
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
@@ -583,16 +584,9 @@ export async function createDaemonHostRuntime(args: {
         pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
       })
       if (!(await bindingStore.recordPendingCodexReceipt(sessionId, nativeId, 'process'))) {
-        send({
-          type: 'sessionResumeRef',
-          sessionId,
-          resume: { kind: 'codex-thread', value: nativeId },
-          confidence: 'exact',
-          ackRequested: true,
-        })
-        return
+        throw new Error(`Codex receipt ${sessionId} has no owned binding`)
       }
-      await replayPendingBindingReceipts()
+      await bindingStore.replayPendingReceiptForSession(sessionId, send)
     },
     tailSeedGate: gates.tailSeedGate,
   })
@@ -646,15 +640,18 @@ export async function createDaemonHostRuntime(args: {
     },
     respondTo,
     beforeAck: async (sessionId, payload) => {
-      if (!(await bindingStore.acceptsNativeKind(sessionId, 'codex-thread'))) return
-      const nativeId =
-        payload && typeof payload === 'object'
-          ? (payload as Record<string, unknown>).session_id
-          : undefined
+      const fields = payload && typeof payload === 'object'
+        ? payload as Record<string, unknown> : undefined
+      const nativeId = fields?.session_id ?? fields?.sessionId
       if (typeof nativeId !== 'string' || nativeId.length === 0) return
-      if (!(await bindingStore.recordPendingCodexReceipt(sessionId, nativeId, 'native-hook'))) {
-        throw new Error(`Codex receipt ${sessionId} has no owned binding`)
-      }
+      const binding = await bindingStore.read(sessionId)
+      if (!binding) throw new Error(`Native receipt ${sessionId} has no owned binding`)
+      const nativeKind = manifestFor(binding.agentKind)?.resumeKind
+      if (!nativeKind) return
+      if (!(await bindingStore.recordPendingNativeReceipt(
+        sessionId, { kind: nativeKind, value: nativeId }, 'native-hook',
+      ))) throw new Error(`Native receipt ${sessionId} has no owned binding`)
+      await bindingStore.replayPendingReceiptForSession(sessionId, send)
     },
     onPayload: (sessionId, payload) => {
       // THE DRIVER SEES THE RAW HOOK FIRST. A `UserPromptSubmit` is the causal

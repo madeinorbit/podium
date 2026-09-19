@@ -1247,6 +1247,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       // the first transcript frame marks it chat-capable (→ chat switcher + BTW
       // button). The kind comes off the adapter — never a literal.
       onResumeValue: (value, confidence) => {
+        if (tracker && trackers.get(sessionId) !== tracker) return
         nativeSessionIds.set(sessionId, value)
         if (
           adapter.capabilities.observationProtocol === 'codex-exact' &&
@@ -1262,6 +1263,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           type: 'sessionResumeRef',
           sessionId,
           resume: { kind: adapter.resumeKind, value },
+          ...(tracker ? { observerGeneration: tracker.observerGeneration, bindingVersion: tracker.bindingVersion } : {}),
           ...(confidence ? { confidence } : {}),
         })
       },
@@ -1674,6 +1676,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
+        observerGeneration: tracker.observerGeneration,
+        bindingVersion: tracker.bindingVersion,
         confidence: 'exact',
         ...(bound.adapter.capabilities.observationProtocol === 'codex-exact'
           ? { ackRequested: true }

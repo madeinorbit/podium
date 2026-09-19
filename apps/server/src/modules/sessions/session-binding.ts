@@ -53,7 +53,14 @@ export class SessionBindingReceipts {
       })
       return
     }
+    if (message.receipt) {
+      const owner = (await this.deps.sessionOwner(message.sessionId))?.owner
+      if (!owner || message.receipt.ownerId !== owner ||
+          (message.receipt.machineId !== undefined && message.receipt.machineId !== machineId)) return
+    }
     const confidence = message.confidence ?? 'heuristic'
+    if (confidence !== 'exact' && session.resume &&
+        this.projectedConfidence.get(session) !== 'heuristic') return
     const conflicts =
       harnessRequiresExclusiveInteractiveResume(session.agentKind) && !session.headless
         ? [...this.deps.sessions()].filter(
@@ -162,6 +169,7 @@ export class SessionBindingReceipts {
         sessionId: message.sessionId,
         resume: message.resume,
         ownerId: owner,
+        ...(message.receipt ? { receipt: message.receipt } : {}),
       })
     }
   }

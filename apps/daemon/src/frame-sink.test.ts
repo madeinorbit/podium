@@ -233,3 +233,18 @@ describe('the daemon outbound frame sink', () => {
     expect(upstream).toHaveBeenCalledTimes(3)
   })
 })
+
+
+it('publishes contract-owned identity only through the driver while leaving legacy receipts available', () => {
+  const upstream = vi.fn()
+  const observe = vi.fn(() => true)
+  const sink = createFrameSink({ upstream, runtime: () => ({ observe }), context: () => undefined })
+  const receipt: DaemonMessage = { type: 'sessionResumeRef', sessionId: SESSION,
+    resume: { kind: 'codex-thread', value: 'exact-native' }, confidence: 'exact', ackRequested: true }
+  sink(receipt)
+  expect(observe).toHaveBeenCalledWith(receipt)
+  expect(upstream).not.toHaveBeenCalled()
+  observe.mockReturnValue(false)
+  sink(receipt)
+  expect(upstream).toHaveBeenCalledWith(receipt)
+})

@@ -65,7 +65,7 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
    *  `capabilitiesFor` below for why the binding and not a family guess. The
    *  configure handler reports `configure.effective` from it (POD-3081). */
   capabilitiesFor(sessionId: SessionId): DriverCapabilities | undefined
-  observe(message: DaemonMessage): void
+  observe(message: DaemonMessage): boolean
   onHookPayload(sessionId: SessionId, payload: unknown): void
   bindTerminal(
     registration: TerminalSessionRegistration,
@@ -284,7 +284,9 @@ export function createDaemonMachineRuntime(input: {
     recoverTerminal: (...args) => input.terminal.recoverWithId(...args),
     capabilitiesFor,
     observe(message) {
+      const ownsReceipt = message.type === 'sessionResumeRef' && input.terminal.has(message.sessionId)
       input.terminal.observe(message)
+      return ownsReceipt
     },
     onHookPayload(sessionId, payload) {
       input.terminal.onHookPayload(sessionId, payload)

@@ -1,3 +1,5 @@
+import { NativeBindingReceipt } from './native-binding'
+export { NativeBindingReceipt } from './native-binding'
 import { ResumeRef, SessionIdField, TranscriptItem } from '@podium/model'
 import { z } from 'zod'
 import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
@@ -297,6 +299,7 @@ export const SessionMetadataObservation = z.intersection(CausalEnvelope, z.objec
 export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
 
 export const RuntimeEventBody = z.discriminatedUnion('t', [
+  z.object({ t: z.literal('binding'), resume: ResumeRef, confidence: z.enum(['exact', 'heuristic']), bindingVersion: z.number().int().nonnegative(), ackRequested: z.boolean().optional(), receipt: NativeBindingReceipt.optional() }),
   z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional() }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
@@ -343,6 +346,7 @@ export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
     case 'draft':
       return false
     case 'metadata':
+    case 'binding':
     case 'delivery':
     case 'process':
     case 'interaction':
