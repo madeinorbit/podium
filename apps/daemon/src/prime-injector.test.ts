@@ -35,4 +35,28 @@ describe('prime injector', () => {
     expect(await inj.respondTo(asSessionId('s1'), { hook_event_name: 'PostToolUse' })).toBeNull()
     expect(await inj.respondTo(asSessionId('s1'), { hook_event_name: 'Stop' })).toBeNull()
   })
+
+  // Grok's native hooks speak camelCase; the legacy responder the removal
+  // deletes must have behaved identically for it, or the deletion itself
+  // changes Grok's prime behaviour.
+  it('answers camelCase hook payloads exactly like snake_case', async () => {
+    let calls = 0
+    const inj = createPrimeInjector(async () => { calls++; return { ok: true, result: 'PRIME' } })
+    const first = await inj.respondTo(asSessionId('g1'), { hookEventName: 'SessionStart' })
+    expect(JSON.parse(first!)).toEqual({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'PRIME' },
+    })
+    expect(await inj.respondTo(asSessionId('g1'), { hookEventName: 'UserPromptSubmit' })).toBeNull()
+    expect(calls).toBe(1)
+    expect(await inj.respondTo(asSessionId('g1'), { hookEventName: 'PreCompact' })).toBeNull()
+    const again = await inj.respondTo(asSessionId('g1'), { hookEventName: 'UserPromptSubmit' })
+    expect(JSON.parse(again!).hookSpecificOutput.additionalContext).toBe('PRIME')
+    expect(calls).toBe(2)
+  })
+
+  it('ignores camelCase non-context events', async () => {
+    const inj = createPrimeInjector(okRelay('X'))
+    expect(await inj.respondTo(asSessionId('g1'), { hookEventName: 'PreToolUse' })).toBeNull()
+    expect(await inj.respondTo(asSessionId('g1'), { hookEventName: 'Stop' })).toBeNull()
+  })
 })

@@ -1,6 +1,7 @@
 import { composeMailContext, createMailInjector, createAckReminderInjector } from '../mail-injector'
 import { startHookIngest } from '../hook-ingest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pageHistory } from '@podium/agent-runtime'
@@ -3191,6 +3192,89 @@ describe('driver-owned prime boundary', () => {
         world.runtime.dispose()
       }
     },
+  )
+
+  // Full-stack parity: the same driver operation, reached through the real
+  // hook transport each harness posts to (Codex over the instance Unix
+  // socket, Claude and Grok over HTTP with their own payload spelling).
+  // Hidden context travels in the hook response — never typed into the PTY,
+  // never opened as a turn — on every wire.
+  const deliversOverWire = async (harness: 'claude-code' | 'codex' | 'grok'): Promise<void> => {
+    const source = vi.fn(async (sessionId: SessionId) => ({ ok: true, result: `prime:${sessionId}` }))
+    const world = makeWorld({ primeSource: source })
+    const profile = terminalProfileFor(harness)!
+    const handle = await world.runtime
+      .driverFor(harness, profile)
+      .create({ ...SPEC, harness })
+    const sessionId = handle.binding.sessionId
+    const wire = (name: string): Record<string, string> =>
+      harness === 'grok' ? { hookEventName: name } : { hook_event_name: name }
+    const root = harness === 'codex' ? await mkdtemp(join(tmpdir(), 'podium-prime-codex-')) : undefined
+    const ing = await startHookIngest({
+      port: 0,
+      ...(root ? { socketPath: join(root, 'ingest.sock') } : {}),
+      onPayload: world.runtime.onHookPayload,
+      // Same composition as the daemon host: driver context first, the
+      // driver's mail responder behind it.
+      boundaryContext: async (sid, payload, signal) => {
+        const operation = world.runtime.boundaryContextFor(sid)
+        return operation ? primeHookResponse(operation, payload, signal) : null
+      },
+      respondTo: world.runtime.respondToHook,
+    })
+    const postWire = async (body: unknown): Promise<string> => {
+      if (root) {
+        return new Promise<string>((resolve, reject) => {
+          const req = request(
+            {
+              socketPath: join(root, 'ingest.sock'),
+              path: `/hooks/${sessionId}`,
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+            },
+            (res) => {
+              const chunks: Buffer[] = []
+              res.on('data', (chunk: Buffer) => chunks.push(chunk))
+              res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+            },
+          )
+          req.on('error', reject)
+          req.end(JSON.stringify(body))
+        })
+      }
+      const res = await fetch(ing.endpointFor(sessionId), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      return res.text()
+    }
+    try {
+      expect(JSON.parse(await postWire(wire('SessionStart')))).toEqual({
+        hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `prime:${sessionId}` },
+      })
+      expect(await postWire(wire('UserPromptSubmit'))).toBe('{}')
+      expect(source).toHaveBeenCalledTimes(1)
+      expect(world.written).toEqual([])
+      expect(world.frames.some((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn')).toBe(false)
+      expect(await postWire(wire('PreCompact'))).toBe('{}')
+      expect(
+        JSON.parse(await postWire(wire('UserPromptSubmit'))).hookSpecificOutput.additionalContext,
+      ).toBe(`prime:${sessionId}`)
+    } finally {
+      await ing.close()
+      if (root) await rm(root, { recursive: true, force: true })
+      world.runtime.dispose()
+    }
+  }
+
+  it.each(['claude-code', 'grok'] as const)(
+    '%s delivers driver prime through its real hook transport without sending',
+    deliversOverWire,
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'codex delivers driver prime through its real hook transport without sending',
+    () => deliversOverWire('codex'),
   )
 
   it('owns the startup boundary before the harness launch completes', async () => {

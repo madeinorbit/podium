@@ -5,9 +5,13 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
+import { createBoundaryContext } from '@podium/agent-runtime'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
+import { asSessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
+import { startHookIngest } from './hook-ingest'
 import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from './grok-hooks'
+import { primeHookResponse } from './prime-injector'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -214,6 +218,46 @@ describe('Podium Grok hook command', () => {
       })
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
+  // Grok delivery loop, hermetically closed: the driver's prime context
+  // leaves the hook endpoint and arrives on the hook command's stdout, which
+  // is what Grok consumes. (Whether Grok's TUI renders additionalContext is
+  // a real-binary question, tracked separately — the daemon and the wrapper
+  // both do their half here.)
+  it('relays a driver prime response from the hook endpoint to stdout', async () => {
+    const context = createBoundaryContext(async () => ({ ok: true, result: 'grok prime' }))
+    const ing = await startHookIngest({
+      port: 0,
+      onPayload: () => {},
+      boundaryContext: (_sessionId, payload, signal) =>
+        primeHookResponse(context.respond, payload, signal),
+    })
+    try {
+      const child = spawn('sh', ['-c', PODIUM_GROK_HOOK_COMMAND], {
+        env: {
+          ...process.env,
+          PODIUM_GROK_HOOK_URL: ing.endpointFor(asSessionId('grok-prime')),
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString('utf8')
+      })
+      child.stdin.end(JSON.stringify({ hookEventName: 'SessionStart' }))
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.once('error', reject)
+        child.once('exit', resolve)
+      })
+
+      expect(code).toBe(0)
+      expect(JSON.parse(stdout)).toEqual({
+        hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'grok prime' },
+      })
+    } finally {
+      await ing.close()
     }
   })
 })

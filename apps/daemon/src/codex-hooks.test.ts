@@ -72,6 +72,27 @@ describe('ensurePodiumCodexHooks', () => {
     expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
   })
 
+  // PARITY RECORD (this issue): Codex subscribes SessionStart and
+  // UserPromptSubmit but never PreCompact, so driver prime is delivered once
+  // per session incarnation and is never re-armed by a hook. The codec still
+  // answers a synthetic PreCompact (pinned per harness elsewhere), but a real
+  // Codex run never sends one — compaction re-prime for Codex needs its own
+  // path, and the removal must not assume the hook will do it.
+  it('never subscribes PreCompact, so hooks cannot re-arm Codex prime', async () => {
+    const dir = await home()
+    await ensureHooks({ homeDir: dir })
+    const doc = JSON.parse(await readFile(join(dir, '.codex', 'hooks.json'), 'utf8'))
+    expect(Object.keys(doc.hooks).sort()).toEqual([
+      'PermissionRequest',
+      'PostToolUse',
+      'PreToolUse',
+      'SessionStart',
+      'Stop',
+      'UserPromptSubmit',
+    ])
+    expect(doc.hooks.PreCompact).toBeUndefined()
+  })
+
   it('is idempotent — second run writes nothing', async () => {
     const dir = await home()
     await ensureHooks({ homeDir: dir })
@@ -259,6 +280,56 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
         const [exitCode, signal] = await once(child, 'close')
         expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
         expect(await received).toEqual(payload)
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+      }
+    },
+  )
+
+  // PARITY RECORD (this issue): the wrapper discards the daemon's bounded
+  // hook response on BOTH transports (socket and URL fallback), so Codex
+  // hooks are observe-only — neither driver prime nor a mail veto can steer
+  // Codex through this channel. Proven by execution, not by string-matching
+  // the command: the stub daemon answers with prime and nothing reaches the
+  // hook command's stdout. Surfacing responses to Codex needs a wrapper
+  // change AND proof the harness consumes the new output.
+  it.skipIf(process.platform === 'win32')(
+    'never surfaces the daemon hook response on stdout (observe-only transport)',
+    async () => {
+      const dir = trackTmp('podium-codex-hook-command-')
+      const socketPath = join(dir, 'hook.sock')
+      const server = createServer((req, res) => {
+        const chunks: Buffer[] = []
+        req.on('data', (chunk: Buffer) => chunks.push(chunk))
+        req.on('end', () => {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(
+            JSON.stringify({
+              hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'PRIME' },
+            }),
+          )
+        })
+      })
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(socketPath, resolve)
+      })
+      try {
+        const child = spawn('bash', ['-c', PODIUM_CODEX_HOOK_COMMAND], {
+          env: {
+            ...process.env,
+            PODIUM_SESSION_ID: 'pane-a',
+            PODIUM_CODEX_HOOK_URL: '',
+            PODIUM_CODEX_HOOK_SOCKET: socketPath,
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        })
+        const out: Buffer[] = []
+        child.stdout.on('data', (chunk: Buffer) => out.push(chunk))
+        child.stdin.end(JSON.stringify({ session_id: 'thread-a', hook_event_name: 'SessionStart' }))
+        const [exitCode, signal] = await once(child, 'close')
+        expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
+        expect(Buffer.concat(out).toString('utf8')).toBe('')
       } finally {
         await new Promise<void>((resolve) => server.close(() => resolve()))
       }
