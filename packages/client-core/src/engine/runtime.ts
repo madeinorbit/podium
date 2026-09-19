@@ -1215,6 +1215,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // ONE delta, ONE snapshot — see batch(). Without this the three recomputes
     // below publish separately and every snapshot-keyed slice derives 3×.
     this.batch(() => {
+      // Preserve kernel addresses (including absent-row exit changes) before
+      // optimism folds. D4 settles both sources against the completed Store view.
+      if (publication.addressed?.type === 'replace') {
+        this.queueEffectiveReplacement(publication.addressed.reason)
+      } else if (publication.addressed?.type === 'update') {
+        this.queueEffectiveRows(publication.addressed.rows)
+      }
       if (changed.has('sessions')) {
         this.baseSessions = dedupeSessions(snapshot.sessions)
         this.optimism.recomputeSessions()

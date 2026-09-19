@@ -3763,3 +3763,103 @@ describe('optimistic effective runtime publication', () => {
     } finally { engine.destroy() }
   })
 })
+
+// D3: append-only coverage of the replica -> settled effective publication seam.
+describe('addressed kernel runtime publications', () => {
+  async function fixture(enabled = true) {
+    const { createKernelReplica, createSideCache } = await import('../replica/kernel')
+    const records = new Map<string, import('@podium/sync/replica').EntityRecord>()
+    const replica = createKernelReplica({
+      cache: {
+        readCursor: () => null,
+        readEntities: () => [...records.values()],
+        read: (entity, id) => records.get(`${entity}:${id}`),
+        durability: () => 'durable',
+      },
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const engine = createClientRuntime({
+      principal: asClientPrincipal(asUserId('operator')),
+      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
+      api: makeApi() as PodiumClientApi,
+      onFatalError: (message) => { throw new Error(message) },
+      createReplicaFn: () => replica,
+      routerWindow: makeRouterWindow('/').win,
+      createHub: () => new FakeHub() as unknown as SocketHub,
+      networkEnabled: false,
+      ...(enabled ? { effectiveChanges: true } : {}),
+    })
+    engine.start()
+    await settle()
+    const publications: import('./effective-changes').EffectivePublication[] = []
+    engine.effectiveChanges?.subscribe((publication) => publications.push(publication))
+    publications.length = 0
+    const upsert = (id: string, name: string) => {
+      const record = { entity: 'session', entityId: id, value: { ...session(id, '/tmp/known-repo'), name }, provenance: { seq: 1 } }
+      records.set(`session:${id}`, record)
+      replica.onKernelEvent({ type: 'upserted', record: { ...record, value: { ...record.value, name: 'stale event' } } })
+    }
+    const remove = (id: string) => {
+      records.delete(`session:${id}`)
+      replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: id })
+    }
+    return { engine, replica, records, publications, upsert, remove }
+  }
+
+  it('delivers final addressed membership once with the existing Store commit and pinned reads', async () => {
+    const { engine, replica, publications, upsert, remove } = await fixture()
+    try {
+      replica.batch(() => {
+        upsert('kept', 'first'); remove('kept'); upsert('kept', 'final')
+        upsert('gone', 'temporary'); remove('gone')
+      })
+      expect(publications).toHaveLength(1)
+      const publication = publications[0]!
+      expect(publication).toMatchObject({ type: 'update', rows: [
+        { kind: 'sessions', id: 'kept', presence: 'present' },
+        { kind: 'sessions', id: 'gone', presence: 'absent' },
+      ] })
+      expect(publication.view.commit).toBe(engine.getSnapshot())
+      expect(publication.view.row('sessions', 'kept')?.name).toBe('final')
+      expect(publication.view.row('sessions', 'gone')).toBeUndefined()
+      upsert('kept', 'later')
+      expect(publications).toHaveLength(2)
+      expect(publications[1]!.view.row('sessions', 'kept')?.name).toBe('later')
+      expect(publication.view.row('sessions', 'kept')?.name).toBe('final')
+    } finally { engine.destroy() }
+  })
+
+  it('preserves no-visible-change exits, ignores cursors, and explicitly replaces an empty scope', async () => {
+    const { engine, replica, records, publications, upsert } = await fixture()
+    try {
+      const before = engine.getSnapshot()
+      replica.onKernelEvent({ type: 'evicted', entity: 'session', entityId: 'absent' })
+      expect(engine.getSnapshot()).toBe(before)
+      expect(publications).toHaveLength(1)
+      expect(publications[0]).toMatchObject({ type: 'update', rows: [{ kind: 'sessions', id: 'absent', presence: 'absent' }] })
+      publications.length = 0
+      for (let seq = 1; seq <= 300; seq++) replica.onKernelEvent({
+        type: 'cursor', cursor: { feedId: 'feed', epoch: 'epoch', seq }, watermarkOnly: true,
+      })
+      expect(publications).toHaveLength(0)
+      upsert('old-scope', 'old')
+      publications.length = 0
+      records.clear()
+      replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 301, entityCount: 0, bufferedFramesApplied: 0 })
+      expect(publications).toHaveLength(1)
+      expect(publications[0]).toMatchObject({ type: 'replace', reason: 'rescope' })
+      expect(publications[0]!.view.commit).toBe(engine.getSnapshot())
+      expect(publications[0]!.view.ids('sessions')).toEqual([])
+      expect(publications[0]!.view.row('sessions', 'old-scope')).toBeUndefined()
+    } finally { engine.destroy() }
+  })
+
+  it('keeps the effective pilot disabled by default', async () => {
+    const { engine, upsert } = await fixture(false)
+    try {
+      expect(engine.effectiveChanges).toBeUndefined()
+      upsert('legacy', 'unchanged consumer')
+      expect(engine.getSnapshot().sessions[0]?.name).toBe('unchanged consumer')
+    } finally { engine.destroy() }
+  })
+})
