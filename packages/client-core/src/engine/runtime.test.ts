@@ -3942,3 +3942,144 @@ describe('replica and optimistic effective changes merge', () => {
     } finally { engine.destroy() }
   })
 })
+
+
+describe('D5 coordinated presentation runtime', () => {
+  function pilot(enabled = true) {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applyChanges('sessions', [session('d5-session', '/w')], [])
+    return createClientRuntime({
+      principal: asClientPrincipal(asUserId('d5-operator')),
+      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
+      api: makeApi() as PodiumClientApi, onFatalError: () => {}, createReplicaFn: () => replica,
+      createHub: () => new FakeHub() as unknown as SocketHub,
+      routerWindow: makeRouterWindow('/').win, networkEnabled: false, presentationModel: enabled,
+    })
+  }
+
+  it('flag-off constructs neither model nor effective source; flag-on seeds before start', () => {
+    const off = pilot(false)
+    const on = pilot()
+    try {
+      expect(off.presentation).toBeUndefined()
+      expect(off.effectiveChanges).toBeUndefined()
+      expect(on.presentation!.row('sessions', 'd5-session').getSnapshot()).toBe(on.getSnapshot().sessions[0])
+    } finally { off.destroy(); on.destroy() }
+  })
+
+  it.each(['pilot', 'legacy'])('keeps both snapshots atomic when a %s subscriber writes a nested command', origin => {
+    const engine = pilot()
+    try {
+      const model = engine.presentation!
+      const cell = model.navigation('view')
+      const observed: string[] = []
+      const check = (from: string) => {
+        expect(cell.getSnapshot()).toBe(engine.getSnapshot().view)
+        observed.push(`${from}:${cell.getSnapshot()}`)
+        if (from === origin && cell.getSnapshot() === 'issues') {
+          engine.getSnapshot().setView('settings')
+          // A nested command must not expose the successor halfway through
+          // the current dual publication.
+          expect(cell.getSnapshot()).toBe(engine.getSnapshot().view)
+        }
+      }
+      cell.subscribe(() => check('pilot'))
+      engine.subscribe(() => check('legacy'))
+      engine.getSnapshot().setView('issues')
+      expect(observed).toEqual(['pilot:issues', 'legacy:issues', 'pilot:settings', 'legacy:settings'])
+      expect(cell.getSnapshot()).toBe('settings')
+    } finally { engine.destroy() }
+  })
+
+  it('dispose/start reseeds the same model, destroy poisons it and retained commands', () => {
+    const engine = pilot()
+    const model = engine.presentation!
+    const view = model.navigation('view')
+    const command = engine.getSnapshot().setView
+    try {
+      engine.start()
+      engine.dispose()
+      command('issues')
+      expect(view.getSnapshot()).not.toBe('issues')
+      engine.start()
+      expect(engine.presentation).toBe(model)
+      expect(view.getSnapshot()).toBe('issues')
+      engine.destroy()
+      command('settings')
+      engine.start()
+      expect(view.getSnapshot()).toBeUndefined()
+      const successor = pilot()
+      try {
+        command('usage')
+        expect(successor.presentation!.navigation('view').getSnapshot()).toBe(successor.getSnapshot().view)
+      } finally { successor.destroy() }
+    } finally { engine.destroy() }
+  })
+
+  it('holds commands from public effective seeds; removing the seed barrier fails the parity oracle', () => {
+    const oracle = (mutant: boolean) => {
+      const engine = pilot()
+      try {
+        if (mutant) engine.effectiveChanges!.subscribe = Reflect.get(engine, 'effectivePublisher').subscribe
+        const cell = engine.presentation!.navigation('view')
+        engine.subscribe(() => expect(cell.getSnapshot()).toBe(engine.getSnapshot().view))
+        engine.effectiveChanges!.subscribe(publication => {
+          if (publication.type === 'replace' && publication.reason === 'seed') {
+            engine.getSnapshot().setView('issues')
+            expect(cell.getSnapshot()).toBe(engine.getSnapshot().view)
+          }
+        })
+        expect(cell.getSnapshot()).toBe('issues')
+      } finally { engine.destroy() }
+    }
+    oracle(false)
+    expect(() => oracle(true)).toThrow()
+  })
+
+  it('still synchronously seeds subscriptions opened during an effective notification', () => {
+    const engine = pilot()
+    try {
+      let seeded = false
+      engine.presentation!.navigation('view').subscribe(() => {
+        const off = engine.effectiveChanges!.subscribe(publication => {
+          expect(publication.type).toBe('replace')
+          expect(publication.view.commit).toBe(engine.getSnapshot())
+          seeded = true
+        })
+        expect(seeded).toBe(true)
+        off()
+      })
+      engine.getSnapshot().setView('issues')
+      expect(seeded).toBe(true)
+    } finally { engine.destroy() }
+  })
+
+  it('does not rearm a runtime destroyed by its synchronous reseed observer', () => {
+    const engine = pilot()
+    try {
+      engine.start(); engine.dispose()
+      engine.getSnapshot().setView('issues')
+      engine.presentation!.navigation('view').subscribe(() => engine.destroy())
+      engine.start()
+      expect(engine.isDestroyed).toBe(true)
+      expect(Reflect.get(engine, 'started')).toBe(false)
+      expect(engine.presentation!.navigation('view').getSnapshot()).toBeUndefined()
+    } finally { engine.destroy() }
+  })
+
+  it('serializes a command issued by a reseed subscriber on reversible restart', () => {
+    const engine = pilot()
+    try {
+      engine.start(); engine.dispose()
+      engine.getSnapshot().setView('issues')
+      const cell = engine.presentation!.navigation('view')
+      cell.subscribe(() => {
+        expect(cell.getSnapshot()).toBe(engine.getSnapshot().view)
+        if (cell.getSnapshot() === 'issues') engine.getSnapshot().setView('settings')
+      })
+      engine.subscribe(() => expect(cell.getSnapshot()).toBe(engine.getSnapshot().view))
+      engine.start()
+      expect(cell.getSnapshot()).toBe('settings')
+    } finally { engine.destroy() }
+  })
+})
