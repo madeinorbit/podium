@@ -311,6 +311,18 @@ instruction to run the full sweep. Inert prose such as ordinary Markdown, `LICEN
 is ignored. Its base is the closest merge base among the upstream, `origin/main`, and
 `origin/project/*`; override with `--base=<ref>` when necessary.
 
+Delivery changes must run driver conformance explicitly [POD-4387]. Focused lanes select only
+the tests for files they changed, so `terminal-driver.conformance.test.ts` is in nobody's
+changed set when delivery moves underneath it — which is how a `queued`-where-`accepted`-
+belongs drift passed every per-lane gate. Touching any of `apps/daemon/src/runtime/terminal-driver.ts`,
+`packages/agent-runtime/src/delivery-queue.ts`, `packages/agent-runtime/src/drivers/terminal/injection.ts`,
+or `packages/agent-runtime/src/turns.ts` additionally requires:
+
+    bun run test:file -- apps/daemon/src/runtime/terminal-driver.conformance.test.ts
+
+`test:related`/`test:changed` do not satisfy this: they are optional diagnostics over the import
+graph, not the contract gate. The corpus is the evidence legacy paths are safe to remove.
+
 Always invoke Vitest through repository scripts. A hand-rolled invocation bypasses admission,
 hermetic setup, lane exclusions, and exit-status safeguards.
 

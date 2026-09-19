@@ -270,7 +270,11 @@ function makeWorld(options: WorldOptions): {
     if (profile.lifecycleFromState) {
       const working: AgentRuntimeState = { phase: 'working', since: iso(), nativeSubagentCount: 0, stateSource: 'poll' }
       phases.set(sessionId, working)
-      runtime?.observe({ type: 'agentState', sessionId, state: working })
+      // POLL-STATE TRANSPORT (POD-4294): `agentState` is legacy and the driver
+      // ignores it; poll lifecycles arrive via `observeState` (`terminalState`).
+      // The fixture's `observation()` already pins generation/binding to 1, so
+      // the poll arm does the same — fresh sessions never rebind here.
+      runtime?.observeState({ sessionId, state: working, observerGeneration: 1, bindingVersion: 1 })
     }
     // The harness has now written its store. `first-turn` is that moment.
     postResumeRef(sessionId)
@@ -501,7 +505,8 @@ function makeWorld(options: WorldOptions): {
         completedEpochs.set(sessionId, epoch)
         const idle: AgentRuntimeState = { phase: 'idle', since: iso(), nativeSubagentCount: 0, idle: { kind: 'done' }, stateSource: 'poll' }
         phases.set(sessionId, idle)
-        runtime?.observe({ type: 'agentState', sessionId, state: idle })
+        // See `echoUserTurn`: poll lifecycle owns opencode turns via `terminalState`.
+        runtime?.observeState({ sessionId, state: idle, observerGeneration: 1, bindingVersion: 1 })
         return
       }
       runtime?.observe({
@@ -566,7 +571,7 @@ function makeWorld(options: WorldOptions): {
       if (phase === 'working') turnEpochs.set(sessionId, (turnEpochs.get(sessionId) ?? 0) + 1)
       const event = observation(sessionId, phase === 'working' ? 'turn_opened' : 'turn_terminal', phase)
       const state: AgentRuntimeState = { phase, since: iso(), nativeSubagentCount: 0, stateSource: 'poll' }
-      const postState = () => runtime?.observe({ type: 'agentState', sessionId, state })
+      const postState = () => runtime?.observeState({ sessionId, state, observerGeneration: 1, bindingVersion: 1 })
       const postObservation = () => runtime?.observe({ type: 'agentObservation', observation: event })
       if (order === 'state-first') {
         postState()

@@ -1868,13 +1868,27 @@ export function createTerminalRuntime(
         // turn, so `steer` becomes `queue` and `deliveredAs` says so.
         const requested: TurnDelivery = options.delivery
         if (requested === 'steer' || requested === 'queue') return enqueue()
+        // SEND OUTCOME DECISION (POD-4387): `when-ready` on an idle session is
+        // `accepted`, never `queued`. POD-4291's durable-custody change gated
+        // direct sends on `deliveryReady()` (live + 6s settle/quiet) and routed
+        // fresh idle sessions through the inner queue, so every conformance
+        // profile reported `queued` where the contract requires `accepted` — and
+        // the gate ran before the `needs_user` refusal, turning a blocking ask
+        // into a parked turn. The settle wait belongs to the QUEUE DRAIN (and to
+        // the outer durable `withDeliveryQueue` via `deliveryReady` as its
+        // `ready`), not to the direct path: typing immediately is what the
+        // verification ladder proves, and `queued` is reserved for explicit
+        // `queue`/`steer`/lease requests. Durable `deliveryAttempt` retries keep
+        // the narrow `busy` refusal so the outer queue waits instead of nesting
+        // queues; normal sends fall through to `deliver` exactly as before
+        // POD-4291. Custody (delivery_owner, recovery, durable/initialPrompt
+        // windows) is untouched.
         if (
           requested === 'when-ready' &&
-          (!deliveryReady() ||
-            ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? ''))
+          options.deliveryAttempt &&
+          ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '')
         ) {
-          if (options.deliveryAttempt) return { outcome: 'refused', refusal: refuse('busy') }
-          return enqueue()
+          return { outcome: 'refused', refusal: refuse('busy') }
         }
 
         if (requested === 'interrupt') {

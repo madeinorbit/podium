@@ -997,6 +997,44 @@ describe('send receipts', () => {
     expect(world.written).toEqual([])
   })
 
+  it('POD-4387: when-ready on a fresh idle session is accepted, not queued, even before settle', async () => {
+    // THE SEND-OUTCOME PIN. POD-4291 gated direct `when-ready` on `deliveryReady()`
+    // (live + 6s settle/quiet) and routed every fresh idle session through the inner
+    // queue, so the conformance corpus reported `queued` where the contract requires
+    // `accepted` — for all six terminal profiles. The settle wait belongs to the queue
+    // drain and the outer durable `withDeliveryQueue`, never to the direct path.
+    // Uses `bind` (just came up, unsettled), deliberately NOT `ready` (settled).
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    world.bind(session.binding.sessionId)
+    world.hookOnSubmit(session.binding.sessionId)
+    const receipt = await session.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+    expect(receipt.outcome).toBe('accepted')
+    if (receipt.outcome !== 'accepted') return
+    expect(receipt.turnEpoch).toBeGreaterThan(0)
+    expect(receipt.deliveredAs).toBe('when-ready')
+    expect(receipt.provenBy).toBe('hook')
+  })
+
+  it('POD-4387: needs_user still refuses on an unsettled session instead of queueing', async () => {
+    // REFUSAL PRECEDENCE. The same gate ran before the `needs_user` check, turning a
+    // blocking ask into a parked turn. An open native prompt refuses even when the CLI
+    // just came up — queueing would bury the question the user has to answer.
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    world.bind(session.binding.sessionId)
+    world.setPhase(session.binding.sessionId, 'needs_user')
+    const receipt = await session.send(
+      { text: 'go on' },
+      { origin: 'steward', delivery: 'when-ready' },
+    )
+    expect(receipt).toEqual({
+      outcome: 'refused',
+      refusal: { reason: 'needs_user', detail: 'a native prompt is open' },
+    })
+    expect(world.written).toEqual([])
+  })
+
   it('sends ESC before the replacement prompt on an interrupt delivery', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
@@ -1543,28 +1581,40 @@ describe('the echo baseline', () => {
 })
 
 describe('the queue drain', () => {
-  it('re-arms composer readiness on a fresh bind of an existing handle', async () => {
+  it('POD-4387: direct when-ready is NOT gated behind composer readiness (queued is for explicit queue)', async () => {
+    // SUPERSEDES the two `queued`-for-unsettled pins POD-4291 added here. Those pinned
+    // the defect this issue fixes: gating direct `when-ready` on `deliveryReady()` made
+    // every fresh idle session report `queued` where the contract requires `accepted`,
+    // breaking the conformance corpus for all six profiles and turning `needs_user`
+    // into a parked turn. The settle wait belongs to the QUEUE DRAIN (next test) and to
+    // the outer durable `withDeliveryQueue` via `deliveryReady` as its `ready` — never to
+    // the direct path, which types immediately and reports `accepted`/`unverified`.
+    // `re-arms` case: settled, then a fresh bind (unsettled again) — still direct.
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     world.ready(session.binding.sessionId)
     world.bind(session.binding.sessionId)
+    // No hook/echo: typed immediately, proof never arrives → `unverified`, not `queued`.
     const receipt = await session.send(
       { text: 'new bind' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(receipt.outcome).toBe('queued')
-    expect(world.written).toEqual([])
+    expect(receipt.outcome).toBe('unverified')
+    expect(world.written.length).toBeGreaterThan(0)
   })
 
-  it('gates direct when-ready behind live composer readiness', async () => {
+  it('POD-4387: direct when-ready before any bind still types (does not queue)', async () => {
+    // See above: pre-bind (not live) direct sends type and report the verification
+    // truth (`unverified` with no proof), they do not park as `queued`. `queued` is
+    // reserved for explicit `queue`/`steer`/lease requests (next test).
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
     const receipt = await session.send(
       { text: 'too early' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(receipt.outcome).toBe('queued')
-    expect(world.written).toEqual([])
+    expect(receipt.outcome).toBe('unverified')
+    expect(world.written.length).toBeGreaterThan(0)
   })
 
   it('does not type into a session that is still starting', async () => {
