@@ -3653,6 +3653,8 @@ describe('stable optimistic folds (B11)', () => {
 
 // D4: append-only shared runtime evidence. Real outbox + settled runtime boundary.
 describe('optimistic effective runtime publication', () => {
+  const nameOf = (engine: ReturnType<typeof createClientRuntime>, id: string) =>
+    engine.getSnapshot().sessions.find((row) => row.sessionId === id)?.name
   function pilot(enabled = true) {
     const replica = createReplica({ storage: memoryStorage() })
     replica.applyChanges('sessions', [session('d4-session', '/w')], [])
@@ -3699,10 +3701,15 @@ describe('optimistic effective runtime publication', () => {
       const painted = events.find((e) => e.view.row('sessions', 'd4-session')?.name === 'offline')!
       expect(painted).toMatchObject({ type: 'update', rows: [{ kind: 'sessions', id: 'd4-session', presence: 'present' }] })
       const entry = engine.outbox.pending()[0]!
+      const expire = () => (engine.outbox as unknown as { sweepExpired(age: number): unknown }).sweepExpired(-1)
+      expire()
+      expect(nameOf(engine, 'd4-session')).toBeUndefined()
       engine.getSnapshot().recoverOutbox.edit(entry.mutationId, { sessionId: asSessionId('d4-session'), name: 'edited' })
       await settle()
       expect(events.at(-1)!.view.row('sessions', 'd4-session')?.name).toBe('edited')
-      engine.getSnapshot().recoverOutbox.discard(entry.mutationId)
+      const revised = engine.outbox.pending()[0]!
+      expire()
+      engine.getSnapshot().recoverOutbox.discard(revised.mutationId)
       await settle()
       expect(events.at(-1)!.view.row('sessions', 'd4-session')?.name).toBeUndefined()
       // Earlier commit remains painted after later edit and rollback.
@@ -3871,3 +3878,67 @@ describe('addressed kernel runtime publications', () => {
 function nameOf(engine: ReturnType<typeof createClientRuntime>, id: string): string | undefined {
   return engine.getSnapshot().sessions.find((row) => row.sessionId === id)?.name ?? undefined
 }
+// Combined D3/D4 evidence: actual kernel publication and actual outbox drain.
+describe('replica and optimistic effective changes merge', () => {
+  it.each(['ack-first', 'echo-first', 'evict'] as const)('keeps legacy and pilot rows equal for %s', async (order) => {
+    const { createKernelReplica, createSideCache } = await import('../replica/kernel')
+    const records = new Map<string, import('@podium/sync/replica').EntityRecord>()
+    const original = session('d4-mixed', '/w')
+    records.set('d4-mixed', { entity: 'session', entityId: 'd4-mixed', value: original, provenance: { seq: 1 } })
+    const replica = createKernelReplica({
+      cache: { readCursor: () => null, readEntities: () => [...records.values()],
+        read: (_entity, id) => records.get(id), durability: () => 'durable' },
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const engine = createClientRuntime({
+      principal: asClientPrincipal(asUserId('d4-mixed-user')),
+      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' }, api: makeApi() as PodiumClientApi,
+      onFatalError: () => {}, createReplicaFn: () => replica,
+      createHub: () => new FakeHub() as unknown as SocketHub,
+      routerWindow: makeRouterWindow('/').win, networkEnabled: false, effectiveChanges: true,
+    })
+    const events: import('./effective-changes').EffectivePublication[] = []
+    const replay = new Map<string, Readonly<SessionMeta>>()
+    try {
+      engine.start()
+      await settle()
+      engine.effectiveChanges!.subscribe((event) => {
+        events.push(event)
+        const ids = event.type === 'replace' ? event.view.ids('sessions')
+          : event.rows.filter((r) => r.kind === 'sessions').map((r) => r.id)
+        if (event.type === 'replace') replay.clear()
+        for (const id of ids) {
+          const row = event.view.row('sessions', id)
+          if (row) replay.set(id, row)
+          else replay.delete(id)
+        }
+        expect([...replay.values()]).toEqual(engine.getSnapshot().sessions)
+        expect(event.view.commit).toBe(engine.getSnapshot())
+      })
+      await engine.getSnapshot().renameSession(original.sessionId, 'optimistic')
+      const painted = events.find((e) => e.view.row('sessions', original.sessionId)?.name === 'optimistic')!
+      const echo = () => {
+        const record = { entity: 'session', entityId: 'd4-mixed', value: { ...original, name: 'optimistic' }, provenance: { seq: 2 } }
+        records.set('d4-mixed', record)
+        replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+      }
+      if (order === 'echo-first') echo()
+      if (order === 'evict') {
+        records.clear()
+        replica.onKernelEvent({ type: 'evicted', entity: 'session', entityId: 'd4-mixed' })
+        expect(events.at(-1)).toMatchObject({ type: 'update', rows: [
+          { kind: 'sessions', id: 'd4-mixed', presence: 'absent' },
+        ] })
+        expect(engine.outbox.pending()).toHaveLength(1)
+      }
+      await engine.outbox.drain()
+      if (order === 'ack-first') {
+        expect(engine.outbox.awaiting()).toHaveLength(1)
+        echo()
+      }
+      expect(engine.outbox.pending()).toHaveLength(0)
+      expect(painted.view.row('sessions', original.sessionId)?.name).toBe('optimistic')
+      expect(engine.getSnapshot().sessions.length).toBe(order === 'evict' ? 0 : 1)
+    } finally { engine.destroy() }
+  })
+})

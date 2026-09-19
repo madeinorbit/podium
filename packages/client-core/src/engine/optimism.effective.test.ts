@@ -238,6 +238,6 @@ describe('optimistic effective addresses', () => {
       results.push({ ...m, bridgeVisits, bridgeMs, indexVisits, indexMs })
       assertComplete(h)
     }
-    console.log('D4 bookkeeping vs legacy fold', JSON.stringify(results))
+    process.stdout.write(`D4 bookkeeping vs legacy fold: ${JSON.stringify(results)}\n`)
   })
 })
