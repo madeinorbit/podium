@@ -142,6 +142,41 @@ describe('durable session write ordering', () => {
       : ['commit', 'resume:hibernated'])
   })
 
+  it('handoff aborts before export when source retirement is unconfirmed', async () => {
+    const f = fixture()
+    const transfer = new HandoffTransfer({
+      write: f.repository.write,
+      onSessionGone() {},
+      broadcastSessions() {},
+      toMachine: () => { f.events.push('escalation-kill') },
+      sleep: async () => {},
+      rpc: {
+        // A legacy acknowledgement: the verb ran, but no process death was measured.
+        runtimeLifecycle: async () => {
+          f.events.push('lifecycle')
+          return { result: { ok: true } }
+        },
+        handoffExport: async () => {
+          f.events.push('export')
+          return { ok: false, error: 'export must not run' }
+        },
+        handoffBindingFinalize: async () => ({ ok: true }),
+      },
+      resurrectSession: async () => ({ ok: true }),
+    } as unknown as HandoffTransferPorts)
+    const pending = transfer.apply(
+      { session: f.session, sourceRepo: { repoId: 'repo' } } as HandoffPlacement,
+      {} as HandoffPreflightResult,
+      { sessionId: f.session.sessionId, machineId: asMachineId('target') },
+      {} as Parameters<HandoffTransfer['apply']>[3],
+      () => {},
+    ).then(() => 'unexpected success', error => error.message)
+    await f.entered.promise
+    f.commit.resolve()
+    expect(await pending).toBe('source process retirement was not confirmed')
+    expect(f.events).toEqual(['commit', 'lifecycle', 'escalation-kill', 'commit'])
+  })
+
   function revival(f: ReturnType<typeof fixture>) {
     return new SessionRevival({
       repository: f.repository,
