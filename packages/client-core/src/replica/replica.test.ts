@@ -268,8 +268,14 @@ describe('replica row-notification coalescing (#262 review)', () => {
     try {
       const replica = createReplica({ storage: memoryStorage() })
       let calls = 0
-      replica.subscribeRows('sessions', () => {
+      const unsubscribe = replica.subscribeRows('sessions', () => {
         calls++
+        // Test-only fuse: a broken guard must fail, not starve the runner's
+        // timers forever. This is beyond the production guard's full budget.
+        if (calls > 5000) {
+          unsubscribe()
+          return
+        }
         replica.applyChanges('sessions', [{ ...session('x'), title: `t${calls}` }], [])
       })
       // Must return (bounded rounds), not blow the stack or spin.
