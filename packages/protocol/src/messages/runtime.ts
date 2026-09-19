@@ -266,7 +266,19 @@ export const TranscriptItemDelta = z.discriminatedUnion('kind', [
 ])
 export type TranscriptItemDelta = z.infer<typeof TranscriptItemDelta>
 
-export const CwdChanged = z.object({ ev: z.literal('cwd-changed'), cwd: z.string().min(1) })
+export const CwdChanged = z.object({
+  ev: z.literal('cwd-changed'),
+  cwd: z.string().min(1),
+  // Full native worktree facts from the daemon's git classification (the only
+  // side that can run git here). Mirrors SessionCwdMessage so the contract-only
+  // projection can update the session row and adopt the issue worktree without
+  // the legacy frame. All optional for rolling upgrades: absent means "cwd only",
+  // which degrades to prior grouping without adoption.
+  kind: z.enum(['main', 'worktree', 'none']).optional(),
+  branch: z.string().optional(),
+  repoRoot: z.string().optional(),
+  explicit: z.boolean().optional(),
+})
 export const GitActivity = z.object({
   ev: z.literal('git-activity'),
   /** READONLY on the wire as well as in the contract: these are observations,
@@ -310,7 +322,26 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
   z.object({ t: z.literal('workspace'), ev: z.union([CwdChanged, GitActivity]) }),
   z.object({
     t: z.literal('open-url'),
-    ev: z.object({ url: z.string(), intent: z.enum(['login', 'link']) }),
+    // Full native browser-open identity. A URL-only event cannot replace the
+    // login callback protocol: requestId preserves dismissal/callback routing
+    // and reconnect idempotence, callbackTarget preserves the loopback
+    // paste-back capability, expiresAt preserves the user-visible expiry, and
+    // intent preserves login-versus-link affordance. All but url/intent are
+    // optional for rolling upgrades; absent degrades to a link-only offer with
+    // no callback capability.
+    ev: z.object({
+      url: z.string(),
+      intent: z.enum(['login', 'link']),
+      requestId: z.string().min(1).optional(),
+      callbackTarget: z
+        .object({
+          host: z.enum(['localhost', '127.0.0.1', '::1']),
+          port: z.number().int().min(1).max(65_535),
+          path: z.string().startsWith('/'),
+        })
+        .optional(),
+      expiresAt: z.number().int().positive().optional(),
+    }),
   }),
   z.object({ t: z.literal('draft'), text: z.string() }),
   z.object({ t: z.literal('metadata'), change: SessionMetadataChange }),
@@ -322,9 +353,17 @@ export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 
 /**
  * Daemon retention, independent of the server's coarse-event projection path.
- * State, workspace and draft observations are superseded by later observations:
- * send them live, without a delivery id, fsync, retry or acknowledgement. They
- * can be lost across a link drop. Fine item fragments remain live-only too.
+ * State, cwd-changed workspace and draft observations are superseded by later
+ * observations: send them live, without a delivery id, fsync, retry or
+ * acknowledgement. They can be lost across a link drop. Fine item fragments
+ * remain live-only too.
+ *
+ * Git-activity is the workspace exception: commits are additive, not
+ * superseded — a dropped git-activity is a lost commit attribution no later
+ * observation repairs. It is retained like any other one-shot effect so late
+ * Git results survive a link drop as well as a turn boundary. Cwd-changed
+ * stays live-only: the next move supersedes it, and the snapshot/bootstrap
+ * carries the current workdir for reconnect.
  *
  * Bootstrap overrides the coarse kind: the server needs it to admit a replacement
  * observer generation, so losing it can strand later durable events as well.
@@ -342,9 +381,12 @@ export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
   if (event.provenance === 'bootstrap') return true
   switch (event.t) {
     case 'state':
-    case 'workspace':
     case 'draft':
       return false
+    case 'workspace':
+      // Git-activity is additive (one lost event is one lost commit ledger);
+      // cwd-changed is superseded (the next move replaces it).
+      return event.ev.ev === 'git-activity'
     case 'metadata':
     case 'binding':
     case 'delivery':

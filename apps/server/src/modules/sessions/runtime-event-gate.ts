@@ -119,6 +119,42 @@ export interface RuntimeEventGatePorts {
    * Awaited on the same terms as {@link turn}.
    */
   interaction?(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void>
+  /**
+   * Contract-only workspace moves (cwd-changed). The legacy sessionCwd frame
+   * owns this for non-contract sessions; for contract sessions this port is
+   * the single projection that updates the row and adopts the issue worktree.
+   * Projected through the durable oplog drain like {@link board}, so a crash
+   * between commit and fan-out re-delivers rather than loses the move. The
+   * consumer must be safe to repeat (row update asks "did this actually
+   * change?" before writing; adoption is guarded on worktreePath null).
+   */
+  workspace?(input: {
+    sessionId: SessionId
+    eventId: number
+    cwd: string
+    kind?: 'main' | 'worktree' | 'none'
+    branch?: string
+    repoRoot?: string
+    explicit?: boolean
+  }): Promise<void>
+  /**
+   * Contract-only browser opens. The daemon's BrowserOpenManager still owns
+   * the pending capability and executes the loopback callback; this port is
+   * how the server's gateway learns the request without the legacy
+   * sessionOpenUrl frame. Durable through the oplog drain; the gateway
+   * dedupes by sessionId:requestId, so replay is safe. A URL-only event
+   * degrades to a link offer with no callback capability — it never mints
+   * one.
+   */
+  openUrl?(input: {
+    sessionId: SessionId
+    eventId: number
+    url: string
+    intent: 'login' | 'link'
+    requestId?: string
+    callbackTarget?: { host: 'localhost' | '127.0.0.1' | '::1'; port: number; path: string }
+    expiresAt?: number
+  }): Promise<void>
   board(
     event:
       | { kind: 'attention' | 'turnEnd'; sessionId: SessionId; eventId: number }
@@ -200,7 +236,16 @@ export class RuntimeEventGate {
       sessionId,
       observerGeneration: event.observerGeneration,
       cursor: event.cursor,
-      turnEpoch: event.turnEpoch,
+      // Auxiliary workspace/browser events carry the session's identity, not a
+      // turn's: their epoch is ordering only. Never regress the checkpoint's
+      // turnEpoch on a late auxiliary (origin epoch < current after the next
+      // turn started) — that would relabel old work as current and move the
+      // fence other arms read. Take the max so late results admit without
+      // moving the turn lifecycle at all.
+      turnEpoch:
+        event.t === 'workspace' || event.t === 'open-url'
+          ? Math.max(current?.turnEpoch ?? 0, event.turnEpoch)
+          : event.turnEpoch,
       closedTurnEpoch: closesTurn(event) ? event.turnEpoch : (current?.closedTurnEpoch ?? null),
       updatedAt: new Date(this.ports.now()).toISOString(),
     }
@@ -389,11 +434,26 @@ export class RuntimeEventGate {
     }
 
     if (event.turnEpoch < current.turnEpoch) {
-      return { kind: 'rejected', reason: 'turn-epoch-regressed' }
+      // LIFECYCLE-INDEPENDENT WORKSPACE ADMISSION (POD-4308 C17).
+      //
+      // Workspace moves, git-activity and browser opens are auxiliary: they
+      // carry the session's identity, not a turn's. A slow post-tool git
+      // result can resolve after its turn completed, after the next turn
+      // started, or after the cwd moved — and must still attribute exactly
+      // once to the session's issue without reopening the turn, resurrecting
+      // Working, or counting as next-turn work. The board attributes by
+      // session/issue, never by epoch, so the epoch here is ordering only.
+      // Exempting these arms from turn-epoch fences is what lets late results
+      // survive while turn finality stays intact for every other arm.
+      if (event.t !== 'workspace' && event.t !== 'open-url') {
+        return { kind: 'rejected', reason: 'turn-epoch-regressed' }
+      }
     }
     // Process and row delivery lifecycles are independent of the last turn. A child can die after
     // its final turn has closed, and that exit must remain an admissible causal
-    // event rather than being mistaken for a late turn update.
+    // event rather than being mistaken for a late turn update. Workspace and
+    // browser auxiliaries join that set for the same reason: a commit observed
+    // after completion is still that session's commit.
     if (
       current.closedTurnEpoch !== null &&
       event.turnEpoch <= current.closedTurnEpoch &&
@@ -403,12 +463,16 @@ export class RuntimeEventGate {
       event.t !== 'draft' &&
       event.t !== 'metadata' &&
       !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
-      event.t !== 'transcript-reset'
+      event.t !== 'transcript-reset' &&
+      event.t !== 'workspace' &&
+      event.t !== 'open-url'
     ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
     }
     if (event.turnEpoch > current.turnEpoch) {
       if (
+        event.t !== 'workspace' &&
+        event.t !== 'open-url' &&
         !(
           event.provenance === 'bootstrap' &&
           event.t === 'state' &&
@@ -434,6 +498,33 @@ export class RuntimeEventGate {
         eventId,
         commits: [...event.ev.commits],
         touched: [...event.ev.touchedFiles],
+      })
+    }
+    // Workspace moves and browser opens are durable projections, not live-only
+    // turn effects: they must survive server restart via the oplog cursor, and
+    // the consumers dedupe (cwd asks "did this actually change?", gateway by
+    // requestId), so replay is safe. Provenance is not checked here — a
+    // bootstrap cwd still corrects the row after a replacement generation.
+    if (event.t === 'workspace' && event.ev.ev === 'cwd-changed') {
+      await this.ports.workspace?.({
+        sessionId,
+        eventId,
+        cwd: event.ev.cwd,
+        ...(event.ev.kind ? { kind: event.ev.kind } : {}),
+        ...(event.ev.branch ? { branch: event.ev.branch } : {}),
+        ...(event.ev.repoRoot ? { repoRoot: event.ev.repoRoot } : {}),
+        ...(event.ev.explicit ? { explicit: true } : {}),
+      })
+    }
+    if (event.t === 'open-url') {
+      await this.ports.openUrl?.({
+        sessionId,
+        eventId,
+        url: event.ev.url,
+        intent: event.ev.intent,
+        ...(event.ev.requestId ? { requestId: event.ev.requestId } : {}),
+        ...(event.ev.callbackTarget ? { callbackTarget: event.ev.callbackTarget } : {}),
+        ...(event.ev.expiresAt !== undefined ? { expiresAt: event.ev.expiresAt } : {}),
       })
     }
     if (event.provenance !== 'live') return

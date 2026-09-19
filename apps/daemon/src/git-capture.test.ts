@@ -165,4 +165,84 @@ describe('git-capture', () => {
     await settle()
     expect(sent.filter((m) => m.commits)).toEqual([])
   })
+
+  it('drops a queued post-tool result when clear/rebind lands while reads are pending', async () => {
+    // Deterministic deferred runner: hold the post rev-parse until the test
+    // releases it, so the turn can complete first. The old result must not
+    // attribute to the replacement process reusing the same session ID.
+    let releasePost!: (value: string | null) => void
+    const postGate = new Promise<string | null>((resolve) => {
+      releasePost = resolve
+    })
+    let calls = 0
+    const sent: SessionGitActivityOut[] = []
+    const cap = createGitCapture({
+      send: (msg) => sent.push(msg),
+      run: async (args, _cwd) => {
+        const key = args.join(' ')
+        if (key === 'rev-parse HEAD') {
+          calls += 1
+          // First call is pre (aaa); second is post (held).
+          if (calls === 1) return 'aaa'
+          return postGate
+        }
+        if (key === 'rev-list --reverse aaa..bbb') return 'sha1'
+        return null
+      },
+    })
+    cap.onHookPayload(asSessionId('s1'), pre())
+    await settle()
+    cap.onHookPayload(asSessionId('s1'), post())
+    // Post read is now pending inside the chain.
+    await new Promise((r) => setTimeout(r, 0))
+    cap.clearSession(asSessionId('s1'))
+    // Rebind: same session ID, new generation. Even a successful post read
+    // for the old generation must not send.
+    releasePost('bbb')
+    await settle()
+    await settle()
+    expect(sent.filter((m) => m.commits)).toEqual([])
+  })
+
+  it('delivers a deferred post-tool result exactly once after turn completion', async () => {
+    // Hold post rev-parse/rev-list, let the (simulated) turn complete, then
+    // release: exactly one commit attribution, no double count on replay.
+    let releasePost!: (value: string | null) => void
+    let releaseList!: (value: string | null) => void
+    const postGate = new Promise<string | null>((resolve) => {
+      releasePost = resolve
+    })
+    const listGate = new Promise<string | null>((resolve) => {
+      releaseList = resolve
+    })
+    let revParseCalls = 0
+    const sent: SessionGitActivityOut[] = []
+    const cap = createGitCapture({
+      send: (msg) => sent.push(msg),
+      run: async (args) => {
+        const key = args.join(' ')
+        if (key === 'rev-parse HEAD') {
+          revParseCalls += 1
+          if (revParseCalls === 1) return 'aaa'
+          return postGate
+        }
+        if (key.startsWith('rev-list')) return listGate
+        return null
+      },
+    })
+    cap.onHookPayload(asSessionId('s1'), pre())
+    await settle()
+    cap.onHookPayload(asSessionId('s1'), post())
+    await new Promise((r) => setTimeout(r, 0))
+    // Turn completes while reads are held (no gate interaction here — this
+    // unit proves the capture half holds and releases exactly once).
+    releasePost('bbb')
+    await new Promise((r) => setTimeout(r, 0))
+    releaseList('sha1\nsha2')
+    await settle()
+    await settle()
+    const commits = sent.filter((m) => m.commits)
+    expect(commits).toHaveLength(1)
+    expect(commits[0]?.commits).toEqual(['sha1', 'sha2'])
+  })
 })

@@ -1100,15 +1100,37 @@ export function createTerminalRuntime(
         return
       }
       case 'sessionCwd': {
+        // Track the worktree root the daemon resolved: the snapshot's
+        // binding.workdir must stay current for reconnect, and the contract
+        // event must carry the full native facts (kind/branch/repoRoot/
+        // explicit) so the server's contract-only projection can update the
+        // row and adopt the issue worktree without the legacy frame.
+        session.cwd = msg.cwd
         emit(
           session,
-          { t: 'workspace', ev: { ev: 'cwd-changed', cwd: msg.cwd } },
+          {
+            t: 'workspace',
+            ev: {
+              ev: 'cwd-changed',
+              cwd: msg.cwd,
+              ...(msg.kind ? { kind: msg.kind } : {}),
+              ...(msg.branch ? { branch: msg.branch } : {}),
+              ...(msg.repoRoot ? { repoRoot: msg.repoRoot } : {}),
+              ...(msg.explicit ? { explicit: true } : {}),
+            },
+          },
           observedAt(),
           'live',
         )
         return
       }
       case 'sessionGitActivity': {
+        // Late attribution travels here: git-capture's async rev-parse/rev-list
+        // can resolve after the turn completed or the next turn started. The
+        // event carries the session's identity, not a turn's — the server
+        // admits workspace git-activity lifecycle-independently, attributes to
+        // the session's issue, and never reopens the turn. Empty (baseline
+        // registration) still projects so the issue leaves fallback mode.
         emit(
           session,
           {
@@ -1125,11 +1147,24 @@ export function createTerminalRuntime(
         return
       }
       case 'sessionOpenUrl': {
+        // Full native identity, not URL-only: requestId preserves callback/
+        // dismissal routing and reconnect idempotence, callbackTarget preserves
+        // the loopback paste-back capability, expiresAt preserves expiry, and
+        // intent preserves login-versus-link affordance. The daemon's
+        // BrowserOpenManager still owns the pending capability and executes
+        // the callback; this event is how the server's gateway learns it
+        // without the legacy frame.
         emit(
           session,
           {
             t: 'open-url',
-            ev: { url: msg.url, intent: msg.intent === 'login' ? 'login' : 'link' },
+            ev: {
+              url: msg.url,
+              intent: msg.intent === 'login' ? 'login' : 'link',
+              requestId: msg.requestId,
+              ...(msg.callbackTarget ? { callbackTarget: msg.callbackTarget } : {}),
+              expiresAt: msg.expiresAt,
+            },
           },
           new Date(host.now()).toISOString(),
           'live',

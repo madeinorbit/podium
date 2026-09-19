@@ -357,6 +357,14 @@ export class SessionDaemonLifecycle {
     switch (msg.type) {
       case 'sessionOpenUrl': {
         const session = this.sessions.get(msg.sessionId)
+        // Contract-owned sessions route browser opens through the runtime
+        // open-url port, not this legacy frame. The daemon's shim still mints
+        // the request (capture) and still owns the callback execution — only
+        // the serverward offer moves. Ignoring the legacy here keeps the
+        // gateway single-writer while plain shell/login sessions keep theirs.
+        // Callback/dismiss/result frames below are the callback protocol
+        // itself and are never suppressed.
+        if (session?.runtimeContract) break
         // A daemon may only originate intents for sessions it owns. The bus is
         // the typed notification seam from capture to client routing. [spec:SP-a43e]
         if (session?.machineId === machineId) this.bus.emit('session.openUrl', msg)

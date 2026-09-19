@@ -709,6 +709,60 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       })
     },
     board: (event) => bag.bus.emitDurable('issue.runtimeDerived', event),
+    // Contract-only workspace moves: the single projection that updates the
+    // row and adopts the issue worktree without the legacy sessionCwd frame.
+    // Mirrors SessionDaemonProjection's sessionCwd handling (cwd ask-before-
+    // write, broadcast, adoptWorktree) so contract-only external projections
+    // reproduce the user-visible effect. Safe to repeat: row write asks first,
+    // adoption is guarded on worktreePath null.
+    workspace: async (input) => {
+      const session = bag.sessions.get(input.sessionId)
+      if (!session) return
+      if (input.cwd && session.cwd !== input.cwd) {
+        const cwd = input.cwd
+        await bag.repository.write(session, (draft: SessionDurableState) => {
+          draft.cwd = cwd
+        })
+        bag.broadcastSessions()
+      }
+      if (input.cwd && session.issueId) {
+        bag.bus.emit('issue.sessionDerived', {
+          kind: 'adoptWorktree',
+          issueId: session.issueId,
+          machineId: session.machineId,
+          message: {
+            type: 'sessionCwd',
+            sessionId: input.sessionId,
+            cwd: input.cwd,
+            ...(input.kind ? { kind: input.kind } : {}),
+            ...(input.branch ? { branch: input.branch } : {}),
+            ...(input.repoRoot ? { repoRoot: input.repoRoot } : {}),
+            ...(input.explicit ? { explicit: true } : {}),
+          },
+        })
+      }
+    },
+    // Contract-only browser opens: how the gateway learns the request without
+    // the legacy sessionOpenUrl frame. The daemon's BrowserOpenManager still
+    // owns the pending capability and executes the callback; this only routes
+    // the offer to clients. Gateway dedupes by sessionId:requestId, so oplog
+    // replay is safe. Missing requestId (rolling upgrade) falls back to a
+    // link-only offer keyed by the durable event id.
+    openUrl: async (input) => {
+      const session = bag.sessions.get(input.sessionId)
+      if (!session) return
+      const requestId = input.requestId ?? `contract:${input.eventId}`
+      const expiresAt = input.expiresAt ?? bag.now() + 10 * 60 * 1_000
+      bag.browserOpen.onOpenUrl({
+        type: 'sessionOpenUrl',
+        sessionId: input.sessionId,
+        requestId,
+        url: input.url,
+        ...(input.intent ? { intent: input.intent } : {}),
+        ...(input.callbackTarget ? { callbackTarget: input.callbackTarget } : {}),
+        expiresAt,
+      })
+    },
     // DEFERRED READ, on the same terms as `runtimeInteractions.ask` below: the
     // interactions aggregate is built by the composition root after this
     // function runs, so the sink is read through the closure rather than
@@ -886,7 +940,23 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const session = bag.sessions.get(sessionId)
       const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
       if (!session || bag.sessions.get(sessionId) !== session || session.machineId !== machineId || !session.runtimeContract) return
-      if ('snapshot' in reply.result) await bag.daemonProjection.metadataSnapshot(sessionId, reply.result.snapshot)
+      if ('snapshot' in reply.result) {
+        await bag.daemonProjection.metadataSnapshot(sessionId, reply.result.snapshot)
+        // Reconnect: the driver's snapshot binding carries its current
+        // worktree root (session.cwd is kept current on every sessionCwd).
+        // Restamp the row so grouping survives a daemon restart without
+        // waiting for the next move. Adoption itself already happened via the
+        // workspace oplog before the restart (the row and issue worktreePath
+        // persist), and the snapshot carries no kind/branch to re-adopt
+        // safely, so this is grouping only.
+        const workdir = reply.result.snapshot.binding.workdir
+        if (typeof workdir === 'string' && workdir !== '' && session.cwd !== workdir) {
+          await bag.repository.write(session, (draft: SessionDurableState) => {
+            draft.cwd = workdir
+          })
+          bag.broadcastSessions()
+        }
+      }
     },
     sessions: bag.sessions,
     bus: bag.bus,

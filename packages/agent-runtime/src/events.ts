@@ -94,12 +94,28 @@ export type RuntimeEventBody =
   | { t: 'process'; ev: ProcessEvent }
   /** `cd`/EnterWorktree moves, commits and touched files. */
   | { t: 'workspace'; ev: CwdChanged | GitActivity }
-  /** Forwarded browser opens, classified by the harness manifest. */
-  | { t: 'open-url'; ev: { url: string; intent: 'login' | 'link' } }
+  /** Forwarded browser opens, classified by the harness manifest. A URL-only
+   *  event cannot replace the native login callback protocol: requestId,
+   *  callbackTarget and expiresAt preserve routing, paste-back, expiry and
+   *  reconnect idempotence. */
+  | {
+      t: 'open-url'
+      ev: {
+        url: string
+        intent: 'login' | 'link'
+        requestId?: string
+        callbackTarget?: { host: 'localhost' | '127.0.0.1' | '::1'; port: number; path: string }
+        expiresAt?: number
+      }
+    }
 
 export interface CwdChanged {
   ev: 'cwd-changed'
   cwd: string
+  kind?: 'main' | 'worktree' | 'none'
+  branch?: string
+  repoRoot?: string
+  explicit?: boolean
 }
 
 export interface GitActivity {

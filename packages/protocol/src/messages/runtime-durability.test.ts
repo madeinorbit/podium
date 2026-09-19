@@ -40,6 +40,11 @@ describe('runtime event retention contract', () => {
     },
   )
 
+  it('retains git-activity because commits are additive, not superseded', () => {
+    const git = event({ t: 'workspace', ev: { ev: 'git-activity', commits: ['sha'], touchedFiles: [] } })
+    expect(isDurableRuntimeEvent(git)).toBe(true)
+  })
+
   it.each(['state', 'workspace', 'draft'] as const)(
     'sends %s live without a delivery id, but retains its bootstrap', (kind) => {
       const live = event(bodies[kind])
