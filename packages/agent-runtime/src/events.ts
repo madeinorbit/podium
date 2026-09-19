@@ -84,6 +84,8 @@ export type RuntimeEventBody =
       change: AgentStateEvent
     }
   | { t: 'item'; item: TranscriptItemDelta }
+  /** Authoritative replacement window, including an empty/rotated store. */
+  | { t: 'transcript-reset'; items: readonly TranscriptItem[]; tail?: string }
   | { t: 'interaction'; ev: InteractionAsked | InteractionAnswered | InteractionExpired }
   | { t: 'turn'; ev: TurnEvent }
   | { t: 'process'; ev: ProcessEvent }

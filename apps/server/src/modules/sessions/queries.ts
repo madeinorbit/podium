@@ -85,11 +85,8 @@ export const SESSION_QUERIES = {
         await filterAsync(input.sessionIds, (sessionId) => mayReadSession(s, sessionId)),
       ),
   ),
-  /** On-demand transcript window for the chat view — a pure disk read via the
-   *  daemon (disk = source of truth). `anchor` is a cursor; `direction` reads the
-   *  `limit` items before (older) or after (newer) it. No anchor = the latest
-   *  window. Serves both initial load and scroll-to-top paging, for live AND
-   *  parked sessions alike — independent of the server's recent-delta cache. */
+  /** Authorized chat window. Live sessions use driver history; parked sessions
+   * and predecessor chains use the archive boundary. Paging cursors are opaque. */
   transcriptRead: q(
     z.object({
       sessionId: SessionIdField,

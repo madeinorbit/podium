@@ -2486,7 +2486,9 @@ describe('observation translation', () => {
         frame.event.t === 'item' &&
         frame.event.item.kind === 'complete'
           ? [{ event: frame.event, item: frame.event.item.item }]
-          : [],
+          : frame.type === 'runtimeEvent' && frame.event.t === 'transcript-reset'
+            ? frame.event.items.map((item) => ({ event: frame.event, item }))
+            : [],
       )
       expect(items.map((entry) => entry.item.id)).toEqual([user.id, assistant.id])
       expect(items[1]?.event).toMatchObject({ observerGeneration: 2 })
@@ -3190,5 +3192,25 @@ describe('driver-owned prime boundary', () => {
     } finally {
       world.runtime.dispose()
     }
+  })
+})
+
+describe('terminal transcript replacement events', () => {
+  it('preserves identical and empty resets, clears dedup state, and retains item identity', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    const item: TranscriptItem = { id: 'stable', cursor: 'native', role: 'assistant', text: 'same' }
+    const before = world.frames.length
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item], reset: true, tail: 'native' })
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [], reset: true })
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    const events = world.frames.slice(before).flatMap((frame) => frame.type === 'runtimeEvent' ? [frame.event] : [])
+    expect(events.map((event) => event.t)).toEqual(['item', 'transcript-reset', 'transcript-reset', 'item'])
+    expect(events[1]).toMatchObject({ t: 'transcript-reset', items: [item], tail: 'native' })
+    expect(events[2]).toMatchObject({ t: 'transcript-reset', items: [] })
+    expect(events[3]).toMatchObject({ t: 'item', item: { kind: 'complete', item } })
   })
 })

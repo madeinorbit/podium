@@ -212,7 +212,7 @@ export class RuntimeEventGate {
     await this.ports.write(
       sessionId,
       (draft) => {
-        if (event.t !== 'draft' && event.t !== 'metadata') session.recordRuntimeActivity(event.at, draft)
+        if (event.t !== 'draft' && event.t !== 'metadata' && event.t !== 'transcript-reset') session.recordRuntimeActivity(event.at, draft)
         /**
          * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
          *
@@ -380,7 +380,9 @@ export class RuntimeEventGate {
       event.provenance === 'bootstrap' &&
       !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
       event.t !== 'metadata' &&
-      !(current.turnEpoch === 0 && event.turnEpoch === 0)
+      !(current.turnEpoch === 0 && event.turnEpoch === 0) &&
+      !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
+      event.t !== 'transcript-reset'
     ) {
       return { kind: 'rejected', reason: 'cursor-not-after-checkpoint' }
     }
@@ -398,7 +400,8 @@ export class RuntimeEventGate {
       event.t !== 'delivery' &&
       event.t !== 'draft' &&
       event.t !== 'metadata' &&
-      !(event.t === 'state' && event.change.kind === 'state_snapshot')
+      !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
+      event.t !== 'transcript-reset'
     ) {
       return { kind: 'rejected', reason: 'terminal-epoch-closed' }
     }

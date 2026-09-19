@@ -343,3 +343,60 @@ describe('transcript lifecycle boundaries', () => {
     controller.dispose()
   })
 })
+
+
+describe('history paging and reset boundaries', () => {
+  it('uses page cursors for paging and native item cursors for stream catch-up', async () => {
+    const io = source()
+    const controller = createTranscriptController({ sessionId: asSessionId('s1'), source: io.port })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('new', 'native-new')], head: 'history-new', tail: 'history-tail', hasMore: true })
+    await starting
+    expect(io.port.subscribe).toHaveBeenCalledWith(asSessionId('s1'), 'native-new', expect.any(Function))
+    const first = controller.loadOlder()
+    expect(io.reads[1]?.anchor).toBe('history-new')
+    io.pending[1]?.resolve({ items: [item('older', 'native-old')], head: 'history-old', tail: 'history-old', hasMore: true })
+    await first
+    const second = controller.loadOlder()
+    expect(io.reads[2]?.anchor).toBe('history-old')
+    io.pending[2]?.resolve({ items: [], hasMore: false })
+    await second
+    controller.dispose()
+  })
+
+  it('an empty reset removes held rows and saved rows even when refresh fails', async () => {
+    const io = source()
+    const write = vi.fn()
+    const controller = createTranscriptController({
+      sessionId: asSessionId('s1'), source: io.port,
+      cache: { read: () => undefined, write },
+    })
+    const starting = controller.start()
+    io.pending[0]?.resolve({ items: [item('stale', 'native-old')], hasMore: false })
+    await starting
+    io.emit([], true)
+    expect(controller.getSnapshot().items).toEqual([])
+    expect(write).toHaveBeenLastCalledWith(asSessionId('s1'), [])
+    io.pending[1]?.reject(new Error('offline'))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(controller.getSnapshot().items).toEqual([])
+    controller.dispose()
+  })
+})
+
+
+it('replaces a live window when paging switches to archive history', async () => {
+  const io = source()
+  const controller = createTranscriptController({ sessionId: asSessionId('s1'), source: io.port })
+  const starting = controller.start()
+  io.pending[0]?.resolve({ items: [item('live', 'native-live')], head: 'runtime-history:head', hasMore: true })
+  await starting
+  const older = controller.loadOlder()
+  io.pending[1]?.resolve({ reset: true, items: [item('archived', 'archive-item')], head: 'archive-head', tail: 'archive-tail', hasMore: true })
+  await older
+  expect(controller.getSnapshot()).toMatchObject({
+    items: [item('archived', 'archive-item')], head: 'archive-head', hasMoreOlder: true,
+  })
+  controller.dispose()
+})

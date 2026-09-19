@@ -53,7 +53,8 @@ import type {
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
 } from '@podium/protocol'
-import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
+import { ProviderCursor, SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
+import { TRPCError } from '@trpc/server'
 import type {
   ControlMessage,
   DaemonMessage,
@@ -147,6 +148,8 @@ export interface OpResult {
 
 /** A transcript window slice as served to the chat view. */
 export interface TranscriptSlice {
+  /** The cursor source changed; replace the held window instead of appending. */
+  reset?: boolean
   items: TranscriptItem[]
   head?: string
   tail?: string
@@ -162,6 +165,27 @@ export interface RpcSessionView {
   resume?: ResumeRef
   transcriptItems(): TranscriptItem[]
   runtimeTranscriptItems?(): TranscriptItem[]
+  /** A bound live driver; parked rows and predecessor chains are archive reads. */
+  driverId?: string
+  status?: string
+}
+
+const HISTORY_CURSOR_PREFIX = 'runtime-history:'
+
+/** Paging cursors are opaque and separate from item/stream identity. */
+export function encodeHistoryCursor(sessionId: SessionId, cursor: ProviderCursor): string {
+  return HISTORY_CURSOR_PREFIX + encodeURIComponent(JSON.stringify({ sessionId, cursor }))
+}
+
+function decodeHistoryCursor(sessionId: SessionId, anchor?: string): ProviderCursor | undefined {
+  if (!anchor?.startsWith(HISTORY_CURSOR_PREFIX)) return undefined
+  try {
+    const decoded = JSON.parse(decodeURIComponent(anchor.slice(HISTORY_CURSOR_PREFIX.length)))
+    if (decoded.sessionId !== sessionId) throw new Error('foreign session')
+    return ProviderCursor.parse(decoded.cursor)
+  } catch {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid history cursor' })
+  }
 }
 
 function withRuntimeTranscriptItems(
@@ -1329,17 +1353,8 @@ export class DaemonRpcService {
     return path ? { pathHint: path } : undefined
   }
 
-  /**
-   * Transcript for the chat view — a pure daemon round-trip; disk is the source of
-   * truth. Reads the requested window of `limit` items relative to `anchor` (a
-   * cursor) in `direction` ('before' = older, 'after' = newer; no anchor = the
-   * latest window). The daemon resolves the on-disk transcript from the session's
-   * agentKind/cwd/resume and serves the slice — so a LIVE session with an empty
-   * recent-delta cache (e.g. right after a server restart) still loads its history
-   * straight off disk, instead of the old short-circuit that returned an empty
-   * buffer. Resolves an empty, hasMore:false page when the session is unknown or no
-   * daemon answers.
-   */
+  /** Shared authorized read for chat, toolkit, answers and recaps. Live drivers
+   * own live history; immutable predecessor chains and parked rows stay archival. */
   async readTranscript(
     input: {
       sessionId: SessionId
@@ -1361,6 +1376,52 @@ export class DaemonRpcService {
     if (!session) {
       recordTotal()
       return { items: [], hasMore: false }
+    }
+    const historyCursor = decodeHistoryCursor(input.sessionId, input.anchor)
+    const hasPredecessors = await this.deps.memory.transcriptHasPredecessors(session)
+    const live = session.driverId && session.status !== 'hibernated' && session.status !== 'exited'
+    // A pre-migration/raw anchor belongs to archive paging. Never pass it to a
+    // provider as though it were a runtime cursor.
+    if (live && !hasPredecessors && this.deps.hasDaemon(session.machineId) &&
+        (!input.anchor || historyCursor)) {
+      const { result } = await this.runtimeHistory(input.sessionId, session.machineId, {
+        ...(historyCursor ? { from: historyCursor } : {}),
+        direction: input.direction,
+        limit: input.limit,
+      })
+      if ('page' in result) {
+        recordTotal()
+        return withRuntimeTranscriptItems({
+          items: [...result.page.items],
+          ...(result.page.head ? { head: encodeHistoryCursor(input.sessionId, result.page.head) } : {}),
+          ...(result.page.tail ? { tail: encodeHistoryCursor(input.sessionId, result.page.tail) } : {}),
+          hasMore: result.page.hasMore,
+        }, session, input)
+      }
+      if (result.reason === 'invalid_value') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: result.detail ?? 'Invalid history cursor' })
+      }
+    }
+    let sourceReset = false
+    if (historyCursor) {
+      // Only the terminal host explicitly embeds a native source cursor. This
+      // bridge permits paging the mirror after disconnect without interpreting
+      // arbitrary provider components or forwarding a live cursor to the lake.
+      if (hasPredecessors ||
+          historyCursor.segmentId !== `history:${session.id}:${session.resume?.value ?? ''}` ||
+          !historyCursor.pathHint) {
+        // Headless event/index cursors have no archive interpretation. Return
+        // a replacement latest archive window, never silently append it to the
+        // caller's old source or strand a persisted recap watermark.
+        input = { sessionId: input.sessionId, direction: 'before', limit: input.limit }
+        sourceReset = true
+      } else {
+        input = { ...input, anchor: historyCursor.pathHint }
+      }
+    }
+    const archivePage = (page: TranscriptSlice): TranscriptSlice => {
+      const projected = withRuntimeTranscriptItems(page, session, input)
+      return sourceReset ? { ...projected, reset: true } : projected
     }
     // Leg timing [POD-701]: transcriptRead.daemon / transcriptRead.lake record
     // the leg that actually served the response. Payload bytes aren't cheaply
@@ -1386,13 +1447,13 @@ export class DaemonRpcService {
     // an immutable predecessor, it is the only source that can answer an opaque
     // cursor across the complete chain, so consult it first even while the
     // machine is online. Fall back to the daemon if preserved files are missing.
-    if (await this.deps.memory.transcriptHasPredecessors(session)) {
+    if (hasPredecessors) {
       fromLake = await readLake()
       if (fromLake) {
         perf.record('phase', 'transcriptRead.lake', lakeMs, DEPLOYMENT)
         perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
         recordTotal()
-        return withRuntimeTranscriptItems(fromLake, session, input)
+        return archivePage(fromLake)
       }
     }
     const hasDaemon = this.deps.hasDaemon(session.machineId)
@@ -1435,7 +1496,7 @@ export class DaemonRpcService {
       perf.record('phase', 'transcriptRead.daemon', daemonMs ?? 0, DEPLOYMENT)
       perf.record('phase', 'transcriptRead.items', fromDaemon.items.length, DEPLOYMENT)
       recordTotal()
-      return withRuntimeTranscriptItems(fromDaemon, session, input)
+      return archivePage(fromDaemon)
     }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
     if (!lakeAttempted) fromLake = await readLake()
@@ -1445,7 +1506,7 @@ export class DaemonRpcService {
     }
     recordTotal()
     const fallback = fromLake ?? fromDaemon ?? { items: [], hasMore: false }
-    const projected = withRuntimeTranscriptItems(fallback, session, input)
+    const projected = archivePage(fallback)
     if (projected !== fallback) {
       perf.record('phase', 'transcriptRead.items', projected.items.length, DEPLOYMENT)
     }

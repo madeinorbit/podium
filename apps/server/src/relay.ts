@@ -1169,6 +1169,8 @@ export class SessionRegistry {
               resume: session.resume,
               transcriptItems: () => session.terminal.transcriptItems(),
               runtimeTranscriptItems: () => session.terminal.runtimeTranscriptItems(),
+              driverId: session.driverId,
+              status: session.status,
             }
           : undefined
       },

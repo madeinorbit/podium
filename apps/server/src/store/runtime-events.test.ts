@@ -1,12 +1,12 @@
-import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
-import type { ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
-import { describe, expect, it, vi } from 'vitest'
+import { asSessionId, firstAdminMemberId, type SessionId } from "@podium/model"
+import type { ControlMessage, RuntimeEvent } from "@podium/protocol/daemon"
+import { describe, expect, it, vi } from "vitest"
 import {
   RuntimeEventGate,
   type RuntimeEventGatePorts,
   type RuntimeEventGateResult,
-} from '../modules/sessions/runtime-event-gate'
-import { mergeLatestTranscriptPage, mergeTranscriptItems } from '../modules/sessions/terminal'
+} from "../modules/sessions/runtime-event-gate"
+import { mergeLatestTranscriptPage, mergeTranscriptItems } from "../modules/sessions/terminal"
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -452,6 +452,9 @@ describe('durable runtime observation gate', () => {
       await terminalItemReplayIndexCompletion
     }
 
+    vi.spyOn(registry.modules.rpc, 'runtimeHistory').mockResolvedValue({
+      sessionId, result: { page: { items, hasMore: false } },
+    })
     const liveTranscript = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
       { kind: 'user', id: firstAdminMemberId() },
@@ -1504,5 +1507,47 @@ it('restores metadata through the actual bind snapshot RPC on reconnect without 
     await Promise.all(replies)
     await registry.dispose()
     await store.close()
-  }
+}
+})
+describe('durable transcript replacement windows', () => {
+  it.each([false, true])('removes stale overlays across reset, mixed carriage and restart (empty=%s)', async (empty) => {
+    const store = await openTestStore(':memory:')
+    let registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      const sessionId = await bindContract(registry, store, false)
+      const at = '2026-08-23T00:00:00.000Z'
+      const old = { id: 'old', cursor: 'old-native', role: 'assistant' as const, text: 'removed', ts: at }
+      const kept = { id: 'kept', cursor: 'rotated-native', role: 'assistant' as const, text: 'kept', ts: at }
+      const replacement = empty ? [] : [kept]
+      const send = async (event: RuntimeEvent) => registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent', sessionId, deliveryId: 'reset-' + event.cursor.components.seq, event,
+      })
+      await send(stateEvent({ at, seq: 1, observerGeneration: 1, provenance: 'bootstrap' }))
+      await send(terminalItemEvent({ at, seq: 2, item: old }))
+      await send(turnEvent({ at, seq: 3, turnEpoch: 1, ev: 'completed' }))
+      const reset: RuntimeEvent = {
+        ...stateEvent({ at, seq: 4, observerGeneration: 1, provenance: 'bootstrap' }),
+        t: 'transcript-reset', items: replacement, ...(empty ? {} : { tail: kept.cursor }),
+      }
+      await send(reset)
+      await send(reset) // durable outbox replay is harmless
+      expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
+      await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'transcriptDelta', sessionId, items: replacement, reset: true,
+      })
+      expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
+      expect((await store.events.listRuntimeTranscriptEvents(sessionId)).map((event) => event.t))
+        .toEqual(['item', 'transcript-reset'])
+      await registry.dispose()
+      registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+      expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
+      const page = await registry.modules.rpc.readTranscript(
+        { sessionId, direction: 'before', limit: 50 }, { kind: 'user', id: firstAdminMemberId() },
+      )
+      expect(page.items).toEqual(replacement)
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
+  })
 })

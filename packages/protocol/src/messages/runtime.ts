@@ -300,6 +300,7 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
   z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional() }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
+  z.object({ t: z.literal('transcript-reset'), items: z.array(TranscriptItem).readonly(), tail: z.string().optional() }),
   z.object({ t: z.literal('interaction'), ev: InteractionEvent }),
   z.object({ t: z.literal('turn'), ev: TurnEvent }),
   z.object({ t: z.literal('process'), ev: ProcessEvent }),
@@ -347,6 +348,7 @@ export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
     case 'interaction':
     case 'open-url':
     case 'item':
+    case 'transcript-reset':
     case 'turn':
       return true
     default: {

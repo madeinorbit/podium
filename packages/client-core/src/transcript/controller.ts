@@ -4,6 +4,7 @@ import { insertInCursorOrder } from '../viewmodels/cursor-order'
 export type TranscriptFreshness = 'checking' | 'rendering' | 'saved' | null
 
 export interface TranscriptPage {
+  reset?: boolean
   items: TranscriptItem[]
   head?: string
   tail?: string
@@ -286,7 +287,9 @@ export class TranscriptController {
       })
       if (!this.accepts(generation, serial)) return false
       this.windowEpoch += 1
-      const reconciled = reconcileTranscriptSnapshot(this.state.items, page.items, page.tail)
+      const reconciled = page.reset
+        ? mergeTranscriptFrame([], page.items)
+        : reconcileTranscriptSnapshot(this.state.items, page.items, page.items.at(-1)?.cursor)
       const items = sameTranscriptItems(this.state.items, reconciled)
         ? this.state.items
         : reconciled
@@ -303,7 +306,7 @@ export class TranscriptController {
         offlineAsOf: null,
       })
       if (items.length > 0) this.options.cache?.write(this.options.sessionId, items)
-      this.attachSubscription(page.tail)
+      this.attachSubscription(page.items.at(-1)?.cursor)
       return true
     } catch (error) {
       if (this.accepts(generation, serial) && this.state.items.length > 0) {
@@ -367,9 +370,16 @@ export class TranscriptController {
       })
       if (this.disposed || generation !== this.generation || epoch !== this.windowEpoch)
         return false
+      if (page.reset) {
+        this.windowEpoch += 1
+        const items = mergeTranscriptFrame([], page.items)
+        this.patch({ items, head: page.head, tail: page.tail, hasMoreOlder: page.hasMore })
+        this.options.cache?.write(this.options.sessionId, items)
+        return true
+      }
       const fresh = freshOlderTranscriptPage(page.items, this.state.items)
       const items = fresh.length > 0 ? [...fresh, ...this.state.items] : this.state.items
-      const head = fresh[0]?.cursor ?? page.head ?? anchor
+      const head = page.head ?? fresh[0]?.cursor ?? anchor
       this.patch({
         items,
         head,
@@ -421,7 +431,14 @@ export class TranscriptController {
         if (this.disposed) return
         if (meta.reset) {
           this.windowEpoch += 1
-          this.patch({ subscriptionHealthy: false })
+          // A reset is authoritative even when the replacement is empty and
+          // the follow-up paging read fails. It must remove held/cache rows now.
+          const items = mergeTranscriptFrame([], frame)
+          this.patch({
+            items, head: undefined, tail: items.at(-1)?.cursor,
+            hasMoreOlder: false, loadingOlder: false, subscriptionHealthy: false,
+          })
+          this.options.cache?.write(this.options.sessionId, items)
           void this.refresh({ disclose: true }).catch(() => {})
           return
         }

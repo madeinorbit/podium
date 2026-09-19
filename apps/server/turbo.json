@@ -525,6 +525,7 @@
         "src/modules/machines/facts.test.ts",
         "src/modules/machines/login-propagation.test.ts",
         "src/modules/machines/login-propagation.ts",
+        "src/modules/machines/rpc.history.test.ts",
         "src/modules/machines/rpc.ts",
         "src/modules/machines/service.ts",
         "src/modules/machines/supersession.ts",

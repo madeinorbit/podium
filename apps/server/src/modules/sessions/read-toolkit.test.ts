@@ -31,7 +31,7 @@ const ISSUE = {
   panel: { todos: [{ text: 'a', done: false }], artifacts: [], deferred: [] },
 }
 
-function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; hasMore?: boolean }) {
+function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; hasMore?: boolean; pageCursors?: boolean; sourceReset?: boolean }) {
   const events: { kind: string; subject: string; payload: unknown }[] = []
   const repoOps: string[] = []
   const watermarks = new Map<string, string>()
@@ -85,11 +85,16 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
         { id: 'i1', cursor: 'c1', role: 'user', text: 'hi' },
         { id: 'i2', cursor: 'c2', role: 'assistant', text: 'hello' },
       ]
-      if (input.direction === 'after' && input.anchor) {
+      if (input.direction === 'after' && input.anchor && !opts?.sourceReset) {
         const idx = all.findIndex((i) => i.cursor === input.anchor)
         return { items: idx >= 0 ? all.slice(idx + 1) : all, hasMore: false }
       }
-      return { items: all, hasMore: opts?.hasMore ?? false }
+      const page = all.slice(-input.limit)
+      return {
+        items: page, hasMore: opts?.hasMore ?? false,
+        ...(opts?.sourceReset ? { reset: true } : {}),
+        ...(opts?.pageCursors ? { head: 'history:' + page[0]?.cursor, tail: 'history:' + page.at(-1)?.cursor } : {}),
+      }
     },
     now: () => 't0',
   })
@@ -420,4 +425,34 @@ describe('the runtime-requested model (tier 1)', () => {
       effort: 'medium',
     })
   })
+})
+
+
+describe('read toolkit opaque history boundaries', () => {
+  it('returns the provider page cursor and persists its recap tail', async () => {
+    const { toolkit, watermarks } = harness({ pageCursors: true })
+    expect((await toolkit.read({ sessionId: asSessionId('s1') }, 'operator')).cursor).toBe('history:c1')
+    const recap = await toolkit.recap({ sessionId: asSessionId('s1') }, 'operator')
+    expect(recap.watermark).toBe('history:c2')
+    expect([...watermarks.values()]).toContain('history:c2')
+  })
+
+  it('finds the retained window cursor after dropping rows at the line cap', async () => {
+    const items = Array.from({ length: 10 }, (_, n) => ({
+      id: 'i' + n, cursor: 'c' + n, role: 'assistant' as const,
+      text: Array.from({ length: 40 }, () => 'line').join('\n'),
+    }))
+    const { toolkit } = harness({ items, pageCursors: true })
+    const result = await toolkit.read({ sessionId: asSessionId('s1') }, 'operator')
+    expect(result.truncated).toBe(true)
+    expect(result.cursor).toBe('history:c' + (10 - result.items.length))
+  })
+})
+
+
+it('restarts recap watermarks when history switches to the archive source', async () => {
+  const { toolkit, watermarks } = harness({ pageCursors: true, sourceReset: true })
+  const recap = await toolkit.recap({ sessionId: asSessionId('s1'), since: 'runtime-history:old' }, 'operator')
+  expect(recap).toMatchObject({ delta: false, watermark: 'history:c2', newItems: 2 })
+  expect([...watermarks.values()]).toContain('history:c2')
 })

@@ -22,6 +22,7 @@ const bodies = {
   workspace: { t: 'workspace', ev: { ev: 'cwd-changed', cwd: '/repo' } },
   'open-url': { t: 'open-url', ev: { url: 'https://example.com/login', intent: 'login' } },
   draft: { t: 'draft', text: 'latest draft' },
+  'transcript-reset': { t: 'transcript-reset', items: [] },
 } satisfies Record<RuntimeEventBody['t'], RuntimeEventBody>
 
 function event(body: RuntimeEventBody, provenance: RuntimeEvent['provenance'] = 'live'): RuntimeEvent {
@@ -32,7 +33,7 @@ function event(body: RuntimeEventBody, provenance: RuntimeEvent['provenance'] = 
 }
 
 describe('runtime event retention contract', () => {
-  it.each(['metadata', 'delivery', 'item', 'interaction', 'turn', 'process', 'open-url'] as const)(
+  it.each(['metadata', 'delivery', 'item', 'transcript-reset', 'interaction', 'turn', 'process', 'open-url'] as const)(
     'retains %s because loss is not repaired by the next observation', (kind) => {
       expect(isDurableRuntimeEvent(event(bodies[kind]))).toBe(true)
     },

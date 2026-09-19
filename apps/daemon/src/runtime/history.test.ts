@@ -4,6 +4,7 @@ import { ControlMessage, DaemonMessage, type RuntimeHistoryPage } from '@podium/
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../control/context'
 import { runtimeHandlers } from './handlers'
+import { seedRuntimeHistory } from './history-seed'
 
 const sessionId = asSessionId('history-session')
 const range = { direction: 'after' as const, limit: 2, from: { segmentId: 'history-session', components: { item: 1 } } }
@@ -46,5 +47,35 @@ describe('runtime history wire', () => {
     for (const limit of [0, -1, 1.5, 10001]) {
       expect(ControlMessage.safeParse({ ...request, range: { ...range, limit } }).success).toBe(false)
     }
+  })
+})
+
+
+describe('quiet reconnect history seed', () => {
+  it.each([{ items: [] }, { items: [{ id: 'stable', cursor: 'native', role: 'assistant' as const, text: 'held' }] }])(
+    'publishes an authoritative reset without new provider output: %j', async ({ items }) => {
+      const history = vi.fn(async () => ({ items, hasMore: false }))
+      const handle = { transcript: { history } }
+      const send = vi.fn()
+      const ctx = { agentRuntime: { handleFor: () => handle }, send } as unknown as DaemonContext
+      await seedRuntimeHistory(ctx, sessionId)
+      expect(history).toHaveBeenCalledWith({ direction: 'before', limit: 2000 })
+      expect(send).toHaveBeenCalledWith({
+        type: 'transcriptDelta', sessionId, items, reset: true,
+        ...(items.at(-1)?.cursor ? { tail: items.at(-1)!.cursor } : {}),
+      })
+    },
+  )
+
+  it('drops a late history read when its handle was replaced', async () => {
+    let finish!: (page: RuntimeHistoryPage) => void
+    let handle: unknown = { transcript: { history: () => new Promise<RuntimeHistoryPage>((resolve) => { finish = resolve }) } }
+    const send = vi.fn()
+    const ctx = { agentRuntime: { handleFor: () => handle }, send } as unknown as DaemonContext
+    const seed = seedRuntimeHistory(ctx, sessionId)
+    handle = undefined
+    finish({ items: [], hasMore: false })
+    await seed
+    expect(send).not.toHaveBeenCalled()
   })
 })

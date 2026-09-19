@@ -1034,7 +1034,19 @@ export function createTerminalRuntime(
         // `rawFirstTurn`, which is a question about the CONVERSATION's position
         // and not about any one delivery. Delivery is proven by content, below.
         creditEchoWaiters(session, msg.items)
-        emitTranscriptItems(session, msg.items, msg.reset ? 'bootstrap' : 'live')
+        if (msg.reset) {
+          session.transcriptVersions.clear()
+          for (const item of msg.items) {
+            session.transcriptVersions.set(item.cursor ?? item.id, JSON.stringify(item))
+          }
+          emit(session, {
+            t: 'transcript-reset',
+            items: msg.items,
+            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
+          }, msg.items.at(-1)?.ts ?? observedAt(), 'bootstrap')
+        } else {
+          emitTranscriptItems(session, msg.items, 'live')
+        }
         return
       }
       case 'bind': {

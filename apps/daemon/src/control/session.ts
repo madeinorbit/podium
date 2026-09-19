@@ -1,3 +1,4 @@
+import { seedRuntimeHistory } from '../runtime/history-seed'
 import { randomUUID } from 'node:crypto'
 import { dispatchInputBytes } from './legacy-terminal-input'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -84,7 +85,6 @@ import {
   trackSessionOutput,
   trackSessionSize,
 } from '../session-screens'
-import { sourceForRead } from './transcripts'
 
 const log = createLogger('daemon:session')
 
@@ -2205,20 +2205,7 @@ export async function recoverTerminalHost(
         // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
         // Keep bind/state/redraw above immediate, but pace the allocation-heavy
         // transcript read/parse/reset-send through the existing seed gate.
-        const source = await sourceForRead(ctx, msg)
-        const res = await source.readSlice({
-          direction: 'before',
-          limit: 2000,
-        })
-        if (res.items.length > 0) {
-          ctx.send({
-            type: 'transcriptDelta',
-            sessionId: msg.sessionId,
-            items: res.items,
-            reset: true,
-            ...(res.tail ? { tail: res.tail } : {}),
-          })
-        }
+        await seedRuntimeHistory(ctx, msg.sessionId)
       } catch (err) {
         log.warn('reattach re-seed failed', { err, sessionId: msg.sessionId })
       }

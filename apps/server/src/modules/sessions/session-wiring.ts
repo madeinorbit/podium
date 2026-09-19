@@ -65,7 +65,7 @@ import { SessionRepository } from './repository'
 import { RuntimeEventGate } from './runtime-event-gate'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 import { SessionRuntimeGateway } from './runtime-gateway'
-import { runtimeTranscriptItemFromEvent } from './runtime-transcript'
+import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
 import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionClientPlane } from './session-client-plane'
@@ -783,11 +783,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       await bag.state.handleNativeDraft(sessionId, event.text)
       return
     }
-    const item = runtimeTranscriptItemFromEvent(event)
-    if (!item) return
+    const delta = runtimeTranscriptDeltaFromEvent(event)
+    if (!delta) return
     const session = bag.sessions.get(sessionId)
     if (!session) return
-    if (session.terminal.applyRuntimeDelta([item])) {
+    if (session.terminal.applyRuntimeDelta(delta.items, delta)) {
       await bag.repository.persist(session)
       bag.broadcastSessions()
     }
