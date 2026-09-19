@@ -61,7 +61,7 @@
  *   transcript-archive path until a per-harness versioned form is proven.
  */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   canonicalHeadlessContractFacts,
   type AgentSessionHandle,
@@ -578,20 +578,24 @@ export function createHeadlessRuntime(
     }
     const model = input.overrides?.supported === true ? input.overrides.value.model : undefined
     const effort = input.overrides?.supported === true ? input.overrides.value.effort : undefined
-    const actual = canonicalHeadlessContractFacts({
-      prompt: input.text,
-      ...(model !== undefined ? { model } : {}),
-      ...(effort !== undefined ? { effort } : {}),
-      ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
-      ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
-      ...(input.toolPolicy !== undefined ? { toolPolicy: input.toolPolicy } : {}),
-      ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
-      ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
-      ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
-      turnId,
-      sessionId,
-      accountId,
-    })
+    const actual = createHash('sha256')
+      .update(
+        canonicalHeadlessContractFacts({
+          prompt: input.text,
+          ...(model !== undefined ? { model } : {}),
+          ...(effort !== undefined ? { effort } : {}),
+          ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
+          ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+          ...(input.toolPolicy !== undefined ? { toolPolicy: input.toolPolicy } : {}),
+          ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
+          ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
+          ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
+          turnId,
+          sessionId,
+          accountId,
+        }),
+      )
+      .digest('hex')
     if (actual !== requestDigest) {
       throw new DriverRefusalError(
         { reason: 'invalid_value', detail: 'headless request digest mismatch' },

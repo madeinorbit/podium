@@ -276,7 +276,16 @@ async function takeEvents(handle: AgentSessionHandle, count: number): Promise<Ru
       out.push(next.value)
     }
   } finally {
-    await iterator.return?.()
+    // Fire-and-forget, never awaited: a timed-out read leaves a pending next()
+    // whose waker only the driver can fire, and return() queues behind it — so
+    // awaiting the close deadlocks until the next event (the same reason
+    // `procedures.ts` closes subscriptions without awaiting).
+    try {
+      const closing = iterator.return?.()
+      if (closing !== undefined) void closing.catch(() => undefined)
+    } catch {
+      // Best-effort.
+    }
   }
   return out
 }
