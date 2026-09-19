@@ -134,7 +134,10 @@ export function availableDriverIds(probe: {
 /** Every driver id this build ships code for. An id outside this set is a typo
  *  or a driver from a newer build, and both must be REFUSED rather than
  *  silently ignored — a spawn that asked for `opencode-sever` and got a terminal
- *  session would look like the override did not work. */
+ *  session would look like the override did not work. `headless` is the
+ *  process-per-turn harness driver: never returned by a manifest `select()`,
+ *  selectable only by explicit preference, established for legacy rows by
+ *  `control/headless.ts` and for contract rows by direct address. */
 const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
   'claude-sdk',
   'generic-pty',
@@ -142,6 +145,7 @@ const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
   'opencode-server',
   'opencode2-server',
   'codex-app-server',
+  'headless',
 ])
 
 export type DriverResolution = { ok: true; driverId: DriverId } | { ok: false; reason: string }
@@ -238,6 +242,20 @@ export function resolveRuntimeDriver(input: {
   if (preference !== undefined && !IMPLEMENTED.has(canonicalDriverId(preference))) {
     return { ok: false, reason: `unknown runtime driver '${preference}'` }
   }
+  // The headless driver is never returned by a manifest `select()` — heads
+  // never spawn it — so an explicit `headless` preference bypasses the policy
+  // here exactly as `runtime.create` does in `@podium/agent-runtime`. The
+  // harness must still declare the headless axis; otherwise the create below
+  // would mint a session that can never turn.
+  if (preference !== undefined && canonicalDriverId(preference) === 'headless') {
+    if (!declaredValue(manifest.headless)) {
+      return {
+        ok: false,
+        reason: `harness '${input.agentKind}' does not declare runtime driver 'headless'`,
+      }
+    }
+    return { ok: true, driverId: 'headless' }
+  }
   // The embedded SDK is an operator experiment, never a policy/default choice.
   // Requiring the per-spawn spelling here prevents a machine-wide env default
   // from silently moving every Claude session off the interactive PTY path.
@@ -284,8 +302,16 @@ export function runtimeDriverIntentForSpawn(input: {
 }
 
 /** Does this harness declare a server driver at all, and is it the one selected?
- *  Read off the manifest rather than by comparing strings at each call site. */
+ *  Read off the manifest rather than by comparing strings at each call site.
+ *  `headless` counts as server-family here: its binding family is `server`
+ *  (no PTY, protocol/event-stream driven) and every harness declares the
+ *  headless axis, so a spawn that names it must take the server launch path
+ *  rather than falling through to the PTY one. */
 export function isServerDriver(agentKind: AgentKind, driverId: AcceptedDriverId): boolean {
+  if (canonicalDriverId(driverId) === 'headless') {
+    const headless = manifestFor(agentKind)?.headless
+    return headless !== undefined && declaredValue(headless) !== undefined
+  }
   const runtime = manifestFor(agentKind)?.runtime
   if (!runtime) return false
   return (
@@ -313,6 +339,7 @@ export function isEmbeddedDriver(agentKind: AgentKind, driverId: AcceptedDriverI
  * it as one.
  */
 export function isServerDriverId(driverId: string): boolean {
+  if (canonicalDriverId(driverId) === 'headless') return true
   return harnessOwningServerDriver(driverId) !== undefined
 }
 

@@ -47,10 +47,15 @@
  * KNOWN GAPS (FILED, NOT HIDDEN)
  * ---------------------------------------------------------------------------
  *
- * - No WS create/resume/adopt frame exists for headless sessions yet, so nothing
- *   in production constructs these handles today; `control/headless.ts` keeps
- *   serving the legacy port unchanged. The driver is proven by its tests, not by
- *   shadowing production.
+ * ESTABLISHMENT. There is no dedicated WS create/resume/adopt verb for
+ * headless sessions: they are established the same way every other
+ * contract session is — `spawn`/`reattach` carrying
+ * `runtimeContract: 'headless'`, resolved to this driver by explicit
+ * preference (no manifest `select()` ever returns it) and created via
+ * `runtime.create`/`resume`/`adopt` on the host-minted session id. The legacy
+ * `control/headless.ts` port (`headlessTurnRequest` and friends) keeps serving
+ * production turns unchanged until callers migrate; this driver is proven by
+ * its tests, not by shadowing production.
  * - Per-turn `contextPrompt` and `timeoutMs` have no contract carriers: sticky
  *   instructions ride `systemPrompt`, and the turn budget stays the runner
  *   default. The caller-migration issue owns carrying them.

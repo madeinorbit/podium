@@ -1686,9 +1686,11 @@ describe('persisted lifecycle driver intent', () => {
     { selected: 'codex-pty', requested: undefined, expected: undefined },
     { selected: 'codex-app-server', requested: undefined, expected: 'codex-app-server' },
     { selected: 'claude-sdk', requested: undefined, expected: 'claude-sdk' },
+    { selected: 'headless', requested: undefined, expected: 'headless' },
     { selected: 'generic-pty', requested: 'claude-pty', expected: 'claude-pty', reattach: 'generic-pty' },
     { selected: 'generic-pty', requested: 'codex-app-server', expected: 'codex-app-server', reattach: 'generic-pty' },
     { selected: 'codex-app-server', requested: 'opencode-server', expected: 'opencode-server', reattach: 'codex-app-server' },
+    { selected: 'headless', requested: 'opencode-server', expected: 'opencode-server', reattach: 'headless' },
   ])('preserves old-row and explicit intent: $selected / $requested', ({ selected, requested, expected, ...recovery }) => {
     const s = makeSession()
     s.selectedDriverId = selected

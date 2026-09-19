@@ -297,6 +297,13 @@ export function driverIdIsServerFamily(driverId: string): boolean {
 export function driverFamilyForId(driverId: string): DriverFamily | undefined {
   // Retired aliases remain accepted during rolling upgrades. Remove this entry only after no supported daemon can still emit the legacy id.
   driverId = canonicalDriverId(driverId)
+  // The headless process-per-turn driver serves every harness and is never
+  // returned by a manifest `select()` — heads never spawn it, executors address
+  // it directly — so no manifest claims it. Its binding family is `server`
+  // (protocol/event-stream driven, exact resume identity, no PTY), and every
+  // unknown-family fallback must treat it as such or headless rows lose their
+  // driver across reload.
+  if (driverId === 'headless') return 'server'
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
     if (declaredValue(manifest.runtime.server)?.driverId === driverId) return 'server'
     if (manifest.runtime.serverAlternatives?.some((server) => server.driverId === driverId))

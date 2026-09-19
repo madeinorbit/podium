@@ -214,11 +214,15 @@ export function createDaemonMachineRuntime(input: {
   /**
    * THE HEADLESS SOURCE (POD-4392): process-per-turn harness sessions behind
    * the contract. No manifest `select()` ever returns the headless id — heads
-   * never spawn it, so `runtime.create` cannot select it — but once a headless
-   * session exists its handle answers every relay verb (`handleFor`), its
-   * capabilities resolve (`driverFor`), and a surviving binding re-adopts
-   * (`adopt`). Creation with a host-minted id stays available for the control
-   * plane that owns headless session rows.
+   * never spawn it by policy — but an explicit `selection.preference:
+   * 'headless'` bypasses the policy in `runtime.create`/`resume` (and
+   * `resolveRuntimeDriver` for the spawn path), so `spawn`/`reattach` carrying
+   * `runtimeContract: 'headless'` establishes these sessions over the existing
+   * WS relay with no dedicated create/resume/adopt verb. Once established the
+   * handle answers every relay verb (`handleFor`), capabilities resolve
+   * (`driverFor`), and a surviving binding re-adopts (`adopt`). Legacy
+   * production turns still arrive via `control/headless.ts` until callers
+   * migrate.
    */
   const headlessSource: AgentRuntimeDriverSource = {
     driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined {

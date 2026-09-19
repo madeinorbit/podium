@@ -634,7 +634,9 @@ export const DRIVER_IDS = [
    *  headless port. One driver serves every harness with a headless axis; the
    *  binding's `family` is `server` (protocol/event-stream driven, exact resume
    *  identity, no PTY) and no manifest `select()` ever returns this id — heads
-   *  never spawn it, executors address it directly. */
+   *  never spawn it by policy, executors address it directly via an explicit
+   *  `headless` preference (`spawn`/`reattach` with `runtimeContract:
+   *  'headless'`, or `runtime.create` with `selection.preference: 'headless'`). */
   'headless',
 ] as const
 

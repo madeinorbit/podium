@@ -41,6 +41,7 @@ import {
   availableDriverIds,
   droppedDriverPreference,
   isServerDriver,
+  isServerDriverId,
   resolveRuntimeDriver,
   runtimeDriverIntentForSpawn,
   selectionAuthForLogin,
@@ -259,6 +260,19 @@ describe('driver resolution', () => {
     })
     expect(resolved).toEqual({ ok: true, driverId: 'opencode-server' })
     expect(isServerDriver('opencode', 'opencode-server')).toBe(true)
+  })
+
+  it("resolves an explicit headless preference without a manifest select() or a version probe", () => {
+    const resolved = resolveRuntimeDriver({
+      agentKind: 'codex',
+      requested: 'headless',
+      machineDefault: undefined,
+      available: ['generic-pty'],
+      platform: 'linux',
+    })
+    expect(resolved).toEqual({ ok: true, driverId: 'headless' })
+    expect(isServerDriver('codex', 'headless')).toBe(true)
+    expect(isServerDriverId('headless')).toBe(true)
   })
 
   it('DEGRADES an opt-in the machine cannot run, rather than failing the spawn', () => {
@@ -959,12 +973,15 @@ describe('the contract bind fact', () => {
       }
     }
     /**
-     * NINE today: launchSpawn, two handleReattach arms, three server-driver
+     * ELEVEN today: launchSpawn, two handleReattach arms, three server-driver
      * launches, the ADOPT path that rebinds a surviving server after restart,
      * `resumeJournalledServerSession` (added by `fix(runtime): let a parked
      * server session come back`), which rebuilds a PARKED server session from
      * its binding journal — and, counted here since POD-3290, the embedded
-     * Claude driver's `emitClaudeBinding`.
+     * Claude driver's `emitClaudeBinding` — plus the two headless adopt arms
+     * (`adoptHeadlessSession` adopt success and its resume fallback), which
+     * rebind a process-per-turn session that holds no server journal and no
+     * PTY.
      *
      * SEVERAL WERE DECIDED HERE, which is what the count is for. They state
      * `runtimeContract: true` and `driverId` outright rather than asking the
@@ -975,7 +992,7 @@ describe('the contract bind fact', () => {
      * The count is asserted so a new bind site cannot be added without coming
      * here and deciding what it reports.
      */
-    expect(bindSites).toBe(9)
+    expect(bindSites).toBe(11)
   })
 })
 

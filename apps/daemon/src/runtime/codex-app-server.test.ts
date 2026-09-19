@@ -402,14 +402,18 @@ describe('which probe answers for which driver', () => {
   it('attributes terminal and unknown ids to nobody', () => {
     // A terminal driver has no version-gated binary of its own to probe, and an
     // id this build does not ship must not be attributed to whichever harness
-    // happened to be first in the manifest map.
+    // happened to be first in the manifest map. `headless` is harness-agnostic
+    // — one driver serves every harness with a headless axis — so it has no
+    // owning harness either, even though it is server-family.
     expect(harnessOwningServerDriver('generic-pty')).toBeUndefined()
     expect(harnessOwningServerDriver('claude-pty')).toBeUndefined()
+    expect(harnessOwningServerDriver('headless')).toBeUndefined()
     expect(harnessOwningServerDriver('codex-app-sever')).toBeUndefined()
   })
 
   it('agrees with the server-driver predicate built on it', () => {
     expect(isServerDriverId('codex-app-server')).toBe(true)
+    expect(isServerDriverId('headless')).toBe(true)
     expect(isServerDriverId('generic-pty')).toBe(false)
   })
 })

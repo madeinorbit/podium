@@ -1259,6 +1259,119 @@ async function adoptServerDriverSession(
 }
 
 /**
+ * Rebind a headless contract session after a daemon restart.
+ *
+ * Headless sessions hold no server journal and no PTY: between turns there is
+ * no process at all, only the harness conversation on disk and the durable
+ * turn journal. `adoptServerDriverSession` above therefore never finds them,
+ * and the PTY path below must never claim them. This is the headless twin of
+ * `adoptOrResumeEmbeddedClaudeSession`: an existing handle re-adopts (bumping
+ * the binding behind it), a requested `headless` reattach with no handle
+ * re-indexes via `runtime.adopt` on the exact durable label, falling back to
+ * `runtime.resume` when the resume ref is known. Anything else is not ours.
+ */
+async function adoptHeadlessSession(
+  ctx: DaemonContext,
+  msg: ReattachControl,
+): Promise<boolean> {
+  const runtime = ctx.agentRuntime
+  if (!runtime) return false
+  const existing = runtime.handleFor(msg.sessionId)
+  const existingHeadless =
+    existing && existing.binding.driver === 'headless' ? existing : undefined
+  const requested =
+    typeof msg.runtimeContract === 'string' &&
+    canonicalDriverId(msg.runtimeContract) === 'headless'
+  if (!requested && !existingHeadless) return false
+  const fail = (reason: string): true => {
+    ctx.send({ type: 'reattachFailed', sessionId: msg.sessionId, reason })
+    return true
+  }
+  if (requested && existing && !existingHeadless) {
+    return fail(`session '${msg.sessionId}' is already bound to '${existing.binding.driver}'`)
+  }
+  const binding = existingHeadless?.binding ?? {
+    sessionId: msg.sessionId,
+    driver: 'headless' as const,
+    family: 'server' as const,
+    harness: msg.agentKind,
+    workdir: msg.cwd,
+    resume: msg.resume ?? null,
+    process: { key: ctx.durableLabelFor(msg.sessionId) },
+    bindingVersion: 1,
+  }
+  try {
+    const handle = await runtime.adopt(binding)
+    ctx.send(
+      bindFrame(appliedGeometryFor(ctx), {
+        sessionId: msg.sessionId,
+        cmd: `headless (${handle.binding.driver})`,
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+        runtimeContract: true,
+        driverId: handle.binding.driver,
+        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+      }),
+    )
+    ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+    log.info('adopted surviving headless session', {
+      sessionId: msg.sessionId,
+      driver: handle.binding.driver,
+    })
+    return true
+  } catch (adoptionError) {
+    if (!requested) {
+      return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
+    }
+    if (!msg.resume) {
+      return fail(
+        adoptionError instanceof Error ? adoptionError.message : String(adoptionError),
+      )
+    }
+    try {
+      const spec: SessionSpec = {
+        harness: msg.agentKind,
+        selection: {
+          auth: 'unknown',
+          platform: process.platform,
+          available: ['headless'],
+          preference: 'headless',
+          role: 'executor',
+        },
+        workdir: msg.cwd,
+        model: {},
+        instructions: {
+          supported: false,
+          reason: 'headless reattach carries no sticky instructions',
+        },
+        mcpServers: {
+          supported: false,
+          reason: 'headless reattach carries no MCP mount',
+        },
+      }
+      const handle = await runtime.resume(msg.resume, spec, msg.sessionId)
+      ctx.send(
+        bindFrame(appliedGeometryFor(ctx), {
+          sessionId: msg.sessionId,
+          cmd: `headless (${handle.binding.driver})`,
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          runtimeContract: true,
+          driverId: handle.binding.driver,
+          configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+          attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+        }),
+      )
+      ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+      return true
+    } catch (resumeError) {
+      return fail(resumeError instanceof Error ? resumeError.message : String(resumeError))
+    }
+  }
+}
+
+/**
  * A SPAWN FOR A SESSION THE SERVER FAMILY ALREADY JOURNALS IS A RESUME (POD-2775).
  *
  * `sessions.resume` reaches this machine as a `spawn` frame — the very frame a
@@ -1379,13 +1492,18 @@ async function resumeJournalledServerSession(
 
 type ServerDriverLaunchResult = { handled: true } | { handled: false; requestedDriverId?: string }
 
-/** The only server binary admission may probe after applying the login gate. */
+/** The only server binary admission may probe after applying the login gate.
+ * `headless` needs no binary probe: the process-per-turn driver has no version
+ * gate, admission is the harness's headless axis declaration checked at
+ * resolution and at create time. */
 export function admissionProbeDriver(
   preferred: string | undefined,
   selectionAuth: ReturnType<typeof selectionAuthForLogin>,
 ): string | undefined {
   if (selectionAuth === 'logged-out') return undefined
-  return preferred && isServerDriverId(preferred) ? preferred : undefined
+  if (!preferred || !isServerDriverId(preferred)) return undefined
+  if (preferred === 'headless') return undefined
+  return preferred
 }
 
 export function resolvedAdmissionExecutable(
@@ -1781,12 +1899,16 @@ export async function launchServerDriverSession(
    * RESUME BEFORE CREATE (POD-2775). A session the server family already
    * journals is being brought back, not brought into existence — see
    * {@link resumeJournalledServerSession} for why the create below cannot serve
-   * it and what the journal entry is for.
+   * it and what the journal entry is for. Headless sessions hold no server
+   * journal (their durability is the harness conversation plus the durable
+   * turn journal), so they skip this and go straight to the contract create
+   * below.
    */
-  if (isServerDriver(msg.agentKind, resolution.driverId)) {
+  if (isServerDriver(msg.agentKind, resolution.driverId) && resolution.driverId !== 'headless') {
     if (await resumeJournalledServerSession(ctx, msg)) return { handled: true }
   }
   try {
+    const isHeadless = resolution.driverId === 'headless'
     const spec: SessionSpec = {
       harness: msg.agentKind,
       selection: {
@@ -1794,7 +1916,9 @@ export async function launchServerDriverSession(
         platform: process.platform,
         available: [resolution.driverId],
         preference: resolution.driverId,
-        role: 'interactive',
+        // Headless sessions are executor-owned, never interactive: their first
+        // prompt arrives as a turn, not at creation.
+        role: isHeadless ? 'executor' : 'interactive',
       },
       workdir: msg.cwd,
       model: {
@@ -1826,14 +1950,21 @@ export async function launchServerDriverSession(
         reason: 'interactive sessions mount MCP through the harness native config file',
       },
       ...(msg.env ? { env: msg.env } : {}),
-      ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
+      // Headless sessions take their first prompt as a turn, not at creation —
+      // the headless driver refuses `initialPrompt`.
+      ...(!isHeadless && msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
     }
-    if (isEmbeddedDriver(msg.agentKind, resolution.driverId) && msg.resume) {
+    if (
+      (isEmbeddedDriver(msg.agentKind, resolution.driverId) || isHeadless) &&
+      msg.resume
+    ) {
       await runtime.resume(msg.resume, spec, msg.sessionId)
     } else {
       await runtime.create(spec, msg.sessionId)
     }
-    reconcileNativeClientTerminal(ctx, msg.sessionId)
+    // Headless sessions have no terminal to attach: their capabilities refuse
+    // `attach` as unsupported, so there is no native client to reconcile.
+    if (!isHeadless) reconcileNativeClientTerminal(ctx, msg.sessionId)
   } catch (err) {
     // A server that would not start is a SPAWN ERROR, reported on the frame the
     // UI already renders. The alternative — falling back to a PTY — would hide
@@ -2076,6 +2207,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
    */
   if (await adoptOrResumeEmbeddedClaudeSession(ctx, msg)) return
   if (await adoptServerDriverSession(ctx, msg)) return
+  if (await adoptHeadlessSession(ctx, msg)) return
   // An explicit nonterminal request cannot be satisfied by a surviving PTY.
   // Old rows with omitted intent still recover through their headed profile.
   if (
