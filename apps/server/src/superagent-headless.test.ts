@@ -448,6 +448,133 @@ describe('bounded headless session identity', () => {
   })
 })
 
+describe('headless turn refusal surfacing (POD-4409)', () => {
+  // The migrated turn path (superagent + shipwright) reports a driver refusal
+  // here INSTEAD of the legacy headless port POD-4279 deletes. Neutering the
+  // `receipt.outcome === 'refused'` guard must turn every test below red: with
+  // the guard gone the refusal is never surfaced and the turn waits out its
+  // transport budget instead of reporting the fence.
+  const refuseTurn = (
+    h: Awaited<ReturnType<typeof harness>>,
+    req: TurnReq,
+    refusal: { reason: 'invalid_value' | 'not_running' | 'unsupported'; detail?: string },
+  ) => {
+    const host = h.registry.sessionStore.hostMachineId
+    void h.registry.gateway.routeDaemonFrame(host, {
+      type: 'runtimeSendResult',
+      requestId: req.requestId,
+      sessionId: req.sessionId as never,
+      receipt: { outcome: 'refused', refusal },
+    })
+    // Poison for the neutered guard: with `if (receipt.outcome === 'refused')`
+    // replaced by `if (false)` the turn falls through to the accepted branch
+    // and waits for a terminal event that a real refusal never sends — a
+    // 610s transport wait (test timeout, not an assertion). Emitting the
+    // terminal here makes the mutant resolve ok:true in milliseconds, so the
+    // mutation proof fails fast on the assertion below. The correct code has
+    // already returned and unsubscribed, so these events are never observed.
+    const at = new Date().toISOString()
+    const gateway = h.registry.modules.sessions.runtimeGateway
+    void (async () => {
+      await gateway.record(host, {
+        sessionId: req.sessionId as never,
+        event: {
+          t: 'turn',
+          ev: { ev: 'started', turnEpoch: 1, origin: 'system' },
+          cursor: { segmentId: 's', components: { seq: 1 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+          provenance: 'live',
+          at,
+        } as never,
+      })
+      await gateway.record(host, {
+        sessionId: req.sessionId as never,
+        event: {
+          t: 'turn',
+          ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
+          cursor: { segmentId: 's', components: { seq: 2 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+          provenance: 'live',
+          at,
+        } as never,
+      })
+    })()
+  }
+
+  const startProbeTurn = async (h: Awaited<ReturnType<typeof harness>>, turnId: string) => {
+    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession({
+      ownerUserId: firstAdminMemberId(),
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    const turn = h.registry.modules.sessions.headless.headlessTurn({
+      turnId,
+      sessionId,
+      threadId: asThreadId('refusal-probe'),
+      agent: 'claude-code',
+      cwd: '/r',
+      prompt: 'probe the fence',
+    })
+    await h.settle()
+    const req = h.turnReqs.at(-1)
+    if (!req) throw new Error('refusal probe was not dispatched')
+    return { turn, req }
+  }
+
+  it('surfaces a digest-mismatch refusal as an identity mismatch', async () => {
+    const h = await harness()
+    const { turn, req } = await startProbeTurn(h, 'turn:digest-probe')
+    // Exact daemon fence detail (POD-4386): apps/daemon/src/runtime/headless-driver.ts
+    refuseTurn(h, req, { reason: 'invalid_value', detail: 'headless request digest mismatch' })
+    const result = await turn
+    expect(result).toMatchObject({ ok: false, error: 'headless result identity mismatch' })
+    expect(result.retryable).toBeUndefined()
+  })
+
+  it('surfaces an account-fingerprint mismatch refusal as an identity mismatch', async () => {
+    const h = await harness()
+    const { turn, req } = await startProbeTurn(h, 'turn:account-probe')
+    // Exact daemon fence detail (POD-4392): apps/daemon/src/control/headless.ts
+    refuseTurn(h, req, {
+      reason: 'invalid_value',
+      detail: 'native claude-code account fingerprint changed before launch',
+    })
+    const result = await turn
+    expect(result).toMatchObject({ ok: false, error: 'headless result identity mismatch' })
+    expect(result.retryable).toBeUndefined()
+  })
+
+  it('passes a not_running refusal through as retryable with its detail', async () => {
+    const h = await harness()
+    const { turn, req } = await startProbeTurn(h, 'turn:not-running-probe')
+    refuseTurn(h, req, { reason: 'not_running', detail: 'headless session has ended' })
+    await expect(turn).resolves.toMatchObject({
+      ok: false,
+      error: 'headless session has ended',
+      retryable: true,
+    })
+  })
+
+  it('passes a non-identity refusal through with its detail verbatim', async () => {
+    const h = await harness()
+    const { turn, req } = await startProbeTurn(h, 'turn:policy-probe')
+    // invalid_value WITHOUT a digest/identity/account keyword: not the identity
+    // fence, so the driver detail itself is the error (no normalization).
+    refuseTurn(h, req, {
+      reason: 'invalid_value',
+      detail: 'harness codex cannot enforce a no-tools headless turn',
+    })
+    const result = await turn
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'harness codex cannot enforce a no-tools headless turn',
+    })
+    expect(result.retryable).toBeUndefined()
+  })
+})
+
 describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('re-primes with the seed after clear() — a cleared thread starts a fresh harness session', async () => {
     const h = await harness()
