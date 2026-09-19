@@ -4,6 +4,7 @@ import { HarnessExecRequestMessage } from '@podium/protocol'
 import {
   BUFFERED_HARNESS_DEFAULT_TIMEOUT_MS,
   BUFFERED_HARNESS_MAX_BUFFER_BYTES,
+  defaultRunChild,
   executeBufferedHarnessTurn,
   type BufferedHarnessRequest,
 } from './buffered-harness.js'
@@ -277,5 +278,38 @@ describe('buffered harness compatibility (POD-4304 F09)', () => {
         output: expect.stringMatching(/no harness manifest/),
       },
     ])
+  })
+
+  it('defaultRunChild delivers stdin then EOF, enforces timeout and cap', async () => {
+    // Real child, no harness binary: node echoes stdin only after EOF, so a
+    // missing .end() would hang until the kill budget instead of answering.
+    const echo = await defaultRunChild(
+      process.execPath,
+      [
+        '-e',
+        `let d='';process.stdin.on('data',c=>{d+=c}).on('end',()=>process.stdout.write('got:'+d))`,
+      ],
+      { timeout: 10_000, maxBuffer: 1024 * 1024, env: process.env },
+      'hello-stdin',
+    )
+    expect(echo.stdout).toBe('got:hello-stdin')
+    // Kill budget is enforced: a child that outlives it fails, never hangs.
+    await expect(
+      defaultRunChild(
+        process.execPath,
+        ['-e', 'setTimeout(()=>{},5000)'],
+        { timeout: 200, maxBuffer: 1024 * 1024, env: process.env },
+        '',
+      ),
+    ).rejects.toThrow()
+    // Output cap is enforced: 5MiB through a 1KiB cap fails, never truncates.
+    await expect(
+      defaultRunChild(
+        process.execPath,
+        ['-e', `process.stdout.write('x'.repeat(5*1024*1024))`],
+        { timeout: 10_000, maxBuffer: 1024, env: process.env },
+        '',
+      ),
+    ).rejects.toThrow(/maxBuffer/i)
   })
 })

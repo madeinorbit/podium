@@ -112,7 +112,9 @@ async function defaultSnapshot(ctx: BufferedHarnessContext): Promise<ResolvedHar
   return snapshot
 }
 
-function defaultRunChild(
+/** Process-boundary seam, exported for tests: proves stdin-EOF, timeout and cap
+ *  against a real child without a harness binary on PATH. */
+export function defaultRunChild(
   cmd: string,
   args: string[],
   opts: BufferedHarnessChildOpts,
