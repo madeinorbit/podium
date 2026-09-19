@@ -826,6 +826,29 @@ describe('file tabs across a reload (POD-1247)', () => {
     second.engine.dispose()
   })
 
+  it('publishes deletion of a session restored before the row subscription', async () => {
+    const storage = memoryStorage()
+    const first = makeEngine({ storage })
+    await first.engine.replica.hydrate()
+    first.engine.replica.applySnapshot('sessions', [session('s1', '/tmp/known-repo')])
+    await first.engine.replica.flush()
+    first.engine.destroy()
+
+    const second = makeEngine({ storage })
+    try {
+      expect(second.engine.getSnapshot().sessions.map((s) => s.sessionId)).toEqual(['s1'])
+      second.engine.start()
+      await second.engine.replica.hydrate()
+      // No inserted row has passed through this engine's subscription. Removing
+      // the cached row must still publish, or file retirement never sees absence.
+      second.engine.replica.applySnapshot('sessions', [])
+      expect(second.engine.replica.rows('sessions')).toEqual([])
+      expect(second.engine.getSnapshot().sessions).toEqual([])
+    } finally {
+      second.engine.destroy()
+    }
+  })
+
   it('retires a restored file tab whose session never comes back', async () => {
     const storage = memoryStorage()
     const first = makeEngine({ url: '/workspace', storage, workspacePruneGraceMs: 150 })

@@ -907,7 +907,12 @@ class TanstackReplica implements Replica {
         // ONE underlying subscription per kind, kept for the replica's lifetime
         // (the constructor already pins each collection's sync the same way);
         // every change funnels through the batch gate so notifications coalesce.
-        this.cols[kind].subscribeChanges(() => this.notifyRows(kind))
+        // Explicit false means ALL future changes, including deletion of rows
+        // restored before this subscription. Omitting it leaves TanStack's
+        // seen-key filter active, so those deletes never reach the runtime.
+        this.cols[kind].subscribeChanges(() => this.notifyRows(kind), {
+          includeInitialState: false,
+        })
         this.rowRelaysArmed.add(kind)
       }
       const entry = { cb }
