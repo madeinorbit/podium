@@ -3865,3 +3865,9 @@ describe('addressed kernel runtime publications', () => {
     } finally { engine.destroy() }
   })
 })
+
+// Shared append-only helper for effective-publication fixtures. Earlier suites
+// have describe-local helpers with this name; those are not visible here.
+function nameOf(engine: ReturnType<typeof createClientRuntime>, id: string): string | undefined {
+  return engine.getSnapshot().sessions.find((row) => row.sessionId === id)?.name ?? undefined
+}
