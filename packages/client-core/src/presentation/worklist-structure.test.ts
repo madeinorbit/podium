@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupUnifiedWorkRows } from '../viewmodels/slices/worklist/folds'
+import { groupUnifiedWorkRows, splitPinnedWork } from '../viewmodels/slices/worklist/folds'
 import { sortUnifiedWorkRows } from '../viewmodels/slices/worklist/row-order'
 import type { UnifiedWorkRow } from '../viewmodels/slices/worklist/row-types'
 import { SIDEBAR_FINISHED_GRACE_MS } from '../viewmodels/slices/worklist/visibility'
@@ -50,12 +50,13 @@ function fixture() {
   ]
 }
 
-/** Legacy arm: the REAL whole-world grouping. It always allocates every group. */
+/** Legacy arm: the REAL whole-world split + grouping. It always allocates every group. */
 const legacy = {
   groupCalls: 0,
   place(rows: readonly UnifiedWorkRow[], selection: WorklistSelection, now: number) {
     this.groupCalls++
-    return groupUnifiedWorkRows([...rows], selection.selectedIssueId as never, selection.selectedIssueWasFolded ?? false, now)
+    const { rest } = splitPinnedWork([...rows])
+    return groupUnifiedWorkRows(rest, selection.selectedIssueId as never, selection.selectedIssueWasFolded ?? false, now)
   },
 }
 
