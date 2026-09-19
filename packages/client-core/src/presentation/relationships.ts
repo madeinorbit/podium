@@ -5,10 +5,10 @@ import { missionParentId } from '../viewmodels/mission'
 
 /** ID sets, not ordered UI rows. Consumers choose their domain ordering and read
  * content through row cells. Empty/missing keys are valid subscription inputs. */
-export type Relationship = 'sessionsByIssue' | 'attachedSessionsByIssue' | 'sessionsByWorktree' | 'childrenByParent' | 'issuesByRepository' | 'dependentsByIssue' | 'dependencyEdgesByIssue'
+export type Relationship = 'sessionsByIssue' | 'attachedSessionsByIssue' | 'sessionsByWorktree' | 'childrenByParent' | 'issuesByRepository' | 'dependentsByIssue' | 'dependencyEdgesByIssue' | 'outgoingEdges' | 'incomingEdges' | 'allChildrenByParent' | 'issuesByStartingSession'
 export const relationshipKey = (kind: Relationship, id: string, type?: string) => JSON.stringify(['relationship', kind, id, type ?? null])
 type SessionInput = Pick<SessionMeta, 'sessionId' | 'issueId' | 'cwd' | 'archived' | 'headless'>
-type IssueInput = Pick<IssueWire, 'id' | 'worktreePath' | 'parentId' | 'archived' | 'deletedAt' | 'repoId'> & { deps?: IssueWire['deps'] }
+type IssueInput = Pick<IssueWire, 'id' | 'worktreePath' | 'parentId' | 'archived' | 'deletedAt' | 'repoId'> & { deps?: IssueWire['deps']; startedBySession?: IssueWire['startedBySession'] }
 export interface RelationshipRow { kind: ReplicaKind; id: string; value: object | undefined }
 const EMPTY: readonly string[] = Object.freeze([])
 const normalize = (path: string) => path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
@@ -119,6 +119,8 @@ export function createRelationshipIndexes() {
     const next = new Map<string, string>()
     const i = issues.get(id)
     if (i) {
+      if (i.parentId && visible(i.parentId)) next.set(relationshipKey('allChildrenByParent', i.parentId), id)
+      if (i.startedBySession) next.set(relationshipKey('issuesByStartingSession', i.startedBySession), id)
       const parent = missionParentId(i)
       if (parent && visible(parent)) next.set(relationshipKey('childrenByParent', parent), id)
       if (i.repoId && repos.has(i.repoId)) next.set(relationshipKey('issuesByRepository', i.repoId), id)
@@ -130,14 +132,19 @@ export function createRelationshipIndexes() {
     stats.edgeMembershipEvaluations++
     const next = new Map<string, string>()
     const edge = edges.get(id)
+    // Raw edge buckets deliberately retain missing endpoints for late arrival.
+    if (edge) {
+      next.set(relationshipKey('outgoingEdges', edge.fromId), id)
+      next.set(relationshipKey('incomingEdges', edge.toId), id)
+    }
     if (edge && visible(edge.fromId) && visible(edge.toId)) next.set(relationshipKey('dependencyEdgesByIssue', edge.toId, edge.type), id)
     install(`edge:${id}`, next)
   }
   const sessionInput = (s: SessionInput | undefined) => s && JSON.stringify([s.issueId, s.cwd, !!s.archived, isHeadlessSession(s)])
-  const issueInput = (i: IssueInput | undefined) => i && JSON.stringify([i.parentId, !!i.archived, !!i.deletedAt, i.worktreePath, i.repoId, (i.deps ?? []).map(d => [d.id, d.type])])
+  const issueInput = (i: IssueInput | undefined) => i && JSON.stringify([i.parentId, !!i.archived, !!i.deletedAt, i.worktreePath, i.repoId, i.startedBySession, (i.deps ?? []).map(d => [d.id, d.type])])
   function pickIssue(row: IssueWire | ReplicaRows['issueProjections']): IssueInput {
     return { id: row.id, parentId: row.parentId, archived: row.archived, deletedAt: row.deletedAt,
-      worktreePath: row.worktreePath ?? null, repoId: row.repoId, deps: 'deps' in row ? row.deps : undefined }
+      worktreePath: row.worktreePath ?? null, repoId: row.repoId, startedBySession: row.startedBySession, deps: 'deps' in row ? row.deps : undefined }
   }
   function clear() {
     sessions.clear(); issues.clear(); wires.clear(); projections.clear(); repos.clear(); edges.clear()

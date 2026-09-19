@@ -1,3 +1,5 @@
+import { createIssueSummaries, type IssueSummary } from './issue-summaries'
+import type { MissionRollup } from '../viewmodels/mission'
 import { createRelationshipIndexes, relationshipKey, type Relationship } from './relationships'
 import type { EffectiveChanges, EffectiveLocalState, EffectivePublication } from '../engine/effective-changes'
 import { REPLICA_BINDING_KINDS } from '../engine/replica-binding'
@@ -41,6 +43,8 @@ export const FOREGROUND_INPUTS = [
 ] as const
 
 export interface PresentationModel {
+  issueSummary(id: string): ReadCell<IssueSummary | undefined>
+  issueMission(id: string): ReadCell<MissionRollup | undefined>
   relationship(kind: Relationship, id: string, type?: string): ReadCell<readonly string[]>
   row<K extends ReplicaKind>(kind: K, id: string): ReadCell<Readonly<ReplicaRows[K]> | undefined>
   draft(id: string): ReadCell<string | undefined>
@@ -54,6 +58,13 @@ export interface PresentationModel {
 export function createPresentationModel(source: EffectiveChanges) {
   const relationships = createRelationshipIndexes()
   const rows = new Map<ReplicaKind, Map<string, object>>()
+  const orders = new Map<ReplicaKind, Map<string, number>>()
+  const nextOrder = new Map<ReplicaKind, number>()
+  const summaries = createIssueSummaries({
+    row: <K extends ReplicaKind>(kind: K, id: string) => rows.get(kind)?.get(id) as Readonly<ReplicaRows[K]> | undefined,
+    relationship: key => relationships.snapshot(key),
+    order: (kind, id) => orders.get(kind)?.get(id) ?? -1,
+  })
   const drafts = new Map<string, string>()
   const nav = new Map<NavigationKey, unknown>()
   type Cell = { dirty: boolean; value: unknown; read: () => unknown; listeners: Set<() => void>; inputs: readonly string[] }
@@ -96,6 +107,8 @@ export function createPresentationModel(source: EffectiveChanges) {
   }
 
   const model: PresentationModel = Object.freeze({
+    issueSummary: summaries.summary,
+    issueMission: summaries.mission,
     relationship: (kind: Relationship, id: string, type?: string) => {
       const key = relationshipKey(kind, id, type)
       return cell(key, [key], () => relationships.snapshot(key))
@@ -155,16 +168,24 @@ export function createPresentationModel(source: EffectiveChanges) {
     // ONE outer action: install every value, invalidate every affected cell,
     // then notify. No callback can read a partially installed seed or delta.
     const invalidated = relationships.apply(stagedRows, replacement)
+    const priorIssueIds = replacement ? [...(rows.get('issueProjections')?.keys() ?? [])] : []
     if (replacement) {
       for (const [kind, entries] of rows) for (const id of entries.keys()) {
-        invalidated.add(token('row', kind, id)); invalidated.add(collection(kind))
+        invalidated.add(token('row', kind, id)); invalidated.add(collection(kind)); invalidated.add(token('order', kind, id))
       }
-      rows.clear()
+      rows.clear(); orders.clear(); nextOrder.clear()
     }
     for (const { kind, id, value } of stagedRows) {
       let entries = rows.get(kind)
       if (!entries) rows.set(kind, entries = new Map())
       if (entries.get(id) === value) continue
+      let order = orders.get(kind)
+      if (!order) orders.set(kind, order = new Map())
+      if (value === undefined) { order.delete(id); invalidated.add(token('order', kind, id)) }
+      else if (!order.has(id)) {
+        const rank = nextOrder.get(kind) ?? 0
+        order.set(id, rank); nextOrder.set(kind, rank + 1); invalidated.add(token('order', kind, id))
+      }
       if (value === undefined) entries.delete(id)
       else entries.set(id, value)
       invalidated.add(token('row', kind, id)); invalidated.add(collection(kind))
@@ -180,16 +201,22 @@ export function createPresentationModel(source: EffectiveChanges) {
       drafts.clear()
       for (const [id, value] of stagedDrafts) drafts.set(id, value)
     }
-    notify(invalidated)
+    const errors: unknown[] = []
+    try { notify(invalidated, () => summaries.invalidate(invalidated)) } catch (error) { errors.push(error) }
+    for (const id of priorIssueIds) if (!rows.get('issueProjections')?.has(id)) summaries.evict(id)
+    for (const { kind, id, value } of stagedRows) if (kind === 'issueProjections' && value === undefined) summaries.evict(id)
+    if (errors.length) throw new AggregateError(errors, 'Presentation observers failed')
   }
 
-  function notify(invalidated: Set<string>): void {
+  function notify(invalidated: Set<string>, derived?: () => void): void {
     const notifications = new Set<() => void>()
     for (const input of invalidated) for (const dependent of dependents.get(input) ?? []) {
       dependent.dirty = true
       for (const listener of dependent.listeners) notifications.add(listener)
     }
     const errors: unknown[] = []
+    // Both raw and computed readers must be invalid before either can notify.
+    try { derived?.() } catch (error) { errors.push(error) }
     for (const notify of notifications) {
       if (destroyed) break
       try { notify() } catch (error) { errors.push(error) }
@@ -221,15 +248,20 @@ export function createPresentationModel(source: EffectiveChanges) {
     if (destroyed) return
     destroyed = true
     stop()
-    rows.clear(); drafts.clear(); nav.clear(); relationships.destroy()
+    rows.clear(); orders.clear(); nextOrder.clear(); drafts.clear(); nav.clear(); relationships.destroy(); summaries.destroy()
     for (const state of cells.values()) { state.value = undefined; state.listeners.clear() }
     cells.clear(); readers.clear(); dependents.clear()
   }
   start()
   return { model, start, stop, destroy,
     relationshipStats: relationships.stats,
+    summaryStats: summaries.stats,
+    updateTime(time: number) { if (!destroyed) summaries.updateTime(time) },
     updateWorktreePaths(added: readonly string[], removed: readonly string[] = []) {
-      if (!destroyed) notify(relationships.updateWorktreePaths(added, removed))
+      if (!destroyed) {
+        const changed = relationships.updateWorktreePaths(added, removed)
+        notify(changed, () => summaries.invalidate(changed))
+      }
     },
   }
 }
