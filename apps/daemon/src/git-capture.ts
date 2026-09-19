@@ -89,6 +89,17 @@ export function createGitCapture(opts: {
     const gen = generationOf(sessionId)
     const next = tail
       .then(async () => {
+        // Fence A — queued-step drop: a clear/rebind that lands while this
+        // step is still queued behind the chain tail must not start it. This
+        // is the ONLY pre-start fence; the per-step pre-run checks that used
+        // to sit as the first line inside register/post steps were removed as
+        // unreachable duplicates — step() is invoked synchronously in this
+        // same microtask with a generation captured synchronously at the same
+        // enqueue, so no clearSession can interleave between this check and
+        // those inner checks (same value in, same value out; when this check
+        // fails the step body never runs). Intermediate fences below are
+        // pinned by run-call counts (they save stale git reads), the terminal
+        // fences by absence of send.
         if (generationOf(sessionId) !== gen) return
         await step()
       })
@@ -101,11 +112,13 @@ export function createGitCapture(opts: {
     registered.add(sessionId)
     const gen = generationOf(sessionId)
     enqueue(sessionId, async () => {
-      if (generationOf(sessionId) !== gen) return
+      // (Pre-start duplicate removed: fence A above already covers the
+      // queued window; see its comment.)
       // Only register sessions that actually sit in a git checkout: the empty
       // message flips the issue's probes out of fallback mode, which would be
       // a lie for a session git can't see.
       const head = await run(['rev-parse', 'HEAD'], cwd)
+      // Fence C — register post-read drop: clear/rebind during the rev-parse.
       if (generationOf(sessionId) !== gen) return
       if (head !== null) opts.send({ type: 'sessionGitActivity', sessionId })
     })
@@ -136,17 +149,25 @@ export function createGitCapture(opts: {
         preHead.delete(sessionId)
         const gen = generationOf(sessionId)
         enqueue(sessionId, async () => {
-          if (generationOf(sessionId) !== gen) return
+          // (Pre-start duplicate removed here too: fence A covers the queued
+          // window, and this step issues no git read before its first await
+          // on `opened`, so only the post-await fence below can save work.)
           const before = await opened
+          // Fence E — post pre-read drop: clear/rebind while waiting on the
+          // pre-tool HEAD (no post rev-parse must be issued for stale `before`).
           if (generationOf(sessionId) !== gen) return
           if (before === null) return
           const after = await run(['rev-parse', 'HEAD'], cwd)
+          // Fence F — post post-read drop: clear/rebind during the post
+          // rev-parse (no rev-list must be issued mixing stale `before`).
           if (generationOf(sessionId) !== gen) return
           if (after === null || after === before) return
           // Oldest-first sha list of what this call produced. A rebase/amend
           // rewrites history (before no longer reachable) — rev-list fails and
           // we fall back to reporting just the new head.
           const list = await run(['rev-list', '--reverse', `${before}..${after}`], cwd)
+          // Fence G — post list-read drop: clear/rebind during rev-list (the
+          // stale sha list must never be sent to the replacement).
           if (generationOf(sessionId) !== gen) return
           const commits = list !== null ? list.split('\n').filter(Boolean) : [after]
           if (commits.length > 0) opts.send({ type: 'sessionGitActivity', sessionId, commits })
