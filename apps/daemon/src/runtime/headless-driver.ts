@@ -468,11 +468,15 @@ export function createHeadlessRuntime(
     live: LiveTurn,
     outcome: { harnessSessionId?: string; error?: string },
   ): void {
-    if (session.liveTurn !== live) return
-    session.liveTurn = undefined
+    // An interrupt-and-send supersedes the fenced turn before its rejection
+    // lands: the terminal event for the old epoch must still reach whoever is
+    // waiting on it (epoch-fenced, so nobody else can mistake it for theirs).
+    // Only the CURRENT turn may move the session's own state.
+    const current = session.liveTurn === live
+    if (current) session.liveTurn = undefined
     if (outcome.harnessSessionId) bindTranscript(session, outcome.harnessSessionId)
     if (outcome.error === undefined) {
-      session.lastVerdict = { kind: 'done' }
+      if (current) session.lastVerdict = { kind: 'done' }
       emit(
         session,
         { t: 'turn', ev: { ev: 'completed', turnEpoch: live.turnEpoch, verdict: 'done' } },
@@ -481,7 +485,7 @@ export function createHeadlessRuntime(
       return
     }
     if (live.interrupted || outcome.error === 'turn interrupted') {
-      session.lastVerdict = { kind: 'interrupted' }
+      if (current) session.lastVerdict = { kind: 'interrupted' }
       emit(
         session,
         { t: 'turn', ev: { ev: 'completed', turnEpoch: live.turnEpoch, verdict: 'interrupted' } },
@@ -489,7 +493,7 @@ export function createHeadlessRuntime(
       )
       return
     }
-    session.lastVerdict = { kind: 'failed', error: outcome.error }
+    if (current) session.lastVerdict = { kind: 'failed', error: outcome.error }
     const timedOut = /timed out/i.test(outcome.error)
     emit(
       session,
@@ -1250,7 +1254,8 @@ export function createHeadlessRuntime(
       // only the terminal event the override contract promises.
       askAndAwait: (handle, input, options) => {
         const turnId = input.id
-        if (!turnId) throw new Error('headless askAndAwait requires TurnInput.id turn identity')
+        if (!turnId)
+          return Promise.reject(new Error('headless askAndAwait requires TurnInput.id turn identity'))
         return headlessAskAndAwait(handle, input, { ...options, turnId }).then(
           (outcome) => outcome.terminal,
         )
