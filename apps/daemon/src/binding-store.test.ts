@@ -929,8 +929,8 @@ describe('pending receipt fencing (POD-4299)', () => {
     const binding = requiredBinding(await store.read(sessionId))
     // The superseded evidence stays on disk; only its replay is fenced.
     expect(binding.observations).toHaveLength(1)
-    expect(binding.observations[0].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-owner' })
-    expect(binding.observations[0].receipt?.ownerId).toBe(alice)
+    expect(binding.observations[0]!.pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-owner' })
+    expect(binding.observations[0]!.receipt?.ownerId).toBe(alice)
     // The stale receipt must be skipped for the new owner, not acknowledged.
     expect(await store.pendingReceiptsForOwner(bob)).toEqual([])
     expect(await store.pendingReceiptsForOwner(alice)).toEqual([])
@@ -950,7 +950,7 @@ describe('pending receipt fencing (POD-4299)', () => {
       attemptId: 'attempt-2', observationGeneration: 1, delegation: serverDelegation('actor', alice) })
     const binding = requiredBinding(await store.read(sessionId))
     expect(binding.observations).toHaveLength(1)
-    expect(binding.observations[0].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-attempt' })
+    expect(binding.observations[0]!.pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-attempt' })
     expect(await store.pendingReceiptsForOwner(alice)).toEqual([])
     expect(await store.replayPendingReceiptsForOwner(alice, () => { throw new Error('stale receipt replayed') })).toBe(0)
   })
@@ -968,7 +968,7 @@ describe('pending receipt fencing (POD-4299)', () => {
       attemptId: 'attempt-1', observationGeneration: 2, delegation: serverDelegation('actor', alice) })
     const binding = requiredBinding(await store.read(sessionId))
     expect(binding.observations).toHaveLength(1)
-    expect(binding.observations[0].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-generation' })
+    expect(binding.observations[0]!.pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-generation' })
     expect(await store.pendingReceiptsForOwner(alice)).toEqual([])
     expect(await store.replayPendingReceiptsForOwner(alice, () => { throw new Error('stale receipt replayed') })).toBe(0)
   })
@@ -983,8 +983,8 @@ describe('pending receipt fencing (POD-4299)', () => {
     const binding = requiredBinding(await store.read(sessionId))
     // Both observations stay on disk with their pending state intact.
     expect(binding.observations.map((entry) => entry.value)).toEqual(['native-old', 'native-new'])
-    expect(binding.observations[0].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-old' })
-    expect(binding.observations[1].pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-new' })
+    expect(binding.observations[0]!.pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-old' })
+    expect(binding.observations[1]!.pendingServerAck).toEqual({ nativeKind: 'codex-thread', value: 'native-new' })
     // Only the latest observation replays; the superseded one is never replayed over it.
     expect(await store.pendingReceiptsForOwner(alice)).toEqual([
       { sessionId, nativeKind: 'codex-thread', value: 'native-new' },
