@@ -102,39 +102,31 @@ describe('genericAskAndAwait', () => {
   })
 
   it('interrupts and throws on timeout', async () => {
-    // A stub handle whose turn never fences: the only observable proof that
-    // the timeout path interrupts rather than orphans is the call itself.
+    // The turn never fences, so the timeout path is the only way out — and
+    // the wrapped interrupt is the observable proof it interrupts rather
+    // than orphans.
+    resetFakeRuntime()
+    const driver = createFakeDriver()
+    const { handle } = await createSession(driver)
     let interrupted = false
-    const started = {
-      at: '2026-09-19T00:00:00.000Z',
-      provenance: 'live',
-      cursor: { segmentId: 'stub', components: {} },
-      observerGeneration: 0,
-      turnEpoch: 1,
-      t: 'turn',
-      ev: { ev: 'started', turnEpoch: 1, origin: 'agent' },
-    } as unknown as import('./events.js').RuntimeEvent
-    const stub = {
-      send: async () => ({
-        outcome: 'accepted',
-        turnEpoch: 1,
-        deliveredAs: 'when-ready',
-        provenBy: 'protocol-ack',
-        at: '2026-09-19T00:00:00.000Z',
-      }),
-      events: async function* () {
-        yield started
-        await new Promise<never>(() => undefined)
-      },
-      watch: async () => () => undefined,
+    const wrapping: AgentSessionHandle = {
+      ...handle,
       interrupt: async () => {
         interrupted = true
+        return handle.interrupt()
       },
-    } as unknown as AgentSessionHandle
+    }
     await expect(
-      genericAskAndAwait(stub, { text: 'hangs' }, { timeoutMs: 20 }),
+      genericAskAndAwait(wrapping, { text: 'hangs' }, { timeoutMs: 20 }),
     ).rejects.toThrow(/timed out after 20ms/)
     expect(interrupted).toBe(true)
+    // Settle the abandoned wait: the fence the interrupt requested arrives and
+    // the session stays usable for the next turn.
+    const sessionId = handle.binding.sessionId
+    driver.control.completeTurn(sessionId)
+    await expect(
+      handle.send({ text: 'after' }, { origin: 'agent', delivery: 'when-ready' }),
+    ).resolves.toMatchObject({ outcome: 'accepted' })
   })
 
   it('aborts on an already-aborted signal without sending', async () => {

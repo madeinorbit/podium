@@ -18,8 +18,10 @@ import type { ActingPrincipal, InputOrigin, TurnDelivery, TurnInput } from './tu
  * Options for the generic procedure compositions.
  *
  * `origin`/`delivery`/`principal` are the write path's own options: who is
- * acting and how the turn should reach the agent. Defaults are the headless
- * executor's: an agent-role caller delivering `when-ready`.
+ * acting and how the turn should reach the agent. The default origin is
+ * `system`: procedure sends are machine-authored executor turns (superagent,
+ * shipwright), and the acting party rides on `principal`, not on the origin.
+ * Callers with a real sender (a user, the steward) pass it explicitly.
  */
 export interface ProcedureOptions {
   origin?: InputOrigin
@@ -138,7 +140,12 @@ export async function genericAskAndAwait(
 
       try {
         // `accepted` names its epoch; anything else waits for the first epoch
-        // that starts after the send.
+        // that starts after the send. Only LIVE starts can claim the wait: the
+        // bootstrap snapshot replays turns that predate this send, and pairing
+        // with one of those is pairing with someone else's turn. (Concurrent
+        // sends on one handle remain the caller's race — heads serialize
+        // behind one live turn per session, and the `accepted` path above is
+        // exact regardless.)
         let wantedEpoch = receipt.outcome === 'accepted' ? receipt.turnEpoch : undefined
         const waiter = (async (): Promise<TurnEvent> => {
           for (;;) {
@@ -151,7 +158,9 @@ export async function genericAskAndAwait(
             if (event.t !== 'turn') continue
             const turn = event.ev
             if (turn.ev === 'started') {
-              if (wantedEpoch === undefined) wantedEpoch = turn.turnEpoch
+              if (wantedEpoch === undefined && event.provenance !== 'bootstrap') {
+                wantedEpoch = turn.turnEpoch
+              }
               continue
             }
             if (wantedEpoch === undefined) {
@@ -171,7 +180,8 @@ export async function genericAskAndAwait(
                 ...(abort !== undefined ? [abort] : []),
               ])
             : waiter
-        return await raced
+        const terminal = await raced
+        return terminal
       } catch (error) {
         if (error instanceof ProcedureTimeoutError || error instanceof ProcedureAbortedError) {
           // Best-effort: a timed-out or aborted wait must not leave the turn
@@ -187,8 +197,18 @@ export async function genericAskAndAwait(
         }
       }
     } finally {
+      // Fire-and-forget, NEVER awaited.
+      //
+      // A timed-out or aborted wait abandons the waiter while it still holds
+      // a pending next() whose waker only the driver can fire. return()
+      // queues behind that next, so awaiting the close deadlocks until the
+      // turn fences — which is exactly what the caller just refused to wait
+      // for. Queueing the return still closes the subscription: the fence
+      // (requested via interrupt above, or already observed on the success
+      // path) settles both the abandoned next and the queued return.
       try {
-        await iterator.return?.()
+        const closing = iterator.return?.()
+        if (closing !== undefined) void closing.catch(() => undefined)
       } catch {
         // Closing a satisfied subscription is best-effort; it must not mask
         // the terminal event the wait already resolved.
