@@ -335,8 +335,10 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
           env: {
             ...process.env,
             PODIUM_SESSION_ID: 'pane-a',
+            // The wrapper prefers the socket whenever it is set, so the
+            // URL-fallback arm must leave it unset to reach the elif branch.
             PODIUM_CODEX_HOOK_URL: useUrl ? `http://127.0.0.1:${httpPort}/hooks/pane-a` : '',
-            PODIUM_CODEX_HOOK_SOCKET: useUrl ? join(dir, 'daemon-down.sock') : socketPath,
+            PODIUM_CODEX_HOOK_SOCKET: useUrl ? '' : socketPath,
           },
           stdio: ['pipe', 'pipe', 'pipe'],
         })
