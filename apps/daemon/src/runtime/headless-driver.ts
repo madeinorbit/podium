@@ -741,20 +741,23 @@ export function createHeadlessRuntime(
     const live = session.liveTurn
     if (live) {
       // Reconnect replay of the exact same turn re-arms the same epoch without
-      // a rerun; anything else while a turn is open is a busy collision, never
-      // a queue — except an explicit interrupt delivery, which fences the live
-      // turn first (interrupt-and-send).
-      if (
-        live.turnId === turnId &&
-        live.requestDigest === input.requestDigest &&
-        live.accountId === accountId
-      ) {
+      // a rerun; a same-turnId collision with different identity refuses
+      // outright (never a reuse); anything else while a turn is open is a busy
+      // collision, never a queue — except an explicit interrupt delivery, which
+      // fences the live turn first (interrupt-and-send).
+      if (live.turnId === turnId) {
+        if (live.requestDigest === input.requestDigest && live.accountId === accountId) {
+          return {
+            outcome: 'accepted',
+            turnEpoch: live.turnEpoch,
+            deliveredAs: live.deliveredAs,
+            provenBy: 'protocol-ack',
+            at,
+          }
+        }
         return {
-          outcome: 'accepted',
-          turnEpoch: live.turnEpoch,
-          deliveredAs: live.deliveredAs,
-          provenBy: 'protocol-ack',
-          at,
+          outcome: 'refused',
+          refusal: refuse('invalid_value', 'running headless turn identity mismatch'),
         }
       }
       if (options.delivery !== 'interrupt') {
