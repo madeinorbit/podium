@@ -753,6 +753,25 @@ describe('headless turn endings', () => {
     }
   })
 
+  it('reports an externally fenced turn as completed/interrupted', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      await handle.send(makeTurn(sessionId), { origin: 'system', delivery: 'when-ready' })
+      // No interrupt() call: the fence arrived outside this driver (a runner
+      // reporting its own interruption), and only the message arm may claim it.
+      runners.turns[0]?.reject(new Error('turn interrupted'))
+      await flush()
+      const events = await takeEvents(handle, 4)
+      expect(events.at(-1)).toMatchObject({
+        t: 'turn',
+        ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' },
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
   it('maps timeouts to retryable failures and provider errors to fatal ones', async () => {
     const { runtime, runners } = makeRuntime()
     try {
