@@ -1,0 +1,20 @@
+diff --git a/build/transform-worker/css-modules.js b/build/transform-worker/css-modules.js
+index 95bfc1af3cc22a991573fa8b9d5dd2511f1a58f9..b14d7a41647419d5b7c91ec02453a10f55cebd3b 100644
+--- a/build/transform-worker/css-modules.js
++++ b/build/transform-worker/css-modules.js
+@@ -59,7 +59,14 @@ function convertLightningCssToReactNativeWebStyleSheet(input) {
+     const reactNativeWeb = {};
+     const variables = {};
+     // e.g. { container: { name: 'ahs8IW_container', composes: [], isReferenced: false }, }
+-    Object.entries(input).map(([key, value]) => {
++    // SORTED. lightningcss returns this map from a Rust HashMap, which is seeded per
++    // instance and therefore hands back a DIFFERENT key order on every call. That order
++    // reaches the emitted module through JSON.stringify below, so an unsorted iteration
++    // makes a CSS module's bytes - and with them Metro's content-hashed entry chunk
++    // filename, index.html and every build manifest digest - vary per build rather than
++    // per source. Sorting states the order instead of observing it; nothing can have
++    // depended on the previous one, because there was no previous one.
++    Object.entries(input).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([key, value]) => {
+         // order matters here
+         let className = value.name;
+         if (value.composes.length) {

@@ -620,6 +620,7 @@
     "expo-sqlite@57.0.2": "patches/expo-sqlite@57.0.2.patch",
     "react-native-worklets@0.10.0": "patches/react-native-worklets@0.10.0.patch",
     "@xterm/addon-web-links@0.11.0": "patches/@xterm%2Faddon-web-links@0.11.0.patch",
+    "@expo/metro-config@57.0.12": "patches/@expo%2Fmetro-config@57.0.12.patch",
   },
   "packages": {
     "@acemir/cssom": ["@acemir/cssom@0.9.31", "", {}, "sha512-ZnR3GSaH+/vJ0YlHau21FjfLYjMpYVIzTD8M8vIEQvIGxeOXyXdzCI140rrCY862p/C/BbzWsjc1dgnM9mkoTA=="],
