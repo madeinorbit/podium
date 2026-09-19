@@ -49,7 +49,7 @@ describe('genericAskAndAwait', () => {
     const { handle, sessionId } = await createSession(driver)
     // An earlier turn, fully fenced before the procedure runs: its terminal
     // event sits in the bootstrap snapshot and must not satisfy the wait.
-    await handle.send({ text: 'earlier' }, { origin: 'agent', delivery: 'when-ready' })
+    await handle.send({ text: 'earlier' }, { origin: 'system', delivery: 'when-ready' })
     driver.control.completeTurn(sessionId)
 
     const waited = genericAskAndAwait(handle, { text: 'hello' })
@@ -89,7 +89,7 @@ describe('genericAskAndAwait', () => {
     const driver = createFakeDriver()
     const { handle, sessionId } = await createSession(driver)
     // Hold a turn open so the procedure's send parks behind it.
-    await handle.send({ text: 'first' }, { origin: 'agent', delivery: 'when-ready' })
+    await handle.send({ text: 'first' }, { origin: 'system', delivery: 'when-ready' })
     const waited = genericAskAndAwait(handle, { text: 'second' })
     await new Promise((resolve) => setTimeout(resolve, 10))
     // Closing the first turn drains the queue into epoch 2; closing that one
@@ -125,7 +125,7 @@ describe('genericAskAndAwait', () => {
     const sessionId = handle.binding.sessionId
     driver.control.completeTurn(sessionId)
     await expect(
-      handle.send({ text: 'after' }, { origin: 'agent', delivery: 'when-ready' }),
+      handle.send({ text: 'after' }, { origin: 'system', delivery: 'when-ready' }),
     ).resolves.toMatchObject({ outcome: 'accepted' })
   })
 
@@ -164,7 +164,7 @@ describe('genericOneShot', () => {
     expect(items.map((entry) => entry.text)).toContain('done')
     // Killed in every path: a further send is refused as not running.
     await expect(
-      captured.send({ text: 'after' }, { origin: 'agent', delivery: 'when-ready' }),
+      captured.send({ text: 'after' }, { origin: 'system', delivery: 'when-ready' }),
     ).resolves.toMatchObject({ outcome: 'refused' })
   })
 
@@ -218,7 +218,7 @@ describe('resolveProcedures', () => {
 
 describe('isTerminalTurnEvent', () => {
   it('treats only completed and failed as terminal', () => {
-    expect(isTerminalTurnEvent({ ev: 'started', turnEpoch: 1, origin: 'agent' })).toBe(false)
+    expect(isTerminalTurnEvent({ ev: 'started', turnEpoch: 1, origin: 'system' })).toBe(false)
     expect(isTerminalTurnEvent({ ev: 'completed', turnEpoch: 1, verdict: 'done' })).toBe(true)
     expect(
       isTerminalTurnEvent({ ev: 'failed', turnEpoch: 1, reason: 'timeout', disposition: 'retryable' }),
