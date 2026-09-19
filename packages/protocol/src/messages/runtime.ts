@@ -508,6 +508,17 @@ export const RuntimeSendRequestMessage = z.object({
   accountId: z.string().optional(),
   requestDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   structuredPermissions: z.literal(true).optional(),
+  // HEADLESS PER-TURN PROMPT CHANNELS + BUDGET (this issue). All optional;
+  // absent means absent. Appended at the END so existing golden samples stay
+  // byte-identical.
+  contextPrompt: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  // Per-turn model/effort ride the contract as plain strings (mapped from
+  // TurnInput.overrides on the way in, reconstructed as supported() on the
+  // way out). Optional; absent means "session sticky".
+  model: z.string().optional(),
+  effort: z.string().optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
 

@@ -74,6 +74,9 @@ export function canonicalHeadlessContractFacts(input: {
   resumeValue?: string
   sessionUuid?: string
   structuredPermissions?: true
+  contextPrompt?: string
+  systemPrompt?: string
+  timeoutMs?: number
   turnId: string
   sessionId: string
   accountId: string

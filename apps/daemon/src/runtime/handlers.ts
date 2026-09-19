@@ -189,6 +189,20 @@ export const runtimeHandlers: Pick<
       return
     }
     driverTiming.promptRequested(handle.binding, msg.turnId)
+    // Per-turn model/effort ride the wire as plain strings; the driver reads
+    // them as a supported() override (session sticky is the fallback there).
+    const modelEffort =
+      msg.model !== undefined || msg.effort !== undefined
+        ? {
+            overrides: {
+              supported: true as const,
+              value: {
+                ...(msg.model !== undefined ? { model: msg.model } : {}),
+                ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+              },
+            },
+          }
+        : {}
     void handle
       .send(
         {
@@ -207,6 +221,10 @@ export const runtimeHandlers: Pick<
           ...(msg.accountId ? { accountId: msg.accountId } : {}),
           ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
           ...(msg.structuredPermissions ? { structuredPermissions: msg.structuredPermissions } : {}),
+          ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
+          ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+          ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
+          ...modelEffort,
         },
         { origin: msg.origin, delivery: msg.delivery },
       )

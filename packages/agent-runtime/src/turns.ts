@@ -68,6 +68,29 @@ export interface TurnInput {
   /** Route SDK tool authorization through structured RuntimeDriver interactions. */
   structuredPermissions?: true
   /**
+   * HEADLESS PER-TURN PROMPT CHANNELS (this issue).
+   *
+   * The legacy headless port carried `prompt` (human text), `contextPrompt`
+   * (machine-authored seed/delta/focus) and `systemPrompt` (orchestrator
+   * identity + output contract) as three separate channels so harnesses with
+   * a native hidden instruction channel need not fold machine context into
+   * the visible user message. The contract carried only `text`, so callers
+   * could not migrate without collapsing the channels. All OPTIONAL and
+   * ABSENT-MEANS-ABSENT.
+   */
+  /** Machine-authored seed/delta/focus context for THIS TURN ONLY. */
+  contextPrompt?: string
+  /** Orchestrator identity + output contract for THIS TURN ONLY. */
+  systemPrompt?: string
+  /**
+   * Harness kill budget for THIS TURN ONLY (ms).
+   *
+   * Distinct from `ProcedureOptions.timeoutMs`, which bounds the caller's
+   * WAIT: this bounds the harness child itself, exactly as the legacy
+   * `HeadlessTurnRequestMessage.timeoutMs` did. Absent = runner default.
+   */
+  timeoutMs?: number
+  /**
    * Stable identity supplied by the caller when a later delivery outcome has
    * to reconcile durable state outside the driver. Drivers must carry it
    * through any local queue unchanged.

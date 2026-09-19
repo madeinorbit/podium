@@ -56,9 +56,8 @@
  * `control/headless.ts` port (`headlessTurnRequest` and friends) keeps serving
  * production turns unchanged until callers migrate; this driver is proven by
  * its tests, not by shadowing production.
- * - Per-turn `contextPrompt` and `timeoutMs` have no contract carriers: sticky
- *   instructions ride `systemPrompt`, and the turn budget stays the runner
- *   default. The caller-migration issue owns carrying them.
+ * - Per-turn `contextPrompt`, `systemPrompt` and `timeoutMs` ride `TurnInput`
+ *   (and the WS relay) since the caller-migration lane landed them.
  * - `structuredPermissions: true` routes claude-code turns through the SDK
  *   child with its `canUseTool` callback wired to contract PendingInteractions
  *   (open/answer/close). Other harnesses refuse `unsupported`: their
@@ -731,11 +730,12 @@ export function createHeadlessRuntime(
   }
 
   /** The digest the server minted must recompute here over the SAME
-   *  turn-carried facts — prompt, per-turn policy, conversation ids and durable
-   *  identity — and refuse on mismatch BEFORE anything spawns. Session-sticky
-   *  defaults are session identity, not turn identity: they resolve for
-   *  execution below but are deliberately excluded from the digest, exactly as
-   *  `canonicalHeadlessContractFacts` defines it. */
+   *  turn-carried facts — prompt, per-turn prompt channels + budget, per-turn
+   *  policy, conversation ids and durable identity — and refuse on mismatch
+   *  BEFORE anything spawns. Session-sticky defaults are session identity,
+   *  not turn identity: they resolve for execution below but are deliberately
+   *  excluded from the digest, exactly as `canonicalHeadlessContractFacts`
+   *  defines it. */
   function verifyDigest(input: TurnInput, turnId: string, sessionId: SessionId): string {
     const accountId = input.accountId
     const requestDigest = input.requestDigest
@@ -765,6 +765,9 @@ export function createHeadlessRuntime(
           ...(input.structuredPermissions !== undefined
             ? { structuredPermissions: input.structuredPermissions }
             : {}),
+          ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
+          ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+          ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
           turnId,
           sessionId,
           accountId,
@@ -781,10 +784,7 @@ export function createHeadlessRuntime(
   }
 
   /** Resolve turn-carried values over session-sticky defaults (turn wins,
-   *  absent-means-absent) into the exact spec the legacy path builds. Per-turn
-   *  `contextPrompt` and `timeoutMs` have no contract carriers (filed gap):
-   *  sticky instructions ride `systemPrompt`, and the turn budget stays the
-   *  runner default. */
+   *  absent-means-absent) into the exact spec the legacy path builds. */
   function buildTurnSpec(
     session: HeadlessDriverSession,
     input: TurnInput,
@@ -796,8 +796,6 @@ export function createHeadlessRuntime(
       input.overrides?.supported === true ? input.overrides.value.model : undefined
     const overridesEffort =
       input.overrides?.supported === true ? input.overrides.value.effort : undefined
-    const instructions = undefined
-    void instructions
     return {
       agent,
       accountId: identity.accountId,
@@ -833,6 +831,9 @@ export function createHeadlessRuntime(
               session.sticky.structuredPermissions) as true,
           }
         : {}),
+      ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
+      ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+      ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       env: host.sessionEnv({
         sessionId: session.sessionId,
         agent,

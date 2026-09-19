@@ -357,6 +357,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     write: (session, mutate) => bag.repository.write(session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
     clients: () => bag.clients.values(),
+    // Late-bound: the gateway is constructed further down; reads inside the
+    // closure stay legal per the file header.
+    relay: () => bag.runtimeGateway,
+    store: () => ({
+      history: (sessionId, machineId, range) => bag.rpc.runtimeHistory(sessionId, machineId, range),
+      snapshot: (sessionId, machineId) => bag.rpc.runtimeSnapshot(sessionId, machineId),
+    }),
   })
   const inbox = new SessionInbox({
     getSession: (sessionId) => bag.sessions.get(sessionId),

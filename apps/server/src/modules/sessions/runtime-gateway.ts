@@ -133,6 +133,11 @@ export interface RuntimeDaemonRpcPort {
       accountId?: string
       requestDigest?: string
       structuredPermissions?: true
+      contextPrompt?: string
+      systemPrompt?: string
+      timeoutMs?: number
+      model?: string
+      effort?: string
     },
     machineId: MachineId,
   ): Promise<TurnReceipt>
@@ -233,6 +238,11 @@ export class SessionRuntimeGateway {
     accountId?: string
     requestDigest?: string
     structuredPermissions?: true
+    contextPrompt?: string
+    systemPrompt?: string
+    timeoutMs?: number
+    model?: string
+    effort?: string
     /**
      * The party this send acts for.
      *

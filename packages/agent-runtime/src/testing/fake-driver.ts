@@ -258,6 +258,10 @@ export interface FakeControl {
         accountId?: string
         requestDigest?: string
         structuredPermissions?: true
+        contextPrompt?: string
+        systemPrompt?: string
+        timeoutMs?: number
+        overrides?: TurnInput['overrides']
       }
     | undefined
   /** The model policy one to ask for, a second to move to, and what the last
@@ -346,6 +350,10 @@ interface SessionCore {
         accountId?: string
         requestDigest?: string
         structuredPermissions?: true
+        contextPrompt?: string
+        systemPrompt?: string
+        timeoutMs?: number
+        overrides?: TurnInput['overrides']
       }
     | undefined
   /** Only ever read by `connectWithoutSecret`. Never in argv, never logged —
@@ -846,7 +854,11 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           input.sessionUuid !== undefined ||
           input.accountId !== undefined ||
           input.requestDigest !== undefined ||
-          input.structuredPermissions !== undefined
+          input.structuredPermissions !== undefined ||
+          input.contextPrompt !== undefined ||
+          input.systemPrompt !== undefined ||
+          input.timeoutMs !== undefined ||
+          input.overrides !== undefined
             ? {
                 ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
                 ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
@@ -859,6 +871,10 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
                 ...(input.structuredPermissions !== undefined
                   ? { structuredPermissions: input.structuredPermissions }
                   : {}),
+                ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
+                ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+                ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+                ...(input.overrides !== undefined ? { overrides: input.overrides } : {}),
               }
             : undefined
         if (!core.alive) return { outcome: 'refused', refusal: refuse('not_running') }

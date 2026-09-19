@@ -863,6 +863,11 @@ export class DaemonRpcService {
       accountId?: string
       requestDigest?: string
       structuredPermissions?: true
+      contextPrompt?: string
+      systemPrompt?: string
+      timeoutMs?: number
+      model?: string
+      effort?: string
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
@@ -898,6 +903,11 @@ export class DaemonRpcService {
         ...(input.accountId ? { accountId: input.accountId } : {}),
         ...(input.requestDigest ? { requestDigest: input.requestDigest } : {}),
         ...(input.structuredPermissions ? { structuredPermissions: input.structuredPermissions } : {}),
+        ...(input.contextPrompt ? { contextPrompt: input.contextPrompt } : {}),
+        ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+        ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.effort ? { effort: input.effort } : {}),
       }),
       machineId,
     )

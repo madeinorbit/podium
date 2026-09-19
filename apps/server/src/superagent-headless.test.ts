@@ -35,25 +35,146 @@ afterEach(async () => {
   for (const r of registries.splice(0)) await r.dispose()
 })
 
-type TurnReq = Extract<ControlMessage, { type: 'headlessTurnRequest' }>
-type BindReq = Extract<ControlMessage, { type: 'headlessBind' }>
+type TurnReq = {
+  requestId: string
+  turnId: string
+  sessionId: string
+  accountId: string
+  requestDigest: string
+  prompt: string
+  contextPrompt?: string
+  systemPrompt?: string
+  permissionMode?: string
+  resumeValue?: string
+  sessionUuid?: string
+  model?: string
+  effort?: string
+  mcpConfig?: string
+  allowedTools?: string[]
+  toolPolicy?: 'none'
+  timeoutMs?: number
+  agent?: string
+  cwd?: string
+}
+type BindReq = Extract<ControlMessage, { type: 'reattach' }> & { resumeValue?: string }
 type TurnAck = Extract<ControlMessage, { type: 'headlessTurnAck' }>
 type SpawnMsg = Extract<ControlMessage, { type: 'spawn' }>
 
 async function harness() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
+  const host = registry.sessionStore.hostMachineId
+  await (registry.sessionStore as unknown as { machines: { upsertMachine(i: unknown): Promise<void>; setServiceAssignment(id: unknown, a: unknown): Promise<void> } }).machines.upsertMachine({
+    id: host,
+    name: 'host',
+    hostname: 'host',
+    tokenHash: 'test',
+    ownerUserId: firstAdminMemberId(),
+    assignment: { server: true, agentExecution: true },
+  })
+  await (registry.sessionStore as unknown as { machines: { setServiceAssignment(id: unknown, a: unknown): Promise<void> } }).machines.setServiceAssignment(host, { server: true, agentExecution: true })
   const turnReqs: TurnReq[] = []
   const bindReqs: BindReq[] = []
   const turnAcks: TurnAck[] = []
   const spawns: SpawnMsg[] = []
   const interrupts: string[] = []
+  const epochs = new Map<string, number>()
+  const pendingResults = new Map<string, { harnessSessionId?: string; output?: string }>()
   await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
-    if (m.type === 'headlessTurnRequest') turnReqs.push(m)
-    if (m.type === 'headlessBind') bindReqs.push(m)
+    if (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') {
+      const epoch = (epochs.get(m.sessionId) ?? 0) + 1
+      epochs.set(m.sessionId, epoch)
+      turnReqs.push({
+        requestId: m.requestId,
+        turnId: m.turnId,
+        sessionId: m.sessionId,
+        accountId: m.accountId ?? '',
+        requestDigest: m.requestDigest ?? '0'.repeat(64),
+        prompt: m.text,
+        ...(m.contextPrompt ? { contextPrompt: m.contextPrompt } : {}),
+        ...(m.systemPrompt ? { systemPrompt: m.systemPrompt } : {}),
+        ...(m.permissionMode ? { permissionMode: m.permissionMode } : {}),
+        ...(m.resumeValue ? { resumeValue: m.resumeValue } : {}),
+        ...(m.sessionUuid ? { sessionUuid: m.sessionUuid } : {}),
+        ...(m.model ? { model: m.model } : {}),
+        ...(m.effort ? { effort: m.effort } : {}),
+        ...(m.mcpConfig ? { mcpConfig: m.mcpConfig } : {}),
+        ...(m.allowedTools ? { allowedTools: [...m.allowedTools] } : {}),
+        ...(m.toolPolicy ? { toolPolicy: m.toolPolicy } : {}),
+        ...(m.timeoutMs ? { timeoutMs: m.timeoutMs } : {}),
+      })
+      return
+    }
+    if (m.type === 'reattach' && m.runtimeContract === 'headless') {
+      bindReqs.push({
+        ...m,
+        resumeValue: m.resume?.value,
+      } as BindReq)
+      return
+    }
     if (m.type === 'headlessTurnAck') turnAcks.push(m)
     if (m.type === 'spawn') spawns.push(m)
-    if (m.type === 'headlessInterrupt') interrupts.push(m.sessionId)
+    if (m.type === 'runtimeInterruptRequest') {
+      interrupts.push(m.sessionId)
+      queueMicrotask(() =>
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          type: 'runtimeLifecycleResult',
+          requestId: m.requestId,
+          sessionId: m.sessionId,
+          result: { ok: true },
+        }),
+      )
+      return
+    }
+    if (m.type === 'runtimeHistoryRequest') {
+      const pending = pendingResults.get(m.sessionId)
+      const output = pending?.output
+      queueMicrotask(() =>
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          type: 'runtimeHistoryResult',
+          requestId: m.requestId,
+          sessionId: m.sessionId,
+          result: {
+            page: {
+              items: output ? [{ id: 'item-1', role: 'assistant', text: output, ts: new Date().toISOString() }] : [],
+              hasMore: false,
+            },
+          },
+        }),
+      )
+      return
+    }
+    if (m.type === 'runtimeSnapshotRequest') {
+      const pending = pendingResults.get(m.sessionId)
+      queueMicrotask(() =>
+        registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+          type: 'runtimeSnapshotResult',
+          requestId: m.requestId,
+          sessionId: m.sessionId,
+          result: {
+            snapshot: {
+              binding: {
+                sessionId: m.sessionId,
+                driver: 'headless',
+                family: 'server',
+                harness: 'claude-code',
+                workdir: '/r',
+                resume: pending?.harnessSessionId ? { kind: 'headless-session', value: pending.harnessSessionId } : null,
+                process: { key: 'test' },
+                bindingVersion: 1,
+              },
+              state: {},
+              cursor: { segmentId: 's', components: {} },
+              observerGeneration: 1,
+              turnEpoch: epochs.get(m.sessionId) ?? 1,
+              interactions: [],
+              at: new Date().toISOString(),
+            },
+          },
+        }),
+      )
+      return
+    }
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
         registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
@@ -91,7 +212,7 @@ async function harness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r')
+  await repos.add('/r', registry.sessionStore.hostMachineId)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
@@ -101,17 +222,39 @@ async function harness() {
     req: TurnReq,
     result?: { ok?: boolean; error?: string; harnessSessionId?: string; output?: string },
   ) => {
-    registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-      type: 'headlessTurnResult',
+    const epoch = epochs.get(req.sessionId) ?? 1
+    pendingResults.set(req.sessionId, {
+      ...(result?.harnessSessionId ? { harnessSessionId: result.harnessSessionId } : {}),
+      ...(result?.output ? { output: result.output } : {}),
+    })
+    // Receipt first (accepted with epoch), then the causal terminal event.
+    void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'runtimeSendResult',
       requestId: req.requestId,
-      ok: result?.ok ?? true,
-      accountId: req.accountId,
-      requestDigest: req.requestDigest,
-      ...(result?.error !== undefined ? { error: result.error } : {}),
-      ...(result?.harnessSessionId !== undefined
-        ? { harnessSessionId: result.harnessSessionId }
-        : {}),
-      ...(result?.output !== undefined ? { output: result.output } : {}),
+      sessionId: req.sessionId as never,
+      receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
+    })
+    const at = new Date().toISOString()
+    void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId: req.sessionId as never,
+      event: {
+        t: 'turn',
+        ev: { ev: 'started', turnEpoch: epoch, origin: 'system' },
+        cursor: { segmentId: 's', components: {} },
+        observerGeneration: 1,
+        turnEpoch: epoch,
+        provenance: 'live',
+        at,
+      } as never,
+    })
+    const ok = result?.ok ?? true
+    void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      sessionId: req.sessionId as never,
+      event: ok
+        ? { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' }, cursor: { segmentId: 's', components: {} }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never
+        : { t: 'turn', ev: { ev: 'failed', turnEpoch: epoch, reason: 'provider-error', disposition: 'fatal', detail: result?.error ?? 'error' }, cursor: { segmentId: 's', components: {} }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
     })
   }
   const settle = () => new Promise((r) => setTimeout(r))
@@ -535,7 +678,6 @@ describe('sendTurn (headless harness turns)', () => {
     // The turn was DISPATCHED but not completed — ack came first.
     expect(h.turnReqs).toHaveLength(1)
     const req = h.turnReqs[0]!
-    expect(req.agent).toBe('claude-code') // settings default frozen on
     // Global thread: machine context stays separate from the human message.
     expect(req.prompt).toBe('hello')
     expect(req.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
@@ -544,12 +686,14 @@ describe('sendTurn (headless harness turns)', () => {
     expect(req.systemPrompt).toContain('superagent')
     expect(req.resumeValue).toBeUndefined() // first turn
     expect(req.sessionUuid).toBeTruthy() // claude: deterministic session uuid
-    // The headless Podium session exists: live, PTY-less (no spawn message), flagged.
+    // The headless Podium session exists: live, PTY-less, flagged, established
+    // via spawn with runtimeContract headless (settings default frozen on).
     const meta = (await h.registry.modules.sessions
       .listSessions(undefined, 'rpc'))
       .find((s) => s.sessionId === ack.podiumSessionId)
-    expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global' })
-    expect(h.spawns).toHaveLength(0)
+    expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global', agentKind: 'claude-code' })
+    expect(h.spawns).toHaveLength(1)
+    expect(h.spawns[0]).toMatchObject({ sessionId: ack.podiumSessionId, agentKind: 'claude-code', runtimeContract: 'headless' })
     // The agent is frozen onto the thread row.
     expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind).toBe(
       'claude-code',
