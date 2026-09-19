@@ -874,7 +874,8 @@ export const RuntimeLifecycleResultMessage = z.object({
   sessionId: z.string().min(1).pipe(SessionIdField),
   /** A refusal is an OUTCOME, not an error: `hibernate` without a resume ref
    *  is expected and the caller handles it. */
-  result: z.union([z.object({ ok: z.literal(true) }), Refusal]),
+  // Optional for older peers: ok alone acknowledges the verb, not process death.
+  result: z.union([z.object({ ok: z.literal(true), retirement: z.literal('confirmed').optional() }), Refusal]),
 })
 export type RuntimeLifecycleResultMessage = z.infer<typeof RuntimeLifecycleResultMessage>
 

@@ -4676,13 +4676,14 @@
         "requestId": "requestId",
         "sessionId": "sessionId",
         "result": {
-          "ok": true
+          "ok": true,
+          "retirement": "confirmed"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true}}"
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true,\"retirement\":\"confirmed\"}}"
     },
     {
       "schema": "RuntimeLifecycleResultMessage",
