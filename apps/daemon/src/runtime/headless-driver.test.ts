@@ -1259,6 +1259,55 @@ describe('headless structured permissions', () => {
     }
   })
 
+  it('drops replayed permission asks already open or already answered', async () => {
+    const { runtime, host, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      await handle.send(
+        makeTurn(sessionId, { turnId: 'perm-dedupe', structuredPermissions: true }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      const turn = runners.turns[0]
+      turn?.onPermission?.({ id: 'perm-dedupe-1', toolName: 'Bash', input: { command: 'ls' } })
+      await flush()
+      expect(await handle.interactions()).toHaveLength(1)
+      const askedCount = () =>
+        host.sent.filter(
+          (msg) => msg.type === 'runtimeInteractionAsked' && msg.interaction.id === 'perm-dedupe-1',
+        ).length
+      expect(askedCount()).toBe(1)
+
+      // Runtime events replay on reconnect: the same ask id delivered again
+      // while open must not re-register or re-emit (different payload proves
+      // the second delivery is dropped rather than overwriting).
+      turn?.onPermission?.({ id: 'perm-dedupe-1', toolName: 'Edit', input: { command: 'other' } })
+      await flush()
+      expect(await handle.interactions()).toHaveLength(1)
+      expect(askedCount()).toBe(1)
+      expect((await handle.interactions())[0]).toMatchObject({
+        id: 'perm-dedupe-1',
+        kind: 'permission',
+        payload: expect.objectContaining({ toolName: 'Bash' }),
+      })
+
+      // After the answer moves the id to `answered`, a replayed ask for the
+      // same id must also drop: the user already answered.
+      expect(
+        await handle.answer('perm-dedupe-1', { kind: 'permission', decision: 'deny' }),
+      ).toEqual({ ok: true })
+      expect(await handle.interactions()).toHaveLength(0)
+      turn?.onPermission?.({ id: 'perm-dedupe-1', toolName: 'Bash', input: { command: 'ls' } })
+      await flush()
+      expect(await handle.interactions()).toHaveLength(0)
+      expect(askedCount()).toBe(1)
+      expect(
+        await handle.answer('perm-dedupe-1', { kind: 'permission', decision: 'deny' }),
+      ).toMatchObject({ ok: false, reason: 'already-answered' })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
   it('accepts the UI allow shorthand and allow-always with suggestions', async () => {
     const { runtime, runners } = makeRuntime()
     try {
