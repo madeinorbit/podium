@@ -268,6 +268,7 @@ describe('replica row-notification coalescing (#262 review)', () => {
     try {
       const replica = createReplica({ storage: memoryStorage() })
       let calls = 0
+      let writeBack = true
       const unsubscribe = replica.subscribeRows('sessions', () => {
         calls++
         // Test-only fuse: a broken guard must fail, not starve the runner's
@@ -276,7 +277,9 @@ describe('replica row-notification coalescing (#262 review)', () => {
           unsubscribe()
           return
         }
-        replica.applyChanges('sessions', [{ ...session('x'), title: `t${calls}` }], [])
+        if (writeBack) {
+          replica.applyChanges('sessions', [{ ...session('x'), title: `t${calls}` }], [])
+        }
       })
       // Must return (bounded rounds), not blow the stack or spin.
       replica.applyChanges('sessions', [session('a')], [])
@@ -284,16 +287,21 @@ describe('replica row-notification coalescing (#262 review)', () => {
       expect(calls).toBeLessThanOrEqual(101)
       // The deferred continuations are BOUNDED: the pathological writer is
       // dropped loudly after a fixed number of microtask rounds, so the
-      // microtask queue cannot spin forever. (The collection's async
-      // persistence events can restart a bounded burst or two — the ceiling
-      // is loose on purpose; the property under test is TERMINATION.)
+      // microtask queue cannot spin forever. Persistence echoes must not
+      // restart the writer after the drop (the regression behind this test).
       await new Promise((r) => setTimeout(r, 0))
       expect(calls).toBeLessThanOrEqual(5000)
-      expect(captured.some((r) => String(r.msg).includes('dropping the remainder'))).toBe(true)
+      expect(captured.filter((r) => String(r.msg).includes('dropping the remainder'))).toHaveLength(1)
       // …and it stays terminated (no self-rescheduling ghost flushes).
       const settled = calls
       await new Promise((r) => setTimeout(r, 0))
       expect(calls).toBe(settled)
+      // The cut-off is not a permanent unsubscribe: later external writes must
+      // still reach the same listener once the persistence echoes have drained.
+      writeBack = false
+      replica.applyChanges('sessions', [{ ...session('x'), title: 'recovered' }], [])
+      expect(calls).toBeGreaterThan(settled)
+      expect(replica.rows('sessions').find((s) => s.sessionId === 'x')?.title).toBe('recovered')
     } finally {
       err.restore()
     }

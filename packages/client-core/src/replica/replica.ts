@@ -381,6 +381,9 @@ class TanstackReplica implements Replica {
   /** Consecutive microtask continuations of one non-converging flush (#263
    *  review finding 5) — bounds the pathological forever-writer. */
   private flushDeferrals = 0
+  /** A cut-off kind stays quiet while queued persistence echoes drain. Clearing
+   *  only pendingRowNotify lets those echoes restart the same runaway writer. */
+  private readonly cutOffRowKinds = new Set<ReplicaKind>()
 
   constructor(init: ReplicaInit = {}) {
     const prefix = init.keyPrefix ?? REPLICA_KEY_PREFIX
@@ -925,6 +928,7 @@ class TanstackReplica implements Replica {
 
   /** Fire (or, inside a batch/flush, defer + dedupe) `kind`'s row listeners. */
   private notifyRows(kind: ReplicaKind): void {
+    if (this.cutOffRowKinds.has(kind)) return
     if (this.batchDepth > 0 || this.flushing) {
       this.pendingRowNotify.add(kind)
       return
@@ -968,6 +972,14 @@ class TanstackReplica implements Replica {
                 'dropping the remainder',
               { deferrals: this.flushDeferrals },
             )
+            const cutOff = [...this.pendingRowNotify]
+            for (const kind of cutOff) this.cutOffRowKinds.add(kind)
+            // Persistence confirmations already queued by this burst can notify
+            // again after the drop. Let them drain without calling the writer;
+            // a later event-loop turn can deliver unrelated writes normally.
+            setTimeout(() => {
+              for (const kind of cutOff) this.cutOffRowKinds.delete(kind)
+            }, 0)
             this.pendingRowNotify.clear()
             this.flushDeferrals = 0
             return
