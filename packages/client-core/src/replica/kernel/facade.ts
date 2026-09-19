@@ -89,6 +89,7 @@ import type { EntityRecord, ExitKind, ReplicaEvent } from '@podium/sync/replica'
 import type { OutboxStorage } from '../../outbox'
 import type {
   Replica,
+  ReplicaAddressedBatch,
   ReplicaHydrateResult,
   ReplicaKind,
   ReplicaRows,
@@ -210,6 +211,9 @@ interface KindProjection {
 export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplica {
   const { cache, side } = init
   const listeners = new Map<ReplicaKind, Set<() => void>>()
+  const addressedListeners = new Set<(batch: ReplicaAddressedBatch) => void>()
+  const pendingAddresses = new Map<ReplicaKind, Set<string>>()
+  let replacement: 'bootstrap' | 'rescope' | undefined
   const batchListeners = new Set<(changed: ReadonlySet<ReplicaKind>) => void>()
   /**
    * The materialised per-kind projections, maintained INCREMENTALLY.
@@ -244,13 +248,18 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       dirtyRows.set(kind, dirty)
     }
     dirty.add(entityId)
+    let addresses = pendingAddresses.get(kind)
+    if (!addresses) pendingAddresses.set(kind, addresses = new Set())
+    addresses.add(entityId)
     pending.add(kind)
     if (batchDepth === 0) drain()
   }
 
   /** The whole slice was replaced: no delta describes that, so every kind's
    *  state is dropped and the next read rebuilds from one full scan. */
-  function touchAllKinds(): void {
+  function touchAllKinds(reason: 'bootstrap' | 'rescope'): void {
+    replacement = reason
+    pendingAddresses.clear()
     projected.clear()
     dirtyRows.clear()
     for (const kind of ALL_KINDS) pending.add(kind)
@@ -261,6 +270,14 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
     if (pending.size === 0) return
     const kinds = [...pending]
     pending.clear()
+    const addressed: ReplicaAddressedBatch = replacement !== undefined
+      ? { type: 'replace', reason: replacement }
+      : { type: 'update', rows: [...pendingAddresses].flatMap(([kind, ids]) =>
+          [...ids].map((id) => ({ kind, id }))) }
+    replacement = undefined
+    pendingAddresses.clear()
+    // Capture bookkeeping before callbacks: array reads can consume dirtyRows,
+    // but must never consume the independent invalidation addresses.
     for (const kind of kinds) {
       const set = listeners.get(kind)
       if (set === undefined) continue
@@ -280,6 +297,9 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       } catch {
         // A batch observer has the same isolation contract as row observers.
       }
+    }
+    for (const cb of [...addressedListeners]) {
+      try { cb(addressed) } catch { /* Same observer isolation as legacy rows. */ }
     }
   }
 
@@ -505,6 +525,20 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       return project(kind)
     },
 
+    row<K extends ReplicaKind>(kind: K, id: string): ReplicaRows[K] | undefined {
+      try {
+        const value = cache.read(entityForKind(kind), id)?.value
+        return value !== null && typeof value === 'object' ? value as ReplicaRows[K] : undefined
+      } catch {
+        return undefined
+      }
+    },
+
+    subscribeAddressedBatch(cb): () => void {
+      addressedListeners.add(cb)
+      return () => { addressedListeners.delete(cb) }
+    },
+
     exitKind(entity: string, entityId: string): ExitKind | undefined {
       // A READ, so it answers rather than refusing, and it never throws: this is
       // called from render, and a replica that made a page crash because it
@@ -580,7 +614,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
           return
         }
         case 'bootstrap-installed':
-          touchAllKinds()
+          touchAllKinds(event.cause === 'rescope' ? 'rescope' : 'bootstrap')
           return
         default:
           // `cursor`, `posture`, `heal`, `bootstrap-failed` do not change the

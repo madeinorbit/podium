@@ -14,7 +14,13 @@
  * therefore produce no Store publication.
  */
 
-import type { Replica, ReplicaHydrateResult, ReplicaKind, ReplicaRows } from '../replica/contract'
+import type {
+  Replica,
+  ReplicaAddressedBatch,
+  ReplicaHydrateResult,
+  ReplicaKind,
+  ReplicaRows,
+} from '../replica/contract'
 
 export const REPLICA_BINDING_KINDS = [
   'sessions',
@@ -39,6 +45,9 @@ export interface ReplicaPublication {
   readonly snapshot: ReplicaBindingSnapshot
   readonly changed: ReadonlySet<ReplicaKind>
   readonly reason: 'rows' | 'hydrated'
+  /** Kernel invalidations preserved through the legacy snapshot path. Undefined
+   * only for replicas without the addressed capability; never infer replacement. */
+  readonly addressed?: ReplicaAddressedBatch
 }
 
 export interface ReplicaBindingSubscriber {
@@ -48,6 +57,11 @@ export interface ReplicaBindingSubscriber {
 }
 
 export interface ReplicaBinding {
+  /** Live addressed read for a producer to capture at its settled commit. */
+  readonly row?: NonNullable<Replica['row']>
+  /** Raw committed invalidations, no seed/hydration and no array materialisation.
+   * The effective publisher owns seed, commit pinning and overlay composition. */
+  readonly subscribeAddressedBatch?: NonNullable<Replica['subscribeAddressedBatch']>
   /** Synchronous durable read used to build the Store's very first snapshot. */
   snapshot(): ReplicaBindingSnapshot
   /** Arm row subscriptions and hydration. The returned teardown is idempotent. */
@@ -60,11 +74,16 @@ export interface ReplicaBindingInit {
 
 export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
   const { replica } = init
-  let current = readSnapshot(replica)
+  let current: ReplicaBindingSnapshot | undefined
+  const snapshot = (): ReplicaBindingSnapshot => (current ??= readSnapshot(replica))
   let generation = 0
 
   return {
-    snapshot: () => current,
+    snapshot,
+    ...(replica.row ? { row: <K extends ReplicaKind>(kind: K, id: string) => replica.row!(kind, id) } : {}),
+    ...(replica.subscribeAddressedBatch ? {
+      subscribeAddressedBatch: (cb: (batch: ReplicaAddressedBatch) => void) => replica.subscribeAddressedBatch!(cb),
+    } : {}),
 
     start(subscriber): () => void {
       const mine = ++generation
@@ -72,12 +91,12 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
       const pending = new Set<ReplicaKind>()
       const offs: Array<() => void> = []
 
-      const flush = (reason: ReplicaPublication['reason']): void => {
+      const flush = (reason: ReplicaPublication['reason'], addressed?: ReplicaAddressedBatch): void => {
         if (stopped || generation !== mine || pending.size === 0) return
         const changed = new Set(pending)
         pending.clear()
-        current = readChanged(replica, current, changed)
-        subscriber.publish({ snapshot: current, changed, reason })
+        current = readChanged(replica, snapshot(), changed)
+        subscriber.publish({ snapshot: current, changed, reason, ...(addressed ? { addressed } : {}) })
       }
 
       const publishRows = (kinds: ReadonlySet<ReplicaKind>): void => {
@@ -87,7 +106,15 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
 
       // Subscribe first, then re-read every kind. A write in the construction →
       // start gap is either caught by the listener or by this synchronous read.
-      if (replica.subscribeRowBatch !== undefined) {
+      if (replica.subscribeAddressedBatch !== undefined) {
+        offs.push(replica.subscribeAddressedBatch((addressed) => {
+          const kinds = addressed.type === 'replace'
+            ? REPLICA_BINDING_KINDS
+            : addressed.rows.map(({ kind }) => kind)
+          for (const kind of kinds) pending.add(kind)
+          flush('rows', addressed)
+        }))
+      } else if (replica.subscribeRowBatch !== undefined) {
         offs.push(replica.subscribeRowBatch((changed) => publishRows(changed)))
       } else {
         for (const kind of REPLICA_BINDING_KINDS) {
@@ -95,7 +122,7 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
         }
       }
       for (const kind of REPLICA_BINDING_KINDS) pending.add(kind)
-      flush('rows')
+      flush('rows', replica.subscribeAddressedBatch ? { type: 'replace', reason: 'bootstrap' } : undefined)
 
       // Hydration belongs here, not in engine.ts. Re-read through rows() after it
       // resolves: the returned result is also handed to the v1 hub adapter, but
@@ -104,7 +131,7 @@ export function createReplicaBinding(init: ReplicaBindingInit): ReplicaBinding {
         if (stopped || generation !== mine) return
         subscriber.hydrated?.(result)
         for (const kind of REPLICA_BINDING_KINDS) pending.add(kind)
-        flush('hydrated')
+        flush('hydrated', replica.subscribeAddressedBatch ? { type: 'replace', reason: 'bootstrap' } : undefined)
       })
 
       return () => {
