@@ -3342,4 +3342,16 @@ describe('terminal retirement completion', () => {
     expect(stop).not.toHaveBeenCalled()
     world.runtime.dispose()
   })
+
+  it('hibernate rejects when the host does not confirm retirement', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    world.runtime.observe({ type: 'sessionResumeRef', sessionId,
+      resume: { kind: 'claude-session', value: 'native' }, confidence: 'exact',
+      observerGeneration: 1, bindingVersion: handle.binding.bindingVersion })
+    world.host.stopSession = async () => false
+    await expect(handle.hibernate()).rejects.toThrow('terminal process retirement was not confirmed')
+    world.runtime.dispose()
+  })
 })
