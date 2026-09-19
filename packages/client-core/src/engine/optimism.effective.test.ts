@@ -7,6 +7,8 @@ import type { ReplicaKind, ReplicaRows } from '../replica/contract'
 import { OptimismLedger, type OptimismBase, type OptimisticPublicationMeasurement } from './optimism'
 import { AWAITING_TRUTH_TTL_MS } from './overlay'
 import type { EngineState } from './state'
+import { effectiveView } from './effective-view'
+import type { ReplicaBindingSnapshot } from './replica-binding'
 import type { EngineOutbox } from './wiring'
 
 const session = (id = 's1'): SessionMeta => ({ sessionId: asSessionId(id), name: 'base' }) as SessionMeta
@@ -225,7 +227,15 @@ describe('optimistic effective addresses', () => {
       expect(bridgeChanges).toEqual(['s1'])
       const bridgeMs = performance.now() - start
       expect(bridgeVisits).toBe(size * 2)
-      results.push({ ...m, bridgeVisits, bridgeMs })
+      let indexVisits = 0
+      const pinned = effectiveView(h.state() as EngineState, {} as ReplicaBindingSnapshot,
+        (_kind, rows) => { indexVisits += rows })
+      const indexStart = performance.now()
+      expect(pinned.row('sessions', 's1')?.name).toBe('local')
+      pinned.row('sessions', 's1')
+      const indexMs = performance.now() - indexStart
+      expect(indexVisits).toBe(size) // one lazy index, separately counted
+      results.push({ ...m, bridgeVisits, bridgeMs, indexVisits, indexMs })
       assertComplete(h)
     }
     console.log('D4 bookkeeping vs legacy fold', JSON.stringify(results))

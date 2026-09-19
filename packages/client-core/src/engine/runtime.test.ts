@@ -3650,3 +3650,116 @@ describe('stable optimistic folds (B11)', () => {
     },
   )
 })
+
+// D4: append-only shared runtime evidence. Real outbox + settled runtime boundary.
+describe('optimistic effective runtime publication', () => {
+  function pilot(enabled = true) {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applyChanges('sessions', [session('d4-session', '/w')], [])
+    const api = makeApi()
+    const engine = createClientRuntime({
+      principal: asClientPrincipal(asUserId('d4-operator')),
+      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
+      api: api as PodiumClientApi, onFatalError: () => {}, createReplicaFn: () => replica,
+      createHub: () => new FakeHub() as unknown as SocketHub,
+      routerWindow: makeRouterWindow('/').win, networkEnabled: false,
+      effectiveChanges: enabled, spawnConfirmGraceMs: 0,
+    })
+    const events: import('./effective-changes').EffectivePublication[] = []
+    engine.effectiveChanges?.subscribe((event) => {
+      // Both APIs have installed the SAME snapshot before any consumer runs.
+      expect(event.view.commit).toBe(engine.getSnapshot())
+      events.push(event)
+    })
+    return { engine, events, api }
+  }
+
+  it('is disabled by default and has no pilot reader when opted out', async () => {
+    const { engine } = makeEngine()
+    expect(engine.effectiveChanges).toBeUndefined()
+    engine.destroy()
+    const off = pilot(false)
+    try {
+      off.engine.start()
+      off.engine.getSnapshot().renameSession(asSessionId('d4-session'), 'offline')
+      await settle()
+      expect(off.engine.effectiveChanges).toBeUndefined()
+      expect(nameOf(off.engine, 'd4-session')).toBe('offline')
+    } finally { off.engine.destroy() }
+  })
+
+  it('publishes offline enqueue, recovery edit and discard through the same contract', async () => {
+    const { engine, events } = pilot()
+    try {
+      engine.start()
+      await settle()
+      events.length = 0
+      engine.getSnapshot().renameSession(asSessionId('d4-session'), 'offline')
+      await settle()
+      const painted = events.find((e) => e.view.row('sessions', 'd4-session')?.name === 'offline')!
+      expect(painted).toMatchObject({ type: 'update', rows: [{ kind: 'sessions', id: 'd4-session', presence: 'present' }] })
+      const entry = engine.outbox.pending()[0]!
+      engine.getSnapshot().recoverOutbox.edit(entry.mutationId, { sessionId: asSessionId('d4-session'), name: 'edited' })
+      await settle()
+      expect(events.at(-1)!.view.row('sessions', 'd4-session')?.name).toBe('edited')
+      engine.getSnapshot().recoverOutbox.discard(entry.mutationId)
+      await settle()
+      expect(events.at(-1)!.view.row('sessions', 'd4-session')?.name).toBeUndefined()
+      // Earlier commit remains painted after later edit and rollback.
+      expect(painted.view.row('sessions', 'd4-session')?.name).toBe('offline')
+    } finally { engine.destroy() }
+  })
+
+  it('publishes failed enqueue rollback and keeps nested legacy writes in commit order', async () => {
+    const { engine, events } = pilot()
+    try {
+      engine.start()
+      await settle()
+      const enqueue = vi.spyOn(engine.outbox, 'enqueue').mockRejectedValueOnce(new Error('disk failed'))
+      events.length = 0
+      engine.getSnapshot().renameSession(asSessionId('d4-session'), 'failed paint')
+      await settle()
+      expect(events.some((e) => e.view.row('sessions', 'd4-session')?.name === 'failed paint')).toBe(true)
+      expect(events.at(-1)!.view.row('sessions', 'd4-session')?.name).toBeUndefined()
+      enqueue.mockRestore()
+      const names: Array<string | undefined> = []
+      const offEffective = engine.effectiveChanges!.subscribe((e) => {
+        if (e.type === 'update' && e.rows.some((r) => r.kind === 'sessions'))
+          names.push(e.view.row('sessions', 'd4-session')?.name ?? undefined)
+      })
+      let nested = false
+      const offLegacy = engine.subscribe(() => {
+        if (!nested && nameOf(engine, 'd4-session') === 'outer') {
+          nested = true
+          engine.getSnapshot().renameSession(asSessionId('d4-session'), 'nested')
+        }
+      })
+      engine.getSnapshot().renameSession(asSessionId('d4-session'), 'outer')
+      await settle()
+      expect(names.slice(0, 2)).toEqual(['outer', 'nested'])
+      offLegacy(); offEffective()
+    } finally { engine.destroy() }
+  })
+
+  it('reports both spawn kinds only after the pair and pending state have settled', async () => {
+    const { engine, events, api } = pilot()
+    api.sessions.create = { mutate: async () => { throw new Error('refused') } }
+    try {
+      engine.start()
+      await settle()
+      events.length = 0
+      const made = engine.getSnapshot().spawnDraftAgent({ target: { path: '/w', repoPath: '/w' }, agentKind: 'codex' })
+      const event = events.find((e) => e.type === 'update' && e.rows.some((r) => r.id === made.sessionId))!
+      expect(event).toMatchObject({ rows: expect.arrayContaining([
+        { kind: 'sessions', id: made.sessionId, presence: 'present' },
+        { kind: 'issues', id: made.issueId, presence: 'present' },
+      ]) })
+      expect(event.view.local('pendingSpawnIds').has(made.sessionId)).toBe(true)
+      expect(event.view.row('issues', made.issueId)).toBeDefined()
+      expect(await made.settled).toBe(false)
+      const rollback = events.find((e) => e.type === 'update' && e.rows.some((r) => r.id === made.sessionId && r.presence === 'absent'))!
+      expect(rollback.view.row('issues', made.issueId)).toBeUndefined()
+      expect(rollback.view.local('pendingSpawnIds').has(made.sessionId)).toBe(false)
+    } finally { engine.destroy() }
+  })
+})
