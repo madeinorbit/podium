@@ -40,7 +40,8 @@ import { allTabIds } from '../viewmodels'
 import { sessionById } from '../session-index'
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { Reactions } from './reactions'
-import type { EngineState } from './state'
+import { foregroundIssue, type EngineState } from './state'
+import { NAVIGATION_INPUTS } from '../presentation/model'
 import { foldOverlays, insertOverlay, type OverlayEntity } from './overlay'
 import type { OptimismLedger } from './optimism'
 import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
@@ -4081,5 +4082,226 @@ describe('D5 coordinated presentation runtime', () => {
       engine.start()
       expect(cell.getSnapshot()).toBe('settings')
     } finally { engine.destroy() }
+  })
+})
+
+// D6 is deliberately test-only: never import this differential driver in a
+// benchmark. Both arms own independent kernels, caches, outboxes and runtimes.
+describe('D6 differential lifecycle gate', () => {
+  async function arm(enabled: boolean, principal = 'd6-user') {
+    const { createKernelReplica, createSideCache } = await import('../replica/kernel')
+    const records = new Map<string, import('@podium/sync/replica').EntityRecord>()
+    const replica = createKernelReplica({
+      cache: { readCursor: () => null, readEntities: () => [...records.values()],
+        read: (kind, id) => records.get(`${kind}:${id}`), durability: () => 'durable' },
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const hub = new FakeHub()
+    const api = makeApi()
+    const engine = createClientRuntime({
+      principal: asClientPrincipal(asUserId(principal)),
+      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' }, api,
+      onFatalError: message => { throw new Error(message) }, createReplicaFn: () => replica,
+      createHub: () => hub as unknown as SocketHub, routerWindow: makeRouterWindow('/').win,
+      networkEnabled: false, presentationModel: enabled,
+    })
+    function put(id: string, name: string, kind: 'session' | 'issue' = 'session') {
+      const value = kind === 'session' ? { ...session(id, '/w'), name }
+        : { id: asIssueId(id), title: name, status: 'open', stage: 'backlog' }
+      // Revision intentionally fixed: visibility and rescope are not revisions.
+      const record = { entity: kind, entityId: id, value, provenance: { seq: 1 } }
+      records.set(`${kind}:${id}`, record)
+      replica.onKernelEvent({ type: 'upserted', record, readmitted: true })
+    }
+    function evict(id: string, kind: 'session' | 'issue' = 'session') {
+      records.delete(`${kind}:${id}`)
+      replica.onKernelEvent({ type: 'evicted', entity: kind, entityId: id })
+    }
+    function replace(cause: 'cold-start' | 'rescope') {
+      records.clear()
+      replica.onKernelEvent({ type: 'bootstrap-installed', cause, snapshotSeq: 1, entityCount: 0, bufferedFramesApplied: 0 })
+    }
+    return { engine, hub, api, put, evict, replace, replica }
+  }
+  type Arm = Awaited<ReturnType<typeof arm>>
+  const ids = ['a', 'b', 'c']
+  function values(legacy: Arm, pilot: Arm) {
+    const old = legacy.engine.getSnapshot()
+    const model = pilot.engine.presentation!
+    for (const id of ids) {
+      expect(model.row('sessions', id).getSnapshot(), `session ${id}`).toEqual(old.sessions.find(r => r.sessionId === id))
+      expect(model.row('issues', id).getSnapshot(), `issue ${id}`).toEqual(old.issues.find(r => r.id === id))
+      expect(model.draft(id).getSnapshot(), `draft ${id}`).toBe(old.drafts[id])
+    }
+    for (const key of NAVIGATION_INPUTS) expect(model.navigation(key).getSnapshot(), key).toEqual(old[key])
+    expect(model.foregroundIssue().getSnapshot()).toEqual(foregroundIssue(old))
+  }
+  // Identity is a separate contract: cross-runtime object identities cannot match.
+  function references(pilot: Arm) {
+    const model = pilot.engine.presentation!
+    for (const id of ids) {
+      const cell = model.row('sessions', id)
+      expect(model.row('sessions', id)).toBe(cell)
+      expect(cell.getSnapshot()).toBe(cell.getSnapshot())
+      expect(cell.getSnapshot()).toBe(pilot.engine.getSnapshot().sessions.find(r => r.sessionId === id))
+    }
+  }
+  async function pair(run: (legacy: Arm, pilot: Arm) => Promise<void>) {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-01T00:00:00Z'))
+    const arms: Arm[] = []
+    try {
+      arms.push(await arm(false), await arm(true))
+      for (const a of arms) a.engine.start()
+      await vi.advanceTimersByTimeAsync(25)
+      await run(arms[0]!, arms[1]!)
+    } finally { for (const a of arms) a.engine.destroy(); vi.useRealTimers() }
+  }
+
+  it.each([1, 17, 4326])('generated kernel sequences, seed %i (values and identity)', async seed => {
+    await pair(async (legacy, pilot) => {
+      let random = seed >>> 0
+      for (let step = 0; step < 80; step++) {
+        random = (Math.imul(random, 1664525) + 1013904223) >>> 0
+        const id = ids[(random >>> 8) % ids.length]!
+        const operation = random % 8
+        const untouched = pilot.engine.presentation!.row('sessions', 'c').getSnapshot()
+        for (const a of [legacy, pilot]) {
+          if (operation < 3) a.put(id, `name-${step}`)
+          else if (operation === 3) a.evict(id)
+          else if (operation === 4) a.replace('rescope')
+          else if (operation === 5) a.replace('cold-start')
+          else if (operation === 6) a.engine.getSnapshot().setView(step % 2 ? 'issues' : 'workspace')
+          else a.replica.batch(() => { a.put(id, 'transient'); a.evict(id); a.put(id, `final-${step}`) })
+        }
+        values(legacy, pilot); references(pilot)
+        if (operation !== 4 && operation !== 5 && id !== 'c')
+          expect(pilot.engine.presentation!.row('sessions', 'c').getSnapshot()).toBe(untouched)
+      }
+    })
+  })
+
+  it('explicit visibility oracle rejects a stale reader without revision movement', async () => {
+    await pair(async (legacy, pilot) => {
+      for (const a of [legacy, pilot]) {
+        a.put('a', 'visible', 'issue')
+        a.engine.getSnapshot().setView('issues')
+        a.engine.getSnapshot().setOpenIssueId(asIssueId('a'))
+      }
+      values(legacy, pilot)
+      const cell = pilot.engine.presentation!.foregroundIssue()
+      const stale = cell.getSnapshot()
+      expect(stale?.title).toBe('visible')
+      for (const a of [legacy, pilot]) a.evict('a', 'issue')
+      const oracle = (row: unknown) => expect(row).toBeUndefined()
+      oracle(cell.getSnapshot()); oracle(foregroundIssue(legacy.engine.getSnapshot()))
+      expect(() => oracle(stale)).toThrow() // negative control, no legacy-as-truth
+      for (const a of [legacy, pilot]) a.put('a', 'readmitted', 'issue')
+      expect(cell.getSnapshot()?.title).toBe('readmitted')
+      values(legacy, pilot)
+    })
+  })
+
+  it.each(['ack-first', 'echo-first', 'evict', 'expire-edit-discard', 'enqueue-failure'] as const)('optimistic lifecycle %s', async order => {
+    await pair(async (legacy, pilot) => {
+      for (const a of [legacy, pilot]) a.put('a', 'base')
+      for (const a of [legacy, pilot]) {
+        if (order === 'enqueue-failure') vi.spyOn(a.engine.outbox, 'enqueue').mockRejectedValueOnce(new Error('disk failed'))
+        const pending = a.engine.getSnapshot().renameSession(asSessionId('a'), 'paint')
+        if (order === 'enqueue-failure') await expect(pending).rejects.toThrow('disk failed')
+        else await pending
+      }
+      values(legacy, pilot)
+      if (order === 'enqueue-failure') {
+        expect(pilot.engine.presentation!.row('sessions', 'a').getSnapshot()?.name).toBe('base')
+        return
+      }
+      expect(pilot.engine.presentation!.row('sessions', 'a').getSnapshot()?.name).toBe('paint')
+      for (const a of [legacy, pilot]) {
+        if (order === 'echo-first') a.put('a', 'paint')
+        if (order === 'evict') a.evict('a')
+        if (order === 'expire-edit-discard') {
+          const expire = () => (a.engine.outbox as unknown as { sweepExpired(age: number): void }).sweepExpired(-1)
+          const entry = a.engine.outbox.pending()[0]!
+          expire()
+          a.engine.getSnapshot().recoverOutbox.edit(entry.mutationId, { sessionId: asSessionId('a'), name: 'edited' })
+          await vi.advanceTimersByTimeAsync(1)
+          const revised = a.engine.outbox.pending()[0]!
+          expire(); a.engine.getSnapshot().recoverOutbox.discard(revised.mutationId)
+        } else {
+          await a.engine.outbox.drain()
+          if (order === 'ack-first') a.put('a', 'paint')
+        }
+      }
+      values(legacy, pilot); references(pilot)
+      expect(pilot.engine.presentation!.row('sessions', 'a').getSnapshot()?.name)
+        .toBe(order === 'evict' ? undefined : order === 'expire-edit-discard' ? 'base' : 'paint')
+    })
+  })
+
+  it('draft edits and reversible restart reseed the retained addressed cell', async () => {
+    await pair(async (legacy, pilot) => {
+      const cell = pilot.engine.presentation!.draft('a')
+      expect(cell.getSnapshot()).toBeUndefined()
+      for (const a of [legacy, pilot]) {
+        a.put('a', 'base')
+        a.engine.getSnapshot().setSessionDraft(asSessionId('a'), 'typed offline')
+      }
+      values(legacy, pilot)
+      expect(cell.getSnapshot()).toBe('typed offline')
+      for (const a of [legacy, pilot]) {
+        a.engine.dispose()
+        a.engine.getSnapshot().setSessionDraft(asSessionId('a'), 'while stopped')
+        a.engine.start()
+      }
+      await vi.advanceTimersByTimeAsync(25)
+      expect(pilot.engine.presentation!.draft('a')).toBe(cell)
+      expect(cell.getSnapshot()).toBe('while stopped')
+      values(legacy, pilot)
+      for (const a of [legacy, pilot]) a.engine.getSnapshot().setSessionDraft(asSessionId('a'), '')
+      expect(cell.getSnapshot()).toBe('')
+      values(legacy, pilot)
+    })
+  })
+
+  it.each(['legacy-first', 'pilot-first'])('subscription order %s observes complete commits', async order => {
+    await pair(async (legacy, pilot) => {
+      let calls = 0
+      const check = () => {
+        calls++
+        expect(pilot.engine.presentation!.navigation('view').getSnapshot()).toBe(pilot.engine.getSnapshot().view)
+        expect(pilot.engine.presentation!.foregroundIssue().getSnapshot()).toEqual(foregroundIssue(pilot.engine.getSnapshot()))
+      }
+      const subscriptions = [() => pilot.engine.subscribe(check), () => pilot.engine.presentation!.navigation('view').subscribe(check)]
+      for (const subscribe of order === 'legacy-first' ? subscriptions : subscriptions.reverse()) subscribe()
+      for (const a of [legacy, pilot]) a.engine.getSnapshot().setView('issues')
+      values(legacy, pilot); expect(calls).toBe(2)
+    })
+  })
+
+  it('reconnect, principal switch and teardown ignore an in-flight old-principal completion', async () => {
+    await pair(async (legacy, pilot) => {
+      const releases: Array<() => void> = []
+      for (const a of [legacy, pilot]) {
+        a.put('a', 'private')
+        await a.engine.getSnapshot().renameSession(asSessionId('a'), 'pending')
+        a.api.sessions.rename.mutate = () => new Promise(resolve => releases.push(() => resolve({})))
+        a.hub.emit('connectionHealth', { status: 'ok', rttMs: 5, since: Date.now() })
+      }
+      await vi.advanceTimersByTimeAsync(25)
+      values(legacy, pilot)
+      expect(releases).toHaveLength(2)
+      const retained = pilot.engine.presentation!.row('sessions', 'a')
+      for (const a of [legacy, pilot]) a.engine.destroy()
+      const nextLegacy = await arm(false, 'other-principal')
+      const nextPilot = await arm(true, 'other-principal')
+      try {
+        nextLegacy.engine.start(); nextPilot.engine.start()
+        for (const release of releases) release()
+        await vi.advanceTimersByTimeAsync(25)
+        expect(retained.getSnapshot()).toBeUndefined()
+        expect(nextPilot.engine.presentation!.row('sessions', 'a').getSnapshot()).toBeUndefined()
+        values(nextLegacy, nextPilot)
+      } finally { nextLegacy.engine.destroy(); nextPilot.engine.destroy() }
+    })
   })
 })

@@ -313,3 +313,28 @@ Consumers: `apps/web/src/features/worklist/use-unified-work.ts`, `apps/web/src/a
 Existing tooling: `packages/client-core/src/perf/switch-trace.ts` (`__podiumSwitchTraces`),
 `apps/web/src/perf/{large-state.frontend-perf,slice-render-count.test,scoped-session-render.test,tuck-fanout.probe}.tsx`,
 `tests/e2e/large-state-bench.ts`, `perf/frontend-large-state.md`.
+
+### D6 activation gate
+
+Before E1 ships opt-in (and before H-phase exposes a pilot reader), the D6
+`D6 differential lifecycle gate` in `packages/client-core/src/engine/runtime.test.ts`
+and D5 `presentation/model.test.ts` must be green in the client-core lane:
+
+```
+bun run --cwd packages/client-core test src/engine/runtime.test.ts src/presentation/model.test.ts
+```
+
+The differential driver owns separate legacy and pilot runtimes, kernel caches and
+outboxes. A fixed fake clock and three reproducible seeds drive 240 kernel steps;
+comparisons happen after complete commits. Value equality and within-arm identity
+are separate assertions. Explicit visibility, optimistic rollback and principal
+isolation oracles prevent agreement from blessing a shared defect. The visibility
+oracle also rejects a retained stale-row negative control; D5's dependency mutation
+oracles remove actual invalidation inputs and must fail.
+
+This driver lives only in a test file: no diagnostic subscriber is installed by
+production or timed performance runs. Keep `presentationModel` disabled to revert
+the pilot; removing this test is not permission to activate it. Extend the comparison
+inventory as A1–E5 introduce readers. A disagreement must be classified as a pilot
+defect, a separately tracked legacy correctness decision, or unresolved. Unresolved
+differences block activation; do not change the oracle merely to copy legacy output.
