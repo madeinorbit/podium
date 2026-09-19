@@ -34,9 +34,35 @@ import { describe, expect, it } from 'vitest'
 
 const require = createRequire(import.meta.url)
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
+const repoRoot = join(projectRoot, '..', '..')
+
+/**
+ * THROUGH `expo`, NOT FROM HERE (POD-746 again).
+ *
+ * `@expo/metro-config` is a dependency of `expo`, not of this app, so under the isolated
+ * linker it is NOT in `apps/mobile/node_modules` — a bare specifier resolved from this
+ * file walks out of the checkout entirely and lands in a sibling clone's hoisted
+ * `node_modules`, where no patch of ours has ever been applied. This test then passes or
+ * fails on a copy that is not the one being shipped, which is worse than not running.
+ *
+ * `metro.config.js` reaches the transform worker by requiring `expo/metro-config`, so
+ * resolving from `expo`'s own package is the same walk `expo export -p web` performs. The
+ * assertion below makes the resolution itself part of the test rather than an assumption.
+ */
+const expoRequire = createRequire(require.resolve('expo/package.json'))
+const CSS_MODULE_TRANSFORM = expoRequire.resolve(
+  '@expo/metro-config/build/transform-worker/css-modules',
+)
+if (!CSS_MODULE_TRANSFORM.startsWith(repoRoot)) {
+  throw new Error(
+    `@expo/metro-config resolved to ${CSS_MODULE_TRANSFORM}, outside ${repoRoot}. ` +
+      'That is another checkout\'s copy, and this test would then be asserting about a ' +
+      'build nobody is shipping (POD-746). Run `bun run setup:worktree` here.',
+  )
+}
 
 /** Expo's CSS-module transform worker, as `expo export -p web` loads it. */
-const { transformCssModuleWeb } = require('@expo/metro-config/build/transform-worker/css-modules') as {
+const { transformCssModuleWeb } = expoRequire(CSS_MODULE_TRANSFORM) as {
   transformCssModuleWeb: (props: {
     filename: string
     src: string
@@ -50,6 +76,9 @@ const { transformCssModuleWeb } = require('@expo/metro-config/build/transform-wo
  * leaving this test asserting nothing about the bundle that ships.
  */
 const CSS_MODULE = require.resolve('expo-router/assets/native-tabs.module.css')
+if (!CSS_MODULE.startsWith(repoRoot)) {
+  throw new Error(`expo-router resolved to ${CSS_MODULE}, outside ${repoRoot} (POD-746).`)
+}
 
 /** Enough calls that a surviving random order would have to win 5039-to-1 twelve times. */
 const CALLS = 12
