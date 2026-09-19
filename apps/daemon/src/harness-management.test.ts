@@ -145,9 +145,9 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       } as unknown as Parameters<typeof execHandlers.usageRequest>[0]
       // The boundary proof: no bridges, observers, composer, scheduler, client
       // terminals, headless turns, screens or handle registries are present.
-      expect((ctx as Record<string, unknown>).bridges).toBeUndefined()
-      expect((ctx as Record<string, unknown>).observers).toBeUndefined()
-      expect((ctx as Record<string, unknown>).agentRuntime).toBeUndefined()
+      expect((ctx as unknown as Record<string, unknown>).bridges).toBeUndefined()
+      expect((ctx as unknown as Record<string, unknown>).observers).toBeUndefined()
+      expect((ctx as unknown as Record<string, unknown>).agentRuntime).toBeUndefined()
       return { ctx, sent }
     }
 
