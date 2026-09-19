@@ -246,6 +246,20 @@ export interface FakeControl {
   /** How many times this session's text has reached the agent — see
    *  `ConformanceControl.textDeliveries` for the four counting rules. */
   textDeliveries(sessionId: SessionId): number
+  /** The headless per-turn policy the last delivery carried (POD-4386). */
+  lastHeadless(sessionId: SessionId):
+    | {
+        allowedTools?: string[]
+        permissionMode?: string
+        toolPolicy?: 'none'
+        mcpConfig?: string
+        resumeValue?: string
+        sessionUuid?: string
+        accountId?: string
+        requestDigest?: string
+        structuredPermissions?: true
+      }
+    | undefined
   /** The model policy one to ask for, a second to move to, and what the last
    *  delivery actually went out on — see `ConformanceControl.model`. */
   model: {
@@ -320,6 +334,20 @@ interface SessionCore {
   /** The policy the LAST delivery went out on — the fake's stand-in for reading
    *  a request off a real harness. See `recordDelivery`. */
   requestedModel: ModelPolicy | undefined
+  /** The headless per-turn policy the LAST delivery carried (POD-4386). */
+  lastHeadless:
+    | {
+        allowedTools?: string[]
+        permissionMode?: string
+        toolPolicy?: 'none'
+        mcpConfig?: string
+        resumeValue?: string
+        sessionUuid?: string
+        accountId?: string
+        requestDigest?: string
+        structuredPermissions?: true
+      }
+    | undefined
   /** Only ever read by `connectWithoutSecret`. Never in argv, never logged —
    *  the fake keeps the discipline the real one must (spec §6). */
   connectSecret: string | null
@@ -791,6 +819,48 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
           return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
         }
         assertLive()
+        // HEADLESS FENCES (POD-4386). Refuse, never silently drop: a turn that
+        // names a digest must name a well-formed one, and a tool-less turn must
+        // carry an exact native account. The accepted policy is recorded on the
+        // core so tests can prove it reached the driver.
+        if (input.requestDigest !== undefined && !/^[a-f0-9]{64}$/.test(input.requestDigest)) {
+          return {
+            outcome: 'refused',
+            refusal: refuse('invalid_value', 'headless request digest mismatch'),
+          }
+        }
+        if (input.toolPolicy === 'none') {
+          if (!input.accountId || !input.accountId.startsWith('native:')) {
+            return {
+              outcome: 'refused',
+              refusal: refuse('invalid_value', 'tool-less headless turn requires an exact native account fingerprint'),
+            }
+          }
+        }
+        core.lastHeadless =
+          input.allowedTools !== undefined ||
+          input.permissionMode !== undefined ||
+          input.toolPolicy !== undefined ||
+          input.mcpConfig !== undefined ||
+          input.resumeValue !== undefined ||
+          input.sessionUuid !== undefined ||
+          input.accountId !== undefined ||
+          input.requestDigest !== undefined ||
+          input.structuredPermissions !== undefined
+            ? {
+                ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
+                ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+                ...(input.toolPolicy !== undefined ? { toolPolicy: input.toolPolicy } : {}),
+                ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
+                ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
+                ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
+                ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
+                ...(input.requestDigest !== undefined ? { requestDigest: input.requestDigest } : {}),
+                ...(input.structuredPermissions !== undefined
+                  ? { structuredPermissions: input.structuredPermissions }
+                  : {}),
+              }
+            : undefined
         if (!core.alive) return { outcome: 'refused', refusal: refuse('not_running') }
         if (core.interactions.size > 0) {
           return {
@@ -1117,6 +1187,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       failNextVerification: false,
       textDeliveries: 0,
       requestedModel: undefined,
+      lastHeadless: undefined,
       connectSecret: requiresConnectSecret ? `secret-${sessionId}` : null,
       watchers: new Map(),
       usage: {},
@@ -1210,6 +1281,9 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
     },
     textDeliveries(sessionId) {
       return coreFor(sessionId).textDeliveries
+    },
+    lastHeadless(sessionId) {
+      return coreFor(sessionId).lastHeadless
     },
     model: {
       policy: () => ({ model: 'fake-model-a', effort: 'high' }),
