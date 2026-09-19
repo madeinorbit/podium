@@ -874,6 +874,11 @@ let missionIndexBuilds = 0
  */
 const missionIndexes = new WeakMap<readonly IssueNavigationModel[], MissionIssueIndex>()
 
+/** Formal-tree eligibility, shared with the incremental relationship index. */
+export function missionParentId(issue: { parentId?: string | null; archived?: boolean; deletedAt?: string | null }): string | null {
+  return issue.archived || issue.deletedAt ? null : issue.parentId || null
+}
+
 function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssueIndex {
   const cached = missionIndexes.get(issues)
   if (cached) return cached
@@ -887,11 +892,12 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
     if (issue.startedBySession && !hasLeftMission(issue)) {
       startedCandidates.push({ id: issue.id, startedBySession: issue.startedBySession })
     }
-    if (issue.archived || issue.deletedAt || !issue.parentId) continue
-    const siblings = children.get(issue.parentId) ?? []
+    const parent = missionParentId(issue)
+    if (!parent) continue
+    const siblings = children.get(parent) ?? []
     siblings.push(issue)
-    children.set(issue.parentId, siblings)
-    parents.set(issue.id, issue.parentId)
+    children.set(parent, siblings)
+    parents.set(issue.id, parent)
   }
   const index: MissionIssueIndex = { children, parents, byId, startedCandidates }
   missionIndexes.set(issues, index)

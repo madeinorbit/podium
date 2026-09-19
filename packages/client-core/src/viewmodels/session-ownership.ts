@@ -261,6 +261,18 @@ export function sessionOwnershipStats(): { lookups: number } {
   return { lookups: sessionLookupBuilds }
 }
 
+/** Shared membership predicate after longest-root resolution. Content fields
+ * deliberately do not participate. Shell policy belongs to the caller. */
+export function sessionBelongsToIssue(
+  session: Pick<SessionMeta, 'archived' | 'headless' | 'issueId'>,
+  issue: IssueMembershipRef,
+  resolvedWorktree: string | null,
+): boolean {
+  if (session.archived || isHeadlessSession(session)) return false
+  if (session.issueId !== undefined) return session.issueId === issue.id
+  return !!issue.worktreePath && resolvedWorktree === issue.worktreePath
+}
+
 /** Explicit-attachment-first session grouping for an issue row (issue-as-workspace):
  *  sessions with `issueId === issue.id` are first-class members; sessions with NO
  *  issueId fall back to cwd containment in the issue's worktree (legacy). A session
@@ -302,11 +314,8 @@ export function sessionsForIssueNav(
   // own .worktrees/* checkouts); make sure the issue's own worktree is in it.
   const roots = buildWorktreeRootIndex(wt ? [...allWorktreePaths, wt] : allWorktreePaths)
   return sessions.filter((s) => {
-    if (s.archived || isHeadlessSession(s)) return false
     if (!opts.includeShells && s.agentKind === 'shell') return false
-    if (s.issueId !== undefined) return s.issueId === issue.id
-    if (!wt) return false
-    return worktreeForCwdIndexed(s.cwd, roots) === wt
+    return sessionBelongsToIssue(s, issue, s.issueId === undefined ? worktreeForCwdIndexed(s.cwd, roots) : null)
   })
 }
 
