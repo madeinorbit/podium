@@ -208,6 +208,10 @@ export interface HeadlessTurnOutcome {
  * - The timeout preserves the ORIGINAL deadline: `createdAt` is recorded on
  *   first dispatch and a reconnect computes the remainder, never a fresh budget.
  * - Interrupt requests a fence; the fence arrives on the event stream.
+ * - The turn identity travels on the send as `TurnInput.id` (the same field the
+ *   WS relay maps the frame's `turnId` onto): defaulted from `options.turnId`
+ *   when absent, and a divergent pre-set id is a caller bug that throws rather
+ *   than forking the journal key from the driver's replay key.
  */
 export async function headlessAskAndAwait(
   handle: AgentSessionHandle,
@@ -218,6 +222,10 @@ export async function headlessAskAndAwait(
   const now = options.now ?? Date.now
   const turnId = options.turnId
   if (!turnId) throw new Error('headlessAskAndAwait requires a stable turnId')
+  if (input.id !== undefined && input.id !== turnId) {
+    throw new Error('headlessAskAndAwait turnId and TurnInput.id disagree')
+  }
+  const turnInput = input.id === undefined ? { ...input, id: turnId } : input
 
   const requestDigest = input.requestDigest ?? ''
   const accountId = input.accountId ?? ''
@@ -278,7 +286,7 @@ export async function headlessAskAndAwait(
   const effectiveTimeout =
     requestedTimeout !== undefined ? Math.max(1, requestedTimeout - elapsed) : undefined
 
-  const terminal = await genericAskAndAwait(handle, input, {
+  const terminal = await genericAskAndAwait(handle, turnInput, {
     ...(options.origin ? { origin: options.origin } : {}),
     ...(options.delivery ? { delivery: options.delivery } : {}),
     ...(options.principal ? { principal: options.principal } : {}),

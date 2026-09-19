@@ -25,6 +25,7 @@ import type { DaemonClaudeSdkRuntime } from './claude-sdk-driver'
 import type { DaemonCodexRuntime } from './codex-driver'
 import type { DaemonGrokRuntime } from './grok-driver'
 import type { DaemonOpencodeRuntime } from './opencode-driver'
+import { HEADLESS_DRIVER_ID, type HeadlessRuntime } from './headless-driver'
 import { type DriverResolution, resolveRuntimeDriver, terminalProfileFor } from './registry'
 import type {
   TerminalHarnessProfile,
@@ -110,6 +111,7 @@ export function createDaemonMachineRuntime(input: {
   opencode2: DaemonOpencodeRuntime
   codex: DaemonCodexRuntime
   grok: DaemonGrokRuntime
+  headless: HeadlessRuntime
   inventory(): ReturnType<MachineAgentRuntime['inventory']>
 }): DaemonMachineRuntime {
   const servers = [input.opencode, input.opencode2, input.codex, input.grok] as const
@@ -209,6 +211,32 @@ export function createDaemonMachineRuntime(input: {
     },
   }
 
+  /**
+   * THE HEADLESS SOURCE (POD-4392): process-per-turn harness sessions behind
+   * the contract. No manifest `select()` ever returns the headless id — heads
+   * never spawn it, so `runtime.create` cannot select it — but once a headless
+   * session exists its handle answers every relay verb (`handleFor`), its
+   * capabilities resolve (`driverFor`), and a surviving binding re-adopts
+   * (`adopt`). Creation with a host-minted id stays available for the control
+   * plane that owns headless session rows.
+   */
+  const headlessSource: AgentRuntimeDriverSource = {
+    driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined {
+      return driver === HEADLESS_DRIVER_ID ? input.headless.driverFor(harness) : undefined
+    },
+    handleFor: (sessionId) => input.headless.handleFor(sessionId),
+    bindings: () => input.headless.bindings(),
+    async createWithId(sessionId, spec) {
+      return input.headless.createWithId(sessionId, spec)
+    },
+    async resumeWithId(sessionId, ref, spec) {
+      return input.headless.resumeWithId(sessionId, ref, spec)
+    },
+    adopt(binding) {
+      return input.headless.adopt(binding)
+    },
+  }
+
   const serverSources: readonly AgentRuntimeDriverSource[] = [
     serverSource(input.opencode, (sessionId, spec) =>
       input.opencode.launch(serverLaunchFor(sessionId, spec)),
@@ -226,7 +254,7 @@ export function createDaemonMachineRuntime(input: {
 
   let runtime!: MachineAgentRuntime
   runtime = createAgentRuntime({
-    sources: () => [terminalSource, embeddedSource, ...serverSources],
+    sources: () => [terminalSource, embeddedSource, ...serverSources, headlessSource],
     primitiveSupport: {
       import: {
         supported: false,

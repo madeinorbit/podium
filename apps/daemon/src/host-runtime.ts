@@ -4,10 +4,11 @@ import type { BindingConfirmations } from '@podium/protocol'
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { createOpencode2Client } from '@podium/agent-runtime'
+import { createOpencode2Client, DriverRefusalError } from '@podium/agent-runtime'
 import {
   agentLaunchCommand,
   buildMachineInventory,
+  buildResolvedInventory,
   declaredValue,
   type HarnessEnvironment,
   harnessDetectLogin,
@@ -17,7 +18,7 @@ import {
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type MachineId, type SessionId } from '@podium/model'
-import { createDurableProcess, sweepStaleDurableBindTemps } from '@podium/process/durable'
+import { createDurableProcess, durableProcessFor, sweepStaleDurableBindTemps } from '@podium/process/durable'
 import type { AgentSession } from '@podium/process/screen'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -64,8 +65,11 @@ import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
 import { appliedGeometryFor } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
+import { assertNativeHeadlessAccount } from './control/headless'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { rememberDurableSeq } from './control/session'
+import { launchSpawn, recoverTerminalHost, rememberDurableSeq, sessionRelayEnv, stopSessionProcess } from './control/session'
+import { spawnEnv } from './control/session-env'
+import { sourceForRead } from './control/transcripts'
 import {
   createSchemaGate,
   refuseConvergence,
@@ -74,8 +78,7 @@ import {
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
-import { selectDurableBackend } from './durable-backend'
-import { createFrameGuard, type FrameGuard } from './frame-guards'
+import { selectDurableBackend } from './durable-backend'import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
 import { sweepHandoffStage } from './handoff-package'
@@ -107,6 +110,7 @@ import { runtimeContractEnabledByEnv } from './runtime/flag'
 import { createGrokAcpHost } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
 import { daemonRuntimeHost } from './runtime/host'
+import { createHeadlessRuntime, type HeadlessRuntime } from './runtime/headless-driver'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
@@ -284,6 +288,7 @@ export async function createDaemonHostRuntime(args: {
   let opencode2Runtime: DaemonOpencodeRuntime | undefined
   let codexRuntime: DaemonCodexRuntime | undefined
   let grokRuntime: DaemonGrokRuntime | undefined
+  let headlessRuntime: HeadlessRuntime | undefined
   let agentRuntime: DaemonMachineRuntime | undefined
   /**
    * The context, once it exists, for the frame sink below. Declared here for the
@@ -1259,6 +1264,77 @@ export async function createDaemonHostRuntime(args: {
       instanceUuid: instance.instanceUuid,
     }),
   })
+  /**
+   * THE HEADLESS RUNTIME (POD-4392): process-per-turn harness sessions behind
+   * the contract. Constructed unconditionally like the server-family runtimes —
+   * it allocates maps, and no harness child starts until a headless turn
+   * dispatches through it. `control/headless.ts` keeps serving the legacy port
+   * until the caller migration lands; this runtime is the destination it moves to.
+   */
+  headlessRuntime = createHeadlessRuntime({
+    send,
+    snapshot: () =>
+      harnessRuntime
+        ? harnessRuntime.current()
+        : buildResolvedInventory({
+            ...(ctx.homeDir ? { machineHome: ctx.homeDir } : {}),
+            ...(ctx.accountHome ? { credentialHome: ctx.accountHome.path } : {}),
+          }),
+    durable: () => durableProcessFor(ctx),
+    assertNativeAccount: (agent, accountId, inventory) =>
+      assertNativeHeadlessAccount({
+        agent,
+        accountId,
+        accountHome: ctx.accountHome,
+        inventory,
+      }),
+    sessionEnv: ({ sessionId, agent, toolPolicyNone, snapshot }) =>
+      spawnEnv({
+        sessionEnv: snapshot.commandEnvironment.env,
+        podiumEnv: {
+          ...sessionRelayEnv(
+            sessionId,
+            ctx.agentRelayEndpointFor(sessionId),
+            ctx.instanceId,
+            agent,
+            ctx.instanceUuid,
+          ),
+          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+          ...(toolPolicyNone && ctx.accountHome
+            ? {
+                HOME: ctx.accountHome.path,
+                CLAUDE_CONFIG_DIR: join(ctx.accountHome.path, '.claude'),
+              }
+            : {}),
+        },
+      }),
+    durableLabel: (sessionId) => ctx.durableLabelFor(sessionId),
+    bindHeadlessSession: (sessionId, agentKind, cwd, resumeValue) =>
+      ctx.observers.bindHeadlessSession(sessionId, agentKind, cwd, resumeValue),
+    readHistory: async (session, range) => {
+      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
+      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'foreign history cursor' },
+          'transcript.history',
+        )
+      }
+      const source = await sourceForRead(ctx, session)
+      const slice = await source.readSlice({
+        ...(range.from ? { anchor: range.from.pathHint } : {}),
+        direction: range.direction ?? 'before',
+        limit: range.limit,
+      })
+      const cursor = (anchor: string) => ({ segmentId, pathHint: anchor, components: {} })
+      return {
+        items: slice.items,
+        ...(slice.head ? { head: cursor(slice.head) } : {}),
+        ...(slice.tail ? { tail: cursor(slice.tail) } : {}),
+        hasMore: slice.hasMore,
+      }
+    },
+    now: () => Date.now(),
+  })
   agentRuntime = createDaemonMachineRuntime({
     terminal: terminalRuntime,
     claude: claudeRuntime,
@@ -1266,6 +1342,7 @@ export async function createDaemonHostRuntime(args: {
     opencode2: opencode2Runtime,
     codex: codexRuntime,
     grok: grokRuntime,
+    headless: headlessRuntime,
     inventory: async () =>
       harnessRuntime
         ? (await harnessRuntime.current()).inventory

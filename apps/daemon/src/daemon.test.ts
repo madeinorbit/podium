@@ -1227,6 +1227,11 @@ function defaultServerSpawnContext(
       opencode2: unavailableServerRuntime('opencode2-server', 'opencode'),
       codex: runtimes.codexRuntime ?? unavailableServerRuntime('codex-app-server', 'codex'),
       grok: runtimes.grokRuntime ?? unavailableServerRuntime('grok-acp', 'grok'),
+      headless: {
+        driverFor: () => undefined,
+        handleFor: () => undefined,
+        bindings: () => [],
+      },
       inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
     } as unknown as Parameters<typeof createDaemonMachineRuntime>[0]),
   } as unknown as DaemonContext

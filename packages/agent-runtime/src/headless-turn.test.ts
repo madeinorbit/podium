@@ -26,6 +26,7 @@ import {
   headlessOneShot,
 } from './headless-turn.js'
 import type { SessionSpec } from './session-spec.js'
+import type { SendOptions, TurnInput } from './turns.js'
 import { createFakeDriver, resetFakeRuntime } from './testing/fake-driver.js'
 
 const DIGEST_A = 'a'.repeat(64)
@@ -189,6 +190,45 @@ describe('headless fences', () => {
     await expect(headlessAskAndAwait(handle, { text: 'x' }, { turnId: 't' })).rejects.toThrow(
       /requestDigest and accountId/,
     )
+  })
+
+  it('carries options.turnId onto the send as TurnInput.id', async () => {
+    resetFakeRuntime()
+    const driver = createFakeDriver()
+    const handle = await driver.create(SPEC)
+    const sessionId = handle.binding.sessionId
+    const seen: TurnInput[] = []
+    const wrapping = {
+      ...handle,
+      send: (input: TurnInput, options: SendOptions) => {
+        seen.push(input)
+        return handle.send(input, options)
+      },
+    }
+    const waited = headlessAskAndAwait(
+      wrapping,
+      { text: 'hello', accountId: ACCOUNT, requestDigest: DIGEST_A },
+      { turnId: 'turn-carry', harness: 'fake-harness' },
+    )
+    await driveTurn(sessionId, driver)
+    await waited
+    expect(seen).toHaveLength(1)
+    // The daemon headless driver keys replay/ack/deadline on this id; without
+    // the carry it can only refuse the turn as identity-free.
+    expect(seen[0]?.id).toBe('turn-carry')
+  })
+
+  it('refuses when options.turnId and TurnInput.id disagree', async () => {
+    resetFakeRuntime()
+    const driver = createFakeDriver()
+    const handle = await driver.create(SPEC)
+    await expect(
+      headlessAskAndAwait(
+        handle,
+        { id: 'turn-other', text: 'hello', accountId: ACCOUNT, requestDigest: DIGEST_A },
+        { turnId: 'turn-carry', harness: 'fake-harness' },
+      ),
+    ).rejects.toThrow(/disagree/)
   })
 })
 

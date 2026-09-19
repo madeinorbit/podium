@@ -123,6 +123,11 @@ describe('daemon machine runtime composition', () => {
       opencode2,
       codex,
       grok,
+      headless: {
+        driverFor: () => undefined,
+        handleFor: () => undefined,
+        bindings: () => [],
+      },
       inventory,
     } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
     expect(runtime.primitiveSupport).toEqual({
@@ -232,6 +237,11 @@ describe('daemon machine runtime composition', () => {
       opencode2,
       codex,
       grok,
+      headless: {
+        driverFor: () => undefined,
+        handleFor: () => undefined,
+        bindings: () => [],
+      },
       inventory: async () => INVENTORY,
     } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
     expect(runtime.registeredBindings()).toEqual(cases.map(({ handle }) => handle.binding))
