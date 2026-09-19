@@ -152,11 +152,13 @@ export function createWorklistStructure() {
   function closedOrdered(rows: readonly UnifiedWorkRow[]): UnifiedWorkGroup['closedRows'] {
     if (rows.length < 2) return [...rows] as UnifiedWorkGroup['closedRows']
     stats.closedSorts++
+    // Same comparator as groupUnifiedWorkRows (newest tuck/finish first);
+    // descending directly so stable ties keep incoming order exactly as legacy.
     return [...rows].sort(
       (a, b) =>
-        (Date.parse(a.kind === 'issue' ? issueClosedFoldAt(a.issue) : '') || 0) -
-        (Date.parse(b.kind === 'issue' ? issueClosedFoldAt(b.issue) : '') || 0),
-    ).reverse() as UnifiedWorkGroup['closedRows']
+        (Date.parse(b.kind === 'issue' ? issueClosedFoldAt(b.issue) : '') || 0) -
+        (Date.parse(a.kind === 'issue' ? issueClosedFoldAt(a.issue) : '') || 0),
+    ) as UnifiedWorkGroup['closedRows']
   }
 
   return {
