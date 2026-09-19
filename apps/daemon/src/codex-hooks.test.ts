@@ -293,34 +293,50 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
   // the command: the stub daemon answers with prime and nothing reaches the
   // hook command's stdout. Surfacing responses to Codex needs a wrapper
   // change AND proof the harness consumes the new output.
-  it.skipIf(process.platform === 'win32')(
-    'never surfaces the daemon hook response on stdout (observe-only transport)',
-    async () => {
+  it.skipIf(process.platform === 'win32').each([
+    { transport: 'socket', useUrl: false },
+    { transport: 'url-fallback', useUrl: true },
+  ])(
+    'never surfaces the daemon hook response on stdout over $transport (observe-only transport)',
+    async ({ useUrl }) => {
       const dir = trackTmp('podium-codex-hook-command-')
       const socketPath = join(dir, 'hook.sock')
-      const server = createServer((req, res) => {
+      const primeBody = JSON.stringify({
+        hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'PRIME' },
+      })
+      const answerPrime = (req: { on: (event: string, fn: (chunk: Buffer) => void) => void }, res: {
+        writeHead: (code: number, headers: Record<string, string>) => void
+        end: (body: string) => void
+      }): void => {
         const chunks: Buffer[] = []
         req.on('data', (chunk: Buffer) => chunks.push(chunk))
         req.on('end', () => {
           res.writeHead(200, { 'content-type': 'application/json' })
-          res.end(
-            JSON.stringify({
-              hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'PRIME' },
-            }),
-          )
+          res.end(primeBody)
         })
-      })
+      }
+      const socketServer = createServer(answerPrime)
       await new Promise<void>((resolve, reject) => {
-        server.once('error', reject)
-        server.listen(socketPath, resolve)
+        socketServer.once('error', reject)
+        socketServer.listen(socketPath, resolve)
       })
+      const httpServer = useUrl ? createServer(answerPrime) : undefined
+      if (httpServer) {
+        await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve))
+      }
+      const httpPort = httpServer
+        ? ((): number => {
+            const address = httpServer.address()
+            return typeof address === 'object' && address ? address.port : 0
+          })()
+        : 0
       try {
         const child = spawn('bash', ['-c', PODIUM_CODEX_HOOK_COMMAND], {
           env: {
             ...process.env,
             PODIUM_SESSION_ID: 'pane-a',
-            PODIUM_CODEX_HOOK_URL: '',
-            PODIUM_CODEX_HOOK_SOCKET: socketPath,
+            PODIUM_CODEX_HOOK_URL: useUrl ? `http://127.0.0.1:${httpPort}/hooks/pane-a` : '',
+            PODIUM_CODEX_HOOK_SOCKET: useUrl ? join(dir, 'daemon-down.sock') : socketPath,
           },
           stdio: ['pipe', 'pipe', 'pipe'],
         })
@@ -331,7 +347,8 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
         expect({ exitCode, signal }).toEqual({ exitCode: 0, signal: null })
         expect(Buffer.concat(out).toString('utf8')).toBe('')
       } finally {
-        await new Promise<void>((resolve) => server.close(() => resolve()))
+        await new Promise<void>((resolve) => socketServer.close(() => resolve()))
+        if (httpServer) await new Promise<void>((resolve) => httpServer.close(() => resolve()))
       }
     },
   )
