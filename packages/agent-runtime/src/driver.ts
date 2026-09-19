@@ -17,6 +17,7 @@ import type { EventStreamStart, RuntimeEvent, WatchLevel } from './events.js'
 import type { DriverFamily, DriverId } from './families.js'
 import type { InteractionAnswerOutcome, PendingInteraction } from './interactions.js'
 import type { SessionSpec } from './session-spec.js'
+import type { OneShotOptions, ProcedureOptions } from './procedures.js'
 import type {
   AnswerOptions,
   AttachmentSource,
@@ -177,9 +178,17 @@ export interface RuntimeDriver {
  */
 export interface DriverProcedureOverrides {
   /** send + await the matching turn-completed. */
-  askAndAwait(handle: AgentSessionHandle, input: TurnInput): Promise<TurnEvent>
+  askAndAwait(
+    handle: AgentSessionHandle,
+    input: TurnInput,
+    options?: ProcedureOptions,
+  ): Promise<TurnEvent>
   /** ephemeral create → send → await → kill. Drivers with a native one-shot form
    *  (`claude -p`, `codex exec --ephemeral`) override this rather than paying for
    *  a full session. */
-  oneShot(spec: SessionSpec, prompt: string): Promise<readonly TranscriptItem[]>
+  oneShot(
+    spec: SessionSpec,
+    prompt: string,
+    options?: OneShotOptions,
+  ): Promise<readonly TranscriptItem[]>
 }

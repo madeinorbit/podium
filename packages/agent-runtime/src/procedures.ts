@@ -39,7 +39,7 @@ export interface OneShotOptions extends ProcedureOptions {
   historyLimit?: number
 }
 
-const DEFAULT_ORIGIN: InputOrigin = 'agent'
+const DEFAULT_ORIGIN: InputOrigin = 'system'
 const DEFAULT_DELIVERY: TurnDelivery = 'when-ready'
 
 class ProcedureTimeoutError extends Error {
@@ -307,6 +307,8 @@ export async function genericOneShot(
 export function resolveProcedures(driver: RuntimeDriver): DriverProcedureOverrides {
   return {
     askAndAwait: driver.procedures?.askAndAwait ?? genericAskAndAwait,
-    oneShot: driver.procedures?.oneShot ?? ((spec, prompt) => genericOneShot(driver, spec, prompt)),
+    oneShot:
+      driver.procedures?.oneShot ??
+      ((spec, prompt, options) => genericOneShot(driver, spec, prompt, options)),
   }
 }
