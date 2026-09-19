@@ -1,9 +1,8 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { isOpencodeCliAvailable } from '../../opencode/cli.js'
 import { createOpencodeConversationProvider } from './opencode.js'
 
 const provider = createOpencodeConversationProvider()
@@ -84,14 +83,13 @@ describe('opencode discovery provider', () => {
 
   afterEach(async () => {
     if (home) {
-      process.env.HOME = undefined
+      await rm(home, { recursive: true, force: true })
     }
   })
 
-  // The provider gates on the real CLI being installed (scanRoot returns [] with a
-  // warning otherwise) — mirror cli.test.ts and self-skip on machines without it.
-  it.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !isOpencodeCliAvailable())(
-    'summarizes sessions from the opencode sqlite database',
+  // Discovery reads native SQLite directly; no executable or live process is needed.
+  it(
+    'summarizes externally launched sessions from native SQLite without a live agent',
     async () => {
       home = await mkdtemp(join(tmpdir(), 'podium-opencode-home-'))
       const root = join(home, '.local', 'share', 'opencode')

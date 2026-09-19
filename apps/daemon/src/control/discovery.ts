@@ -43,7 +43,12 @@ function gitDiagnosticToWire(d: GitDiscoveryDiagnostic): GitDiscoveryDiagnosticW
   return { severity: d.severity, path: d.path, message: d.message }
 }
 
-async function scan(ctx: DaemonContext, requestId: string): Promise<void> {
+/** Retained inventory service: a full refresh includes conversations Podium did
+ * not launch. It must never require a runtime handle or process inventory. */
+export async function scan(
+  ctx: Pick<DaemonContext, 'refreshAndPublishConversations' | 'send'>,
+  requestId: string,
+): Promise<void> {
   // On-demand (user-triggered) scan requests a FULL snapshot so a manual rescan can
   // recover a cold/reset server index — not just whatever moved since the last tick.
   // It runs on the worker + publishes to all clients; the requester additionally gets
