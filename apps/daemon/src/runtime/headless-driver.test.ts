@@ -441,11 +441,11 @@ describe('headless dispatch', () => {
     let calls = 0
     const failing: HeadlessDriverRunners & { turns: FakeTurn[] } = {
       ...runners,
-      runTurn: (spec, emit) => {
+      runTurn: (spec, emit, snapshot) => {
         calls += 1
         // First dispatch throws; the retry below must take over the same epoch.
         if (calls === 1) throw new Error('spawn ENOENT')
-        return runners.runTurn(spec, emit)
+        return runners.runTurn(spec, emit, snapshot)
       },
     }
     const now = 1_000_000
@@ -496,8 +496,8 @@ describe('headless dispatch', () => {
       const { handle, sessionId } = await createHandle(runtime)
       const input = { ...makeTurn(sessionId, { turnId: 'rowed' }), rowId: 'row-1' }
       await handle.send(input, { origin: 'system', delivery: 'when-ready' })
-      expect(await handle.cancelDelivery('row-other')).toMatchObject({ reason: 'not_running' })
-      expect(await handle.cancelDelivery('row-1')).toMatchObject({ ok: true })
+      expect(await handle.cancelDelivery?.('row-other')).toMatchObject({ reason: 'not_running' })
+      expect(await handle.cancelDelivery?.('row-1')).toMatchObject({ ok: true })
       expect(runners.turns[0]?.interrupted).toBe(true)
     } finally {
       runtime.dispose()
