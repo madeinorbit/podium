@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import type { SessionMeta } from '@podium/model'
 import { groupUnifiedWorkRows } from '../viewmodels/slices/worklist/folds'
 import { sortUnifiedWorkRows } from '../viewmodels/slices/worklist/row-order'
 import type { UnifiedWorkRow } from '../viewmodels/slices/worklist/row-types'
@@ -223,6 +222,5 @@ describe('worklist structure rows/selection split', () => {
     expect(laneIds(lapsed.groups[0].rows)).toEqual(['issue:s'])
     expect(() => struct.updateTime(NaN)).toThrow()
     expect(() => createWorklistStructure().place(rows)).toThrow()
-    void null as unknown as SessionMeta
   })
 })
