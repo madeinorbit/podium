@@ -362,9 +362,13 @@ export class HeadlessService {
 
     // Subscribe BEFORE the send so a synchronously-completing turn cannot slip
     // between the receipt and the first read (same rule as genericAskAndAwait).
+    // Event-driven (no polling): the terminal promise resolves the moment the
+    // matching terminal event lands, so a test `settle()` of one tick suffices.
     let wantedEpoch: number | undefined
-    let terminal: RuntimeEvent | undefined
-    const seenPartials: { text: string; hint?: string }[] = []
+    let resolveTerminal: ((e: RuntimeEvent) => void) | undefined
+    const terminalPromise = new Promise<RuntimeEvent>((resolve) => {
+      resolveTerminal = resolve
+    })
     const unsubscribe = relay.onEvent((sid, event) => {
       if (sid !== input.sessionId) return
       if (event.t === 'turn') {
@@ -375,7 +379,7 @@ export class HeadlessService {
         }
         if (wantedEpoch === undefined) return
         if (ev.turnEpoch !== wantedEpoch) return
-        terminal = event
+        resolveTerminal?.(event)
         return
       }
       if (event.t === 'item' && onEvent) {
@@ -384,7 +388,6 @@ export class HeadlessService {
           const id = item.item.id ?? ''
           const hint = id.startsWith(`headless:${input.turnId}:`) ? id.slice(`headless:${input.turnId}:`.length) || undefined : undefined
           const text = item.item.text
-          seenPartials.push(hint ? { text, hint } : { text })
           try {
             onEvent(hint ? { kind: 'partial-text', text, itemHint: hint } : { kind: 'partial-text', text })
           } catch {
@@ -442,19 +445,18 @@ export class HeadlessService {
       }
       // accepted
       wantedEpoch = receipt.turnEpoch
-      const deadline = Date.now() + waitMs
-      for (;;) {
-        if (terminal) break
-        const remaining = deadline - Date.now()
-        if (remaining <= 0) {
-          try {
-            await relay.interrupt(input.sessionId)
-          } catch {
-            // Fencing is best-effort; the retryable report below is the verdict.
-          }
-          return { ok: false, error: 'headless turn transport timed out', retryable: true }
+      const timeout = new Promise<undefined>((resolve) => {
+        const t = setTimeout(() => resolve(undefined), waitMs)
+        t.unref?.()
+      })
+      const terminal = await Promise.race([terminalPromise, timeout])
+      if (!terminal) {
+        try {
+          await relay.interrupt(input.sessionId)
+        } catch {
+          // Fencing is best-effort; the retryable report below is the verdict.
         }
-        await new Promise((r) => setTimeout(r, Math.min(50, remaining)))
+        return { ok: false, error: 'headless turn transport timed out', retryable: true }
       }
       const term = (terminal as { ev: { ev: string; verdict?: string; reason?: string; detail?: string } }).ev
       // Read the canonical output + resume after the fence. Best-effort: a

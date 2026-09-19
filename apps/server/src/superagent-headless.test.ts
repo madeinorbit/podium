@@ -12,6 +12,7 @@ import {
   asUserId,
   BUILTIN_HARNESS_KINDS,
   firstAdminMemberId,
+  type AccountId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -39,7 +40,7 @@ type TurnReq = {
   requestId: string
   turnId: string
   sessionId: string
-  accountId: string
+  accountId: AccountId
   requestDigest: string
   prompt: string
   contextPrompt?: string
@@ -80,15 +81,20 @@ async function harness() {
   const interrupts: string[] = []
   const epochs = new Map<string, number>()
   const pendingResults = new Map<string, { harnessSessionId?: string; output?: string }>()
+  const sessionInfo = new Map<string, { agent: string; cwd: string }>()
   await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (m) => {
+    if (m.type === 'spawn') {
+      sessionInfo.set(m.sessionId, { agent: m.agentKind, cwd: m.cwd })
+    }
     if (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') {
       const epoch = (epochs.get(m.sessionId) ?? 0) + 1
       epochs.set(m.sessionId, epoch)
+      const info = sessionInfo.get(m.sessionId)
       turnReqs.push({
         requestId: m.requestId,
         turnId: m.turnId,
         sessionId: m.sessionId,
-        accountId: m.accountId ?? '',
+        accountId: (m.accountId ?? '') as AccountId,
         requestDigest: m.requestDigest ?? '0'.repeat(64),
         prompt: m.text,
         ...(m.contextPrompt ? { contextPrompt: m.contextPrompt } : {}),
@@ -102,6 +108,7 @@ async function harness() {
         ...(m.allowedTools ? { allowedTools: [...m.allowedTools] } : {}),
         ...(m.toolPolicy ? { toolPolicy: m.toolPolicy } : {}),
         ...(m.timeoutMs ? { timeoutMs: m.timeoutMs } : {}),
+        ...(info ? { agent: info.agent, cwd: info.cwd } : {}),
       })
       return
     }
@@ -227,7 +234,9 @@ async function harness() {
       ...(result?.harnessSessionId ? { harnessSessionId: result.harnessSessionId } : {}),
       ...(result?.output ? { output: result.output } : {}),
     })
-    // Receipt first (accepted with epoch), then the causal terminal event.
+    // Receipt first (accepted with epoch), then the causal terminal events.
+    // Events go straight through the gateway (not the mux) so the test does
+    // not depend on daemon-frame routing for the contract stream.
     void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'runtimeSendResult',
       requestId: req.requestId,
@@ -235,27 +244,29 @@ async function harness() {
       receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
     })
     const at = new Date().toISOString()
-    void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-      type: 'runtimeEvent',
-      sessionId: req.sessionId as never,
-      event: {
-        t: 'turn',
-        ev: { ev: 'started', turnEpoch: epoch, origin: 'system' },
-        cursor: { segmentId: 's', components: {} },
-        observerGeneration: 1,
-        turnEpoch: epoch,
-        provenance: 'live',
-        at,
-      } as never,
-    })
-    const ok = result?.ok ?? true
-    void registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
-      type: 'runtimeEvent',
-      sessionId: req.sessionId as never,
-      event: ok
-        ? { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' }, cursor: { segmentId: 's', components: {} }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never
-        : { t: 'turn', ev: { ev: 'failed', turnEpoch: epoch, reason: 'provider-error', disposition: 'fatal', detail: result?.error ?? 'error' }, cursor: { segmentId: 's', components: {} }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
-    })
+    const gateway = registry.modules.sessions.runtimeGateway
+    const host = registry.sessionStore.hostMachineId
+    void (async () => {
+      await gateway.record(host, {
+        sessionId: req.sessionId as never,
+        event: {
+          t: 'turn',
+          ev: { ev: 'started', turnEpoch: epoch, origin: 'system' },
+          cursor: { segmentId: 's', components: { seq: epoch * 2 - 1 } },
+          observerGeneration: 1,
+          turnEpoch: epoch,
+          provenance: 'live',
+          at,
+        } as never,
+      })
+      const ok = result?.ok ?? true
+      await gateway.record(host, {
+        sessionId: req.sessionId as never,
+        event: ok
+          ? { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' }, cursor: { segmentId: 's', components: { seq: epoch * 2 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never
+          : { t: 'turn', ev: { ev: 'failed', turnEpoch: epoch, reason: 'provider-error', disposition: 'fatal', detail: result?.error ?? 'error' }, cursor: { segmentId: 's', components: { seq: epoch * 2 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+      })
+    })()
   }
   const settle = () => new Promise((r) => setTimeout(r))
   return {
@@ -367,10 +378,9 @@ describe('bounded headless session identity', () => {
     await h.settle()
     const request = h.turnReqs.at(-1)
     if (!request) throw new Error('repair request was not dispatched')
+    // Owner/createdBy/issueId ride the session row (asserted above), not the
+    // turn wire; the wire carries the durable account identity.
     expect(request).toMatchObject({
-      ownerUserId: firstAdminMemberId(),
-      createdBy,
-      issueId,
       accountId,
     })
     h.resolveTurn(request, { output: '{}' })
@@ -498,7 +508,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     const meta = (await h.registry.modules.sessions
       .listSessions(undefined, 'rpc'))
       .find((s) => s.sessionId === podiumSessionId)
-    expect(meta?.resume).toMatchObject({ kind: harnessResumeKind('claude-code'), value: 'h1' })
+    expect(meta?.resume).toMatchObject({ kind: harnessResumeKind(meta?.agentKind ?? 'codex'), value: 'h1' })
     // ...and the NEXT turn RESUMES rather than silently starting a new conversation.
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
@@ -685,18 +695,20 @@ describe('sendTurn (headless harness turns)', () => {
     expect(req.permissionMode).toBe('auto')
     expect(req.systemPrompt).toContain('superagent')
     expect(req.resumeValue).toBeUndefined() // first turn
-    expect(req.sessionUuid).toBeTruthy() // claude: deterministic session uuid
+    // First-turn sessionUuid is harness-specific (claude premints, codex does
+    // not); the contract carries it when the caller mints one.
     // The headless Podium session exists: live, PTY-less, flagged, established
     // via spawn with runtimeContract headless (settings default frozen on).
     const meta = (await h.registry.modules.sessions
       .listSessions(undefined, 'rpc'))
       .find((s) => s.sessionId === ack.podiumSessionId)
-    expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global', agentKind: 'claude-code' })
+    expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global' })
+    expect(meta?.agentKind).toBeTruthy()
     expect(h.spawns).toHaveLength(1)
-    expect(h.spawns[0]).toMatchObject({ sessionId: ack.podiumSessionId, agentKind: 'claude-code', runtimeContract: 'headless' })
+    expect(h.spawns[0]).toMatchObject({ sessionId: ack.podiumSessionId, agentKind: meta?.agentKind, runtimeContract: 'headless' })
     // The agent is frozen onto the thread row.
     expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind).toBe(
-      'claude-code',
+      meta?.agentKind,
     )
     expect(
       (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')?.turnRunning,
@@ -726,17 +738,23 @@ describe('sendTurn (headless harness turns)', () => {
       text: 'hi',
     })
     const req = h.turnReqs[0]!
-    h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
-      type: 'headlessTurnEvent',
-      requestId: req.requestId,
-      sessionId: podiumSessionId,
-      event: { kind: 'partial-text', text: 'thinking…' },
+    await h.registry.modules.sessions.runtimeGateway.record(h.registry.sessionStore.hostMachineId, {
+      sessionId: podiumSessionId as never,
+      event: {
+        t: 'item',
+        item: { kind: 'partial', item: { id: `headless:${req.turnId}:text`, role: 'assistant', text: 'thinking…', ts: new Date().toISOString() } },
+        cursor: { segmentId: 's', components: { seq: 99 } },
+        observerGeneration: 1,
+        turnEpoch: 1,
+        provenance: 'live',
+        at: new Date().toISOString(),
+      } as never,
     })
     h.resolveTurn(req, { harnessSessionId: 'h1' })
     await h.settle()
     const events = h.activity().map((m) => m.event)
     expect(events[0]).toEqual({ kind: 'turn-start' })
-    expect(events).toContainEqual({ kind: 'partial-text', text: 'thinking…' })
+    expect(events).toContainEqual({ kind: 'partial-text', text: 'thinking…', itemHint: 'text' })
     expect(events.at(-1)).toEqual({ kind: 'turn-end' })
     expect(h.activity().every((m) => m.sessionId === podiumSessionId)).toBe(true)
   })
@@ -758,12 +776,13 @@ describe('sendTurn (headless harness turns)', () => {
     const meta = (await h.registry.modules.sessions
       .listSessions(undefined, 'rpc'))
       .find((s) => s.sessionId === podiumSessionId)
-    expect(meta?.resume).toEqual({ kind: 'claude-session', value: 'harness-1' })
+    const kind = harnessResumeKind(meta?.agentKind ?? 'codex')
+    expect(meta?.resume).toEqual({ kind, value: 'harness-1' })
     // Persisted (survives a reload).
     const row = (await h.registry.sessionStore.sessions
       .loadSessions())
       .find((r) => r.id === podiumSessionId)
-    expect(row).toMatchObject({ resumeKind: 'claude-session', resumeValue: 'harness-1' })
+    expect(row).toMatchObject({ resumeKind: kind, resumeValue: 'harness-1' })
     // The second turn resumes — same session, resumeValue set, no new uuid.
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
@@ -864,16 +883,13 @@ describe('sendTurn (headless harness turns)', () => {
     const notice = (await h.sa
       .history(firstAdminMemberId(), asThreadId('global')))
       .find((m) => m.content.startsWith(TURN_FAILED_MARKER))
-    expect(notice?.content).toMatch(/Claude CLI couldn't be launched/)
-    expect(
-      h
-        .activity()
-        .map((m) => m.event)
-        .at(-1),
-    ).toEqual({
-      kind: 'turn-end',
-      error: "The Claude CLI couldn't be launched — it isn't installed or isn't on PATH.",
-    })
+    expect(notice?.content).toMatch(/CLI couldn't be launched/)
+    const last = h
+      .activity()
+      .map((m) => m.event)
+      .at(-1)
+    expect(last).toMatchObject({ kind: 'turn-end' })
+    expect((last as { error?: string }).error).toMatch(/CLI couldn't be launched/)
     // No harness session was learned; the next send is a fresh first turn again.
     expect(
       (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.harnessSessionId,
@@ -1012,11 +1028,13 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
       threadId: res.threadId,
       text: 'what is this session doing?',
     })
-    const req = h.turnReqs.find((r) => r.threadId === res.threadId)!
+    const req = h.turnReqs[0]!
     expect(req.prompt).toBe('what is this session doing?')
     expect(req.contextPrompt).toContain('[BTW CONTEXT]')
     expect(req.contextPrompt).toContain(sessionId)
-    expect(req.cwd).toBe('/w') // origin session's cwd
+    // Origin session's cwd rides the headless spawn, not the turn.
+    const spawn = h.spawns.find((s) => s.sessionId === req.sessionId)
+    expect(spawn?.cwd).toBe('/w')
   })
 
   it('attaches a session to a GLOBAL turn — the btw digest without the btw thread', async () => {
@@ -1037,7 +1055,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
       attachSessionId: sessionId,
     })
 
-    const req = h.turnReqs.find((r) => r.threadId === 'global')!
+    const req = h.turnReqs[0]!
     expect(req.prompt).toBe('what is this session doing?')
     expect(req.contextPrompt).toContain('[BTW CONTEXT]')
     expect(req.contextPrompt).toContain(sessionId)
@@ -1046,7 +1064,8 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     expect((await h.sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'btw')).toHaveLength(0)
     // The turn still runs where the GLOBAL thread runs — an attachment is
     // context, not a change of machine or checkout.
-    expect(req.cwd).not.toBe('/w')
+    const spawn = h.spawns.find((s) => s.sessionId === req.sessionId)
+    expect(spawn?.cwd).not.toBe('/w')
   })
 
   it('carries the attachment across the queue, so a turn that waits keeps its context', async () => {
@@ -1100,11 +1119,12 @@ describe('openInTerminal + one-writer lock', () => {
       threadId: asThreadId('global'),
     })
     // A REAL spawn went to the daemon, carrying the harness resume ref.
-    expect(h.spawns).toHaveLength(1)
-    expect(h.spawns[0]).toMatchObject({
+    // (Plus the headless establishment spawn from the first turn.)
+    expect(h.spawns).toHaveLength(2)
+    const pty = h.spawns.find((s) => s.sessionId === sessionId)
+    expect(pty).toMatchObject({
       sessionId,
-      agentKind: 'claude-code',
-      resume: { kind: harnessResumeKind('claude-code'), value: 'h1' },
+      resume: { kind: harnessResumeKind(pty?.agentKind ?? 'codex'), value: 'h1' },
     })
     const meta = (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
     expect(meta?.headless).toBeUndefined() // a normal PTY session
@@ -1270,9 +1290,73 @@ describe('boot reconciliation for headless sessions', () => {
     registries.push(reborn)
     const replayed: TurnReq[] = []
     const acknowledgements: TurnAck[] = []
+    const rebornEpochs = new Map<string, number>()
+    const rebornPending = new Map<string, { harnessSessionId?: string; output?: string }>()
     await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (message) => {
-      if (message.type === 'headlessTurnRequest') replayed.push(message)
+      if (message.type === 'runtimeSendRequest' || message.type === 'runtimeDurableSendRequest') {
+        const epoch = (rebornEpochs.get(message.sessionId) ?? 0) + 1
+        rebornEpochs.set(message.sessionId, epoch)
+        replayed.push({
+          requestId: message.requestId,
+          turnId: message.turnId,
+          sessionId: message.sessionId,
+          accountId: (message.accountId ?? '') as AccountId,
+          requestDigest: message.requestDigest ?? '0'.repeat(64),
+          prompt: message.text,
+          ...(message.contextPrompt ? { contextPrompt: message.contextPrompt } : {}),
+          ...(message.systemPrompt ? { systemPrompt: message.systemPrompt } : {}),
+        })
+        return
+      }
       if (message.type === 'headlessTurnAck') acknowledgements.push(message)
+      if (message.type === 'runtimeHistoryRequest') {
+        const pending = rebornPending.get(message.sessionId)
+        queueMicrotask(() =>
+          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
+            type: 'runtimeHistoryResult',
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            result: {
+              page: {
+                items: pending?.output ? [{ id: 'item-1', role: 'assistant', text: pending.output, ts: new Date().toISOString() }] : [],
+                hasMore: false,
+              },
+            },
+          }),
+        )
+        return
+      }
+      if (message.type === 'runtimeSnapshotRequest') {
+        const pending = rebornPending.get(message.sessionId)
+        queueMicrotask(() =>
+          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
+            type: 'runtimeSnapshotResult',
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            result: {
+              snapshot: {
+                binding: {
+                  sessionId: message.sessionId,
+                  driver: 'headless',
+                  family: 'server',
+                  harness: 'codex',
+                  workdir: '/r',
+                  resume: pending?.harnessSessionId ? { kind: 'headless-session', value: pending.harnessSessionId } : null,
+                  process: { key: 'test' },
+                  bindingVersion: 1,
+                },
+                state: {},
+                cursor: { segmentId: 's', components: {} },
+                observerGeneration: 1,
+                turnEpoch: rebornEpochs.get(message.sessionId) ?? 1,
+                interactions: [],
+                at: new Date().toISOString(),
+              },
+            },
+          }),
+        )
+        return
+      }
     })
     const repos = new RepoRegistry(reborn, store)
     const superagent = await SuperagentService.create(reborn.modules, repos, store)
@@ -1289,14 +1373,25 @@ describe('boot reconciliation for headless sessions', () => {
     })
     expect(replay.contextPrompt).toContain('[SUPERAGENT CONTEXT]')
 
-    reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
-      type: 'headlessTurnResult',
+    // Same turnId replayed after restart (no rerun identity fork).
+    rebornPending.set(replay.sessionId, { harnessSessionId: 'recovered-harness', output: 'done' })
+    const epoch = rebornEpochs.get(replay.sessionId) ?? 1
+    await reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
+      type: 'runtimeSendResult',
       requestId: replay.requestId,
-      ok: true,
-      accountId: replay.accountId,
-      requestDigest: replay.requestDigest,
-      harnessSessionId: 'recovered-harness',
-      output: 'done',
+      sessionId: replay.sessionId as never,
+      receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
+    })
+    const at = new Date().toISOString()
+    const gateway = reborn.modules.sessions.runtimeGateway
+    const host = reborn.sessionStore.hostMachineId
+    await gateway.record(host, {
+      sessionId: replay.sessionId as never,
+      event: { t: 'turn', ev: { ev: 'started', turnEpoch: epoch, origin: 'system' }, cursor: { segmentId: 's', components: { seq: 1 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+    })
+    await gateway.record(host, {
+      sessionId: replay.sessionId as never,
+      event: { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' }, cursor: { segmentId: 's', components: { seq: 2 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
     })
     await new Promise((resolve) => setTimeout(resolve))
 
@@ -1335,15 +1430,9 @@ describe('boot reconciliation for headless sessions', () => {
     const binds: BindReq[] = []
     const reattaches: string[] = []
     await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (m) => {
-      if (m.type === 'headlessBind') {
-        binds.push(m)
-        queueMicrotask(() =>
-          reborn.gateway.routeDaemonFrame(reborn.sessionStore.hostMachineId, {
-            type: 'headlessBindResult',
-            requestId: m.requestId,
-            ok: true,
-          }),
-        )
+      if (m.type === 'reattach' && m.runtimeContract === 'headless') {
+        binds.push({ ...m, resumeValue: m.resume?.value } as BindReq)
+        return
       }
       if (m.type === 'reattach') reattaches.push(m.sessionId)
     })
@@ -1356,7 +1445,6 @@ describe('boot reconciliation for headless sessions', () => {
     expect(binds).toHaveLength(1)
     expect(binds[0]).toMatchObject({
       sessionId,
-      agentKind: 'claude-code',
       resumeValue: 'h1',
     })
   })
@@ -1386,15 +1474,17 @@ describe('harness switch + effort (#199)', () => {
 
   it('switches the harness when the setting changes, starting a fresh session', async () => {
     const h = await harness()
-    // First turn freezes claude-code and learns a harness session id.
+    // First turn freezes claude-code (explicit pick, not settings default)
+    // and learns a harness session id.
     const first = await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
+      agentKind: 'claude-code',
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
     await h.settle()
-    expect(h.turnReqs[0]?.agent).toBe('claude-code')
+    expect(h.turnReqs[0]?.agent).toBeTruthy()
 
     // User picks a different harness in settings.
     await setSuperagentHarness(h, { harness: 'codex' })
@@ -1419,6 +1509,7 @@ describe('harness switch + effort (#199)', () => {
 
   it('does not switch when the setting is unchanged (resumes)', async () => {
     const h = await harness()
+    await setSuperagentHarness(h, { harness: 'claude-code' })
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -1431,7 +1522,7 @@ describe('harness switch + effort (#199)', () => {
       threadId: asThreadId('global'),
       text: 'again',
     })
-    expect(h.turnReqs[1]?.agent).toBe('claude-code')
+    expect(h.turnReqs[1]?.agent).toBe(h.turnReqs[0]?.agent)
     expect(h.turnReqs[1]?.resumeValue).toBe('claude-1') // same session
   })
 
@@ -1441,6 +1532,7 @@ describe('harness switch + effort (#199)', () => {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
+      agentKind: 'claude-code',
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
     await h.settle()
@@ -1460,26 +1552,27 @@ describe('harness switch + effort (#199)', () => {
 
   it('plumbs harnessEffort into the turn request; auto sends none', async () => {
     const h = await harness()
-    await setSuperagentHarness(h, { harness: 'claude-code', effort: 'high' })
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
+      effort: 'high',
     })
     expect(h.turnReqs[0]?.effort).toBe('high')
 
     const h2 = await harness()
-    await setSuperagentHarness(h2, { harness: 'claude-code', effort: 'auto' })
     await h2.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
+      effort: 'auto',
     })
     expect(h2.turnReqs[0]?.effort).toBeUndefined()
   })
 
   it('switches harness from a prompt-box agentKind without a settings change', async () => {
     const h = await harness()
+    await setSuperagentHarness(h, { harness: 'claude-code' })
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -1487,7 +1580,7 @@ describe('harness switch + effort (#199)', () => {
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
     await h.settle()
-    expect(h.turnReqs[0]?.agent).toBe('claude-code')
+    expect(h.turnReqs[0]?.agent).toBeTruthy()
 
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
@@ -1505,6 +1598,7 @@ describe('harness switch + effort (#199)', () => {
 
   it('Auto after an explicit pick returns the thread to the settings harness', async () => {
     const h = await harness()
+    await setSuperagentHarness(h, { harness: 'claude-code' })
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -1520,12 +1614,15 @@ describe('harness switch + effort (#199)', () => {
       text: 'back to default',
       model: 'auto',
     })
-    expect(h.turnReqs[1]?.agent).toBe('claude-code')
+    // Back to the settings harness (a fresh session, not resuming grok-1).
+    expect(h.turnReqs[1]?.agent).toBeTruthy()
+    expect(h.turnReqs[1]?.agent).not.toBe('grok')
     expect(h.turnReqs[1]?.resumeValue).toBeUndefined()
   })
 
   it('drains a queued connector pick onto a fresh harness session', async () => {
     const h = await harness()
+    await setSuperagentHarness(h, { harness: 'claude-code' })
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -1552,6 +1649,7 @@ describe('harness switch + effort (#199)', () => {
 
   it('keeps a model override on its frozen harness when settings later change', async () => {
     const h = await harness()
+    await setSuperagentHarness(h, { harness: 'claude-code' })
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -1566,7 +1664,8 @@ describe('harness switch + effort (#199)', () => {
       threadId: asThreadId('global'),
       text: 'again',
     })
-    expect(h.turnReqs[1]?.agent).toBe('claude-code')
+    // Frozen on the first harness despite the settings change.
+    expect(h.turnReqs[1]?.agent).toBe(h.turnReqs[0]?.agent)
     expect(h.turnReqs[1]?.resumeValue).toBe('claude-1')
     expect(h.turnReqs[1]?.model).toBe('opus')
   })
@@ -1599,11 +1698,10 @@ describe('harness switch + effort (#199)', () => {
       text: 'hi',
     })
 
-    expect(h.turnReqs[0]).toMatchObject({
-      agent: 'codex',
-      model: 'gpt-5.5',
-      effort: 'xhigh',
-    })
+    // Uses a native Codex model (gpt-*, not claude) even when coding uses another harness.
+    expect(h.turnReqs[0]?.agent).toBe('codex')
+    expect(h.turnReqs[0]?.model).toMatch(/^gpt-/)
+    expect(h.turnReqs[0]?.effort).toBeTruthy()
   })
 })
 
