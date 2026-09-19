@@ -65,7 +65,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import type { AgentSessionHandle } from '@podium/agent-runtime'
 import { createLogger } from '@podium/logger'
@@ -107,6 +107,7 @@ interface ServerProcessIdentity {
  *  goes through here — a test that reached the real `process.kill` could take
  *  down an unrelated pid. */
 export interface ServerReapIo {
+  scopeAlive?(scopeUnit: string): boolean
   pidAlive(pid: number): boolean
   signal(pid: number, signal: 'SIGTERM' | 'SIGKILL'): void
   /** Is this pid a member of this systemd scope unit's cgroup? The journal
@@ -125,6 +126,14 @@ export interface ServerReapIo {
 }
 
 const defaultIo: ServerReapIo = {
+  scopeAlive(scopeUnit) {
+    // Inspect the whole scope, including children left after its leader exits.
+    // Failure to census is not proof that the scope is empty.
+    try {
+      return readdirSync('/proc').some((entry) => /^\d+$/.test(entry) &&
+        defaultIo.pidInUnit(Number(entry), scopeUnit))
+    } catch { return true }
+  },
   pidAlive(pid) {
     try {
       process.kill(pid, 0)
@@ -225,17 +234,19 @@ function journalledServerProcess(
 export async function beginServerDriverReap(
   ctx: DaemonContext,
   sessionId: SessionId,
-  opts: { retire: boolean },
+  opts: { retire: boolean; completed?: (retired: boolean) => void },
   io: ServerReapIo = defaultIo,
 ): Promise<boolean> {
   const handle = serverRuntimeHandleFor(ctx, sessionId)
   if (handle) {
-    await reapViaHandle(ctx, sessionId, handle, opts, io)
+    const retired = await reapViaHandle(ctx, sessionId, handle, opts, io)
+    opts.completed?.(retired)
     return true
   }
   const journalled = journalledServerProcess(ctx, sessionId)
   if (journalled) {
-    await reapByIdentity(ctx, sessionId, journalled, opts, io)
+    const retired = await reapByIdentity(ctx, sessionId, journalled, opts, io)
+    opts.completed?.(retired)
     return true
   }
   return false
@@ -259,16 +270,16 @@ async function pollGone(
 
 /** The handle path's measure: the pid, recorded from our own spawn in THIS
  *  daemon life — no recycling window while we hold the child. `undefined` when
- *  no pid was ever recorded: the verbs ran and nothing contradicted them, which
- *  the reporter states as killed-with-caveat rather than as a measurement. */
+ *  no process identity was recorded: the verb alone is not a measurement. */
 async function pollDead(
   identity: ServerProcessIdentity,
   windowMs: number,
   io: ServerReapIo,
 ): Promise<boolean | undefined> {
-  if (identity.pid === undefined) return undefined
-  const pid = identity.pid
-  return pollGone(() => io.pidAlive(pid), windowMs, io)
+  if (identity.pid === undefined && (!identity.scopeUnit || !io.scopeAlive)) return undefined
+  return pollGone(() =>
+    (identity.pid !== undefined && io.pidAlive(identity.pid)) ||
+    Boolean(identity.scopeUnit && io.scopeAlive?.(identity.scopeUnit)), windowMs, io)
 }
 
 /** Driver verbs are cooperative code at the edge of teardown. A wedged
@@ -319,7 +330,7 @@ async function reapViaHandle(
   handle: AgentSessionHandle,
   opts: { retire: boolean },
   io: ServerReapIo,
-): Promise<void> {
+): Promise<boolean> {
   const identity: ServerProcessIdentity = handle.binding.process
   const verbName = opts.retire ? 'kill' : 'stop'
   const verb = opts.retire ? () => handle.kill() : () => handle.stop()
@@ -415,7 +426,7 @@ async function reapViaHandle(
     await repeatVerb()
     dead = await pollDead(identity, KILL_GRACE_MS, io)
   }
-  sendKillResult(
+  return sendKillResult(
     ctx,
     sessionId,
     identity.key,
@@ -452,7 +463,7 @@ async function reapByIdentity(
   reap: JournalledReap,
   opts: { retire: boolean },
   io: ServerReapIo,
-): Promise<void> {
+): Promise<boolean> {
   const identity = reap.identity
   try {
     const ours = await corroboratedAlive(reap, io)
@@ -460,15 +471,15 @@ async function reapByIdentity(
     if (ours) {
       if (identity.pid !== undefined) io.signal(identity.pid, 'SIGTERM')
       await reclaimScope(identity, io)
-      dead = await pollGone(() => corroboratedAlive(reap, io), TERM_GRACE_MS, io)
+      dead = await pollGone(async () => (await corroboratedAlive(reap, io)) || Boolean(identity.scopeUnit && io.scopeAlive?.(identity.scopeUnit)), TERM_GRACE_MS, io)
       if (!dead) {
         log.warn('the journalled server-driver process survived SIGTERM — escalating', {
           sessionId,
           driver: reap.driver,
           processKey: identity.key,
         })
-        if (identity.pid !== undefined) io.signal(identity.pid, 'SIGKILL')
-        dead = await pollGone(() => corroboratedAlive(reap, io), KILL_GRACE_MS, io)
+        if (identity.pid !== undefined && await corroboratedAlive(reap, io)) io.signal(identity.pid, 'SIGKILL')
+        dead = await pollGone(async () => (await corroboratedAlive(reap, io)) || Boolean(identity.scopeUnit && io.scopeAlive?.(identity.scopeUnit)), KILL_GRACE_MS, io)
       }
     }
     let ambiguity: string | undefined
@@ -479,6 +490,7 @@ async function reapByIdentity(
       // reports killed rather than inverting into the permanent `killed:false`
       // that would make `reviveParkedButAlive` resurrect a long-dead session.
       await reclaimScope(identity, io)
+      dead = await pollGone(() => Boolean(identity.scopeUnit && io.scopeAlive?.(identity.scopeUnit)), KILL_GRACE_MS, io)
       // THE AMBIGUOUS CORNER, SAID OUT LOUD (review residual). A pid that is
       // PRESENT but uncorroborable is genuinely unknown — for an unscoped
       // wedged opencode (the one driver whose child outlives the daemon) it
@@ -500,8 +512,9 @@ async function reapByIdentity(
     // retired session must not stay on that map; a parked one keeps its entry
     // (a dead process fails the adopt probe, so a stale entry only costs a
     // refused rebind — the same trade the handle verbs make).
-    if (opts.retire) reap.clearJournal()
+    if (opts.retire && dead && !ambiguity) reap.clearJournal()
     sendKillResult(ctx, sessionId, identity.key, dead, ambiguity)
+    return dead && !ambiguity
   } catch (err) {
     log.warn('could not reap the journalled server-driver session', { err, sessionId })
     const alive = await corroboratedAlive(reap, io).catch(() => false)
@@ -517,16 +530,15 @@ async function reapByIdentity(
       type: 'sessionKillResult',
       sessionId,
       durableLabel: identity.key,
-      killed: !alive,
+      killed: false,
       reason: err instanceof Error ? err.message : String(err),
     })
+    return false
   }
 }
 
 /** One receipt, measured where measurement exists. `undefined` dead means no
- *  pid was ever recorded — the verbs completed and nothing observable
- *  contradicts them, which is reported as killed with the caveat named rather
- *  than as a confident measurement. */
+ *  pid or scope was recorded; a completed verb cannot confirm retirement. */
 function sendKillResult(
   ctx: DaemonContext,
   sessionId: SessionId,
@@ -536,7 +548,7 @@ function sendKillResult(
    *  ambiguity. The server acts only on `killed`, so this is for the operator
    *  reading the receipt, not for the row machinery. */
   note?: string,
-): void {
+): boolean {
   if (dead === false) {
     log.warn('the server-driver process is STILL running after a kill', {
       sessionId,
@@ -548,7 +560,8 @@ function sendKillResult(
     type: 'sessionKillResult',
     sessionId,
     durableLabel: processKey,
-    killed: dead !== false,
-    ...(reason ? { reason } : {}),
+    killed: dead === true,
+    ...(reason ? { reason } : dead === undefined ? { reason: 'process retirement could not be measured' } : {}),
   })
+  return dead === true
 }
