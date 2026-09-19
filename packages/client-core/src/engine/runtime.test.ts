@@ -3715,9 +3715,11 @@ describe('optimistic effective runtime publication', () => {
     try {
       engine.start()
       await settle()
-      const enqueue = vi.spyOn(engine.outbox, 'enqueue').mockRejectedValueOnce(new Error('disk failed'))
+      const failure = new Error('disk failed')
+      const enqueue = vi.spyOn(engine.outbox, 'enqueue').mockImplementationOnce(() =>
+        Promise.reject(failure) as unknown as ReturnType<typeof engine.outbox.enqueue>)
       events.length = 0
-      engine.getSnapshot().renameSession(asSessionId('d4-session'), 'failed paint')
+      await expect(engine.getSnapshot().renameSession(asSessionId('d4-session'), 'failed paint')).rejects.toBe(failure)
       await settle()
       expect(events.some((e) => e.view.row('sessions', 'd4-session')?.name === 'failed paint')).toBe(true)
       expect(events.at(-1)!.view.row('sessions', 'd4-session')?.name).toBeUndefined()
