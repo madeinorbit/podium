@@ -191,7 +191,23 @@ export const runtimeHandlers: Pick<
     driverTiming.promptRequested(handle.binding, msg.turnId)
     void handle
       .send(
-        { id: msg.turnId, rowId: msg.rowId, deliveryRecovery: msg.deliveryRecovery, initialPrompt: msg.initialPrompt, text: msg.text, attachments: msg.attachments },
+        {
+          id: msg.turnId,
+          rowId: msg.rowId,
+          deliveryRecovery: msg.deliveryRecovery,
+          initialPrompt: msg.initialPrompt,
+          text: msg.text,
+          attachments: msg.attachments,
+          ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
+          ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
+          ...(msg.toolPolicy ? { toolPolicy: msg.toolPolicy } : {}),
+          ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
+          ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
+          ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
+          ...(msg.accountId ? { accountId: msg.accountId } : {}),
+          ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
+          ...(msg.structuredPermissions ? { structuredPermissions: msg.structuredPermissions } : {}),
+        },
         { origin: msg.origin, delivery: msg.delivery },
       )
       .then((receipt) => {

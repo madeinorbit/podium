@@ -453,6 +453,19 @@ export const RuntimeSendRequestMessage = z.object({
   origin: ObservationInputOrigin,
   delivery: TurnDelivery,
   attachments: z.array(RuntimeAttachmentRef).optional(),
+  // HEADLESS PER-TURN POLICY (POD-4386). All optional; absent means absent.
+  // Carried so superagent/shipwright turns can migrate off the legacy headless
+  // port onto the driver-contract WS relay without losing per-turn tool, MCP,
+  // permission, conversation or durable-identity semantics.
+  allowedTools: z.array(z.string()).optional(),
+  permissionMode: z.string().optional(),
+  toolPolicy: z.literal('none').optional(),
+  mcpConfig: z.string().optional(),
+  resumeValue: z.string().optional(),
+  sessionUuid: z.string().optional(),
+  accountId: z.string().optional(),
+  requestDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  structuredPermissions: z.literal(true).optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
 

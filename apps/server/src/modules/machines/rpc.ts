@@ -854,6 +854,15 @@ export class DaemonRpcService {
       origin: ObservationInputOrigin
       delivery: TurnDelivery
       attachments?: readonly RuntimeAttachmentRef[]
+      allowedTools?: string[]
+      permissionMode?: string
+      toolPolicy?: 'none'
+      mcpConfig?: string
+      resumeValue?: string
+      sessionUuid?: string
+      accountId?: string
+      requestDigest?: string
+      structuredPermissions?: true
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
@@ -880,6 +889,15 @@ export class DaemonRpcService {
         origin: input.origin,
         delivery: input.delivery,
         attachments: input.attachments ? [...input.attachments] : undefined,
+        ...(input.allowedTools ? { allowedTools: [...input.allowedTools] } : {}),
+        ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+        ...(input.toolPolicy ? { toolPolicy: input.toolPolicy } : {}),
+        ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
+        ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
+        ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
+        ...(input.accountId ? { accountId: input.accountId } : {}),
+        ...(input.requestDigest ? { requestDigest: input.requestDigest } : {}),
+        ...(input.structuredPermissions ? { structuredPermissions: input.structuredPermissions } : {}),
       }),
       machineId,
     )

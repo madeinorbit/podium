@@ -124,6 +124,15 @@ export interface RuntimeDaemonRpcPort {
       origin: ObservationInputOrigin
       delivery: TurnDelivery
       attachments?: readonly RuntimeAttachmentRef[]
+      allowedTools?: string[]
+      permissionMode?: string
+      toolPolicy?: 'none'
+      mcpConfig?: string
+      resumeValue?: string
+      sessionUuid?: string
+      accountId?: string
+      requestDigest?: string
+      structuredPermissions?: true
     },
     machineId: MachineId,
   ): Promise<TurnReceipt>
@@ -215,6 +224,15 @@ export class SessionRuntimeGateway {
     origin: ObservationInputOrigin
     delivery: TurnDelivery
     attachments?: readonly RuntimeAttachmentRef[]
+    allowedTools?: string[]
+    permissionMode?: string
+    toolPolicy?: 'none'
+    mcpConfig?: string
+    resumeValue?: string
+    sessionUuid?: string
+    accountId?: string
+    requestDigest?: string
+    structuredPermissions?: true
     /**
      * The party this send acts for.
      *
