@@ -4,7 +4,7 @@ import {
   type BoundaryContextOperation,
 } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
-import { hookEventName } from './hook-payload'
+import { hookEventName, hookString } from './hook-payload'
 
 /** Legacy responder retained until every provider has demonstrated boundary parity. */
 export function createPrimeInjector(
@@ -34,6 +34,21 @@ export async function primeHookResponse(
   signal?: AbortSignal,
 ): Promise<string | null> {
   const name = hookEventName(payload)
+  // Codex never sends PreCompact (hooks.json omits it: PreCompact supports
+  // only the common output fields, never additionalContext). Its only
+  // post-compaction signal is SessionStart with source 'compact', so re-arm
+  // here before priming — otherwise the once/rearm logic treats it as an
+  // already-consumed start and the agent loses scoped context after every
+  // compaction.
+  if (name === 'SessionStart' && hookString(payload, 'source', 'source') === 'compact') {
+    await respond({ event: 'before-compaction' })
+    const context = await respond({ event: 'start', ...(signal ? { signal } : {}) })
+    return context === null
+      ? null
+      : JSON.stringify({
+          hookSpecificOutput: { hookEventName: name, additionalContext: context },
+        })
+  }
   const event: BoundaryContextEvent | undefined =
     name === 'SessionStart'
       ? 'start'

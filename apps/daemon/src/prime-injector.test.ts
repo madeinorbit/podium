@@ -23,27 +23,42 @@ describe('prime injector', () => {
     expect(JSON.parse(again!).hookSpecificOutput.additionalContext).toBe('PRIME2')
   })
 
-  // REAL-HARNESS GAP, PINNED (this issue, POD-4395): Codex compacts without a
-  // PreCompact subscription — Podium's hooks.json never installs one — so the
-  // only post-compaction signal is SessionStart with source 'compact' (per the
-  // Codex release hooks reference: SessionStart matcher source runs on
-  // startup|resume|clear|compact, and PreCompact supports only the common
-  // output fields, never additionalContext). This mapping reads only the event
-  // name, so that SessionStart answers null: Codex is NOT re-primed after
-  // compaction today. The fix is to re-arm on SessionStart source=compact, not
-  // to subscribe PreCompact (which cannot carry context). Verified against the
+  // CODEX POST-COMPACTION RE-PRIME (this issue): Codex compacts without a
+  // PreCompact subscription — Podium's hooks.json never installs one, because
+  // PreCompact supports only the common output fields, never additionalContext
+  // — so the only post-compaction signal is SessionStart with source 'compact'
+  // (per the Codex release hooks reference: SessionStart matcher source runs
+  // on startup|resume|clear|compact). The codec re-arms on that source before
+  // priming, so the agent gets its scoped context back. Verified against the
   // real Codex 0.155.0 binary for the consumption half (stdout additionalContext
   // lands as developer-role hooks.additional_context messages); live
-  // post-compaction firing was not driven (quota-blocked) and rests on the
-  // vendor reference until then.
-  it('does not re-prime on a post-compaction SessionStart (source compact)', async () => {
+  // post-compaction firing was quota-blocked and rests on the vendor reference
+  // until then. Do NOT fix by subscribing PreCompact (which cannot carry
+  // context).
+  it('re-primes on a post-compaction SessionStart (source compact)', async () => {
     const inj = createPrimeInjector(okRelay('PRIME2'))
     await inj.respondTo(asSessionId('s1'), { hook_event_name: 'SessionStart', source: 'startup' })
+    const reprimed = await inj.respondTo(asSessionId('s1'), {
+      hook_event_name: 'SessionStart',
+      source: 'compact',
+    })
+    expect(JSON.parse(reprimed!).hookSpecificOutput.additionalContext).toBe('PRIME2')
+    // The re-prime consumes the new incarnation: the next prompt stays silent.
     expect(
-      await inj.respondTo(asSessionId('s1'), { hook_event_name: 'SessionStart', source: 'compact' }),
+      await inj.respondTo(asSessionId('s1'), { hook_event_name: 'UserPromptSubmit' }),
     ).toBeNull()
+  })
+
+  it('re-primes on a camelCase post-compaction SessionStart (source compact)', async () => {
+    const inj = createPrimeInjector(okRelay('PRIME2'))
+    await inj.respondTo(asSessionId('g1'), { hookEventName: 'SessionStart', source: 'startup' })
+    const reprimed = await inj.respondTo(asSessionId('g1'), {
+      hookEventName: 'SessionStart',
+      source: 'compact',
+    })
+    expect(JSON.parse(reprimed!).hookSpecificOutput.additionalContext).toBe('PRIME2')
     expect(
-      await inj.respondTo(asSessionId('s1'), { hookEventName: 'SessionStart', source: 'compact' }),
+      await inj.respondTo(asSessionId('g1'), { hookEventName: 'UserPromptSubmit' }),
     ).toBeNull()
   })
 
