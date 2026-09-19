@@ -160,6 +160,7 @@ async function handoffFixture(
     name: 'source',
     hostname: 'source',
     tokenHash: 'x',
+    assignment: { server: false, agentExecution: true },
     ownerUserId: firstAdminMemberId(),
   })
   await store.machines.upsertMachine({
@@ -167,6 +168,7 @@ async function handoffFixture(
     name: 'target',
     hostname: 'target',
     tokenHash: 'y',
+    assignment: { server: false, agentExecution: true },
     ownerUserId: firstAdminMemberId(),
   })
   const inventory: Inventory = {
@@ -194,11 +196,15 @@ async function handoffFixture(
     // whether it had finished when the export arrived. A real daemon must tear
     // down the PTY before the worktree can be exported cleanly; that gap is what
     // SOURCE_RELEASE_MS budgets for, and nothing else in this file can see it.
-    if (msg.type === 'kill' && opts.modelSourceReleaseMs !== undefined) {
+    if (msg.type === 'runtimeLifecycleRequest') {
       release.killedAt = Date.now()
       setTimeout(() => {
         release.releasedAt = Date.now()
-      }, opts.modelSourceReleaseMs)
+        void reg.gateway.routeDaemonFrame('m1', {
+          type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId,
+          result: { ok: true, retirement: 'confirmed' },
+        })
+      }, opts.modelSourceReleaseMs ?? 0)
     }
     if (msg.type === 'handoffExportRequest' && release.killedAt !== undefined) {
       release.releasedBeforeExport = release.releasedAt
@@ -399,10 +405,11 @@ const meta = async (f: HandoffFixture) =>
 const twoPersonFleet = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }[]) => ({
   rowFor: (machineId: string) =>
     machineId === 'm1'
-      ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [{ subject: 'alice' as UserId, verb: 'use' as const }, { subject: 'alice' as UserId, verb: 'manage' as const, custody: true }], name: 'source' }
+      ? { machine: 'm1' as MachineId, daemonAssigned: true, daemonAvailable: true, owner: 'alice' as UserId, grants: [{ subject: 'alice' as UserId, verb: 'use' as const }, { subject: 'alice' as UserId, verb: 'manage' as const, custody: true }], name: 'source' }
       : machineId === 'm2'
         ? {
             machine: 'm2' as MachineId,
+            daemonAssigned: true, daemonAvailable: true,
             owner: 'bob' as UserId,
             grants: [{ subject: 'bob' as UserId, verb: 'use' as const }, { subject: 'bob' as UserId, verb: 'manage' as const, custody: true }, ...m2Grants.map((grant) => ({
               subject: grant.subject as UserId,
@@ -424,10 +431,11 @@ const twoPersonFleet = (m2Grants: { subject: string; verb: 'see' | 'use' | 'mana
 const revocableFleet = (state: { m2: ('see' | 'use' | 'manage')[] }) => ({
   rowFor: (machineId: string) =>
     machineId === 'm1'
-      ? { machine: 'm1' as MachineId, owner: 'alice' as UserId, grants: [{ subject: 'alice' as UserId, verb: 'use' as const }, { subject: 'alice' as UserId, verb: 'manage' as const, custody: true }], name: 'source' }
+      ? { machine: 'm1' as MachineId, daemonAssigned: true, daemonAvailable: true, owner: 'alice' as UserId, grants: [{ subject: 'alice' as UserId, verb: 'use' as const }, { subject: 'alice' as UserId, verb: 'manage' as const, custody: true }], name: 'source' }
       : machineId === 'm2'
         ? {
             machine: 'm2' as MachineId,
+            daemonAssigned: true, daemonAvailable: true,
             owner: 'bob' as UserId,
             grants: [{ subject: 'bob' as UserId, verb: 'use' as const }, { subject: 'bob' as UserId, verb: 'manage' as const, custody: true }, ...state.m2.map((verb) => ({ subject: 'alice' as UserId, verb }))],
             name: 'target',
@@ -488,7 +496,7 @@ describe('oracle: handoff success across two machines', () => {
 
     expect(f.at('m2', 'inventoryRequest')).toBeGreaterThanOrEqual(0)
     expect(f.at('m2', 'inventoryRequest')).toBeLessThan(f.at('m1', 'repoOpRequest'))
-    expect(f.at('m2', 'inventoryRequest')).toBeLessThan(f.at('m1', 'kill'))
+    expect(f.at('m2', 'inventoryRequest')).toBeLessThan(f.at('m1', 'runtimeLifecycleRequest'))
   })
 
   it(`${MUST_NOT_CHANGE}: the row is re-homed onto the target and resumed there, and the source is told to kill`, async () => {
@@ -509,7 +517,7 @@ describe('oracle: handoff success across two machines', () => {
       status: 'starting',
     })
     expect(f.source).toContainEqual(
-      expect.objectContaining({ type: 'kill', sessionId: f.sessionId }),
+      expect.objectContaining({ type: 'runtimeLifecycleRequest', sessionId: f.sessionId }),
     )
     expect(
       f.source.some(
@@ -546,7 +554,7 @@ describe('oracle: handoff success across two machines', () => {
       // target proves which of them it already has — the bundle-base handshake
       'm2:repoOpRequest',
       // ONLY NOW is the live process stopped
-      'm1:kill',
+      'm1:runtimeLifecycleRequest',
       'm1:handoffExportRequest',
       'm1:handoffChunkReadRequest',
       'm2:handoffImportChunk',
@@ -558,8 +566,8 @@ describe('oracle: handoff success across two machines', () => {
     // Stated as the cross-machine inequality too, so the intent survives a
     // legitimate future change to the number of rev-parse probes.
     expect(f.at('m2', 'repoOpRequest')).toBeGreaterThanOrEqual(0)
-    expect(f.at('m2', 'repoOpRequest')).toBeLessThan(f.at('m1', 'kill'))
-    expect(f.at('m1', 'kill')).toBeLessThan(f.at('m1', 'handoffExportRequest'))
+    expect(f.at('m2', 'repoOpRequest')).toBeLessThan(f.at('m1', 'runtimeLifecycleRequest'))
+    expect(f.at('m1', 'runtimeLifecycleRequest')).toBeLessThan(f.at('m1', 'handoffExportRequest'))
     expect(f.at('m1', 'handoffExportRequest')).toBeLessThan(f.at('m2', 'handoffImportRequest'))
     expect(f.at('m2', 'handoffImportRequest')).toBeLessThan(f.at('m2', 'spawn'))
   })
@@ -688,13 +696,12 @@ describe('oracle: handoff success across two machines', () => {
     expect(invisible.replace("'m2'", "'X'")).toBe(nonexistent.replace("'no-such-machine'", "'X'"))
   })
 
-  it(`${MUST_NOT_CHANGE}: a machine the caller may use but that is OFFLINE says so — denied and unreachable are different answers`, async () => {
+  it('an offline target fails execution admission before source retirement', async () => {
     vi.useFakeTimers()
     try {
       const f = await handoffFixture()
-      // Same operator, same eligible-in-every-other-way target: only reachability
-      // differs from the passing case, so the different message is attributable to
-      // reachability alone (§3.1.4 M5's visible-machine distinction).
+      // Current execution authority includes daemon availability. Once detached,
+      // admission refuses before any source process or transfer is touched.
       f.reg.gateway.detachDaemon('m2')
       vi.advanceTimersByTime(30_001)
 
@@ -705,7 +712,8 @@ describe('oracle: handoff success across two machines', () => {
             TEST_CALLER,
           ),
         ),
-      ).toBe('target machine is offline')
+      ).toBe("you do not have access to run agents on machine 'target'")
+      expect(f.source.some(message => message.type === 'runtimeLifecycleRequest')).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -727,7 +735,7 @@ describe('oracle: handoff refusals that must not move anything', () => {
 
     expect(await meta(f)).toMatchObject({ machineId: 'm1', cwd: '/source/repo/.worktrees/x' })
     // Nothing irreversible ran: no kill, no export, no import.
-    expect(f.source.some((m) => m.type === 'kill')).toBe(false)
+    expect(f.source.some((m) => m.type === 'runtimeLifecycleRequest')).toBe(false)
     expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
     expect(f.target.some((m) => m.type === 'handoffImportRequest')).toBe(false)
     // And the handover overlay was cleared rather than left painted.
@@ -910,7 +918,7 @@ describe('oracle: mid-transfer crash', () => {
     // The revocation really did land after dispatch: the target was probed, which
     // only happens once the dispatch-time checks have already passed.
     expect(seenTargetProbe).toBeGreaterThan(0)
-    expect(f.source.some((m) => m.type === 'kill')).toBe(false)
+    expect(f.source.some((m) => m.type === 'runtimeLifecycleRequest')).toBe(false)
     expect(f.source.some((m) => m.type === 'handoffExportRequest')).toBe(false)
     expect(await meta(f)).toMatchObject({ machineId: 'm1', status: 'starting' })
     expect((await meta(f))?.handoffTarget).toBeUndefined()
@@ -1122,7 +1130,7 @@ describe('oracle: duplicate dispatch', () => {
     expect(f.count('m1', 'handoffExportRequest')).toBe(1)
     expect(f.count('m2', 'handoffImportRequest')).toBe(1)
     expect(f.count('m2', 'spawn')).toBe(1)
-    expect(f.count('m1', 'kill')).toBe(1)
+    expect(f.count('m1', 'runtimeLifecycleRequest')).toBe(1)
     // One row, on the target — which was ALSO true of the forked run, and is
     // exactly why the row count alone was never evidence: the fork was visible
     // only in the daemon legs above.
@@ -1145,6 +1153,7 @@ describe('oracle: duplicate dispatch', () => {
       name: 'third',
       hostname: 'third',
       tokenHash: 'z',
+      assignment: { server: false, agentExecution: true },
       ownerUserId: firstAdminMemberId(),
     })
     await f.store.machines.setMachineInventory(

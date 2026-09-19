@@ -8,6 +8,7 @@ import { firstAdminMemberId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 
@@ -15,11 +16,22 @@ afterEach(async () => {
   for (const r of registries.splice(0)) await r.dispose()
 })
 
-async function makeRegistry(): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
-  const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+async function makeRegistry(confirmed = true): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
+    id: store.hostMachineId, name: 'test-host', hostname: 'test-host', tokenHash: 'test',
+    ownerUserId: await firstAdminMemberId(store), assignment: { server: true, agentExecution: true },
+  })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+    daemon.push(m)
+    if (m.type === 'runtimeLifecycleRequest') void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeLifecycleResult', requestId: m.requestId, sessionId: m.sessionId,
+      result: confirmed ? { ok: true, retirement: 'confirmed' } : { ok: true },
+    })
+  })
   return { reg, daemon }
 }
 
@@ -74,7 +86,7 @@ describe('archive parks the session process [POD-108]', () => {
     expect(m?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })
     // Archiving is the acknowledgment — the park must not resurface it unread.
     expect(m?.unread).toBe(false)
-    expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((c) => c.type === 'runtimeLifecycleRequest' && c.sessionId === sessionId)).toBe(true)
   })
 
   it('archiving a live session without a resume ref marks it exited', async () => {
@@ -88,7 +100,7 @@ describe('archive parks the session process [POD-108]', () => {
     await reg.modules.sessions.setArchived({ sessionId, archived: true })
 
     expect((await meta(reg, sessionId))?.status).toBe('exited')
-    expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((c) => c.type === 'runtimeLifecycleRequest' && c.sessionId === sessionId)).toBe(true)
   })
 
   it('archiving an already-parked session sends no kill', async () => {
@@ -100,12 +112,12 @@ describe('archive parks the session process [POD-108]', () => {
     await bindLive(reg, sessionId, '/r')
     const r = await reg.modules.sessions.hibernateSession({ sessionId })
     expect(r.ok).toBe(true)
-    const killsAfterHibernate = daemon.filter((c) => c.type === 'kill').length
+    const killsAfterHibernate = daemon.filter((c) => c.type === 'runtimeLifecycleRequest').length
 
     await reg.modules.sessions.setArchived({ sessionId, archived: true })
 
     expect((await meta(reg, sessionId))?.status).toBe('hibernated')
-    expect(daemon.filter((c) => c.type === 'kill').length).toBe(killsAfterHibernate)
+    expect(daemon.filter((c) => c.type === 'runtimeLifecycleRequest').length).toBe(killsAfterHibernate)
   })
 
   it('unarchiving does not resurrect the process', async () => {
@@ -167,12 +179,16 @@ describe('archive parks the session process [POD-108]', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
       daemon.push(m)
       reattached.push(m)
+      if (m.type === 'runtimeLifecycleRequest') void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult', requestId: m.requestId, sessionId: m.sessionId,
+        result: { ok: true, retirement: 'confirmed' },
+      })
     })
 
     const m = await meta(reg, sessionId)
     expect(m?.status).toBe('hibernated')
     expect(m?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })
-    expect(reattached.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
+    expect(reattached.some((c) => c.type === 'runtimeLifecycleRequest' && c.sessionId === sessionId)).toBe(true)
     expect(reattached.some((c) => c.type === 'reattach' && c.sessionId === sessionId)).toBe(false)
   })
 
@@ -192,15 +208,15 @@ describe('archive parks the session process [POD-108]', () => {
     expect(m?.status).toBe('hibernated')
     expect(m?.stopReason).toBe('parent')
     expect(m?.resume).toEqual({ kind: 'claude-session', value: 'native-1' })
-    expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((c) => c.type === 'runtimeLifecycleRequest' && c.sessionId === sessionId)).toBe(true)
 
     // Parking twice is a no-op the caller can see, not a second kill.
-    const kills = daemon.filter((c) => c.type === 'kill' && c.sessionId === sessionId).length
+    const kills = daemon.filter((c) => c.type === 'runtimeLifecycleRequest' && c.sessionId === sessionId).length
     expect(await reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({
       ok: false,
       reason: 'not running',
     })
-    expect(daemon.filter((c) => c.type === 'kill' && c.sessionId === sessionId)).toHaveLength(kills)
+    expect(daemon.filter((c) => c.type === 'runtimeLifecycleRequest' && c.sessionId === sessionId)).toHaveLength(kills)
     expect(
       await reg.modules.sessions.parkStaleSession({ sessionId: 'ses_missing' as SessionId }),
     ).toEqual({ ok: false, reason: 'unknown session' })
@@ -217,7 +233,7 @@ describe('archive parks the session process [POD-108]', () => {
     expect(await reg.modules.sessions.parkStaleSession({ sessionId })).toEqual({ ok: true })
 
     expect((await meta(reg, sessionId))?.status).toBe('exited')
-    expect(daemon.some((c) => c.type === 'kill' && c.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((c) => c.type === 'runtimeLifecycleRequest' && c.sessionId === sessionId)).toBe(true)
   })
 
   it('permanent removal clears issue-owned session attribution', async () => {
@@ -233,4 +249,15 @@ describe('archive parks the session process [POD-108]', () => {
     expect(gitCleanup).toHaveBeenCalledWith(sessionId)
     expect(await meta(reg, sessionId)).toBeUndefined()
   })
+})
+
+
+it('a tombstone survives an unconfirmed kill without claiming process death', async () => {
+  const { reg, daemon } = await makeRegistry(false)
+  const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r' })
+  await expect(reg.sessionStore.transact(() => reg.modules.sessions.killSession({ sessionId }))).rejects.toThrow()
+  expect(await meta(reg, sessionId)).toBeUndefined()
+  expect((await reg.sessionStore.sessions.loadDeletedSessions()).some(row => row.id === sessionId)).toBe(true)
+  expect(daemon.some(message => message.type === 'sessionBindingRetire' && message.sessionId === sessionId)).toBe(true)
+  expect(await reg.sessionStore.events.listEventsSince(0, { kinds: ['session.exited'], subject: sessionId })).toEqual([])
 })

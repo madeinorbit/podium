@@ -59,9 +59,7 @@ import type { HandoffPreflightResult } from './preflight'
 
 const log = createLogger('server:sessions')
 
-/** How long the source daemon is given to release the terminal after the kill.
- *  Unchanged value, named and injected so a test does not have to wait it out. */
-const SOURCE_RELEASE_MS = 500
+
 
 /** Everything the choreography does to the world. This is most of `HandoffPorts`
  *  because the transfer is where the moving happens; what it does NOT include is
@@ -131,9 +129,17 @@ export class HandoffTransfer {
         this.ports.broadcastSessions()
         throw error
       }
-      this.ports.toMachine(source.machineId, { type: 'kill', sessionId: session.sessionId })
+      const retirement = await this.ports.rpc.runtimeLifecycle(
+        { sessionId: session.sessionId, verb: 'stop' }, source.machineId,
+      )
       this.ports.broadcastSessions()
-      await this.ports.sleep(SOURCE_RELEASE_MS)
+      if (!('ok' in retirement.result) || retirement.result.retirement !== 'confirmed') {
+        // Do not export/import or resume a second process while the first
+        // owner's retirement is unknown. Recovery still belongs to the source.
+        this.ports.toMachine(source.machineId, { type: 'kill', sessionId: session.sessionId })
+        await this.ports.write(session, (draft) => { draft.handoffTarget = undefined })
+        throw new Error('source process retirement was not confirmed')
+      }
     }
 
     let targetClaimed = false

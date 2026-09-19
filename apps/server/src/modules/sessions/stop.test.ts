@@ -7,6 +7,7 @@ import { asIssueId, asSessionId, asUserId, firstAdminMemberId, asMachineId } fro
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
+import { openTestStore } from '../../test-support/open-test-store'
 import type { ControlMessage } from '@podium/protocol/daemon'
 
 const registries: SessionRegistry[] = []
@@ -48,7 +49,12 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
   repoOps: { op: string; cwd: string; args?: Record<string, string> }[]
   setRepoOp: (fn: RepoOpStub) => void
 }> {
-  const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
+    id: store.hostMachineId, name: 'test-host', hostname: 'test-host', tokenHash: 'test',
+    ownerUserId: await firstAdminMemberId(store), assignment: { server: true, agentExecution: true },
+  })
+  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
   await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -66,7 +72,7 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
       runtimeLifecycle: (
         input: { sessionId: string; verb: 'stop' | 'hibernate' | 'kill' },
         machineId: string,
-      ) => Promise<{ sessionId: string; result: { ok: true } | { reason: string } }>
+      ) => Promise<{ sessionId: string; result: { ok: true; retirement?: 'confirmed' } | { reason: string } }>
     }
   }).rpc
   // The path `status` was last asked about IS the worktree the free path is
@@ -103,13 +109,11 @@ async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
     return answer
   }
   rpc.repoOp = (op, cwd, args, machineId) => impl(op, cwd, args, machineId)
-  // POD-3989: the fixture daemon is legacy — it answers lifecycle(stop) with an
-  // immediate `not_running` so stop escalates to the kill frame without waiting
-  // out the 10s RPC timeout. Tests pinning the graceful path override this stub.
-  rpc.runtimeLifecycle = async (input) => ({
-    sessionId: input.sessionId,
-    result: { reason: 'not_running' },
-  })
+  // The fixture reports measured completion and records the lifecycle request.
+  rpc.runtimeLifecycle = async (input) => {
+    daemon.push({ type: 'runtimeLifecycleRequest', requestId: 'fixture', ...input } as ControlMessage)
+    return { sessionId: input.sessionId, result: { ok: true, retirement: 'confirmed' } }
+  }
   return {
     reg,
     daemon,
@@ -172,7 +176,7 @@ describe('stopSession [spec:SP-9904]', () => {
     // Row kept (not deleted).
     expect(meta).toBeTruthy()
     // Process kill sent.
-    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toBe(true)
     expect(daemon.some((m) => m.type === 'sessionBindingRetire' && m.sessionId === sessionId)).toBe(
       false,
     )
@@ -199,27 +203,25 @@ describe('stopSession [spec:SP-9904]', () => {
       verb: 'stop' | 'hibernate' | 'kill'
     }) => {
       lifecycleCalls.push({ sessionId: input.sessionId, verb: input.verb })
-      return { sessionId: input.sessionId, result: { ok: true as const } } as never
+      return { sessionId: input.sessionId, result: { ok: true as const, retirement: 'confirmed' as const } } as never
     })
 
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
     expect(r.ok).toBe(true)
     // Graceful first: one lifecycle(stop), no kill escalation when it settles.
     expect(lifecycleCalls).toEqual([{ sessionId, verb: 'stop' }])
-    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(false)
+    expect(daemon.some((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toBe(false)
   })
 
-  it('POD-3989: escalates to the kill frame when lifecycle(stop) refuses', async () => {
+  it.each([{ reason: 'not_running' }, { ok: true }])('does not equate refusal or legacy acknowledgement with retirement: %j', async (result) => {
     const { reg, daemon } = await makeRegistry()
-    const { sessionId } = await reg.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/r',
-    })
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/r' })
     await bindLive(reg, sessionId, '/r')
-    // Fixture default is already `not_running`; assert the escalation explicitly:
-    // graceful attempted once, legacy kill still sent.
+    const rpc = (reg.modules.sessions as unknown as { rpc: { runtimeLifecycle: (...args: never[]) => Promise<unknown> } }).rpc
+    vi.spyOn(rpc, 'runtimeLifecycle').mockResolvedValue({ sessionId, result })
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
-    expect(r.ok).toBe(true)
+    expect(r.ok).toBe(false)
+    expect(r.reason).toContain('retirement was not confirmed')
     expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
   })
 
@@ -235,7 +237,7 @@ describe('stopSession [spec:SP-9904]', () => {
       .mockImplementation(async () => { throw failure })
 
     await expect(reg.modules.issueSessionLifecycle.stopSession({ sessionId })).rejects.toBe(failure)
-    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(false)
+    expect(daemon.some((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toBe(false)
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.status)
       .toBe('live')
   })
@@ -325,9 +327,9 @@ describe('stopSession [spec:SP-9904]', () => {
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)?.stopReason,
     ).toBe('self')
     // No timer — kill is not sent until the relay replies.
-    expect(daemon.some((m) => m.type === 'kill')).toBe(false)
+    expect(daemon.some((m) => m.type === 'runtimeLifecycleRequest')).toBe(false)
     await reg.modules.sessions.finalizeDeferredStopKill(sessionId)
-    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toBe(true)
   })
 
   it('does not free the worktree while a sibling session is still live', async () => {
@@ -593,7 +595,7 @@ describe('stopIssue [spec:SP-9904]', () => {
       expect((await reg.modules.issues.getMeta(issue.id))?.worktreePath).toBeNull()
     })
     expect((await reg.modules.issues.getMeta(issue.id))?.branch).toBe('issue/close-target')
-    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
+    expect(daemon.some((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toBe(true)
     expect(repoOps.some((call) => call.op === 'worktreeRemove')).toBe(true)
   })
 
@@ -614,11 +616,11 @@ describe('stopIssue [spec:SP-9904]', () => {
     await bindLive(reg, sessionId, wt)
 
     await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
-    expect(daemon.filter((m) => m.type === 'kill' && m.sessionId === sessionId)).toHaveLength(1)
+    expect(daemon.filter((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toHaveLength(1)
 
     await reg.modules.issues.update(issue.id, { stage: 'done' })
     await vi.waitFor(() => {
-      expect(daemon.filter((m) => m.type === 'kill' && m.sessionId === sessionId)).toHaveLength(2)
+      expect(daemon.filter((m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId)).toHaveLength(2)
     })
   })
 

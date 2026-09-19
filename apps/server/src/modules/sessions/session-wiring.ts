@@ -982,6 +982,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.sessionKill = new SessionKill({
     store,
+    rpc: bag.rpc,
     repository: bag.repository,
     state: bag.state,
     autoContinue: bag.autoContinue,

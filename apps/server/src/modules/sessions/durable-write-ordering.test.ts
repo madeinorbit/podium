@@ -1,4 +1,4 @@
-import { firstAdminMemberId } from '@podium/model'
+import { firstAdminMemberId, asAgentIdentityId } from '@podium/model'
 import { asMachineId, asSessionId, type MachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
@@ -24,6 +24,7 @@ function deferred() {
 function fixture() {
   const session = new Session({
     ownerUserId: firstAdminMemberId(),
+    delegation: { actor: asAgentIdentityId('durable-order'), onBehalfOf: firstAdminMemberId(), grantedScope: { kind: 'all' }, parentBindingId: null, revision: 1 },
     sessionId: asSessionId('durable-order'),
     durableLabel: 'podium-durable-order',
     agentKind: 'claude-code',
@@ -66,7 +67,10 @@ describe('durable session write ordering', () => {
       repository: f.repository,
       now: () => 0,
       autoContinue: { onSessionGone() {} },
-      toMachine: () => { f.events.push(`kill:${f.session.status}`) },
+      rpc: { runtimeLifecycle: async () => {
+        f.events.push(`kill:${f.session.status}`)
+        return { result: { ok: true, retirement: 'confirmed' } }
+      } },
       broadcastSessions() {},
     } as unknown as SessionTeardownPorts)
     const pending = teardown.hibernateSession({ sessionId: f.session.sessionId })
@@ -111,6 +115,10 @@ describe('durable session write ordering', () => {
       toMachine: () => { f.events.push('kill') },
       sleep: async () => {},
       rpc: {
+        runtimeLifecycle: async () => {
+          f.events.push('kill')
+          return { result: { ok: true, retirement: 'confirmed' } }
+        },
         handoffExport: async () => ({ ok: false, error: 'export refused' }),
         handoffBindingFinalize: async () => ({ ok: true }),
       },
@@ -248,7 +256,10 @@ describe('async session port boundaries', () => {
       now: () => 0,
       autoContinue: { onSessionGone() {} },
       rearmUnread: async () => {},
-      toMachine: () => { f.events.push(`kill:${f.session.status}`) },
+      rpc: { runtimeLifecycle: async () => {
+        f.events.push(`kill:${f.session.status}`)
+        return { result: { ok: true, retirement: 'confirmed' } }
+      } },
       broadcastSessions() {},
     } as unknown as SessionTeardownPorts)
     const pending = kind === 'archive' ? teardown.parkArchivedSession(f.session.sessionId)
