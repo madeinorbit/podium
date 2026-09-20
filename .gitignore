@@ -31,6 +31,9 @@ tests/e2e/playwright-report/
 .worktrees/
 test-results/
 
+# POD-4445: round-two browser/count run output (attached to issues, not committed).
+packages/worklist-proto/harness/browser/results/
+
 # bun build --compile artifacts
 dist-bun/
 dist-bun-spike/

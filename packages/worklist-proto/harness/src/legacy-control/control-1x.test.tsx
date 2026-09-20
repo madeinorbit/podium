@@ -8,6 +8,10 @@
  * load (methodology §5.7); walls come from the Chromium driver.
  */
 
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../../shared/src/row-source'
 import { GROWTH_CORPORA, startScenarioEngine } from '../../../shared/src/scenarios'
@@ -57,6 +61,51 @@ describe('legacy control at 1x', () => {
       )
       // THE CI BUDGET: the count harness on the control at 1x runs in under 60 s.
       expect(elapsedMs).toBeLessThan(60_000)
+      // THE 1x CONTROL JSON (attached to the issue, not committed): counts
+      // carry the verdict under box load; walls land via the browser driver
+      // when the box is quiet (see docs/plans/pod-4441-harness.md).
+      const repos = ctx.engine.getSnapshot().repos as { worktrees?: unknown[] }[]
+      const resultsDir = join(
+        fileURLToPath(new URL('.', import.meta.url)),
+        '..',
+        '..',
+        'browser',
+        'results',
+      )
+      mkdirSync(resultsDir, { recursive: true })
+      writeFileSync(
+        join(resultsDir, 'control-1x-counts.json'),
+        JSON.stringify(
+          {
+            arm: 'control',
+            scale: 1,
+            scenario: 'unrelatedHeartbeat',
+            methodology: '#1',
+            runtimeSha: execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+              encoding: 'utf-8',
+            }).trim(),
+            capturedAt: new Date().toISOString(),
+            corpus: {
+              issues: GROWTH_CORPORA.x1.issues,
+              sessions: GROWTH_CORPORA.x1.sessions,
+              repos: GROWTH_CORPORA.x1.repos,
+              worktrees: repos.reduce((sum, repo) => sum + (repo.worktrees?.length ?? 0), 0),
+              rows: result.visibleRows,
+            },
+            counts: {
+              visibleRows: result.visibleRows,
+              rowsCommitted: result.rowsCommitted,
+              stats: result.stats,
+            },
+            parity: result.parity,
+            elapsedMs: Math.round(elapsedMs),
+            walls: null,
+            wallsSkipped: 'box load above 8 during G4; counts carry the verdict (methodology §5.7)',
+          },
+          null,
+          2,
+        ),
+      )
     } finally {
       mounted.unmount()
       source.dispose()
