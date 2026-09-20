@@ -769,8 +769,8 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
           firstPrompt: args.firstPrompt,
           ...(args.model ? { model: args.model } : {}),
           ...(args.effort ? { effort: args.effort } : {}),
-          ...(args.runtimeContract !== undefined
-            ? { runtimeContract: args.runtimeContract }
+          ...(args.requestedDriverId !== undefined
+            ? { requestedDriverId: args.requestedDriverId }
             : {}),
         }),
     })

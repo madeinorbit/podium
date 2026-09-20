@@ -427,9 +427,11 @@ export class SessionDaemonLifecycle {
           s.draftSyncEngine = msg.draftSyncEngine ?? false
           // Whether the daemon drives this session through the agent-runtime
           // contract (POD-1761 W4) — the fact W4's migrated senders branch on.
-          // Absent from an older daemon means the legacy path, which is both the
-          // truth and the safe default.
-          s.runtimeContract = msg.runtimeContract ?? false
+          // Read off `driverId`, the live handle's binding: the daemon binds a
+          // driver for every profiled agent unconditionally (POD-4426) and
+          // shells carry no driver, so presence IS the driven signal. The old
+          // `runtimeContract` bind field is gone from the wire.
+          s.runtimeContract = msg.driverId !== undefined
           // A BIND IS ALSO A REATTACH (POD-2745). Whatever level the previous
           // daemon was told died with it — its watch registry is per-process —
           // so anything this session's viewers still need has to be asked for
@@ -475,11 +477,11 @@ export class SessionDaemonLifecycle {
         // Catchup (POD-859 §6): seed native with a chat draft edited while the
         // session was down — on BIND (the engine is attached by the time the daemon
         // reports draftSyncEngine), not on reattach (dispatched before attach).
-        if (msg.runtimeContract) {
+        if (msg.driverId !== undefined) {
           void this.ports.initializeRuntimeMetadata?.(msg.sessionId, machineId)
             .catch((error: unknown) => log.warn('runtime metadata bootstrap failed', { sessionId: msg.sessionId, err: error }))
         }
-        if (msg.runtimeContract || msg.draftSyncEngine) {
+        if (msg.driverId !== undefined || msg.draftSyncEngine) {
           void this.state.initializeRuntimeDraft(msg.sessionId, machineId)
             .catch((error: unknown) => log.warn('runtime draft bootstrap failed', { sessionId: msg.sessionId, err: error }))
         }

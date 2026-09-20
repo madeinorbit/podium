@@ -102,7 +102,7 @@ export interface HeadlessDeps {
 /**
  * Headless harness sessions (concierge unification): persistent, PTY-less session
  * rows the superagent drives turn-by-turn. Sessions are established on the
- * daemon via `spawn`/`reattach` carrying `runtimeContract: 'headless'` (no
+ * daemon via `spawn`/`reattach` carrying `requestedDriverId: 'headless'` (no
  * manifest `select()` ever returns it); turns ride the driver-contract WS
  * relay (`runtimeSendRequest` with headless fields, `gateway.interrupt`,
  * `gateway.events`, `runtimeHistory`/`runtimeSnapshot`).
@@ -114,7 +114,7 @@ export class HeadlessService {
    * Create a headless harness session row: a persistent, PTY-less session the
    * superagent drives turn-by-turn. Status is 'live' for as long
    * as the thread exists. Also establishes the daemon-side headless session
-   * via `spawn` with `runtimeContract: 'headless'` (fire-and-forget; the turn
+   * via `spawn` with `requestedDriverId: 'headless'` (fire-and-forget; the turn
    * path retries if the daemon has not bound it yet).
    */
   async createHeadlessSession(input: {
@@ -199,7 +199,7 @@ export class HeadlessService {
         geometry: this.deps.defaultGeometry(),
         ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
         ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
-        runtimeContract: 'headless',
+        requestedDriverId: 'headless',
       })
     } catch {
       // Establishment is best-effort; the turn path reports the failure.
@@ -562,7 +562,7 @@ export class HeadlessService {
   }
 
   /** (Re)establish the daemon-side headless session — the reattach equivalent
-   *  for sessions with no PTY. Sends `reattach` with `runtimeContract:
+   *  for sessions with no PTY. Sends `reattach` with `requestedDriverId:
    *  'headless'`; the daemon adopts (or resumes) the headless handle and
    *  rebinds the transcript tail. Best-effort and idempotent. */
   async headlessBind(input: {
@@ -582,7 +582,7 @@ export class HeadlessService {
         cwd: input.cwd,
         lastKnownGeometry: this.deps.defaultGeometry(),
         resume: { kind: 'headless-session', value: input.resumeValue },
-        runtimeContract: 'headless',
+        requestedDriverId: 'headless',
       })
       return { ok: true }
     } catch (error) {

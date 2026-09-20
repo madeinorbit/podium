@@ -238,11 +238,13 @@ describe('sessions.create carries the agent-runtime override', () => {
     sessionCommandPlaneInputs.create.parse({ cwd: '/w', mutationId: 'm1', ...extra })
 
   it('keeps a DRIVER ID, which is the explicit per-spawn opt-in', () => {
-    expect(parse({ runtimeContract: 'opencode-server' }).runtimeContract).toBe('opencode-server')
+    expect(parse({ requestedDriverId: 'opencode-server' }).requestedDriverId).toBe(
+      'opencode-server',
+    )
   })
 
-  it('keeps `true`, which means "the contract, with the manifest\'s own choice"', () => {
-    expect(parse({ runtimeContract: true }).runtimeContract).toBe(true)
+  it('STRIPS the retired `true` spelling, which named the default the field absence already means', () => {
+    expect('requestedDriverId' in parse({ runtimeContract: true })).toBe(false)
   })
 
   it('keeps an UNKNOWN id so the daemon can refuse it BY NAME', () => {
@@ -250,16 +252,16 @@ describe('sessions.create carries the agent-runtime override', () => {
     // produces a working terminal session and the operator reads that as proof
     // the override works. The daemon owns the refusal; the schema's only job is
     // to let the typo reach it.
-    expect(parse({ runtimeContract: 'not-a-real-driver' }).runtimeContract).toBe(
+    expect(parse({ requestedDriverId: 'not-a-real-driver' }).requestedDriverId).toBe(
       'not-a-real-driver',
     )
   })
 
   it('leaves it ABSENT when nothing asked, which is the unchanged default', () => {
-    expect('runtimeContract' in parse({})).toBe(false)
+    expect('requestedDriverId' in parse({})).toBe(false)
   })
 
   it('REFUSES an empty string rather than passing a meaningless override on', () => {
-    expect(() => parse({ runtimeContract: '' })).toThrow()
+    expect(() => parse({ requestedDriverId: '' })).toThrow()
   })
 })

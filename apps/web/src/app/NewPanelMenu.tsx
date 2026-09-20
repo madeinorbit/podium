@@ -190,30 +190,26 @@ export function NewPanelMenu({
   async function create(
     agentKind: AgentKind,
     machineId?: MachineId,
-    runtimeContract?: string | true,
+    requestedDriverId?: string,
   ) {
     const cwd = cwdFor(machineId)
-    // OpenCode's headed default is the stock native CLI attached to its existing
-    // server-family engine. `true` asks the shared resolver for the manifest
-    // default without naming a driver, so an unavailable/logged-out server can
-    // still degrade to the interactive terminal login path. The experimental
-    // driver row passes its concrete string and therefore remains an explicit
-    // per-session selection rather than being collapsed into this default.
-    const headedOpencode = runtimeContract === undefined && agentKind === 'opencode'
-    const driverRequest = runtimeContract ?? (headedOpencode ? true : undefined)
+    // A concrete driver id is an explicit per-session selection (the
+    // experimental driver row passes its id); absent is the manifest's headed
+    // terminal default, which the daemon binds unconditionally (POD-4426). The
+    // old `true` spelling named that default explicitly and is gone.
     const { sessionId } = await trpc.sessions.create.mutate({
       agentKind,
       cwd,
       ...(machineId ? { machineId } : {}),
       ...(issueId ? { issueId } : {}),
-      ...(driverRequest !== undefined ? { runtimeContract: driverRequest } : {}),
+      ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
     })
     // Server-family sessions derive Chat before startScreen/device preferences.
-    // Materialize this row's headed intent before exposing the new tab, matching
-    // the established blank-launch ordering in ColdStartComposer. The explicit
-    // experimental driver row intentionally receives no override and stays
-    // chat-first.
-    if (headedOpencode) setPanelMode(sessionId, 'native')
+    // Materialize a headed opencode row's native intent before exposing the new
+    // tab, matching the established blank-launch ordering in ColdStartComposer.
+    // The explicit experimental driver row intentionally receives no override
+    // and stays chat-first.
+    if (agentKind === 'opencode' && requestedDriverId === undefined) setPanelMode(sessionId, 'native')
     onOpened(sessionId)
   }
 
@@ -456,7 +452,7 @@ function HeadlessDriverItems({
   onCreate: (
     kind: AgentKind,
     machineId: MachineId,
-    runtimeContract?: string | true,
+    requestedDriverId?: string,
   ) => Promise<void>
 }): JSX.Element | null {
   const drivers = headlessRuntimeDrivers(machine)
@@ -499,7 +495,7 @@ function MachineSubmenu({
   onCreate: (
     kind: AgentKind,
     machineId: MachineId,
-    runtimeContract?: string | true,
+    requestedDriverId?: string,
   ) => Promise<void>
   runtimeDriversEnabled: boolean
 }): JSX.Element {
