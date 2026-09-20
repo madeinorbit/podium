@@ -1932,7 +1932,6 @@ describe('shell rows held past the typing loop', () => {
   // terminal driver (readiness gate + injection awaitProof) and the durable delivery
   // queue (proof-based settlement, daemon custody), exercised by the terminal
   // injection/delivery-queue tests and the 414-test conformance corpus.
-})
 
 // RETIRED WITH THE AGENT READINESS CLOCK (POD-4279). The bind-stamped
 // composer-readiness window now lives in the terminal driver (readiness gate at
