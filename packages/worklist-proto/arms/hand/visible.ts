@@ -22,7 +22,6 @@ import type { IndexSet } from './indexes'
 import { rescueEligible, sessionlessKept, structurallyExcluded } from './rules'
 import { splitMembers, type SummaryModule } from './summary'
 import type { IssueTable } from './tables'
-
 export class VisibleModule {
   /** All visible rows (flat + rescue). The comparison surface for rollup. */
   readonly visible = new Set<string>()
@@ -176,6 +175,19 @@ export class VisibleModule {
     }
   }
 
+  /** Purge a removed row's rescue bookkeeping (keeper seats + chains),
+   *  reconciling ancestors that may have lost their last keeper. */
+  private purge(issueId: string, out: Delta[]): void {
+    this.keptBy.delete(issueId)
+    this.chains.delete(issueId)
+    for (const [ancestor, keepers] of [...this.keptBy]) {
+      if (keepers.delete(issueId)) {
+        if (keepers.size === 0) this.keptBy.delete(ancestor)
+        this.reconcile(ancestor, out)
+      }
+    }
+  }
+
   /** Visible rows in a moved subtree (rescue chains follow the move). */
   private visibleSubtree(childId: string): string[] {
     const out: string[] = []
@@ -213,8 +225,13 @@ export class VisibleModule {
 
   private refreshFlat(issueId: string, out: Delta[]): void {
     const issue = this.tables.issues.rows.get(issueId)
-    if (issue === undefined) {
-      if (this.flat.delete(issueId)) this.reconcile(issueId, out)
+    // Missing or structurally excluded rows can never be flat-visible: drop
+    // without evaluating the predicate (an unrelated heartbeat on an
+    // archived issue's session evaluates nothing downstream).
+    if (issue === undefined || structurallyExcluded(issue)) {
+      this.purge(issueId, out)
+      this.flat.delete(issueId)
+      this.reconcile(issueId, out)
       this.decaySensitive.delete(issueId)
       return
     }

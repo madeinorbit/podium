@@ -148,6 +148,16 @@ export class IndexSet {
     if (issue === undefined) {
       this.explicitByIssue.delete(id)
       this.resolvedByIssue.delete(id)
+      // Orphaned children surface as roots (buildIssueTree rule, spec R1).
+      const orphans = this.childrenByParent.get(id)
+      if (orphans !== undefined) {
+        this.childrenByParent.delete(id)
+        this.stats.index()
+        for (const child of orphans) {
+          this.parentOf.delete(child)
+          out.push({ kind: 'ChildrenChanged', childId: child, from: id, to: null })
+        }
+      }
     }
     return out
   }

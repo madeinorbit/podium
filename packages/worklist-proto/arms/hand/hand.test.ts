@@ -318,8 +318,9 @@ describe('hand-rolled arm: indexes', () => {
       rows: [rec('issue', 'B', issue({ id: 'B', seq: 9, sortKey: 'b0', parentId: null, stage: 'review' }))],
     })
     expect(world.store.indexes.parentOf.get('B')).toBeUndefined()
-    // A's progress no longer counts B.
-    expect(world.store.snapshot().rowsById['A']?.progressTotal).toBe(0)
+    // A stands alone and becomes its own unit (mission.ts:1374-1375).
+    expect(world.store.snapshot().rowsById['A']?.progressTotal).toBe(1)
+    expect(world.store.snapshot().rowsById['A']?.progressDone).toBe(0)
     world.oracle()
   })
 
@@ -363,12 +364,16 @@ describe('hand-rolled arm: visible, order, groups', () => {
       rec('worktree', '/wt', LANE),
     ])
     const ids = Object.keys(world.store.snapshot().rowsById).sort()
-    expect(ids).toEqual(['leaf', 'leaf2', 'mid'])
+    // done-top is a closed top-level issue: visible (decay-exempt) in the
+    // open lane until its grace lapses; mid is a sessionless rescue row.
+    expect(ids).toEqual(['done-top', 'leaf', 'leaf2', 'mid'])
+    expect(world.store.snapshot().rowsById['done-top']?.closed).toBe(false)
     expect(world.store.visible.rescue.has('mid')).toBe(true)
     world.oracle()
-    // Removing the leaf's session drops the rescue row with it.
-    world.push({ type: 'update', rows: [rec('session', 's1', undefined)] })
+    // Evicting the leaf drops the rescue row with it (its keeper is gone).
+    world.push({ type: 'update', rows: [rec('issue', 'leaf', undefined)] })
     expect(world.store.snapshot().rowsById['mid']).toBeUndefined()
+    expect(world.store.snapshot().rowsById['leaf2']).toBeDefined()
     world.oracle()
   })
 
@@ -401,6 +406,7 @@ describe('hand-rolled arm: visible, order, groups', () => {
 describe('hand-rolled arm: locals + lifecycle', () => {
   it('selection notifies exactly two keys with zero derivations', () => {
     const world = exampleWorld()
+    world.store.setSelection('A')
     const seen: string[] = []
     world.store.subscribe('selected:A', () => seen.push('A'))
     world.store.subscribe('selected:B', () => seen.push('B'))
