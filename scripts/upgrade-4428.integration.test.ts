@@ -668,6 +668,9 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           const adminId = admin?.id as string
           expect(adminId, '(5) admin user exists for row principal').toBeTruthy()
           const now = Date.now()
+          // The attribution triple must be complete: authorizeAtDrain
+          // re-resolves actor==onBehalfOf==user against the live world, and a
+          // NULL on_behalf_of refuses (then deletes) the row at drain.
           const ins = (id: string, text: string, at: number): void => {
             db.run(
               'INSERT INTO queued_messages (id, session_id, text, queued_at, input_origin, attempts, principal_kind, principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -682,7 +685,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
               null,
               'user',
               adminId,
-              null,
+              adminId,
               null,
             )
           }
@@ -939,6 +942,18 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         try {
           await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
           await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
+          {
+            const db = openDb()
+            try {
+              const rows = db.all(
+                'SELECT id, text, attempts, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
+                sQueue,
+              ) as any[]
+              console.log(`upgrade-4428 post-resurrect rows: ${JSON.stringify(rows)}`)
+            } finally {
+              db.close()
+            }
+          }
           await waitFor(
             () => collector.text().includes(t1) && collector.text().includes(t2),
             '(5) both rows reach the PTY',
@@ -1040,6 +1055,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
     } finally {
       try {
         queueCollectorRef?.close()
+      } catch {}
+      try {
+        const { copyFileSync } = await import('node:fs')
+        if (stateDir) copyFileSync(join(stateDir, 'podium.db'), join(runLogDir, 'final-podium.db'))
       } catch {}
       if (newDaemon) {
         await newDaemon.kill().catch(() => {})
