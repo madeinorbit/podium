@@ -1,6 +1,6 @@
 # POD-4286 — Prototype round two: the shape that makes today's problems hard to repeat
 
-Status: proposal, revision 2 · 2026-09-20 · reviewed against `integrate/4286-frontend-perf` @
+Status: proposal, revision 4 · 2026-09-20 · reviewed against `integrate/4286-frontend-perf` @
 `717785d52`, `dev/mw` @ `6645cc283`, `main` @ `692d8c8e8`.
 Written for someone who did not follow round one. Terms are explained where first used.
 
@@ -10,13 +10,35 @@ Round one compared three copies of the same design, so it could only measure how
 library charges for bookkeeping, and the cheapest bookkeeping won. The design itself is what
 is slow and what is unsafe: one whole-corpus worklist calculation with a hand-maintained input
 list, consumed by a list where every row re-renders. The goal you stated, a system where these
-problems are hard to have again, is a property of the *shape*, and only one of the three
-candidates can give that shape by construction: a tracked object graph (the Linear shape),
-where a derivation is correct because it read observable state, not because someone
-remembered to list its inputs. Round two should therefore build that shape once, properly,
-with the safety enforcement switched on, and measure it against the current store; the
-hand-written and TanStack arms are not candidates for the safety goal and should not be built
-again at full scope.
+problems are hard to have again, is a property of the *shape*: a derivation must be correct
+because of how it is built, not because someone remembered to list its inputs. Each approach
+has its own way to get there (typed exhaustive deltas, a tracked object graph, declarative
+queries), and none has been built properly yet. Round two therefore builds three independent,
+first-principles arms (hand-rolled, MobX, TanStack DB), each as good as its approach allows and
+none bolted onto the current code, and judges them on which mistakes they make loud before it
+judges them on speed.
+
+## 1a. The performance goal, stated first
+
+This epic exists because the client is slow. Round two must therefore show, in a browser, at
+the live corpus and beyond it, that the chosen shape is fast and stays fast as the corpus grows.
+The budgets frozen in the epic design (§5 of `pod-4286-frontend-store-performance.md`) still
+apply; the Stage 0 control (`POD-4286-stage0-baseline.md`) is what the arms must beat.
+
+| Goal | Budget the arms must meet | Control today |
+|---|---|---|
+| Idle client | zero derivation work except on the clock tick | one derive per minute |
+| Unrelated change (a heartbeat anywhere) | zero rows committed, zero derivations, publish ≤ 2 ms | worklist untouched since B5, ~280 subscriber checks |
+| Any single hot-path event | ≤ 8 ms main-thread, p95, at live corpus | 2 derives per click before Stage 0, 1 after |
+| Row click, input to paint, inside the slice | ≤ 16 ms p95 at live corpus, ≤ 32 ms at 4× corpus | 407 ms p50 for the whole app switch (includes transcript load and layout) |
+| Cost follows the change, not the corpus | per-event cost slope across 1×, 2×, 4× corpus ≤ 1.2 (near flat) | whole-world derive: slope ≈ 1.0 per corpus multiple (linear in N) |
+| Bootstrap at live corpus | ≤ 1.1× control; principal switch ≤ 2× control | control measured in Stage 0 |
+| Memory | retained heap ≤ 1.1× control at live corpus, no growth after rescope | — |
+| Bundle | ≤ +60 KB gzip on web, no native-incompatible dependency | — |
+
+Performance is a gate every arm must pass, and the growth slope is the performance
+differentiator among arms that pass: an arm whose per-event cost stays flat from 1× to 4×
+corpus has headroom the frontend will need; one whose cost grows with N has rebuilt the problem.
 
 ## 2. What is actually slow today
 
@@ -137,15 +159,17 @@ lists. It is one model layer, not five.
 | What can be made loud | Mutation oracles for *listed* inputs only | Nothing for the routing omission | `enforceActions: 'always'`, `computedRequiresReaction`, `observableRequiresReaction`, `reactionRequiresObservable` turn every silent case in the table into a thrown error or a console warning; `eslint-plugin-mobx` (`missing-observer`, `exhaustive-make-observable`) covers the component and model side |
 | Cost of a new derived field | Type, staging list, input inventory, validator, read, inventory test (6 places, POD-4403) | 6 places incl. a second namespace list | A getter (1 place) |
 
-The hand-written arm cannot deliver the property without becoming a tracking runtime, which is
-MobX written at home. TanStack DB delivers it only for the relational third. MobX delivers it,
-and its silent cases each have an enforcement switch.
+Read as predictions, not verdicts: the round-one hand-written arm could not deliver the property
+because it relied on input lists; a first-principles hand-rolled arm must find another route
+(§5.2 proposes exhaustive typed deltas plus a rebuild oracle). TanStack DB delivers it for the
+relational part and must handle the recursive part explicitly (§5.4). MobX delivers it through
+tracking, and its silent cases each have an enforcement switch (§5.3). The exercise in §5.8
+tests all three claims.
 
-So: **the shape in the earlier revision of this document was right on performance and wrong on
-safety.** It framed a substrate-neutral hooks contract that the three arms would implement.
-That is fair, but it keeps the read model as a layer beside the store with a hand-drawn
-interface, and it lets the hand-written arm compete on a criterion it cannot meet. The round-two
-shape is the object graph itself, and the candidate is the one substrate that can build it.
+So: **the shape in the first revision of this document was right on performance and wrong on
+safety.** It framed a substrate-neutral hooks contract the three arms would adapt to, which
+keeps the read model as a layer beside the store. The operator's answer is to build each arm
+from first principles in its own idiom (§5) and let the foot-gun exercise say which shape holds.
 
 ### 4.4 What MobX does not solve, said plainly
 
@@ -164,53 +188,128 @@ shape is the object graph itself, and the candidate is the one substrate that ca
 - **Optimism.** Stays in the kernel; the graph receives effective rows. Moving optimism onto the
   graph is a later decision, not round two.
 
-## 5. What to build
+## 5. What to build: three first-principles arms
 
-### 5.1 The candidate: a MobX model layer for the worklist path, built the Linear way
+The operator's decision (2026-09-20): three prototypes, each built from the ground up in its
+own idiom, each as good as its approach allows, none bolted onto the current code. The
+comparison is between three complete answers, not between three adapters to one design.
 
-- `packages/client-core/src/model/` (new, no dependency on `presentation/*`): `IssueModel`,
-  `SessionModel`, `RepoModel`, `WorktreeModel` with observable fields fed from effective rows;
-  `ModelStore` per principal holding shallow observable maps and the relation buckets; computed
-  getters on the models for summary, rollup, continuation, band; `WorklistModel` with a computed
-  visible set and computed groups over it.
-- One `runInAction` per effective publication. The kernel remains the only writer.
-- `configure({ enforceActions: 'always', computedRequiresReaction: true, observableRequiresReaction: true, reactionRequiresObservable: true })` in dev and test. No `keepAlive`.
-- `observer` row, group and list components reading the models directly; the list parent reads
-  `worklist.groups` only. Web list windowed with `@tanstack/react-virtual` (mobile already
-  virtualises).
-- A lint pass: `eslint-plugin-mobx` rules on, and a repo rule that no component enumerates a
-  table (`store.issues.values()`) outside the model layer.
+### 5.1 Shared ground, so they are comparable
 
-### 5.2 The control: the current store
+- Each arm is a greenfield package fed only by the kernel's effective row stream (upsert,
+  delete, replace, per entity). No imports from the current view-model, slice or mission code.
+  The domain rules (visibility, ownership by worktree prefix, subtree rollup, provenance,
+  ordering, grouping, bands) are re-expressed in each arm's idiom.
+- The current derivation, run on the same fixture, is the executable spec: a parity oracle
+  checks visible rows, order, per-row fields and groups after every scenario.
+- Each arm owns its own UI for the worklist path (list, group, row) in its idiom, windowed, and
+  its own lifecycle: a new store per principal, evict is a delete, rescope is one replace.
+- Same fixture, scenarios, browser harness, foot-gun exercise and change exercise for all three.
 
-The current store, unchanged, is the control arm. The isolation fence (rows committed ≤ rows
-affected on an unrelated heartbeat) must fail on it, which proves the detector.
+### 5.2 Hand-rolled, perfect: incremental view maintenance with typed deltas
 
-### 5.3 What is not built again
+- Normalised entity tables keyed by id. Every derived structure (index, summary, visible set,
+  order, groups) is a module with one `apply(delta)` that updates its output in place and emits
+  typed deltas downstream: a dataflow of deltas, not a cache of snapshots.
+- Correctness by exhaustiveness, not by dependency lists: delta kinds are a closed union and
+  every handler switches over all of them, so the compiler refuses a derivation that ignores a
+  kind. A from-scratch rebuild test asserts incremental output equals full recompute after every
+  scenario. That is the hand-rolled substitute for tracking.
+- Subscriptions per key (row id, group key, order); components bind with `useSyncExternalStore`
+  per key. Nothing publishes a whole-world object.
+- One publication, one delta batch, one notification pass, ordered by dataflow topology.
+- Honest cost: every new derived field is a new delta handler; omission is loud, but the
+  handler's logic is yours.
 
-- **Hand-written keyed arm.** Its cost profile is known from D7 (cheapest bookkeeping) and its
-  safety profile from POD-4403 (silent omission, six places per change). Building it at the new
-  shape would only re-prove both.
-- **TanStack DB arm.** Lost twice on per-reader cost, per-query reactivity is the wrong
-  granularity for row isolation, and the retirement of the legacy adapter is already decided.
-- If you want a second candidate for insurance, it should be another tracking runtime (Legend
-  State v3, or `@preact/signals`), not a hand-rolled one, and it should be a bounded
-  milestone-1-only build.
+### 5.3 MobX, perfect: the tracked object graph
 
-### 5.4 Fixed ground so the measurement is fair
+- Domain models as classes with observable fields and computed getters; a store per principal
+  holding shallow observable maps and observable relation buckets. Relations resolve through
+  the graph: `issue.parent`, `issue.children`, `issue.sessions`, `worktree.sessions`.
+- Every derived value is a getter. Rollups walk `children` and invalidate along the chain
+  automatically. Visible set, order and groups are computeds with structural equality, so the
+  list re-renders only when order changes.
+- One `runInAction` per publication, rows and index buckets atomically. Enforcement on
+  (`enforceActions: 'always'`, `computedRequiresReaction`, `observableRequiresReaction`,
+  `reactionRequiresObservable`), no `keepAlive`, `eslint-plugin-mobx` for missing `observer`
+  and non-exhaustive observables.
+- `observer` components read model fields directly; a windowed list reads the ordered id array.
+- Honest cost: indexes are maintained by hand in the write path, and a getter that enumerates a
+  table is legal, so the isolation fence in tests guards against whole-world computeds.
+
+### 5.4 TanStack DB, perfect: everything is a query
+
+- One collection per entity type, keyed and explicitly indexed, fed through the sync interface.
+  Its optimistic transactions are not used; the kernel owns optimism.
+- Every relational derivation is a live query, and live-query outputs are collections later
+  queries read: sessions per issue via join, children per parent, counts and latest activity via
+  groupBy, visible set via where, order via orderBy, groups via groupBy. The differential engine
+  maintains all of it per changed row.
+- The recursive part the query language cannot express (subtree rollup, provenance closure) is
+  one custom derived collection with its own small sync. That is the only imperative code.
+- Rows subscribe to the derived rows collection by key (`findOne` per row or a keyed change
+  subscription); the list subscribes to the ordered-ids query. Garbage-collection times explicit.
+- Honest cost: per-query reactivity, bootstrap and heap overhead that lost twice already, and a
+  second derivation vocabulary next to the custom collection.
+
+### 5.5 The control
+
+The current store, unchanged, behind the same harness. The isolation fence (rows committed ≤
+rows affected on an unrelated heartbeat) must fail on it, which proves the detector.
+
+### 5.6 The slice: pick by mechanism, not by feature
+
+The arms must prove that each approach handles every *kind* of hard thing the frontend has,
+not every instance of it. So the slice is one vertical path containing one representative of
+each mechanism, built at full fidelity for the mechanisms and a deliberately cut rule set.
+
+| Mechanism to prove | Representative in the slice | Left out |
+|---|---|---|
+| Per-entity invalidation at live scale | session heartbeat on 4,300 sessions | — |
+| Composite entity from two row kinds | issue = wire row + projection row | — |
+| Key relation, maintained by delta | children by parent, sessions by issue | — |
+| Non-key relation | sessions by worktree path prefix | machine scope |
+| Graph edge | discovered-from origin | continuation walk, dependency edges |
+| Recursive derivation with chain invalidation | subtree rollup: progress, working, asking | provenance nesting, started-by nesting |
+| Membership predicate | visible = not archived, not deleted, root or has own session | snooze, tuck, defer |
+| Ordering and grouping | pinned first, then activity, grouped by repo with one closed fold | worktree rows, nav tree |
+| Local state that must not touch data | selection | pane, focus |
+| Time as an input | activity band from the coarse clock | overnight snooze lapse |
+| Lifecycle | fresh store per principal, replace, evict without tombstone, optimism echo and rejection from the kernel | drafts, offline hydration |
+| Render isolation | windowed list, group header, row, click | everything else on screen |
+
+Three entity types, four relations, about eight rules, three components; roughly 800–1,500
+lines per arm including its UI. The parity oracle is the current derivation projected onto
+exactly the fields and rows the slice claims, so the cut rule set does not weaken the check.
+
+Where it lives: a standalone worklist screen per arm, fed by the real kernel replica through
+its effective row stream, mounted in a harness for web and the React Native unit renderer. Not
+inside the app shell and not behind a flag in the current sidebar. The real kernel is what
+keeps it from being a toy: optimism, rollback, evict and rescope arrive as in production.
+
+How the slice proves it generalises: the change exercise (§5.9) takes its changes from the
+"left out" column (the continuation walk, snooze, worktree rows). The cost of each is the
+measured price of growing the slice toward the rest of the frontend.
+
+What would make the slice too small: skipping the recursive rollup or the prefix relation.
+Those are where the three approaches differ; without them the comparison is bookkeeping again.
+
+### 5.7 Fixed ground so the measurement is fair (performance evidence rules)
 
 - **Stage 0 first** (§7): the store-independent fixes land before the candidate is timed.
 - **Fixture** = the live-shaped synthetic corpus (4,867 / 4,304) *with* the 500-repo /
   468-worktree tree; the empty tree in POD-4403 hid the nav-tree cost. Plus the 674 ci corpus.
 - **Browser, not happy-dom.** Chromium via CDP, production build, input-to-paint for the click,
   long-task accounting, heap endpoints. happy-dom for counts in CI.
+- **Three corpus sizes.** The live-shaped fixture at 1×, 2× and 4× (4,867 / 9,734 / 19,468
+  issues) so the growth slope in §1a is measured, not argued.
 - **Counts first, walls second.** Rows committed, computed re-evaluations, reactions run, index
   bucket updates; walls interleaved with arm order rotated and load recorded, under the bench
   lease.
 - **Parity oracle** after every scenario: visible row ids, order, per-row text, group
   membership identical to the control.
 
-### 5.5 Scenarios and budgets
+### 5.8 Scenarios and budgets
 
 | # | Scenario | Rows committed | Computed re-evaluations | Wall |
 |---|---|---|---|---|
@@ -228,16 +327,22 @@ affected on an unrelated heartbeat) must fail on it, which proves the detector.
 | 12 | Cold bootstrap at live corpus | full, once | full, once | ≤ 1.1× control; heap ≤ 1.1× |
 | 13 | Rescope growth then back | full, once each | full | no leak after disposal |
 
-Scenarios 1–3 are milestone 1 and the kill gate.
+| 14 | Growth: scenarios 1, 2, 3 and 5 repeated at 2× and 4× corpus | same as at 1× | same | slope ≤ 1.2 |
+| 15 | Coexistence: arm screen mounted beside the legacy sidebar on one kernel | arm counts unchanged from 1–3; legacy counts unchanged from the control | — | no cross-wake |
 
-### 5.6 The foot-gun exercise, which is the point
+Scenarios 1–3 are milestone 1 and the kill gate. Scenario 14 is the performance differentiator
+(§1a). Every wall is measured in Chromium against the live-shaped fixture, interleaved, load
+recorded, under the bench lease; counts are asserted in CI on happy-dom.
+
+### 5.9 The foot-gun exercise, which is the point
 
 Done by a developer (or agent) who did not build the model layer, on the candidate and on the
 control, counting files, lines and places-to-remember and recording what the screen shows:
 
-- A: add a new input that affects row placement.
-- B: add a new derived field to the row.
+- A: add a new input that affects row placement (snooze: time-dependent membership).
+- B: add a new derived field to the row (the continuation walk: a graph walk).
 - C: change the bubbling rule ("an ask on any descendant marks the root asking").
+- C2: add a second row kind to the same list (worktree rows).
 - D: omit the plausible bookkeeping step in each (control: leave the input out of
   `sourceEqual`; candidate: store the input in a plain variable). Expected: control silent;
   candidate throws under `observableRequiresReaction` / the isolation fence fails.
@@ -247,20 +352,101 @@ control, counting files, lines and places-to-remember and recording what the scr
 
 The decision document leads with this table, not with walls.
 
-### 5.7 Milestones
+### 5.10 Milestones
 
 | M | Deliverable | Gate |
 |---|---|---|
 | 0 | Stage 0 fixes landed and remeasured; cruft removed from `dev/mw`; browser harness with the live-shaped fixture; control fails the isolation fence | harness produces counts and paint times |
-| 1 | Model layer: tables, relations, per-issue computeds, `WorklistModel`; observer components; scenarios 1–3 | kill gate |
+| 1 | Each arm: tables, indexes, per-row derivation, its own list and row components; shape review (§6.1); scenarios 1–3 | shape review, then kill gate per arm |
 | 2 | Scenarios 4–10 | budgets or a named reason |
-| 3 | Lifecycle 11–13, mobile `WorkScreen` on the models, bundle and heap | budgets |
-| 4 | Foot-gun exercise, complexity report, decision document, and the migration order for the rest of the app if adopted | a decision the operator can read cold |
+| 3 | Lifecycle 11–13, growth 14, coexistence 15, mobile worklist on each arm, write-path sketch (§6.4), bundle and heap | budgets in §1a |
+| 4 | Foot-gun exercise, change exercise, complexity report, screen coverage map (§6.3), decision document applying the rule in §6.2 with the two open decisions (§6.4) and the migration order | a decision the operator can read cold |
 
-Rough sizes with one lane per milestone: M0 about a week (mostly Stage 0), M1 three to four
-days, M2 a week, M3 three to four days, M4 a week. About four weeks of lane time.
+Rough sizes, one lane per arm per milestone: M0 about a week (mostly Stage 0), M1 three to four
+days per arm, M2 a week per arm, M3 three to four days per arm, M4 a week. About seven weeks of
+lane time across three arms, running up to three lanes in parallel.
 
-## 6. What this changes in the epic
+## 6. Closing the gaps between "library choice" and "rewrite decision base"
+
+### 6.1 Shape review gate at milestone 1
+
+Before an arm's scenarios run, a reviewer who did not build it reads the arm against this
+checklist and writes pass or fail per line. Any fail sends the arm back before measurement.
+
+| Check | Hand-rolled | MobX | TanStack DB |
+|---|---|---|---|
+| No import from `viewmodels/`, `slices/`, `mission.ts`, `presentation/`, `replica/issue-view*` | required | required | required |
+| Entities keyed by id, values immutable borrowed rows | required | required | required |
+| No derivation enumerates a table on an ordinary delta (only at bootstrap / replace) | delta handlers only | no computed reads `map.values()` outside `WorklistModel.visible` | no full-collection query without an index |
+| Dependency correctness by construction | every handler is an exhaustive switch over the delta union; rebuild oracle test present | enforcement config on; no `keepAlive`; `eslint-plugin-mobx` clean | derived collections chained from live queries; only the recursive closure is imperative |
+| Row isolation | one subscription key per row | `observer` per row | per-row keyed subscription |
+| Lifecycle explicit | release on evict; replace clears tables | store per principal; `map.delete` on evict | `gcTime` set; replace via one transaction |
+| Own UI, windowed, no whole-array props | required | required | required |
+
+### 6.2 Decision rule, pre-committed
+
+Three gates, in order, then one ranking. All three gates must pass; the order says only which
+failure is reported first.
+
+1. **Safety gate.** The arm turns every mistake in §5.9 into a thrown error, a failing test or a
+   failing lint. A mistake that stays silent disqualifies the arm unless a check can be added
+   inside the arm within the milestone.
+2. **Performance gate.** Every budget in §1a at live corpus, in the browser; the growth slope
+   at 2× and 4×.
+3. **Fidelity gate.** Parity oracle green on all scenarios; lifecycle scenarios 11–13 green.
+
+Ranking among arms that pass all three: the change exercise (places to remember, lines,
+whether a newcomer got it right first time) decides; the growth slope breaks a tie; bundle and
+heap break the next. The document reports every gate result for every arm, including the ones
+that failed, so the losing arms' costs are named as accurately as the winner's.
+
+### 6.3 Coexistence and the screen coverage map
+
+Scenario 15 mounts the arm's screen beside the legacy sidebar on one kernel and asserts neither
+wakes the other. That is the mechanism a screen-by-screen migration relies on.
+
+Milestone 4 fills in this map for the winner, from the consumer census. Each row is covered by
+the slice, a named exclusion, or a gap probed before the rewrite plan is written.
+
+| Screen or surface | Mechanisms it needs (from §5.6) | Status after the slice |
+|---|---|---|
+| Worklist sidebar, rail, mobile Work tab | all twelve | covered |
+| Command palette | membership, ordering, text filter over titles | text filter is a full scan by nature: named exclusion, bounded by the visible set |
+| Workspace and Flight Deck | recursive rollup, key relations, ordering within one mission, per-mission aggregates | covered by rollup + relations; aggregates are groupBy over one subtree: probe |
+| Issues board and Tasks | membership by stage, counts per stage, ordering, epic progress | groupBy + rollup: probe at 4× corpus |
+| Repo picker, cold-start composer | most-recent-use over sessions × repos | non-key relation: covered by the prefix relation |
+| Host indicators, machine facts | high-frequency numeric stream | named exclusion: stays off the graph, own store (as today) |
+| Chat transcript, presence, connection | already off the store | named exclusion |
+| Issue detail, properties, edges | single entity + edges | covered by composite entity + graph edge |
+| Drafts | per-id local ledger | probe: local state with persistence semantics |
+
+### 6.4 The two decisions the prototypes inform but do not make
+
+**Where optimism lives.** The arms keep the kernel as the only writer, for comparability. To
+inform the decision, milestone 3 adds a bounded write-path sketch per arm: a one-page design plus
+a small spike of one optimistic edit made through the arm's own write API (an action, a
+transaction, a pending delta), reconciled against the kernel's echo and rejection from scenario
+9. Not measured for speed; judged on how much of the kernel's optimism semantics (rollback,
+dead-letter, readmission) the arm's idiom expresses without special cases.
+
+**What the server precomputes.** Each arm's instrumentation reports the share of its per-event
+computation spent in rollups versus row assembly. If rollups dominate at 4× corpus, server-side
+projections are the next lever and the decision document says so with the number.
+
+## 7. The issue tree (filed 2026-09-20 under POD-4441)
+
+Integration branch `integrate/4441-round-two`, off `dev/mw`; every child branches from it and lands
+on it ff-only. Nothing from round two lands on `dev/mw` or `main`.
+
+| Phase | Issues | Blocked by |
+|---|---|---|
+| G shared ground | G1 POD-4442 slice spec + package skeleton · G2 POD-4443 fixture + oracle · G3 POD-4444 effective row stream + scenarios · G4 POD-4445 measurement harness + legacy control | G2–G4 by G1 |
+| H milestone 1 | H1 POD-4446 hand-rolled · H2 POD-4447 MobX · H3 POD-4448 TanStack DB · H4 POD-4449 shape review (gate) | H1–H3 by G1–G4; H4 by H1–H3 |
+| I milestone 2 | I1 POD-4450 · I2 POD-4451 · I3 POD-4452 (scenarios 4–10 per arm) | each by H4 and its H |
+| J milestone 3 | J1 POD-4453 · J2 POD-4454 · J3 POD-4455 (lifecycle, growth, coexistence, mobile, write-path sketch, rollup share, bundle) | each by its I |
+| K decision | K1 POD-4456 · K2 POD-4457 · K3 POD-4458 (exercise per arm, by a non-builder) · K4 POD-4459 decision document | K1–K3 by their J; K4 by K1–K3 |
+
+## 8. What this changes in the epic
 
 - F2–F4 stay blocked; they assumed a pilot that passed F1.
 - The shipped pilot (`presentation/*`, effective-changes, E1–E7 consumers, the flag) is not the
@@ -268,7 +454,7 @@ days, M2 a week, M3 three to four days, M4 a week. About four weeks of lane time
   (D6) are reused as specifications.
 - The C1 gate outcome 4 stands; its definition of the pilot is replaced by §5.
 
-## 7. Stage 0 and the landing plan
+## 9. Stage 0 and the landing plan
 
 ### 7.1 Where the code is
 
@@ -316,7 +502,7 @@ Then retire the integration branch.
 | S6 | Layout-read hotspot on switch (`getBoundingClientRect`, 1.7 s per 14 clicks): find the reader, batch or remove | unknown until profiled | measured, then fixed or filed |
 | S7 | Post-fix live remeasure with the C1 collector; freeze as the round-two control baseline | `docs/measurements/` | the baseline round two is judged against |
 
-## 8. Source anchors
+## 10. Source anchors
 
 Live evidence: `docs/measurements/POD-4358-post-b-baseline.md`, `POD-4358-post-b-live.json`,
 `POD-4286-gate-a.md`. Round one: `docs/decisions/4321-reactive-pilot.md`,
