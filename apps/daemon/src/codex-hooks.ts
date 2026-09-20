@@ -57,7 +57,7 @@ export interface CodexVersion {
 }
 
 export interface CodexHookDiagnostic {
-  code: 'codex-version-unsupported'
+  code: 'codex-version-unsupported' | 'codex-hooks-untrusted'
   title: 'Codex hooks need review'
   body: string
   observedVersion: string
@@ -173,6 +173,130 @@ function upsertHooksJson(doc: Record<string, unknown>): {
 }
 
 /**
+ * DECISION RECORD (POD-4076): Podium detects Codex hook trust but never grants
+ * it. Two alternatives were rejected:
+ *
+ * - Writing `[hooks.state]` trust entries ourselves would mark our own hooks
+ *   trusted on the user's machine, defeating a security control the user owns.
+ *   The existing design note ("never writes Codex's private trust-state
+ *   representation") stands.
+ * - Passing `--dangerously-bypass-hook-trust` at launch is global to the
+ *   invocation: it would also run any USER or PROJECT hook configured in that
+ *   CODEX_HOME without their trust review. Podium vets only the handlers it
+ *   wrote, so a global bypass over-trusts.
+ *
+ * What remains is detect-and-tell: read the trust state to DIAGNOSE (reading
+ * is not writing), and raise an operator diagnostic naming Codex's public
+ * `/hooks` flow as the remedy. Until trust exists Codex silently runs none of
+ * the handlers, so sessions are poll-only and PermissionRequest — which only
+ * the hook channel carries — is gone entirely.
+ */
+
+const CODEX_EVENT_SNAKE: Record<(typeof CODEX_HOOK_EVENTS)[number], string> = {
+  SessionStart: 'session_start',
+  UserPromptSubmit: 'user_prompt_submit',
+  PreToolUse: 'pre_tool_use',
+  PermissionRequest: 'permission_request',
+  PostToolUse: 'post_tool_use',
+  Stop: 'stop',
+}
+
+export interface PodiumHookPosition {
+  event: string
+  snake: string
+  group: number
+  handler: number
+}
+
+/** Locate every Podium handler in a parsed hooks.json doc. */
+export function podiumHookPositions(doc: Record<string, unknown>): PodiumHookPosition[] {
+  const hooks = (isRecord(doc.hooks) ? doc.hooks : {}) as Record<string, unknown>
+  const positions: PodiumHookPosition[] = []
+  for (const event of CODEX_HOOK_EVENTS) {
+    const groups: HookGroup[] = Array.isArray(hooks[event]) ? (hooks[event] as HookGroup[]) : []
+    groups.forEach((group, groupIndex) => {
+      const handlers = group?.hooks
+      if (!Array.isArray(handlers)) return
+      handlers.forEach((handler, handlerIndex) => {
+        if (!isPodiumHandler(handler as HookHandler)) return
+        // First Podium handler per event is the one Podium maintains; foreign
+        // duplicates of the marker are not ours to trust-check. upsert keeps a
+        // single Podium handler per event, so any second match is foreign.
+        if (positions.some((p) => p.event === event)) return
+        positions.push({
+          event,
+          snake: CODEX_EVENT_SNAKE[event],
+          group: groupIndex,
+          handler: handlerIndex,
+        })
+      })
+    })
+  }
+  return positions
+}
+
+export interface CodexHookTrustEntry {
+  trustedHash?: string
+  enabled?: boolean
+}
+
+/**
+ * Parse Codex's `[hooks.state."<path>:<event>:<i>:<j>"]` trust table without a
+ * TOML dependency: scan section headers and pick `trusted_hash` / `enabled`
+ * out of each section body. Anything unparseable yields no entry, which reads
+ * as untrusted (fail-loud) rather than trusted.
+ */
+export function parseCodexHookTrustState(configText: string): Map<string, CodexHookTrustEntry> {
+  const entries = new Map<string, CodexHookTrustEntry>()
+  const headerPattern = /^\s*\[hooks\.state\."([^"]+)"\s*\]\s*$/gim
+  const headers: Array<{ key: string; start: number; bodyStart: number }> = []
+  let match: RegExpExecArray | null
+  while ((match = headerPattern.exec(configText)) !== null) {
+    headers.push({
+      key: match[1] ?? '',
+      start: match.index,
+      bodyStart: match.index + match[0].length,
+    })
+  }
+  headers.forEach((header, index) => {
+    const bodyEnd = index + 1 < headers.length ? (headers[index + 1]?.start ?? configText.length) : configText.length
+    const body = configText.slice(header.bodyStart, bodyEnd)
+    const hashMatch = /^\s*trusted_hash\s*=\s*"([^"]*)"/im.exec(body)
+    const enabledMatch = /^\s*enabled\s*=\s*(true|false)/im.exec(body)
+    entries.set(header.key, {
+      ...(hashMatch?.[1] ? { trustedHash: hashMatch[1] } : {}),
+      ...(enabledMatch?.[1] ? { enabled: enabledMatch[1] === 'true' } : {}),
+    })
+  })
+  return entries
+}
+
+/**
+ * Check whether Codex will actually run the Podium handlers in `doc`.
+ *
+ * A handler counts as trusted when its trust entry carries a non-empty
+ * `trusted_hash` and is not explicitly `enabled = false`. A missing `enabled`
+ * line still counts as trusted: entries written before Codex added the field
+ * carry only the hash (observed on live hosts), and Codex runs those hooks.
+ */
+export function checkPodiumHookTrust(input: {
+  hooksJsonPath: string
+  doc: Record<string, unknown>
+  configText: string | undefined
+}): { trusted: boolean; untrusted: string[] } {
+  const positions = podiumHookPositions(input.doc)
+  if (positions.length === 0) return { trusted: true, untrusted: [] }
+  const entries = input.configText ? parseCodexHookTrustState(input.configText) : new Map()
+  const untrusted: string[] = []
+  for (const position of positions) {
+    const key = `${input.hooksJsonPath}:${position.snake}:${position.group}:${position.handler}`
+    const entry = entries.get(key)
+    if (!entry?.trustedHash || entry.enabled === false) untrusted.push(position.event)
+  }
+  return { trusted: untrusted.length === 0, untrusted }
+}
+
+/**
  * Ensure Podium's codex hook definitions are installed. Safe to call on every
  * daemon boot: no-op (no writes) when everything is already in place; never
  * removes or reorders another tool's hooks. Skips silently when
@@ -183,7 +307,14 @@ export async function ensurePodiumCodexHooks(opts?: {
   codexHome?: string
   versionProbe?: CodexVersionProbe
   onDegraded?: (diagnostic: CodexHookDiagnostic) => void
-}): Promise<{ installed: boolean; changed: boolean; degraded?: boolean; reason?: string }> {
+}): Promise<{
+  installed: boolean
+  changed: boolean
+  degraded?: boolean
+  reason?: string
+  trusted?: boolean
+  untrustedEvents?: string[]
+}> {
   const codexHome = opts?.codexHome ?? join(opts?.homeDir ?? homedir(), '.codex')
   if (!existsSync(codexHome)) return { installed: false, changed: false, reason: 'no ~/.codex' }
   const hooksJsonPath = join(codexHome, 'hooks.json')
@@ -236,7 +367,45 @@ export async function ensurePodiumCodexHooks(opts?: {
     await writeAtomic(hooksJsonPath, `${JSON.stringify(upserted.doc, null, 2)}\n`)
   }
 
-  return { installed: true, changed: upserted.changed }
+  // Trust is a separate question from installation: the file above can be
+  // in place while Codex silently runs none of it. Read (never write)
+  // config.toml's [hooks.state] table and say so when our handlers lack it.
+  let configText: string | undefined
+  try {
+    configText = await readFile(join(codexHome, 'config.toml'), 'utf8')
+  } catch {
+    configText = undefined
+  }
+  const trust = checkPodiumHookTrust({
+    hooksJsonPath,
+    doc: upserted.doc,
+    configText,
+  })
+  if (!trust.trusted) {
+    const missing = trust.untrusted.join(', ')
+    const diagnostic: CodexHookDiagnostic = {
+      code: 'codex-hooks-untrusted',
+      title: 'Codex hooks need review',
+      observedVersion,
+      body: `Podium installed Codex hook handlers in '${hooksJsonPath}' but Codex has not trusted them (missing trust for: ${missing}). Approve them in Codex's own /hooks flow; Podium never marks hooks trusted on your behalf. Until then Codex runs none of Podium's hooks and says nothing about it: sessions fall back to poll-only state and PermissionRequest observations are missing.`,
+    }
+    log.error(diagnostic.title, {
+      code: diagnostic.code,
+      observedVersion,
+      detail: diagnostic.body,
+    })
+    opts?.onDegraded?.(diagnostic)
+    return {
+      installed: true,
+      changed: upserted.changed,
+      degraded: true,
+      reason: `untrusted codex hooks (missing trust for: ${missing}); approve in Codex /hooks`,
+      trusted: false,
+      untrustedEvents: trust.untrusted,
+    }
+  }
+
+  return { installed: true, changed: upserted.changed, trusted: true, untrustedEvents: [] }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
