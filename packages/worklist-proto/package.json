@@ -23,6 +23,9 @@
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/worklist-proto:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {
+    "@podium/client-core": "workspace:*",
+    "@podium/model": "workspace:*",
+    "@podium/sync": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "happy-dom": "^20.10.2",

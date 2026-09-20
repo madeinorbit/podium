@@ -469,6 +469,9 @@
       "name": "@podium/worklist-proto",
       "version": "0.0.0",
       "devDependencies": {
+        "@podium/client-core": "workspace:*",
+        "@podium/model": "workspace:*",
+        "@podium/sync": "workspace:*",
         "@types/node": "^24.0.0",
         "@types/react": "^19.0.0",
         "happy-dom": "^20.10.2",
