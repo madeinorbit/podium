@@ -134,6 +134,58 @@ export interface SessionViewInput {
 }
 
 /**
+ * The phase a session row contributes to issue rollups [POD-4382].
+ *
+ * The current session model carries the harness-observed phase nested at
+ * `agentState.phase`; the view input's top-level `phase` is the legacy
+ * spelling real rows no longer carry. The live model wins because a count that
+ * reports working sessions as `unknown` is a defect, not a design — the
+ * server's own `summarizeSessions` counted `agentState.phase` before the wire
+ * stopped carrying the rollup, and no consumer depends on `unknown` meaning
+ * anything specific. The legacy spelling is honored only as a fallback so
+ * hand-built rows keep meaning what they say. Absent on both means
+ * uninstrumented or not yet observed, which `deriveIssueRollups` reads as
+ * `'unknown'` (the same bucket `AgentPhase` names for that state).
+ */
+export function sessionRollupPhase(
+  row:
+    | { agentState?: { phase?: string | null } | undefined; phase?: string | null }
+    | undefined,
+): string | null {
+  if (!row) return null
+  return row.agentState?.phase ?? row.phase ?? null
+}
+
+/** Memoized row → view-input mapping for {@link readViewInputs}.
+ *
+ *  The replica leaves a row object untouched when a re-applied snapshot is
+ *  byte-identical, and the shared view-model cache keys its reuse on exactly
+ *  that identity (`sameMemberSessions` in `issue-view-cache.ts`). A mapping
+ *  that minted fresh objects every pass would read as "every session changed"
+ *  and put the O(project) rebuild back — so a stable row keeps its mapped
+ *  object. `WeakMap` because the replica owns the rows; the cache must never
+ *  keep one alive past its eviction. */
+const sessionViewInputs = new WeakMap<object, SessionViewInput>()
+
+function toSessionViewInput(row: SessionMeta): SessionViewInput {
+  const hit = sessionViewInputs.get(row)
+  if (hit) return hit
+  // Explicit object rather than a spread so the return is CHECKED against
+  // `SessionViewInput` field by field — the same posture as
+  // `projectionToViewInput` below. If a field the views read leaves
+  // `SessionMeta`, this stops compiling HERE, at the join.
+  const next: SessionViewInput = {
+    sessionId: row.sessionId,
+    issueId: row.issueId,
+    agentKind: row.agentKind,
+    phase: sessionRollupPhase(row),
+    lastActiveAt: row.lastActiveAt,
+  }
+  sessionViewInputs.set(row, next)
+  return next
+}
+
+/**
  * Membership, derived the way the wire cannot: an index over `session.issueId`.
  *
  * POD-791 shipped `IssueProjection.memberSessionIds` with an explicit
@@ -466,7 +518,7 @@ export function readViewInputs(
     issues: projections.map((p) =>
       projectionToViewInput(p, readAtByIssueId.get(p.id) ?? null, prefixByRepoId, depsByFrom),
     ),
-    sessions: replica.rows('sessions') as unknown as SessionViewInput[],
+    sessions: replica.rows('sessions').map(toSessionViewInput),
   }
 }
 
@@ -500,11 +552,10 @@ function projectionToViewInput(
   }
 }
 
-/** Type-level proof that a session row satisfies the view input — the sessions
- *  collection is still cast (sessions are not modelled yet), so this is the one
- *  cast left and the assertion that keeps it honest [POD-796/POD-822]. The
- *  issue side no longer needs a satisfies-assertion: `projectionToViewInput`
- *  builds a checked `IssueViewInput` directly, so the compiler proves the same
- *  property at the construction site. */
+/** Type-level proof that a session row carries everything the view input needs —
+ *  the mapping above (`toSessionViewInput`) builds it explicitly, so the
+ *  compiler proves the same property at the construction site. The issue side
+ *  needs no satisfies-assertion either: `projectionToViewInput` builds a
+ *  checked `IssueViewInput` directly. */
 export type SessionMetaSatisfiesViewInput = SessionMeta extends SessionViewInput ? true : never
 const _sessionMetaSatisfies: SessionMetaSatisfiesViewInput = true
