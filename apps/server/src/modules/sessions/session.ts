@@ -409,8 +409,11 @@ export class Session {
    *  every (re)bind. Surfaced in toMeta so a client retires its own sampler/flush. */
   draftSyncEngine = false
   /**
-   * AGENT RUNTIME CONTRACT (POD-1761 W4): true when this session's daemon built
-   * a driver handle for it, reported on bind.
+   * HAS A BOUND DRIVER (POD-1761 W4, renamed POD-4440): true when this
+   * session's daemon built a driver handle for it, reported on bind.
+   * Derived as `msg.driverId !== undefined` — presence IS the driven signal,
+   * because the daemon binds a driver for every profiled agent
+   * unconditionally (POD-4426) and shells carry no driver.
    *
    * TRANSIENT ON PURPOSE, exactly like `draftSyncEngine` above. The fact belongs
    * to a LIVE DRIVER, not to a session's history: a receipt can only be obtained
@@ -420,10 +423,16 @@ export class Session {
    * (re)bind, false whenever we have not been told otherwise — which is the safe
    * direction, because false means "use the legacy path" and the legacy path
    * always works.
+   *
+   * There is deliberately NO durable column and NO wire projection for this:
+   * it is re-established by every bind and never reconstructed from the row,
+   * so a column rename needs no migration because there is no column.
+   * The old name `runtimeContract` was the env switch this epic deleted;
+   * keeping it would read as though that gate survived.
    */
-  runtimeContract = false
+  hasBoundDriver = false
   /** Runtime driver actually bound by the daemon. Transient like
-   * `runtimeContract`: the live handle owns this fact, so it is re-established
+   * `hasBoundDriver`: the live handle owns this fact, so it is re-established
    * by every bind and is never reconstructed from the spawn request. */
   driverId: string | undefined = undefined
   /**

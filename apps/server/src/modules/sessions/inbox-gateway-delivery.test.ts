@@ -94,7 +94,7 @@ function harness(
     status: options.status ?? 'live',
     agentKind: options.agentKind ?? 'claude-code',
     resume: { kind: 'claude-code', value: 'resume-1' },
-    runtimeContract: false,
+    hasBoundDriver: false,
     driverId: undefined,
     queuedMessageCount: 0,
     transcriptAvailable: false,

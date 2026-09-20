@@ -320,8 +320,8 @@ export interface MessageDeliveryDeps {
       | { ok: boolean; queued?: boolean; reason?: string; position?: number }
       | Promise<{ ok: boolean; queued?: boolean; reason?: string; position?: number }>
   }
-  /** Server-only fact for the live runtime contract. It is not part of the client session projection. */
-  runtimeContractActive?(sessionId: SessionId): boolean
+  /** Server-only taxonomy fact: true for agent sessions (driver path). It is not part of the client session projection. */
+  isAgentDriven?(sessionId: SessionId): boolean
   /**
    * Legacy mailbox mirror (store.issues.addIssueMessage) — issue-addressed
    * sends dual-write so inbox/claim/pending keep working (drop with the table).
@@ -944,7 +944,7 @@ export class MessageDeliveryService {
     return (
       session.agentKind === 'grok' &&
       session.driverId === 'grok-acp' &&
-      this.deps.runtimeContractActive?.(sessionId) === true
+      this.deps.isAgentDriven?.(sessionId) === true
     )
   }
 
@@ -1523,7 +1523,7 @@ export class MessageDeliveryService {
     const awaitReceipt =
       opts?.awaitReceipt === true &&
       sessions.receiptSend !== undefined &&
-      this.deps.runtimeContractActive?.(sessionId) === true
+      this.deps.isAgentDriven?.(sessionId) === true
     const confirmed = this.render.confirmedOnInjection(message)
     let recorded = false
     const pendingReceipts: TurnReceipt[] = []

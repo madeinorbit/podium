@@ -227,11 +227,11 @@ export class SessionDaemonProjection {
       case 'sessionCwd': {
         const session = this.ports.sessions.get(message.sessionId)
         if (!session || session.machineId !== machineId) break
-        // Contract-owned sessions project cwd through the runtime workspace
+        // Driver-bound sessions project cwd through the runtime workspace
         // port, not this legacy frame. The daemon sends both (tap + legacy);
         // ignoring the legacy here is what keeps the projection single-writer
         // while plain shell/login sessions keep their existing path.
-        if (session.runtimeContract) break
+        if (session.hasBoundDriver) break
         if (message.cwd && session.cwd !== message.cwd) {
           const cwd = message.cwd
           const result: Promise<void> = this.ports.write(session, (draft) => {

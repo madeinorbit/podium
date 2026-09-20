@@ -86,16 +86,16 @@ export async function sessionCommandCtx(
   const deps: SessionCommandDeps = {
     sessions: () => commandSessions,
     stageAttachment: async (input) => await sessions.runtimeGateway.stageAttachment(input),
-    runtimeContractActive: async (sessionId) => await sessions.receiptSender.onContract(sessionId),
+    isAgentDriven: async (sessionId) => await sessions.receiptSender.onContract(sessionId),
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //
     // The capability is closed over HERE, at the composition root, so no handler
     // takes a principal as an argument and none can invent one — the same rule
     // the rest of this function follows. The server selects the delivery mode
-    // from the target session's reported contract binding: active contract
-    // sessions use the existing receipt-aware confirmation path, while
-    // legacy-driven sessions retain `immediate`. `mailSendInput` has no field
-    // for it, so a client cannot choose either mode.
+    // from the target session's taxonomy (POD-4427: agents take the driver
+    // path, shells keep the raw transport): agent-driven sessions use the
+    // existing receipt-aware confirmation path, while shells retain `immediate`.
+    // `mailSendInput` has no field for it, so a client cannot choose either mode.
     //
     // The non-null assertion is safe by the same argument the router's makes: a
     // `undefined` here would mean `mail.send` does not name this transport, and

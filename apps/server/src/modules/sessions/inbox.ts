@@ -551,13 +551,17 @@ export class SessionInbox {
    */
   async recoverQueuedAfterExit(sessionId: SessionId): Promise<boolean> {
     const session = this.deps.getSession(sessionId)
+    // NOTE (POD-4440): no `hasBoundDriver` term here on purpose. The
+    // `driverId === 'grok-acp'` pin below already implies a bound driver
+    // (`hasBoundDriver` is derived as `driverId !== undefined`), so a bound
+    // check would be redundant. This predicate is a Grok-ACP recovery guard,
+    // not a delivery path.
     if (
       !session ||
       session.status !== 'exited' ||
       session.archived ||
       session.queuedMessageCount === 0 ||
       session.agentKind !== 'grok' ||
-      session.runtimeContract !== true ||
       session.driverId !== 'grok-acp' ||
       !session.resume
     ) {

@@ -189,7 +189,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.daemonProjection = new SessionDaemonProjection({
     sessions: bag.sessions,
     recordSessionGitActivity: (sessionId, input) => {
-      if (bag.sessions.get(sessionId)?.runtimeContract || runtimeEventGate?.ready(sessionId) === true) return
+      if (bag.sessions.get(sessionId)?.hasBoundDriver || runtimeEventGate?.ready(sessionId) === true) return
       bag.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input })
     },
     binding: bag.bindingReceipts,
@@ -219,7 +219,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     onWorktreesChanged: (repoPath, machineId) => bag.deps.onWorktreesChanged(repoPath, machineId),
   })
   const serverDriven = (session: Session): boolean =>
-    session.runtimeContract === true && driverFamilyForId(session.driverId ?? '') !== 'terminal'
+    session.hasBoundDriver === true && driverFamilyForId(session.driverId ?? '') !== 'terminal'
   const nativeViewActive = (sessionId: SessionId): boolean => {
     const session = bag.sessions.get(sessionId)
     return (
@@ -939,7 +939,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     initializeRuntimeMetadata: async (sessionId, machineId) => {
       const session = bag.sessions.get(sessionId)
       const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
-      if (!session || bag.sessions.get(sessionId) !== session || session.machineId !== machineId || !session.runtimeContract) return
+      if (!session || bag.sessions.get(sessionId) !== session || session.machineId !== machineId || !session.hasBoundDriver) return
       if ('snapshot' in reply.result) {
         await bag.daemonProjection.metadataSnapshot(sessionId, reply.result.snapshot)
         // Reconnect: the driver's snapshot binding carries its current

@@ -227,7 +227,7 @@ describe('continueSession contract routing', () => {
     }
     // A server-family session has no PTY bridge: the daemon discards typed
     // bytes without an error, so any 'continue\r' here is bytes into nothing.
-    session.runtimeContract = true
+    session.hasBoundDriver = true
     session.driverId = 'opencode-server'
     sessions.set(sessionId, session)
     await ops.continueSession({ sessionId })

@@ -165,10 +165,10 @@ export interface HarnessOptions {
   /** Flag-on variant: wire the receipt-shaped transport (POD-1761 W4). Absent =
    *  flag off, and the legacy push seam is the only one delivery can find. */
   receipts?: ReceiptBehaviour
-  /** Whether the target is actively bound to the runtime contract. Kept
+  /** Whether the target is an agent session taking the driver path. Kept
    *  separate from `receipts` so tests can preserve the old optimistic caller
    *  behavior or exercise the receipt-aware blocking path explicitly. */
-  runtimeContractActive?: MessageDeliveryDeps['runtimeContractActive']
+  isAgentDriven?: MessageDeliveryDeps['isAgentDriven']
   /** Poll interval handed to the gate's blocking-send / await seams. */
   awaitPollMs?: number
   /**
@@ -360,7 +360,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     mirrorMarkIssueMailRead: async (issueId, ids) =>
       await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, now()),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
-    ...(opts?.runtimeContractActive ? { runtimeContractActive: opts.runtimeContractActive } : {}),
+    ...(opts?.isAgentDriven ? { isAgentDriven: opts.isAgentDriven } : {}),
     // POD-1193: when a test supplies machines (or an explicit port), the wake
     // path consults the same placementDecision the gate uses for spawnAgent.
     ...(opts?.placementAtWake
