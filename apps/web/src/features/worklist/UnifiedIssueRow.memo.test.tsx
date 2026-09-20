@@ -21,6 +21,7 @@
  * less work.
  */
 import { issueDisplayRef } from '@podium/protocol'
+import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/viewmodels'
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
@@ -66,7 +67,11 @@ function baseIssues() {
   return { a, b, c }
 }
 
-function baseRows(issues: ReturnType<typeof baseIssues>) {
+function baseRows(issues: ReturnType<typeof baseIssues>): {
+  rowA: UnifiedIssueRowView
+  rowB: UnifiedIssueRowView
+  rowC: UnifiedIssueRowView
+} {
   return {
     rowA: {
       kind: 'issue',
@@ -89,7 +94,7 @@ function baseRows(issues: ReturnType<typeof baseIssues>) {
       activityAt: 3,
       missionRollup: { progress: PROG_C, fromChildren: false },
     },
-  } as const
+  }
 }
 
 /** Legacy list: the pre-fix data flow — whole arrays, fresh closures, no memo. */

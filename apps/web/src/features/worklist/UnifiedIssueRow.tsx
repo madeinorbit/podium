@@ -467,7 +467,10 @@ function menuPropsForAnchor(
   issue: IssueNavigationModel,
   issues: IssueNavigationModel[] | undefined,
   resolveMenuData: (() => UnifiedIssueRowMenuData) | undefined,
-): { issues: IssueNavigationModel[]; allIssues: IssueNavigationModel[] } {
+): {
+  issues: Array<IssueNavigationModel & { memberSessionIds?: SessionId[] }>
+  allIssues: Array<IssueNavigationModel & { memberSessionIds?: SessionId[] }>
+} {
   if (resolveMenuData) {
     const data = resolveMenuData()
     return {

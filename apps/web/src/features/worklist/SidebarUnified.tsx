@@ -653,7 +653,7 @@ export function WorkSections({
       let fn = foldedSelectCacheRef.current.get(issueId)
       if (!fn) {
         fn = () => {
-          const found = issueByIdLiveRef.current.get(issueId) ?? issueById.get(issueId)
+          const found = issueByIdLiveRef.current.get(issueId) ?? issueById.get(asIssueId(issueId))
           if (found) handleSelectIssue(found)
         }
         foldedSelectCacheRef.current.set(issueId, fn)
