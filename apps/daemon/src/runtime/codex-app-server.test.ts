@@ -12,14 +12,28 @@
  * keeping the terminal path as its permanent fallback.
  */
 
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
+import type {
+  DurableAdapter,
+  DurableProcess,
+  HeadlessAttachOptions,
+  HeadlessSpawnOptions,
+  HostAgentSession,
+} from '@podium/process/durable'
 import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/abduco-socket'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   codexAppServerConfigArgs,
   codexAppServerVersionProbe,
   codexClientSocketPath,
   codexScopeLabel,
+  CodexEngineLeaseRefused,
+  createCodexHost,
   resetCodexAppServerVersionProbe,
   STRIPPED_CODEX_CREDENTIALS,
 } from './codex-app-server'
@@ -415,15 +429,317 @@ describe('which probe answers for which driver', () => {
 })
 
 describe('the scope label', () => {
-  it('names the SESSION, so it survives the child being replaced', () => {
+  it('names the SESSION, so it survives the engine being replaced', () => {
     /**
-     * `adopt()` for this family starts a fresh child and resumes the thread, and
-     * the corpus requires `binding.process.key` to be unchanged across that. A
-     * pid-derived key would break both that property and the exact-identity
-     * check the journal comparison performs.
+     * `adopt()` for this family rebinds the surviving engine when one answers
+     * and only starts a fresh child (plus `thread/resume`) when nothing did,
+     * and the corpus requires `binding.process.key` to be unchanged across
+     * either path. A pid-derived key would break both that property and the
+     * exact-identity check the journal comparison performs.
      */
     const a = codexScopeLabel('sess-1' as never)
     expect(a).toBe(codexScopeLabel('sess-1' as never))
     expect(a).not.toBe(codexScopeLabel('sess-2' as never))
+  })
+})
+
+describe('headless engine lifecycle (POD-4433)', () => {
+  const SESSION = asSessionId('33333333-3333-4333-8333-333333333333')
+
+  /** A host attachment the test drives by hand. */
+  function fakeEngineSession(input: { childPid?: number; lease?: boolean } = {}): {
+    session: HostAgentSession
+    exits: Array<(code: number, signal: number) => void>
+  } {
+    const exits: Array<(code: number, signal: number) => void> = []
+    const session = {
+      ready: Promise.resolve({
+        version: 1,
+        hostPid: 111,
+        childPid: input.childPid ?? 4242,
+        hasPty: false,
+        cols: 0,
+        rows: 0,
+        seqLow: 0n,
+        seqHigh: 0n,
+        lease: input.lease ?? true,
+      }),
+      connection: {
+        onData: () => () => {},
+        onExit: (cb: (code: number, signal: number) => void) => {
+          exits.push(cb)
+          return () => {}
+        },
+        signal: () => {},
+      },
+      dispose: () => {},
+    } as unknown as HostAgentSession
+    return { session, exits }
+  }
+
+  function fakeEngineDurable(hooks: {
+    spawnHeadless?: (opts: HeadlessSpawnOptions) => Promise<HostAgentSession>
+    attachHeadless?: (opts: HeadlessAttachOptions) => Promise<HostAgentSession>
+    has?: (label: string) => Promise<boolean>
+    killed?: (label: string) => void
+  }): DurableProcess {
+    const adapter: DurableAdapter = {
+      kind: 'host',
+      spawn: () => Promise.reject(new Error('terminal spawn is not under test')),
+      spawnHeadless:
+        hooks.spawnHeadless ?? (() => Promise.reject(new Error('unexpected spawnHeadless'))),
+      attachHeadless:
+        hooks.attachHeadless ?? (() => Promise.reject(new Error('no engine host answers'))),
+      attach: () => Promise.reject(new Error('terminal attach is not under test')),
+      has: hooks.has ?? (async () => false),
+      kill: async (label: string) => {
+        hooks.killed?.(label)
+      },
+      list: async () => [],
+      socketPath: async () => undefined,
+      waitForSocket: () => Promise.reject(new Error('unused')),
+      hasMasterSync: () => false,
+      attachCommand: (target: string) => target,
+    }
+    return {
+      backend: 'host',
+      primary: adapter,
+      all: [adapter],
+      spawn: (opts) => adapter.spawn(opts),
+      spawnHeadless: (opts) => adapter.spawnHeadless(opts),
+      attachHeadless: (opts) => adapter.attachHeadless(opts),
+      locate: async () => undefined,
+      has: (label) => adapter.has(label),
+      kill: (label) => adapter.kill(label),
+      list: () => adapter.list(),
+      hasMasterSync: (label, env) => adapter.hasMasterSync(label, env),
+    }
+  }
+
+  /** Raw WS acceptor: answers the upgrade and records post-handshake bytes. */
+  function listen(path: string): { frames: Buffer[]; close(): void } {
+    const frames: Buffer[] = []
+    const server = createServer((socket) => {
+      let pending = ''
+      let upgraded = false
+      socket.on('data', (chunk: Buffer) => {
+        if (upgraded) {
+          frames.push(chunk)
+          return
+        }
+        pending += chunk.toString('latin1')
+        const end = pending.indexOf('\r\n\r\n')
+        if (end < 0) return
+        upgraded = true
+        const key =
+          /sec-websocket-key:[ \t]*([^\r\n]+)/i.exec(pending.slice(0, end))?.[1]?.trim() ?? ''
+        const accept = createHash('sha1')
+          .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+          .digest('base64')
+        socket.write(
+          [
+            'HTTP/1.1 101 Switching Protocols',
+            'Upgrade: websocket',
+            'Connection: Upgrade',
+            `Sec-WebSocket-Accept: ${accept}`,
+            '',
+            '',
+          ].join('\r\n'),
+        )
+      })
+      socket.on('error', () => undefined)
+    })
+    server.listen(path)
+    return { frames, close: () => server.close() }
+  }
+
+  /** Short XDG runtime + instance so engine sockets fit sun_path. */
+  let runtimeRoot = ''
+  const saved = {
+    XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+    PODIUM_INSTANCE: process.env.PODIUM_INSTANCE,
+    PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
+  }
+  beforeEach(() => {
+    runtimeRoot = mkdtempSync(join('/tmp', 'pod-4433-cx-'))
+    process.env.XDG_RUNTIME_DIR = runtimeRoot
+    process.env.PODIUM_INSTANCE = 'cx-test'
+    process.env.PODIUM_STATE_DIR = join(runtimeRoot, 'state')
+  })
+  afterEach(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(runtimeRoot, { recursive: true, force: true })
+  })
+
+  const journalledEntry = (clientAddress: string | undefined) => ({
+    sessionId: SESSION,
+    threadId: 'thr-journalled',
+    workdir: '/tmp',
+    rolloutPath: undefined,
+    ...(clientAddress ? { clientAddress } : {}),
+    process: { key: codexScopeLabel(SESSION), pid: 4242 },
+    seq: 7,
+    turnEpoch: 2,
+    bindingVersion: 1,
+  })
+  const binding = {
+    sessionId: SESSION,
+    driver: 'codex-app-server',
+    family: 'server',
+    harness: 'codex',
+    workdir: '/tmp',
+    resume: null,
+    process: { key: codexScopeLabel(SESSION) },
+    bindingVersion: 1,
+  } as never
+
+  it('spawns the engine headless and connects the listener it was given', async () => {
+    resetCodexAppServerVersionProbe()
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
+    const launched: HeadlessSpawnOptions[] = []
+    let listener: { frames: Buffer[]; close(): void } | undefined
+    const { session } = fakeEngineSession()
+    const host = createCodexHost({
+      resources: () => undefined,
+      journal: { read: () => undefined, write: () => {}, clear: () => {} },
+      durable: fakeEngineDurable({
+        spawnHeadless: async (opts) => {
+          launched.push(opts)
+          // The engine the launch describes listens where it was told: serve
+          // that address so the connect below completes against it.
+          const flag = opts.args?.indexOf('--listen') ?? -1
+          const address = flag >= 0 ? opts.args?.[flag + 1] : undefined
+          const path = address?.startsWith('unix://') ? address.slice('unix://'.length) : undefined
+          if (!path) throw new Error('no listener address in engine argv')
+          listener = listen(path)
+          return session
+        },
+      }),
+    })
+    try {
+      const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+      expect(launched).toHaveLength(1)
+      expect(launched[0]).toMatchObject({
+        label: codexScopeLabel(SESSION),
+        cmd: 'codex',
+        cwd: '/tmp',
+      })
+      expect(launched[0]?.args?.slice(0, 2)).toEqual(['app-server', '-c'])
+      expect(launched[0]?.args).toContain('--listen')
+      expect(launched[0]?.stripEnv).toEqual(
+        expect.arrayContaining([...STRIPPED_CODEX_CREDENTIALS]),
+      )
+      expect(endpoint.clientAddress.startsWith('unix://')).toBe(true)
+      expect(endpoint.process.key).toBe(codexScopeLabel(SESSION))
+      endpoint.transport.write('{"id":1}\n')
+      await vi.waitFor(() => expect(listener?.frames.length).toBeGreaterThan(0))
+    } finally {
+      listener?.close()
+    }
+  })
+
+  it('adopt rebinds the surviving engine at its journalled address: no spawn', async () => {
+    const dir = mkdtempSync(join(runtimeRoot, 'sock-'))
+    const socketPath = join(dir, 'engine.sock')
+    const socketListener = listen(socketPath)
+    const clientAddress = `unix://${socketPath}`
+    const spawned: HeadlessSpawnOptions[] = []
+    const { session, exits } = fakeEngineSession({ childPid: 7777 })
+    const host = createCodexHost({
+      resources: () => undefined,
+      journal: {
+        read: () => journalledEntry(clientAddress),
+        write: () => {},
+        clear: () => {},
+      },
+      durable: fakeEngineDurable({
+        spawnHeadless: async (opts) => {
+          spawned.push(opts)
+          throw new Error('a live engine must be rebound, never re-spawned')
+        },
+        attachHeadless: async () => session,
+        has: async () => true,
+      }),
+    })
+    try {
+      const endpoint = await host.adopt(binding)
+      expect(endpoint?.clientAddress).toBe(clientAddress)
+      expect(endpoint?.process.key).toBe(codexScopeLabel(SESSION))
+      expect(endpoint?.process.pid).toBe(7777)
+      expect(spawned).toHaveLength(0)
+      endpoint?.transport.write('{"id":2}\n')
+      await vi.waitFor(() => expect(socketListener.frames.length).toBeGreaterThan(0))
+      // And the host EXITED frame is the status channel, not the dead pipe.
+      expect(endpoint?.engineExit?.()).toBeUndefined()
+      for (const fire of exits) fire(0, 0)
+      expect(endpoint?.engineExit?.()).toEqual({ code: 0, signal: 0 })
+    } finally {
+      socketListener.close()
+    }
+  })
+
+  it('adopt returns undefined when no host holds the label', async () => {
+    const host = createCodexHost({
+      resources: () => undefined,
+      journal: {
+        read: () => journalledEntry('unix:///tmp/nowhere.sock'),
+        write: () => {},
+        clear: () => {},
+      },
+      durable: fakeEngineDurable({ has: async () => false }),
+    })
+    await expect(host.adopt(binding)).resolves.toBeUndefined()
+  })
+
+  it('adopt returns undefined when the journalled address is silent', async () => {
+    // A silent address costs the whole connect deadline (20s, bounded by
+    // construction) before adopt gives up and lets the driver resume fresh.
+    const { session } = fakeEngineSession()
+    const host = createCodexHost({
+      resources: () => undefined,
+      journal: {
+        read: () => journalledEntry('unix:///tmp/nowhere.sock'),
+        write: () => {},
+        clear: () => {},
+      },
+      durable: fakeEngineDurable({
+        attachHeadless: async () => session,
+        has: async () => true,
+      }),
+    })
+    await expect(host.adopt(binding)).resolves.toBeUndefined()
+  }, 30_000)
+
+  it('adopt refuses loudly when the writer lease is held elsewhere', async () => {
+    const { session } = fakeEngineSession({ lease: false })
+    const host = createCodexHost({
+      resources: () => undefined,
+      journal: {
+        read: () => journalledEntry('unix:///tmp/nowhere.sock'),
+        write: () => {},
+        clear: () => {},
+      },
+      durable: fakeEngineDurable({
+        attachHeadless: async () => session,
+        has: async () => true,
+      }),
+    })
+    await expect(host.adopt(binding)).rejects.toBeInstanceOf(CodexEngineLeaseRefused)
+  })
+
+  it('adopt returns undefined for entries predating the journalled address', async () => {
+    const host = createCodexHost({
+      resources: () => undefined,
+      journal: { read: () => journalledEntry(undefined), write: () => {}, clear: () => {} },
+      durable: fakeEngineDurable({ has: async () => {
+        throw new Error('liveness must not be consulted without an address')
+      } }),
+    })
+    await expect(host.adopt(binding)).resolves.toBeUndefined()
   })
 })
