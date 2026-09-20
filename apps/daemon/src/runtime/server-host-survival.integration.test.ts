@@ -305,6 +305,10 @@ beforeAll(() => {
     'PODIUM_HOST_SOCKET_DIR',
     'PODIUM_INSTANCE',
     'XDG_RUNTIME_DIR',
+    'GEN1_COMPLETE',
+    'GEN1_INCARNATIONS_CODEX',
+    'GEN1_INCARNATIONS_OPENCODE',
+    'GEN1_INCARNATIONS_GROK',
   ]) {
     savedEnv[key] = process.env[key]
   }
@@ -319,6 +323,13 @@ beforeAll(() => {
   process.env.PODIUM_HOST_SOCKET_DIR = hostSockets
   process.env.PODIUM_INSTANCE = 'survival'
   process.env.XDG_RUNTIME_DIR = xdgRuntime
+  // Stub side-channels live in this process's env too, so a fallback FRESH
+  // launch on an old implementation spawns a working stub rather than a
+  // crashing one: red must mean "a new engine", never "a broken rig".
+  process.env.GEN1_COMPLETE = join(root, 'complete-turn')
+  process.env.GEN1_INCARNATIONS_CODEX = join(root, 'incarnations-codex.txt')
+  process.env.GEN1_INCARNATIONS_OPENCODE = join(root, 'incarnations-opencode.txt')
+  process.env.GEN1_INCARNATIONS_GROK = join(root, 'incarnations-grok.txt')
 })
 
 afterAll(() => {
@@ -338,10 +349,6 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
     const gen1Env = {
       ...process.env,
       GEN1_ROOT: root,
-      GEN1_COMPLETE: completeFile,
-      GEN1_INCARNATIONS_CODEX: join(root, 'incarnations-codex.txt'),
-      GEN1_INCARNATIONS_OPENCODE: join(root, 'incarnations-opencode.txt'),
-      GEN1_INCARNATIONS_GROK: join(root, 'incarnations-grok.txt'),
     }
     const stderrFile = join(root, 'gen1-stderr.txt')
     const errFd = openSync(stderrFile, 'w')
