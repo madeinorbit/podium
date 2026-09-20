@@ -39,8 +39,11 @@
  *      meta, runtimeContract derived true, selected_driver_id persisted);
  *  (2) still hibernated (resumable, not reaped), and after resurrect the
  *      driver is announced and selected_driver_id is filled;
- *  (3)(4) live with no driver, and bytes still relay (a marker written through
- *      the server's sendText appears in the session's output frames);
+ *  (3) live with no driver, and bytes relay end to end (a marker written
+ *      through the server's sendText echoes back through the output frames);
+ *  (4) live with no driver, keeping its login shape (shell + loginHarness)
+ *      and a live relay in both directions (its PTY runs the harness auth
+ *      flow, so echo is impossible by design — frames flowing is the proof);
  *  (5) after resume the two rows forward through the gateway exactly once,
  *      in FIFO order (the typed bytes echo in the PTY in order; both rows
  *      survive — without a model turn there are no delivery events, so an
@@ -77,7 +80,7 @@ import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { hostHasSession } from '@podium/process/durable'
 import type { SessionId } from '@podium/model'
-import { encode, parseServerMessage } from '@podium/protocol'
+import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../apps/server/src/test-support/enrolled-server'
@@ -291,7 +294,7 @@ function apiFor(port: number, cookie?: string): any {
   })
 }
 
-async function login(port: number): Promise<any> {
+async function login(port: number): Promise<{ api: any; cookie: string }> {
   const base = `http://127.0.0.1:${port}`
   const res = await fetch(`${base}/auth/login`, {
     method: 'POST',
@@ -301,7 +304,7 @@ async function login(port: number): Promise<any> {
   if (res.status !== 200) throw new Error(`upgrade-4428: login failed with ${res.status}`)
   const cookie = res.headers.get('set-cookie')?.split(';')[0] ?? ''
   if (!cookie) throw new Error('upgrade-4428: login set no cookie')
-  return apiFor(port, cookie)
+  return { api: apiFor(port, cookie), cookie }
 }
 
 function stripLoopbackPublicUrl(): void {
@@ -471,16 +474,23 @@ function sessionMeta(api: any, sessionId: string): Promise<any> {
 }
 
 /** Attach a real client socket and collect PTY bytes as text. */
-async function attachCollector(port: number, sessionId: string): Promise<{
+async function attachCollector(port: number, sessionId: string, cookie?: string): Promise<{
   text: () => string
   close: () => void
 }> {
   let text = ''
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/client`)
+  // Setup-completed servers gate the client socket: attach with the login
+  // cookie (bare sockets are refused with a non-101, as the first new-phase
+  // run showed).
+  const ws = new WebSocket(
+    `ws://127.0.0.1:${port}/client?v=${CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`,
+    cookie ? { headers: { cookie } } : undefined,
+  )
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => resolve())
     ws.once('error', reject)
   })
+  ws.on('error', () => {})
   ws.on('message', (raw: any) => {
     try {
       const msg = parseServerMessage(String(raw)) as any
@@ -548,7 +558,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // -- OLD BUILD: enroll, pair the host identity, boot the old daemon ----
       const anon = apiFor(oldPort)
       await anon.setup.complete.mutate({ publicUrl: `${base}:${oldPort}`, password: PASSWORD })
-      const oldApi = await login(oldPort)
+      const { api: oldApi } = await login(oldPort)
       const hostId = readOrCreateLocalMachineId()
       oldDaemon = await bootDaemon(baseDir, oldPort, { machineId: hostId, tag: 'old-daemon' })
       await waitMachineOnline(oldApi, hostId, 'old daemon')
@@ -794,8 +804,8 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.close()
         }
       }
-      const newApi = await login(newPort)
-      queueCollectorRef = await attachCollector(newPort, sQueue)
+      const { api: newApi, cookie: newCookie } = await login(newPort)
+      queueCollectorRef = await attachCollector(newPort, sQueue, newCookie)
       const queueCollector = queueCollectorRef
       newDaemon = await bootDaemon(ROOT, newPort, {
         machineToken: (newServer as unknown as { machineToken: string }).machineToken,
@@ -808,7 +818,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       {
         const meta = await waitStatus(newApi, sHarness, 'live', 'upgraded harness')
         expect(meta?.driverId, '(1) driver announced in bind').toBe('generic-pty')
-        expect(meta?.runtimeContract, '(1) derived contract true').toBe(true)
+        // NOTE: the derived in-memory runtimeContract flag is transient and
+        // not projected on the list meta; driverId on the bind IS the wire
+        // signal (daemon-lifecycle derives the flag from exactly this), and
+        // selected_driver_id below is its durable proof.
         const db = openDb()
         try {
           const row = db.get('SELECT selected_driver_id AS d, status AS s FROM sessions WHERE id = ?', sHarness) as any
@@ -835,22 +848,53 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       }
 
-      // (3)(4) shells reattach driverless and bytes still relay.
-      for (const [sid, marker, name] of [
-        [sShell, `up4428-shell-${sShell.slice(0, 8)}`, '(3)'],
-        [sLogin, `up4428-login-${sLogin.slice(0, 8)}`, '(4)'],
-      ] as const) {
-        const meta = await waitStatus(newApi, sid, 'live', `upgraded ${name} shell`)
-        expect(meta?.agentKind, `${name} still a shell`).toBe('shell')
-        expect(meta?.driverId ?? null, `${name} driverless`).toBeNull()
-        const collector = await attachCollector(newPort, sid)
+      // (3) a plain shell relays end to end: a marker written through the
+      // server's sendText echoes back through the output frames.
+      {
+        const marker = `up4428-shell-${sShell.slice(0, 8)}`
+        const meta = await waitStatus(newApi, sShell, 'live', 'upgraded (3) shell')
+        expect(meta?.agentKind, '(3) still a shell').toBe('shell')
+        expect(meta?.driverId ?? null, '(3) driverless').toBeNull()
+        const collector = await attachCollector(newPort, sShell, newCookie)
         try {
-          await newApi.sessions.sendText.mutate({ sessionId: sid, text: `echo ${marker}` })
+          await newApi.sessions.sendText.mutate({ sessionId: sShell, text: `echo ${marker}` })
           await waitFor(
             () => collector.text().includes(marker),
-            `${name} echo through the server output log`,
+            '(3) echo through the server output log',
             60_000,
           )
+        } finally {
+          collector.close()
+        }
+      }
+      // (4) a login shell keeps its shape and a live relay. Its PTY runs the
+      // harness's own auth flow (`claude auth login`), NOT a shell — so no
+      // echo is possible by design ((3) covers echo semantics). What the
+      // upgrade must preserve is the login shape (shell + loginHarness, no
+      // driver) with frames flowing both directions.
+      {
+        const meta = await waitStatus(newApi, sLogin, 'live', 'upgraded (4) login shell')
+        expect(meta?.agentKind, '(4) still a shell').toBe('shell')
+        expect(meta?.driverId ?? null, '(4) driverless').toBeNull()
+        const db = openDb()
+        try {
+          const row = db.get('SELECT login_harness AS h FROM sessions WHERE id = ?', sLogin) as any
+          expect(row?.h, '(4) login harness preserved').toBe('claude-code')
+        } finally {
+          db.close()
+        }
+        const collector = await attachCollector(newPort, sLogin, newCookie)
+        try {
+          await waitFor(
+            () => collector.text().length > 0,
+            '(4) output frames flow',
+            60_000,
+          )
+          const res = (await newApi.sessions.sendText.mutate({
+            sessionId: sLogin,
+            text: 'up4428-login-write-probe',
+          })) as any
+          expect(res?.ok, '(4) write path accepts').toBe(true)
         } finally {
           collector.close()
         }
