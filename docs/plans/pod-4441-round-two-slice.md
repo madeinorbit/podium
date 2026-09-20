@@ -323,13 +323,26 @@ Sessions: `s1` on A, `agentState.phase: working`, `lastActiveAt` 11:58;
 | tuckedAt / archived | — | — | tuckedAt 10:00 | archived: true |
 | R-VIS | own sessions (s1, s3) | own session (s2) | finished + closed top-level + tucked | excluded (archived) |
 
-Summaries (R-SUM): A `displayRef POD-10`, phase `working` (s1), working true,
+Summaries (R-SUM): A `displayRef POD-10`, phase `waiting`, working true,
 asking true (s2 waits in formal subtree; B's review decision pending),
-progress 1/2 run + 1/2 review (units {A,B}: A in_progress staffed → run; B
-review → review), band 1, repoKey `r1`, closed false. B `POD-9`, phase
-`waiting`, asking true, progress 0/1 (units {B}: review, total 1 — a lone
-root is its own unit), band 1, closed false. C `POD-8`, closed true
-(tucked settles it). D has no row.
+progress 0/1 review (units {B}: a root with accepted formal members is not
+its own unit), band 1, repoKey `r1`, closed false.
+
+> ERRATUM, corrected 2026-09-20 by the coordinator after G2 (POD-4443) ran
+> this example through the real derivation and both were verified against the
+> source. The text previously said A.phase was `working (s1)` and A's units
+> were `{A,B}` totalling 2. Both were wrong. `rowMotionPhase`
+> (`row-attention.ts:45-65`) lets waiting dominate through the nested
+> aggregate, which is what this spec's own R-SUM rule already says, so the old
+> line contradicted its own rule. And `missionRollup` sets
+> `units = fromChildren ? members : [root]` (`mission.ts:1374-1375`), so a
+> root with accepted formal members is not counted as a unit itself. The
+> oracle encodes the legacy behaviour, so arms are judged against the values
+> above, not against the old text.
+
+B `POD-9`, phase `waiting`, asking true, progress 0/1 (units {B}: review,
+total 1 — a lone root is its own unit), band 1, closed false. C `POD-8`,
+closed true (tucked settles it). D has no row.
 
 Order (R-ORDER): all band 1 → sortKey a0, b0 → A, B. Groups (R-GROUP): one
 group key `r1` label `podium`, `rowIds: [A, B]`, `closedIds: [C]`;
