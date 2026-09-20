@@ -3851,7 +3851,6 @@ describe('hibernation', () => {
       ...bind(sessionId),
       cmd: 'codex app-server (codex-app-server)',
       agentKind: 'codex',
-      runtimeContract: true,
       driverId: 'codex-app-server',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -3892,7 +3891,6 @@ describe('hibernation', () => {
       ...bind(sessionId),
       cmd: 'codex app-server (codex-app-server)',
       agentKind: 'codex',
-      runtimeContract: true,
       driverId: 'codex-app-server',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -3934,8 +3932,8 @@ describe('hibernation', () => {
       agentKind: 'codex',
       cwd: '/w',
     })
-    // A plain PTY bind: no driverId, no runtimeContract — but the same
-    // per-harness resume kind the server driver reports.
+    // A plain PTY bind: no driverId — a shell-like bind with no driver behind
+    // it — but the same per-harness resume kind the server driver reports.
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
       cmd: 'codex',
@@ -3979,7 +3977,7 @@ describe('hibernation', () => {
    */
   const parkedCodexRow = async (
     reg: SessionRegistry,
-    bindFields: { driverId?: string; runtimeContract?: true },
+    bindFields: { driverId?: string },
     resumeValue: string,
   ) => {
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
@@ -4014,7 +4012,7 @@ describe('hibernation', () => {
     // A newer daemon's server driver. This build has never heard of it.
     const sessionId = await parkedCodexRow(
       reg,
-      { driverId: 'codex-app-server-v2', runtimeContract: true },
+      { driverId: 'codex-app-server-v2' },
       '019fff94-7326-7032-b90b-3cc7e1805190',
     )
 
@@ -4042,7 +4040,6 @@ describe('hibernation', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       ...bind(sessionId),
-      runtimeContract: true,
       driverId: 'claude-sdk', // declared, but as claude-code's EMBEDDED driver
     })
     // claude-code declares NO server driver, so the durable fallback would let
@@ -4068,7 +4065,7 @@ describe('hibernation', () => {
     await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = await parkedCodexRow(
       reg,
-      { driverId: 'codex-app-server-v2', runtimeContract: true },
+      { driverId: 'codex-app-server-v2' },
       '019fff94-7326-7032-b90b-3cc7e1805191',
     )
 
@@ -4291,7 +4288,6 @@ describe('hibernation', () => {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
-      runtimeContract: true,
       driverId: 'grok-acp',
     })
 
@@ -4357,8 +4353,7 @@ describe('hibernation', () => {
         ...bind(sessionId),
         cmd: 'grok agent stdio (grok-acp)',
         agentKind: 'grok',
-        runtimeContract: true,
-        driverId: 'grok-acp',
+          driverId: 'grok-acp',
       } as const
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4391,7 +4386,7 @@ describe('hibernation', () => {
         { sessionId, text: 'accepted while Grok was busy' },
       )
       // THE RECORDED DECISION, pinned [POD-3044 → POD-3386, spec rule 21]. This session
-      // binds with `runtimeContract: true`, so the composition root selects `confirm`:
+      // binds with a driver, so the composition root selects `confirm`:
       // the send waits for the row to leave `queued`, and on a BUSY target it spends the
       // whole budget and answers `accepted` — "durably captured, not yet confirmed".
       // `queued` (what this pinned before POD-3044) says the same thing about the ROW and
@@ -4548,7 +4543,6 @@ describe('hibernation', () => {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
-      runtimeContract: true,
       driverId: 'grok-acp',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4675,7 +4669,6 @@ describe('hibernation', () => {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
-      runtimeContract: true,
       driverId: 'grok-acp',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4746,7 +4739,6 @@ describe('hibernation', () => {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
-      runtimeContract: true,
       driverId: 'grok-acp',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4839,7 +4831,6 @@ describe('hibernation', () => {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
-      runtimeContract: true,
       driverId: 'grok-acp',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4906,7 +4897,6 @@ describe('hibernation', () => {
       ...bind(sessionId),
       cmd: 'grok agent stdio (grok-acp)',
       agentKind: 'grok',
-      runtimeContract: true,
       driverId: 'grok-acp',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -6508,8 +6498,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
       })
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
         ...bind(sessionId),
-        runtimeContract: true,
-      })
+        })
 
       const sent = await registry.modules.messages.send(
         {
@@ -6576,7 +6565,6 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
       ...bind(sessionId),
       cmd: 'codex app-server (codex-app-server)',
       agentKind: 'codex',
-      runtimeContract: true,
       driverId: 'codex-app-server',
     }) as const
 
@@ -6726,7 +6714,6 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
       ...bind(sessionId),
       cmd: 'codex app-server (codex-app-server)',
       agentKind: 'codex',
-      runtimeContract: true,
       driverId: 'codex-app-server',
     }) as const
 
@@ -6872,13 +6859,14 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
   /** No manifest declares this. That is the entire fixture. */
   const FUTURE_DRIVER = 'codex-app-server-v2'
 
-  /** Omit `driverId` for the OLDER daemon that binds the contract without one. */
+  /** Omit `driverId` for a bind that carries no driver info. Agent rows still
+   *  drain through the contract; driver presence only feeds the row's driven
+   *  signal, never the route. */
   const contractBind = (sessionId: SessionId, driverId?: string) =>
     ({
       ...bind(sessionId),
       cmd: driverId ? `codex (${driverId})` : 'codex',
       agentKind: 'codex',
-      runtimeContract: true,
       ...(driverId === undefined ? {} : { driverId }),
     }) as const
 
@@ -6989,15 +6977,12 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
   })
 
   /**
-   * THE SKEW RUNS BOTH WAYS. The first fix guarded on `driverId !== undefined`,
-   * which left this door open: a daemon new enough to drive the contract but
-   * OLDER than the `driverId` field on `bind` reports `runtimeContract` with no
-   * driver at all, the guard answered "has a PTY", and the row vanished exactly
-   * as it did through the forward door. `runtimeContract` is assigned one line
-   * after `markLive` and nowhere else, so it — not the driver id — is what
-   * keeps a `starting` session off this path.
-   */
-  it('drains through the contract when an older daemon binds the contract with NO driver id', async () => {
+  * A BIND CARRIES NO CONTRACT FLAG ANY MORE (POD-4426/4427). Driver presence
+  * is the driven signal, and agent rows forward through the gateway whether
+  * or not a driver id arrived — so a bind with no driver id still drains
+  * through the contract, never as PTY bytes.
+  */
+  it('drains through the contract when the bind carries NO driver id', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -7038,36 +7023,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
   })
 
   /**
-   * THE OTHER HALF OF THE CONJUNCTION. `runtimeContract` is true for
-   * terminal-driver sessions too, and their drain is still PTY bytes — the
-   * negative test is what stops "unknown means no PTY" from quietly becoming
-   * "the contract means no PTY" and stranding every PTY session's queue.
-   */
-  it('still types at a runtimeContract session whose bound driver IS terminal-family', async () => {
-    vi.useFakeTimers()
-    try {
-      const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      const daemon: ControlMessage[] = []
-      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
-      const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
-      await reg.gateway.routeDaemonFrame(
-        reg.sessionStore.hostMachineId,
-        contractBind(sessionId, 'generic-pty'),
-      )
-      await reg.modules.sessions.queueText({ sessionId, text: 'typed-not-contracted' })
-      // Past the silent-spawn fallback window: a PTY session with no output
-      // still gets served.
-      await vi.advanceTimersByTimeAsync(7000)
-
-      expect(inputFramesWith(daemon, 'typed-not-contracted')).not.toEqual([])
-      expect(daemon.filter((m) => m.type === 'runtimeSendRequest')).toEqual([])
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  /**
-   * FINDING 4 OF THE POD-2291 REVIEW: `typeText`'s server-family refusal was
+  * FINDING 4 OF THE POD-2291 REVIEW: `typeText`'s server-family refusal was
    * pinned only through the inbox's mock harness, where `serverDriven` is a
    * hand-written dep. Nothing drove the DIRECT chat-send path at a bound
    * session through production wiring, so a regression in how that dep is
