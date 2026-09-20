@@ -566,8 +566,6 @@ export class SessionInbox {
   private sweepingQueuedInputs = false
   /** Generation fence for timers and contract receipts that outlive a bind. */
   private readonly drainGenerations = new Map<SessionId, number>()
-  /** A fresh server bind must not trust the previous process state projection. */
-  private readonly unobservedServerBinds = new Set<SessionId>()
   /** Recovery answers may queue while a failed session is being woken. */
   private readonly recoveryDrains = new Set<SessionId>()
   /**
@@ -629,7 +627,6 @@ export class SessionInbox {
   dispose(): void {
     this.disposed = true
     this.activeDrains.clear()
-    this.unobservedServerBinds.clear()
     this.forwardedRows.clear()
   }
 
@@ -688,7 +685,6 @@ export class SessionInbox {
     const session = this.deps.getSession(sessionId)
     if (!session) return
     this.legacyDeliveryBatches.delete(session)
-    this.unobservedServerBinds.add(sessionId)
     this.inputReadySessions.delete(session)
     this.boundAtMs.set(session, this.deps.now())
   }
