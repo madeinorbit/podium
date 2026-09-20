@@ -615,22 +615,99 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       expect(sLogin, 'login returns a session').toBeTruthy()
       await waitStatus(oldApi, sLogin, 'live', 'old login shell')
 
-      // (5) a live-bound-never session with two queued_messages rows.
-      //
-      // Rows only persist while no bind can drain them, and the API refuses
-      // sends with the daemon down — so both rows are queued in the STARTING
-      // window (spawn accepted, driver not yet bound): the two sendTexts run
-      // in the same tick as the create, then the daemon dies before any bind.
-      // If the bind wins the race the run fails LOUDLY below (status live),
-      // never silently. Post-upgrade the session reattaches as reconnecting
-      // and the new bind is the rows' first delivery.
+      // (5) a second parked grok session. Same seeded-ref shape as (2): the
+      // ref (seeded BEFORE the restart, installed by it) unlocks the real
+      // hibernate call, and parked rows are written by resumeAndSend (which
+      // queueTexts for non-live sessions — sendText would wake-and-deliver).
+      // A parked drain HOLDS rows without typing or forwarding, so both rows
+      // sit deterministically; the post-upgrade bind is their first delivery.
+      const sQueue = await createSession(oldApi, {
+        agentKind: 'grok',
+        cwd,
+        runtimeContract: 'generic-pty',
+      })
+      await waitStatus(oldApi, sQueue, 'live', 'queue candidate')
+      const t1 = `up4428-first-${sQueue.slice(0, 8)}`
+      const t2 = `up4428-second-${sQueue.slice(0, 8)}`
+      {
+        const db = openDb(false)
+        try {
+          db.run(
+            'UPDATE sessions SET resume_kind = ?, resume_value = ? WHERE id = ?',
+            'grok-session',
+            `up4428-${sQueue.slice(0, 8)}`,
+            sQueue,
+          )
+        } finally {
+          db.close()
+        }
+      }
+
       // Install the seeded refs into memory via a real server restart cycle.
       oldServer = await rebootOldServer(baseDir, oldPort, oldServer)
       await waitStatus(oldApi, sHarness, 'live', 'harness session after old restart')
       await waitStatus(oldApi, sHib, 'live', 'hibernation candidate after old restart')
+      await waitStatus(oldApi, sQueue, 'live', 'queue session after old restart')
       const hibRes2 = await oldApi.sessions.hibernate.mutate({ sessionId: sHib })
       expect(hibRes2, `(2) hibernate refused: ${JSON.stringify(hibRes2).slice(0, 300)}`).toMatchObject({ ok: true })
       await waitStatus(oldApi, sHib, 'hibernated', 'hibernated session')
+      const qhibRes = await oldApi.sessions.hibernate.mutate({ sessionId: sQueue })
+      expect(qhibRes, `(5) hibernate refused: ${JSON.stringify(qhibRes).slice(0, 300)}`).toMatchObject({ ok: true })
+      await waitStatus(oldApi, sQueue, 'hibernated', 'queue session parked')
+      // Both rows are INSERTED, not sent: every send API wakes a parked
+      // session (queueText auto-resurrects; the seam wakes-and-delivers), and
+      // a woken session drains through legacy typing which echo-deletes the
+      // rows. The insert carries exactly the columns queueText's enqueue
+      // writes (same order, attempts 0, no delegation) — shape-exact, only
+      // the trigger synthetic. Nothing drains a parked session pre-upgrade
+      // (parked drains hold; the sweep holds too), so the rows freeze.
+      {
+        const db = openDb(false)
+        try {
+          const admin = db.get("SELECT id AS id FROM users WHERE role = 'admin' LIMIT 1") as any
+          const adminId = admin?.id as string
+          expect(adminId, '(5) admin user exists for row principal').toBeTruthy()
+          const now = Date.now()
+          const ins = (id: string, text: string, at: number): void => {
+            db.run(
+              'INSERT INTO queued_messages (id, session_id, text, queued_at, input_origin, attempts, principal_kind, principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              id,
+              sQueue,
+              text,
+              at,
+              'controller',
+              0,
+              'user',
+              adminId,
+              null,
+              'user',
+              adminId,
+              null,
+              null,
+            )
+          }
+          ins(`qmsg_up4428_${sQueue.slice(0, 8)}_1`, t1, now)
+          ins(`qmsg_up4428_${sQueue.slice(0, 8)}_2`, t2, now + 1)
+        } finally {
+          db.close()
+        }
+      }
+      await waitFor(
+        () => {
+          const db = openDb()
+          try {
+            const rows = db.all(
+              'SELECT text, attempts FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
+              sQueue,
+            ) as any[]
+            return rows.length === 2 && rows[0]?.text === t1 && rows[1]?.text === t2
+          } finally {
+            db.close()
+          }
+        },
+        '(5) two rows queued while parked',
+        15_000,
+      )
 
       // (6) live harness session with a pending native-menu interaction row.
       // The ask itself is driver-emitted, so only its trigger is synthetic:
@@ -673,46 +750,6 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.close()
         }
       }
-      // agentKind cursor: the only manifest with argvPrompt:false, so the
-      // creation prompt queues into the durable outbox at spawn (deterministic
-      // row 1). The bind is then AWAITED, not raced: a bound session forwards
-      // through the contract and keeps rows without proof, so every timing
-      // outcome converges. Row 2 follows via resumeAndSend once live with a
-      // non-empty queue (queueTexts deterministically). The per-custody
-      // exactly-once is read off delivery_owner + the attempts clamp below.
-      const t1 = `up4428-first-${Date.now().toString(36)}`
-      const t2 = `up4428-second-${Date.now().toString(36)}`
-      const sQueue = await createSession(oldApi, {
-        agentKind: 'cursor',
-        cwd,
-        runtimeContract: 'generic-pty',
-        initialPrompt: t1,
-      })
-      await waitStatus(oldApi, sQueue, 'live', 'queue session binds pre-upgrade')
-      // Past the queue-count funnel write, so row 2 cannot take the live
-      // direct-send arm.
-      await sleep(3000)
-      // NOTE: t1 is already queued by initialPrompt above — only t2 is sent.
-      const q2 = await oldApi.sessions.resumeAndSend.mutate({ sessionId: sQueue, text: t2 })
-      expect(q2?.ok, `(5) t2 send failed: ${JSON.stringify(q2).slice(0, 200)}`).toBe(true)
-      await waitFor(
-        () => {
-          const db = openDb()
-          try {
-            const rows = db.all(
-              'SELECT substr(id,1,8) AS id, text, attempts, input_origin, source_message_id FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
-              sQueue,
-            ) as unknown[]
-            if (rows.length > 0) console.log(`upgrade-4428 queue rows: ${JSON.stringify(rows)}`)
-            return rows.length === 2
-          } finally {
-            db.close()
-          }
-        },
-        '(5) two rows queued pre-kill',
-        15_000,
-      )
-
       // NULL the driver column as the LAST old-phase act: any server write
       // (reattach fills, hibernate persists the live draft) refills it from
       // the in-memory session, so only a NULL postdating every old write
@@ -763,14 +800,23 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       expect(pidGone(oldServerPid), 'old server pid is gone').toBe(true)
       // Live sessions hold hosts at cutover (hibernate kills sHib's host by
       // design, so it is logged, not asserted).
-      for (const sid of [sHarness, sShell, sLogin, sMenu, sQueue]) {
+      // sQueue's host may not have materialized in the ~1s before the kill:
+      // present => reattach adopts it, absent => the new build spawns fresh.
+      // Both converge to live; the assertion set covers both.
+      // sHib and sQueue are hibernated (hosts killed by hibernate): logged,
+      // not asserted. The four live sessions prove hosts outlive the daemon.
+      for (const [sid, why] of [
+        [sHib, 'hibernate kill by design'],
+        [sQueue, 'hibernate kill by design'],
+      ] as const) {
+        console.log(
+          `upgrade-4428: host present at cutover for ${sid.slice(0, 8)} (${why}): ${await hostHasSession(durableSessionLabel(sid as SessionId, INSTANCE))}`,
+        )
+      }
+      for (const sid of [sHarness, sShell, sLogin, sMenu]) {
         const label = durableSessionLabel(sid as SessionId, INSTANCE)
         expect(await hostHasSession(label), `host survives for ${sid.slice(0, 8)}`).toBe(true)
       }
-      console.log(
-        `upgrade-4428: hibernated-session host present at cutover (expect false): ${await hostHasSession(durableSessionLabel(sHib as SessionId, INSTANCE))}`,
-      )
-
       // -- NEW BUILD takes over the same state dir and DB --------------------
       stripLoopbackPublicUrl()
       newServer = await startServer({ port: 0 })
@@ -891,7 +937,8 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       {
         const collector = queueCollector
         try {
-          await waitStatus(newApi, sQueue, 'live', 'reattached queue session')
+          await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
+          await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
           await waitFor(
             () => collector.text().includes(t1) && collector.text().includes(t2),
             '(5) both rows reach the PTY',
