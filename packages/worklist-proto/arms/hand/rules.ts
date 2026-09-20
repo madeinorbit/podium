@@ -267,16 +267,44 @@ export function issuePendingDecision(issue: SliceIssue): PendingDecision {
   return issue.stage === 'review' ? 'review' : null
 }
 
-/** issueVisibleInSidebar (visibility.ts:25). */
-export function issueVisibleInSidebar(issue: SliceIssue, now: number): boolean {
+/** issueVisibleInSidebar (visibility.ts:25). `unread` is the replica rollup
+ *  (deriveIssueViews), never the wire field — see derivedUnread below. */
+export function issueVisibleInSidebar(issue: SliceIssue, now: number, unread: boolean): boolean {
   if (!issueFinished(issue)) return true
   if (isClosedTopLevel(issue)) return true
   if (issueAwaitingMerge(issue)) return true
   const finishedAt = issueFinishedAt(issue)
-  if (issue.unread === true || issue.readAt == null) {
+  if (unread || issue.readAt == null) {
     return now - finishedAt <= SIDEBAR_FINISHED_UNREAD_WINDOW_MS
   }
   return now - Math.max(finishedAt, parseMs(issue.readAt) ?? 0) <= SIDEBAR_FINISHED_GRACE_MS
+}
+
+/**
+ * Replica unread rollup (deriveIssueRollups, replica/issue-views.ts:383):
+ * never read without a cursor, updated past the cursor, or with member
+ * activity past it. Members are non-shell sessions carrying this issueId —
+ * archived included (the rollup index skips shells only). Deleted rows read
+ * as read.
+ */
+export function derivedUnread(issue: SliceIssue, members: SliceSession[]): boolean {
+  if (issue.deletedAt != null) return false
+  const readAt = issue.readAt ? Date.parse(issue.readAt) : null
+  let unread = readAt === null || !Number.isFinite(readAt)
+  if (!unread && readAt !== null) {
+    const updatedAt = Date.parse(issue.updatedAt)
+    unread = Number.isFinite(updatedAt) && (updatedAt as number) > (readAt as number)
+  }
+  for (const s of members) {
+    if (s.agentKind === 'shell') continue
+    if (!unread && s.lastActiveAt) {
+      const activeAt = Date.parse(s.lastActiveAt)
+      if (Number.isFinite(activeAt) && (readAt === null || (activeAt as number) > (readAt as number))) {
+        unread = true
+      }
+    }
+  }
+  return unread
 }
 
 /** System-owned stage (model issue-vocabulary.ts:59): shipping only. */
@@ -377,7 +405,7 @@ export function structurallyExcluded(issue: SliceIssue): boolean {
  * issue carries its own lifecycle; a finished issue stays only awaiting-merge
  * or as a closed top-level, subject to decay.
  */
-export function sessionlessKept(issue: SliceIssue, now: number): boolean {
+export function sessionlessKept(issue: SliceIssue, now: number, unread: boolean): boolean {
   const activeHuman =
     issue.audience === 'human' &&
     (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
@@ -390,7 +418,7 @@ export function sessionlessKept(issue: SliceIssue, now: number): boolean {
   ) {
     return false
   }
-  return issueVisibleInSidebar(issue, now)
+  return issueVisibleInSidebar(issue, now, unread)
 }
 
 /** Rescue eligibility (rows.ts:138-147): live human-audience, unfinished. */

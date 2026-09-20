@@ -19,7 +19,7 @@
 import type { SliceIssue } from '../../shared/src/slice-types'
 import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
 import type { IndexSet } from './indexes'
-import { rescueEligible, sessionlessKept, structurallyExcluded } from './rules'
+import { derivedUnread, rescueEligible, sessionlessKept, structurallyExcluded } from './rules'
 import { splitMembers, type SummaryModule } from './summary'
 import type { IssueTable } from './tables'
 export class VisibleModule {
@@ -61,7 +61,9 @@ export class VisibleModule {
     const now = this.getNow()
     const { retained } = splitMembers(this.summary.membersOf(issueId), now, issue)
     if (retained.length > 0) return true
-    return sessionlessKept(issue, now)
+    // Decay anchors read the replica unread rollup, never the wire field.
+    const unread = derivedUnread(issue, this.indexes.unreadMembersOf(issueId))
+    return sessionlessKept(issue, now, unread)
   }
 
   /** Ancestor chain for rescue (rows.ts:131-158 walk). */

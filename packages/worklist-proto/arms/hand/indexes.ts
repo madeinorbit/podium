@@ -61,8 +61,13 @@ export class IndexSet {
   readonly explicitByIssue = new Map<string, Set<string>>()
   /** R3: prefix-resolved session ids by issue id. */
   readonly resolvedByIssue = new Map<string, Set<string>>()
+  /**
+   * Unread-rollup members: non-shell sessions carrying an issueId, archived
+   * included (indexSessionsByIssue skips shells only — replica/issue-views).
+   */
+  readonly rollupMembers = new Map<string, Set<string>>()
   /** Cached session home for diffing: explicit issue + resolved worktree. */
-  private readonly sessionHome = new Map<string, { explicit: string | null; resolved: string | null }>()
+  private readonly sessionHome = new Map<string, { explicit: string | null; resolved: string | null; rollup: string | null }>()
   /** R3 targets: live issues with a worktreePath, by path. */
   private readonly issuesByWorktree = new Map<string, Set<string>>()
   /** R3 roots: lane paths + issue worktree paths. */
@@ -190,6 +195,16 @@ export class IndexSet {
   private ingestSession(id: string): Delta[] {
     const session = this.tables.sessions.rows.get(id)
     const out: Delta[] = []
+    // Unread-rollup seat (shells excluded, everything else seated).
+    const rollupSeat =
+      session !== undefined && session.issueId != null && session.agentKind !== 'shell'
+        ? session.issueId
+        : null
+    const rollupPrev = this.sessionHome.get(id)?.rollup ?? null
+    if (rollupPrev !== rollupSeat) {
+      if (rollupPrev !== null) this.dropSeat(this.rollupMembers, rollupPrev, id)
+      if (rollupSeat !== null) this.takeSeat(this.rollupMembers, rollupSeat, id)
+    }
     const prev = this.sessionHome.get(id)
     const prevExplicit = prev?.explicit ?? null
     const prevResolved = prev?.resolved ?? null
@@ -219,9 +234,9 @@ export class IndexSet {
             }
           }
         }
-        this.sessionHome.set(id, { explicit: nextExplicit, resolved })
+        this.sessionHome.set(id, { explicit: nextExplicit, resolved, rollup: rollupSeat })
       } else {
-        this.sessionHome.set(id, { explicit: nextExplicit, resolved: prevResolved })
+        this.sessionHome.set(id, { explicit: nextExplicit, resolved: prevResolved, rollup: rollupSeat })
       }
     } else {
       if (prevResolved !== null) {
@@ -232,7 +247,7 @@ export class IndexSet {
         }
       }
       if (session === undefined) this.sessionHome.delete(id)
-      else this.sessionHome.set(id, { explicit: nextExplicit, resolved: null })
+      else this.sessionHome.set(id, { explicit: nextExplicit, resolved: null, rollup: rollupSeat })
     }
     return out
   }
@@ -289,7 +304,17 @@ export class IndexSet {
           }
         }
       }
-      this.sessionHome.set(id, { explicit: home.explicit, resolved })
+      this.sessionHome.set(id, { explicit: home.explicit, resolved, rollup: home.rollup })
+    }
+    return out
+  }
+
+  /** Unread-rollup member objects (non-shell, archived included). */
+  unreadMembersOf(issueId: string): SliceSession[] {
+    const out: SliceSession[] = []
+    for (const sid of this.rollupMembers.get(issueId) ?? []) {
+      const session = this.tables.sessions.rows.get(sid)
+      if (session !== undefined) out.push(session)
     }
     return out
   }
@@ -362,6 +387,7 @@ export class IndexSet {
     this.parentOf.clear()
     this.explicitByIssue.clear()
     this.resolvedByIssue.clear()
+    this.rollupMembers.clear()
     this.sessionHome.clear()
     this.issuesByWorktree.clear()
     this.originOf.clear()
@@ -414,7 +440,20 @@ export class IndexSet {
     }
     this.rebuildRoots()
     for (const [id, session] of sessions) {
-      if (!isIndexedSession(session)) continue
+      const rollupSeat =
+        session.issueId != null && session.agentKind !== 'shell' ? session.issueId : null
+      if (rollupSeat !== null) {
+        let bucket = this.rollupMembers.get(rollupSeat)
+        if (bucket === undefined) {
+          bucket = new Set()
+          this.rollupMembers.set(rollupSeat, bucket)
+        }
+        bucket.add(id)
+      }
+      if (!isIndexedSession(session)) {
+        this.sessionHome.set(id, { explicit: null, resolved: null, rollup: rollupSeat })
+        continue
+      }
       if (session.issueId != null) {
         let bucket = this.explicitByIssue.get(session.issueId)
         if (bucket === undefined) {
@@ -422,10 +461,10 @@ export class IndexSet {
           this.explicitByIssue.set(session.issueId, bucket)
         }
         bucket.add(id)
-        this.sessionHome.set(id, { explicit: session.issueId, resolved: null })
+        this.sessionHome.set(id, { explicit: session.issueId, resolved: null, rollup: rollupSeat })
       } else {
         const resolved = this.resolveCwd(session.cwd)
-        this.sessionHome.set(id, { explicit: null, resolved })
+        this.sessionHome.set(id, { explicit: null, resolved, rollup: rollupSeat })
         if (resolved !== null) {
           for (const issueId of this.issuesByWorktree.get(resolved) ?? []) {
             let bucket = this.resolvedByIssue.get(issueId)

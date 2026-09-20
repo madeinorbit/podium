@@ -14,9 +14,9 @@ import {
   assertIsolation,
   mountArmForCounts,
   runCountScenario,
-} from '../src/count-harness'
-import { snapshotFromStore } from '../src/oracle/index'
-import { writeHeartbeat, writePhaseChange, writeSelectionClick } from '../src/scenario-writes'
+} from '../../harness/src/count-harness'
+import { snapshotFromStore } from '../../harness/src/oracle/index'
+import { writeHeartbeat, writePhaseChange, writeSelectionClick } from '../../harness/src/scenario-writes'
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import { HandStore } from './store'
@@ -109,11 +109,17 @@ describe('hand-rolled arm on the engine (SMALL)', () => {
       )
       expect(click.parityDiff).toBeNull()
       expect(click.parity).toBe(true)
-      // Engine-driven selection is locals-only (no row event by design): the
-      // eager mark-read row must not move any committed row.
-      expect(click.rowsCommitted).toBeLessThanOrEqual(2)
+      // Engine-driven selection is locals-only (no row event by design), so
+      // the DOM commits nothing here; the eager mark-read row it carries must
+      // not move any committed row either. Its readAt touches no summary,
+      // visibility or aggregate VALUE, but the three input checks that prove
+      // that still execute (honest classification cost, counted):
+      // own-summary, visibility predicate, subtree aggregate.
+      expect(click.rowsCommitted).toBe(0)
       expect(click.stats.rowsDerived).toBe(0)
-      expect(click.stats.rollupsDerived).toBe(0)
+      // The methodology's "2 rows" for #3 is the UI click path (selection
+      // style on the two rows whose selected-ness flips, zero derivations) —
+      // covered by the selection unit test and the UI click test.
 
       if (store !== undefined) expectOracle(mounted, store)
     } finally {

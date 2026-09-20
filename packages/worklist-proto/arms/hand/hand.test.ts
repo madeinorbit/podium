@@ -17,7 +17,7 @@ import { HandStore } from './store'
 export const NOW = Date.parse('2026-09-20T12:00:00Z')
 const iso = (ms: number): string => new Date(ms).toISOString()
 
-function issue(partial: Partial<SliceIssue> & { id: string }): SliceIssue {
+export function issue(partial: Partial<SliceIssue> & { id: string }): SliceIssue {
   return {
     seq: 1,
     createdAt: iso(NOW - 10 * 86400000),
@@ -49,7 +49,7 @@ function issue(partial: Partial<SliceIssue> & { id: string }): SliceIssue {
   }
 }
 
-function session(partial: Partial<SliceSession> & { sessionId: string }): SliceSession {
+export function session(partial: Partial<SliceSession> & { sessionId: string }): SliceSession {
   return {
     cwd: '/repo',
     agentKind: 'codex',
@@ -64,9 +64,9 @@ function session(partial: Partial<SliceSession> & { sessionId: string }): SliceS
   }
 }
 
-const workingState = { phase: 'working', since: iso(NOW - 120000) }
-const waitingState = { phase: 'idle', since: iso(NOW - 600000) }
-const waitingOffer = { createdAt: iso(NOW - 600000) }
+export const workingState = { phase: 'working', since: iso(NOW - 120000) }
+export const waitingState = { phase: 'idle', since: iso(NOW - 600000) }
+export const waitingOffer = { createdAt: iso(NOW - 600000) }
 
 export interface TestWorld {
   store: HandStore
@@ -127,11 +127,11 @@ export function testWorld(records: RowRecord[]): TestWorld {
   return world
 }
 
-function rec(kind: RowRecord['kind'], id: string, value: RowRecord['value']): RowRecord {
+export function rec(kind: RowRecord['kind'], id: string, value: RowRecord['value']): RowRecord {
   return { kind, id, value }
 }
 
-const LANE: SliceWorktree = {
+export const LANE: SliceWorktree = {
   path: '/wt',
   repoId: 'r1',
   repoPath: '/repo',
