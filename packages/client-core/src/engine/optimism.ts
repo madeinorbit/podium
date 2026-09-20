@@ -73,7 +73,6 @@ import {
   rowFingerprint,
 } from './overlay'
 import type { EngineState } from './state'
-import type { EffectiveAddress } from './effective-changes'
 import type { StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
 
@@ -117,16 +116,6 @@ export interface OptimismBase {
   issueProjections: IssueProjection[]
 }
 
-export interface OptimisticPublicationMeasurement {
-  readonly entity: OverlayEntity
-  readonly overlayEntries: number
-  readonly addresses: number
-  readonly adapterMs: number
-  /** Existing full-array fold and identity stabilization, NOT adapter work. */
-  readonly legacyFoldMs: number
-  readonly legacyBaseRows: number
-}
-
 export interface OptimismPorts<TApi extends PodiumClientApi> {
   readonly api: TApi
   readonly outbox: EngineOutbox
@@ -136,10 +125,7 @@ export interface OptimismPorts<TApi extends PodiumClientApi> {
   /** The PAINTED issue list, for the draft's sort-key placement. */
   readonly paintedIssues: () => IssueWire[]
   /** The runtime's state choke point. */
-  readonly publish: (patch: Partial<EngineState>, rows?: readonly EffectiveAddress[]) => void
-  /** Internal pilot only. Off by default; legacy consumers allocate no addresses. */
-  readonly effectiveChanges?: boolean
-  readonly measureEffectiveChanges?: (measurement: OptimisticPublicationMeasurement) => void
+  readonly publish: (patch: Partial<EngineState>) => void
   /** Coalesce every `publish` inside `fn` into ONE snapshot (POD-1645). Optional
    *  so a test harness can wire the ledger without one; the default runs `fn`
    *  unchanged, which is correct but publishes once per recompute. */
@@ -346,7 +332,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     entity: OverlayEntity,
     base: T[],
     keyOf: (row: T) => string,
-  ): { rows: T[]; pendingInsertIds: ReadonlySet<string>; addresses?: readonly EffectiveAddress[] } {
+  ): { rows: T[]; pendingInsertIds: ReadonlySet<string> } {
     const overlays = this.overlaysFor(entity)
     const previous = this.folds.get(entity)
     // Membership/stage and coverage predicates do not affect the pure fold.
@@ -360,21 +346,6 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       })) {
       return previous.result as { rows: T[]; pendingInsertIds: ReadonlySet<string> }
     }
-    // The old paint is as important as the new one: rollback, edited targets,
-    // recovery deletion and retirement can remove the last overlay for an id.
-    // This is a conservative invalidation union, not a collection diff. Replica
-    // addresses arrive independently; the settled runtime commit merges both.
-    let addresses: EffectiveAddress[] | undefined
-    const measure = this.ports.effectiveChanges && this.ports.measureEffectiveChanges
-    const adapterStart = measure ? performance.now() : 0
-    if (this.ports.effectiveChanges) {
-      const ids = new Set<string>()
-      for (const overlay of previous?.overlays ?? []) ids.add(overlay.id)
-      for (const overlay of overlays) ids.add(overlay.id)
-      addresses = [...ids].map((id) => ({ kind: entity, id }))
-    }
-    const adapterMs = measure ? performance.now() - adapterStart : 0
-    const foldStart = measure ? performance.now() : 0
     const result = foldOverlays(base, overlays, keyOf)
     // Changed inputs can still compose to the same effective rows. Retain
     // their identity without comparing serialized data or hiding new cells.
@@ -387,13 +358,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       result.pendingInsertIds = previous.result.pendingInsertIds
     }
     this.folds.set(entity, { base, overlays, result })
-    if (measure) measure({
-      entity, overlayEntries: (previous?.overlays.length ?? 0) + overlays.length,
-      addresses: addresses?.length ?? 0, adapterMs,
-      legacyFoldMs: performance.now() - foldStart, legacyBaseRows: base.length,
-    })
-    // Never cache addresses: a cache hit has no new optimistic invalidation.
-    return addresses === undefined ? result : { ...result, addresses }
+    return result
   }
 
   /** Arm (once) a timer that forces a recompute shortly after the earliest
@@ -456,7 +421,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const base = this.ports.base().sessions
     const keyOf = (s: SessionMeta): string => s.sessionId
     this.retireCovered('sessions', base, keyOf)
-    const { rows, pendingInsertIds, addresses } = this.foldStable('sessions', base, keyOf)
+    const { rows, pendingInsertIds } = this.foldStable('sessions', base, keyOf)
     if ([...this.spawnPrompts.keys()].some((id) => !pendingInsertIds.has(id))) {
       this.spawnPrompts = new Map([...this.spawnPrompts].filter(([id]) => pendingInsertIds.has(id)))
     }
@@ -464,7 +429,7 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
       sessions: rows,
       pendingSpawnIds: pendingInsertIds,
       pendingSpawnPrompts: this.spawnPrompts,
-    }, addresses)
+    })
     this.notifySpawnConfirmWaiters(pendingInsertIds)
   }
 
@@ -472,16 +437,16 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     const base = this.ports.base().issues
     const keyOf = (i: IssueWire): string => i.id
     this.retireCovered('issues', base, keyOf)
-    const { rows, addresses } = this.foldStable('issues', base, keyOf)
-    this.ports.publish({ issues: rows }, addresses)
+    const { rows } = this.foldStable('issues', base, keyOf)
+    this.ports.publish({ issues: rows })
   }
 
   recomputeIssueProjections(): void {
     const base = this.ports.base().issueProjections
     const keyOf = (i: IssueProjection): string => i.id
     this.retireCovered('issueProjections', base, keyOf)
-    const { rows, addresses } = this.foldStable('issueProjections', base, keyOf)
-    this.ports.publish({ issueProjections: rows }, addresses)
+    const { rows } = this.foldStable('issueProjections', base, keyOf)
+    this.ports.publish({ issueProjections: rows })
   }
 
   recomputeFor(entity: OverlayEntity | undefined): void {
