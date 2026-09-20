@@ -1,6 +1,5 @@
 import type { DraftIssueArtifactInput } from '@podium/commands'
 import type { AgentKind, IssueId, MachineId, MutationId, RepoId, SessionId } from '@podium/model'
-import type { RuntimeContractRequest } from '@podium/protocol'
 import type { PodiumClientApi } from './api'
 
 /** Where a new agent lands: a worktree path + its owning repo (+ machine). */
@@ -31,7 +30,7 @@ export type SpawnDraftAgentArgs = DraftSpawnReservation & {
   effort?: string
   /** The per-spawn driver override, forwarded verbatim — see `sessions.create`
    *  in `api.ts`. Absent changes nothing, which is every caller today. */
-  runtimeContract?: RuntimeContractRequest
+  requestedDriverId?: string
 }
 
 /**
@@ -94,7 +93,7 @@ export async function createDraftAgent(args: {
   effort?: string
   /** The per-spawn driver override, forwarded verbatim — see `sessions.create`
    *  in `api.ts`. Absent changes nothing, which is every caller today. */
-  runtimeContract?: RuntimeContractRequest
+  requestedDriverId?: string
 }): Promise<void> {
   assertSpawnPlacement(args.target)
   const text = args.firstPrompt?.trim()
@@ -109,7 +108,7 @@ export async function createDraftAgent(args: {
     ...(text ? { initialPrompt: text } : {}),
     ...(args.model ? { model: args.model } : {}),
     ...(args.effort ? { effort: args.effort } : {}),
-    ...(args.runtimeContract !== undefined ? { runtimeContract: args.runtimeContract } : {}),
+    ...(args.requestedDriverId !== undefined ? { requestedDriverId: args.requestedDriverId } : {}),
   })
 }
 

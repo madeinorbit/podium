@@ -137,7 +137,7 @@ describe('the new-panel menu', () => {
 
     fireEvent.click(await screen.findByRole('menuitem', { name: /^New Claude$/ }))
     expect(createSession).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ runtimeContract: expect.anything() }),
+      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
     )
 
     await vi.waitFor(() => expect(opened).toHaveBeenCalledWith('new'))
@@ -148,9 +148,12 @@ describe('the new-panel menu', () => {
       expect(createSession).toHaveBeenLastCalledWith(
         expect.objectContaining({
           agentKind: 'opencode',
-          runtimeContract: true,
         }),
       ),
+    )
+    // The headed opencode default is the manifest default: no override key.
+    expect(createSession).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
     )
     expect(createSession).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ accountId: expect.anything() }),
@@ -165,7 +168,7 @@ describe('the new-panel menu', () => {
       expect(createSession).toHaveBeenLastCalledWith(
         expect.objectContaining({
           agentKind: 'opencode',
-          runtimeContract: 'opencode-server',
+          requestedDriverId: 'opencode-server',
         }),
       ),
     )
@@ -176,7 +179,7 @@ describe('the new-panel menu', () => {
 
     fireEvent.click(screen.getByRole('menuitem', { name: /New Claude — claude-sdk/ }))
     expect(createSession).toHaveBeenLastCalledWith(
-      expect.objectContaining({ runtimeContract: 'claude-sdk' }),
+      expect.objectContaining({ requestedDriverId: 'claude-sdk' }),
     )
     expect(screen.queryByText('codex-app-server')).toBeNull()
   })

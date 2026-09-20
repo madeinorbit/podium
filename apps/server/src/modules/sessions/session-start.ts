@@ -67,7 +67,6 @@ import {
 import type {
   AgentInstruction,
   DaemonPtyInputBatch,
-  RuntimeContractRequest,
   SessionBindingSpawnInstruction,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -201,11 +200,11 @@ export class SessionStart {
     use?: MachineUseResolver
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     loginHarness?: Exclude<AgentKind, 'shell'>
-    /** Explicit driver request from a picker or API caller. A concrete ID
-     * selects that driver; true delegates selection to the daemon manifest.
-     * Non-picker producers use requestTerminalDriver to resolve an omitted
-     * request from the target machine's inventory instead of the UI flag. */
-    runtimeContract?: RuntimeContractRequest
+    /** Explicit driver request from a picker or API caller: a concrete driver
+     * id selects that driver; absent is the manifest's headed terminal
+     * default. Non-picker producers use requestTerminalDriver to resolve an
+     * omitted request from the target machine's inventory instead of the UI flag. */
+    requestedDriverId?: string
     /** Non-picker producers request the advertised headed driver after placement. */
     requestTerminalDriver?: boolean
   }): Promise<SessionSpawnResult> {
@@ -232,11 +231,11 @@ export class SessionStart {
       agentKind,
       input.use,
     )
-    let runtimeContract = input.runtimeContract
-    if (runtimeContract === undefined && input.requestTerminalDriver && agentKind !== 'shell') {
+    let requestedDriverId = input.requestedDriverId
+    if (requestedDriverId === undefined && input.requestTerminalDriver && agentKind !== 'shell') {
       const machine = await this.ports.store.machines.getMachine(machineId)
-      runtimeContract = terminalRuntimeDriver(machine, agentKind)?.id
-      if (!runtimeContract) {
+      requestedDriverId = terminalRuntimeDriver(machine, agentKind)?.id
+      if (!requestedDriverId) {
         throw new Error(`machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`)
       }
     }
@@ -323,7 +322,7 @@ export class SessionStart {
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
-      ...(runtimeContract !== undefined ? { runtimeContract } : {}),
+      ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
@@ -402,7 +401,7 @@ export class SessionStart {
     createdBy?: Attribution
     /** The operator's per-spawn driver choice — see `create()`'s field of the
      *  same name. Carried straight onto the spawn frame; absent changes nothing. */
-    runtimeContract?: RuntimeContractRequest
+    requestedDriverId?: string
   }): Promise<SessionSpawnResult> {
     if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
     // A server-minted uuid was unique by construction; a client-supplied id is
@@ -543,9 +542,7 @@ export class SessionStart {
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.name ? { name: input.name } : {}),
       ...(input.nameSource ? { nameSource: input.nameSource } : {}),
-      ...(typeof input.runtimeContract === 'string'
-        ? { requestedDriverId: input.runtimeContract }
-        : {}),
+      ...(input.requestedDriverId ? { requestedDriverId: input.requestedDriverId } : {}),
     })
     this.ports.registerSession(session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent
@@ -596,7 +593,7 @@ export class SessionStart {
       // The suffix is durable session attribution only; launch with the selected account unchanged.
       ...(await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId)),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
-      ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
+      ...(input.requestedDriverId !== undefined ? { requestedDriverId: input.requestedDriverId } : {}),
     })
     this.ports.broadcastSessions()
     return {

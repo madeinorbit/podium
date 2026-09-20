@@ -44,7 +44,6 @@ import type {
 import type {
   LockWire,
   ModelChoiceWire,
-  RuntimeContractRequest,
   SyncChangesSinceResult,
 } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -158,26 +157,24 @@ export interface PodiumClientApi {
         model?: string
         effort?: string
         /**
-         * THE PER-SPAWN DRIVER OVERRIDE (POD-1761 W5; POD-2113).
-         *
-         * Here because this interface is a HAND-WRITTEN MIRROR of
-         * `sessions.create`'s contract, and a key the mirror does not name is a
-         * key no client can pass — which left web and mobile exactly as unable
-         * to use the override as they were when zod was silently stripping it at
-         * the server. That failed loudly (a compile error) rather than silently,
-         * which is the only reason it was a smaller bug than the original.
-         *
-         * TYPED FROM THE PROTOCOL'S SCHEMA, not restated as `boolean | string`,
-         * for the reason `issues.update` imports `IssueUpdatePatch` above: a
-         * hand-copied shape is how the mirror and the contract drift. The
-         * remaining copies in this block are the older debt that pattern exists
-         * to pay off.
-         *
-         * NO UI USES IT YET, deliberately — the epic's non-goals rule out a
-         * driver picker. Being unable to EXPRESS the field is a different thing
-         * from choosing not to show one.
-         */
-        runtimeContract?: RuntimeContractRequest
+          * THE PER-SPAWN DRIVER OVERRIDE (POD-1761 W5; POD-2113; renamed POD-4426).
+          *
+          * Here because this interface is a HAND-WRITTEN MIRROR of
+          * `sessions.create`'s contract, and a key the mirror does not name is a
+          * key no client can pass — which left web and mobile exactly as unable
+          * to use the override as they were when zod was silently stripping it at
+          * the server. That failed loudly (a compile error) rather than silently,
+          * which is the only reason it was a smaller bug than the original.
+          *
+          * A driver id names the engine for this spawn; absent is the manifest's
+          * headed terminal default. The old `true` spelling is gone with the
+          * protocol field it rode on.
+          *
+          * NO UI USES IT YET, deliberately — the epic's non-goals rule out a
+          * driver picker. Being unable to EXPRESS the field is a different thing
+          * from choosing not to show one.
+          */
+        requestedDriverId?: string
         mutationId?: MutationId
       },
       { sessionId: SessionId }

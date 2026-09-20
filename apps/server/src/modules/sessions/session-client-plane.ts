@@ -118,7 +118,15 @@ export class SessionClientPlane {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
-      ...(driverRequest ? { runtimeContract: driverRequest } : {}),
+      // THE DRIVER THIS SESSION REBINDS TO (POD-4426). The selected-driver
+      // expectation: a server/embedded/headless id routes to the adopt paths, a
+      // terminal id must canonically match the harness profile. The old
+      // degraded-preference echo is gone on purpose: with one field, a degraded
+      // row (selected terminal, preference server) must send the terminal
+      // selected id, or the daemon's no-journal refusal fires. The preference
+      // stays persisted in requested_driver_id at spawn; the daemon echoes what
+      // it receives on bind.
+      ...(driverRequest ? { requestedDriverId: driverRequest } : {}),
       ...(transcriptHint ?? {}),
       // Spawn-time floor for observer-based harnesses (codex): lets a reattached
       // observer discover a lazily-created rollout it never saw before the restart.
@@ -126,7 +134,6 @@ export class SessionClientPlane {
         ? { createdAtMs: Date.parse(session.createdAt) }
         : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
-      ...(session.requestedDriverId ? { requestedDriverId: session.requestedDriverId } : {}),
     } as ControlMessage
   }
 
