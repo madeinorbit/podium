@@ -104,8 +104,11 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       navigateWorkspace: s.navigateWorkspace,
       // S5: Store interface addition pending with the coordinator (POD-4286);
       // read through a cast so this file compiles without touching types.ts.
-      // At runtime the store carries it (actions.ts provides it).
-      batchGesture: (s as unknown as { batchGesture: (fn: () => void) => void }).batchGesture,
+      // At runtime the store carries it (actions.ts provides it). Mocks that
+      // predate it (e.g. Sidebar suites owned by POD-4421) get the unbatched
+      // path rather than a crash — same calls, separate publications.
+      batchGesture: (s as unknown as { batchGesture?: (fn: () => void) => void }).batchGesture
+        ?? ((fn: () => void) => fn()),
       markIssueRead: s.markIssueRead,
       markSessionRead: s.markSessionRead,
       setIssueTucked: s.setIssueTucked,
