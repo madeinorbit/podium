@@ -200,7 +200,7 @@ Throughout, `~/.claude` is the default config home and is relocatable via the `C
 
 **Known special-cases / workarounds:**
 - **Submit split:** bracketed-paste-end and `\r` in *separate* PTY writes ~50ms apart, or Claude leaves the prompt editable (§6).
-- **Select the subscription principal:** strip competing API-key/Bedrock env vars at launch (§4), but preserve the explicitly selected `CLAUDE_CODE_OAUTH_TOKEN` or managed config-dir login. On Podium's headless SDK path, use the explicit admission gate; do not force a driver with `PODIUM_RUNTIME_DRIVER`.
+- **Select the subscription principal:** strip competing API-key/Bedrock env vars at launch (§4), but preserve the explicitly selected `CLAUDE_CODE_OAUTH_TOKEN` or managed config-dir login. On Podium's headless SDK path, use the explicit admission gate; do not force a driver with `requestedDriverId`.
 - **Project-dir name encodes cwd by `/`→`-`** — ambiguous if a path contains `-`; read `cwd` from records instead (§1).
 - **Tool results may spill** to `tool-results/<id>.txt` — follow the reference, don't assume inline (§10).
 - **Prefer `--session-id`** to own the id; **`--fork-session`** to avoid clobbering on resume; **check `sessions/*.json` for a live pid** before resuming (double-attach hazard) (§3).

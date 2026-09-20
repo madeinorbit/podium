@@ -474,7 +474,7 @@ Three things are forbidden and this epic has held the line on all of them:
 - **Do not CREATE or fabricate a credential.**
 - **Do not ROTATE the operator's** — completing an interactive OAuth login mid-release does
   exactly that.
-- **Do not set `PODIUM_RUNTIME_DRIVER` to fake a binding.** A drive that forces the driver it
+- **Do not set `requestedDriverId` to fake a binding.** A drive that forces the driver it
   is trying to measure measures nothing.
 
 **Copying an EXISTING credential into an isolated agent home is none of those, and it is what
@@ -1643,7 +1643,7 @@ and do not rewrite `results.tsv` or evidence reports to match.
 - **Third-party reuse stays barred.** Anthropic subscription tokens in opencode or any other
   third-party tool remain ToS-prohibited.
 - **Credential-safety is unchanged** (see the 17:09 / 17:53 entries): no mint, no rotate, no
-  superseded refresh token in a rig home, no `PODIUM_RUNTIME_DRIVER` to fake a binding.
+  superseded refresh token in a rig home, no `requestedDriverId` to fake a binding.
   Copy existing unexpired; confirm the product sees it.
 
 **Acceptance and testing expectations for the coordinator and future agents:**

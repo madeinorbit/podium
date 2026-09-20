@@ -50,20 +50,20 @@ shell/login protection separate from its conservative unknown-family handling.
 Metadata's bound-or-selected family projection, unknown/native display, explicit
 empty attachKinds rejection and title projection are separate policies/ownership.
 
-## Migration boundary
+## Migration boundary (retired by POD-4414 Phase 0)
 
 Programmatic send, answer and continuation belong to runtime contract verbs.
 The permanent native entrypoint cannot deliver them. The explicitly named
-`legacy-terminal-input` adapter temporarily retains bridge-only delivery for
-terminal-family legacy inbox batches and unbound peers. It cannot reach any
-leased native client, even if a Native request is present. Server/embedded
-contract sessions reject non-human byte frames at this adapter as well.
+`legacy-terminal-input` adapter keeps bridge-only delivery, permanently, for
+the populations that have no driver: shell/login hosts, older unbound peers,
+and sessions no driver was bound for. It cannot reach any leased native
+client, even if a Native request is present. Contracted sessions reject
+non-human byte frames at this adapter as well.
 
-POD-4291 owns migration of legacy inbox batches: a terminal-family runtime binding
-alone does not prove that an in-flight batch has migrated (`legacyDeliveryBatches`
-and the headed-delivery rollout still exist). Retire the adapter's agent rollout
-arm only when those callers use contract verbs. `runtimeContract=false` also
-covers permanent shell/login hosts, older peers, unbound agents and disabled
-handles; do not delete it as one population. POD-4292 owns direct-answer identity;
-POD-4278 owns plain-terminal launch policy. This change does not claim those
-migrations are complete.
+The migration this section used to bound is done: the legacy inbox batches
+(`legacyDeliveryBatches`), the headed-delivery rollout, and the
+`runtimeContract` switch are all deleted — there is no agent rollout arm left
+to retire and no flag-off path left to migrate. What remains above is the
+permanent shape (driverless transport vs contracted delivery), not a
+transition. POD-4292 owns direct-answer identity; POD-4278 owns
+plain-terminal launch policy.

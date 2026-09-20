@@ -3137,9 +3137,8 @@ export class SessionRegistry {
        * the shape of a reply it does not send.
        */
       /**
-       * An ask owned by a runtime binding is answered by that binding. The
-       * headed text-delivery rollout does not transfer menu identity back to
-       * the legacy inbox script.
+       * An ask owned by a runtime binding is answered by that binding; menu
+       * identity stays with the driver that holds the ask.
        */
       contractRouted: async (sessionId) => {
         // THE INTERNAL LIVE SESSION, not `sessionById`. The public projection

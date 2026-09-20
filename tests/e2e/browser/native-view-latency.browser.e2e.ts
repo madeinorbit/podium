@@ -129,11 +129,7 @@ test('measures first and repeated Codex CLI opens', async ({ page, request }, te
       },
       { timeout: 30_000 },
     )
-    .toBe(
-      realAgent && process.env.PODIUM_RUNTIME_CONTRACT === '1'
-        ? 'codex-app-server'
-        : expect.any(String),
-    )
+    .toBe(realAgent ? 'codex-app-server' : expect.any(String))
 
   // Let AppShell's first-idle renderer prefetch finish. The first measured click
   // still owns xterm construction, PTY attach, fit, render and focus readiness.
@@ -166,10 +162,8 @@ test('measures first and repeated Codex CLI opens', async ({ page, request }, te
     fixture: realAgent
       ? 'isolated browser harness; real Codex provider'
       : 'isolated browser harness; Codex-shaped keyecho process',
-    runtimeContractRequested: process.env.PODIUM_RUNTIME_CONTRACT === '1',
     session: {
       driverId: session?.driverId,
-      runtimeContract: session?.runtimeContract,
     },
     viewport: { width: 1440, height: 900 },
     firstCliOpen,

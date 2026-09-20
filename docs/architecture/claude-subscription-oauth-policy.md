@@ -41,7 +41,7 @@ minting, rotating, or replaying it. The standing brief still holds:
   exactly that).
 - Do not present a superseded refresh token from a rig home — that can revoke
   the whole family and log the operator out.
-- Do not set `PODIUM_RUNTIME_DRIVER` to fake a binding.
+- Do not set `requestedDriverId` to fake a binding.
 - Copying an *existing*, unexpired credential into an isolated agent home is
   allowed; then confirm the *product* sees it (`loginRequired` / the harness's
   own logged-in readout), not only that the file is on disk.
