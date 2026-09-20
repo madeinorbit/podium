@@ -1,15 +1,9 @@
 /**
  * POD-4446 — the hand-rolled store: one RowSourceEvent, one delta batch, one
- * notification pass (methodology §5.2).
- *
- * Dispatch runs the dataflow levels in topology order, each module seeing the
- * batch accumulated so far: tables -> indexes -> summaries -> visible ->
- * rollup -> order/groups -> rows. Every level is an exhaustive switch over
- * the closed delta union; a kind no module handles is a compile error.
- * Subscriptions are per key — row id, `group:<key>`, `order`,
- * `selected:<id>` — with de-duplicated notifies per pass. Selection and the
- * coarse clock are locals: they arrive as synthetic single-delta batches,
- * never as row fields.
+ * notification pass (methodology §5.2). Levels run tables -> indexes ->
+ * summary -> visible -> rollup -> order/groups -> rows; per-key
+ * subscriptions (row id, `group:<key>`, `order`, `selected:<id>`);
+ * selection and the coarse clock are locals, never row fields.
  */
 
 import type { ArmHandle, RowSource } from '../../shared/src/arm'
@@ -18,7 +12,7 @@ import type { SliceLocals, SliceOrder, SliceRow, SliceSnapshot } from '../../sha
 import type { ArmStats, RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import { createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import { type Delta, type DerivationStats } from './deltas'
+import { assertNever, type Delta, type DerivationStats } from './deltas'
 import { GroupsModule } from './groups'
 import { IndexSet } from './indexes'
 import { OrderModule } from './order'
@@ -196,6 +190,11 @@ export class HandStore {
     const indexOut: Delta[] = []
     for (const delta of batch) indexOut.push(...this.indexes.apply(delta))
     batch.push(...indexOut)
+    this.notifyBatch(this.runLevels(batch))
+  }
+
+  /** Dataflow levels in topology order; each sees the batch so far. */
+  private runLevels(batch: Delta[]): Delta[] {
     batch.push(...this.summary.apply(batch))
     batch.push(...this.visible.apply(batch))
     batch.push(...this.rollup.apply(batch))
@@ -203,7 +202,11 @@ export class HandStore {
     batch.push(...this.groups.apply(batch))
     batch.push(...this.rows.apply(batch))
     this.orderCache = null
-    // One notification pass, de-duplicated keys.
+    return batch
+  }
+
+  /** One notification pass with de-duplicated keys. */
+  private notifyBatch(batch: Delta[]): void {
     const keys = new Set<string>()
     for (const delta of batch) {
       switch (delta.kind) {
@@ -235,6 +238,8 @@ export class HandStore {
         case 'VisibilityChanged':
         case 'ClockChanged':
           break
+        default:
+          assertNever(delta)
       }
     }
     for (const key of keys) this.emit(key)
@@ -261,28 +266,7 @@ export class HandStore {
   }
 
   private applyLocals(deltas: Delta[]): void {
-    const batch: Delta[] = [...deltas]
-    batch.push(...this.summary.apply(batch))
-    batch.push(...this.visible.apply(batch))
-    batch.push(...this.rollup.apply(batch))
-    batch.push(...this.order.apply(batch))
-    batch.push(...this.groups.apply(batch))
-    batch.push(...this.rows.apply(batch))
-    this.orderCache = null
-    const keys = new Set<string>()
-    for (const delta of batch) {
-      if (delta.kind === 'RowChanged') keys.add(delta.id)
-      else if (delta.kind === 'GroupChanged') {
-        keys.add(delta.key === '' ? 'order' : `group:${delta.key}`)
-        keys.add('order')
-      } else if (delta.kind === 'OrderChanged') keys.add('order')
-      else if (delta.kind === 'SelectionChanged') {
-        if (delta.previous !== null) keys.add(`selected:${delta.previous}`)
-        if (delta.current !== null) keys.add(`selected:${delta.current}`)
-      }
-    }
-    for (const key of keys) this.emit(key)
-    this.stats.notifications += 1
+    this.notifyBatch(this.runLevels([...deltas]))
   }
 
   // ------------------------------------------------------------ read

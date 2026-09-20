@@ -1,11 +1,7 @@
 /**
- * POD-4446 — banded order over the visible set (spec R-ORDER).
- *
- * A sorted array of visible ids, maintained by ranked insert/remove/move —
- * only the changed row's rank is recomputed, never the whole list. Rank is
- * band, manual sortKey (keyed before unkeyed, siblings only), creation desc,
- * seq desc, id; activity never sorts (row-order.ts:60-64). Closed-fold rows
- * keep their R-ORDER position here (the fold sorts by tuck time in groups).
+ * POD-4446 — banded order over the visible set (spec R-ORDER; row-order.ts).
+ * Sorted visible-id array by ranked insert/remove/move; only the changed
+ * row's rank recomputes. Closed-fold rows keep R-ORDER position here.
  */
 
 import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'

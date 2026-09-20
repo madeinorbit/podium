@@ -1,16 +1,9 @@
 /**
  * POD-4446 — recursive subtree rollup with chain invalidation (spec R-ROLL).
- *
- * The aggregate over an issue's VISIBLE formal subtree (own live sessions
- * plus visible descendants' — the in-slice reading of `aggregateSessions`,
- * since started-by provenance nesting is out per spec §6): motion phase,
- * working flag, asking count (waiting sessions plus pending decisions with
- * the offer-only dedup), and the mission progress rollup over the LIVE
- * formal subtree (visibility-independent, like `missionRollup`).
- *
- * On SummaryChanged(id) only the ancestor chain is recomputed, stopping at
- * the first ancestor whose value is unchanged — a change at depth 3 touches
- * exactly its chain. Spin-off tips and the staffed set are batch-cached.
+ * Aggregate over the visible formal subtree (started-by provenance is out,
+ * spec §6): phase, working, asking (waiting + pending decisions, offer-only
+ * dedup), mission progress over the live formal subtree. On change only the
+ * ancestor chain recomputes, stopping at the first unchanged value.
  */
 
 import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
@@ -388,14 +381,7 @@ export class RollupModule {
   }
 
   private memberIssuesOfSession(sessionId: string): string[] {
-    const out: string[] = []
-    for (const [issueId, bucket] of this.indexes.explicitByIssue) {
-      if (bucket.has(sessionId)) out.push(issueId)
-    }
-    for (const [issueId, bucket] of this.indexes.resolvedByIssue) {
-      if (bucket.has(sessionId)) out.push(issueId)
-    }
-    return out
+    return this.indexes.memberIssuesOfSession(sessionId)
   }
 
   apply(batch: Delta[]): Delta[] {

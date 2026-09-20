@@ -1,19 +1,8 @@
 /**
- * POD-4446 — visible set with rescue rows (spec R-VIS).
- *
- * Flat pass per issue (rows.ts:51-118): structurally excluded rows never
- * show; rows with ≥1 retained session show; sessionless rows show only as
- * active human issues or decay-gated finished rows (awaiting-merge and
- * closed top-level exempt from decay). Rescue (rows.ts:121-158): every
- * missing live human-audience unfinished ancestor of a visible row
- * materializes as a sessionless row, cycle-guarded, finished ancestors never
- * resurrected.
- *
- * Incremental form: flat visibility per issue plus refcounted ancestor
- * chains (`keptBy`). A row is visible iff flat-visible or kept by a visible
- * descendant; rescue rows flip to flat-visible without a delta when they
- * gain sessions. Coarse-tick re-evaluation is scoped to decay-sensitive
- * rows, never the table.
+ * POD-4446 — visible set with rescue rows (spec R-VIS; rows.ts:51-158).
+ * Flat pass per issue + refcounted ancestor chains: a row is visible iff
+ * flat-visible or kept by a visible descendant. Ticks re-evaluate only
+ * decay-sensitive rows, never the table.
  */
 
 import type { SliceIssue } from '../../shared/src/slice-types'
@@ -259,14 +248,7 @@ export class VisibleModule {
   }
 
   private memberIssuesOfSession(sessionId: string): string[] {
-    const out: string[] = []
-    for (const [issueId, bucket] of this.indexes.explicitByIssue) {
-      if (bucket.has(sessionId)) out.push(issueId)
-    }
-    for (const [issueId, bucket] of this.indexes.resolvedByIssue) {
-      if (bucket.has(sessionId)) out.push(issueId)
-    }
-    return out
+    return this.indexes.memberIssuesOfSession(sessionId)
   }
 
   apply(batch: Delta[]): Delta[] {

@@ -1,12 +1,8 @@
 /**
- * POD-4446 — committed row assembly (spec §7 oracle projection).
- *
- * The SliceRow is the comparison surface: the parity oracle checks exactly
- * these fields. Assembled from the summary (displayRef, title, band,
- * repoKey), the rollup (phase, working, asking, progress) and the group
- * placement (closed). A row commits — new identity, subscriber notify — only
- * when its assembled value differs; the origin tick rides the same commit
- * decision without entering the snapshot.
+ * POD-4446 — committed row assembly (spec §7 oracle projection). SliceRows
+ * from summary + rollup + placement; a row commits only when its value (or
+ * origin tick) differs. The tick rides the commit without entering the
+ * snapshot.
  */
 
 import type { SliceRow } from '../../shared/src/slice-types'

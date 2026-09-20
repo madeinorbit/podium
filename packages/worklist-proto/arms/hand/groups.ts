@@ -1,16 +1,8 @@
 /**
- * POD-4446 — groups with one closed fold (spec R-GROUP).
- *
- * Pinned issues move (not copy) into the PINNED section above all groups;
- * the rest bucket by repo (`repoId ?? repoPath`) in first-appearance order;
- * each group holds one closed fold (settled top-level closures with nothing
- * asked, abandoned/tucked/grace-aged) sorted newest-tucked-first. Snoozed
- * rows keep their open-lane position (their band already sank them).
- *
- * Incremental form: per-row placement (group, lane) plus touched-group
- * rebuilds from the order array — the order is the source of truth, so a
- * rebuilt lane is obviously correct. Group sequence follows first
- * appearance; only touched groups emit.
+ * POD-4446 — groups with one closed fold (spec R-GROUP; folds.ts).
+ * Pinned moves out; rest buckets by repo in first-appearance order; each
+ * group holds one closed fold (settled/abandoned/tucked/grace-aged,
+ * newest-tucked-first). Touched groups rebuild from the order array.
  */
 
 import type { SliceIssue } from '../../shared/src/slice-types'

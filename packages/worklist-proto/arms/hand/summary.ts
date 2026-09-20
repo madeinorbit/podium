@@ -1,16 +1,8 @@
 /**
- * POD-4446 — per-issue own-summary (spec R-SUM, own row half).
- *
- * Reads the issue's own member sessions (R2∪R3 minus shells, bucket order —
- * the same order `sessionsForIssueNav` yields) and derives everything that is
- * a function of the issue alone: retained/live session split, activity stamp,
- * display ref + title, band, repo key. Subtree aggregation is the rollup
- * module's job; this module never walks children.
- *
- * Structurally excluded issues (archived/deleted/proposed/shipping) hold no
- * summary: session changes on them recompute nothing downstream, so a
- * heartbeat on an archived issue's session commits zero rows and zero
- * derivations. A structural flip back recomputes through IssueChanged.
+ * POD-4446 — per-issue own-summary (spec R-SUM, own half): retained/live
+ * split, activity stamp, display ref + title, band, repo key. Never walks
+ * children (subtree aggregation is the rollup's job). Structurally excluded
+ * issues hold no summary, so sessions on them recompute nothing.
  */
 
 import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
@@ -54,7 +46,8 @@ export class SummaryModule {
     private readonly stats: DerivationStats = nullStats,
   ) {}
 
-  /** Member sessions in bucket order, shells excluded (sessionsForIssueNav). */
+  /** Member sessions in bucket order, shells and archived excluded (the
+   *  sessionsForIssueNav ownership read — archived never materialize). */
   membersOf(issueId: string): SliceSession[] {
     const out: SliceSession[] = []
     const seen = new Set<string>()
@@ -67,7 +60,9 @@ export class SummaryModule {
         if (seen.has(sid)) continue
         seen.add(sid)
         const session = this.tables.sessions.rows.get(sid)
-        if (session !== undefined && session.agentKind !== 'shell') out.push(session)
+        if (session !== undefined && session.agentKind !== 'shell' && !session.archived) {
+          out.push(session)
+        }
       }
     }
     return out
@@ -112,14 +107,7 @@ export class SummaryModule {
 
   /** Issues whose membership touches a session (explicit or resolved home). */
   private memberIssuesOfSession(sessionId: string): string[] {
-    const out: string[] = []
-    for (const [issueId, bucket] of this.indexes.explicitByIssue) {
-      if (bucket.has(sessionId)) out.push(issueId)
-    }
-    for (const [issueId, bucket] of this.indexes.resolvedByIssue) {
-      if (bucket.has(sessionId)) out.push(issueId)
-    }
-    return out
+    return this.indexes.memberIssuesOfSession(sessionId)
   }
 
   apply(batch: Delta[]): Delta[] {
