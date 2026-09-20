@@ -27,7 +27,7 @@
  * - `notifications`: runtime publications observed since reset.
  */
 
-import { createElement, type ReactElement } from 'react'
+import { createElement, lazy, Suspense, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
@@ -41,7 +41,16 @@ import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types
 import type { ArmStats } from '../../../shared/src/stats'
 import { snapshotFromStore } from '../oracle/index'
 import { LegacyControlList, type ControlSliceDef } from './list'
-import { LegacyControlNativeList } from './native'
+// LAZY on purpose (not a bundle nicety): `./native` imports `react-native`,
+// whose Flow-typed source the root node/unit lanes cannot parse. A static
+// import would put that chain in every file importing this arm and break
+// `bun run test:file` and the unit lane for the whole package (the POD-1220
+// hazard). The dynamic chunk loads only when `mountNative()` renders — under
+// the package lane, where the `react-native-web` alias applies. Web entries
+// never call `mountNative`, so the chunk never loads there either.
+const LazyNativeList = lazy(() =>
+  import('./native').then((module) => ({ default: module.LegacyControlNativeList })),
+)
 
 /** The runtime surface the control reads. Satisfied by `ClientRuntime`. */
 export interface LegacyControlEngine {
@@ -117,7 +126,11 @@ export function legacyControlArmFor(engine: LegacyControlEngine): Arm {
           }
         },
         mountNative(): ReactElement {
-          return createElement(LegacyControlNativeList, { engine, sliceDef: counted })
+          return createElement(
+            Suspense,
+            { fallback: null },
+            createElement(LazyNativeList, { engine, sliceDef: counted }),
+          )
         },
       }
     },

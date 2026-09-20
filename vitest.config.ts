@@ -18,6 +18,11 @@ export const nodeTestExclude = [
   // `apps/mobile/vitest.config.ts` supplies. Without this line the node lane
   // collects them and dies in the transform (POD-1220).
   'apps/mobile/**',
+  // The G4 native lane (POD-4445) renders the legacy control in React Native
+  // primitives: same hazard, same remedy. Those suites run under the
+  // worklist-proto package config, which carries the react-native-web alias;
+  // the node lane must not collect them.
+  'packages/worklist-proto/harness/native/**',
 ]
 
 // Keep forked test runs below the shared development host resource ceiling by default.

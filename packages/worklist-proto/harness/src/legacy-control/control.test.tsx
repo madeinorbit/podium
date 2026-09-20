@@ -28,28 +28,8 @@ import {
   type CountResult,
 } from '../count-harness'
 import { snapshotFromStore } from '../oracle/index'
+import { writeHeartbeat } from '../scenario-writes'
 import { legacyControlArmFor } from './arm'
-
-async function heartbeatOnArchivedIssue(ctx: Awaited<ReturnType<typeof startScenarioEngine>>): Promise<string> {
-  const snap = ctx.engine.getSnapshot()
-  const target =
-    snap.sessions.find(
-      (session) => typeof session.issueId === 'string' && session.issueId.endsWith('19'),
-    )?.sessionId ?? 's0'
-  const current = snap.sessions.find((session) => session.sessionId === target)
-  if (!current) throw new Error(`heartbeat target ${target} missing from snapshot`)
-  const next = { ...current, lastActiveAt: new Date().toISOString() }
-  ctx.cache.put('session', target, next)
-  ctx.replica.onKernelEvent({
-    type: 'upserted',
-    record: { entity: 'session', entityId: target, value: next, provenance: { seq: 2 } },
-    readmitted: false,
-  } as never)
-  // Let the runtime publish (as the G3 scenarios do), then drain the
-  // row-source's coalesced microtask synchronously for determinism.
-  await new Promise<void>((resolve) => setTimeout(resolve, ctx.settleMs))
-  return target
-}
 
 describe('legacy control (armed)', () => {
   it('FAILS isolation on unrelatedHeartbeat and passes parity exactly', async () => {
@@ -71,7 +51,7 @@ describe('legacy control (armed)', () => {
         scenario: 'unrelatedHeartbeat',
         methodology: '#1',
         apply: async () => {
-          await heartbeatOnArchivedIssue(ctx)
+          await writeHeartbeat(ctx)
           source.flush()
         },
         expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),

@@ -13,7 +13,21 @@ const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
 )
 
 export default defineConfig({
-  resolve: sharedVitestConfig.resolve,
+  resolve: {
+    ...sharedVitestConfig.resolve,
+    alias: [
+      ...sharedVitestConfig.resolve.alias,
+      // The React Native unit renderer: `react-native` ships Flow-typed
+      // source this lane cannot parse, so native modules resolve to
+      // `react-native-web` — the same mapping `expo export -p web` builds
+      // against and the one `apps/mobile/vitest.config.ts` uses. Only the
+      // G4 native lane (`harness/native/`) imports `react-native`.
+      {
+        find: /^react-native$/,
+        replacement: fileURLToPath(new URL('./node_modules/react-native-web', import.meta.url)),
+      },
+    ],
+  },
   test: {
     ...sharedVitestConfig.test,
     setupFiles: sharedSetupFiles,
@@ -22,5 +36,12 @@ export default defineConfig({
     exclude: unitTestExclude,
     passWithNoTests: true,
     retry: 0,
+    server: {
+      deps: {
+        // Keep the web renderer inside Vite's transform pipeline (with the
+        // alias above) instead of letting Node require it externalized.
+        inline: ['react-native-web'],
+      },
+    },
   },
 })

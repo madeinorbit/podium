@@ -22,11 +22,11 @@ import { asIssueId } from '@podium/model'
 import {
   createSlicePublisher,
   type SliceDefinition,
-  type Store,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
   type WorklistSlice,
 } from '@podium/client-core/viewmodels'
+import type { Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { RowShell } from '../../../shared/src/row-shell'
 import type { LegacyControlEngine } from './arm'

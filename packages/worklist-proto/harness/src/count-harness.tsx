@@ -73,17 +73,57 @@ export function mountArmForCounts(
 ): MountedArm {
   const log = createCommitLog()
   const handle = arm.create(source, locals)
+  return mountElementForCounts(handle, <MountPoint handle={handle} />, log)
+}
+
+/**
+ * Mount an already-created handle's element with commit logging. The web path
+ * goes through `mountArmForCounts`; the native lane passes
+ * `handle.mountNative()` here. Element renders (not `mountWeb` roots) inherit
+ * the provider context directly; `mountWeb` roots fall back to the ambient log
+ * (see `row-shell.tsx`).
+ */
+export function mountElementForCounts(
+  handle: ArmHandle,
+  element: ReactElement,
+  log: CommitLog = createCommitLog(),
+): MountedArm {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
   act(() => {
     withCommitLog(log, () => {
-      root.render(
-        <CommitLogContext.Provider value={log}>
-          <MountPoint handle={handle} />
-        </CommitLogContext.Provider>,
-      )
+      root.render(<CommitLogContext.Provider value={log}>{element}</CommitLogContext.Provider>)
     })
+  })
+  log.reset()
+  handle.stats.reset()
+  return {
+    handle,
+    log,
+    unmount(): void {
+      act(() => {
+        root.unmount()
+      })
+      handle.dispose()
+      container.remove()
+    },
+  }
+}
+
+/**
+ * Mount an arm's NATIVE list with commit logging (the G4 native lane). Unlike
+ * `mountWeb` roots, the element renders in this tree, so the provider context
+ * reaches every `RowShell` directly. Async because arm native lists may arrive
+ * through `React.lazy` (the control's does — see its `arm.ts`).
+ */
+export async function mountNativeForCounts(handle: ArmHandle): Promise<MountedArm> {
+  const log = createCommitLog()
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(<CommitLogContext.Provider value={log}>{handle.mountNative()}</CommitLogContext.Provider>)
   })
   log.reset()
   handle.stats.reset()
