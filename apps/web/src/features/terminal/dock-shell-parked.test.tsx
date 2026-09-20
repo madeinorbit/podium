@@ -64,7 +64,7 @@ vi.mock('./use-terminal-appearance', () => ({
 const { DockShellPanel } = await import('./DockShellPanel')
 const lifecycle = await import('./dock-shell-lifecycle')
 
-function shellMeta(over: Partial<SessionMeta> & { sessionId: string }): SessionMeta {
+function shellMeta(over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string }): SessionMeta {
   const { sessionId, ...rest } = over
   return {
     sessionId: asSessionId(sessionId),
