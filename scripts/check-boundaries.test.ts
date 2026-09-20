@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { applyAllowlist, BROWSER_ENTRYPOINTS, partitionAllowlist } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import {
+  applyHarnessBoundaryAllowlist,
   checkBrowserGraphAll,
   checkCacheTableAnnouncement,
   checkConsoleOwnership,
@@ -14,7 +15,9 @@ import {
   checkDrizzleTransaction,
   checkFile,
   checkFlipUndeleted,
+  checkHarnessAllowlistTotals,
   checkHarnessClassifierBoundary,
+  checkHarnessVendorLiterals,
   checkHostEdgeSeparationAll,
   checkManifestFile,
   checkPlaneLeakAll,
@@ -30,10 +33,19 @@ import {
   extractImports,
   FLIP_UNDELETED,
   type FlipUndeletedEntry,
+  HARNESS_DISPLAY_NAMES,
+  HARNESS_VENDOR_RULE,
+  harnessVendorLiterals,
   loadModelExportNames,
   STAGE_A_UNCONVERTED,
   type Violation,
 } from './check-boundaries'
+import {
+  HARNESS_BASELINE_LEAK_COUNT,
+  HARNESS_BASELINE_POLICY_COUNT,
+  HARNESS_BASELINE_TOTAL,
+  HARNESS_BOUNDARY_ALLOWLIST,
+} from './harness-boundary-allowlist'
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
 
@@ -1815,5 +1827,249 @@ describe('cache-table-announcement — the seam is real, the guarantee was not (
         checkCacheTableAnnouncement(OUTSIDER, write('DELETE FROM repos_archive WHERE 1')),
       ).toEqual([])
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Harness vendor boundary (POD-4467, epic POD-4414 §5)
+//
+// No vendor-specific operational behaviour outside
+// packages/harness/src/adapters/ and packages/harness/src/driver/families/.
+// Every arm gets a firing case and a quiet case: a rule with only one half
+// either refuses everything or nothing, and neither is evidence.
+// ---------------------------------------------------------------------------
+
+describe('harness-vendor-boundary (POD-4467)', () => {
+  const KINDS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi']
+  const LITERALS = harnessVendorLiterals(KINDS)
+
+  it('flags a harness kind literal outside the two homes', () => {
+    for (const kind of KINDS) {
+      const vs = checkHarnessVendorLiterals(
+        'apps/server/src/modules/cost/service.ts',
+        `export const h = '${kind}'\n`,
+        LITERALS,
+      )
+      expect(vs.map((v) => v.rule), kind).toEqual([HARNESS_VENDOR_RULE])
+      expect(vs[0]?.specifier, kind).toBe(kind)
+    }
+  })
+
+  it('flags display names too — a label-only file is still vendor behaviour', () => {
+    for (const label of HARNESS_DISPLAY_NAMES) {
+      const vs = checkHarnessVendorLiterals(
+        'apps/web/src/lib/issue-agents.ts',
+        `export const label = '${label}'\n`,
+        LITERALS,
+      )
+      expect(vs.map((v) => v.rule), label).toEqual([HARNESS_VENDOR_RULE])
+    }
+  })
+
+  it('matches string literals, not substrings — pi collides with ordinary words', () => {
+    // Quoted pi fires in every quote style.
+    for (const source of [`const h = 'pi'\n`, `const h = "pi"\n`, 'const h = `pi`\n']) {
+      expect(
+        checkHarnessVendorLiterals('apps/server/src/x.ts', source, LITERALS).map((v) => v.rule),
+        source,
+      ).toEqual([HARNESS_VENDOR_RULE])
+    }
+    // Unquoted, or quoted as part of a longer word, stays quiet.
+    for (const source of [
+      'const api = 1\n',
+      'const pipeline = 1\n',
+      `const name = 'api'\n`,
+      `const name = 'pip'\n`,
+      `const name = 'pixel'\n`,
+      'const h = pi\n',
+    ]) {
+      expect(checkHarnessVendorLiterals('apps/server/src/x.ts', source, LITERALS), source).toEqual(
+        [],
+      )
+    }
+  })
+
+  it('stays quiet inside the two homes', () => {
+    for (const file of [
+      'packages/harness/src/adapters/codex/launch.ts',
+      'packages/harness/src/driver/families/terminal/driver.ts',
+    ]) {
+      expect(
+        checkHarnessVendorLiterals(file, `export const h = 'codex'\n`, LITERALS),
+        file,
+      ).toEqual([])
+    }
+  })
+
+  it('stays quiet on the authoritative definition, comments, tests, fixtures, e2e and migrations', () => {
+    const literal = `export const h = 'codex'\n`
+    expect(
+      checkHarnessVendorLiterals(
+        'packages/model/src/entities/agent.ts',
+        literal,
+        LITERALS,
+      ),
+    ).toEqual([])
+    // Comments are blanked first, so documenting the prohibition cannot trip it.
+    expect(
+      checkHarnessVendorLiterals(
+        'apps/server/src/x.ts',
+        `// never hardcode 'codex' here\n/* 'grok' is banned */\nexport const x = 1\n`,
+        LITERALS,
+      ),
+    ).toEqual([])
+    for (const file of [
+      'apps/server/src/x.test.ts',
+      'apps/server/src/test-support/seed.ts',
+      'apps/server/src/fixtures/thing.ts',
+      'apps/server/src/foo.fixtures.ts',
+      'apps/server/src/__fixtures__/golden.ts',
+      'apps/web/e2e/pod1234-shot.ts',
+      'apps/web/src/x.e2e.ts',
+      'apps/server/src/migrations/20260901_thing.ts',
+    ]) {
+      expect(checkHarnessVendorLiterals(file, literal, LITERALS), file).toEqual([])
+    }
+  })
+
+  it('counts every occurrence — a second literal in a listed file still fails', () => {
+    const vs = checkHarnessVendorLiterals(
+      'apps/server/src/x.ts',
+      `export const a = 'codex'\nexport const b = 'grok'\n`,
+      LITERALS,
+    )
+    expect(vs).toHaveLength(2)
+    // The ratchet: listed for 1 but holding 2 fails on the excess.
+    const { warnings, errors } = applyHarnessBoundaryAllowlist(vs, [
+      { file: 'apps/server/src/x.ts', count: 1, category: 'leak', reason: 'r', issue: 'POD-4414' },
+    ])
+    expect(warnings).toHaveLength(1)
+    expect(errors).toHaveLength(1)
+  })
+
+  it('a new file fails; a dead entry fails; slack fails — the list can only shrink', () => {
+    const vs = checkHarnessVendorLiterals(
+      'apps/server/src/new-file.ts',
+      `export const h = 'codex'\n`,
+      LITERALS,
+    )
+    // Not listed → error (new literal outside the homes).
+    expect(applyHarnessBoundaryAllowlist(vs, []).errors).toHaveLength(1)
+    // Listed but holding 0 → stale (must remove the entry).
+    expect(
+      applyHarnessBoundaryAllowlist([], [
+        { file: 'apps/server/src/x.ts', count: 1, category: 'leak', reason: 'r', issue: 'POD-4414' },
+      ]).stale,
+    ).toHaveLength(1)
+    // Listed for 3 but holding 1 → stale (must lower the count).
+    const held = checkHarnessVendorLiterals(
+      'apps/server/src/x.ts',
+      `export const h = 'codex'\n`,
+      LITERALS,
+    )
+    expect(
+      applyHarnessBoundaryAllowlist(held, [
+        { file: 'apps/server/src/x.ts', count: 3, category: 'leak', reason: 'r', issue: 'POD-4414' },
+      ]).stale,
+    ).toHaveLength(1)
+  })
+
+  it('a grown leak total fails — bumping the allow-list cannot admit new behaviour', () => {
+    const base: { file: string; count: number; category: 'leak' | 'policy'; reason: string; issue?: string; policy?: string }[] = [
+      { file: 'apps/server/src/x.ts', count: 2, category: 'leak', reason: 'r', issue: 'POD-4414' },
+    ]
+    expect(checkHarnessAllowlistTotals(base, 2, 0, 2)).toEqual([])
+    const grown = [
+      { file: 'apps/server/src/x.ts', count: 3, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
+    ]
+    expect(checkHarnessAllowlistTotals(grown, 2, 0, 2).length).toBeGreaterThan(0)
+  })
+
+  it('every seeded entry carries its category pointer — leaks name the remover, policy points at the module', () => {
+    expect(HARNESS_BOUNDARY_ALLOWLIST.length).toBeGreaterThan(100)
+    for (const entry of HARNESS_BOUNDARY_ALLOWLIST) {
+      expect(entry.reason.trim().length, entry.file).toBeGreaterThan(0)
+      if (entry.category === 'leak') {
+        expect(entry.issue?.trim().length ?? 0, entry.file).toBeGreaterThan(0)
+      } else {
+        expect(entry.policy?.trim().length ?? 0, entry.file).toBeGreaterThan(0)
+      }
+    }
+    // The spec example stays policy: superagent harness order never moves.
+    const defaults = HARNESS_BOUNDARY_ALLOWLIST.find(
+      (e) => e.file === 'packages/runtime/src/harness-defaults.ts',
+    )
+    expect(defaults?.category).toBe('policy')
+    // The pitfalls list stays leak: retyped enums are listed, not fixed.
+    for (const file of [
+      'packages/model/src/entities/cost.ts',
+      'packages/model/src/entities/handoff.ts',
+      'packages/protocol/src/messages/credentials.ts',
+      'packages/runtime/src/settings.ts',
+    ]) {
+      expect(
+        HARNESS_BOUNDARY_ALLOWLIST.find((e) => e.file === file)?.category,
+        file,
+      ).toBe('leak')
+    }
+    // Baselines equal the seeded totals — the ratchet holds from here.
+    const leak = HARNESS_BOUNDARY_ALLOWLIST.filter((e) => e.category === 'leak').reduce(
+      (n, e) => n + e.count,
+      0,
+    )
+    const policy = HARNESS_BOUNDARY_ALLOWLIST.filter((e) => e.category === 'policy').reduce(
+      (n, e) => n + e.count,
+      0,
+    )
+    expect(leak).toBe(HARNESS_BASELINE_LEAK_COUNT)
+    expect(policy).toBe(HARNESS_BASELINE_POLICY_COUNT)
+    expect(leak + policy).toBe(HARNESS_BASELINE_TOTAL)
+  })
+
+  it('is green on the real tree — seeded counts equal actual counts', () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        if (e.name.startsWith('.')) return []
+        const full = join(dir, e.name)
+        if (e.isDirectory()) {
+          return ['node_modules', 'dist', 'build', 'coverage', 'target', '.expo'].includes(e.name)
+            ? []
+            : walk(full)
+        }
+        return /\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts') ? [full] : []
+      })
+    const byFile = new Map<string, number>()
+    for (const rootDir of ['apps', 'packages', 'scripts']) {
+      for (const abs of walk(join(repoRoot, rootDir))) {
+        const file = relative(repoRoot, abs).split(sep).join('/')
+        const vs = checkHarnessVendorLiterals(file, readFileSync(abs, 'utf8'), LITERALS)
+        if (vs.length > 0) byFile.set(file, vs.length)
+      }
+    }
+    // Every actual file is listed, with the exact count — otherwise the lint
+    // would be red on the tree it ships with.
+    for (const [file, n] of byFile) {
+      const entry = HARNESS_BOUNDARY_ALLOWLIST.find((e) => e.file === file)
+      expect(entry, `${file} holds ${n} harness literals but is not allow-listed`).toBeDefined()
+      expect(entry?.count, file).toBe(n)
+    }
+    for (const entry of HARNESS_BOUNDARY_ALLOWLIST) {
+      expect(byFile.get(entry.file) ?? 0, entry.file).toBe(entry.count)
+    }
+    const { errors, stale } = applyHarnessBoundaryAllowlist(
+      [...byFile.entries()].flatMap(([file, n]) =>
+        Array.from({ length: n }, (_, i) => ({
+          file,
+          specifier: 'seed',
+          rule: HARNESS_VENDOR_RULE,
+          message: `seed ${i}`,
+        })),
+      ),
+      HARNESS_BOUNDARY_ALLOWLIST,
+    )
+    expect(errors).toEqual([])
+    expect(stale).toEqual([])
+    expect(checkHarnessAllowlistTotals(HARNESS_BOUNDARY_ALLOWLIST)).toEqual([])
   })
 })
