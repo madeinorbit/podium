@@ -22,7 +22,7 @@ import {
   reportDriverPreferenceDegrade,
   resolvedAdmissionExecutable,
 } from '../control/session'
-import { runtimeContractEnabledFor, runtimeDriverFor } from './flag'
+import { runtimeDriverFor } from './flag'
 import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import {
   createOpencodeHost,
@@ -52,17 +52,12 @@ import {
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 
 describe('the per-spawn driver override', () => {
-  it('treats `true` as "the contract, with the manifest’s own choice"', () => {
-    expect(runtimeContractEnabledFor(false, true)).toBe(true)
-    // No driver named, so nothing overrides the policy — which is what keeps
-    // W3's meaning of this field intact.
+  it('treats `true` as "the manifest’s own choice" with no driver override', () => {
+    // No driver named, so nothing overrides the policy.
     expect(runtimeDriverFor(undefined, true)).toBeUndefined()
   })
 
-  it('treats a driver id as "the contract, with THIS driver"', () => {
-    // Naming a driver and then not being driven by it is not a state anyone
-    // means to ask for, so the id implies the contract is on.
-    expect(runtimeContractEnabledFor(false, 'opencode-server')).toBe(true)
+  it('treats a driver id as an explicit engine choice', () => {
     expect(runtimeDriverFor(undefined, 'opencode-server')).toBe('opencode-server')
   })
 
@@ -73,10 +68,8 @@ describe('the per-spawn driver override', () => {
     expect(runtimeDriverFor('opencode-server', undefined)).toBe('opencode-server')
   })
 
-  it('leaves an unflagged spawn on the legacy path, which is the whole zero-diff claim', () => {
-    expect(runtimeContractEnabledFor(false, undefined)).toBe(false)
+  it('leaves an omitted spawn with no driver override', () => {
     expect(runtimeDriverFor(undefined, undefined)).toBeUndefined()
-    expect(runtimeContractEnabledFor(false, false)).toBe(false)
   })
 })
 

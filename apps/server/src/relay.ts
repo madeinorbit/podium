@@ -146,7 +146,6 @@ import type { ServerTransferTargetState } from './modules/server-transfer/servic
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
-import { contractDeliveryRequested } from './modules/sessions/contract-delivery'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'

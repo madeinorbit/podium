@@ -39,7 +39,6 @@ import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import { SessionActivityHistory } from './activity-history'
 import { AgentConcurrencyHistory } from './concurrency-history'
-import { contractDeliveryRequested } from './contract-delivery'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
@@ -517,9 +516,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Take-control / hold-control re-auth at every apply (POD-1081).
     authorizeDrive: (principal, sessionId) => ownership.authorizeClientDrive(principal, sessionId),
     nativeViewActive,
-    // The bind frame owns runtimeContract. This rollout only changes delivery;
-    // native renderer ownership above remains the separate no-PTY fact.
-    contractDelivery: contractDeliveryRequested,
+    // The bind frame owns runtimeContract: true means the daemon built a driver
+    // handle for this session, and that handle is the only delivery. Shells and
+    // unbound sessions keep the server path. No rollout flag remains (POD-4280).
+    contractDelivery: (session) => session.runtimeContract === true,
     contractAnswer: (input) => bag.interactionAnswer?.(input) ?? Promise.resolve({ ok: false, reason: 'unknown-interaction' }),
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after

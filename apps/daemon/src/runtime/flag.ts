@@ -1,29 +1,23 @@
 /**
- * Compatibility readers for historical rollout settings and driver preferences.
- * Agent launch/reconnect admission no longer consults the boolean: every agent
- * needs a verified handle. Shell, login and profile-less terminals are exempt.
- * Driver selection remains separate: omitted intent means headed, true asks the
- * manifest policy, and a concrete ID preserves an explicit engine choice.
+ * Driver preference readers (POD-4280).
+ *
+ * The contract itself is universal for agents: every agent launch/reconnect
+ * admission requires a verified handle, and `bindRuntimeContract` always binds
+ * one for profile-bearing kinds. Shell, login and profile-less terminals are
+ * the permanent exemption — they have no turns to be honest about.
+ *
+ * What remains here is the OTHER question, which is permanent: WHICH driver.
+ * Omitted intent means headed, true asks the manifest policy, and a concrete
+ * ID preserves an explicit engine choice. The machine-wide `PODIUM_RUNTIME_DRIVER`
+ * is that preference at machine scope; the per-spawn field wins over it, which
+ * is the precedence every other per-session override in the daemon uses.
  */
 
 import type { RuntimeContractRequest } from '@podium/protocol'
 
-/** The machine-wide switch, read ONCE at bootstrap. Re-reading `process.env` per
- *  session would let a session's driving change under it mid-life, which is a
- *  worse failure than either setting. */
-export const RUNTIME_CONTRACT_ENV = 'PODIUM_RUNTIME_CONTRACT'
-
 /** Machine preference used when a caller explicitly delegates to manifest policy.
  * Omitted per-spawn intent preserves the headed default regardless of this value. */
 export const RUNTIME_DRIVER_ENV = 'PODIUM_RUNTIME_DRIVER'
-
-/** Truthy exactly for `1` and `true`. A flag that accepted anything non-empty
- *  would treat `PODIUM_RUNTIME_CONTRACT=0` as on, which is the single most
- *  common way an env-var flag lies. */
-export function runtimeContractEnabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env[RUNTIME_CONTRACT_ENV]
-  return raw === '1' || raw === 'true'
-}
 
 /** The machine-wide driver preference, or undefined. Not validated here — the
  *  registry is the only place that can tell a typo from a driver this build does
@@ -31,19 +25,6 @@ export function runtimeContractEnabledByEnv(env: NodeJS.ProcessEnv = process.env
 export function runtimeDriverByEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
   const raw = env[RUNTIME_DRIVER_ENV]?.trim()
   return raw ? raw : undefined
-}
-
-/** Historical rollout answer, retained for compatibility readers and tests.
- *  This is not agent admission: launch and reconnect always require a handle.
- *
- *  A DRIVER ID IMPLIES THE CONTRACT IS ON. Naming a driver and then not being
- *  driven by it is not a state anyone means to ask for. */
-export function runtimeContractEnabledFor(
-  machineWide: boolean,
-  perSession: RuntimeContractRequest | undefined,
-): boolean {
-  if (typeof perSession === 'string') return perSession.length > 0
-  return machineWide || perSession === true
 }
 
 /**

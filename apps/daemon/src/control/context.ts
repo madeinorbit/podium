@@ -150,10 +150,6 @@ export interface DaemonContext {
    * behind this root; handlers never walk them independently. Optional only
    * during bootstrap while the driver host ports close their wiring cycle. */
   agentRuntime?: DaemonMachineRuntime
-  /** The machine-wide `PODIUM_RUNTIME_CONTRACT` switch, read ONCE at bootstrap.
-   *  OR-ed with each session's own `runtimeContract` field — see
-   *  `runtime/flag.ts` for why both exist and why neither wins. */
-  runtimeContractEnabled: boolean
   /** Resolves hook cwds to worktree roots; cleared on session exit. */
   sessionCwdTracker: SessionCwdTracker
   /** Re-arms prime injection when a session dies. */

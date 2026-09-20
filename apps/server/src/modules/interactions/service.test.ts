@@ -94,7 +94,7 @@ function harness(
     /** Wire a structured delivery route — the seam a protocol driver fills. */
     structured?: boolean
     /** Sessions whose delivery is routed through the runtime contract, as the
-     *  composition root's `contractDeliveryRequested` answers it (POD-3986). */
+     *  composition root answers it (POD-3986, universal since POD-4280). */
     contractRouted?: boolean
     /** Sessions the causal runtime-event stream owns failures for (P2/7). */
     causalSessions?: SessionId[]

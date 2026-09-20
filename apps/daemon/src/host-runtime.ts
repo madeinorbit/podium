@@ -107,7 +107,6 @@ import {
 } from './runtime/claude-sdk-driver'
 import { createCodexHost } from './runtime/codex-app-server'
 import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
-import { runtimeContractEnabledByEnv } from './runtime/flag'
 import { createGrokAcpHost } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
 import { daemonRuntimeHost } from './runtime/host'
@@ -304,8 +303,7 @@ export async function createDaemonHostRuntime(args: {
    * or adopts a session above the assignment would silently lose the native-attach
    * re-arm for it. Keep the assignment as early as the wiring allows.
    */
-  let context: DaemonContext | undefined
-  const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
+   let context: DaemonContext | undefined
   /**
    * Every outbound daemon frame, past both observation taps.
    *
@@ -986,7 +984,6 @@ export async function createDaemonHostRuntime(args: {
     retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
     ...args.endpointHandoff,
     applyUpdateGrant,
-    runtimeContractEnabled,
   }
   // Close the late-bound observer loop: observer setup from here on reads the
   // session's one TerminalScreen model.

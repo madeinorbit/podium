@@ -47,11 +47,6 @@ import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  RUNTIME_CONTRACT_ENV,
-  runtimeContractEnabledByEnv,
-  runtimeContractEnabledFor,
-} from './flag'
 import { terminalProfileFor } from './registry'
 import {
   createTerminalRuntime,
@@ -656,27 +651,6 @@ describe('attachment path prompts', () => {
       },
     })
     expect(world.written).toEqual([])
-  })
-})
-
-describe('the flag', () => {
-  it('is on only for an explicit 1 or true', () => {
-    expect(runtimeContractEnabledByEnv({ [RUNTIME_CONTRACT_ENV]: '1' })).toBe(true)
-    expect(runtimeContractEnabledByEnv({ [RUNTIME_CONTRACT_ENV]: 'true' })).toBe(true)
-    // The failure mode this exists to prevent: an env-var flag that reads any
-    // non-empty string as on, so `=0` turns it on.
-    expect(runtimeContractEnabledByEnv({ [RUNTIME_CONTRACT_ENV]: '0' })).toBe(false)
-    expect(runtimeContractEnabledByEnv({ [RUNTIME_CONTRACT_ENV]: 'false' })).toBe(false)
-    expect(runtimeContractEnabledByEnv({})).toBe(false)
-  })
-
-  it('ORs the machine-wide switch with the per-session field, neither winning', () => {
-    expect(runtimeContractEnabledFor(false, undefined)).toBe(false)
-    expect(runtimeContractEnabledFor(true, undefined)).toBe(true)
-    expect(runtimeContractEnabledFor(false, true)).toBe(true)
-    // A per-session `false` does NOT veto the machine switch: both mean the same
-    // thing, so an operator who flipped the machine gets what they asked for.
-    expect(runtimeContractEnabledFor(true, false)).toBe(true)
   })
 })
 

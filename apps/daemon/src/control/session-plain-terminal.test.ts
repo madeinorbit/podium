@@ -96,7 +96,6 @@ it.each([
   if ('missingProfile' in row) vi.mocked(terminalProfileFor).mockReturnValueOnce(undefined)
   const createTerminal = vi.fn()
   const ctx = contextForSpawn()
-  ctx.runtimeContractEnabled = true
   ctx.agentRuntime = {
     createTerminal,
     bindTerminal: vi.fn(),
@@ -158,7 +157,6 @@ function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'w
     await recoverTerminalHost(ctx, msg, () => {})
     return handles.get(msg.sessionId)
   })
-  ctx.runtimeContractEnabled = false
   ctx.agentRuntime = {
     createTerminal,
     bindTerminal,

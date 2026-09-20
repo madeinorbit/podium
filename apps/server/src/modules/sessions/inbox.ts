@@ -40,7 +40,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
-import { driverFamilyForId, type HarnessComposerReadiness, type HarnessInterrupt } from '../../harness-manifest'
+import { type HarnessComposerReadiness, type HarnessInterrupt } from '../../harness-manifest'
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session, SessionDurableState } from './session'
@@ -349,8 +349,9 @@ export interface SessionInboxDeps {
    */
   nativeViewActive?(sessionId: SessionId): boolean
 
-  /** Bind-reported contract delivery, including headed sessions when the hot
-   * rollout switch is enabled. Legacy bindings always keep the server path. */
+  /** Bind-reported contract delivery: true means the daemon built a driver handle
+   * for this session and the contract is its only delivery. Shells and unbound
+   * sessions keep the server path. Optional only as a fixture affordance. */
   contractDelivery?(session: Session): boolean
   contractAnswer?(input: {
     sessionId: SessionId; interactionId?: string; choices?: AnswerChoice[]; skip?: boolean
@@ -1285,9 +1286,14 @@ export class SessionInbox {
   /** Switching cannot transfer a row already typed or admitted by the other owner.
    * Legacy batches finish unchanged. On rollback, daemon rows settle (or the
    * operator cancels them) before newly queued input can use the legacy loop.
+   *
+   * A bound session (runtimeContract true) is always behind the contract now
+   * (POD-4280): headed and headless alike. The family check is gone with the
+   * daemon-headed-delivery switch; shells and unbound sessions keep the server
+   * path below.
    */
   routesThroughContract(session: Session): boolean {
-    if (session.runtimeContract === true && driverFamilyForId(session.driverId ?? '') !== 'terminal') {
+    if (session.runtimeContract === true) {
       return true
     }
     if (this.legacyDeliveryBatches.has(session)) {

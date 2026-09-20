@@ -957,7 +957,6 @@
         "src/modules/sessions/command-plane.ts",
         "src/modules/sessions/concurrency-history.test.ts",
         "src/modules/sessions/concurrency-history.ts",
-        "src/modules/sessions/contract-delivery.ts",
         "src/modules/sessions/daemon-lifecycle.ts",
         "src/modules/sessions/daemon-projection.test.ts",
         "src/modules/sessions/daemon-projection.ts",
@@ -1384,7 +1383,7 @@
       ],
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
-        "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -1672,7 +1671,6 @@
         "src/modules/sessions/command-plane.test.ts",
         "src/modules/sessions/command-plane.ts",
         "src/modules/sessions/concurrency-history.ts",
-        "src/modules/sessions/contract-delivery.ts",
         "src/modules/sessions/contract-input-recency.test.ts",
         "src/modules/sessions/daemon-lifecycle.ts",
         "src/modules/sessions/daemon-projection.ts",
@@ -2399,7 +2397,6 @@
         "src/modules/sessions/command-ctx.ts",
         "src/modules/sessions/command-plane.ts",
         "src/modules/sessions/concurrency-history.ts",
-        "src/modules/sessions/contract-delivery.ts",
         "src/modules/sessions/daemon-lifecycle.ts",
         "src/modules/sessions/daemon-projection.ts",
         "src/modules/sessions/facts.ts",
@@ -2721,6 +2718,7 @@
         "apps/server/src/issues.normalized-wire.test.ts"
       ],
       "inputs": [
+        "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/commands/src/**",
         "$TURBO_ROOT$/packages/harness/src/**",
         "$TURBO_ROOT$/packages/issue-client/src/**",
@@ -2922,7 +2920,6 @@
         "src/modules/sessions/command-ctx.ts",
         "src/modules/sessions/command-plane.ts",
         "src/modules/sessions/concurrency-history.ts",
-        "src/modules/sessions/contract-delivery.ts",
         "src/modules/sessions/daemon-lifecycle.ts",
         "src/modules/sessions/daemon-projection.ts",
         "src/modules/sessions/facts.ts",

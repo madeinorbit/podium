@@ -86,12 +86,9 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     writeFileSync(transcriptPath, '')
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
 
-    // THE FLAG, set before the daemon boots. `runtimeContractEnabledByEnv` is
-    // read ONCE at bootstrap on purpose — a session's driving must not change
-    // under it mid-life — so setting it after `startDaemon` would silently test
-    // the flag-off path while claiming otherwise.
-    const previousFlag = process.env.PODIUM_RUNTIME_CONTRACT
-    process.env.PODIUM_RUNTIME_CONTRACT = '1'
+    // THE CONTRACT IS UNIVERSAL FOR AGENTS SINCE POD-4280. No flag is read:
+    // admission always builds a driver handle for profile-bearing kinds, so
+    // this lane spawns without any env setup and still drives through it.
 
     const srv = await startServer()
     const daemon = await startDaemon({
@@ -245,17 +242,18 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     } finally {
       await daemon.close({ reapSessions: true })
       await srv.close()
-      if (previousFlag === undefined) delete process.env.PODIUM_RUNTIME_CONTRACT
-      else process.env.PODIUM_RUNTIME_CONTRACT = previousFlag
       rmSync(tmp, { recursive: true, force: true })
     }
   }, 90_000)
 
-  it('leaves the legacy path alone when the flag is off', async () => {
+  // RETIRED WITH THE FLAG (POD-4280). "Flag off = legacy" was the rollout's
+  // zero-diff claim; the contract is now universal for agents, so an unflagged
+  // agent session is still behind it and this lane's `not_running` expectation
+  // no longer holds. Kept as a live assertion of the new truth: no flag is
+  // set anywhere and the driver still answers.
+  it('drives agent sessions through the contract with no flag set', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'podium-runtime-contract-off-'))
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
-    const previousFlag = process.env.PODIUM_RUNTIME_CONTRACT
-    delete process.env.PODIUM_RUNTIME_CONTRACT
 
     const srv = await startServer()
     const daemon = await startDaemon({
@@ -283,26 +281,16 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
         () => sessions.listSessions().find((s) => s.sessionId === sessionId)?.status === 'live',
       )
 
-      // THE OTHER HALF OF "FLAG OFF = ZERO DIFF", and the half a passing suite
-      // cannot show on its own: the session is live and healthy on the legacy
-      // path, and the contract simply does not reach it. `not_running` here is
-      // not a failure — it is the honest answer to "drive this through the
-      // contract" for a session that is not behind it.
-      const receipt = await sessions.runtimeGateway.send({
-        sessionId,
-        text: 'should not reach a driver',
-        origin: 'human',
-        delivery: 'when-ready',
+      // No flag anywhere, yet the session is behind the contract: the row
+      // records the bind-reported handle fact.
+      await waitFor(() => {
+        const row = sessions.listSessions().find((s) => s.sessionId === sessionId)
+        if (!row?.runtimeContract) throw new Error('waiting for contract bind')
       })
-      expect(receipt.outcome).toBe('refused')
-      if (receipt.outcome === 'refused') expect(receipt.refusal.reason).toBe('not_running')
-      // …and the session it refused for is genuinely alive.
       expect(sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe('live')
     } finally {
       await daemon.close({ reapSessions: true })
       await srv.close()
-      if (previousFlag === undefined) delete process.env.PODIUM_RUNTIME_CONTRACT
-      else process.env.PODIUM_RUNTIME_CONTRACT = previousFlag
       rmSync(tmp, { recursive: true, force: true })
     }
   }, 60_000)
@@ -326,11 +314,9 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
   it('carries a per-spawn driver id across the tRPC boundary, and REFUSES a bogus one', async () => {
     const tmp = mkdtempSync(join(tmpdir(), 'podium-runtime-contract-trpc-'))
     mkdirSync(join(tmp, 'hooks'), { recursive: true })
-    // NO FLAG. A driver id implies the contract is on, so an operator trying a
-    // driver never has to find `PODIUM_RUNTIME_CONTRACT` first — and this lane
-    // would quietly stop testing the per-spawn field if it set one.
-    const previousFlag = process.env.PODIUM_RUNTIME_CONTRACT
-    delete process.env.PODIUM_RUNTIME_CONTRACT
+    // NO FLAG. A driver id names the engine directly (POD-4280: the
+    // machine-wide contract switch is gone), and this lane would quietly stop
+    // testing the per-spawn field if it set one.
 
     const srv = await startServer()
     const daemon = await startDaemon({
@@ -447,8 +433,6 @@ describe('e2e: a session driven through the Agent Runtime contract', () => {
     } finally {
       await daemon.close({ reapSessions: true })
       await srv.close()
-      if (previousFlag === undefined) delete process.env.PODIUM_RUNTIME_CONTRACT
-      else process.env.PODIUM_RUNTIME_CONTRACT = previousFlag
       rmSync(tmp, { recursive: true, force: true })
     }
   }, 150_000)

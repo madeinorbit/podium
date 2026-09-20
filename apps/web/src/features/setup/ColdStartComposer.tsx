@@ -246,7 +246,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const [busy, setBusy] = useState(false)
   const runtimeDriversEnabled = useFeature('runtime-drivers')
   const HEADED_DRIVER_CONTRACT = 'headed-contract'
-  const HEADED_LEGACY_PTY = 'headed-legacy'
   const [driverChoice, setDriverChoice] = useState(HEADED_DRIVER_CONTRACT)
   // Durable launch failures belong to the draft, not component lifetime. The
   // recovery composer can mount one microtask before the outcome writes its
@@ -412,15 +411,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       agentLoginCondition(selectedMachine, driver.harness) !== 'logged-out',
   )
   const selectedHeadlessDriver =
-    runtimeDriversEnabled &&
-    driverChoice !== HEADED_DRIVER_CONTRACT &&
-    driverChoice !== HEADED_LEGACY_PTY
+    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER_CONTRACT
       ? availableHeadlessDrivers.find((driver) => driver.id === driverChoice)
       : undefined
   const driverUnavailable =
     runtimeDriversEnabled &&
     driverChoice !== HEADED_DRIVER_CONTRACT &&
-    driverChoice !== HEADED_LEGACY_PTY &&
     selectedHeadlessDriver === undefined
   const runtimeContract =
     runtimeDriversEnabled
@@ -1205,12 +1201,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                       className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                     >
                       {driverChoice === HEADED_DRIVER_CONTRACT
-                        ? availableHeadedDriver !== undefined
-                          ? 'Headed (driver contract)'
-                          : 'Headed (legacy PTY)'
-                        : driverChoice === HEADED_LEGACY_PTY
-                          ? 'Headed (legacy PTY)'
-                          : runtimeDriverLabel(driverChoice)}
+                        ? 'Headed (driver contract)'
+                        : runtimeDriverLabel(driverChoice)}
                       <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                     </button>
                   }
@@ -1218,7 +1210,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                     ...(availableHeadedDriver
                       ? [{ value: HEADED_DRIVER_CONTRACT, label: 'Headed (driver contract)' }]
                       : []),
-                    { value: HEADED_LEGACY_PTY, label: 'Headed (legacy PTY)' },
                     ...availableHeadlessDrivers.map((driver) => ({
                       value: driver.id,
                       label: runtimeDriverLabel(driver.id),

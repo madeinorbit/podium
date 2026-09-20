@@ -15,7 +15,6 @@ import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAgentCli } from '../../../../cli/src/agent-cli'
-import { runtimeContractEnabledByEnv, runtimeContractEnabledFor } from '../../../../daemon/src/runtime/flag'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -447,10 +446,7 @@ describe('SessionStart: live session-id collision guard', () => {
 describe('non-picker driver requests', () => {
   afterEach(() => vi.unstubAllEnvs())
 
-  it('CLI agent spawn requests the advertised headed driver with the environment absent', async () => {
-    vi.stubEnv('PODIUM_RUNTIME_CONTRACT', undefined)
-    expect(process.env.PODIUM_RUNTIME_CONTRACT).toBeUndefined()
-    expect(runtimeContractEnabledByEnv()).toBe(false)
+  it('CLI agent spawn requests the advertised headed driver', async () => {
     const { reg, daemon } = await makeRegistry()
     const machineId = reg.sessionStore.hostMachineId
     await reg.modules.machines.recordInventory(machineId, {
@@ -478,7 +474,6 @@ describe('non-picker driver requests', () => {
     const { data: { sessionId } } = JSON.parse(output)
     const frame = spawns(daemon).find((m) => m.sessionId === sessionId)
     expect(frame).toMatchObject({ agentKind: 'codex', runtimeContract: 'codex-pty' })
-    expect(runtimeContractEnabledFor(runtimeContractEnabledByEnv(), frame?.runtimeContract)).toBe(true)
     const row = await reg.sessionStore.sessions.getSession(sessionId)
     expect(row?.requestedDriverId).toBe('codex-pty')
   })

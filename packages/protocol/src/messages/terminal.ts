@@ -524,15 +524,11 @@ export const SpawnMessage = z.object({
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
   /**
-   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3). When true this session is
-   * ALSO driven through `@podium/agent-runtime`'s `RuntimeDriver` — the daemon
-   * builds a driver handle beside the existing bridge and answers `runtime*`
-   * frames for it. Absent/false = the legacy path only, byte for byte.
-   *
-   * PER-SPAWN as well as per-daemon (`PODIUM_RUNTIME_CONTRACT=1`) so a single
-   * session can be flagged without flipping a machine: the daemon takes the OR
-   * of the two, which is what lets the e2e lane prove the flag-on path while
-   * every other session on the same daemon stays on the legacy one.
+   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3, universal since POD-4280).
+   * A driver id names the engine for this spawn; true delegates to the manifest
+   * policy; absent means the headed default. The daemon always builds a driver
+   * handle for profile-bearing agents — shells, logins and profile-less hosts
+   * are the permanent exemption, not a flag.
    */
   runtimeContract: RuntimeContractRequest.optional(),
 })
@@ -588,15 +584,10 @@ export const ReattachMessage = z.object({
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
   /**
-   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3). When true this session is
-   * ALSO driven through `@podium/agent-runtime`'s `RuntimeDriver` — the daemon
-   * builds a driver handle beside the existing bridge and answers `runtime*`
-   * frames for it. Absent/false = the legacy path only, byte for byte.
-   *
-   * PER-SESSION as well as per-daemon (`PODIUM_RUNTIME_CONTRACT=1`) so a single
-   * session can be flagged without flipping a machine: the daemon takes the OR
-   * of the two, which is what lets the e2e lane prove the flag-on path while
-   * every other session on the same daemon stays on the legacy one.
+   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3, universal since POD-4280).
+   * Same driver-selection carriage as spawn: an id names the engine, true
+   * delegates to policy, absent is the headed default. Reconnect carries the
+   * prior explicit choice so a revived session rebinds to the same driver.
    */
   runtimeContract: RuntimeContractRequest.optional(),
 })

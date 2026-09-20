@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig } from '@podium/runtime/config'
-import { contractDeliveryRequested } from './contract-delivery'
 import {
   type Attribution,
   actorAgent,
@@ -3257,12 +3256,10 @@ describe('headed contract delivery rollout', () => {
 
 
 
-  // RETIRED WITH THE FLAG-GATED ROLLOUT (POD-4279). These tests flipped the
-  // daemon-headed-delivery switch between legacy typing and contract delivery
-  // mid-drain. Agents no longer read that switch — drain always forwards — so
-  // there is no legacy arm to flip between. The switch itself, its file format
-  // and the contractDeliveryRequested unit tests stay for POD-4280, which owns
-  // the switch removal; daemon custody rollback is pinned by the tests below.
+  // RETIRED WITH THE FLAG-GATED ROLLOUT (POD-4279, switch removed POD-4280).
+  // These tests flipped the daemon-headed-delivery switch between legacy
+  // typing and contract delivery mid-drain. Agents no longer read any switch —
+  // drain always forwards — so there is no legacy arm to flip between.
   // Daemon custody (POD-4291) survives the rollout removal: a daemon-owned row
   // still needs a successful driver cancel, and later sends still forward.
   it('releases daemon custody only after driver cancellation succeeds', async () => {
@@ -3308,26 +3305,27 @@ describe('headed contract delivery rollout', () => {
     expect(h.sent).toEqual([])
   })
 
-  it.each([false, true])('keeps legacy bindings on the old path when switch=%s', (enabled) => {
-    expect(contractDeliveryRequested({ runtimeContract: false, driverId: 'generic-pty' },
-      { features: { 'daemon-headed-delivery': enabled } })).toBe(false)
+  // Contract delivery is universal for bound sessions (POD-4280): the
+  // daemon-headed-delivery switch is gone, and production binds
+  // `session.runtimeContract === true`. The cases below pin the surviving
+  // boundary — unbound sessions keep the server path, bound sessions never
+  // roll back to terminal input — through the inbox routing itself.
+  it('keeps unbound sessions on the server path', async () => {
+    const h = harness({ agentKind: 'codex', runtimeContract: false, driverId: 'generic-pty',
+      contractReceipts: [] })
+    expect(h.inbox.routesThroughContract(h.session)).toBe(false)
   })
 
-  it.each(['codex-app-server', 'claude-sdk', 'unknown-driver', undefined])(
-    'never rolls a no-PTY binding back to terminal input: %s', (driverId) => {
-      expect(contractDeliveryRequested({ runtimeContract: true, driverId },
-        { features: { 'daemon-headed-delivery': false } })).toBe(true)
+  it.each(['codex-app-server', 'claude-sdk', 'generic-pty', 'unknown-driver', undefined])(
+    'never rolls a bound session back to terminal input: %s', (driverId) => {
+      const h = harness({ agentKind: 'codex', runtimeContract: true, ...(driverId ? { driverId } : {}),
+        contractReceipts: [] })
+      expect(h.inbox.routesThroughContract(h.session)).toBe(true)
     })
 
-  it('ships headed delivery dark independently of runtime-drivers', () => {
-    expect(contractDeliveryRequested({ runtimeContract: true, driverId: 'claude-pty' }, {})).toBe(false)
-    expect(contractDeliveryRequested({ runtimeContract: true, driverId: 'claude-pty' },
-      { features: { 'runtime-drivers': true } })).toBe(false)
-  })
-
-  it('sends headed interrupts through the contract when enabled', async () => {
+  it('sends headed interrupts through the contract', async () => {
     const h = harness({ agentKind: 'codex', phase: 'working', runtimeContract: true, driverId: 'generic-pty',
-      contractDelivery: (session) => contractDeliveryRequested(session, { features: { 'daemon-headed-delivery': true } }),
+      contractDelivery: true,
       contractInterrupt: { ok: true } })
     expect(await h.inbox.interruptTurn({ sessionId: SID })).toEqual({ ok: true, requested: 'protocol' })
     expect(h.contractInterrupts).toEqual([SID])
