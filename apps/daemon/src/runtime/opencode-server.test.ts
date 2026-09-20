@@ -22,7 +22,6 @@ import {
   reportDriverPreferenceDegrade,
   resolvedAdmissionExecutable,
 } from '../control/session'
-import { runtimeDriverFor } from './flag'
 import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import {
   createOpencodeHost,
@@ -51,28 +50,6 @@ import {
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 
-describe('the per-spawn driver override', () => {
-  it('treats `true` as "the manifest’s own choice" with no driver override', () => {
-    // No driver named, so nothing overrides the policy.
-    expect(runtimeDriverFor(undefined, true)).toBeUndefined()
-  })
-
-  it('treats a driver id as an explicit engine choice', () => {
-    expect(runtimeDriverFor(undefined, 'opencode-server')).toBe('opencode-server')
-  })
-
-  it('lets the per-spawn field win over the machine-wide default', () => {
-    // The more specific statement is the more recent decision — the precedence
-    // every other per-session override in the daemon uses.
-    expect(runtimeDriverFor('generic-pty', 'opencode-server')).toBe('opencode-server')
-    expect(runtimeDriverFor('opencode-server', undefined)).toBe('opencode-server')
-  })
-
-  it('leaves an omitted spawn with no driver override', () => {
-    expect(runtimeDriverFor(undefined, undefined)).toBeUndefined()
-  })
-})
-
 describe('driver resolution', () => {
   const available = ['claude-pty', 'generic-pty', 'opencode-server'] as const
   it('applies interactive-login selection before probing a server binary', () => {
@@ -96,7 +73,6 @@ describe('driver resolution', () => {
     const defaultResolution = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: undefined,
-      machineDefault: undefined,
       available: ['codex-app-server', 'generic-pty'],
       platform: 'linux',
       auth,
@@ -107,7 +83,6 @@ describe('driver resolution', () => {
     const explicitResolution = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: 'codex-app-server',
-      machineDefault: undefined,
       available: ['codex-app-server', 'generic-pty'],
       platform: 'linux',
       auth,
@@ -130,14 +105,12 @@ describe('driver resolution', () => {
       runtimeDriverIntentForSpawn({
         agentKind,
         perSpawn: undefined,
-        machineDefault: undefined,
       }),
     ).toEqual({ requested: undefined, preferred: undefined })
 
     const supported = resolveRuntimeDriver({
       agentKind,
       requested: undefined,
-      machineDefault: undefined,
       available: [serverDriver, 'generic-pty'],
       platform: 'linux',
     })
@@ -146,7 +119,6 @@ describe('driver resolution', () => {
     const loggedOut = resolveRuntimeDriver({
       agentKind,
       requested: undefined,
-      machineDefault: undefined,
       available: [serverDriver, 'generic-pty'],
       platform: 'linux',
       auth: 'logged-out',
@@ -155,7 +127,6 @@ describe('driver resolution', () => {
     const explicitLoggedOut = resolveRuntimeDriver({
       agentKind,
       requested: serverDriver,
-      machineDefault: undefined,
       available: [serverDriver, 'generic-pty'],
       platform: 'linux',
       auth: 'logged-out',
@@ -171,7 +142,6 @@ describe('driver resolution', () => {
     const fallback = resolveRuntimeDriver({
       agentKind,
       requested: undefined,
-      machineDefault: undefined,
       available: ['generic-pty'],
       platform: 'linux',
     })
@@ -203,7 +173,6 @@ describe('driver resolution', () => {
       resolveRuntimeDriver({
         agentKind,
         requested: 'generic-pty',
-        machineDefault: undefined,
         available: [serverDriver, 'generic-pty'],
         platform: 'linux',
       }),
@@ -213,7 +182,6 @@ describe('driver resolution', () => {
       resolveRuntimeDriver({
         agentKind,
         requested: `${serverDriver}-bogus`,
-        machineDefault: undefined,
         available: [serverDriver, 'generic-pty'],
         platform: 'linux',
       }).ok,
@@ -224,7 +192,6 @@ describe('driver resolution', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'opencode',
       requested: undefined,
-      machineDefault: undefined,
       available: [...available],
       platform: 'linux',
     })
@@ -232,22 +199,22 @@ describe('driver resolution', () => {
     expect(isServerDriver('opencode', 'opencode-server')).toBe(true)
   })
 
-  it('lets runtimeContract:true choose the manifest default, now opencode-server', () => {
+  it('omitted requests stay headed: no policy probe, terminal driver', () => {
+    // POD-4426: the `true` spelling ("consult the manifest policy") is gone.
+    // Absent means the manifest's headed terminal default, unconditionally.
     const resolved = resolveRuntimeDriver({
       agentKind: 'opencode',
-      requested: true,
-      machineDefault: undefined,
+      requested: undefined,
       available: [...available],
       platform: 'linux',
     })
-    expect(resolved).toEqual({ ok: true, driverId: 'opencode-server' })
+    expect(resolved).toEqual({ ok: true, driverId: 'generic-pty' })
   })
 
   it('honours an explicit opt-in', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'opencode',
       requested: 'opencode-server',
-      machineDefault: undefined,
       available: [...available],
       platform: 'linux',
     })
@@ -259,7 +226,6 @@ describe('driver resolution', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: 'headless',
-      machineDefault: undefined,
       available: ['generic-pty'],
       platform: 'linux',
     })
@@ -275,7 +241,6 @@ describe('driver resolution', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'opencode',
       requested: 'opencode-server',
-      machineDefault: undefined,
       available: ['generic-pty'],
       platform: 'linux',
     })
@@ -296,14 +261,11 @@ describe('driver resolution', () => {
     expect(unhonouredSpawnDriver({ perSpawn: 'opencode-server', resolved: 'generic-pty' })).toBe(
       'opencode-server',
     )
-    // A MACHINE-WIDE DEFAULT IS NOT A PER-SPAWN REQUEST, and this is the line
-    // that keeps the degrade alive. `PODIUM_RUNTIME_DRIVER` reaches resolution
-    // through `machineDefault`, never through `perSpawn`, so a stale env var on
-    // a box whose opencode fell out of range degrades every spawn instead of
-    // failing every spawn.
+    // AN OMITTED REQUEST IS NOT A PER-SPAWN REQUEST, and this is the line that
+    // keeps the degrade alive. With the machine-wide default gone (POD-4426),
+    // the only preference left is the per-spawn field — so an omitted spawn
+    // degrades a manifest-default preference instead of failing it.
     expect(unhonouredSpawnDriver({ perSpawn: undefined, resolved: 'generic-pty' })).toBeUndefined()
-    // `true` names no driver, so there is no request to break.
-    expect(unhonouredSpawnDriver({ perSpawn: true, resolved: 'generic-pty' })).toBeUndefined()
     // Honoured is honoured.
     expect(
       unhonouredSpawnDriver({ perSpawn: 'opencode-server', resolved: 'opencode-server' }),
@@ -316,28 +278,25 @@ describe('driver resolution', () => {
     )
     // TERMINAL IDS DO NOT REFUSE. Both reach the same PTY launch, so a spawn
     // that named one and resolved to the other got what it asked for in every
-    // way it can observe — refusing would be pedantry about a label, and it
-    // would turn `PODIUM_RUNTIME_DRIVER=claude-pty` on an opencode session into
-    // a dead spawn.
+    // way it can observe — refusing would be pedantry about a label.
     expect(
       unhonouredSpawnDriver({ perSpawn: 'claude-pty', resolved: 'generic-pty' }),
     ).toBeUndefined()
   })
 
-  it('asks ONE question for both refusals, so a stale env var cannot kill a box', () => {
+  it('asks ONE question for both refusals: only this spawn can refuse it', () => {
     /**
      * THE DEFECT THIS PINS (POD-2113, found by review). The spawn path refuses in
      * two places — before resolution when a probe could not answer, and after it
      * when the driver was not the one picked — and only the second asked whether
-     * THIS SPAWN named the driver. The first asked `requested`, the env default
-     * already folded in.
+     * THIS SPAWN named the driver. The first asked the env-folded value.
      *
      * That is not a cosmetic asymmetry. A probe reports `unprobeable` on ENOENT,
      * not just on a timeout, and that verdict is deliberately not permanent —
-     * so on a daemon whose PATH lacks the binary (installed under `~/.opencode/bin`,
-     * daemon started from a systemd unit) a single `PODIUM_RUNTIME_DRIVER` made
-     * EVERY spawn of EVERY harness refuse. The machine-wide value is exactly
-     * the one that must degrade.
+     * so on a daemon whose PATH lacks the binary (installed under
+     * `~/.opencode/bin`, daemon started from a systemd unit) a stale default
+     * refused EVERY spawn of EVERY harness. POD-4426 deleted the env source, so
+     * the per-spawn field is the only preference left and both refusals ask it.
      */
     expect(spawnNamedServerDriver('opencode-server')).toBe('opencode-server')
     // W6'S SECOND SERVER DRIVER, which doubled the ways into the defect without
@@ -345,14 +304,10 @@ describe('driver resolution', () => {
     // a third family is covered when it is declared, not when someone remembers
     // this test.
     expect(spawnNamedServerDriver('codex-app-server')).toBe('codex-app-server')
-    // THE MACHINE-WIDE DEFAULT NEVER REACHES THIS FUNCTION — it arrives as
-    // `undefined` here and lives on in `requested` for probe selection and the
-    // degrade warning. This one line is what keeps a stale env var survivable.
+    // AN OMITTED REQUEST NEVER REACHES THIS FUNCTION as a refusal — it arrives
+    // as `undefined` here, and the manifest default it degrades to is handled
+    // by the degrade path, never refused.
     expect(spawnNamedServerDriver(undefined)).toBeUndefined()
-    // `true` asks for the contract and names no driver, so there is nothing to
-    // refuse on its behalf.
-    expect(spawnNamedServerDriver(true)).toBeUndefined()
-    expect(spawnNamedServerDriver(false)).toBeUndefined()
     // Terminal ids are not the server family and all reach the same PTY launch.
     expect(spawnNamedServerDriver('generic-pty')).toBeUndefined()
     expect(spawnNamedServerDriver('claude-pty')).toBeUndefined()
@@ -430,7 +385,6 @@ describe('driver resolution', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'opencode',
       requested: 'opencode-sever',
-      machineDefault: undefined,
       available: [...available],
       platform: 'linux',
     })
@@ -444,7 +398,6 @@ describe('driver resolution', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'claude-code',
       requested: 'opencode-server',
-      machineDefault: undefined,
       available: [...available],
       platform: 'linux',
     })
@@ -538,7 +491,7 @@ describe('the version gate, as the daemon reads it', () => {
           agentKind: 'opencode',
           cwd: '/tmp',
           geometry: { cols: 80, rows: 24 },
-          runtimeContract: 'opencode-server',
+          requestedDriverId: 'opencode-server',
         } as never,
         async (_driverId, _policy, executablePath) => {
           probedExecutable = executablePath
@@ -847,20 +800,19 @@ describe('spec §6 — the secret rides the env', () => {
 })
 
 /**
- * THE BIND FACT MUST SEE EVERY REGISTRY (POD-2023).
+ * THE DRIVER FACT ON EVERY BIND (POD-2023; the flag removed by POD-4426).
  *
- * `bind.runtimeContract` is what the server records on the row and what W4's
- * migrated senders branch on to choose between the contract and the legacy PTY
- * path. W3 had one registry, so the predicate behind it asked one. The moment a
- * second family exists, a predicate that still asks one reports `false` for a
- * server-family session — and W4 then routes its sends down a path that types at
- * a PTY the session does not have, where the write goes nowhere and reports
- * success.
+ * `driverId` presence is what the server records on the row and what its
+ * senders key on to choose the contract path. W3 had one registry, so the
+ * predicate behind the old boolean asked one. The moment a second family
+ * exists, a predicate that still asks one reports `false` for a server-family
+ * session — and senders then route down a path that types at a PTY the session
+ * does not have, where the write goes nowhere and reports success.
  *
  * Caught by reading the epic's lessons register rather than by a failing test,
  * which is exactly why there is now a test.
  */
-describe('the contract bind fact', () => {
+describe('the driver bind fact', () => {
   const ctxWith = (opts: {
     terminal?: SessionId[]
     opencode?: SessionId[]
@@ -884,7 +836,7 @@ describe('the contract bind fact', () => {
     expect(sessionIsBehindContract(ctxWith({ opencode: [SESSION] }), SESSION)).toBe(true)
   })
 
-  it('reports FALSE for a session in neither, which is the legacy path', () => {
+  it('reports FALSE for a session with no handle — a shell, or not yet bound', () => {
     expect(sessionIsBehindContract(ctxWith({ terminal: [], opencode: [] }), SESSION)).toBe(false)
     // …and for a daemon with no runtimes wired at all.
     expect(sessionIsBehindContract(ctxWith({}), SESSION)).toBe(false)
@@ -900,7 +852,7 @@ describe('the contract bind fact', () => {
     expect(runtimeDriverIdFor(ctx, SESSION)).toBe('opencode-server')
   })
 
-  it('is what EVERY bind site actually calls — the adoption pin', () => {
+  it('is what EVERY driven bind states — the adoption pin', () => {
     /**
      * THE TRIO ABOVE PINS THE PREDICATE; THIS PINS ITS ADOPTION (POD-2023 review
      * addendum, (b)).
@@ -910,17 +862,17 @@ describe('the contract bind fact', () => {
      * a site that reverts to `ctx.runtime?.has(...)` tomorrow passes all three
      * tests above and ships the same defect.
      *
-     * So this reads the source and asserts the CALL SITES. Every bind the daemon
-     * builds either routes through the predicate or — for a server driver's own
-     * bind — hardcodes `true`, which is equivalent by construction because the
-     * handle is registered before that line runs. A NEW bind site appearing
-     * without one of those two shapes fails here.
+     * So this reads the source and asserts the CALL SITES. Since POD-4426 every
+     * bind for a driven session states `driverId` outright — the handle is
+     * registered before that line runs, so a probe could only agree — and a
+     * shell bind states none. A NEW bind site appearing without `driverId`
+     * fails here.
      *
      * THE MARKER IS `bindFrame(` SINCE POD-3290, not `type: 'bind'`. That
      * literal now appears in exactly one file — the one builder — and
      * `control/applied-geometry.test.ts` is the gate that keeps it there. So the
      * two suites together still cover the whole surface: a hand-rolled bind
-     * anywhere fails that gate, and a bind built here without a contract fact
+     * anywhere fails that gate, and a driven bind built here without its driver
      * fails this one.
      */
     const daemonSrc = join(import.meta.dirname, '..')
@@ -930,7 +882,7 @@ describe('the contract bind fact', () => {
       join(daemonSrc, 'runtime', 'codex-driver.ts'),
       join(daemonSrc, 'runtime', 'grok-driver.ts'),
       // ADDED WITH THE BUILDER (POD-3290). The embedded Claude bind states the
-      // same two facts and was simply never in this list; now that every bind
+      // same fact and was simply never in this list; now that every bind
       // has one shape there is no reason to leave it out.
       join(daemonSrc, 'runtime', 'claude-sdk-driver.ts'),
     ]
@@ -950,14 +902,20 @@ describe('the contract bind fact', () => {
           body += `${lines[i]}\n`
           if (/^\s{0,10}\}\),?$/.test(lines[i] ?? '')) break
         }
+        // Shell binds carry no driver by structure; every other site states the
+        // driver outright. A site that states neither is a session the server
+        // cannot drive and cannot distinguish from a shell.
+        const isShellBind = body.includes("agentKind: 'shell'") && !body.includes('driverId')
         expect(
-          body.includes('sessionIsBehindContract(') || body.includes('runtimeContract: true'),
-          `bind site at ${file}:${index + 1} states no contract fact — a server-family session there would report false`,
+          body.includes('driverId') || isShellBind,
+          `bind site at ${file}:${index + 1} states no driver — a driven session there would be indistinguishable from a shell`,
         ).toBe(true)
+        // The deleted boolean must not come back through a comment or a field:
+        // `driverId` presence is the only driven signal now.
         expect(
-          body.includes('driverId'),
-          `bind site at ${file}:${index + 1} does not report its resolved driver`,
-        ).toBe(true)
+          body.includes('runtimeContract'),
+          `bind site at ${file}:${index + 1} still mentions the deleted contract field`,
+        ).toBe(false)
         // …and NEVER by asking one registry directly, which is the regression.
         expect(
           body.includes('ctx.runtime?.has('),
@@ -976,11 +934,9 @@ describe('the contract bind fact', () => {
      * rebind a process-per-turn session that holds no server journal and no
      * PTY.
      *
-     * SEVERAL WERE DECIDED HERE, which is what the count is for. They state
-     * `runtimeContract: true` and `driverId` outright rather than asking the
-     * predicate — the second of the two shapes above, and legitimate for the
-     * same reason a server driver's own bind is: the handle is registered
-     * before that line runs, so the predicate could only agree.
+     * EVERY ONE STATES `driverId` OUTRIGHT, which is what the count is for:
+     * the handle is registered before each of those lines runs, so stating the
+     * driver is stating a fact rather than asking a question.
      *
      * The count is asserted so a new bind site cannot be added without coming
      * here and deciding what it reports.
