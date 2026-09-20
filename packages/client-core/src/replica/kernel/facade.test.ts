@@ -939,3 +939,91 @@ describe('the side cache', () => {
     expect(side.outboxStorage().load()).toEqual([])
   })
 })
+
+describe('addressed batches (POD-4444, additive/opt-in)', () => {
+  const upserted = (entity: string, entityId: string): ReplicaEvent => ({
+    type: 'upserted',
+    record: { entity, entityId, value: {}, provenance: { seq: 1 } },
+    readmitted: false,
+  })
+
+  it('one upsert yields one address with the committed row readable', () => {
+    const { cache, replica } = build()
+    const batches: unknown[] = []
+    const off = replica.subscribeAddressedBatch!((batch) => batches.push(batch))
+    try {
+      cache.put('session', 's1', session('s1'))
+      replica.onKernelEvent(upserted('session', 's1'))
+      expect(batches).toEqual([{ type: 'update', rows: [{ kind: 'sessions', id: 's1' }] }])
+      expect(replica.row!('sessions', 's1')).toEqual(session('s1'))
+    } finally {
+      off()
+    }
+  })
+
+  it('a remove yields an address whose value is absent', () => {
+    const { cache, replica } = build()
+    cache.put('session', 's1', session('s1'))
+    replica.onKernelEvent(upserted('session', 's1'))
+    expect(replica.row!('sessions', 's1')).toEqual(session('s1'))
+    const batches: unknown[] = []
+    const off = replica.subscribeAddressedBatch!((batch) => batches.push(batch))
+    try {
+      cache.drop('session', 's1')
+      replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 's1' })
+      expect(batches).toEqual([{ type: 'update', rows: [{ kind: 'sessions', id: 's1' }] }])
+      expect(replica.row!('sessions', 's1')).toBeUndefined()
+    } finally {
+      off()
+    }
+  })
+
+  it('bootstrap and rescope emit replace events', () => {
+    const { replica } = build()
+    const batches: unknown[] = []
+    const off = replica.subscribeAddressedBatch!((batch) => batches.push(batch))
+    try {
+      replica.onKernelEvent({
+        type: 'bootstrap-installed',
+        cause: 'cold-start',
+        snapshotSeq: 1,
+        entityCount: 0,
+        bufferedFramesApplied: 0,
+      })
+      expect(batches).toEqual([{ type: 'replace', reason: 'bootstrap' }])
+      replica.onKernelEvent({
+        type: 'bootstrap-installed',
+        cause: 'rescope',
+        snapshotSeq: 2,
+        entityCount: 0,
+        bufferedFramesApplied: 0,
+      })
+      expect(batches[1]).toEqual({ type: 'replace', reason: 'rescope' })
+    } finally {
+      off()
+    }
+  })
+
+  it('a batch of 50 upserts coalesces to one update with 50 rows', () => {
+    const { cache, replica } = build()
+    const batches: Array<{ type: string; rows?: Array<{ kind: string; id: string }> }> = []
+    const off = replica.subscribeAddressedBatch!((batch) =>
+      batches.push(batch as { type: string; rows?: Array<{ kind: string; id: string }> }),
+    )
+    try {
+      replica.batch(() => {
+        for (let n = 0; n < 50; n += 1) {
+          const id = `s${n}`
+          cache.put('session', id, session(id))
+          replica.onKernelEvent(upserted('session', id))
+        }
+        expect(batches).toHaveLength(0)
+      })
+      expect(batches).toHaveLength(1)
+      expect(batches[0]?.type).toBe('update')
+      expect(batches[0]?.rows).toHaveLength(50)
+    } finally {
+      off()
+    }
+  })
+})

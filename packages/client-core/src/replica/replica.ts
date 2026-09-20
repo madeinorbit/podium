@@ -89,6 +89,7 @@ import { COLD_CURSOR, type FeedCursor, REPLICA_SCHEMA_VERSION } from './feed'
 
 export type {
   Replica,
+  ReplicaAddressedBatch,
   ReplicaHydrateResult,
   ReplicaKind,
   ReplicaRows,
