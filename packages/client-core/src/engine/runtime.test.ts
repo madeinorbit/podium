@@ -4388,8 +4388,13 @@ describe('S5 one publication per click', () => {
         .map(({ kind, input }) => ({ kind, input }))
       expect(queued).toHaveLength(1)
       expect(queued[0]).toMatchObject({ kind: 'issueMarkRead', input: { id: issueB.id } })
+      // Control: same commands sent in both arms. Setup enqueues s5-a twice
+      // (reaction + explicit separated by settle); the measured click dedupes
+      // to one s5-b send via pendingReads in both arms.
       const markCalls = (api.issues.markRead.mutate as ReturnType<typeof vi.fn>).mock.calls
-      process.stdout.write(`S5 arm batched=${batched} markReadCalls=${JSON.stringify(markCalls.map((c) => c[0]))}\n`)
+        .map((c) => (c[0] as { id: unknown }).id)
+      expect(markCalls.filter((id) => id === issueB.id)).toHaveLength(1)
+      expect(markCalls).toHaveLength(3)
       // Control: same visible gesture state + optimistic paint.
       expect(st.selectedIssueId).toBe(issueB.id)
       expect(st.paneA).toBe(sessionB.sessionId)
@@ -4409,13 +4414,18 @@ describe('S5 one publication per click', () => {
         expect(sync).toBeGreaterThan(1)
       }
       // Async drain echo stays separate by construction (labelled, not folded):
-      // resolving the queue publishes again, outside the gesture window.
+      // the queue resolves after the gesture window closed. Total (sync +
+      // settle) exceeds sync in both arms; an explicit drain afterwards is a
+      // no-op because settle already drained.
+      const total = readStoreStats().publishes.length
+      expect(total).toBeGreaterThan(sync)
       storeStats.reset()
       const drainWindow = storeStats.begin('feed')
       await engine.outbox.drain()
       await settle()
       storeStats.end(drainWindow)
       const drainPubs = readStoreStats().publishes.length
+      expect(drainPubs).toBe(0)
       expect(engine.outbox.pending()).toHaveLength(0)
       // Network echo stays separate too: server truth arrives later and retires
       // the awaiting overlay without changing the gesture's publication count.
@@ -4439,10 +4449,11 @@ describe('S5 one publication per click', () => {
       ({ selected, pane, baseline, queued, echoReadAt })
     expect(controls(results[1]!)).toEqual(controls(results[0]!))
     // Rollback semantics unchanged (B11 owns the failure matrix); the gesture
-    // batch only moves the publication boundary. Drain echo published
-    // separately in both arms.
-    expect(results[0]!.drainPubs).toBeGreaterThanOrEqual(1)
-    expect(results[1]!.drainPubs).toBeGreaterThanOrEqual(1)
+    // batch only moves the publication boundary. The drain echo published
+    // separately (total > sync) in both arms; the explicit post-settle drain
+    // is a no-op (0) in both.
+    expect(results[0]!.drainPubs).toBe(0)
+    expect(results[1]!.drainPubs).toBe(0)
     process.stdout.write(`S5 click A/B sync ${results[0]!.sync} -> ${results[1]!.sync} keys=${JSON.stringify(results[1]!.syncKeys)}\n`)
     storeStats.reset()
   })
