@@ -194,12 +194,6 @@ export interface UiState {
   subscribe(cb: () => void): () => void
 }
 
-/** Committed invalidations, not row values. Replacement is explicit even for
- * an empty scope; an absent row may still carry a changed exit record. */
-export type ReplicaAddressedBatch =
-  | { readonly type: 'replace'; readonly reason: 'bootstrap' | 'rescope' }
-  | { readonly type: 'update'; readonly rows: readonly { readonly kind: ReplicaKind; readonly id: string }[] }
-
 export interface Replica {
   /** False when durable storage is unusable (private mode, quota). The replica
    *  still WORKS — the same collections, live queries, and outbox run over an
@@ -252,11 +246,6 @@ export interface Replica {
   /** Non-React read seam (#262 [spec:SP-3fe2]): the current rows for `kind`.
    *  Returns a stable shared empty array while the collection is empty. Never throws. */
   rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][]
-  /** Optional addressed read. Never materialises collection arrays; live until
-   * the caller captures it at its commit boundary. Same admission as rows(). */
-  row?<K extends ReplicaKind>(kind: K, id: string): ReplicaRows[K] | undefined
-  /** Optional committed address batch, including explicit whole-scope replacement. */
-  subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
   /** Non-React change seam (#262). Notifications are COALESCED per application:
    *  a listener never observes the transient half-applied list. Never throws. */
   subscribeRows(kind: ReplicaKind, cb: () => void): () => void
