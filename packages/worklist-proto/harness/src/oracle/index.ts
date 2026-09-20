@@ -1,2 +1,2 @@
-export { expectedSnapshot, runLegacyDerivation } from './oracle'
+export { expectedSnapshot, projectSnapshot, runLegacyDerivation, snapshotFromStore } from './oracle'
 export type { LegacyDerivation } from './oracle'

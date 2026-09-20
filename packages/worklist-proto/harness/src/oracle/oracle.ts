@@ -135,7 +135,18 @@ function projectRow(
  * out (unselected baseline, spec §7).
  */
 export function expectedSnapshot(corpus: FixtureCorpus, locals: SliceLocals): SliceSnapshot {
-  const derivation = runLegacyDerivation(corpus, locals)
+  return projectSnapshot(runLegacyDerivation(corpus, locals), locals)
+}
+
+/**
+ * POD-4445 — project an already-derived legacy derivation onto the frozen
+ * `SliceSnapshot`. `expectedSnapshot` is this over a fixture corpus; the G4
+ * count harness calls this over a LIVE engine store (see `snapshotFromStore`)
+ * so engine-backed arms and the legacy control check parity against the same
+ * projection the fixture oracle uses. One projection, two inputs, no second
+ * implementation to drift.
+ */
+export function projectSnapshot(derivation: LegacyDerivation, locals: SliceLocals): SliceSnapshot {
   // Flat slice: one row per visible issue, in legacy banded order. Worktree
   // rows have no slice rendering and are dropped before ordering.
   const flat = sortUnifiedWorkRows(
@@ -165,4 +176,37 @@ export function expectedSnapshot(corpus: FixtureCorpus, locals: SliceLocals): Sl
 
 function rowKeyOf(row: UnifiedWorkRow): string {
   return row.kind === 'issue' ? row.issue.id : row.worktree.path
+}
+
+/**
+ * POD-4445 — the oracle projection over a LIVE engine store instead of a
+ * fixture corpus. Runs the same `worklistSlice.derive` the app publishes and
+ * projects it with the same `projectSnapshot` the fixture oracle uses, so an
+ * engine-backed arm (or the legacy control) checks parity against exactly what
+ * the current app shows for the engine's present state.
+ *
+ * Model resolution mirrors `runLegacyDerivation`'s store assembly: the shared
+ * issue-view cache when a replica and projections are present, else the
+ * store's own issue rows (the POD-1053 fallback inside the slice).
+ */
+export function snapshotFromStore(
+  store: Store<PodiumClientApi>,
+  locals: SliceLocals,
+): SliceSnapshot {
+  const replica = store.replica
+  const projections = store.issueProjections ?? []
+  const models =
+    replica !== undefined && replica !== null && projections.length > 0
+      ? allIssueViewModels(replica, projections, store.issues)
+      : store.issues
+  const slice = worklistSlice.derive(store)
+  return projectSnapshot(
+    {
+      slice,
+      models,
+      sessions: store.sessions,
+      allWorktreePaths: slice.allWorktreePaths,
+    },
+    locals,
+  )
 }

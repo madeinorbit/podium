@@ -30,7 +30,14 @@ export interface ArmHandle {
   snapshot(): SliceSnapshot
   stats: ArmStats
   dispose(): void
-  /** Mount the arm's own windowed web list into `el`; returns the unmount. */
+  /**
+   * Mount the arm's own windowed web list into `el`; returns the unmount.
+   *
+   * Every row component in the list MUST render inside
+   * `RowShell` (`shared/src/row-shell.tsx`) keyed by its slice row id —
+   * that shell is how the G4 count harness observes per-row commits.
+   * Outside the harness the shell is a pass-through.
+   */
   mountWeb(el: Element): () => void
   /** The arm's own native list element (React Native unit renderer). */
   mountNative(): ReactElement
