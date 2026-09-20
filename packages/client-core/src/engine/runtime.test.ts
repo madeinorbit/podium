@@ -3846,3 +3846,65 @@ describe('S5 one publication per click', () => {
     engine.destroy()
   })
 })
+
+/**
+ * Unreferenced file records (this issue).
+ *
+ * Sessions empty, workspaces empty, one session-scoped fileTabs record whose
+ * session is absent: the record must retire once its grace period runs out.
+ * `pruneWorkspaces` used to clock only `referencedTabIds(workspaces)`, so this
+ * record was never a candidate and lived forever.
+ */
+describe('unreferenced file records', () => {
+  it('retires a session-scoped file record with no workspace reference at the grace period', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-09-01T00:00:00.000Z'))
+      const { engine } = makeEngine()
+      const deadId = 'file:s:gone:notes.md'
+      let current = {
+        ...engine.getSnapshot(),
+        sessions: [],
+        issues: [],
+        pendingSpawnIds: new Set<string>(),
+        workspaces: {},
+        paneA: null,
+        paneB: null,
+        split: false,
+        fileTabs: [
+          {
+            id: deadId,
+            scope: { kind: 'session', sessionId: asSessionId('gone') },
+            path: 'notes.md',
+            worktreePath: '/tmp/known-repo',
+          },
+        ],
+      } as EngineState
+      const reactions = new Reactions({
+        state: () => current,
+        publish: (patch) => {
+          current = { ...current, ...patch } as EngineState
+        },
+        hub: {} as SocketHub,
+        notices: { info: () => {}, error: () => {} },
+        markSessionRead: () => {},
+        markIssueRead: () => {},
+        isVisible: () => true,
+        pruneGraceMs: 1000,
+      })
+      try {
+        reactions.pruneWorkspaces()
+        // Within grace the record stays: an absent session at boot may be late.
+        expect(current.fileTabs.map((t) => t.id)).toEqual([deadId])
+        vi.setSystemTime(new Date('2026-09-01T00:00:01.000Z'))
+        reactions.pruneWorkspaces()
+        expect(current.fileTabs).toEqual([])
+      } finally {
+        reactions.dispose()
+        engine.destroy()
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

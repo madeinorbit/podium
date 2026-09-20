@@ -564,3 +564,79 @@ describe('the POD-822 cutover: the projection + join supplies deps and prefix', 
     expect(deriveIssueViews(issues, []).get('i1')).toMatchObject({ displayRef: '#13' })
   })
 })
+
+describe('phase rollup follows current agent state [POD-4382]', () => {
+  // Real session rows carry the harness-observed phase nested at
+  // `agentState.phase`; no top-level `phase` exists on current rows. These
+  // fixtures go through the real path — replica in, `readViewInputs` join,
+  // `deriveIssueViews` + `deriveIssueRollups` — so they see what a user sees:
+  // an issue whose sessions are all in ordinary current states.
+  const live = (sessionId: string, phase: string, over: Record<string, unknown> = {}) =>
+    ({
+      sessionId: asSessionId(sessionId),
+      issueId: asIssueId('i1'),
+      agentKind: 'codex',
+      status: 'live',
+      lastActiveAt: '2026-07-17T09:00:00.000Z',
+      agentState: {
+        phase,
+        since: '2026-07-17T08:00:00.000Z',
+        nativeSubagentCount: 0,
+      },
+      ...over,
+    }) as never
+
+  const worldWith = (sessionRows: never[]) => {
+    const replica = createReplica({ storage: memoryStorage() })
+    replica.applySnapshot('issueProjections', [
+      { id: 'i1', seq: 1, stage: 'in_progress' } as never,
+    ])
+    replica.applySnapshot('issues', [{ id: 'i1', readAt: null } as never])
+    replica.applySnapshot('sessions', sessionRows)
+    return readViewInputs(replica)
+  }
+
+  const rollupsFor = (issueId: string, issues: IssueViewInput[], sessions: SessionViewInput[]) => {
+    const views = deriveIssueViews(issues, sessions)
+    const issue = issues.find((i) => i.id === issueId)!
+    return deriveIssueRollups(issue, views.get(issueId)!.memberSessionIds, (id) =>
+      sessions.find((s) => s.sessionId === id),
+    )
+  }
+
+  it('counts ordinary current sessions under their agent phase, not unknown', () => {
+    const { issues, sessions } = worldWith([live('s1', 'working'), live('s2', 'idle')])
+    // The join is where the defect lived: the cast dropped `agentState.phase`,
+    // so every live session counted as `unknown`.
+    expect(sessions.map((s) => s.phase).sort()).toEqual(['idle', 'working'])
+    expect(rollupsFor('i1', issues, sessions).sessionSummary).toEqual({
+      total: 2,
+      byPhase: { working: 1, idle: 1 },
+    })
+  })
+
+  it('counts a session with no agent state as unknown', () => {
+    // Uninstrumented kinds and sessions with no events yet have no `agentState`
+    // at all; `unknown` stays their honest bucket (AgentPhase says the same).
+    const { issues, sessions } = worldWith([
+      { sessionId: asSessionId('s1'), issueId: asIssueId('i1'), agentKind: 'codex' } as never,
+    ])
+    expect(rollupsFor('i1', issues, sessions).sessionSummary).toEqual({
+      total: 1,
+      byPhase: { unknown: 1 },
+    })
+  })
+
+  it('keeps honoring the legacy top-level phase spelling', () => {
+    // Hand-built rows (and compat payloads) may still carry the flattened
+    // `phase`; the mapping prefers live agent state but does not drop these.
+    const { sessions } = worldWith([
+      {
+        sessionId: asSessionId('s1'),
+        issueId: asIssueId('i1'),
+        phase: 'working',
+      } as never,
+    ])
+    expect(sessions.map((s) => s.phase)).toEqual(['working'])
+  })
+})

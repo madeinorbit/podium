@@ -167,8 +167,15 @@ export class Reactions {
     const st = this.ports.state()
     const referenced = referencedTabIds(st)
     const globallyKnown = knownTabIds(st)
+    // A session-scoped file RECORD with no workspace tab naming it is still a
+    // candidate: its resolvability runs on the same grace clock as a ghost tab.
+    // Without this the record outlived its session forever whenever no layout
+    // referenced it (this issue). Resolvable records stay globally known and
+    // are skipped below, so only dead scopes can run out of grace.
+    const candidates = new Set<TabId>(referenced)
+    for (const tab of st.fileTabs) candidates.add(tab.id)
     for (const id of [...this.unknownSince.keys()]) {
-      if (!referenced.has(id) || globallyKnown.has(id)) this.unknownSince.delete(id)
+      if (!candidates.has(id) || globallyKnown.has(id)) this.unknownSince.delete(id)
     }
     if (this.pruneTimer !== null) {
       clearTimeout(this.pruneTimer)
@@ -177,7 +184,7 @@ export class Reactions {
     const now = Date.now()
     const gone = new Set<TabId>()
     let soonest = Number.POSITIVE_INFINITY
-    for (const id of referenced) {
+    for (const id of candidates) {
       if (globallyKnown.has(id)) continue
       const since = this.unknownSince.get(id) ?? now
       this.unknownSince.set(id, since)
