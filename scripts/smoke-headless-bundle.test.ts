@@ -16,16 +16,27 @@ import { resolveStateFreeInformationalPlan } from '../apps/cli/src/cli'
  *
  * So the invariant is pinned here, where it is cheap, rather than discovered in CI.
  */
-describe('smoke-headless-bundle abduco probe', () => {
-  const script = readFileSync(join(import.meta.dirname, 'smoke-headless-bundle.sh'), 'utf8')
+/**
+ * BOTH SCRIPTS, because the probe was copied. The fix landed in the bundle smoke first and
+ * the A/B's identical copy was missed — nothing noticed, because the A/B has not reached its
+ * behaviour section since 2026-08-21. A guard that covers one caller of a copied mistake is
+ * a guard that lets the other one through.
+ */
+const PROBES = [
+  { file: 'smoke-headless-bundle.sh', binary: '"$HOME_DIR/podium"' },
+  { file: 'ab-headless-cross-vs-native.sh', binary: '"$root/podium"' },
+] as const
+
+describe.each(PROBES)('$file materialization probe', ({ file, binary }) => {
+  const script = readFileSync(join(import.meta.dirname, file), 'utf8')
 
   /** The argv the script hands the bundle for the materialization probe. */
   function probeArgv(): string[] {
     const line = script
       .split('\n')
-      .find((l) => l.includes('"$HOME_DIR/podium"') && l.includes('>/dev/null'))
+      .find((l) => l.includes(binary) && l.includes('>/dev/null'))
     expect(line, 'the materialization probe invocation is still recognisable').toBeDefined()
-    const after = (line as string).split('"$HOME_DIR/podium"')[1] ?? ''
+    const after = (line as string).split(binary)[1] ?? ''
     return after
       .split('>')[0]!
       .trim()
@@ -40,6 +51,6 @@ describe('smoke-headless-bundle abduco probe', () => {
   })
 
   it('still asserts the helper materialized, rather than merely running the bundle', () => {
-    expect(script).toContain('did not materialize an executable abduco')
+    expect(script).toMatch(/did not materialize an executable abduco/)
   })
 })
