@@ -173,7 +173,7 @@ describe('the statements themselves', () => {
     // THE WIDENING RULE 39 FORBIDS IS INVISIBLE DOWNSTREAM, so it is pinned here
     // on the emitted SELECT list. The counts are the ones the hand-written
     // statements named: five of nine on `changes`, four of four on
-    // `change_latest`, eleven of thirteen on `queued_messages`, three of five on
+    // `change_latest`, thirteen of fourteen on `queued_messages`, three of five on
     // `upstream_outbox`.
     const { repo, sql } = recordingRepo()
     await repo.changesSince(0)
@@ -192,6 +192,7 @@ describe('the statements themselves', () => {
     expect(projection('queued_messages')).toEqual([
       'id',
       'text',
+      'queued_at',
       'attempts',
       'delivery_owner',
       'input_origin',
@@ -426,6 +427,7 @@ describe('the session inbox', () => {
       {
         id: 'm1',
         text: 'hello',
+        queuedAt: 10,
         attempts: 0,
         deliveryOwner: null,
         inputOrigin: 'human',

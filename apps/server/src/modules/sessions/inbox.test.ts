@@ -714,6 +714,35 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.rejected).toEqual([expect.objectContaining({ reason: 'database revoked' })])
   })
 
+  it('settles a re-forwarded row the transcript already witnessed instead of typing it again', async () => {
+    // A server restart forgets custody and hands every remaining row back to
+    // the daemon. One the previous process typed — and whose outcome never
+    // came back — is in the transcript: settle it there (POD-4360).
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.parse('2026-09-18T18:44:00.000Z'))
+    // `starting`: nothing is forwarded at enqueue, so the bind below is the
+    // first custody this process takes — the restart shape.
+    const h = harness({ contractDelivery: true, contractReceipts: [], transcriptAvailable: true, status: 'starting' })
+    const typed = 'Child session Atomic publication reaction boundaries (e8a131f9) finished (done). Your child session needs attention.'
+    const fresh = 'Child session Kernel benchmark acceptance budgets (1039900c) finished (done). Your child session needs attention.'
+    // An OLDER identical turn is not a witness: the row was queued after it.
+    h.transcript.push({ id: 'old', role: 'user', text: fresh, ts: '2026-09-18T18:00:00.000Z' } as never)
+    await h.inbox.queueText({ sessionId: SID, text: typed, mutationId: asMutationId('row-typed'), principal: agentPrincipal() })
+    await h.inbox.queueText({ sessionId: SID, text: fresh, mutationId: asMutationId('row-fresh'), principal: agentPrincipal() })
+    expect(h.rows.map((row) => row.id)).toEqual(['row-typed', 'row-fresh'])
+    // The previous process typed the first row; the CLI recorded it after queuing.
+    h.transcript.push({ id: 'u-typed', role: 'user', text: typed, ts: '2026-09-18T18:44:05.000Z' } as never)
+
+    h.setStatus('live')
+    await h.inbox.drain(SID, { justBound: true })
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect((h.contractCalls as { turnId: string }[]).map((call) => call.turnId)).toEqual(['row-fresh'])
+    expect(h.rows.map((row) => row.id)).toEqual(['row-fresh'])
+    expect(h.rejected).toEqual([])
+    expect(h.promptFailed).not.toHaveBeenCalled()
+  })
+
   it('delivers only after the database grants drain authorization', async () => {
     vi.useFakeTimers()
     let resolve!: (decision: import('./inbox').InboxAuthorizationDecision) => void

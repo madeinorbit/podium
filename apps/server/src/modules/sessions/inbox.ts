@@ -195,6 +195,10 @@ export interface QueuedInboxMessage {
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   id: string
   text: string
+  /** Epoch ms the row was accepted. The transcript witness below compares a
+   *  user turn's time against it, so an OLDER identical turn never settles a
+   *  NEWER row. */
+  queuedAt: number
   attempts: number
   deliveryOwner?: string | null
   inputOrigin: ObservationInputOrigin
@@ -456,6 +460,56 @@ const tailUserTurnMatches = (session: Session, needle: string, exact = false): b
     if (item?.role !== 'user') continue
     const normalized = normalizeForMatch(item.text)
     return exact ? normalized === needle : normalized.includes(needle)
+  }
+  return false
+}
+
+/**
+ * Clock tolerance between the server's `queuedAt` and the harness's own
+ * transcript timestamps, which may come from another machine.
+ */
+const WITNESS_CLOCK_SKEW_MS = 5 * 60_000
+
+/**
+ * Was this queued row ALREADY DELIVERED by an earlier custody (POD-4360)? The
+ * proof is the transcript: a user turn carrying the row's text, recorded at or
+ * after the row was queued. A turn without a timestamp can only prove the TAIL
+ * — the same rule the legacy drain's late-landing check uses.
+ *
+ * WHY THIS EXISTS. Custody of a forwarded row lives in server memory: a restart
+ * forgets it and hands every remaining row to the daemon again. That is correct
+ * for a row the previous process never got to — and a second copy for one it
+ * did. The coordinator this was found on received the same nineteen
+ * child-finished notices after every server update of the day, because the
+ * outcomes that would have deleted the rows were being dropped upstream.
+ */
+const transcriptWitnesses = (session: Session, row: QueuedInboxMessage): boolean => {
+  const needle = confirmationNeedle(row.text)
+  if (needle === null) return false
+  // Contract-era transcript lives in both surfaces: legacy provider deltas land
+  // in `transcriptItems`, driver runtime events land in `runtimeTranscript`
+  // (and are bridged into `transcript`). Check both so a witness is seen
+  // whichever path carried it after a restart. The runtime surface is optional
+  // only as a fixture affordance — production terminals always carry it.
+  const surfaces = [session.terminal.transcriptItems()]
+  const runtimeItems = session.terminal.runtimeTranscriptItems?.()
+  if (runtimeItems) surfaces.push(runtimeItems)
+  const notBefore = row.queuedAt - WITNESS_CLOCK_SKEW_MS
+  for (const items of surfaces) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i]
+      if (item?.role !== 'user') continue
+      const at = item.ts ? Date.parse(item.ts) : Number.NaN
+      // Untimed turns: the tail is the only position that proves anything.
+      // A non-matching tail ends this surface, not the search: the other
+      // surface may still carry a timed witness.
+      if (!Number.isFinite(at)) {
+        if (normalizeForMatch(item.text).includes(needle)) return true
+        break
+      }
+      if (at < notBefore) break
+      if (normalizeForMatch(item.text).includes(needle)) return true
+    }
   }
   return false
 }
@@ -1323,7 +1377,13 @@ export class SessionInbox {
       const binding = forwarded
       const current = () => !this.disposed && this.deps.getSession(sessionId) === session &&
         session.machineId === binding.machineId && this.forwardedRows.get(sessionId) === binding &&
-        (session.status === 'live' || session.status === 'starting') &&
+        // A starting session WITH transcript history is rebinding after a
+        // restart (POD-4360): its transcript may not yet carry the witness
+        // turns the previous custody delivered, so forwarding now would
+        // duplicate them. Hold until live, when hydration has landed and the
+        // witness check below is reliable. New sessions (no transcript) still
+        // forward from admission.
+        (session.status === 'live' || (session.status === 'starting' && !session.transcriptAvailable)) &&
         // No rollout gate (POD-4279): drain only calls this for agents, and the
         // contract is their only delivery. The contractDelivery switch itself
         // survives for POD-4280 to remove.
@@ -1350,6 +1410,16 @@ export class SessionInbox {
           }
           await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason: allowed.reason })
           await this.deps.queue.delete(row.id)
+          continue
+        }
+        // ALREADY DELIVERED (POD-4360): a previous custody delivered it and
+        // the outcome never came back. Settle it here; delivering it again is
+        // the duplicate the agent would read as a replay.
+        if (transcriptWitnesses(session, row)) {
+          log.info('queued row already witnessed in the transcript; settling without redelivery', {
+            sessionId, rowId: row.id,
+          })
+          await this.settleDelivered(session, row)
           continue
         }
         const recovery = row.attempts > 0 || row.deliveryOwner === 'daemon'
@@ -1393,6 +1463,17 @@ export class SessionInbox {
     const operation = run()
     this.forwarding.set(sessionId, operation)
     try { await operation } finally { if (this.forwarding.get(sessionId) === operation) this.forwarding.delete(sessionId) }
+  }
+
+  /** The delivered half of a row's settlement: the ledger learns it was
+   *  applied, a draft holding the same text clears, the row leaves the queue. */
+  private async settleDelivered(session: Session, row: QueuedInboxMessage): Promise<void> {
+    const sessionId = session.sessionId
+    this.reportedPromptFailures.delete(row.id)
+    if (row.sourceMessageId) await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
+    if (this.deps.draftText?.(sessionId) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
+    await this.deps.queue.delete(row.id)
+    this.forwardedRows.get(sessionId)?.ids.delete(row.id)
   }
 
   /** Transport uncertainty keeps the row: a delayed proof may still settle it. */

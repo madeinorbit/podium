@@ -571,6 +571,7 @@ export class SyncRepository {
   async listQueuedMessages(sessionId: SessionId): Promise<{
     id: string
     text: string
+    queuedAt: number
     attempts: number
     deliveryOwner: string | null
     inputOrigin: ObservationInputOrigin
@@ -582,12 +583,15 @@ export class SyncRepository {
     onBehalfOf: string | null
     sourceMessageId: string | null
   }[]> {
-    // ELEVEN COLUMNS OF THIRTEEN, named [spec rule 39]: `queued_at` and
-    // `session_id` are the ordering and the predicate, not part of the answer.
+    // TWELVE COLUMNS OF THIRTEEN, named [spec rule 39]: `session_id` is the
+    // predicate, not part of the answer. `queued_at` is the ordering AND an
+    // answer since POD-4360: the inbox compares it against the transcript to
+    // recognise a row a previous server process already delivered.
     const rows = await this.db
       .select({
         id: this.queuedMessages.id,
         text: this.queuedMessages.text,
+        queuedAt: this.queuedMessages.queuedAt,
         attempts: this.queuedMessages.attempts,
         deliveryOwner: this.queuedMessages.deliveryOwner,
         inputOrigin: this.queuedMessages.inputOrigin,
@@ -608,6 +612,7 @@ export class SyncRepository {
     return rows.map((r) => ({
       id: r.id as string,
       text: r.text as string,
+      queuedAt: Number(r.queuedAt),
       attempts: r.attempts as number,
       deliveryOwner: (r.deliveryOwner as string | null) ?? null,
       inputOrigin: (r.inputOrigin as ObservationInputOrigin | null) ?? 'unknown',
