@@ -223,7 +223,7 @@ export class GroupsModule {
       const next = this.laneOf(id)
       if (next !== null) this.placement.set(id, next)
     }
-    this.rebuild(new Set(this.placement.values().map((p) => p.groupKey)), out)
+    this.rebuild(new Set([...this.placement.values()].map((p) => p.groupKey)), out)
   }
 }
 

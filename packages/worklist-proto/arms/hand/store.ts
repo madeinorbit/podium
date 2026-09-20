@@ -14,7 +14,7 @@
 
 import type { ArmHandle, RowSource } from '../../shared/src/arm'
 import { CommitLogContext, currentCommitLog } from '../../shared/src/row-shell'
-import type { SliceLocals, SliceOrder, SliceSnapshot } from '../../shared/src/slice-types'
+import type { SliceLocals, SliceOrder, SliceRow, SliceSnapshot } from '../../shared/src/slice-types'
 import type { ArmStats, RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import { createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -170,7 +170,7 @@ export class HandStore {
     this.order.rebuildAll()
     this.groups.rebuildAll()
     this.rows.rebuildAll()
-    this.stats.rows(this.rows.rows.size)
+    this.stats.rowsDerived += this.rows.rows.size
     this.orderCache = null
     // Full install: every key may have moved.
     for (const id of this.rows.rows.keys()) this.emit(id)
@@ -247,7 +247,7 @@ export class HandStore {
   setSelection(id: string, wasFolded?: boolean): void {
     const previous = this.locals.selectedIssueId
     if (previous === id) return
-    const folded = wasFolded ?? this.groups.placement.get(id)?.lane === 'closed' ?? false
+    const folded = wasFolded ?? (this.groups.placement.get(id)?.lane ?? 'open') === 'closed'
     this.locals.selectedIssueId = id
     this.locals.selectedIssueWasFolded = folded
     this.applyLocals([{ kind: 'SelectionChanged', previous, current: id }])
@@ -377,7 +377,6 @@ export class HandStore {
     this.webRoot = null
     this.listeners.clear()
   }
-}
 
   /** Test hook: the live store (native host + unit tests read through it). */
   handle(): ArmHandle {
