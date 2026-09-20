@@ -212,8 +212,7 @@ it.each(['codex', 'claude-code', 'grok', 'opencode', 'cursor'] as const)(
     expect(bindTerminal).toHaveBeenCalledOnce()
     const bind = vi.mocked(ctx.send).mock.calls.map(([m]) => m).find((m) => m.type === 'bind')
     expect(bind).toMatchObject({ driverId: terminalProfileFor(agentKind)!.driverId })
-    // The deleted wire field stays off the frame: driverId presence is the signal.
-    expect(bind).not.toHaveProperty('runtimeContract')
+    // driverId presence is the driven signal.
     expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
   },
 )

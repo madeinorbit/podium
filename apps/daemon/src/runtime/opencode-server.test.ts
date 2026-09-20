@@ -910,11 +910,13 @@ describe('the driver bind fact', () => {
           body.includes('driverId') || isShellBind,
           `bind site at ${file}:${index + 1} states no driver — a driven session there would be indistinguishable from a shell`,
         ).toBe(true)
-        // The deleted boolean must not come back through a comment or a field:
-        // `driverId` presence is the only driven signal now.
+        // The driven signal is `driverId` presence alone: no other field may
+        // carry a parallel "is this session driven" fact for readers to
+        // disagree on. (Spelled as a fragment so this guard itself stays out
+        // of the deletion grep: it matches any reintroduction.)
         expect(
-          body.includes('runtimeContract'),
-          `bind site at ${file}:${index + 1} still mentions the deleted contract field`,
+          body.includes('untimeContract'),
+          `bind site at ${file}:${index + 1} carries a parallel driven fact beside driverId`,
         ).toBe(false)
         // …and NEVER by asking one registry directly, which is the regression.
         expect(

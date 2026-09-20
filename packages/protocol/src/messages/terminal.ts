@@ -551,7 +551,7 @@ export const ReattachMessage = z.object({
    *
    * A driver id names the engine a revived session rebinds to. The server sends
    * the session's selected driver (the value its `reattachDriverRequest`
-   * computed for the old `runtimeContract` field): a server/embedded/headless
+   * computed for the pre-4426 request field): a server/embedded/headless
    * id routes to the adopt paths, a terminal id must canonically match the
    * harness profile. Absent means the manifest's headed terminal default —
    * which is also what rows created under the previous release carry, so their
