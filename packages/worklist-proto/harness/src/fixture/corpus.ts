@@ -23,7 +23,7 @@ import type {
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
-import type { SliceIssue, SliceSession, SliceWorktree } from '../../../../shared/src/slice-types'
+import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
 
 /** The corpus clock. Sits inside the defer band thresholds (spec §3 R-ORDER):
  *  `deferUntil` values are minted ±45 d around it, so bands 0/1/2 are all live.
@@ -378,7 +378,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   mints.forEach((m, i) => {
     if (m.role === 'vChild') {
       if (rng() < 0.5 && m.parent !== null && issueWt[m.parent] !== null) {
-        issueWt[i] = issueWt[m.parent]
+        issueWt[i] = issueWt[m.parent] ?? null
       } else {
         issueWt[i] = wtByRepo[takeWt()]!
       }
@@ -870,7 +870,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   })
 
   // -- slice projections -------------------------------------------------------------
-  const prefixByRepo = new Map(
+  const prefixByRepo = new Map<string, string | null>(
     repoProjections.map((r) => [r.id, (r as { prefix?: string }).prefix ?? null]),
   )
   const sliceIssues: SliceIssue[] = issues.map((wire, i) => {
