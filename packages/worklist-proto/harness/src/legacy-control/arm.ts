@@ -27,7 +27,7 @@
  * - `notifications`: runtime publications observed since reset.
  */
 
-import { createElement, lazy, Suspense, type ReactElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
@@ -42,16 +42,36 @@ import type { ArmStats } from '../../../shared/src/stats'
 import { snapshotFromStore } from '../oracle/index'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
 import { LegacyControlList, type ControlSliceDef } from './list'
-// LAZY on purpose (not a bundle nicety): `./native` imports `react-native`,
+// DYNAMIC on purpose (not a bundle nicety): `./native` imports `react-native`,
 // whose Flow-typed source the root node/unit lanes cannot parse. A static
 // import would put that chain in every file importing this arm and break
 // `bun run test:file` and the unit lane for the whole package (the POD-1220
-// hazard). The dynamic chunk loads only when `mountNative()` renders — under
-// the package lane, where the `react-native-web` alias applies. Web entries
-// never call `mountNative`, so the chunk never loads there either.
-const LazyNativeList = lazy(() =>
-  import('./native').then((module) => ({ default: module.LegacyControlNativeList })),
-)
+// hazard). The chunk loads only via `preloadControlNative()` — called by the
+// native lane before mounting. Web entries never preload, so the chunk never
+// loads there either. (An earlier `React.lazy` revision never resolved under
+// `act` in the package lane; the explicit preload below is deterministic.)
+type NativeModule = typeof import('./native')
+let nativeModule: NativeModule | null = null
+
+export function preloadControlNative(): Promise<void> {
+  if (nativeModule !== null) return Promise.resolve()
+  return import('./native').then((module) => {
+    nativeModule = module
+  })
+}
+
+function NativeHost({
+  engine,
+  sliceDef,
+}: {
+  engine: LegacyControlEngine
+  sliceDef: ControlSliceDef
+}): ReactElement {
+  if (nativeModule === null) {
+    throw new Error('[control] native list not preloaded — call preloadControlNative() first')
+  }
+  return createElement(nativeModule.LegacyControlNativeList, { engine, sliceDef })
+}
 
 /** The runtime surface the control reads. Satisfied by `ClientRuntime`. */
 export interface LegacyControlEngine {
@@ -137,11 +157,7 @@ export function legacyControlArmFor(engine: LegacyControlEngine): Arm {
           }
         },
         mountNative(): ReactElement {
-          return createElement(
-            Suspense,
-            { fallback: null },
-            createElement(LazyNativeList, { engine, sliceDef: counted }),
-          )
+          return createElement(NativeHost, { engine, sliceDef: counted })
         },
       }
     },

@@ -21,7 +21,7 @@ import {
   mountNativeForCounts,
   runCountScenario,
 } from '../src/count-harness'
-import { legacyControlArmFor } from '../src/legacy-control/arm'
+import { legacyControlArmFor, preloadControlNative } from '../src/legacy-control/arm'
 import { snapshotFromStore } from '../src/oracle/index'
 import {
   writeHeartbeat,
@@ -31,6 +31,7 @@ import {
 
 describe('legacy control on the native renderer', () => {
   it('runs count scenarios #1-#3 with parity; #1 fails isolation', async () => {
+    await preloadControlNative()
     const ctx = await startScenarioEngine(SMALL_CORPUS)
     const source = createRowSource(ctx.engine, ctx.replica)
     const locals: SliceLocals = {
@@ -40,6 +41,11 @@ describe('legacy control on the native renderer', () => {
     const handle = legacyControlArmFor(ctx.engine).create(source.source, locals)
     const mounted = await mountNativeForCounts(handle)
     try {
+      // The render guard: snapshot parity below cannot tell an empty native
+      // list from a full one, so assert the RN tree actually mounted first.
+      const list = document.querySelector('[data-testid="control-list"]')
+      console.info(`[control-native] mounted rows: ${list?.querySelectorAll('[data-testid^="row-"]').length ?? 'NO-LIST'}`)
+      expect(list).not.toBeNull()
       const heartbeat = await runCountScenario(mounted, {
         scenario: 'unrelatedHeartbeat',
         methodology: '#1',
