@@ -140,7 +140,6 @@ describe('daemon machine runtime composition', () => {
       runtime.resolveDriver({
         agentKind: 'grok',
         requested: 'grok-acp',
-        machineDefault: undefined,
         available: ['generic-pty', 'grok-acp'],
         platform: 'linux',
         auth: 'subscription',
