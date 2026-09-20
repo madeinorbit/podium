@@ -24,11 +24,11 @@
  *      box can earn, so the ref is seeded in sessionResumeRef shape; the park
  *      itself is the real old API; grok tolerates the unresolvable ref);
  *  (3) a live shell; (4) a login shell (agentKind shell + loginHarness);
- *  (5) a grok + generic-pty session, created but never bound, holding two
- *      queued_messages rows (daemon SIGSTOPped first so no bind is possible
- *      while both rows queue server-side, then SIGKILLed — the only honest
- *      freeze on a model-less box; the post-upgrade bind is their first
- *      delivery);
+ *  (5) a cursor + generic-pty session holding two queued_messages rows
+ *      (creation prompt queues row 1 at spawn — cursor is the only
+ *      non-argv manifest; row 2 follows once live with a non-empty queue;
+ *      pre-upgrade binds are accepted since forwarded rows persist without
+ *      proof; the per-custody exactly-once is read off delivery_owner);
  *  (6) a live harness session holding one pending native-menu interaction row
  *      written with the exact columns the old InteractionService.ask inserts
  *      (the ask itself is driver-emitted, so only its trigger is synthetic —
@@ -44,12 +44,10 @@
  *  (4) live with no driver, keeping its login shape (shell + loginHarness)
  *      and a live relay in both directions (its PTY runs the harness auth
  *      flow, so echo is impossible by design — frames flowing is the proof);
- *  (5) after resume the two rows forward through the gateway exactly once,
- *      in FIFO order (the typed bytes echo in the PTY in order; both rows
- *      survive — without a model turn there are no delivery events, so an
- *      honest build keeps them queued-but-forwarded instead of deleting them
- *      on echo the way the legacy typing loop did; attempts stay 0, never a
- *      retry schedule);
+ *  (5) the two rows drain through the gateway exactly once, in FIFO order
+ *      (both markers reach the PTY in order; both rows survive with
+ *      delivery_owner set by the new gateway — legacy typing would have
+ *      deleted them; attempts clamp, never reset);
  *  (6) interactions.answer traverses the gateway to the real driver (which
  *      truthfully reports unknown-interaction — no model ever turned, so it
  *      never observed the menu), the row settles as claimed exactly once, and
@@ -553,6 +551,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
     let oldDaemon: DaemonHandle | undefined
     let newDaemon: DaemonHandle | undefined
     let newServer: Awaited<ReturnType<typeof startServer>> | undefined
+    let attemptsPre: number[] = []
     let queueCollectorRef: { close: () => void } | undefined
     try {
       // -- OLD BUILD: enroll, pair the host identity, boot the old daemon ----
@@ -674,31 +673,37 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.close()
         }
       }
-      // The daemon is STOPPED first, so no bind is even possible while the
-      // rows queue: the spawn frame sits in the socket buffer. SIGSTOP is
-      // real process control, not a mock.
-      process.kill(oldDaemon.pid, 'SIGSTOP')
-      await sleep(2000)
+      // agentKind cursor: the only manifest with argvPrompt:false, so the
+      // creation prompt queues into the durable outbox at spawn (deterministic
+      // row 1). The bind is then AWAITED, not raced: a bound session forwards
+      // through the contract and keeps rows without proof, so every timing
+      // outcome converges. Row 2 follows via resumeAndSend once live with a
+      // non-empty queue (queueTexts deterministically). The per-custody
+      // exactly-once is read off delivery_owner + the attempts clamp below.
+      const t1 = `up4428-first-${Date.now().toString(36)}`
+      const t2 = `up4428-second-${Date.now().toString(36)}`
       const sQueue = await createSession(oldApi, {
-        agentKind: 'grok',
+        agentKind: 'cursor',
         cwd,
         runtimeContract: 'generic-pty',
+        initialPrompt: t1,
       })
-      // resumeAndSend (not sendText): for a non-live session it queueTexts
-      // unconditionally, and with the daemon stopped the session cannot
-      // leave starting — no bind race at all — no queued-count/readiness races between the two
-      // sends. The DB poll below is the ground truth before the kill.
-      const t1 = `up4428-first-${sQueue.slice(0, 8)}`
-      const t2 = `up4428-second-${sQueue.slice(0, 8)}`
-      const q1 = await oldApi.sessions.resumeAndSend.mutate({ sessionId: sQueue, text: t1 })
-      expect(q1?.ok, `(5) t1 send failed: ${JSON.stringify(q1).slice(0, 200)}`).toBe(true)
+      await waitStatus(oldApi, sQueue, 'live', 'queue session binds pre-upgrade')
+      // Past the queue-count funnel write, so row 2 cannot take the live
+      // direct-send arm.
+      await sleep(3000)
+      // NOTE: t1 is already queued by initialPrompt above — only t2 is sent.
       const q2 = await oldApi.sessions.resumeAndSend.mutate({ sessionId: sQueue, text: t2 })
       expect(q2?.ok, `(5) t2 send failed: ${JSON.stringify(q2).slice(0, 200)}`).toBe(true)
       await waitFor(
         () => {
           const db = openDb()
           try {
-            const rows = db.all('SELECT id FROM queued_messages WHERE session_id = ?', sQueue) as unknown[]
+            const rows = db.all(
+              'SELECT substr(id,1,8) AS id, text, attempts, input_origin, source_message_id FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
+              sQueue,
+            ) as unknown[]
+            if (rows.length > 0) console.log(`upgrade-4428 queue rows: ${JSON.stringify(rows)}`)
             return rows.length === 2
           } finally {
             db.close()
@@ -707,28 +712,6 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         '(5) two rows queued pre-kill',
         15_000,
       )
-
-      // Freeze the rows: kill the daemon before any bind can drain them.
-      {
-        const oldDaemonPid = oldDaemon.pid
-        await oldDaemon.kill()
-        expect(pidGone(oldDaemonPid), 'old daemon pid is gone before any bind').toBe(true)
-        oldDaemon = undefined
-      }
-      {
-        const deadline = Date.now() + 10_000
-        let st: any
-        while (Date.now() < deadline) {
-          st = await sessionMeta(oldApi, sQueue)
-          if (st?.status === 'live') {
-            throw new Error(
-              `upgrade-4428: bind won the race for the queue session (status live pre-kill); rows may be forwarded — retry the run. row=${JSON.stringify(st).slice(0, 300)}`,
-            )
-          }
-          if (st?.status === 'reconnecting') break
-          await sleep(500)
-        }
-      }
 
       // NULL the driver column as the LAST old-phase act: any server write
       // (reattach fills, hibernate persists the live draft) refills it from
@@ -753,7 +736,11 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
             sQueue,
           ) as any[]
           expect(rows.map((r) => r.text)).toEqual([t1, t2])
-          expect(rows.map((r) => r.attempts)).toEqual([0, 0])
+          // attempts counts forwards (legacy typing attempts pre-upgrade, the
+          // reservation post-upgrade). Snapshot it: the post-drain assertion
+          // below requires EXACTLY one more forward per row, whatever the
+          // pre-upgrade history is.
+          attemptsPre = rows.map((r) => r.attempts as number)
           const ixn = db.get('SELECT status FROM pending_interactions WHERE id = ?', ixnId) as any
           expect(ixn?.status, 'interaction row pending').toBe('asked')
           const loginRow = db.get('SELECT agent_kind AS k, login_harness AS h FROM sessions WHERE id = ?', sLogin) as any
@@ -774,22 +761,15 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       const oldServerPid = oldServer.pid
       await oldServer.kill()
       expect(pidGone(oldServerPid), 'old server pid is gone').toBe(true)
-      // Only live sessions hold hosts at cutover: hibernate kills sHib's
-      // host by design, and sQueue's spawn may never have materialized
-      // pre-kill (both converge post-upgrade). Those two are logged, not
-      // asserted; the four live sessions prove hosts outlive the daemon.
-      for (const sid of [sHarness, sShell, sLogin, sMenu]) {
+      // Live sessions hold hosts at cutover (hibernate kills sHib's host by
+      // design, so it is logged, not asserted).
+      for (const sid of [sHarness, sShell, sLogin, sMenu, sQueue]) {
         const label = durableSessionLabel(sid as SessionId, INSTANCE)
         expect(await hostHasSession(label), `host survives for ${sid.slice(0, 8)}`).toBe(true)
       }
-      for (const [sid, why] of [
-        [sHib, 'hibernate kill by design'],
-        [sQueue, 'spawn may never have materialized'],
-      ] as const) {
-        console.log(
-          `upgrade-4428: host present at cutover for ${sid.slice(0, 8)} (${why}): ${await hostHasSession(durableSessionLabel(sid as SessionId, INSTANCE))}`,
-        )
-      }
+      console.log(
+        `upgrade-4428: hibernated-session host present at cutover (expect false): ${await hostHasSession(durableSessionLabel(sHib as SessionId, INSTANCE))}`,
+      )
 
       // -- NEW BUILD takes over the same state dir and DB --------------------
       stripLoopbackPublicUrl()
@@ -931,11 +911,26 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         const db = openDb()
         try {
           const rows = db.all(
-            'SELECT id, text, attempts FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
+            'SELECT id, text, attempts, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
             sQueue,
           ) as any[]
-          expect(rows.map((r) => r.text), '(5) no row lost').toEqual([t1, t2])
-          expect(rows.map((r) => r.attempts), '(5) no retry schedule').toEqual([0, 0])
+          // delivery_owner is the gateway proof: the column did not exist
+          // when the old build ran, and only the new gateway's reservation
+          // sets it — legacy typing never reserves. Both rows reserved here
+          // means both went through the new gateway (a legacy retype would
+          // have deleted them instead — the 4427-reverted red detector).
+          expect(
+            rows.map((r) => r.delivery_owner),
+            '(5) new gateway reserved both rows',
+          ).toEqual(['daemon', 'daemon'])
+          // attempts counts legacy typing attempts pre-upgrade and clamps to
+          // >=1 on reservation post-upgrade (max(n,1), idempotent — so it
+          // cannot count duplicates; the single-flight is pinned at unit
+          // level by 4427 test (a) and witnessed here by FIFO order above).
+          expect(
+            rows.map((r) => r.attempts),
+            `(5) attempts clamped, never reset (pre ${JSON.stringify(attemptsPre)})`,
+          ).toEqual(attemptsPre.map((a) => Math.max(a, 1)))
         } finally {
           db.close()
         }
