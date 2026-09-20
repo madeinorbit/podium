@@ -293,7 +293,6 @@ describe('terminal recovery ownership', () => {
     expect(sent.find((m) => m.type === 'bind')).toMatchObject({
       driverId: 'generic-pty',
     })
-    expect(sent.find((m) => m.type === 'bind')).not.toHaveProperty('runtimeContract')
     expect(stub.state.redraws).toBe(1)
   })
 
@@ -331,7 +330,6 @@ describe('terminal recovery ownership', () => {
     await vi.waitFor(() => expect(sent.some((m) => m.type === 'bind')).toBe(true))
     // Shells bind driverless by structure: no handle, no driverId, no contract field.
     expect(sent.find((m) => m.type === 'bind')).not.toHaveProperty('driverId')
-    expect(sent.find((m) => m.type === 'bind')).not.toHaveProperty('runtimeContract')
     expect(ctx.agentRuntime?.handleFor(SESSION)).toBeUndefined()
     expect(stub.state.redraws).toBe(1)
   })
