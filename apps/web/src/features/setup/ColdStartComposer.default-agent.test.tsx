@@ -15,7 +15,6 @@
  * can.
  */
 import { asIssueId, asMachineId, asSessionId } from '@podium/model'
-import { createDraftAgent } from '@podium/client-core'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
@@ -244,7 +243,7 @@ describe('cold-start runtime driver choice', () => {
     expect(screen.queryByRole('button', { name: 'Driver' })).toBeNull()
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
+      expect.not.objectContaining({ runtimeContract: expect.anything() }),
     )
   })
 
@@ -255,9 +254,8 @@ describe('cold-start runtime driver choice', () => {
     state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
     render(<ColdStartComposer first={false} />)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain('Headed'))
-    expect(screen.getByRole('button', { name: 'Driver' }).textContent).not.toContain('contract')
     fireEvent.click(screen.getByTestId('cold-start-launch'))
-    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(expect.not.objectContaining({ requestedDriverId: expect.anything() }))
+    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(expect.not.objectContaining({ runtimeContract: expect.anything() }))
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
     fireEvent.click(screen.getByTestId('cold-start-launch'))
@@ -266,7 +264,7 @@ describe('cold-start runtime driver choice', () => {
     )
   })
 
-  it('offers headed and headless choices, and headed sends no override', async () => {
+  it('offers contract-headed, legacy-headed, and headless choices', async () => {
     feature.enabled = true
     state.accountId = 'native:opencode'
     state.installed = ['opencode']
@@ -276,22 +274,20 @@ describe('cold-start runtime driver choice', () => {
     ]
     render(<ColdStartComposer first={false} />)
 
-    // The headed row is the manifest's terminal default: plain "Headed", and
-    // choosing it sends NOTHING — omission already means the terminal driver
-    // (the NewPanelMenu sibling got this right; see its requestedDriverId
-    // comment). There is one headed path now, no second headed spelling.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain('Headed'),
+      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain(
+        'Headed (driver contract)',
+      ),
     )
-    expect(screen.getByRole('button', { name: 'Driver' }).textContent).not.toContain('contract')
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
-    expect(await screen.findByRole('menuitem', { name: 'Headed' })).toBeTruthy()
+    expect(await screen.findByRole('menuitem', { name: 'Headed (driver contract)' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Headed (legacy PTY)' })).toBeNull()
     expect(screen.getByRole('menuitem', { name: 'OpenCode 1 (headless)' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Headed' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Headed (driver contract)' }))
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
+      expect.objectContaining({ agentKind: 'opencode', requestedDriverId: 'generic-pty' }),
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
@@ -316,47 +312,6 @@ describe('cold-start runtime driver choice', () => {
     expect((screen.getByTestId('cold-start-launch') as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).not.toHaveBeenCalled()
-  })
-})
-
-describe('driver override reaches the wire through the real spawn path', () => {
-  // The component hands `requestedDriverId` to `store.spawnDraftAgent`, which
-  // wraps `createDraftAgent` (optimism.ts) — the network half that forwards
-  // ONLY that field onto `sessions.create`. A spread of a conditional object
-  // is not excess-property-checked, so a wrong field name here compiles and
-  // is then silently dropped on the wire: exactly the defect this issue fixes.
-  // This guard pins the second half of the chain (store arg → wire field);
-  // the component tests above pin the first half (Driver chip → store arg).
-  it('forwards requestedDriverId to sessions.create, and omits it when absent', async () => {
-    const create = vi.fn(async () => ({}))
-    const trpc = {
-      sessions: { create: { mutate: create } },
-    } as unknown as Parameters<typeof createDraftAgent>[0]['trpc']
-    const target = { path: '/work/podium', repoPath: '/work/podium', placement: 'allowed' as const }
-
-    await createDraftAgent({
-      trpc,
-      sessionId: asSessionId('session-driver'),
-      issueId: asIssueId('issue-driver'),
-      target,
-      agentKind: 'opencode',
-      requestedDriverId: 'opencode-server',
-    })
-    expect(create).toHaveBeenLastCalledWith(
-      expect.objectContaining({ requestedDriverId: 'opencode-server' }),
-    )
-
-    create.mockClear()
-    await createDraftAgent({
-      trpc,
-      sessionId: asSessionId('session-headed'),
-      issueId: asIssueId('issue-headed'),
-      target,
-      agentKind: 'opencode',
-    })
-    expect(create).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
-    )
   })
 })
 

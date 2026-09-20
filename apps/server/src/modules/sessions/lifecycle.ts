@@ -268,7 +268,9 @@ export class SessionLifecycle {
   readonly daemonProjection!: SessionDaemonProjection
   /** The Agent Runtime contract's server half (POD-1761 W3): the pass-through
    *  for the five machine verbs, the durable completion of `queue`, and the sink
-   *  for the driver's causal stream. No caller routes through it until W4. */
+   *  for the driver's causal stream. Routed through by the daemon projection and
+   *  the delivery gate in `session-wiring.ts` (POD-4414 Phase 0 removed the flag
+   *  this comment used to wait on). */
   readonly runtimeEventGate!: RuntimeEventGate
   readonly runtimeGateway!: SessionRuntimeGateway
   /** The in-progress turn's preview fold (POD-2293). Absent when the machine
@@ -290,7 +292,8 @@ export class SessionLifecycle {
    *
    * The four verbs stay exported beside it, and not only for the legacy path —
    * `ReceiptSender` itself calls them when a session has no driver behind it.
-   * They are the flag-off implementation, not dead weight awaiting deletion.
+   * They are the driverless-session implementation, not dead weight awaiting
+   * deletion.
    */
   readonly receiptSend = async (
     via: ReceiptSendVia,
