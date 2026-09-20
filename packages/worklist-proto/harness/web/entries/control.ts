@@ -1,7 +1,7 @@
-import { buildCorpus } from '../src/fixture/index'
-import { startEngineFromCorpus } from '../src/engine-bootstrap'
-import { legacyControlArmFor } from '../src/legacy-control/arm'
-import { createRowSource } from '../../shared/src/row-source'
+import { buildCorpus } from '../../src/fixture/index'
+import { startEngineFromCorpus } from '../../src/engine-bootstrap'
+import { legacyControlArmFor } from '../../src/legacy-control/arm'
+import { createRowSource } from '../../../shared/src/row-source'
 import { mountPage, readScale } from '../entrylib'
 
 const scale = readScale()

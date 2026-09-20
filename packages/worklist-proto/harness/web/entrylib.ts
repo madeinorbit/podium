@@ -45,7 +45,7 @@ export interface ProtoPage {
   corpus: ProtoCorpusCounts
   runtimeSha: string
   runScenario(name: 'heartbeat' | 'rename' | 'click'): Promise<ProtoScenarioResult>
-  clickRow(id?: string): Promise<{ inputMs: number; paintMs: number }>
+  clickRow(id?: string): Promise<{ inputMs: number; paintMs: number; longTasks: { startTime: number; duration: number }[]; commits: number }>
   snapshotHash(): string
   stats(): ProtoScenarioResult['stats']
 }
@@ -182,16 +182,23 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     })
   }
 
-  function clickRowInPage(id?: string): Promise<{ inputMs: number; paintMs: number }> {
+  function clickRowInPage(
+    id?: string,
+  ): Promise<{ inputMs: number; paintMs: number; longTasks: { startTime: number; duration: number }[]; commits: number }> {
     const rowId = id ?? firstVisibleId()
     const button = document.querySelector(
       `[data-issue-row="${CSS.escape(rowId)}"] [data-pressable]`,
     )
     if (!button) throw new Error(`[proto] no pressable for row ${rowId}`)
-    const inputMs = performance.now()
-    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-    ;(button as HTMLElement).click()
-    return doubleRaf().then(() => ({ inputMs, paintMs: performance.now() }))
+    longTasks.length = 0
+    return withCommitLogAsync(log, async () => {
+      log.reset()
+      const inputMs = performance.now()
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      ;(button as HTMLElement).click()
+      await doubleRaf()
+      return { inputMs, paintMs: performance.now(), longTasks: [...longTasks], commits: log.total() }
+    })
   }
 
   async function runScenario(name: 'heartbeat' | 'rename' | 'click'): Promise<ProtoScenarioResult> {

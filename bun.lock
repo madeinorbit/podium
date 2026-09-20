@@ -469,6 +469,7 @@
       "name": "@podium/worklist-proto",
       "version": "0.0.0",
       "devDependencies": {
+        "@playwright/test": "^1.60.0",
         "@podium/client-core": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/sync": "workspace:*",
