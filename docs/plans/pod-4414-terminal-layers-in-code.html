@@ -1,0 +1,254 @@
+<title>Terminal Layers in Code</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f7f8f7;--ink:#1d2426;--muted:#5d6b70;--rule:#d5dbdd;--panel:#ffffff;
+  --accent:#1f7a8c;--accent-soft:#d9eef2;--absent:#b3503f;--absent-soft:#f3e1dd;--shared:#8a6d1f;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#171c1e;--ink:#e6ebec;--muted:#9aa8ad;--rule:#33403f;--panel:#1f2629;
+  --accent:#5fb8c9;--accent-soft:#1c3a41;--absent:#e08a78;--absent-soft:#3d2622;--shared:#d3b15a;}}
+:root[data-theme="dark"]{
+  --bg:#171c1e;--ink:#e6ebec;--muted:#9aa8ad;--rule:#33403f;--panel:#1f2629;
+  --accent:#5fb8c9;--accent-soft:#1c3a41;--absent:#e08a78;--absent-soft:#3d2622;--shared:#d3b15a;}
+body{background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.55;margin:0;padding-block:32px 64px;padding-inline:20px}
+main{max-width:920px;margin:0 auto}
+h1{font-size:28px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance}
+h2{font-size:20px;font-weight:600;margin:48px 0 12px;text-wrap:balance}
+h3{font-size:16px;font-weight:600;margin:28px 0 8px}
+p{max-width:68ch;margin:0 0 12px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.sub{color:var(--muted);max-width:70ch;margin-bottom:28px}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.92em}
+figure{margin:20px 0 8px;background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:16px;overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto;min-width:640px;color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif}
+figcaption{font-size:13px;color:var(--muted);margin-top:12px;max-width:80ch}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0 20px}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--rule)}
+th{font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td:first-child{white-space:nowrap;font-weight:500}
+.wrap{overflow-x:auto}
+ul{max-width:72ch;padding-left:20px}li{margin-bottom:6px}
+.keep{color:var(--accent);font-weight:500}.drop{color:var(--absent);font-weight:500}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--muted);margin:8px 0 0}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.l-yes::before{background:var(--accent)}.l-no::before{background:transparent;border:1.5px solid var(--absent)}.l-shared::before{background:var(--shared)}
+.rec{border-left:3px solid var(--accent);padding:4px 14px;margin:16px 0 24px;background:var(--accent-soft);border-radius:0 4px 4px 0;max-width:72ch}
+.rec p{margin:6px 0}
+</style>
+<main>
+<div class="eyebrow">Design note · single harness transport path</div>
+<h1>Terminal Layers in Code</h1>
+<p class="sub">Which of the ten conceptual layers deserve to be separate objects in code, judged by which user-visible paths pass through them; who owns whom and who may call whom in the three driver shapes; and the code structure this epic ends with. The server-to-daemon link is a separate page.</p>
+
+<h2>1. Where each user-visible path enters the stack</h2>
+<p>Six things a user can open, drawn as lanes falling through the ten layers. A filled dot means the path instantiates that layer. A hollow dot means the layer is absent for that path. The bracket on the right marks layers that never appear without each other, which is the test for collapsing them.</p>
+
+<figure>
+<svg viewBox="0 0 960 640" role="img" aria-label="Six user paths as vertical lanes crossing ten horizontal layers; dots mark presence, hollow dots absence; brackets group layers that always co-occur">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+  </defs>
+  <!-- entry boxes -->
+  <g font-size="12" text-anchor="middle">
+    <rect x="182" y="22" width="96" height="44" rx="4" fill="none" stroke="currentColor"/><text x="230" y="41">Dock or tab</text><text x="230" y="56">shell</text>
+    <rect x="297" y="22" width="96" height="44" rx="4" fill="none" stroke="currentColor"/><text x="345" y="41">Sign in to a</text><text x="345" y="56">harness</text>
+    <rect x="412" y="22" width="96" height="44" rx="4" fill="none" stroke="currentColor"/><text x="460" y="41">Claude Code</text><text x="460" y="56">TUI</text>
+    <rect x="527" y="22" width="96" height="44" rx="4" fill="none" stroke="currentColor"/><text x="575" y="41">Codex chat</text><text x="575" y="56">(app-server)</text>
+    <rect x="642" y="22" width="96" height="44" rx="4" fill="none" stroke="currentColor"/><text x="690" y="41">Codex TUI</text><text x="690" y="56">of that chat</text>
+    <rect x="757" y="22" width="96" height="44" rx="4" fill="none" stroke="currentColor"/><text x="805" y="41">Claude SDK</text><text x="805" y="56">embedded</text>
+  </g>
+  <!-- layer rows: y = 110 + r*48 -->
+  <g stroke="var(--rule)" stroke-width="1">
+    <line x1="20" y1="110" x2="870" y2="110"/><line x1="20" y1="158" x2="870" y2="158"/><line x1="20" y1="206" x2="870" y2="206"/><line x1="20" y1="254" x2="870" y2="254"/><line x1="20" y1="302" x2="870" y2="302"/><line x1="20" y1="350" x2="870" y2="350"/><line x1="20" y1="398" x2="870" y2="398"/><line x1="20" y1="446" x2="870" y2="446"/><line x1="20" y1="494" x2="870" y2="494"/><line x1="20" y1="542" x2="870" y2="542"/>
+  </g>
+  <g font-size="12" fill="currentColor">
+    <text x="20" y="99">10 Viewer / Control</text><text x="20" y="147">9 Session (ServerSession + DaemonSession)</text><text x="20" y="195">8 Driver</text><text x="20" y="243">7 Terminal</text><text x="20" y="291">6 TerminalScreen</text><text x="20" y="339">5 DurableAttachment</text><text x="20" y="387">4 DurableProcess</text><text x="20" y="435">3 Host (podium-host)</text><text x="20" y="483">2 Pty</text><text x="20" y="531">1 Process</text>
+  </g>
+  <!-- lanes: rows centred at y = 86 + r*48 -> 86,134,182,230,278,326,374,422,470,518 -->
+  <g stroke="currentColor" stroke-width="1.2" opacity=".55">
+    <line x1="230" y1="66" x2="230" y2="518"/><line x1="345" y1="66" x2="345" y2="518"/><line x1="460" y1="66" x2="460" y2="518"/><line x1="575" y1="66" x2="575" y2="518"/><line x1="690" y1="66" x2="690" y2="518"/><line x1="805" y1="66" x2="805" y2="518"/>
+  </g>
+  <!-- dots: filled accent = present, hollow absent = absent, shared = amber -->
+  <g fill="var(--accent)">
+    <!-- Viewer row 86 -->
+    <circle cx="230" cy="86" r="6"/><circle cx="345" cy="86" r="6"/><circle cx="460" cy="86" r="6"/><circle cx="575" cy="86" r="6"/><circle cx="690" cy="86" r="6"/><circle cx="805" cy="86" r="6"/>
+    <!-- Session 134 -->
+    <circle cx="230" cy="134" r="6"/><circle cx="345" cy="134" r="6"/><circle cx="460" cy="134" r="6"/><circle cx="575" cy="134" r="6"/><circle cx="690" cy="134" r="6"/><circle cx="805" cy="134" r="6"/>
+    <!-- Driver 182 -->
+    <circle cx="460" cy="182" r="6"/><circle cx="575" cy="182" r="6"/><circle cx="805" cy="182" r="6"/>
+    <!-- Terminal 230 -->
+    <circle cx="230" cy="230" r="6"/><circle cx="345" cy="230" r="6"/><circle cx="460" cy="230" r="6"/><circle cx="690" cy="230" r="6"/>
+    <!-- Screen 278 -->
+    <circle cx="230" cy="278" r="6"/><circle cx="345" cy="278" r="6"/><circle cx="460" cy="278" r="6"/><circle cx="690" cy="278" r="6"/>
+    <!-- Attachment 326 -->
+    <circle cx="230" cy="326" r="6"/><circle cx="345" cy="326" r="6"/><circle cx="460" cy="326" r="6"/><circle cx="575" cy="326" r="6"/><circle cx="690" cy="326" r="6"/>
+    <!-- DurableProcess 374 -->
+    <circle cx="230" cy="374" r="6"/><circle cx="345" cy="374" r="6"/><circle cx="460" cy="374" r="6"/><circle cx="575" cy="374" r="6"/><circle cx="690" cy="374" r="6"/>
+    <!-- Host 422 -->
+    <circle cx="230" cy="422" r="6"/><circle cx="345" cy="422" r="6"/><circle cx="460" cy="422" r="6"/><circle cx="575" cy="422" r="6"/><circle cx="690" cy="422" r="6"/>
+    <!-- Pty 470 -->
+    <circle cx="230" cy="470" r="6"/><circle cx="345" cy="470" r="6"/><circle cx="460" cy="470" r="6"/><circle cx="690" cy="470" r="6"/>
+    <!-- Process 518 -->
+    <circle cx="230" cy="518" r="6"/><circle cx="345" cy="518" r="6"/><circle cx="460" cy="518" r="6"/><circle cx="575" cy="518" r="6"/><circle cx="690" cy="518" r="6"/><circle cx="805" cy="518" r="6"/>
+  </g>
+  <g fill="var(--bg)" stroke="var(--absent)" stroke-width="1.5">
+    <circle cx="230" cy="182" r="6"/><circle cx="345" cy="182" r="6"/>
+    <circle cx="575" cy="230" r="6"/><circle cx="805" cy="230" r="6"/>
+    <circle cx="575" cy="278" r="6"/><circle cx="805" cy="278" r="6"/>
+    <circle cx="805" cy="326" r="6"/><circle cx="805" cy="374" r="6"/><circle cx="805" cy="422" r="6"/>
+    <circle cx="575" cy="470" r="6"/><circle cx="805" cy="470" r="6"/>
+  </g>
+  <!-- shared driver: codex TUI viewer reuses the chat's driver -->
+  <circle cx="690" cy="182" r="6" fill="var(--shared)"/>
+  <line x1="581" y1="182" x2="684" y2="182" stroke="var(--shared)" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <!-- small notes -->
+  <g font-size="10.5" fill="var(--muted)">
+    <text x="586" y="330">pipes</text><text x="586" y="426">--no-pty</text><text x="816" y="522">in daemon</text><text x="816" y="186">no host</text>
+  </g>
+  <!-- collapse brackets on the right -->
+  <g stroke="var(--accent)" stroke-width="1.5" fill="none">
+    <path d="M885,216 h8 v76 h-8"/><path d="M885,312 h8 v28 h-8"/>
+    <path d="M885,408 h8 v124 h-8"/>
+  </g>
+  <g font-size="11" fill="var(--accent)">
+    <text x="900" y="250">Terminal</text><text x="900" y="264">object</text>
+    <text x="900" y="330">door</text>
+    <text x="900" y="466">podium-</text><text x="900" y="480">host</text>
+  </g>
+  <line x1="885" y1="170" x2="893" y2="170" stroke="var(--accent)" stroke-width="1.5"/><text x="900" y="186" font-size="11" fill="var(--accent)">Driver</text>
+</svg>
+<figcaption>Layers 5, 6 and 7 are never present without each other; when a pty exists, all three exist. Layers 1 to 3 are one C process. Layer 4 is the daemon's door to it. Driver is the only layer whose presence tracks "has an agent behind it", which is exactly the shell question.</figcaption>
+<div class="legend"><span class="l-yes">present on this path</span><span class="l-no">absent on this path</span><span class="l-shared">shared with a sibling path</span></div>
+</figure>
+
+<h3>What the lanes argue</h3>
+<div class="wrap"><table>
+<tr><th>Layers</th><th>Verdict</th><th>Reason, from the lanes</th><th>Door it keeps open</th></tr>
+<tr><td>1 + 2 + 3</td><td><span class="keep">one binary</span></td><td>Already collapsed: podium-host owns the process and, optionally, the pty. Pty presence is a flag on the host, visible in the Codex lane.</td><td>A Windows host over ConPTY behind the same socket protocol.</td></tr>
+<tr><td>4 DurableProcess</td><td><span class="keep">keep separate</span></td><td>Present whenever a host is. Absent only for the embedded SDK, which has no host at all. It is the registry that survives while attachments come and go across daemon restarts.</td><td>Giving the embedded SDK a host later without touching anything above it.</td></tr>
+<tr><td>5 + 6 + 7</td><td><span class="drop">collapse into Terminal</span></td><td>Screen and Terminal are never present without each other. Attachment appears once without Screen, on the pty-less Codex lane, but that attachment has no size, no log and no repaint, so it is the host's raw pipe, not a terminal concern. One public object, <code>Terminal</code>, owning an attachment and a screen as internals, and referring to (never owning) the process it shows.</td><td>Screen stays a class inside the package so it is testable without a process, which is the P2 placement rule. Nothing outside the package names it.</td></tr>
+<tr><td>8 Driver</td><td><span class="keep">keep separate</span></td><td>The one layer whose presence differs between a shell and a TUI. Fusing it into Terminal would make a shell a "driver with everything declined", which is what the flag-gated code does today and what makes it hard to read.</td><td>Upgrading a running shell into an agent session by attaching a driver to its existing Terminal.</td></tr>
+<tr><td>9 Session</td><td><span class="keep">keep separate</span></td><td>Server owned. Present on every lane, including the two that have no terminal. It is the only layer the user's issue, worktree and lifecycle policy can bind to.</td><td>Lifecycle policy without knowing what kind of process is behind the row.</td></tr>
+<tr><td>10 Viewer</td><td><span class="keep">keep separate</span></td><td>Present on every lane, but as two different surfaces: a terminal viewer or a chat viewer. The Codex lanes show one Session with both.</td><td>A second viewer on any session without a second process.</td></tr>
+</table></div>
+<p>Result in code: six objects, not ten. <code>podium-host</code>, <code>DurableProcess</code>, <code>Terminal</code>, <code>RuntimeDriver</code>, <code>Session</code>, and the viewer. A shell is a Session with a Terminal and no Driver. A server-family agent is a Session with a Driver over a pty-less DurableProcess and, only while someone watches, a Terminal for its TUI.</p>
+
+
+<h2>1b. Who owns whom, who talks to whom</h2>
+<p>Four shapes, one structure. A diamond-tailed arrow is ownership: the owner creates, holds and disposes. A dashed arrow is a reference: the pointer may use the target and never owns it. A dashed red slot is a part that this shape does not have. If the four columns look the same, the model is right.</p>
+<figure>
+<svg viewBox="0 0 1000 560" role="img" aria-label="Four columns with identical structure: a server Session above the seam, a daemon Session mirror below it owning a Driver slot, a Terminal slot and one or two DurableProcesses over podium-host. Shell has no Driver; headed agent has both; headless has no Terminal; headless with attach has two processes. Terminal refers to a process, Driver uses a Terminal or an address; neither owns anything">
+  <defs>
+    <marker id="u-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    <marker id="u-dia" viewBox="0 0 12 12" refX="2" refY="6" markerWidth="9" markerHeight="9" orient="auto"><path d="M2,6 L7,1 L12,6 L7,11 z" fill="var(--accent)"/></marker>
+  </defs>
+  <line x1="0" y1="104" x2="1000" y2="104" stroke="var(--rule)" stroke-dasharray="3 3"/>
+  <text x="6" y="98" font-size="10" fill="var(--muted)">server</text><text x="6" y="118" font-size="10" fill="var(--muted)">daemon</text>
+  <line x1="250" y1="10" x2="250" y2="540" stroke="var(--rule)"/><line x1="500" y1="10" x2="500" y2="540" stroke="var(--rule)"/><line x1="750" y1="10" x2="750" y2="540" stroke="var(--rule)"/>
+<text x="120" y="26" font-size="13" font-weight="600" text-anchor="middle" fill="currentColor">Shell</text>
+<rect x="60" y="48" width="120" height="34" rx="4" fill="none" stroke="currentColor"/><text x="120" y="70" font-size="12" text-anchor="middle">ServerSession</text>
+<rect x="12" y="122" width="216" height="330" rx="8" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+<text x="22" y="140" font-size="10.5" fill="var(--accent)">DaemonSession</text>
+<path d="M120,82 L120,122" stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#u-arr)"/>
+<rect x="65" y="160" width="110" height="32" rx="4" fill="none" stroke="var(--absent)" stroke-dasharray="3 3" opacity=".6"/><text x="120" y="181" font-size="11" text-anchor="middle" fill="var(--absent)" opacity=".8">no Driver</text>
+<rect x="65" y="250" width="110" height="32" rx="4" fill="none" stroke="currentColor"/><text x="120" y="271" font-size="12" text-anchor="middle">Terminal</text>
+<path d="M30,150 L65,266" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="68" y="360" width="104" height="44" rx="4" fill="none" stroke="currentColor"/><text x="120" y="378" font-size="11.5" text-anchor="middle">DurableProcess</text><text x="120" y="394" font-size="10" text-anchor="middle" fill="var(--muted)">pty · $SHELL</text>
+<path d="M30,150 L68,382" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="68" y="480" width="104" height="40" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="120" y="497" font-size="11.5" text-anchor="middle">podium-host</text><text x="120" y="512" font-size="10" text-anchor="middle" fill="var(--muted)">pty</text>
+<path d="M120,404 L120,480" stroke="currentColor" fill="none" marker-end="url(#u-arr)"/>
+<path d="M120,282 L120,360" stroke="currentColor" stroke-dasharray="4 3" fill="none" marker-end="url(#u-arr)"/>
+<text x="126" y="325" font-size="10" fill="var(--muted)">over</text>
+<text x="140" y="300" font-size="10" fill="var(--muted)">raw keys in</text>
+<text x="370" y="26" font-size="13" font-weight="600" text-anchor="middle" fill="currentColor">Headed agent</text>
+<rect x="310" y="48" width="120" height="34" rx="4" fill="none" stroke="currentColor"/><text x="370" y="70" font-size="12" text-anchor="middle">ServerSession</text>
+<rect x="262" y="122" width="216" height="330" rx="8" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+<text x="272" y="140" font-size="10.5" fill="var(--accent)">DaemonSession</text>
+<path d="M370,82 L370,122" stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#u-arr)"/>
+<rect x="315" y="160" width="110" height="32" rx="4" fill="none" stroke="currentColor"/><text x="370" y="181" font-size="12" text-anchor="middle">Driver</text>
+<path d="M280,150 L315,176" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="315" y="250" width="110" height="32" rx="4" fill="none" stroke="currentColor"/><text x="370" y="271" font-size="12" text-anchor="middle">Terminal</text>
+<path d="M280,150 L315,266" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="318" y="360" width="104" height="44" rx="4" fill="none" stroke="currentColor"/><text x="370" y="378" font-size="11.5" text-anchor="middle">DurableProcess</text><text x="370" y="394" font-size="10" text-anchor="middle" fill="var(--muted)">pty · claude</text>
+<path d="M280,150 L318,382" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="318" y="480" width="104" height="40" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="370" y="497" font-size="11.5" text-anchor="middle">podium-host</text><text x="370" y="512" font-size="10" text-anchor="middle" fill="var(--muted)">pty</text>
+<path d="M370,404 L370,480" stroke="currentColor" fill="none" marker-end="url(#u-arr)"/>
+<path d="M370,192 L370,250" stroke="currentColor" stroke-dasharray="4 3" fill="none" marker-end="url(#u-arr)"/>
+<text x="376" y="225" font-size="10" fill="var(--muted)">uses</text>
+<path d="M370,282 L370,360" stroke="currentColor" stroke-dasharray="4 3" fill="none" marker-end="url(#u-arr)"/>
+<text x="376" y="325" font-size="10" fill="var(--muted)">over</text>
+<text x="620" y="26" font-size="13" font-weight="600" text-anchor="middle" fill="currentColor">Headless agent</text>
+<rect x="560" y="48" width="120" height="34" rx="4" fill="none" stroke="currentColor"/><text x="620" y="70" font-size="12" text-anchor="middle">ServerSession</text>
+<rect x="512" y="122" width="216" height="330" rx="8" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+<text x="522" y="140" font-size="10.5" fill="var(--accent)">DaemonSession</text>
+<path d="M620,82 L620,122" stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#u-arr)"/>
+<rect x="565" y="160" width="110" height="32" rx="4" fill="none" stroke="currentColor"/><text x="620" y="181" font-size="12" text-anchor="middle">Driver</text>
+<path d="M530,150 L565,176" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="565" y="250" width="110" height="32" rx="4" fill="none" stroke="var(--absent)" stroke-dasharray="3 3" opacity=".6"/><text x="620" y="271" font-size="11" text-anchor="middle" fill="var(--absent)" opacity=".8">no Terminal</text>
+<rect x="568" y="360" width="104" height="44" rx="4" fill="none" stroke="currentColor"/><text x="620" y="378" font-size="11.5" text-anchor="middle">DurableProcess</text><text x="620" y="394" font-size="10" text-anchor="middle" fill="var(--muted)">engine</text>
+<path d="M530,150 L568,382" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="568" y="480" width="104" height="40" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="620" y="497" font-size="11.5" text-anchor="middle">podium-host</text><text x="620" y="512" font-size="10" text-anchor="middle" fill="var(--muted)">no pty</text>
+<path d="M620,404 L620,480" stroke="currentColor" fill="none" marker-end="url(#u-arr)"/>
+<path d="M565,176 C 540,176 540,370 568,382" stroke="currentColor" stroke-dasharray="4 3" fill="none" marker-end="url(#u-arr)"/>
+<text x="522" y="320" font-size="10" fill="var(--muted)">address</text>
+<text x="650" y="300" font-size="10" fill="var(--muted)">own rpc client</text>
+<text x="870" y="26" font-size="13" font-weight="600" text-anchor="middle" fill="currentColor">Headless + native attach</text>
+<rect x="810" y="48" width="120" height="34" rx="4" fill="none" stroke="currentColor"/><text x="870" y="70" font-size="12" text-anchor="middle">ServerSession</text>
+<rect x="762" y="122" width="216" height="330" rx="8" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+<text x="772" y="140" font-size="10.5" fill="var(--accent)">DaemonSession</text>
+<path d="M870,82 L870,122" stroke="currentColor" stroke-width="1.2" fill="none" marker-end="url(#u-arr)"/>
+<rect x="815" y="160" width="110" height="32" rx="4" fill="none" stroke="currentColor"/><text x="870" y="181" font-size="12" text-anchor="middle">Driver</text>
+<path d="M780,150 L815,176" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="815" y="250" width="110" height="32" rx="4" fill="none" stroke="currentColor"/><text x="870" y="271" font-size="12" text-anchor="middle">Terminal</text>
+<path d="M780,150 L815,266" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="760" y="360" width="104" height="44" rx="4" fill="none" stroke="currentColor"/><text x="812" y="378" font-size="11.5" text-anchor="middle">DurableProcess</text><text x="812" y="394" font-size="10" text-anchor="middle" fill="var(--muted)">engine</text>
+<path d="M780,150 L760,382" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="876" y="360" width="104" height="44" rx="4" fill="none" stroke="currentColor"/><text x="928" y="378" font-size="11.5" text-anchor="middle">DurableProcess</text><text x="928" y="394" font-size="10" text-anchor="middle" fill="var(--muted)">TUI</text>
+<path d="M780,150 L876,382" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-start="url(#u-dia)"/>
+<rect x="760" y="480" width="104" height="40" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="812" y="497" font-size="11.5" text-anchor="middle">podium-host</text><text x="812" y="512" font-size="10" text-anchor="middle" fill="var(--muted)">no pty</text>
+<path d="M812,404 L812,480" stroke="currentColor" fill="none" marker-end="url(#u-arr)"/>
+<rect x="876" y="480" width="104" height="40" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="928" y="497" font-size="11.5" text-anchor="middle">podium-host</text><text x="928" y="512" font-size="10" text-anchor="middle" fill="var(--muted)">pty</text>
+<path d="M928,404 L928,480" stroke="currentColor" fill="none" marker-end="url(#u-arr)"/>
+<path d="M815,176 C 790,176 790,370 760,382" stroke="currentColor" stroke-dasharray="4 3" fill="none" marker-end="url(#u-arr)"/>
+<text x="772" y="320" font-size="10" fill="var(--muted)">address</text>
+<path d="M870,282 L928,360" stroke="currentColor" stroke-dasharray="4 3" fill="none" marker-end="url(#u-arr)"/>
+<text x="905" y="325" font-size="10" fill="var(--muted)">over</text>
+<text x="900" y="300" font-size="10" fill="var(--muted)">raw keys in</text>
+  <g font-size="10.5" fill="var(--muted)"><text x="6" y="552">◆ owns (creates, holds, disposes)   ┄▶ refers to / uses, never owns   dashed red slot = part absent, structure unchanged</text></g>
+</svg>
+<figcaption>One rule for all four: the Session owns every process, the Terminal and the Driver; the Terminal is a surface over one process; the Driver uses a Terminal or an address. Parking drops the Terminal and keeps the process. Upgrading a shell hands the Driver the existing Terminal. Nothing changes owner in any transition, and every column is the same structure with parts absent.</figcaption>
+</figure>
+
+<h3>The rules the arrows encode</h3>
+<div class="wrap"><table>
+<tr><th>Object</th><th>Owns</th><th>Refers to / uses</th><th>Must never</th><th>Why</th></tr>
+<tr><td>ServerSession</td><td>the record, the lifetime policy</td><td>its daemon mirror through the seam: Driver verbs, Terminal verbs, process lifetime</td><td>hold a process or a socket</td><td>The server decides; the daemon executes. Restarts of either are independent events.</td></tr>
+<tr><td>DaemonSession</td><td>every DurableProcess of the session, its Terminal if any, its Driver if any</td><td>—</td><td>contain harness logic or screen logic</td><td>One owner per session on the machine. Today this is four maps keyed by session id; POD-4434 makes it an object.</td></tr>
+<tr><td>Terminal</td><td>its attachment, its screen, the applied size</td><td>one DurableProcess (over)</td><td>own the process; know about drivers, prompts or the engine</td><td>A surface can be dropped (park) and rebuilt (resume) while the process lives. Owning the process would make parking destroy the owner and keep the owned.</td></tr>
+<tr><td>RuntimeDriver</td><td>its protocol client and its state</td><td>headed: the Terminal it was given. headless: the engine address it was given</td><td>spawn, journal, kill or attach to anything; touch a Terminal it was not given</td><td>A driver that cannot own a process cannot leak one, cannot grow a second transport, and can be attached to or removed from a running session.</td></tr>
+<tr><td>DurableProcess</td><td>the door to one podium-host: spawn, adopt, locate, kill</td><td>—</td><td>know a SessionId, a frame or a driver</td><td>Nothing outside the process package reaches a process primitive.</td></tr>
+<tr><td>podium-host</td><td>the child and, if any, its pty; the output ring; the writer lease</td><td>—</td><td>anything</td><td>Small, boring, outlives everyone. Durability lives here only.</td></tr>
+</table></div>
+<h3>Beside the stack: the Adapter and the Reader</h3>
+<p>The six objects are the runtime stack. One more thing sits beside it and is not a runtime object: <strong>harness knowledge</strong>, the Adapter (<code>AgentManifest</code> in <code>packages/harness</code>): transcript paths and record grammars, login probes, discovery layouts, model catalogs, hook payloads. It has consumers that never touch a process. The server's transcript lake mirrors harness files by a guarded byte read and parses them with the Adapter's grammar, for sessions Podium never launched, with no Driver and no DaemonSession. Discovery, inventory and every client that renders a harness are the same shape. POD-4104 names the offline half the <strong>Reader</strong>: Adapter grammar over a record store, no process.</p>
+<p>The rule this adds: the Driver is the only way to <em>act on</em> a harness; the Adapter is the only place that <em>knows about</em> one. Driver and Reader both consume the Adapter and never each other. For the boundary lint that means the server may import the runtime package's contract-and-reader entry and never its host entry (the split POD-4115 defines), rather than a flat ban on the package.</p>
+<p>Three transitions the model has to survive, and does: <strong>park</strong> is "drop the Terminal", the process stays owned, and resume rebuilds a Terminal over it from the host's replay cursor. <strong>Upgrade a shell</strong> is "give a headed Driver the existing Terminal"; a headless Driver cannot take a shell, because it uses an address, not a surface. <strong>Native attach</strong> on a headless session is "add a second process and a Terminal over it", with the Driver unaware. The one constraint the model states rather than hides: one Terminal per Session at a time, because the terminal stream is keyed by session id.</p>
+
+<h2>2. The code structure this epic ends with</h2>
+<p>Six objects plus the daemon-side Session mirror that composes them, each in one place, with the import direction enforced by the boundary lint rather than by review. A reader answers "how does Podium talk to a harness" and "what owns this process" by following imports downward.</p>
+<div class="wrap"><table>
+<tr><th>Object</th><th>Lives in</th><th>May import</th><th>Must never import</th><th>Built or finished by</th></tr>
+<tr><td>podium-host</td><td><code>packages/pty/vendor/podium-host/host.c</code>, driven by <code>@podium/process/durable</code></td><td>libc</td><td>anything</td><td>done (SPEC-6)</td></tr>
+<tr><td>DurableProcess</td><td><code>@podium/process/durable</code></td><td>host, abduco adapters, scope helpers</td><td>SessionId, protocol frames, daemon context, any driver</td><td>done (P2b); pty-less callers arrive with the headless-engines issue</td></tr>
+<tr><td>DaemonSession</td><td><code>apps/daemon/src/session/</code> (new): one object per session owning its processes, Terminal and Driver; replaces the four maps on DaemonContext</td><td>DurableProcess, Terminal, the driver registry, protocol frames</td><td>screen internals, harness manifests beyond driver selection</td><td>one-terminal-lifecycle issue (POD-4434)</td></tr>
+<tr><td>Terminal</td><td><code>apps/daemon/src/terminal/</code> (new), over <code>@podium/process/screen</code>; attaches to a process it does not own</td><td>DurableAttachment, TerminalScreen, protocol terminal frames</td><td>DurableProcess spawn/kill, any driver, agent-runtime, harness manifests</td><td>one-terminal-lifecycle issue (POD-4434)</td></tr>
+<tr><td>RuntimeDriver</td><td><code>@podium/agent-runtime</code> drivers; daemon hosts in <code>apps/daemon/src/runtime/</code></td><td>the Terminal port it is handed; its own protocol client; harness manifests</td><td>DurableProcess, host sockets, spawning</td><td>Phase 0 makes it the only path; the boundaries issue pins the imports</td></tr>
+<tr><td>Session</td><td><code>apps/server/src/modules/sessions/</code></td><td>the daemon link (control + stream ports)</td><td>anything in the daemon or the process package</td><td>Phase 0 removes its typing; shell policy issue gives it the lifetime rule</td></tr>
+<tr><td>Viewer</td><td><code>packages/client-core</code>, <code>apps/web</code></td><td>the server socket</td><td>daemon or process code</td><td>dock fix done; mapping issue moves shell ownership server-side</td></tr>
+</table></div>
+<p>The consolidation is not a separate refactor. Each object is finished by the issue that has to touch it anyway, and one closing issue turns the table above into lint rules so the structure cannot drift back.</p>
+
+<h2>3. Where the objects sit relative to the network</h2>
+<p>Session and the viewer surface are server code and hold no process and no socket. RuntimeDriver, Terminal, DurableProcess and podium-host are machine code and know nothing of the server beyond the daemon's connection state that dispatches to them. Frame shapes live in one package and inbound routing is one table per side; outbound sends are spread. The seam itself, with the diagram and the verdict per aspect, is on the <em>Daemon Link Planes</em> page, since cleaning it up is planes work, not object work.</p>
+</main>

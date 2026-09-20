@@ -1,0 +1,318 @@
+<title>Harness Adapter Spec</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#f7f8f7;--ink:#1d2426;--muted:#5d6b70;--rule:#d5dbdd;--panel:#ffffff;--accent:#1f7a8c;--accent-soft:#d9eef2;--absent:#b3503f;--warn:#8a6d1f;--band:#eef1f1}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#171c1e;--ink:#e6ebec;--muted:#9aa8ad;--rule:#33403f;--panel:#1f2629;--accent:#5fb8c9;--accent-soft:#1c3a41;--absent:#e08a78;--warn:#d3b15a;--band:#1b2224}}
+:root[data-theme="dark"]{--bg:#171c1e;--ink:#e6ebec;--muted:#9aa8ad;--rule:#33403f;--panel:#1f2629;--accent:#5fb8c9;--accent-soft:#1c3a41;--absent:#e08a78;--warn:#d3b15a;--band:#1b2224}
+body{background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.55;margin:0;padding-block:32px 64px;padding-inline:20px}
+main{max-width:980px;margin:0 auto}
+h1{font-size:28px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance}
+h2{font-size:20px;font-weight:600;margin:44px 0 10px}
+p{max-width:70ch;margin:0 0 12px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.sub{color:var(--muted);max-width:72ch;margin-bottom:24px}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.9em}
+pre{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.5;background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:12px 14px;overflow-x:auto;margin:10px 0 18px}
+figure{margin:16px 0 8px;background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:16px;overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto;min-width:720px;color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif}
+figcaption{font-size:13px;color:var(--muted);margin-top:12px;max-width:84ch}
+.wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px;margin:10px 0 18px}
+th,td{text-align:left;vertical-align:top;padding:7px 9px;border-bottom:1px solid var(--rule)}
+th{font-weight:600;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+td:first-child{font-weight:500;white-space:nowrap}
+tr.grp td{background:var(--band);font-weight:600;color:var(--accent);padding-top:10px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px}
+details{margin:8px 0 18px}summary{cursor:pointer;font-weight:500;color:var(--accent)}
+.done{color:var(--muted)}
+</style>
+<main>
+<div class="eyebrow">Specification · POD-4414 · rev 2 · 2026-09-20 · after independent review</div>
+<h1>Harness Adapter Spec</h1>
+<p class="sub">How Podium organises everything it knows about, and everything it does with, a coding harness. Written for an independent reviewer with no prior context: background first, then the goal, the design, the rules, how we get there, and what is still open. Companion pages: <em>Terminal Layers in Code</em> (the runtime object stack) and <em>Daemon Link Planes</em> (the network link, parked).</p>
+
+<h2>0. Background for a cold reader</h2>
+<p><strong>Podium</strong> runs coding agents ("harnesses": Claude Code, Codex, OpenCode, Grok, Cursor, Pi) on one or more machines and lets a person drive them from a browser or phone. A <strong>server</strong> is the control plane: it holds the session records, the issue tracker, the user's transcripts and policy. A <strong>daemon</strong> runs on each machine and owns the processes. They talk over a WebSocket. A harness runs either <strong>headed</strong>, as a terminal program in a pseudo-terminal, or <strong>headless</strong>, as a server process Podium talks to over a protocol.</p>
+<p>Harness knowledge today is spread across the codebase: an inventory on 2026-09-16 found harness names in 257 non-test files across 20 directories, outside the driver implementations themselves. Consequences: the same credential file layout retyped in six places; model catalogs duplicated between web and mobile; a Codex terminal heuristic living in the browser terminal client; the server parsing harness transcript files with its own copy of the grammar; and, until this epic's Phase 0, two different ways for the server to talk to a harness, one of which typed keystrokes and polled for echoes.</p>
+<p>Two earlier documents shape this one. POD-3190's <em>Design from scratch</em> set the runtime object stack (host, durable process, terminal, session, driver). POD-4104's spec rev 2 set the harness-adapter invariant (one adapter per harness; the driver contract is the only runtime path; nobody else names a harness). This spec reconciles the two, names the mechanisms that consume an adapter, and fixes the package layout. Revision 2 applies an independent architecture review of rev 1 (see §11): it separates implemented support from effective capability, replaces two absolute rules with composition rules, distinguishes bundled client code from wire data, states the identity invariant precisely, specifies construction and failure ownership, and qualifies the extensibility promise.</p>
+
+<h2>1. Goal</h2>
+<p><strong>Every fact about a harness lives in exactly one place, and every use of a harness goes through one of three generic mechanisms, or the projection served to clients.</strong> Adding a harness on existing mechanisms means adding one directory. No vendor-specific behaviour lives outside that directory and the driver families, and a lint proves it.</p>
+<p>Measured by:</p>
+<ul>
+<li>A harness that uses existing driver families and store kinds is one directory under <code>adapters/</code> plus a registry entry; the compiler lists every missing section and no application code changes. A harness with a genuinely new protocol or store kind adds an implementation inside the harness package and still changes no application consumer.</li>
+<li>The boundary lint passes with an empty allow-list for the daemon, the server, the web and mobile apps, and the shared packages.</li>
+<li>"How does Podium talk to a harness" has one answer readable from imports: the Driver. "How does Podium read a transcript" has one answer: the Store. The server's transcript lake and a live session read with the same code, and the same logical record receives the same identity whether read live, mirrored, relocated or replayed.</li>
+<li>The codebase is smaller: three packages dissolve into one, and eight daemon files that each knew one harness disappear.</li>
+</ul>
+
+<h2>2. Why</h2>
+<ul>
+<li><strong>Cost of change.</strong> Every harness update today is a hunt across twenty directories. With one directory per harness, the diff for "Codex changed its transcript format" is one file.</li>
+<li><strong>Correctness.</strong> Duplicated knowledge drifts. The server's own transcript grammar disagreed with the daemon's; the two Codex credential lists in the daemon disagreed with each other. One copy cannot drift from itself.</li>
+<li><strong>Confusion.</strong> Every engineer and every agent working on sessions met two paths and three packages with overlapping purposes. The single most common failure in this codebase's history is an implementer picking the wrong one.</li>
+<li><strong>Completeness.</strong> With knowledge spread out, "is this harness fully supported" has no answer. With required sections and declared declines, it is a generated table.</li>
+<li><strong>Clients that outlive their build.</strong> A phone app built last month must render a harness added this week: its name, icon, model choices and supported controls, inside a presentation schema the app already knows. That needs the harness's display facts served as versioned data. It does not give an old client a new interaction model; that needs a new client.</li>
+</ul>
+
+<h2>3. Principles</h2>
+<ol>
+<li><strong>Knowledge and mechanism are different kinds of code and never mix.</strong> Knowledge is data plus pure functions, varies per harness, and is written by the person adding a harness. Mechanism is behaviour, varies per way-of-using, and is written once.</li>
+<li><strong>Factor along the real axes of variation.</strong> Harness varies the knowledge. Mechanism varies how we use it. Store kind varies how we read. Side (server, daemon, client) varies where it runs. Every object varies along exactly one axis; the cross products are data.</li>
+<li><strong>Absence is a value.</strong> A harness that lacks a capability declares it declined with a reason. It never omits the section. Completeness is then a typecheck.</li>
+<li><strong>One authoritative definition per concern, with a clearly responsible implementation.</strong> Ownership is not readership: a definition may have several narrow readers. Consumers depend on narrow typed interfaces or immutable projections; application code never inspects adapter internals.</li>
+<li><strong>Mechanisms do not own or instantiate each other.</strong> Dependencies between them are explicit, narrow and acyclic, passed as ports. Application code (the daemon's session object) owns lifecycle and workflow composition.</li>
+<li><strong>Implemented support, machine availability and session capability are three different facts.</strong> The adapter says what is implemented; inventory and admission say what this machine can provide; the selected driver and current conditions say what this session can do. Callers get the capability at the scope of their operation.</li>
+<li><strong>Vendor behaviour stays behind the boundary; the style of its expression is free.</strong> Prefer data and pure strategies where they make an integration simpler; allow a small harness-local strategy implementation where forcing it into declarations would build an interpreter.</li>
+<li><strong>The server never holds a process or a socket to a harness.</strong> It decides; the daemon executes. This is inherited from the layers design and is what makes server and daemon restarts independent events.</li>
+</ol>
+
+<h2>4. The design</h2>
+<h3>4.1 The Adapter</h3>
+<p>One TypeScript type, the composition of sixteen section types, with no optional fields. One directory per harness under <code>packages/harness/src/adapters/</code>, one file per section. Each section is either <code>supported(value)</code> or <code>declined(reason)</code>. Sections split into <strong>host-only</strong> (anything naming a path, a process or a file) and <strong>browser-safe</strong> (descriptor, catalog, composer rules), and the browser entry may import only the second group.</p>
+<p>The type is today's <code>AgentManifest</code>, renamed. It grows sections; it does not get a rival. Capabilities are not a section. The adapter's support matrix (which sections are supported, which declined and why) is one input to capability; see §4.7 for the other two. Item identity is not a section: each grammar produces record and sub-item identity, and the Store combines it with conversation namespace and file incarnation under the invariant in §5.</p>
+<p>A Driver is not handed the whole Adapter. It receives a typed subset, the sections it owns, so the read restriction is a type rather than a rule. The same holds for the Store and Inventory.</p>
+
+<h3>4.2 The four mechanisms</h3>
+<p>Three mechanisms and one projection. Each mechanism holds one kind of thing and consumes the sections designed for it; each is harness-free and could serve a harness that did not exist when it was written. The Descriptor holds nothing and is not a mechanism: it is the browser-safe projection of an adapter.</p>
+<div class="wrap"><table>
+<tr><th>Mechanism</th><th>Holds</th><th>Owns sections</th><th>Side</th><th>What it is today</th></tr>
+<tr><td>Driver</td><td>a live process</td><td>launch, environment, instrumentation, runtime, state, composer; one-shot exec through the existing <code>oneShot</code> procedure override, not a separate family</td><td>daemon</td><td><code>packages/agent-runtime</code>: the driver contract and five families (terminal, codex, opencode, grok-acp, claude-sdk); plus daemon hook files and the composer package that fold into it</td></tr>
+<tr><td>Store</td><td>files at rest</td><td>transcript, discovery, handoff (at-rest format and placement; the quiesce-transfer-resume workflow is application composition)</td><td>both</td><td><code>packages/transcript</code> (reader) and <code>harness/discovery/scanner.ts</code>; the six grammars move out of it into the adapters</td></tr>
+<tr><td>Inventory</td><td>a machine, no session</td><td>inventory, credentials, usage, install</td><td>daemon</td><td><code>harness/inventory</code> plus eight daemon files and the CLI installer</td></tr>
+<tr><td>Descriptor (projection)</td><td>nothing</td><td>descriptor, catalog; plus the capability flags resolved per §4.7</td><td>server to clients</td><td><code>harness/browser.ts</code> and <code>metadata.ts</code>; served over the wire after POD-4118</td></tr>
+</table></div>
+
+<h3>4.3 How the server reaches each one</h3>
+<figure>
+<svg viewBox="0 0 980 400" role="img" aria-label="Four rows, one per mechanism. Each row: a server caller on the left, the frames that cross the seam in the middle, the mechanism on the machine, and the Adapter sections it reads on the right. Driver row: ServerSession, spawn and runtime verbs, Driver, launch environment instrumentation runtime state composer. Store row: transcript lake and discovery ingest, transcriptRead transcriptMirrorRead scanRequest, Store, transcript discovery. Inventory row: accounts machines cost, inventoryRequest credential frames modelProbe, Inventory, inventory credentials usage install. Descriptor row: web mobile cli, served in inventoryReport, Descriptor, descriptor catalog">
+  <defs><marker id="k-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <!-- column headers -->
+  <g font-size="11" fill="var(--muted)"><text x="20" y="26">SERVER asks</text><text x="300" y="26">SEAM frames</text><text x="560" y="26">MACHINE answers</text><text x="740" y="26">ADAPTER sections read</text></g>
+  <line x1="20" y1="34" x2="960" y2="34" stroke="var(--rule)"/>
+  <rect x="286" y="40" width="240" height="350" rx="6" fill="var(--accent-soft)" stroke="none"/>
+  <!-- rows: y centers 80, 160, 240, 320 -->
+  <g font-size="12">
+    <!-- Driver -->
+    <rect x="20" y="62" width="150" height="36" rx="4" fill="none" stroke="currentColor"/><text x="95" y="84" text-anchor="middle">ServerSession</text>
+    <path d="M170,80 L286,80" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <text x="300" y="72" font-size="10.5" fill="var(--accent)">spawn · reattach · kill · resize · input</text><text x="300" y="86" font-size="10.5" fill="var(--accent)">runtimeSend · runtimeInterrupt · answer</text><text x="300" y="100" font-size="10.5" fill="var(--muted)">through SessionRuntimeGateway</text>
+    <path d="M526,80 L560,80" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <rect x="560" y="62" width="150" height="36" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="635" y="84" text-anchor="middle">Driver</text>
+    <path d="M710,80 L740,80" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <text x="746" y="74" font-size="11">launch · environment · instrumentation</text><text x="746" y="90" font-size="11">runtime · state · composer</text>
+    <text x="20" y="114" font-size="10.5" fill="var(--muted)">holds a live process; constructed by DaemonSession</text>
+    <!-- Store -->
+    <rect x="20" y="142" width="150" height="36" rx="4" fill="none" stroke="currentColor"/><text x="95" y="158" text-anchor="middle">transcript lake</text><text x="95" y="172" text-anchor="middle" font-size="10.5" fill="var(--muted)">discovery ingest</text>
+    <path d="M170,160 L286,160" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <text x="300" y="152" font-size="10.5" fill="var(--accent)">transcriptRead (live cursor slice)</text><text x="300" y="166" font-size="10.5" fill="var(--accent)">transcriptMirrorRead (bytes, guarded)</text><text x="300" y="180" font-size="10.5" fill="var(--accent)">scanRequest → scanResult</text>
+    <path d="M526,160 L560,160" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <rect x="560" y="142" width="150" height="36" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="635" y="164" text-anchor="middle">Store</text>
+    <path d="M710,160 L740,160" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <text x="746" y="164" font-size="11">transcript · discovery</text>
+    <text x="20" y="194" font-size="10.5" fill="var(--muted)">files at rest; the lake runs the same Store locally over mirrored bytes</text>
+    <!-- Inventory -->
+    <rect x="20" y="222" width="150" height="36" rx="4" fill="none" stroke="currentColor"/><text x="95" y="238" text-anchor="middle">accounts · machines</text><text x="95" y="252" text-anchor="middle" font-size="10.5" fill="var(--muted)">cost · cli</text>
+    <path d="M170,240 L286,240" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <text x="300" y="232" font-size="10.5" fill="var(--accent)">inventoryRequest → inventoryReport</text><text x="300" y="246" font-size="10.5" fill="var(--accent)">credentialExport / credentialInstall</text><text x="300" y="260" font-size="10.5" fill="var(--accent)">modelProbe · harnessExec · login</text>
+    <path d="M526,240 L560,240" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <rect x="560" y="222" width="150" height="36" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="635" y="244" text-anchor="middle">Inventory</text>
+    <path d="M710,240 L740,240" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <text x="746" y="234" font-size="11">inventory · credentials</text><text x="746" y="250" font-size="11">usage · install</text>
+    <text x="20" y="274" font-size="10.5" fill="var(--muted)">holds a machine, no session; writes as often as it reads</text>
+    <!-- Descriptor -->
+    <rect x="20" y="302" width="150" height="36" rx="4" fill="none" stroke="currentColor"/><text x="95" y="324" text-anchor="middle">web · mobile · cli</text>
+    <path d="M286,320 L170,320" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <text x="300" y="316" font-size="10.5" fill="var(--accent)">served inside inventoryReport (planned)</text><text x="300" y="330" font-size="10.5" fill="var(--muted)">bundled copy in browser.ts as fallback</text>
+    <path d="M560,320 L526,320" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <rect x="560" y="302" width="150" height="36" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="635" y="324" text-anchor="middle">Descriptor</text>
+    <path d="M710,320 L740,320" stroke="currentColor" fill="none" marker-end="url(#k-arr)"/>
+    <text x="746" y="324" font-size="11">descriptor · catalog</text>
+    <text x="20" y="354" font-size="10.5" fill="var(--muted)">holds nothing; lives in @podium/harness/browser, served by the daemon's inventory report, bundled as fallback</text>
+  </g>
+  <line x1="20" y1="372" x2="960" y2="372" stroke="var(--rule)"/>
+  <text x="20" y="392" font-size="10.5" fill="var(--muted)">The server never holds a process or a socket to a harness. The machine never names a harness outside the Adapter directory and the driver families.</text>
+</svg>
+<figcaption>Read each row left to right. Three mechanisms answer requests from the server; the fourth flows the other way. The lake is the one server component that also runs a mechanism itself, the Store, over bytes it pulled earlier.</figcaption>
+</figure>
+
+<h3>4.4 The sections</h3>
+<p>Twenty needs, grouped by owning mechanism. "Today" names where the knowledge sits on the integration base; "Section" is the file that absorbs it; "Issue" is who moves it.</p>
+<div class="wrap"><table>
+<tr><th>Need</th><th>Section</th><th>Today</th><th>Server reaches via</th><th>Issue</th></tr>
+<tr class="grp"><td colspan="5">Driver · daemon · holds a live process</td></tr>
+<tr><td>executable and argv</td><td class="mono">launch.ts</td><td>manifest launch, <code>launch.ts</code>, <code>executable-runtime.ts</code></td><td><code>spawn</code> frame; daemon resolves argv</td><td class="done">done</td></tr>
+<tr><td>env, config dirs, credential env to strip</td><td class="mono">environment.ts</td><td>manifest environment, daemon <code>session-env.ts</code></td><td>applied at spawn</td><td class="done">done</td></tr>
+<tr><td>hook install layout, payload codec, transport</td><td class="mono">instrumentation.ts</td><td>daemon <code>codex-hooks.ts</code>, <code>grok-hooks.ts</code>, <code>hook-ingest.ts</code>, <code>hook-payload.ts</code>, <code>terminal-instrumentation.ts</code></td><td>hook events arrive at the daemon loopback; surface as <code>agentState</code></td><td>POD-4116</td></tr>
+<tr><td>how it may be driven: which families, plus each family's facts (terminal: send proof, interrupt key, readiness; server: argv, auth env, diagnostics)</td><td class="mono">runtime.ts</td><td>manifest runtime + headless, daemon <code>runtime/registry.ts</code>, <code>runtime/*-server.ts</code>, <code>headless-drivers.ts</code>, 7 lines in <code>drivers/terminal/injection.ts</code></td><td><code>driverSelected</code> / <code>bind</code> report the family chosen by <code>select()</code></td><td>Phase 0 here, POD-4433, POD-4114, POD-4116</td></tr>
+<tr><td>resume ref kind; how a new conversation is named</td><td class="mono">runtime.ts</td><td>manifest resumeKind, capabilities.newSessionIdFlag, daemon spawn path minting</td><td><code>spawn</code> carries the resume ref; the bind reports the native id</td><td class="done">done</td></tr>
+<tr><td>one-shot exec without a session (steward, automations)</td><td class="mono">exec.ts</td><td>manifest exec, daemon <code>headless-drivers.ts buildExec</code></td><td><code>harnessExecRequest</code> → <code>harnessExecResult</code></td><td class="done">done; moves with POD-4114</td></tr>
+<tr><td>screen and hook-derived agent state, causal fingerprints</td><td class="mono">state.ts</td><td><code>harness/agent-state/&lt;h&gt;.ts</code>, daemon <code>session-observers.ts</code> literals</td><td><code>agentState</code> frames</td><td>POD-4116</td></tr>
+<tr><td>composer scrape and inject rules, screen heuristics</td><td class="mono">composer.ts</td><td><code>composer/driver.ts</code>, <code>prompt-extract.ts</code>, <code>terminal-client/session-mount.ts</code></td><td>rules ship in the Descriptor; sync runs on the daemon</td><td>POD-4121</td></tr>
+<tr><td>handoff export and import</td><td class="mono">handoff.ts</td><td>manifest handoffTranscript, daemon <code>handoff-package.ts</code></td><td><code>handoffExportRequest</code> and chunk frames</td><td class="done">done</td></tr>
+<tr class="grp"><td colspan="5">Store · both sides · files at rest</td></tr>
+<tr><td>transcript store layout and record grammar</td><td class="mono">transcript.ts</td><td><code>packages/transcript/&lt;h&gt;.ts</code> grammars, manifest transcript, <code>transcript-source.ts</code></td><td>live: <code>transcriptRead</code>; mirror: <code>transcriptMirrorRead</code> then local parse in <code>memory/lake.ts</code></td><td>POD-4082</td></tr>
+<tr><td>where conversations live on disk</td><td class="mono">discovery.ts</td><td>manifest discovery, <code>discovery/providers/*</code></td><td><code>scanRequest</code> → <code>scanResult</code> → memory service</td><td class="done">done</td></tr>
+<tr class="grp"><td colspan="5">Inventory · daemon · holds a machine, no session</td></tr>
+<tr><td>installed, version, executable location</td><td class="mono">inventory.ts</td><td>manifest inventory, <code>version-probe.ts</code>, daemon <code>control/inventory.ts</code></td><td><code>inventoryRequest</code> → <code>inventoryReport</code></td><td class="done">done</td></tr>
+<tr><td>version policy and feature gates (minimum version, hook-version refusal)</td><td class="mono">inventory.ts</td><td><code>version-policy.ts</code>, <code>harness-version-reporting.ts</code>, the Codex hook gate</td><td>surfaces as inventory diagnostics, never a new channel</td><td class="done">done</td></tr>
+<tr><td>login state, login command, identity</td><td class="mono">inventory.ts</td><td>manifest loginCommandProbe/loginCommand, <code>claude-login-status.ts</code>, server <code>native-login.ts</code></td><td>today: a shell with <code>loginHarness</code> then re-probe; later: Inventory reports "logged out" and the command, DaemonSession opens a Terminal running it, Inventory re-probes on exit</td><td>POD-4117; login-as-action held</td></tr>
+<tr><td>credential files, freshness, keychain transfer</td><td class="mono">credentials.ts</td><td>daemon <code>control/credentials.ts</code>, <code>claude-keychain-*.ts</code>, <code>codex-auth-identity.ts</code>, <code>credential-freshness.ts</code>, server <code>accounts.ts</code></td><td><code>credentialExportRequest</code> / <code>credentialInstallRequest</code>; freshness in the report</td><td>POD-4117</td></tr>
+<tr><td>quota and usage layouts</td><td class="mono">usage.ts</td><td>daemon <code>quota-*.ts</code>, <code>usage-scan.ts</code>, cli <code>quota-cli.ts</code>, server <code>cost/service.ts</code></td><td>numbers in <code>inventoryReport</code></td><td>POD-4117</td></tr>
+<tr><td>install the harness binary</td><td class="mono">install.ts</td><td>cli <code>install-agents.ts</code></td><td>none; runs on the machine from the CLI</td><td>POD-4122</td></tr>
+<tr class="grp"><td colspan="5">Descriptor · server to clients · holds nothing</td></tr>
+<tr><td>label, brand, icon, copy, capability flags</td><td class="mono">descriptor.ts</td><td>web <code>agent-tone.ts</code>, <code>issue-agents.ts</code>, mobile <code>AgentMark.tsx</code>, <code>harness/browser.ts</code>, closed enums in model, protocol, runtime</td><td>served from the machine registry; bundled fallback</td><td>POD-4118, POD-4119</td></tr>
+<tr><td>models, effort, defaults</td><td class="mono">catalog.ts</td><td>web and mobile <code>agent-models.ts</code> (duplicates), <code>configure-catalog.ts</code>, <code>model-probe.ts</code></td><td>served; live merge from <code>modelProbeRequest</code></td><td>POD-4118</td></tr>
+<tr><td>browser-open classification</td><td class="mono">descriptor.ts</td><td>manifest classifyBrowserOpen, daemon <code>browser-open.ts</code></td><td>browser-open frames</td><td class="done">done</td></tr>
+</table></div>
+
+<h3>4.5 Where it lives</h3>
+<p>One package. Everything about harnesses is in <code>@podium/harness</code>. Inside it, <code>adapters/</code> is what is true about each harness and the other directories are how Podium uses any harness. The entries carry the host, contract and browser splits. <code>packages/transcript</code>, <code>packages/composer</code> and <code>packages/agent-runtime</code> dissolve into it. <code>@podium/process</code> (the durable host, pty and screen) stays separate because it is not about harnesses.</p>
+<pre>packages/harness/src/
+  adapter.ts                                the Adapter type; every section required; Declared&lt;T&gt; = supported | declined(reason)
+  registry.ts                               the one enumeration; totality check; the closed set lives here
+  adapters/&lt;harness&gt;/                       KNOWLEDGE · one dir per harness · one file per section
+    launch  environment  instrumentation  runtime  exec  state  handoff
+    transcript  discovery  inventory  credentials  usage  install
+    descriptor  catalog  composer            ← browser-safe; all browser.ts may import
+  driver/                                   MECHANISM · holds a live process
+    contract.ts                             @podium/harness/driver          server may import
+    host.ts                                 @podium/harness/driver/host     daemon only: construction, adopt, attach
+    families/terminal/                      injection, delivery queue, instrumentation (install + hook ingest),
+                                            screen observer, composer sync
+    families/codex/ opencode/ grok-acp/ claude-sdk/ exec/
+  store/                                    MECHANISM · files at rest        @podium/harness/store  both sides
+    reader.ts  tailer.ts  slice.ts  cursor.ts  identity.ts  scanner.ts
+    sources/file-chain.ts  mirror.ts  stream.ts   (both sides)
+    sources/sqlite.ts                            (host only; see rules)
+  inventory/                                MECHANISM · a machine, no session   @podium/harness/inventory  daemon only
+    probe.ts  login.ts  credentials.ts  usage.ts  install.ts
+  browser.ts                                DESCRIPTOR entry                @podium/harness/browser  clients
+
+packages/process/                           HOST · harness-free · unchanged (durable, screen, pty)
+
+apps/daemon/src/session/                    DaemonSession: owns processes, Terminal, Driver per session
+apps/daemon/src/terminal/                   Terminal: attachment + screen + applied size, over a process it does not own
+apps/server/src/modules/sessions/           ServerSession: record + policy
+apps/server/src/modules/memory/lake.ts      a Store over mirrored bytes, from @podium/harness/store</pre>
+<p>What moves, and why there:</p>
+<div class="wrap"><table>
+<tr><th>Today</th><th>Becomes</th><th>Why there</th></tr>
+<tr><td><code>packages/transcript</code></td><td><code>harness/store/</code> (reader); grammars → <code>adapters/&lt;h&gt;/transcript.ts</code></td><td>the reader is a mechanism; the grammars are knowledge</td></tr>
+<tr><td><code>packages/agent-runtime</code></td><td><code>harness/driver/</code>: <code>contract.ts</code>, <code>host.ts</code>, <code>families/*</code></td><td>same package, honest entries</td></tr>
+<tr><td><code>packages/composer</code></td><td><code>driver/families/terminal/composer-sync.ts</code>; rules → <code>adapters/&lt;h&gt;/composer.ts</code></td><td>composer sync is a terminal-family concern; the rules are per-harness and browser-safe</td></tr>
+<tr><td><code>harness/discovery/providers/&lt;h&gt;.ts</code></td><td><code>adapters/&lt;h&gt;/discovery.ts</code>; <code>scanner.ts</code> → <code>harness/store/scanner.ts</code></td><td>a provider per harness is knowledge wearing code; one scanner is the mechanism</td></tr>
+<tr><td><code>harness/inventory</code>, daemon <code>control/inventory.ts</code>, <code>quota-*.ts</code>, <code>credentials.ts</code>, <code>usage-scan.ts</code>, cli <code>install-agents.ts</code></td><td><code>harness/inventory/</code>; layouts → <code>adapters/&lt;h&gt;/{inventory,credentials,usage,install}.ts</code></td><td>one mechanism over a machine; the file layouts are knowledge</td></tr>
+<tr><td>daemon <code>codex-hooks.ts</code>, <code>grok-hooks.ts</code>, <code>hook-ingest.ts</code>, <code>hook-payload.ts</code>, <code>terminal-instrumentation.ts</code></td><td><code>driver/families/terminal/instrumentation.ts</code>; codecs and layouts → <code>adapters/&lt;h&gt;/instrumentation.ts</code></td><td>install and ingest are Driver.create and Driver.observe; the payload shape is knowledge</td></tr>
+<tr><td><code>harness/agent-state/&lt;h&gt;.ts</code></td><td><code>adapters/&lt;h&gt;/state.ts</code>; reducers → <code>driver/families/terminal/observer.ts</code></td><td>per-harness rules are knowledge; the reducer is generic</td></tr>
+<tr><td>web and mobile <code>agent-models.ts</code>, <code>agent-tone.ts</code>, <code>AgentMark.tsx</code></td><td><code>adapters/&lt;h&gt;/{catalog,descriptor}.ts</code>, served</td><td>knowledge the client should receive, not embed</td></tr>
+</table></div>
+
+<h3>4.6 The runtime stack it plugs into</h3>
+<p>From <em>Terminal Layers in Code</em>, restated so this document stands alone. The server's <strong>ServerSession</strong> is the record and the lifetime policy. The daemon's <strong>DaemonSession</strong> owns, per session, its processes, its Terminal if any, and its Driver if any. A <strong>Terminal</strong> is a surface (attachment, screen, applied size) over one process it does not own. A <strong>DurableProcess</strong> is the door to one <strong>podium-host</strong>, the small C process that holds the child and outlives daemon and server. Ownership flows one way and nothing changes hands on park, resume, shell-to-agent upgrade or native attach. The Driver is constructed by DaemonSession with the Adapter and either a Terminal (headed) or an engine address (headless), and owns nothing below itself.</p>
+<div class="wrap"><table>
+<tr><th>Caller</th><th>Side</th><th>Calls</th><th>Never touches</th></tr>
+<tr><td>ServerSession</td><td>server</td><td>Driver and Terminal verbs through the seam; lifetime policy</td><td>an Adapter section; a process; the runtime host entry</td></tr>
+<tr><td>DaemonSession</td><td>daemon</td><td><code>registry.adapterFor(kind)</code>; <code>family.create(adapter, terminal | address)</code>; DurableProcess</td><td>Adapter sections directly; it hands the whole Adapter to the Driver</td></tr>
+<tr><td>transcript lake</td><td>server</td><td><code>Store(adapter.transcript.&lt;kind&gt;, mirrorSource)</code> from <code>@podium/harness/store</code>; <code>transcriptMirrorRead</code> to pull bytes</td><td>a Driver; a session; a host import</td></tr>
+<tr><td>memory service</td><td>server</td><td><code>scanRequest</code>; ingests <code>scanResult</code></td><td>the Adapter</td></tr>
+<tr><td>accounts, machines, cost</td><td>server</td><td>Inventory through <code>inventoryRequest</code> and credential frames</td><td>the Adapter; credential files</td></tr>
+<tr><td>superagent, steward, automations</td><td>server</td><td>ServerSession verbs; the one transcript read path in <code>machines/rpc.ts</code></td><td>the Adapter; harness names (POD-4119)</td></tr>
+<tr><td>web, mobile, cli</td><td>clients</td><td>the Descriptor; tRPC to ServerSession</td><td>host sections; harness names (POD-4118)</td></tr>
+</table></div>
+
+<h3>4.7 Three capability questions</h3>
+<div class="wrap"><table>
+<tr><th>Question</th><th>Example</th><th>Source of truth</th><th>Where it is answered</th></tr>
+<tr><td>Is it implemented?</td><td>a transcript grammar exists for this store kind</td><td>adapter declarations (the support matrix)</td><td>registry, at build time</td></tr>
+<tr><td>Can this machine provide it?</td><td>the installed version supports this driver family; the user is logged in</td><td>Inventory report and admission (<code>SelectionContext</code>)</td><td>daemon, at inventory and at spawn</td></tr>
+<tr><td>What can this session do now?</td><td>configure takes effect next turn, not immediately; an interrupt cannot be fenced</td><td>the selected driver's <code>DriverCapabilities</code> and current conditions</td><td>the live handle, per operation</td></tr>
+</table></div>
+<p>Callers receive the capability at the scope of their operation. The served descriptor carries the first two as flags a client can render; the third travels with the session and is never derived from the matrix. This preserves distinctions the code already makes (<code>SelectionContext</code>, <code>DriverCapabilities</code>, ACP protocol negotiation) instead of collapsing them.</p>
+
+<h3>4.8 Construction sequence and failure ownership</h3>
+<p>The Driver receives a Terminal or an engine address and owns nothing below itself. Launch, environment and instrumentation are its sections. Those statements coexist only with an explicit sequence, owned by DaemonSession:</p>
+<div class="wrap"><table>
+<tr><th>Step</th><th>Who acts</th><th>Reads</th><th>On failure, who cleans up</th></tr>
+<tr><td>1 prepare</td><td>Driver family (pure)</td><td>launch, environment, instrumentation</td><td>nothing to clean; spawn is refused with the reason</td></tr>
+<tr><td>2 create or adopt process</td><td>DaemonSession via DurableProcess</td><td>the prepared spec</td><td>DaemonSession: if instrumentation was installed and spawn fails, remove it; report <code>spawnError</code></td></tr>
+<tr><td>3 attach surface</td><td>DaemonSession builds a Terminal over the process (headed) or records the engine address (headless)</td><td>—</td><td>DaemonSession: process stays owned; a failed attach reports and may retry; nothing is killed</td></tr>
+<tr><td>4 bind driver</td><td>DaemonSession hands the Driver its typed sections and the Terminal or address</td><td>runtime, state</td><td>DaemonSession: an unbuildable driver is <code>spawnError</code> (fresh) or <code>reattachFailed</code> (adopt); the process is kept for an operator decision, never silently orphaned</td></tr>
+<tr><td>5 observe</td><td>Driver</td><td>state, instrumentation (decode)</td><td>Driver reports degraded observation; the session stays live</td></tr>
+<tr><td>6 detach or terminate</td><td>DaemonSession, per ServerSession policy</td><td>—</td><td>park = drop the Terminal, keep the process; kill = dispose the process, then the Terminal</td></tr>
+</table></div>
+<p><strong>Process survival is not session recovery.</strong> After an adopt, the Driver must restore or explicitly invalidate pending deliveries, protocol subscriptions, open interactions and acceptance evidence. A surviving process with unrecoverable protocol state is reported as such, not presented as live.</p>
+
+<h2>5. Rules</h2>
+<ol>
+<li>Every section is required. Absence is <code>declined(reason)</code>, and an empty reason fails the registry check.</li>
+<li>One authoritative definition per concern. Readers depend on narrow typed interfaces or projections, never on the whole Adapter; a mechanism receives only the sections it owns as a typed subset. Additional narrow readers (the registry's family selection reading <code>runtime</code>, a bundled client reading pure composer rules) are legitimate, not defects.</li>
+<li>No vendor-specific operational behaviour outside <code>adapters/</code> and <code>driver/families/</code>. The mechanical gate is the identifier lint, kept because a stated invariant without a check has already failed in this codebase; its allow-list requires a category per entry: <code>leak</code> (may only shrink) or <code>policy</code> (product preference such as the superagent's harness order in <code>harness-defaults.ts</code>, which is Podium policy and must not move into an adapter; points at a policy module). Comments, fixtures and historical migrations are excluded. Closed sets of harness names live only in the registry.</li>
+<li>Nothing inside <code>adapters/</code> imports a mechanism. Nothing in a mechanism imports a specific adapter, only the Adapter type.</li>
+<li>Mechanisms do not own or instantiate each other; dependencies are explicit ports, narrow and acyclic. A live Driver reads history through an injected Store port. Login: Inventory owns the probe and the login command; DaemonSession opens a Terminal running it; Inventory re-probes on exit.</li>
+<li>The contract entries (<code>/driver</code>, <code>/store</code>, the root) import no host code: no <code>child_process</code>, <code>net</code>, <code>http</code>, no <code>@podium/process</code>. The server may import them. An import check enforces it.</li>
+<li>The Store is both-sides for file-chain and mirror sources. The SQLite source is host-only; the lake serves OpenCode only while its machine is reachable until its database is mirrored.</li>
+<li>Bundled browser code and the wire descriptor are different things. The wire descriptor is versioned, serialisable data (label, brand, icon, catalog, capability flags, supported controls) an older client renders inside a schema it already knows; consumers ignore unknown fields and the schema widens the parser first. Composer interpretation is authoritative on the daemon, which serves the resulting state; the bundled pure rules in the browser entry are a fallback for harnesses that client build knows. No remote rule interpreter. An older server likewise does not parse a newer harness's mirrored transcript: it reports the session as unreadable at its version rather than guessing.</li>
+<li>Identity invariant: the same logical native record and sub-item receive the same identity whether the bytes are read live, mirrored, relocated or replayed. This requires agreement on conversation namespace, logical file incarnation, record identity or position, and sub-item mapping, not only a shared parser. The Store owns that agreement; the search indexer consumes normalised items and never a harness's records.</li>
+<li>"Adapter" is a declarative record, not a ports-and-adapters implementation; the mechanisms are the port implementations. The package readme says so.</li>
+</ol>
+
+<h2>6. How we get there</h2>
+<p>Ordered so each step has a user-visible reason and cleans what it touches. Nothing lands as a standalone rename.</p>
+<div class="wrap"><table>
+<tr><th>Step</th><th>Issue</th><th>What lands</th><th>Gain</th></tr>
+<tr><td>0</td><td>POD-4426, POD-4427, POD-4428, POD-4440 (this epic)</td><td>The legacy server-side harness path and both env switches are deleted; the Driver is the only runtime path; an upgrade test proves old sessions open</td><td>one readable answer; no server-side typing, polling or retries; smaller boot</td></tr>
+<tr><td>1</td><td>POD-4120, POD-4123 (POD-4104)</td><td>Boundary lint with a seeded allow-list; ADR 10</td><td>the invariant is enforced before code moves</td></tr>
+<tr><td>2</td><td>POD-4433 (this epic), then POD-4115, POD-4114 (POD-4104)</td><td>Engines on podium-host; the package merge and entries; headless hosts into families</td><td>headless sessions survive daemon restarts; one package</td></tr>
+<tr><td>3</td><td>POD-4434 (this epic)</td><td>DaemonSession and Terminal; one lifecycle with the §4.8 sequence and failure ownership; writer lease; rename</td><td>one lifecycle; no silent input loss</td></tr>
+<tr><td>4</td><td>POD-4082 (POD-4104)</td><td>Grammars into adapters; Store as the one reader; lake constructs a Store; the search indexer consumes normalised items</td><td>live and mirror reads agree under the identity invariant; lake and indexer stop parsing on their own</td></tr>
+<tr><td>5</td><td>POD-4116, POD-4117 (POD-4104)</td><td>Instrumentation, credentials, usage into sections; daemon files deleted</td><td>eight daemon files gone; one credential layout</td></tr>
+<tr><td>6</td><td>POD-4118, POD-4119, POD-4121, POD-4122 (POD-4104)</td><td>Descriptor served; enums derived; composer rules and CLI install into sections</td><td>clients render unknown harnesses; duplicate catalogs gone</td></tr>
+<tr><td>7</td><td>POD-4435, POD-4436, POD-4438, POD-4437 (this epic)</td><td>Shell lifetime policy; server-owned shell mapping; conformance review; boundaries lint with empty allow-list</td><td>shells predictable; structure proven, then pinned</td></tr>
+</table></div>
+<p>Ordering constraints: POD-4433 lands before POD-4114 because both touch the same engine-host files and the ownership rule (the Driver never spawns its engine) must be in place before the code moves. POD-4115 is the touch for the package merge; doing the merge later means every step between lands code in a home that moves again.</p>
+
+<h2>7. Acceptance for the whole design</h2>
+<ul>
+<li>The boundary lint passes with an empty allow-list for <code>apps/daemon</code>, <code>apps/server</code>, <code>apps/web</code>, <code>apps/mobile</code>, <code>packages/client-core</code>, <code>packages/model</code>, <code>packages/protocol</code>, <code>packages/runtime</code>.</li>
+<li>Adding a harness on existing mechanisms touches <code>adapters/&lt;name&gt;/</code> and one registry line. A test adds a fixture harness this way with meaningful supported behaviour (not a column of declines) and every mechanism serves it through the real server-to-daemon route.</li>
+<li>The driver conformance suite runs every family. The Store golden tests run every declared grammar live and mirrored with identical ids, and cover truncation, archived incarnations, partial records, relocation and reconnect replay. The Inventory probe fixture runs per harness.</li>
+<li>Behavioural guarantees are exercised through the application-to-daemon route, not only against a driver: receipts, typed refusals, configure timing, attachment semantics, capability resolution at all three scopes.</li>
+<li>Recovery under failure is tested at the points that matter: restart or disconnect after delivery but before acknowledgement, during an open interaction, while a native terminal holds control, and during transcript mirroring; each asserts honest recovery or explicit uncertainty.</li>
+<li>Cross-version: an older client renders a new descriptor inside its schema and unsupported operations fail explicitly; an older server refuses rather than misparses a newer harness's transcript.</li>
+<li>Removal is proven by consumption, not by grep alone: the lake, the indexer, discovery, credentials, composer and runtime selection are shown to consume the new boundaries.</li>
+<li>The generated support matrix (harness by section, supported or declined with reason) exists and is the first of the three capability inputs; it is not presented as the session's capability.</li>
+<li><code>grep</code> for <code>AgentSession</code>, the legacy delivery symbols, <code>child_process</code> under <code>driver/families</code>, and the two env switches returns nothing.</li>
+</ul>
+
+<h2>8. Risks</h2>
+<ul>
+<li><strong>Boilerplate declines.</strong> Sixteen sections by six harnesses invites <code>declined('n/a')</code>. The registry refuses an empty reason; the matrix makes declines visible.</li>
+<li><strong>Bundle leakage.</strong> The root entry of the harness package must not pull driver families into the server or clients. The contract-entry import check covers the root.</li>
+<li><strong>Package merge size.</strong> Three packages into one is a large diff. It is directory moves and import rewrites with no behaviour change, landed in one issue with the lint on.</li>
+<li><strong>OpenCode's SQLite store</strong> is not mirrored and needs a native module the server lacks. The design states the limitation rather than hiding it.</li>
+<li><strong>Rigidity.</strong> Rev 1 elevated defaults into laws (exactly four mechanisms, one reader, no calls, a directory per harness for any harness). Rev 2 replaces them with composition rules; the residual risk is implementers reintroducing them as lint.</li>
+<li><strong>Sixteen files per harness</strong> is organisation, not a criterion. Sixteen typed sections are the requirement; trivial declarations may share a file.</li>
+<li><strong>Overlap with POD-4104</strong>, which owns the packaging. This spec proposes an amendment (one package, four mechanisms, adapter naming, state as a section); the two epics must agree before step 2.</li>
+</ul>
+
+<h2>9. Open points, after review</h2>
+<p>The five rev 1 questions were answered by the independent review and folded in: narrow readers instead of a split composer section; exec through the one-shot override, not a fifth mechanism; Descriptor is a projection; families per protocol; one package with tested entry points. What remains open:</p>
+<ol>
+<li>OpenCode's SQLite store: mirror it, or accept that the lake serves OpenCode only while the machine is reachable. POD-4104's open point; a decision is needed before POD-4082.</li>
+<li>The exact wire schema of the served descriptor and its version policy, to be fixed in POD-4118 with the widen-first rule.</li>
+<li>Which allow-list entries are <code>policy</code>: an inventory pass in POD-4120 decides each one with a one-line reason.</li>
+</ol>
+
+<h2>10. Decision history</h2>
+<ul>
+<li>A shared "EngineLink" abstraction over the three headless protocols was proposed and retracted: they share a process mechanism and nothing else.</li>
+<li>"Reader" as the name for the transcript mechanism was retracted: it implied the whole read side. The mechanism is the Store, and it covers discovery too.</li>
+<li>Terminal owning its process was retracted: parking would destroy the owner and keep the owned. The session owns processes; the Terminal is a surface.</li>
+<li>Two packages (knowledge and mechanism) were proposed and retracted in favour of one: the lint enforces the direction, and a reader needs a one-word answer to "where is the harness code".</li>
+<li>Alternative names (Archive, Installation, Profile) were considered and rejected in favour of Store, Inventory, Descriptor.</li>
+<li><strong>Rev 2</strong>, after independent review: "one owning mechanism per section" became "one authoritative definition, narrow readers"; "mechanisms never call" became "never own or instantiate, explicit acyclic ports"; capability split into implemented, available, effective; bundled client code separated from the wire descriptor; identity invariant stated and the indexer put in scope; construction and failure ownership specified; extensibility promise qualified; exec via the one-shot override; Descriptor named a projection; handoff assigned to the Store; policy references (superagent harness order) kept out of adapters and out of the leak count.</li>
+</ul>
+<h2>11. Review input</h2>
+<p>Rev 1 was reviewed independently on 2026-09-20 against <code>main</code> at <code>692d8c8e8</code> (a static architecture review; the reviewer did not run tests and noted that some "done" labels refer to the integration branch). Verdict: approve the direction, request targeted revisions, roughly 8/10. The review's three most important amendments, all applied here: separate static support from effective capability; distinguish bundled browser code from wire descriptors; replace absolute one-reader and no-call rules with explicit narrow composition. One recommendation was taken with a modification: the identifier lint stays as the mechanical gate, with a policy category, rather than being replaced by a behavioural definition that no check can verify. The review is attached to this issue as <code>review_outcome.md</code>.</p>
+</main>
