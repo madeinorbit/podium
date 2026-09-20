@@ -24,6 +24,18 @@ export default defineConfig({
   resolve: {
     // Workspace sources, never dist (the proto package has no dist).
     conditions: ['@podium/source'],
+    alias: [
+      // The control's native list imports `react-native`, whose Flow source
+      // no bundler here parses. The dynamic chunk Rollup builds for it must
+      // resolve the same `react-native-web` mapping the unit renderer and
+      // `expo export -p web` use; the chunk is never loaded by these pages.
+      {
+        find: /^react-native$/,
+        replacement: fileURLToPath(
+          new URL('../../node_modules/react-native-web/dist/index.js', import.meta.url),
+        ),
+      },
+    ],
   },
   build: {
     outDir: 'dist',
