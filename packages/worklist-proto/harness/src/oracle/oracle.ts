@@ -139,13 +139,11 @@ export function expectedSnapshot(corpus: FixtureCorpus, locals: SliceLocals): Sl
   // Flat slice: one row per visible issue, in legacy banded order. Worktree
   // rows have no slice rendering and are dropped before ordering.
   const flat = sortUnifiedWorkRows(
-    flattenIssueRows(derivation.slice.work).filter(
-      (row): row is UnifiedIssueRow => row.kind === 'issue',
-    ),
+    flattenIssueRows(derivation.slice.work),
     locals.coarseNow,
-  )
+  ).filter((row): row is UnifiedIssueRow => row.kind === 'issue')
   const { pinned, rest } = splitPinnedWork(flat)
-  const pinnedIds = pinned.map((row) => (row.kind === 'issue' ? row.issue.id : row.worktree.path))
+  const pinnedIds = pinned.flatMap((row) => (row.kind === 'issue' ? [row.issue.id] : []))
   const restIndex = new Map(rest.map((row, index) => [rowKeyOf(row), index]))
   const groups: SliceGroup[] = groupUnifiedWorkRows(rest, null, false, locals.coarseNow).map(
     (group) => ({
