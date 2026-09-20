@@ -91,6 +91,12 @@ export interface GrokAcpEndpoint {
    *  own OOM-kill counter. `undefined` where there is no cgroup to read. */
   resources(): ScopeResources | undefined
   alive(): boolean
+  /**
+   * The engine's own exit status, when the host has reported it (POD-4433).
+   * The host's EXITED frame, never inferred from a dead pipe — `undefined`
+   * while the engine is alive or when no host holds it.
+   */
+  engineExit?(): { code: number; signal: number } | undefined
 }
 
 export interface GrokAcpRuntimeHost {

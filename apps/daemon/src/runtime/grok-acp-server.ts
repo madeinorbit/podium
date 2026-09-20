@@ -1,11 +1,15 @@
 /**
  * Daemon-owned process host for the Grok ACP driver.
  *
- * The child's stdio is the only protocol channel. A daemon restart therefore
- * replaces the child and `session/load` resumes the native session named by
- * the binding journal; the journal is durable, the pipe is intentionally not.
+ * THE ENGINE RUNS UNDER PODIUM-HOST (`--no-pty`), OWNED BY THE DAEMON'S
+ * DURABLE PROCESS (POD-4433). The host's pipe mode carries the ACP stdio: the
+ * merged ring IS the child's stdout, stdin arrives via WRITE, and a daemon
+ * restart re-attaches to the same pipes instead of replacing the child. The
+ * driver then `session/load`s the native session named by the binding journal
+ * over a FRESH stdio channel to the SURVIVING engine — durable, not faked.
+ * `grep child_process` in this file must stay empty; process mechanics live in
+ * `@podium/process`.
  */
-import { spawn } from 'node:child_process'
 import {
   closeSync,
   fstatSync,
@@ -37,15 +41,14 @@ import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import {
-  applySessionsSliceBudget,
-  canScopeMaster,
-  scopeReclaimArgvs,
   scopeUnitName,
-  systemdScopeArgv,
+  type DurableAdapter,
+  type DurableProcess,
+  type HostAgentSession,
 } from '@podium/process/durable'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
-import { SERVER_GRACEFUL_EXIT_MS, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'
+import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -170,6 +173,13 @@ export interface GrokAcpHostDeps {
   now?: () => number
   /** Immutable daemon ownership stamp for orphan attribution. */
   instanceUuid?: string
+  /**
+   * THE DURABLE OWNER OF EVERY ENGINE (POD-4433). Spawn, re-attach and kill go
+   * through it; this file composes argv/env and journals, never forks. Absent
+   * (tests that never launch) = launch/stop/kill refuse loudly rather than
+   * forking a child no restart could re-adopt.
+   */
+  durable?: DurableProcess
 }
 
 /**
@@ -177,65 +187,175 @@ export interface GrokAcpHostDeps {
  *
  * Adoption derives this from the Podium session id instead of trusting the
  * binding journal. That gives the journal's recorded process key an
- * independent identity to match before a fresh stdio child is allowed to load
- * the native session it names.
+ * independent identity to match before a fresh stdio channel is allowed to
+ * load the native session it names. It contains the session id, which is also
+ * what charges the host-held engine to the session in `/proc` attribution.
  */
 export const grokAcpProcessKey = (sessionId: SessionId): string =>
   `podium-gk-${String(sessionId)
     .replace(/[^a-zA-Z0-9_.-]/g, '-')
     .slice(-48)}`
 
+/** The writer lease held by a daemon that did not die. A new generation must
+ *  refuse loudly — log line naming the session — not read along silently. */
+export class GrokEngineLeaseRefused extends Error {
+  override readonly name = 'GrokEngineLeaseRefused'
+
+  constructor(sessionId: SessionId, label: string) {
+    super(
+      `grok engine for ${sessionId} is still driven: another daemon holds the writer lease on '${label}'`,
+    )
+  }
+}
+
+/**
+ * Pick the host adapter out of the daemon's durable object. Engines are never
+ * terminal sessions, so they never follow the terminal backend: abduco has no
+ * pty-less mode, and a daemon without a host adapter cannot own an engine at
+ * all. Loud, naming the session — a refused launch beats a child no restart
+ * could re-adopt.
+ */
+function engineAdapter(durable: DurableProcess | undefined, sessionId: SessionId): DurableAdapter {
+  const found = durable?.all.find((a) => a.kind === 'host') ?? durable?.primary
+  if (!found || found.kind !== 'host') {
+    throw new Error(
+      `grok engine for ${sessionId} requires the podium-host backend: this daemon runs ${
+        durable ? `backend '${durable.backend}' with no host adapter` : 'with no durable backend'
+      }`,
+    )
+  }
+  return found
+}
+
+/** Absent on macOS, honestly so: there is no transient scope there, and a
+ *  fabricated unit name would make `health()` report a cgroup nothing owns. */
+const engineScopeUnit = (label: string): string | undefined =>
+  process.platform === 'linux' ? scopeUnitName(label) : undefined
+
+/** What the daemon holds for a live engine: the host attachment plus what the
+ *  host has told us since. The EXITED frame lands in `exit` — the exit status
+ *  reaches the daemon through the host, never inferred from a dead pipe. */
+interface HeldEngine {
+  session: HostAgentSession
+  childPid: number | undefined
+  exit: { code: number; signal: number } | undefined
+  banner: string
+}
+
+/** `process.env`-shaped composition into the string map a headless spawn takes. */
+function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
+  return out
+}
+
 export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
   const journal = createGrokAcpJournal()
-  const children = new Map<SessionId, Set<ReturnType<typeof spawn>>>()
-  const liveChildren = (id: SessionId): Set<ReturnType<typeof spawn>> => {
-    let set = children.get(id)
-    if (!set) {
-      set = new Set()
-      children.set(id, set)
-    }
-    return set
-  }
+  /** Every engine this daemon generation currently holds a host attachment for.
+   *  A daemon restart empties this map without touching the engines — the next
+   *  generation re-attaches by label through `launch` itself, which adopts a
+   *  live host instead of spawning beside it. */
+  const engines = new Map<SessionId, HeldEngine>()
 
-  const runSystemctl = async (args: readonly string[]): Promise<void> => {
-    await new Promise<void>((resolve) => {
-      const child = spawn('systemctl', [...args], { stdio: 'ignore' })
-      child.once('exit', () => resolve())
-      child.once('error', () => resolve())
-      const timer = setTimeout(resolve, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS)
-      timer.unref?.()
+  const adapterFor = (sessionId: SessionId): DurableAdapter =>
+    engineAdapter(deps.durable, sessionId)
+
+  /**
+   * Tap a host attachment: the merged stdout/stderr ring feeds the launch
+   * banner, and the host's EXITED frame records the real status. A previous
+   * attachment for the session is released first — one holder per engine, so a
+   * re-attach never strands a lease. `engines.delete` before signalling is
+   * what keeps an EXPECTED ending (stop/kill) from logging as a crash.
+   */
+  function tapEngine(sessionId: SessionId, session: HostAgentSession): HeldEngine {
+    const prev = engines.get(sessionId)
+    if (prev && prev.session !== session) prev.session.dispose()
+    const held: HeldEngine = { session, childPid: undefined, exit: undefined, banner: '' }
+    engines.set(sessionId, held)
+    session.connection.onData((_seq, data) => {
+      held.banner = `${held.banner}${data.toString('utf8')}`.slice(-2000)
     })
+    session.connection.onExit((code, signal) => {
+      held.exit = { code, signal }
+      if (engines.get(sessionId) === held) {
+        log.warn('Grok ACP engine exited on its own', { sessionId, code, signal })
+      }
+    })
+    return held
   }
 
-  const terminate = async (
+  /**
+   * Take ownership of a host attachment: confirm the writer lease, then tap.
+   * A lease held elsewhere is a stale daemon still driving this engine — loud
+   * refusal, never silent read-along. A welcome that never arrives degrades to
+   * `undefined` for adopt paths; launch turns it into a throw.
+   */
+  async function claimEngine(
     sessionId: SessionId,
-    signal: 'SIGTERM' | 'SIGKILL',
-    child: ReturnType<typeof spawn>,
-  ): Promise<void> => {
-    const live = liveChildren(sessionId)
-    live.delete(child)
-    if (signal === 'SIGTERM') {
-      try {
-        child.stdin?.end()
-      } catch {
-        // Already closed.
-      }
-      await new Promise<void>((resolve) => {
-        if (child.exitCode !== null || child.signalCode !== null) return resolve()
-        const timer = setTimeout(resolve, EXIT_TIMEOUT_MS)
-        timer.unref?.()
-        child.once('exit', () => {
-          clearTimeout(timer)
-          resolve()
-        })
-      })
+    label: string,
+    session: HostAgentSession,
+  ): Promise<HeldEngine | undefined> {
+    let welcome
+    try {
+      welcome = await session.ready
+    } catch (err) {
+      log.warn('grok engine host never welcomed its attach', { err, sessionId, label })
+      session.dispose()
+      engines.delete(sessionId)
+      return undefined
     }
-    if (child.exitCode === null && child.signalCode === null) child.kill(signal)
-    if (live.size > 0) return
-    children.delete(sessionId)
-    if (!(await canScopeMaster())) return
-    const unit = scopeUnitName(grokAcpProcessKey(sessionId))
-    for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
+    if (!welcome.lease) {
+      session.dispose()
+      engines.delete(sessionId)
+      log.error('refusing a grok engine whose writer lease is held elsewhere', {
+        sessionId,
+        label,
+      })
+      throw new GrokEngineLeaseRefused(sessionId, label)
+    }
+    const held = tapEngine(sessionId, session)
+    held.childPid = welcome.childPid
+    return held
+  }
+
+  /** Did this engine report its own exit within the window? The host's EXITED
+   *  frame, never a dead-pipe inference. */
+  const engineExited = (held: HeldEngine, ms: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (held.exit) {
+        resolve(true)
+        return
+      }
+      const timer = setTimeout(() => {
+        off()
+        resolve(false)
+      }, ms)
+      timer.unref?.()
+      const off = held.session.connection.onExit(() => {
+        clearTimeout(timer)
+        resolve(true)
+      })
+    })
+
+  /**
+   * End ONE engine — the one this endpoint owns — and sweep its scope. There
+   * is no stdin-EOF graceful stop any more: the host owns the child's stdin,
+   * so SIGTERM carries the grace, bounded by the shared budget.
+   */
+  async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL', held: HeldEngine | undefined): Promise<void> {
+    engines.delete(sessionId)
+    if (held) {
+      if (signal === 'SIGTERM') {
+        try {
+          held.session.connection.signal(15)
+        } catch {
+          // Already gone; the sweep below is still owed its scope.
+        }
+        await engineExited(held, EXIT_TIMEOUT_MS)
+      }
+      held.session.dispose()
+    }
+    await adapterFor(sessionId).kill(grokAcpProcessKey(sessionId))
   }
 
   return {
@@ -256,16 +376,12 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
       }
 
       const label = grokAcpProcessKey(input.sessionId)
-      const scoped = await canScopeMaster()
-      const unit = scopeUnitName(label)
-      if (scoped && liveChildren(input.sessionId).size === 0) {
-        for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
-      }
+      const adapter = adapterFor(input.sessionId)
       // The ACP server receives cwd in session/new and session/load. A native
       // --worktree would create a second nested worktree; no SessionSpec sandbox
       // field exists, so GROK_SANDBOX/config remains authoritative.
       const argv = ['grok', 'agent', 'stdio']
-      const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
+      const [command, ...args] = argv
       const env: NodeJS.ProcessEnv = serverChildEnv({
         instanceUuid: deps.instanceUuid,
         sessionId: input.sessionId,
@@ -273,50 +389,66 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
       })
-      // An inherited API key can silently replace the user's subscription.
-      delete env.XAI_API_KEY
 
-      const child = spawn(command ?? 'grok', args, {
-        cwd: input.workdir,
-        env,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        detached: false,
-      })
-      // The instance's sessions slice exists now that a scope named it, so its
-      // aggregate throttle can be set (POD-2413). Fire and forget, memoized on
-      // success: a session must never wait on a best-effort budget call.
-      if (scoped) void applySessionsSliceBudget()
-      liveChildren(input.sessionId).add(child)
-      child.once('exit', () => children.get(input.sessionId)?.delete(child))
-      let banner = ''
-      child.stderr?.on('data', (chunk: Buffer) => {
-        banner = `${banner}${chunk.toString('utf8')}`.slice(-2000)
-      })
-      child.once('error', (err) => {
-        log.warn('Grok ACP child errored', { err, sessionId: input.sessionId })
-      })
-      if (!scoped) log.warn('Grok ACP session is running unscoped', { sessionId: input.sessionId })
+      /**
+       * THE ENGINE, UNDER THE HOST — ADOPTED WHEN IT IS ALREADY THERE.
+       * `spawnHeadless` puts `grok agent stdio` under podium-host `--no-pty`
+       * in the session's transient scope, and adopts the live host when this
+       * label already owns one — which is exactly the daemon-restart case, so
+       * the driver's adopt (which loads the journalled native session over the
+       * fresh transport below) rebinds to the survivor instead of replacing it.
+       * An inherited API key is stripped by the host after the merge: it would
+       * silently replace the user's subscription either way.
+       */
+      let held: HeldEngine | undefined
+      try {
+        held = await claimEngine(
+          input.sessionId,
+          label,
+          await adapter.spawnHeadless({
+            label,
+            cmd: command ?? 'grok',
+            args,
+            cwd: input.workdir,
+            env: stringEnv(env),
+            stripEnv: ['XAI_API_KEY'],
+          }),
+        )
+      } catch (err) {
+        engines.delete(input.sessionId)
+        throw err
+      }
+      if (!held) {
+        engines.delete(input.sessionId)
+        throw new Error(`grok engine host for ${input.sessionId} never welcomed its spawn`)
+      }
+      if (process.platform !== 'linux') {
+        log.warn('Grok ACP session is running unscoped', { sessionId: input.sessionId })
+      }
 
+      const scopeUnit = engineScopeUnit(label)
       const endpoint: GrokAcpEndpoint = {
-        transport: childTransport(child, () => banner),
+        transport: hostTransport(input.sessionId, held),
         process: {
           key: label,
-          ...(child.pid !== undefined ? { pid: child.pid } : {}),
-          ...(scoped ? { scopeUnit: unit } : {}),
+          ...(held.childPid !== undefined ? { pid: held.childPid } : {}),
+          ...(scopeUnit ? { scopeUnit } : {}),
         },
-        stop: () => terminate(input.sessionId, 'SIGTERM', child),
+        stop: () => terminate(input.sessionId, 'SIGTERM', held),
         kill: async () => {
-          await terminate(input.sessionId, 'SIGKILL', child)
+          await terminate(input.sessionId, 'SIGKILL', held)
           journal.clear(input.sessionId)
         },
         resources: () =>
           deps.resources({
             sessionId: input.sessionId,
             label,
-            ...(child.pid !== undefined ? { pid: child.pid } : {}),
-            ...(scoped ? { scopeUnit: unit } : {}),
+            ...(held.childPid !== undefined ? { pid: held.childPid } : {}),
+            ...(scopeUnit ? { scopeUnit } : {}),
           }),
-        alive: () => child.exitCode === null && child.signalCode === null,
+        alive: () => held.exit === undefined,
+        /** The host's EXITED frame, when the engine has reported its own exit. */
+        engineExit: () => held.exit ?? engines.get(input.sessionId)?.exit,
       }
       return endpoint
     },
@@ -381,15 +513,29 @@ export function createGrokAcpHost(deps: GrokAcpHostDeps): GrokAcpRuntimeHost {
   }
 }
 
-function childTransport(child: ReturnType<typeof spawn>, banner: () => string): GrokAcpTransport {
+/**
+ * The ACP stdio channel over a host attachment (POD-4433): the merged ring IS
+ * the engine's stdout (line-split here, the way the direct pipe was), stdin
+ * arrives through the connection's WRITE, and closing drops this generation's
+ * channel without ending the engine — `stop()`/`kill()` own that. A daemon
+ * restart attaches a FRESH channel at the tail: pre-restart correlation ids
+ * died with the old driver, so replaying stale responses into new ones would
+ * be fabrication, and `session/load` re-establishes the conversation instead.
+ */
+function hostTransport(sessionId: SessionId, held: HeldEngine): GrokAcpTransport {
   let buffer = ''
   let closed = false
   return {
     write(line) {
-      if (!closed) child.stdin?.write(line)
+      if (closed) return
+      held.session.connection.write(Buffer.from(line)).catch(() => {
+        // A write to a dead channel is the engine being gone; the close path
+        // below reports it, and throwing here would surface the fact twice.
+      })
     },
     onLine(handler) {
-      child.stdout?.on('data', (chunk: Buffer) => {
+      held.session.connection.onData((_seq, chunk) => {
+        if (closed) return
         buffer += chunk.toString('utf8')
         let boundary = buffer.indexOf('\n')
         while (boundary >= 0) {
@@ -402,17 +548,16 @@ function childTransport(child: ReturnType<typeof spawn>, banner: () => string): 
       const ended = (): void => {
         if (closed) return
         closed = true
-        if (banner().trim()) log.warn('Grok ACP child ended', { stderr: banner().slice(-500) })
+        if (held.banner.trim()) {
+          log.warn('Grok ACP engine ended', { sessionId, stderr: held.banner.slice(-500) })
+        }
         handler.closed()
       }
-      child.once('exit', ended)
-      child.stdout?.once('end', ended)
-      child.once('error', ended)
+      held.session.connection.onExit(ended)
     },
     close() {
       if (closed) return
       closed = true
-      child.stdin?.end()
     },
   }
 }

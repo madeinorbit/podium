@@ -4,9 +4,23 @@ import type {
   GrokAcpTransport,
 } from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
+import type {
+  DurableAdapter,
+  DurableProcess,
+  HeadlessAttachOptions,
+  HeadlessSpawnOptions,
+  HostAgentSession,
+} from '@podium/process/durable'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { grokAcpProcessKey, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './grok-acp-server'
+import {
+  createGrokAcpHost,
+  GrokEngineLeaseRefused,
+  grokAcpProcessKey,
+  grokAcpVersionProbe,
+  resetGrokAcpVersionProbe,
+} from './grok-acp-server'
 import { createDaemonGrokRuntime } from './grok-driver'
 import { availableDriverIds } from './registry'
 
@@ -316,5 +330,170 @@ describe('Grok ACP daemon gate', () => {
     })
     await expect(grokAcpVersionProbe(probe)).resolves.toMatchObject({ reason: 'unsupported' })
     expect(calls).toBe(1)
+  })
+})
+
+describe('Grok ACP headless engine (POD-4433)', () => {
+  const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
+
+  /** A host attachment the test drives by hand. */
+  function fakeEngineSession(input: { childPid?: number; lease?: boolean } = {}): {
+    session: HostAgentSession
+    written: string[]
+    dataListeners: Array<(seq: bigint, data: Buffer) => void>
+    exits: Array<(code: number, signal: number) => void>
+  } {
+    const written: string[] = []
+    const dataListeners: Array<(seq: bigint, data: Buffer) => void> = []
+    const exits: Array<(code: number, signal: number) => void> = []
+    const session = {
+      ready: Promise.resolve({
+        version: 1,
+        hostPid: 111,
+        childPid: input.childPid ?? 4242,
+        hasPty: false,
+        cols: 0,
+        rows: 0,
+        seqLow: 0n,
+        seqHigh: 0n,
+        lease: input.lease ?? true,
+      }),
+      connection: {
+        onData: (cb: (seq: bigint, data: Buffer) => void) => {
+          dataListeners.push(cb)
+          return () => {}
+        },
+        onExit: (cb: (code: number, signal: number) => void) => {
+          exits.push(cb)
+          return () => {}
+        },
+        write: async (data: Uint8Array) => {
+          written.push(Buffer.from(data).toString('utf8'))
+          return data.byteLength
+        },
+        signal: () => {},
+      },
+      dispose: () => {},
+    } as unknown as HostAgentSession
+    return { session, written, dataListeners, exits }
+  }
+
+  function fakeEngineDurable(hooks: {
+    spawnHeadless?: (opts: HeadlessSpawnOptions) => Promise<HostAgentSession>
+  }): DurableProcess {
+    const adapter: DurableAdapter = {
+      kind: 'host',
+      spawn: () => Promise.reject(new Error('terminal spawn is not under test')),
+      spawnHeadless:
+        hooks.spawnHeadless ?? (() => Promise.reject(new Error('unexpected spawnHeadless'))),
+      attachHeadless: () => Promise.reject(new Error('no engine host answers')),
+      attach: () => Promise.reject(new Error('terminal attach is not under test')),
+      has: async () => false,
+      kill: async () => {},
+      list: async () => [],
+      socketPath: async () => undefined,
+      waitForSocket: () => Promise.reject(new Error('unused')),
+      hasMasterSync: () => false,
+      attachCommand: (target: string) => target,
+    }
+    return {
+      backend: 'host',
+      primary: adapter,
+      all: [adapter],
+      spawn: (opts) => adapter.spawn(opts),
+      spawnHeadless: (opts) => adapter.spawnHeadless(opts),
+      attachHeadless: (opts: HeadlessAttachOptions) => adapter.attachHeadless(opts),
+      locate: async () => undefined,
+      has: (label) => adapter.has(label),
+      kill: (label) => adapter.kill(label),
+      list: () => adapter.list(),
+      hasMasterSync: (label, env) => adapter.hasMasterSync(label, env),
+    }
+  }
+
+  function launchHost(hooks: {
+    spawnHeadless?: (opts: HeadlessSpawnOptions) => Promise<HostAgentSession>
+  }) {
+    return createGrokAcpHost({
+      resources: () => undefined,
+      durable: fakeEngineDurable(hooks),
+    })
+  }
+
+  async function primeProbe(): Promise<void> {
+    resetGrokAcpVersionProbe()
+    await expect(
+      grokAcpVersionProbe(() => ({ ok: true, output: 'grok 0.2.23' })),
+    ).resolves.toMatchObject({ drivable: true })
+  }
+
+  it('spawns grok stdio headless under the session label, without argv secrets', async () => {
+    await primeProbe()
+    const launched: HeadlessSpawnOptions[] = []
+    const { session } = fakeEngineSession()
+    const host = launchHost({
+      spawnHeadless: async (opts) => {
+        launched.push(opts)
+        return session
+      },
+    })
+    const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+    expect(launched).toHaveLength(1)
+    expect(launched[0]).toMatchObject({
+      label: grokAcpProcessKey(SESSION),
+      cmd: 'grok',
+      args: ['agent', 'stdio'],
+      cwd: '/tmp',
+    })
+    expect(launched[0]?.stripEnv).toContain('XAI_API_KEY')
+    expect(endpoint.process.key).toBe(grokAcpProcessKey(SESSION))
+    expect(endpoint.alive()).toBe(true)
+  })
+
+  it('carries ACP stdio over the host attachment: writes reach stdin, stdout lines reach the driver', async () => {
+    await primeProbe()
+    const rig = fakeEngineSession()
+    const host = launchHost({ spawnHeadless: async () => rig.session })
+    const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+    const lines: string[] = []
+    let closed = 0
+    endpoint.transport.onLine({ line: (line) => void lines.push(line), closed: () => void closed++ })
+    endpoint.transport.write('{"jsonrpc":"2.0","id":1,"method":"initialize"}\n')
+    expect(rig.written).toEqual(['{"jsonrpc":"2.0","id":1,"method":"initialize"}\n'])
+    for (const listener of rig.dataListeners) {
+      listener(0n, Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}\n{"jsonrpc":"2.0","method":"m"}\n'))
+    }
+    expect(lines).toEqual(['{"jsonrpc":"2.0","id":1,"result":{}}', '{"jsonrpc":"2.0","method":"m"}'])
+    expect(closed).toBe(0)
+    // The engine's end arrives through the host's EXITED frame.
+    for (const fire of rig.exits) fire(1, 0)
+    expect(closed).toBe(1)
+    expect(endpoint.alive()).toBe(false)
+    expect(endpoint.engineExit?.()).toEqual({ code: 1, signal: 0 })
+  })
+
+  it('a writer lease held elsewhere refuses loudly', async () => {
+    await primeProbe()
+    const { session } = fakeEngineSession({ lease: false })
+    const host = launchHost({ spawnHeadless: async () => session })
+    await expect(host.launch({ sessionId: SESSION, workdir: '/tmp' })).rejects.toBeInstanceOf(
+      GrokEngineLeaseRefused,
+    )
+  })
+
+  it('closing the transport drops the channel without ending the engine', async () => {
+    await primeProbe()
+    const rig = fakeEngineSession()
+    const host = launchHost({ spawnHeadless: async () => rig.session })
+    const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+    let closed = 0
+    endpoint.transport.onLine({ line: () => {}, closed: () => void closed++ })
+    endpoint.transport.close()
+    // Late writes are gated, the engine is untouched: stop/kill still own it.
+    endpoint.transport.write('{"late":true}\n')
+    expect(rig.written).toEqual([])
+    expect(closed).toBe(0)
+    expect(endpoint.alive()).toBe(true)
+    expect(endpoint.engineExit?.()).toBeUndefined()
   })
 })

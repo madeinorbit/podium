@@ -7,8 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // Force the production host through its scoped argv while replacing only the
 // machine-level systemd housekeeping. The fake systemd-run below still starts
-// a real child and waits for that child, so the transport observes the same
-// wrapper -> ACP process exit boundary without depending on a user manager.
+// a real podium-host (which daemonizes the ACP child), so the transport
+// observes the same wrapper -> host -> ACP process exit boundary without
+// depending on a user manager. The child's SIGKILL surfaces as the host's
+// EXITED frame, which is what the daemon reports.
 vi.mock('@podium/process/durable', async () => {
   const actual = await vi.importActual<typeof import('@podium/process/durable')>('@podium/process/durable')
   return {
@@ -20,6 +22,7 @@ vi.mock('@podium/process/durable', async () => {
 })
 
 import { createGrokAcpHost, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './grok-acp-server'
+import { createDurableProcess } from '@podium/process/durable'
 import { createDaemonGrokRuntime } from './grok-driver'
 
 const CHILD_HELPER = `
@@ -104,21 +107,31 @@ describe('Grok ACP real scoped child boundary', () => {
     const previous = {
       PATH: process.env.PATH,
       PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
+      PODIUM_HOST_SOCKET_DIR: process.env.PODIUM_HOST_SOCKET_DIR,
       PODIUM_TEST_CHILD_PID: process.env.PODIUM_TEST_CHILD_PID,
       PODIUM_TEST_SCOPE_ARGS: process.env.PODIUM_TEST_SCOPE_ARGS,
       XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
     }
     let runtime: ReturnType<typeof createDaemonGrokRuntime> | undefined
+    let hostSockets = ''
     try {
       process.env.PATH = `${rig.bin}:${previous.PATH ?? ''}`
       process.env.PODIUM_STATE_DIR = join(root, 'state')
+      // The engine runs under a REAL podium-host here (POD-4433): its socket
+      // path carries instance + label and must fit sun_path, which the deep
+      // test root cannot afford — shortest writable system tmp wins.
+      hostSockets = shortSockRoot()
+      process.env.PODIUM_HOST_SOCKET_DIR = hostSockets
       process.env.PODIUM_TEST_CHILD_PID = rig.childPid
       process.env.PODIUM_TEST_SCOPE_ARGS = rig.scopeArgs
       process.env.XDG_RUNTIME_DIR = join(root, 'runtime')
 
       expect(await grokAcpVersionProbe()).toEqual({ drivable: true })
       const sent: DaemonMessage[] = []
-      const host = createGrokAcpHost({ resources: () => undefined })
+      const host = createGrokAcpHost({
+        resources: () => undefined,
+        durable: createDurableProcess('host', { host: true, abduco: false }),
+      })
       runtime = createDaemonGrokRuntime({ send: (message) => sent.push(message), host })
       const sessionId = asSessionId('grok-real-scoped-exit')
 
@@ -166,6 +179,19 @@ describe('Grok ACP real scoped child boundary', () => {
         else process.env[key] = value
       }
       rmSync(root, { recursive: true, force: true })
+      if (hostSockets) rmSync(hostSockets, { recursive: true, force: true })
     }
   }, 30_000)
 })
+
+/** The shortest writable system tmp: host socket paths must fit sun_path. */
+function shortSockRoot(): string {
+  for (const base of ['/tmp', '/var/tmp', tmpdir()]) {
+    try {
+      return mkdtempSync(join(base, 'pod-4433-h-'))
+    } catch {
+      // Next candidate.
+    }
+  }
+  throw new Error('no writable tmp base for podium-host sockets')
+}
