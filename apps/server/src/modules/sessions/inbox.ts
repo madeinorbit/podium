@@ -1370,6 +1370,17 @@ export class SessionInbox {
           await this.reportShellBlocked(session, head, blockedReason)
           return
         }
+        // A live menu holds the shell: bytes typed now would answer the wrong
+        // question (#473). The row waits for the menu-cleared re-arm in
+        // `stateChanged`, reported once so the hold is visible.
+        if (session.agentState?.phase === 'needs_user') {
+          await this.reportShellBlocked(
+            session,
+            head,
+            'the agent is waiting for an answer before this input can be sent',
+          )
+          return
+        }
         // The security boundary is HERE, immediately before the daemon gateway.
         // Nothing accepted at enqueue is trusted now.
         const authorized = await this.deps.authorization.authorizeAtDrain({
