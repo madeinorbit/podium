@@ -33,41 +33,11 @@ afterEach(cleanup)
 
 const pressCounts = vi.hoisted(() => new Map<string, number>())
 
-vi.mock('expo-router', () => ({
-  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }),
-  useFocusEffect: vi.fn(),
-  usePathname: () => '/work',
-  Stack: { SearchBar: () => null },
-}))
-vi.mock('expo-haptics', () => ({
-  ImpactFeedbackStyle: { Light: 'light' },
-  NotificationFeedbackType: { Success: 'success', Error: 'error' },
-  impactAsync: vi.fn(async () => {}),
-  notificationAsync: vi.fn(async () => {}),
-}))
-vi.mock('react-native-safe-area-context', () => ({
-  useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
-}))
 vi.mock('react-native-svg', async () => {
   const { View } = await import('react-native')
   const Svg = ({ children }: { children?: React.ReactNode }) => <View>{children}</View>
   return { default: Svg, Svg, Circle: () => null }
 })
-vi.mock('expo-blur', async () => {
-  const { View } = await import('react-native')
-  return { BlurView: (props: object) => <View {...props} /> }
-})
-vi.mock('expo-linear-gradient', () => ({
-  LinearGradient: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-}))
-vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 72 }))
-vi.mock('../client/hooks', () => ({
-  useBooting: () => false,
-  useIssues: () => [],
-  useSessions: () => [],
-  useStoreActions: () => ({ markIssueRead: vi.fn(), setIssueTucked: vi.fn() }),
-}))
 vi.mock('../components/PressableScale', () => ({
   PressableScale: ({ children, accessibilityLabel }: never) => {
     const key = String((accessibilityLabel as string | undefined) ?? '?')
@@ -76,7 +46,7 @@ vi.mock('../components/PressableScale', () => ({
   },
 }))
 
-const { WorkRow } = await import('./WorkScreen')
+const { WorkRow } = await import('./WorkListRow')
 
 afterEach(() => {
   pressCounts.clear()
