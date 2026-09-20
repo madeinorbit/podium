@@ -14,8 +14,10 @@
  *   - The transport is WebSocket text frames over a private per-session Unix
  *     listener. The pinned server accepts multiple clients, so Podium's driver
  *     and `codex resume --remote` share one process. See ./client.ts.
- *   - `adopt()` RESUMES rather than rebinds, because `codex app-server` exits on
- *     stdin EOF and therefore cannot outlive the daemon. See ./runtime.ts.
+ *   - `adopt()` rebinds to the surviving engine when the host says it is alive
+ *     and its journalled listener answers, and only then falls back to a fresh
+ *     engine plus `thread/resume` — because the engine runs under podium-host
+ *     `--no-pty` and outlives the daemon. See ./runtime.ts.
  *   - The transcript mapper is NEW rather than reused, because the app-server's
  *     `ThreadItem` vocabulary is not the rollout-JSONL vocabulary that
  *     `packages/transcript`'s codex mapper parses. See ./map.ts.

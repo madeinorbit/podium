@@ -132,6 +132,29 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     },
     reportAuthMode: (report) =>
       void authReports.push({ authMethod: report.authMethod, subscription: report.subscription }),
+    /**
+     * Rebind to the LIVE fake server — the durable-engine path (POD-4433).
+     * Returns the SAME server's transport (a second client on the open
+     * thread, which is what the daemon's host does over the Unix listener) or
+     * `undefined` when the engine is gone so adopt falls back to resume.
+     */
+    adopt: async (binding) => {
+      const server = servers.get(binding.sessionId)
+      if (!server || !server.alive) return undefined
+      return {
+        transport: server.transport,
+        clientAddress: `unix:///tmp/${binding.sessionId}.sock`,
+        process: { key: `podium-cx-${binding.sessionId}`, pid: 1000 + seq },
+        stop: async () => {
+          stopped += 1
+          server.close()
+        },
+        kill: async () => {
+          server.close()
+        },
+        resources: () => ({ memoryBytes: 1024, oomKills: 0 }),
+      }
+    },
     rolloutExists: async () => false,
     attachClient: async ({ sessionId, clientAddress }) => {
       attachedAddresses.push(clientAddress)
@@ -1459,6 +1482,77 @@ describe('the session title on snapshot', () => {
       expect((await w.handle.snapshot()).title).toBe('user scope models')
       const adopted = await w.adopt()
       expect((await adopted.snapshot()).title).toBe('user scope models')
+    } finally {
+      w.dispose()
+    }
+  })
+})
+
+describe('rebind to the surviving engine (POD-4433)', () => {
+  it('adopts the live engine: same thread, no new launch, no thread/resume', async () => {
+    const w = await world()
+    try {
+      const before = w.handle.binding
+      const adopted = await w.adopt()
+      // THE REBIND, NOT A RESUME: the engine never died, so no second child
+      // and no resume RPC — handshake and attach, on the open thread.
+      expect(w.counts().launches).toBe(1)
+      expect(w.server.resumes).toBe(0)
+      expect(adopted.binding.resume).toEqual(before.resume)
+      expect(adopted.binding.process.key).toBe(before.process.key)
+      expect(adopted.binding.bindingVersion).toBe(before.bindingVersion + 1)
+      // And the rebound session drives the survivor: a new turn runs on the
+      // SAME server object, not on a successor.
+      await adopted.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+      expect(w.server.turnStarts).toBe(1)
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('an in-flight turn completes on the rebound session instead of being abandoned', async () => {
+    const w = await world()
+    try {
+      const first = await w.handle.send({ text: 'go' }, { origin: 'human', delivery: 'when-ready' })
+      expect(first.outcome).toBe('accepted')
+      const adopted = await w.adopt()
+      expect(w.counts().launches).toBe(1)
+      expect(w.server.resumes).toBe(0)
+      const collected: RuntimeEvent[] = []
+      void (async () => {
+        try {
+          for await (const event of adopted.events('bootstrap')) collected.push(event)
+        } catch {
+          // the stream ends with the session
+        }
+      })()
+      // The engine finishes the turn it was already running; the fence lands
+      // on the rebound session rather than dying with the old connection.
+      w.server.completeTurn('completed')
+      await settle()
+      await settle()
+      expect(collected.filter((event) => event.t === 'turn')).toMatchObject([
+        { t: 'turn', ev: { ev: 'completed' } },
+      ])
+      expect((await adopted.state()).phase).toBe('idle')
+    } finally {
+      w.dispose()
+    }
+  })
+
+  it('falls back to fresh-start-and-resume when the engine is gone', async () => {
+    const w = await world()
+    try {
+      const dead = w.server
+      const before = w.handle.binding
+      dead.crash()
+      const adopted = await w.adopt()
+      // A new engine, and the resume RPC went to IT — the dead one heard nothing.
+      expect(w.counts().launches).toBe(2)
+      expect(dead.resumes).toBe(0)
+      expect(w.liveServer()).not.toBe(dead)
+      expect(w.liveServer().resumes).toBe(1)
+      expect(adopted.binding.resume).toEqual(before.resume)
     } finally {
       w.dispose()
     }
