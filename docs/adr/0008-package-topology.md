@@ -7,6 +7,7 @@
 | **Issue** | POD-754 (leaf of POD-359) |
 | **File** | `docs/adr/0008-package-topology.md` (this leaf owns **only** this file) |
 | **Related** | ADR 1–7 (forward refs); [spec:SP-3b58]; [spec:SP-3fe2]; [spec:SP-15aa]; POD-296, POD-299, POD-311, POD-325, POD-293/POD-331, POD-356, POD-712, POD-715, POD-746 |
+| **Amended by** | [ADR 10 — harness adapter and driver boundary](0010-harness-adapter-and-driver-boundary.md) (2026-09-20, POD-4468): amends D4.3 only — per-harness transcript grammars (pure record→item mappers) move into `adapters/<harness>/transcript.ts`, consumed through the Store mechanism. The `transcript-core` rename stays declined and the slice/page core stays out of `model`. |
 
 ## Context
 
