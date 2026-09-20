@@ -24,9 +24,10 @@
  *      box can earn, so the ref is seeded in sessionResumeRef shape; the park
  *      itself is the real old API; grok tolerates the unresolvable ref);
  *  (3) a live shell; (4) a login shell (agentKind shell + loginHarness);
- *  (5) a hibernated grok + generic-pty session holding two queued_messages
- *      rows written by the old inbox (same seeded-ref park as (2); daemon up,
- *      session parked — the honest queue path);
+ *  (5) a grok + generic-pty session, created but never bound, holding two
+ *      queued_messages rows (both queued in the starting window, then the
+ *      daemon dies before any bind — the only honest freeze on a model-less
+ *      box; the post-upgrade bind is their first delivery);
  *  (6) a live harness session holding one pending native-menu interaction row
  *      written with the exact columns the old InteractionService.ask inserts
  *      (the ask itself is driver-emitted, so only its trigger is synthetic —
@@ -541,6 +542,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
     let oldDaemon: DaemonHandle | undefined
     let newDaemon: DaemonHandle | undefined
     let newServer: Awaited<ReturnType<typeof startServer>> | undefined
+    let queueCollectorRef: { close: () => void } | undefined
     try {
       // -- OLD BUILD: enroll, pair the host identity, boot the old daemon ----
       const anon = apiFor(oldPort)
@@ -594,14 +596,6 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.close()
         }
       }
-      {
-        const db = openDb(false)
-        try {
-          db.run('UPDATE sessions SET selected_driver_id = NULL WHERE id = ?', sHib)
-        } finally {
-          db.close()
-        }
-      }
 
       // (3) live shell. (4) login shell.
       const sShell = await createSession(oldApi, { agentKind: 'shell', cwd })
@@ -611,38 +605,33 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       expect(sLogin, 'login returns a session').toBeTruthy()
       await waitStatus(oldApi, sLogin, 'live', 'old login shell')
 
-      // (5) hibernated session with two queued rows from the old inbox.
-      // Same grok shape as (2): the seeded resume ref unlocks the real
-      // hibernate call, and parked rows are written by the old send path with
-      // the daemon up (sends to a dead daemon are refused, not queued).
-      const sQueue = await createSession(oldApi, {
-        agentKind: 'grok',
-        cwd,
-        runtimeContract: 'generic-pty',
-      })
-      await waitStatus(oldApi, sQueue, 'live', 'queue candidate')
+      // (5) a live-bound-never session with two queued_messages rows.
+      //
+      // Rows only persist while no bind can drain them, and the API refuses
+      // sends with the daemon down — so both rows are queued in the STARTING
+      // window (spawn accepted, driver not yet bound): the two sendTexts run
+      // in the same tick as the create, then the daemon dies before any bind.
+      // If the bind wins the race the run fails LOUDLY below (status live),
+      // never silently. Post-upgrade the session reattaches as reconnecting
+      // and the new bind is the rows' first delivery.
+      // Install the seeded refs into memory via a real server restart cycle.
+      oldServer = await rebootOldServer(baseDir, oldPort, oldServer)
+      await waitStatus(oldApi, sHarness, 'live', 'harness session after old restart')
+      await waitStatus(oldApi, sHib, 'live', 'hibernation candidate after old restart')
+      // NULL the driver column AFTER the restart reattach (the reattach
+      // refills it from the bind; the NULL must postdate that fill to reach
+      // the upgrade in the old-row shape).
       {
         const db = openDb(false)
         try {
-          db.run(
-            'UPDATE sessions SET resume_kind = ?, resume_value = ? WHERE id = ?',
-            'grok-session',
-            `up4428-${sQueue.slice(0, 8)}`,
-            sQueue,
-          )
+          db.run('UPDATE sessions SET selected_driver_id = NULL WHERE id = ?', sHib)
         } finally {
           db.close()
         }
       }
-      // Install the seeded refs into memory via a real server restart cycle.
-      oldServer = await rebootOldServer(baseDir, oldPort, oldServer)
-      await waitStatus(oldApi, sHarness, 'live', 'harness session after old restart')
       const hibRes2 = await oldApi.sessions.hibernate.mutate({ sessionId: sHib })
       expect(hibRes2, `(2) hibernate refused: ${JSON.stringify(hibRes2).slice(0, 300)}`).toMatchObject({ ok: true })
       await waitStatus(oldApi, sHib, 'hibernated', 'hibernated session')
-      const qhibRes = await oldApi.sessions.hibernate.mutate({ sessionId: sQueue })
-      expect(qhibRes, `(5) hibernate refused: ${JSON.stringify(qhibRes).slice(0, 300)}`).toMatchObject({ ok: true })
-      await waitStatus(oldApi, sQueue, 'hibernated', 'queue session parked')
 
       // (6) live harness session with a pending native-menu interaction row.
       // The ask itself is driver-emitted, so only its trigger is synthetic:
@@ -684,19 +673,55 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         } finally {
           db.close()
         }
-      // Park the rows with the daemon DOWN: resumeAndSend is the offline-safe
-      // send (it queues where sendText wakes-and-delivers). The rows are
-      // therefore never forwarded pre-upgrade; the post-upgrade bind is their
-      // first delivery.
-      const oldDaemonPid = oldDaemon.pid
-      await oldDaemon.kill()
-      expect(pidGone(oldDaemonPid), 'old daemon pid is gone before queueing').toBe(true)
-      oldDaemon = undefined
+      const sQueue = await createSession(oldApi, {
+        agentKind: 'grok',
+        cwd,
+        runtimeContract: 'generic-pty',
+      })
+      // resumeAndSend (not sendText): for a non-live session it queueTexts
+      // unconditionally — no queued-count/readiness races between the two
+      // sends. The DB poll below is the ground truth before the kill.
       const t1 = `up4428-first-${sQueue.slice(0, 8)}`
       const t2 = `up4428-second-${sQueue.slice(0, 8)}`
-      const r1 = await oldApi.sessions.resumeAndSend.mutate({ sessionId: sQueue, text: t1 })
-      const r2 = await oldApi.sessions.resumeAndSend.mutate({ sessionId: sQueue, text: t2 })
-      console.log(`upgrade-4428 queue sends: ${JSON.stringify(r1)} ${JSON.stringify(r2)}`)
+      const q1 = await oldApi.sessions.resumeAndSend.mutate({ sessionId: sQueue, text: t1 })
+      expect(q1?.ok, `(5) t1 send failed: ${JSON.stringify(q1).slice(0, 200)}`).toBe(true)
+      const q2 = await oldApi.sessions.resumeAndSend.mutate({ sessionId: sQueue, text: t2 })
+      expect(q2?.ok, `(5) t2 send failed: ${JSON.stringify(q2).slice(0, 200)}`).toBe(true)
+      await waitFor(
+        () => {
+          const db = openDb()
+          try {
+            const rows = db.all('SELECT id FROM queued_messages WHERE session_id = ?', sQueue) as unknown[]
+            return rows.length === 2
+          } finally {
+            db.close()
+          }
+        },
+        '(5) two rows queued pre-kill',
+        15_000,
+      )
+
+      // Freeze the rows: kill the daemon before any bind can drain them.
+      {
+        const oldDaemonPid = oldDaemon.pid
+        await oldDaemon.kill()
+        expect(pidGone(oldDaemonPid), 'old daemon pid is gone before any bind').toBe(true)
+        oldDaemon = undefined
+      }
+      {
+        const deadline = Date.now() + 10_000
+        let st: any
+        while (Date.now() < deadline) {
+          st = await sessionMeta(oldApi, sQueue)
+          if (st?.status === 'live') {
+            throw new Error(
+              `upgrade-4428: bind won the race for the queue session (status live pre-kill); rows may be forwarded — retry the run. row=${JSON.stringify(st).slice(0, 300)}`,
+            )
+          }
+          if (st?.status === 'reconnecting') break
+          await sleep(500)
+        }
+      }
 
       }
 
@@ -732,10 +757,16 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       const oldServerPid = oldServer.pid
       await oldServer.kill()
       expect(pidGone(oldServerPid), 'old server pid is gone').toBe(true)
-      for (const sid of [sHarness, sHib, sShell, sLogin, sQueue, sMenu]) {
+      for (const sid of [sHarness, sHib, sShell, sLogin, sMenu]) {
         const label = durableSessionLabel(sid as SessionId, INSTANCE)
         expect(await hostHasSession(label), `host survives for ${sid.slice(0, 8)}`).toBe(true)
       }
+      // sQueue may never have materialized a host pre-kill (spawn accepted,
+      // daemon dead within a second): both outcomes converge post-upgrade, so
+      // its survival is logged, not asserted.
+      console.log(
+        `upgrade-4428: queue-session host present at cutover: ${await hostHasSession(durableSessionLabel(sQueue as SessionId, INSTANCE))}`,
+      )
 
       // -- NEW BUILD takes over the same state dir and DB --------------------
       stripLoopbackPublicUrl()
@@ -751,6 +782,8 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       }
       const newApi = await login(newPort)
+      queueCollectorRef = await attachCollector(newPort, sQueue)
+      const queueCollector = queueCollectorRef
       newDaemon = await bootDaemon(ROOT, newPort, {
         machineToken: (newServer as unknown as { machineToken: string }).machineToken,
         machineId: hostId,
@@ -812,16 +845,16 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
 
       // (5) the two rows drain through the gateway exactly once, in order.
       //
-      // The rows were parked before any forward (hibernated pre-upgrade), so
-      // the post-upgrade bind is their first delivery: the typed bytes echo in
+      // The rows were queued pre-bind and frozen by the daemon kill, so the
+      // post-upgrade bind is their first delivery: the typed bytes echo in
       // the PTY in FIFO order. Without a model turn there is no delivery
       // proof, so the rows stay queued (see below) and the single-flight
-      // within the new custody admits no second forward.
+      // within the new custody admits no second forward. The collector
+      // attaches BEFORE the new daemon boots, so no forward byte is missed.
       {
-        const collector = await attachCollector(newPort, sQueue)
+        const collector = queueCollector
         try {
-          await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
-          await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
+          await waitStatus(newApi, sQueue, 'live', 'reattached queue session')
           await waitFor(
             () => collector.text().includes(t1) && collector.text().includes(t2),
             '(5) both rows reach the PTY',
@@ -906,9 +939,20 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       }
     } finally {
+      try {
+        queueCollectorRef?.close()
+      } catch {}
       if (newDaemon) {
         await newDaemon.kill().catch(() => {})
       }
+      try {
+        const { killHostSession } = await import('@podium/process/durable')
+        for (const sid of [sHarness, sHib, sShell, sLogin, sQueue, sMenu]) {
+          try {
+            await killHostSession(durableSessionLabel(sid as SessionId, INSTANCE))
+          } catch {}
+        }
+      } catch {}
       for (const d of daemonDirs.splice(0)) rmSync(d, { recursive: true, force: true })
       if (newServer) await newServer.close().catch(() => {})
       try {
