@@ -41,6 +41,8 @@ export const handArm: Arm = {
       dispose: () => store.dispose(),
       mountWeb: (el: Element) => store.mountWeb(el),
       mountNative: (): ReactElement => createElement(NativeHost, { store }),
-    }
+      // Test hook (rebuild oracle, native lane): the live store.
+      store,
+    } as ArmHandle & { store: HandStore }
   },
 }

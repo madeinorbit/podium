@@ -1,0 +1,125 @@
+// @vitest-environment happy-dom
+/**
+ * POD-4446 — hand-rolled arm against the live engine (SMALL corpus):
+ * scenarios #1–#3 through the G4 count harness with oracle parity and the
+ * rebuild oracle after every scenario. The arm input is the real kernel's
+ * per-row change stream; expected snapshots come from snapshotFromStore.
+ */
+
+import { describe, expect, it } from 'vitest'
+import { createRowSource } from '../../shared/src/row-source'
+import { SMALL_CORPUS, startScenarioEngine } from '../../shared/src/scenarios'
+import type { SliceLocals } from '../../shared/src/slice-types'
+import {
+  assertIsolation,
+  mountArmForCounts,
+  runCountScenario,
+} from '../src/count-harness'
+import { snapshotFromStore } from '../src/oracle/index'
+import { writeHeartbeat, writePhaseChange, writeSelectionClick } from '../src/scenario-writes'
+import { handArm } from './arm'
+import { rebuildFromScratch } from './rebuild'
+import { HandStore } from './store'
+
+async function bootArm() {
+  const ctx = await startScenarioEngine(SMALL_CORPUS)
+  const source = createRowSource(ctx.engine, ctx.replica)
+  const locals: SliceLocals = {
+    selectedIssueId: null,
+    coarseNow: ctx.engine.getSnapshot().coarseNow,
+  }
+  const mounted = mountArmForCounts(handArm, source.source, locals)
+  return { ctx, source, locals, mounted }
+}
+
+function expectOracle(mounted: { handle: { snapshot(): unknown } }, store: HandStore): void {
+  const rebuilt = rebuildFromScratch({
+    issues: store.issues,
+    sessions: store.sessions,
+    worktrees: store.worktrees,
+    selection: {
+      selectedIssueId: store.locals.selectedIssueId,
+      selectedIssueWasFolded: store.locals.selectedIssueWasFolded ?? false,
+    },
+    now: store.locals.coarseNow,
+  })
+  expect(mounted.handle.snapshot()).toEqual(rebuilt.snapshot)
+}
+
+describe('hand-rolled arm on the engine (SMALL)', () => {
+  it('scenarios #1-#3: parity green, rebuild oracle green, isolation within budget', async () => {
+    const { ctx, source, locals, mounted } = await bootArm()
+    // Reach the live store behind the mounted handle for the rebuild oracle.
+    const store = (mounted.handle as unknown as { store?: HandStore }).store
+    try {
+      // Parity on mount: the arm shows what the app shows.
+      const atMount = mounted.handle.snapshot()
+      const expectedAtMount = snapshotFromStore(ctx.engine.getSnapshot(), locals)
+      expect(Object.keys((atMount as { rowsById: object }).rowsById).length).toBeGreaterThan(0)
+      expect(atMount).toEqual(expectedAtMount)
+
+      const heartbeat = await runCountScenario(mounted, {
+        scenario: 'unrelatedHeartbeat',
+        methodology: '#1',
+        apply: async () => {
+          await writeHeartbeat(ctx)
+          source.flush()
+        },
+        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+      })
+      console.info(
+        `[hand] heartbeat committed=${heartbeat.rowsCommitted}/${heartbeat.visibleRows} ` +
+          `stats=${JSON.stringify(heartbeat.stats)} parity=${heartbeat.parity}`,
+      )
+      expect(heartbeat.parityDiff).toBeNull()
+      expect(heartbeat.parity).toBe(true)
+      expect(() => assertIsolation(heartbeat, { rowsCommitted: 0 })).not.toThrow()
+      expect(heartbeat.stats.rowsDerived).toBe(0)
+      expect(heartbeat.stats.rollupsDerived).toBe(0)
+
+      const phase = await runCountScenario(mounted, {
+        scenario: 'visibleSessionPhaseChange',
+        methodology: '#2',
+        apply: async () => {
+          await writePhaseChange(ctx)
+          source.flush()
+        },
+        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+      })
+      console.info(
+        `[hand] phase committed=${phase.rowsCommitted}/${phase.visibleRows} ` +
+          `stats=${JSON.stringify(phase.stats)} parity=${phase.parity} ` +
+          `rows=${JSON.stringify(phase.commitsByRow)}`,
+      )
+      expect(phase.parityDiff).toBeNull()
+      expect(phase.parity).toBe(true)
+
+      const click = await runCountScenario(mounted, {
+        scenario: 'selectionClick',
+        methodology: '#3',
+        apply: async () => {
+          await writeSelectionClick(ctx)
+          source.flush()
+        },
+        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+      })
+      console.info(
+        `[hand] click committed=${click.rowsCommitted}/${click.visibleRows} ` +
+          `stats=${JSON.stringify(click.stats)} parity=${click.parity}`,
+      )
+      expect(click.parityDiff).toBeNull()
+      expect(click.parity).toBe(true)
+      // Engine-driven selection is locals-only (no row event by design): the
+      // eager mark-read row must not move any committed row.
+      expect(click.rowsCommitted).toBeLessThanOrEqual(2)
+      expect(click.stats.rowsDerived).toBe(0)
+      expect(click.stats.rollupsDerived).toBe(0)
+
+      if (store !== undefined) expectOracle(mounted, store)
+    } finally {
+      mounted.unmount()
+      source.dispose()
+      ctx.engine.destroy()
+    }
+  }, 60_000)
+})
