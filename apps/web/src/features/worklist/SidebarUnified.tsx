@@ -110,9 +110,6 @@ const MemoUnifiedWorktreeRow = memo(UnifiedWorktreeRow)
 // Folded lanes: same treatment, same reason — the component lives in
 // work-folds, so the memo boundary lives at this call site.
 const MemoFoldedWorkRow = memo(FoldedWorkRow)
-// Folded lanes: same treatment, same reason — the component lives in
-// work-folds, so the memo boundary lives at this call site.
-const MemoFoldedWorkRow = memo(FoldedWorkRow)
 
 function sameOriginTick(
   a: UnifiedIssueRowOrigin | null,
