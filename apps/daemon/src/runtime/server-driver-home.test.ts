@@ -30,6 +30,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { grokSessionPaths } from '@podium/harness'
 import { asSessionId } from '@podium/model'
+import { createDurableProcess } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   codexAppServerVersionProbe,
@@ -64,9 +65,11 @@ let previousInstance: string | undefined
 let root: string
 let instanceHome: string
 let workdir: string
+let hostSockets: string
 let previousStateDir: string | undefined
 let previousCodexHome: string | undefined
 let previousGrokHome: string | undefined
+let previousHostSocketDir: string | undefined
 
 /**
  * A fake harness binary. A `/bin/sh` wrapper exec's the test runtime itself
@@ -145,8 +148,19 @@ if (listenIx >= 0 && process.argv[listenIx + 1]?.startsWith('unix://')) {
 }
 `
 
-function installFakeBinary(name: string): void {
-  const binDir = join(instanceHome, '.local', 'bin')
+/** The shortest writable system tmp: host socket paths must fit sun_path. */
+function shortSockRoot(): string {
+  for (const base of ['/tmp', '/var/tmp', tmpdir()]) {
+    try {
+      return mkdtempSync(join(base, 'pod-4433-h-'))
+    } catch {
+      // Next candidate.
+    }
+  }
+  throw new Error('no writable tmp base for podium-host sockets')
+}
+
+function installFakeBinary(name: string): void {  const binDir = join(instanceHome, '.local', 'bin')
   mkdirSync(binDir, { recursive: true })
   const helper = join(root, 'fake-harness.cjs')
   writeFileSync(helper, HELPER_SOURCE)
@@ -176,6 +190,7 @@ beforeAll(() => {
   // The journals live under the state dir; keep this test's writes out of the
   // machine's real one.
   previousStateDir = process.env.PODIUM_STATE_DIR
+  previousHostSocketDir = process.env.PODIUM_HOST_SOCKET_DIR
   previousCodexHome = process.env.CODEX_HOME
   previousGrokHome = process.env.GROK_HOME
   previousRuntimeDir = process.env.XDG_RUNTIME_DIR
@@ -183,6 +198,13 @@ beforeAll(() => {
   process.env.XDG_RUNTIME_DIR = join(root, 'runtime')
   process.env.PODIUM_INSTANCE = 'named-instance'
   process.env.PODIUM_STATE_DIR = join(root, 'state')
+  // Engines run under a REAL podium-host here (POD-4433): keep its sockets in
+  // a pid-scoped sibling of the test root. The host socket path carries the
+  // instance AND the session label and must fit sun_path, which the admission
+  // wrapper's deep TMPDIR cannot afford — so the shortest writable system tmp
+  // wins. Hermetic by pid-scoping, removed afterwards.
+  hostSockets = shortSockRoot()
+  process.env.PODIUM_HOST_SOCKET_DIR = hostSockets
   process.env.CODEX_HOME = '/daemon/operator/.codex'
   process.env.GROK_HOME = '/daemon/operator/.grok'
   for (const name of ['opencode', 'codex', 'grok']) installFakeBinary(name)
@@ -191,6 +213,8 @@ beforeAll(() => {
 afterAll(() => {
   if (previousStateDir === undefined) delete process.env.PODIUM_STATE_DIR
   else process.env.PODIUM_STATE_DIR = previousStateDir
+  if (previousHostSocketDir === undefined) delete process.env.PODIUM_HOST_SOCKET_DIR
+  else process.env.PODIUM_HOST_SOCKET_DIR = previousHostSocketDir
   if (previousRuntimeDir === undefined) delete process.env.XDG_RUNTIME_DIR
   else process.env.XDG_RUNTIME_DIR = previousRuntimeDir
   if (previousInstance === undefined) delete process.env.PODIUM_INSTANCE
@@ -200,9 +224,17 @@ afterAll(() => {
   if (previousGrokHome === undefined) delete process.env.GROK_HOME
   else process.env.GROK_HOME = previousGrokHome
   rmSync(root, { recursive: true, force: true })
+  rmSync(hostSockets, { recursive: true, force: true })
 })
 
 const resources = () => undefined
+
+/**
+ * Engines launch under a REAL podium-host here (POD-4433) — the same durable
+ * object production passes in, so these tests prove the production spawn path,
+ * env composition included, rather than a seam.
+ */
+const engineDurable = () => createDurableProcess('host', { host: true, abduco: false })
 
 describe('a launched server-driver child runs in the INSTANCE home', () => {
   it('opencode serve: the child itself reports the instance HOME', async () => {
@@ -214,7 +246,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     )
 
     const landing = join(root, 'landing-opencode.json')
-    const host = createOpencodeHost({ resources, homeDir: instanceHome })
+    const host = createOpencodeHost({ resources, homeDir: instanceHome, durable: engineDurable() })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
@@ -244,7 +276,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     ).toBe(true)
 
     const landing = join(root, 'landing-codex.json')
-    const host = createCodexHost({ resources, homeDir: instanceHome })
+    const host = createCodexHost({ resources, homeDir: instanceHome, durable: engineDurable() })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
@@ -277,7 +309,12 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const landing = join(root, 'landing-grok.json')
     const instanceUuid = '11111111-2222-4333-8444-555555555555'
     const sessionId = asSessionId('grok-stamped-child')
-    const host = createGrokAcpHost({ resources, homeDir: instanceHome, instanceUuid })
+    const host = createGrokAcpHost({
+      resources,
+      homeDir: instanceHome,
+      instanceUuid,
+      durable: engineDurable(),
+    })
     const endpoint = await host.launch({
       sessionId,
       workdir,

@@ -1,5 +1,6 @@
 /**
- * `codex app-server`, ONE PER SESSION, UNDER A SYSTEMD SCOPE (POD-1761 W6; plan §1).
+ * `codex app-server`, ONE PER SESSION, UNDER A PODIUM-HOST (`--no-pty`) OWNED
+ * BY THE DAEMON'S DURABLE PROCESS (POD-1761 W6; plan §1; POD-4433).
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS FILE OWNS, AND WHY IT IS THE ONLY PART IN THE DAEMON
@@ -7,10 +8,18 @@
  *
  * The driver itself — the JSON-RPC client, the mapping, the receipts, the
  * approval inversion — is in `@podium/agent-runtime`, testable in-process. What
- * could not go there is everything below: spawning a child, cleaning its
- * environment, putting it in a transient cgroup, and writing the journal that
- * lets `adopt()` find the session again after the daemon dies. This is the
+ * could not go there is everything below: composing the engine's argv and env,
+ * spawning it headless under podium-host, and writing the journal that lets
+ * `adopt()` find the session again after the daemon dies. This is the
  * `CodexRuntimeHost` implementation and it is deliberately nothing but that.
+ *
+ * THE DAEMON NEVER FORKS HERE. Every process act — spawn, re-attach, kill —
+ * goes through the injected `DurableProcess`, whose host adapter owns the
+ * child. The engine outlives a daemon restart, so `adopt()` rebinds to the
+ * survivor — the in-flight turn is no longer abandoned — and only falls back
+ * to a fresh engine plus `thread/resume` when nothing survived. `grep
+ * child_process` in this file must stay empty; process mechanics live in
+ * `@podium/process`.
  *
  * ---------------------------------------------------------------------------
  * THE TRANSPORT IS A PER-SESSION UNIX LISTENER (spec §§5–6)
@@ -25,7 +34,6 @@
  * The journal remains in the state root because it is durable metadata, not a socket.
  */
 
-import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { access, readFile } from 'node:fs/promises'
@@ -54,11 +62,10 @@ import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import {
-  applySessionsSliceBudget,
-  canScopeMaster,
-  scopeReclaimArgvs,
   scopeUnitName,
-  systemdScopeArgv,
+  type DurableAdapter,
+  type DurableProcess,
+  type HostAgentSession,
 } from '@podium/process/durable'
 import {
   ABDUCO_SUN_PATH_MAX,
@@ -71,7 +78,7 @@ import { resolveInstanceId } from '@podium/runtime/instance'
 import WebSocket, { type RawData } from 'ws'
 import { serverChildEnv } from '../control/session-env'
 import { stageRuntimeAttachment } from './attachment-staging'
-import { SERVER_GRACEFUL_EXIT_MS, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'
+import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -336,130 +343,287 @@ export interface CodexHostDeps {
   instanceUuid?: string
   journal?: CodexJournal
   now?(): number
+  /**
+   * THE DURABLE OWNER OF EVERY ENGINE (POD-4433). Spawn, re-attach and kill go
+   * through it; this file composes argv/env and journals, never forks. Absent
+   * (tests that never launch) = launch/adopt/stop/kill refuse loudly rather
+   * than forking a child no restart could re-adopt.
+   */
+  durable?: DurableProcess
 }
 
 /** The label a session's scope unit is named from. Same shape as the PTY and
  *  opencode sides' so an operator reading `systemctl --user list-units` sees one
- *  convention. */
+ *  convention. It contains the session id, which is also what charges the
+ *  host-held engine to the session in `/proc` attribution. */
 export const codexScopeLabel = (sessionId: SessionId): string => `podium-cx-${sessionId}`
+
+/** The writer lease held by a daemon that did not die. A new generation must
+ *  refuse loudly — log line naming the session — not read along silently. */
+export class CodexEngineLeaseRefused extends Error {
+  override readonly name = 'CodexEngineLeaseRefused'
+
+  constructor(sessionId: SessionId, label: string) {
+    super(
+      `codex engine for ${sessionId} is still driven: another daemon holds the writer lease on '${label}'`,
+    )
+  }
+}
+
+/**
+ * Pick the host adapter out of the daemon's durable object. Engines are never
+ * terminal sessions, so they never follow the terminal backend: abduco has no
+ * pty-less mode, and a daemon without a host adapter cannot own an engine at
+ * all. Loud, naming the session — a refused launch beats a child no restart
+ * could re-adopt.
+ */
+function engineAdapter(durable: DurableProcess | undefined, sessionId: SessionId): DurableAdapter {
+  const found = durable?.all.find((a) => a.kind === 'host') ?? durable?.primary
+  if (!found || found.kind !== 'host') {
+    throw new Error(
+      `codex engine for ${sessionId} requires the podium-host backend: this daemon runs ${
+        durable ? `backend '${durable.backend}' with no host adapter` : 'with no durable backend'
+      }`,
+    )
+  }
+  return found
+}
+
+/** Absent on macOS, honestly so: there is no transient scope there, and a
+ *  fabricated unit name would make `health()` report a cgroup nothing owns. */
+const engineScopeUnit = (label: string): string | undefined =>
+  process.platform === 'linux' ? scopeUnitName(label) : undefined
+
+/** What the daemon holds for a live engine: the host attachment plus what the
+ *  host has told us since. The EXITED frame lands in `exit` — the exit status
+ *  reaches the daemon through the host, never inferred from a dead pipe. */
+interface HeldEngine {
+  session: HostAgentSession
+  childPid: number | undefined
+  exit: { code: number; signal: number } | undefined
+  banner: string
+}
+
+/** `process.env`-shaped composition into the string map a headless spawn takes. */
+function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
+  return out
+}
+
+/** What the WS connect loop needs of an engine; fed by the host's EXITED frame. */
+interface EngineLiveness {
+  exitCode: number | null
+  signalCode: NodeJS.Signals | number | null
+  alive(): boolean
+}
 
 export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
   const journal = deps.journal ?? createCodexJournal()
   /**
-   * EVERY LIVE CHILD OF A SESSION, NOT "THE" CHILD (POD-2024 review, finding 3).
+   * EVERY LIVE ENGINE OF A SESSION, NOT "THE" ENGINE (POD-2024 review,
+   * finding 3, carried over from the child-process era).
    *
-   * An endpoint must terminate the child it captured, even when lifecycle work
-   * overlaps an older child's retirement with a successor's launch. A
-   * `Map<SessionId, child>` retargeted an old endpoint's `stop()` to whichever
-   * child was registered most recently and could kill the successor instead.
-   *
-   * A set per session preserves exact ownership and also makes the scope guard
-   * below answerable: "is any child of this session still running" is a question
-   * a single slot cannot answer during an overlap. The current Unix fine-watch
-   * path opens another connection to the same child, so it does not normally add
-   * a second entry here.
+   * An endpoint must stop the engine it captured, even when lifecycle work
+   * overlaps an older engine's retirement with a successor's launch. What is
+   * held is the host attachment rather than a pid: the child belongs to the
+   * host, and only the attachment observes its EXITED frame.
    */
-  const children = new Map<SessionId, Set<ReturnType<typeof spawn>>>()
+  const engines = new Map<SessionId, HeldEngine>()
 
-  const liveChildren = (sessionId: SessionId): Set<ReturnType<typeof spawn>> => {
-    const existing = children.get(sessionId)
-    if (existing) return existing
-    const created = new Set<ReturnType<typeof spawn>>()
-    children.set(sessionId, created)
-    return created
+  const adapterFor = (sessionId: SessionId): DurableAdapter =>
+    engineAdapter(deps.durable, sessionId)
+
+  /**
+   * Tap a host attachment: the merged stdout/stderr ring feeds the launch
+   * banner, and the host's EXITED frame records the real status. The tap stays
+   * registered for the attachment's life; `engines.delete` before signalling
+   * is what keeps an EXPECTED ending (stop/kill) from logging as a crash.
+   */
+  function tapEngine(sessionId: SessionId, session: HostAgentSession): HeldEngine {
+    const held: HeldEngine = { session, childPid: undefined, exit: undefined, banner: '' }
+    engines.set(sessionId, held)
+    session.connection.onData((_seq, data) => {
+      held.banner = `${held.banner}${data.toString('utf8')}`.slice(-2000)
+    })
+    session.connection.onExit((code, signal) => {
+      held.exit = { code, signal }
+      if (engines.get(sessionId) === held) {
+        log.warn('codex engine exited on its own', { sessionId, code, signal })
+      }
+    })
+    return held
   }
 
   /**
-   * End ONE child — the one this endpoint owns — and reclaim the scope only when
-   * it was the last of its session.
-   *
-   * THE CHILD IS PASSED IN RATHER THAN LOOKED UP, which is the whole fix for the
-   * swap case: an endpoint must terminate the process it was built for, not
-   * whatever is currently registered under its session id.
+   * Re-attach to the host holding this session's engine, as the writer.
+   * `undefined` when no host answers (nothing to rebind to); THROWS when a
+   * stale daemon still holds the writer lease — the new generation refuses
+   * loudly rather than driving half of an engine.
    */
-  async function terminate(
+  async function attachEngine(
+    adapter: DurableAdapter,
     sessionId: SessionId,
-    signal: 'SIGTERM' | 'SIGKILL',
-    child: ReturnType<typeof spawn> | undefined,
-  ): Promise<void> {
-    const live = liveChildren(sessionId)
-    if (child) live.delete(child)
-    /**
-     * CLOSING STDIN IS THE GRACEFUL STOP, and it is tried FIRST because it is
-     * the ending Codex itself defines: the child exits cleanly (code 0) on EOF.
-     * A signal is the fallback for a child that is wedged, not the primary move
-     * — so a SIGTERM stop gives the EOF a moment to be taken before signalling,
-     * and skips the signal entirely for a child that has already gone.
-     *
-     * It matters for this family specifically: the thing the child is writing on
-     * its way out is the rollout JSONL, and that file is the only thing
-     * `resume()` and `adopt()` have to work from.
-     */
-    if (signal === 'SIGTERM') {
-      try {
-        child?.stdin?.end()
-      } catch {
-        // A stdin that is already closed is the state we wanted.
-      }
-      if (child && (await exited(child, GRACEFUL_EXIT_MS))) {
-        // It took the EOF. Signalling now would be signalling a corpse.
-        await reclaimIfLast(sessionId, live)
-        return
-      }
+    label: string,
+  ): Promise<HeldEngine | undefined> {
+    let session: HostAgentSession
+    try {
+      session = await adapter.attachHeadless({ label, fromSeq: 'tail' })
+    } catch (err) {
+      log.warn('could not re-attach to the codex engine host', { err, sessionId, label })
+      return undefined
     }
-    child?.kill(signal)
-    /**
-     * AND THE SCOPE — BUT ONLY IF NOTHING ELSE OF THIS SESSION IS IN IT.
-     *
-     * Signalling the direct child leaves its cgroup, and any grandchild the
-     * agent spawned, behind — the state that squats the deterministic unit name
-     * and pushes the next spawn into the daemon's own cgroup. But both children
-     * of an in-daemon upgrade share ONE unit, so reclaiming while the sibling is
-     * still serving stops the whole cgroup and takes the live session with it.
-     */
-    await reclaimIfLast(sessionId, live)
+    const held = tapEngine(sessionId, session)
+    let welcome
+    try {
+      welcome = await session.ready
+    } catch (err) {
+      log.warn('codex engine host never welcomed its re-attach', { err, sessionId, label })
+      session.dispose()
+      engines.delete(sessionId)
+      return undefined
+    }
+    held.childPid = welcome.childPid
+    if (!welcome.lease) {
+      session.dispose()
+      engines.delete(sessionId)
+      log.error('refusing a codex engine whose writer lease is held elsewhere', {
+        sessionId,
+        label,
+      })
+      throw new CodexEngineLeaseRefused(sessionId, label)
+    }
+    return held
   }
 
-  async function reclaimIfLast(
-    sessionId: SessionId,
-    live: Set<ReturnType<typeof spawn>>,
-  ): Promise<void> {
-    if (live.size > 0) return
-    children.delete(sessionId)
-    if (!(await canScopeMaster())) return
-    const unit = scopeUnitName(codexScopeLabel(sessionId))
-    for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
+  /** The liveness box behind a launch or rebind, fed by the host's EXITED frame. */
+  function livenessFor(held: HeldEngine): EngineLiveness {
+    const box: EngineLiveness = {
+      exitCode: null,
+      signalCode: null,
+      alive: () => box.exitCode === null && box.signalCode === null,
+    }
+    held.session.connection.onExit((code, signal) => {
+      box.exitCode = code
+      box.signalCode = signal
+    })
+    if (held.exit) {
+      box.exitCode = held.exit.code
+      box.signalCode = held.exit.signal
+    }
+    return box
   }
 
-  /** Did this child exit within the window? Resolves `false` on timeout rather
-   *  than waiting forever for a wedged process to notice its stdin. */
-  const exited = (child: ReturnType<typeof spawn>, ms: number): Promise<boolean> =>
+  /** Did this engine report its own exit within the window? The host's EXITED
+   *  frame, never a dead-pipe inference. */
+  const engineExited = (held: HeldEngine, ms: number): Promise<boolean> =>
     new Promise((resolve) => {
-      if (child.exitCode !== null || child.signalCode !== null) {
+      if (held.exit) {
         resolve(true)
         return
       }
       const timer = setTimeout(() => {
-        child.off('exit', onExit)
+        off()
         resolve(false)
       }, ms)
       timer.unref?.()
-      function onExit(): void {
+      const off = held.session.connection.onExit(() => {
         clearTimeout(timer)
         resolve(true)
-      }
-      child.once('exit', onExit)
+      })
     })
 
-  async function runSystemctl(args: readonly string[]): Promise<void> {
-    await new Promise<void>((resolve) => {
-      const child = spawn('systemctl', [...args], { stdio: 'ignore' })
-      const done = (): void => resolve()
-      child.once('exit', done)
-      child.once('error', done)
-      const timer = setTimeout(done, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS)
-      timer.unref?.()
-    })
+  /**
+   * End ONE engine — the one this endpoint owns — and sweep its scope.
+   *
+   * THE HELD ATTACHMENT IS PASSED IN RATHER THAN LOOKED UP, which carries over
+   * the fix for the swap case: an endpoint must terminate the engine it was
+   * built for, not whatever is currently registered under its session id.
+   *
+   * There is no stdin-EOF graceful stop any more: the host owns the child's
+   * stdin, so SIGTERM carries the grace the old EOF attempt used to spend,
+   * bounded by the shared budget. It matters for this family specifically —
+   * the thing the engine writes on its way out is the rollout JSONL, the only
+   * thing `resume()` and `adopt()` have to work from — and the rollout is
+   * flushed incrementally during turns, not only at exit.
+   */
+  async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL', held: HeldEngine | undefined): Promise<void> {
+    engines.delete(sessionId)
+    if (held) {
+      if (signal === 'SIGTERM') {
+        try {
+          held.session.connection.signal(15)
+        } catch {
+          // Already gone; the sweep below is still owed its scope.
+        }
+        await engineExited(held, GRACEFUL_EXIT_MS)
+      }
+      held.session.dispose()
+    }
+    await adapterFor(sessionId).kill(codexScopeLabel(sessionId))
+  }
+
+  /**
+   * One endpoint over a held engine — shared by launch (fresh engine, fresh
+   * socket) and adopt (surviving engine, journalled socket). THIS endpoint's
+   * engine, captured: stop/kill terminate what this endpoint was built for,
+   * never whatever is currently registered under the session id.
+   */
+  const endpointFor = (input: {
+    sessionId: SessionId
+    socketPath: string
+    clientAddress: string
+    held: HeldEngine
+    transport: CodexTransport
+  }): CodexServerEndpoint => {
+    const pid = input.held.childPid
+    const label = codexScopeLabel(input.sessionId)
+    const scopeUnit = engineScopeUnit(label)
+    return {
+      transport: input.transport,
+      clientAddress: input.clientAddress,
+      reconnect: async () => {
+        const socket = await connectCodexWebSocket(
+          input.socketPath,
+          livenessFor(input.held),
+          () => input.held.banner,
+        )
+        return websocketTransport(socket, input.held, () => input.held.banner)
+      },
+      process: {
+        /**
+         * THE SESSION'S IDENTITY, NOT THE INCARNATION'S.
+         *
+         * Deliberately the scope label rather than the pid: `adopt()` compares
+         * this against the journal to prove a binding describes THIS session
+         * rather than a different one, and it must survive the engine being
+         * replaced — which, for this family, is what adopting a dead engine IS.
+         */
+        key: label,
+        ...(pid !== undefined ? { pid } : {}),
+        ...(scopeUnit ? { scopeUnit } : {}),
+      },
+      stop: async () => {
+        input.transport.close()
+        await terminate(input.sessionId, 'SIGTERM', input.held)
+        rmSync(input.socketPath, { force: true })
+      },
+      kill: async () => {
+        input.transport.close()
+        await terminate(input.sessionId, 'SIGKILL', input.held)
+        rmSync(input.socketPath, { force: true })
+        journal.clear(input.sessionId)
+      },
+      resources: () =>
+        deps.resources({
+          sessionId: input.sessionId,
+          label,
+          ...(pid !== undefined ? { pid } : {}),
+          ...(scopeUnit ? { scopeUnit } : {}),
+        }),
+      /** The host's EXITED frame, when the engine has reported its own exit. */
+      engineExit: () => input.held.exit ?? engines.get(input.sessionId)?.exit,
+    }
   }
 
   return {
@@ -476,29 +640,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       }
 
       const label = codexScopeLabel(input.sessionId)
-      const scoped = await canScopeMaster()
-      const unit = scopeUnitName(label)
-      /**
-       * RECLAIM A SQUATTED UNIT — BUT NEVER ONE THIS DAEMON IS STILL USING.
-       *
-       * The reclaim used to be unconditional, justified by "an app-server child
-       * cannot outlive the daemon that forked it, so a unit still squatting this
-       * name belongs to a process that is already gone". That is true of a
-       * DAEMON RESTART and false while this daemon still owns a live child. A
-       * successor launch can overlap the older child's retirement, and both
-       * share this unit, so `systemctl --user stop` would take the whole cgroup
-       * and kill the session the successor is serving.
-       *
-       * The guard is our own bookkeeping rather than a liveness probe, and that
-       * is the honest instrument here: a child this process forked is a child
-       * this process is holding, so `children` knows. `packages/pty`'s
-       * `reclaimStaleScope` carries the same discipline in writing — "we only
-       * ever clear a zombie scope held open by orphaned grandchildren, never a
-       * live agent."
-       */
-      if (scoped && liveChildren(input.sessionId).size === 0) {
-        for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
-      }
+      const adapter = adapterFor(input.sessionId)
 
       const config = codexAppServerConfigArgs({
         ...(input.mcpServers ? { mcpServers: input.mcpServers } : {}),
@@ -521,7 +663,7 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       rmSync(socketPath, { force: true })
       const clientAddress = `unix://${socketPath}`
       const argv = ['codex', 'app-server', ...config.args, '--listen', clientAddress]
-      const [command, ...args] = scoped ? ['systemd-run', ...systemdScopeArgv(unit, argv)] : argv
+      const [command, ...args] = argv
 
       const env: NodeJS.ProcessEnv = serverChildEnv({
         instanceUuid: deps.instanceUuid,
@@ -531,37 +673,36 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
         ...(input.env ? { sessionEnv: input.env } : {}),
         harnessEnv: config.env,
       })
-      for (const key of STRIPPED_CODEX_CREDENTIALS) delete env[key]
 
-      const child = spawn(command ?? 'codex', args, {
-        cwd: input.workdir,
-        env,
-        // stdout/stderr remain captured for startup diagnostics. JSON-RPC rides
-        // WebSocket text frames over the Unix listener; stdin stays open because
-        // Codex treats its EOF as the app-server lifetime boundary.
-        stdio: ['pipe', 'pipe', 'pipe'],
-        detached: false,
-      })
-      // The instance's sessions slice exists now that a scope named it, so its
-      // aggregate throttle can be set (POD-2413). Fire and forget, memoized on
-      // success: a session must never wait on a best-effort budget call.
-      if (scoped) void applySessionsSliceBudget()
-      liveChildren(input.sessionId).add(child)
-      // A child that exits on its own leaves the set, so a later `stop()` of a
-      // SIBLING can tell whether it was the last one and reclaim the scope.
-      child.once('exit', () => {
-        children.get(input.sessionId)?.delete(child)
-        rmSync(socketPath, { force: true })
-      })
-
-      let banner = ''
-      child.stderr?.on('data', (chunk: Buffer) => {
-        banner = `${banner}${chunk.toString('utf8')}`.slice(-2000)
-      })
-      child.once('error', (err) => {
-        log.warn('codex app-server child errored', { err, sessionId: input.sessionId })
-      })
-      if (!scoped) {
+      /**
+       * THE ENGINE, UNDER THE HOST. `spawnHeadless` puts `codex app-server`
+       * under podium-host `--no-pty` in the session's transient scope: the host
+       * — not this daemon — holds the child's stdin, so a daemon restart no
+       * longer closes the lifetime tether and the engine survives. JSON-RPC
+       * still rides WebSocket text frames over the Unix listener; the merged
+       * stdout/stderr ring feeds the startup banner below.
+       */
+      let held: HeldEngine
+      try {
+        held = tapEngine(
+          input.sessionId,
+          await adapter.spawnHeadless({
+            label,
+            cmd: command ?? 'codex',
+            args,
+            cwd: input.workdir,
+            env: stringEnv(env),
+            stripEnv: STRIPPED_CODEX_CREDENTIALS,
+          }),
+        )
+        held.childPid = (await held.session.ready).childPid
+      } catch (err) {
+        engines.delete(input.sessionId)
+        throw err
+      }
+      const banner = (): string => held.banner
+      const liveness = livenessFor(held)
+      if (process.platform !== 'linux') {
         // DECLARED, NOT HIDDEN. Without a systemd user manager the session runs
         // in the daemon's cgroup: it still works, but per-session memory
         // accounting and OOM isolation are gone.
@@ -570,56 +711,55 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
 
       let transport: CodexTransport
       try {
-        const socket = await connectCodexWebSocket(socketPath, child, () => banner)
+        const socket = await connectCodexWebSocket(socketPath, liveness, banner)
         chmodSync(socketPath, 0o600)
-        transport = websocketTransport(socket, child, () => banner)
+        transport = websocketTransport(socket, held, banner)
       } catch (err) {
-        await terminate(input.sessionId, 'SIGKILL', child)
+        await terminate(input.sessionId, 'SIGKILL', held)
         rmSync(socketPath, { force: true })
         throw err
       }
-      const endpoint: CodexServerEndpoint = {
-        transport,
-        clientAddress,
-        reconnect: async () => {
-          const socket = await connectCodexWebSocket(socketPath, child, () => banner)
-          return websocketTransport(socket, child, () => banner)
-        },
-        process: {
-          /**
-           * THE SESSION'S IDENTITY, NOT THE INCARNATION'S.
-           *
-           * Deliberately the scope label rather than the pid: `adopt()` compares
-           * this against the journal to prove a binding describes THIS session
-           * rather than a different one, and it must survive the child being
-           * replaced — which, for this family, is what adopting IS.
-           */
-          key: label,
-          ...(child.pid !== undefined ? { pid: child.pid } : {}),
-          ...(scoped ? { scopeUnit: unit } : {}),
-        },
-        // THIS endpoint's child, captured — never "whatever is registered for
-        // this session" at the moment stop happens.
-        stop: async () => {
-          transport.close()
-          await terminate(input.sessionId, 'SIGTERM', child)
-          rmSync(socketPath, { force: true })
-        },
-        kill: async () => {
-          transport.close()
-          await terminate(input.sessionId, 'SIGKILL', child)
-          rmSync(socketPath, { force: true })
-          journal.clear(input.sessionId)
-        },
-        resources: () =>
-          deps.resources({
-            sessionId: input.sessionId,
-            label,
-            ...(child.pid !== undefined ? { pid: child.pid } : {}),
-            ...(scoped ? { scopeUnit: unit } : {}),
-          }),
+      return endpointFor({ sessionId: input.sessionId, socketPath, clientAddress, held, transport })
+    },
+
+    /**
+     * Rebind to the SURVIVING engine after a daemon restart — or `undefined`
+     * when nothing survived. Exact identity first (journal vs binding), then
+     * host liveness, then the address itself: a WS that opens on the journalled
+     * socket. The thread never closed, so the driver attaches to it WITHOUT a
+     * `thread/resume` — and an in-flight turn continues on the engine instead
+     * of being abandoned with a fresh child. A lease held elsewhere throws
+     * (loud) rather than returning a transport the driver cannot own.
+     */
+    async adopt(binding) {
+      const entry = journal.read(binding.sessionId)
+      if (!entry || entry.process.key !== binding.process.key) return undefined
+      // Entries written before the socket address was journalled predate
+      // durable engines: nothing to rebind to, fall back to fresh-start.
+      if (!entry.clientAddress) return undefined
+      const adapter = deps.durable?.all.find((a) => a.kind === 'host') ?? deps.durable?.primary
+      if (!adapter || adapter.kind !== 'host') return undefined
+      const label = codexScopeLabel(binding.sessionId)
+      if (!(await adapter.has(label))) return undefined
+      const held = await attachEngine(adapter, binding.sessionId, label)
+      if (!held) return undefined
+      const socketPath = entry.clientAddress.slice('unix://'.length)
+      const banner = (): string => held.banner
+      try {
+        const socket = await connectCodexWebSocket(socketPath, livenessFor(held), banner)
+        const transport = websocketTransport(socket, held, banner)
+        return endpointFor({
+          sessionId: binding.sessionId,
+          socketPath,
+          clientAddress: entry.clientAddress,
+          held,
+          transport,
+        })
+      } catch {
+        held.session.dispose()
+        engines.delete(binding.sessionId)
+        return undefined
       }
-      return endpoint
     },
 
     async readRollout(path) {
@@ -723,10 +863,11 @@ const CODEX_SOCKET_CONNECT_TIMEOUT_MS = 20_000
  */
 export const CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS = 5_000
 
-/** What the connect loop needs of a child; a test supplies it without spawning. */
+/** What the connect loop needs of an engine; a test supplies it without spawning.
+ *  `signalCode` stays wide because the host reports the wait status numerically. */
 export interface CodexChildLiveness {
   exitCode: number | null
-  signalCode: NodeJS.Signals | null
+  signalCode: NodeJS.Signals | number | null
 }
 
 /**
@@ -901,10 +1042,13 @@ export async function connectCodexWebSocket(
  */
 function websocketTransport(
   socket: WebSocket,
-  child: ReturnType<typeof spawn>,
+  held: HeldEngine,
   banner: () => string,
 ): CodexTransport {
   let closed = false
+  const onEngineEnd = (cb: () => void): void => {
+    held.session.connection.onExit(() => cb())
+  }
   return {
     write(line) {
       if (closed) return
@@ -930,12 +1074,13 @@ function websocketTransport(
         if (closed) return
         closed = true
         const tail = banner().trim()
-        if (tail) log.warn('codex app-server child ended', { stderr: tail.slice(-500) })
+        if (tail) log.warn('codex app-server engine ended', { stderr: tail.slice(-500) })
         handler.closed()
       }
-      child.once('exit', ended)
+      // The engine's end arrives through the host's EXITED frame, which the
+      // held attachment observes — never inferred from the WS closing alone.
+      onEngineEnd(ended)
       socket.once('close', ended)
-      child.once('error', ended)
       socket.once('error', ended)
     },
     close() {

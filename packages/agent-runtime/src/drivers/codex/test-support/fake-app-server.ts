@@ -140,6 +140,10 @@ export interface FakeAppServer {
   lastTurnModel: { model?: string; effort?: string } | undefined
   /** `turn/steer` calls that were accepted into an open turn. */
   steers: number
+  /** `thread/resume` calls received. A rebind must NOT move this: attaching to
+   *  the surviving engine opens a second client on the open thread, and a
+   *  resume RPC there would be the fresh-start path wearing a rebind's clothes. */
+  resumes: number
   /** Make the next `turn/start` answer a JSON-RPC error. */
   failNextTurn(): void
   /** Swallow the next request without answering it — a server that is still
@@ -286,6 +290,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
     lastTurnInput: undefined,
     lastTurnModel: undefined,
     steers: 0,
+    resumes: 0,
     answers: new Map(),
     optedOutOfDeltas: false,
     mutedNotificationMethods: [],
@@ -606,6 +611,7 @@ export function startFakeAppServer(options: FakeAppServerOptions = {}): FakeAppS
         return
       }
       case 'thread/resume': {
+        server.resumes += 1
         const threadId = String(params.threadId)
         /**
          * NO SUCH THREAD IS AN ERROR, not a thread. Codex looks the id up among

@@ -34,25 +34,25 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * `TerminalRuntimeHost` and `OpencodeRuntimeHost` apply.
  *
  * ---------------------------------------------------------------------------
- * WHY `adopt()` RESUMES INSTEAD OF REBINDING, AND WHY THAT IS NOT A DODGE
+ * WHY `adopt()` REBINDS WHEN THE ENGINE SURVIVED, AND RESUMES WHEN IT DID NOT
  * ---------------------------------------------------------------------------
  *
  * The contract says `adopt()` rebinds a SURVIVING process tree on exact
- * identity. For this family there is never one, and that is a measured property
- * of the host lifetime rather than a limitation of the implementation: protocol
- * clients use the private Unix listener, while the child still exits cleanly
- * when the daemon-owned stdin reaches EOF. When the daemon dies that lifetime
- * tether closes, so the child dies with it. There is no orphan to find and
- * nothing to rebind to.
+ * identity. For this family there usually IS one now: the engine runs under
+ * podium-host `--no-pty`, owned by the daemon's DurableProcess rather than by
+ * the daemon's pipes, so a daemon restart leaves it running. `adopt()` opens a
+ * second protocol client on the journalled listener and attaches to the thread
+ * that never closed — no `thread/start`, no `thread/resume` — and an in-flight
+ * turn continues on the engine instead of being abandoned with a fresh child.
  *
- * What survives is the thing that matters: the conversation. Codex persists each
- * thread to its own rollout JSONL, so `adopt()` starts a fresh app-server and
- * `thread/resume`s the journalled thread id. The session id, the transcript, the
- * resume ref and the causal continuity (turn epoch and event seq, carried in the
- * journal) all hold across the restart; the PROCESS is new and says so, by
- * bumping the binding version and emitting an `adopted` process event. A driver
- * that instead reported the old pid as alive would be fabricating exactly the
- * state the house rules forbid.
+ * When nothing survived (an entry predating durable engines, a swept runtime
+ * root, a host that is gone), adopt falls back to what it always did: a fresh
+ * app-server plus `thread/resume` of the journalled thread id, whose rollout
+ * JSONL outlived the process. The session id, the transcript, the resume ref
+ * and the causal continuity all hold across either path; only the rebind keeps
+ * the process, and it says so by bumping the binding version and emitting an
+ * `adopted` process event. A driver that instead reported the old pid as alive
+ * would be fabricating exactly the state the house rules forbid.
  */
 
 import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
@@ -179,6 +179,12 @@ export interface CodexServerEndpoint {
    *  own OOM-kill counter. `undefined` where the platform has no cgroup or the
    *  scope is already gone. */
   resources(): ScopeResources | undefined
+  /**
+   * The engine's own exit status, when the host has reported it (POD-4433).
+   * The host's EXITED frame, never inferred from a dead pipe — `undefined`
+   * while the engine is alive or when no host holds it.
+   */
+  engineExit?(): { code: number; signal: number } | undefined
 }
 
 /** What the driver needs from whoever owns processes and disks. */
@@ -247,6 +253,14 @@ export interface CodexRuntimeHost {
   }): Promise<{ streamId: string; warmTtlMs: number } | undefined>
   /** Stop the stock TUI when its parent session ends. */
   detachClient?(input: { sessionId: SessionId }): Promise<void>
+  /**
+   * Rebind to the SURVIVING engine after a supervisor restart, or `undefined`
+   * when nothing survived. `undefined` (not a throw) because "this binding's
+   * engine is gone" is an expected answer that `adopt()` turns into its
+   * fresh-start-and-resume fallback. Optional: hosts that cannot rebind leave
+   * it absent and every adopt resumes.
+   */
+  adopt?(binding: SessionBinding): Promise<CodexServerEndpoint | undefined>
 
   /**
    * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
@@ -265,8 +279,8 @@ export interface CodexRuntimeHost {
   makeClient?(config: CodexClientConfig): CodexClient
 }
 
-/** What survives a supervisor restart. The transient listener address does not:
- *  its 0600 filesystem boundary is recreated with the next child. */
+/** What survives a supervisor restart. The listener address survives WITH the
+ *  engine that serves it (POD-4433): it is recreated only with the next child. */
 export interface CodexJournalEntry {
   sessionId: SessionId
   threadId: CodexThreadId
@@ -274,6 +288,12 @@ export interface CodexJournalEntry {
   /** The rollout JSONL path Codex reported at `thread/start`. What makes
    *  `export()` byte-faithful for this family. */
   rolloutPath?: string
+  /**
+   * The engine's Unix listener (`unix://…`), journalled so `adopt()` can
+   * rebind to the SURVIVING engine. Optional: entries written before durable
+   * engines have none, and adopt falls back to fresh-start-and-resume.
+   */
+  clientAddress?: string
   /**
    * THE SESSION'S MODEL POLICY, because a resume that drops it CHANGES THE
    * AGENT (POD-2775, review 3).
@@ -503,6 +523,14 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       threadId: session.threadId,
       workdir: session.spec.workdir,
       ...(session.rolloutPath ? { rolloutPath: session.rolloutPath } : {}),
+      /**
+       * THE ENGINE'S ADDRESS, journalled because the engine survives (POD-4433).
+       * `adopt()` rebinds by opening a second protocol client on this listener;
+       * without it there is nothing to rebind to and adopt falls back to a
+       * fresh engine plus `thread/resume`. Entries written before this field
+       * existed simply have no address, which is exactly the old behaviour.
+       */
+      clientAddress: session.endpoint.clientAddress,
       model: session.spec.model,
       ...(session.title ? { title: session.title } : {}),
       process: session.binding.process,
@@ -2326,17 +2354,21 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     },
 
     /**
-     * REBIND AFTER A SUPERVISOR RESTART — by resuming, because there is nothing
-     * left to rebind to. The full argument is in this file's header: the child
-     * remains lifetime-tethered to the daemon's stdin even though JSON-RPC rides
-     * its Unix listener, so it dies with the daemon. The thread on disk survives.
+     * REBIND AFTER A SUPERVISOR RESTART — to the surviving engine when the
+     * host says it is alive and its address answers, by resuming only when
+     * nothing survived.
      *
      * THE JOURNAL IS STILL CHECKED FOR EXACT IDENTITY, and that is not
      * ceremonial: a binding whose journal entry names a different process key
-     * describes a DIFFERENT incarnation of this session, and resuming its thread
-     * would attach this session id to someone else's conversation — the same
-     * failure the contract's "exact identity or nothing" rule exists to prevent,
-     * arriving by a different route.
+     * describes a DIFFERENT incarnation of this session, and attaching its
+     * thread would join this session id to someone else's conversation — the
+     * same failure the contract's "exact identity or nothing" rule exists to
+     * prevent, arriving by a different route.
+     *
+     * A REBIND SKIPS `thread/resume`: the engine never died, so the thread
+     * never closed. Handshake, attach to the journalled thread, and an
+     * in-flight turn continues on the engine — its events flow over the new
+     * connection — instead of being abandoned with a fresh child.
      */
     async adopt(binding: SessionBinding): Promise<AgentSessionHandle> {
       const journalled = host.journal.read(binding.sessionId)
@@ -2350,13 +2382,29 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
           `codex-app-server cannot adopt ${binding.sessionId}: journal names process ${journalled.process.key}, binding names ${binding.process.key}`,
         )
       }
-      const handle = await resumeThread({
-        sessionId: binding.sessionId,
-        spec: adoptedSpec(journalled.workdir, journalled.model),
-        threadId: journalled.threadId,
-        bindingVersion: binding.bindingVersion + 1,
-        observerGeneration: binding.bindingVersion + 1,
-      })
+      const endpoint = await host.adopt?.(binding)
+      const handle =
+        endpoint === undefined
+          ? await resumeThread({
+              sessionId: binding.sessionId,
+              spec: adoptedSpec(journalled.workdir, journalled.model),
+              threadId: journalled.threadId,
+              bindingVersion: binding.bindingVersion + 1,
+              observerGeneration: binding.bindingVersion + 1,
+            })
+          : await attachSession({
+              sessionId: binding.sessionId,
+              spec: adoptedSpec(journalled.workdir, journalled.model),
+              endpoint,
+              connection: await connect(endpoint, binding.sessionId),
+              // The RESUMED thread's own id is what the engine holds open;
+              // trusting a fresh id over the journalled one is how a driver
+              // ends up addressing a thread the server never opened.
+              threadId: journalled.threadId,
+              rolloutPath: journalled.rolloutPath,
+              bindingVersion: binding.bindingVersion + 1,
+              observerGeneration: binding.bindingVersion + 1,
+            })
       const session = sessions.get(binding.sessionId)
       if (session) {
         // A REBIND IS A FACT A WATCHER NEEDS. The binding changed under anyone
