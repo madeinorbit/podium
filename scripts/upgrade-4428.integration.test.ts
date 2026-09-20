@@ -25,9 +25,10 @@
  *      itself is the real old API; grok tolerates the unresolvable ref);
  *  (3) a live shell; (4) a login shell (agentKind shell + loginHarness);
  *  (5) a grok + generic-pty session, created but never bound, holding two
- *      queued_messages rows (both queued in the starting window, then the
- *      daemon dies before any bind — the only honest freeze on a model-less
- *      box; the post-upgrade bind is their first delivery);
+ *      queued_messages rows (daemon SIGSTOPped first so no bind is possible
+ *      while both rows queue server-side, then SIGKILLed — the only honest
+ *      freeze on a model-less box; the post-upgrade bind is their first
+ *      delivery);
  *  (6) a live harness session holding one pending native-menu interaction row
  *      written with the exact columns the old InteractionService.ask inserts
  *      (the ask itself is driver-emitted, so only its trigger is synthetic —
@@ -618,17 +619,6 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       oldServer = await rebootOldServer(baseDir, oldPort, oldServer)
       await waitStatus(oldApi, sHarness, 'live', 'harness session after old restart')
       await waitStatus(oldApi, sHib, 'live', 'hibernation candidate after old restart')
-      // NULL the driver column AFTER the restart reattach (the reattach
-      // refills it from the bind; the NULL must postdate that fill to reach
-      // the upgrade in the old-row shape).
-      {
-        const db = openDb(false)
-        try {
-          db.run('UPDATE sessions SET selected_driver_id = NULL WHERE id = ?', sHib)
-        } finally {
-          db.close()
-        }
-      }
       const hibRes2 = await oldApi.sessions.hibernate.mutate({ sessionId: sHib })
       expect(hibRes2, `(2) hibernate refused: ${JSON.stringify(hibRes2).slice(0, 300)}`).toMatchObject({ ok: true })
       await waitStatus(oldApi, sHib, 'hibernated', 'hibernated session')
@@ -673,13 +663,20 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         } finally {
           db.close()
         }
+      }
+      // The daemon is STOPPED first, so no bind is even possible while the
+      // rows queue: the spawn frame sits in the socket buffer. SIGSTOP is
+      // real process control, not a mock.
+      process.kill(oldDaemon.pid, 'SIGSTOP')
+      await sleep(2000)
       const sQueue = await createSession(oldApi, {
         agentKind: 'grok',
         cwd,
         runtimeContract: 'generic-pty',
       })
       // resumeAndSend (not sendText): for a non-live session it queueTexts
-      // unconditionally — no queued-count/readiness races between the two
+      // unconditionally, and with the daemon stopped the session cannot
+      // leave starting — no bind race at all — no queued-count/readiness races between the two
       // sends. The DB poll below is the ground truth before the kill.
       const t1 = `up4428-first-${sQueue.slice(0, 8)}`
       const t2 = `up4428-second-${sQueue.slice(0, 8)}`
@@ -723,8 +720,18 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       }
 
+      // NULL the driver column as the LAST old-phase act: any server write
+      // (reattach fills, hibernate persists the live draft) refills it from
+      // the in-memory session, so only a NULL postdating every old write
+      // reaches the upgrade in the old-row shape.
+      {
+        const db = openDb(false)
+        try {
+          db.run('UPDATE sessions SET selected_driver_id = NULL WHERE id = ?', sHib)
+        } finally {
+          db.close()
+        }
       }
-
       // Old-build state, read back from the same file the new build will open.
       {
         const db = openDb()
@@ -757,16 +764,22 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       const oldServerPid = oldServer.pid
       await oldServer.kill()
       expect(pidGone(oldServerPid), 'old server pid is gone').toBe(true)
-      for (const sid of [sHarness, sHib, sShell, sLogin, sMenu]) {
+      // Only live sessions hold hosts at cutover: hibernate kills sHib's
+      // host by design, and sQueue's spawn may never have materialized
+      // pre-kill (both converge post-upgrade). Those two are logged, not
+      // asserted; the four live sessions prove hosts outlive the daemon.
+      for (const sid of [sHarness, sShell, sLogin, sMenu]) {
         const label = durableSessionLabel(sid as SessionId, INSTANCE)
         expect(await hostHasSession(label), `host survives for ${sid.slice(0, 8)}`).toBe(true)
       }
-      // sQueue may never have materialized a host pre-kill (spawn accepted,
-      // daemon dead within a second): both outcomes converge post-upgrade, so
-      // its survival is logged, not asserted.
-      console.log(
-        `upgrade-4428: queue-session host present at cutover: ${await hostHasSession(durableSessionLabel(sQueue as SessionId, INSTANCE))}`,
-      )
+      for (const [sid, why] of [
+        [sHib, 'hibernate kill by design'],
+        [sQueue, 'spawn may never have materialized'],
+      ] as const) {
+        console.log(
+          `upgrade-4428: host present at cutover for ${sid.slice(0, 8)} (${why}): ${await hostHasSession(durableSessionLabel(sid as SessionId, INSTANCE))}`,
+        )
+      }
 
       // -- NEW BUILD takes over the same state dir and DB --------------------
       stripLoopbackPublicUrl()
