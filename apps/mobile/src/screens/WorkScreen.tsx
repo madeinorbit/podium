@@ -1,25 +1,18 @@
-import { relativeTime } from '@podium/client-core/focus'
 import { useSlice } from '@podium/client-core/react'
 import {
-  formatClock,
   type IssueNavigationModel,
-  isDraftAgentVessel,
   issueDisplayTitle,
   missionProgress,
+  type MissionProgress,
   rowAwaitsTuck,
   rowCanBringBack,
-  rowHasWorkingSession,
-  rowMotionPhase,
-  rowMotionTiming,
-  rowPendingDecision,
   rowStatusLine,
-  rowUnreadEmphasized,
-  rowWaitingCount,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
   worklistSlice,
+  reuseUnifiedWorkRows,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionId } from '@podium/model'
 import {
   canonicalIssueCloseReason,
   ISSUE_STATUS_LABELS,
@@ -28,9 +21,8 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useFocusEffect, useRouter } from 'expo-router'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ActivityIndicator,
   Animated,
   LayoutAnimation,
   Platform,
@@ -43,8 +35,6 @@ import {
 import { useBooting, useIssues, useSessions, useStoreActions } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import {
-  AlarmClock,
-  ArrowDownToLine,
   ChevronDown,
   ChevronRight,
   Pin,
@@ -61,8 +51,6 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState } from '../components/ui'
 import { WorkIssueMenu, type WorkIssueMenuTarget } from '../components/WorkIssueMenu'
-import { WorkingMark } from '../components/WorkingMark'
-import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { WorkspaceContinuityNotice } from '../components/WorkspaceContinuityNotice'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useCollapsedSet } from '../hooks/useCollapsedSet'
@@ -79,9 +67,9 @@ import {
   workRowId,
   workRowListKey,
 } from '../lib/work-sections'
-import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
+import { WorkRow, timeStamp } from './WorkListRow'
 
 const usesNativeHeader = process.env.EXPO_OS !== 'web'
 
@@ -151,40 +139,6 @@ function configureFoldAnimation(reduceMotion: boolean): void {
   )
 }
 
-/** Standard delay-before-show for the row's open loader: below this an open
- *  reads as instant and a spinner would only be a flash. */
-const NAV_LOADER_DELAY_MS = 150
-
-/** True once `active` has held for `delayMs`; false the moment it drops. */
-function useDelayedFlag(active: boolean, delayMs: number): boolean {
-  const [on, setOn] = useState(false)
-  useEffect(() => {
-    if (!active) {
-      setOn(false)
-      return
-    }
-    const timer = setTimeout(() => setOn(true), delayMs)
-    return () => clearTimeout(timer)
-  }, [active, delayMs])
-  return on
-}
-
-/** Line 2's timer stamp — the desktop PhaseTimer's exact vocabulary: a running
- *  `m:ss` clock while working, a frozen "10h ago" while waiting, the `∑` compute
- *  total once done, and NOTHING while queued (the dimmed row already says it). */
-function timeStamp(row: UnifiedWorkRow, now: number): string | null {
-  const timing = rowMotionTiming(row)
-  if (timing.phase === 'done') {
-    return timing.totalMs !== undefined ? `∑ ${formatClock(timing.totalMs)}` : null
-  }
-  if (!Number.isFinite(timing.sinceMs) || timing.sinceMs <= 0) return null
-  if (timing.phase === 'working') {
-    return formatClock(Math.max(0, now - timing.sinceMs) + (timing.baseMs ?? 0))
-  }
-  if (timing.phase === 'waiting') return relativeTime(new Date(timing.sinceMs).toISOString(), now)
-  return null
-}
-
 export function WorkScreen() {
   const router = useRouter()
   // Actions only — identity-stable, so this subscription never re-renders the
@@ -201,6 +155,33 @@ export function WorkScreen() {
   // one derivation per snapshot, carrying the clock it was derived against, so
   // the phone and the desk cannot disagree about whether a snooze has lapsed.
   const { pinned, groups, allWorktreePaths, now } = useSlice(worklistSlice)
+  // ROW IDENTITY REUSE (POD-4421). The published slice builds fresh row
+  // objects per derivation, so without this every snapshot tick hands the list
+  // all-new row identities and `memo` on WorkRow can never hit. Reusing
+  // unchanged rows here is the same stabilization the desktop sidebar applies
+  // in its transition layer — consumer-side, so the slice itself is untouched.
+  const stableAllRef = useRef<UnifiedWorkRow[]>([])
+  const { stablePinned, stableGroups } = useMemo(() => {
+    const nextFlat: UnifiedWorkRow[] = [
+      ...pinned,
+      ...groups.flatMap((g) => [...g.rows, ...g.snoozedRows, ...g.closedRows]),
+    ]
+    const stableFlat = reuseUnifiedWorkRows(stableAllRef.current, nextFlat)
+    stableAllRef.current = stableFlat
+    const byKey = new Map(stableFlat.map((r) => [workRowId(r), r]))
+    const pick = <T extends UnifiedWorkRow>(r: T): T => (byKey.get(workRowId(r)) ?? r) as T
+    return {
+      stablePinned: pinned.map(pick),
+      stableGroups: groups.map((g) => ({
+        ...g,
+        rows: g.rows.map(pick),
+        snoozedRows: g.snoozedRows.map(pick),
+        closedRows: g.closedRows.map(pick),
+      })),
+    }
+  }, [pinned, groups])
+  // Per-row issue lookup for the origin tick, built once per publish.
+  const mobileIssueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const [menuTarget, setMenuTarget] = useState<WorkIssueMenuTarget | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -213,8 +194,8 @@ export function WorkScreen() {
   )
 
   const { sections, issueCount, pinnedCount, attentionCount } = useMemo(
-    () => buildWorkSections(pinned, groups),
-    [pinned, groups],
+    () => buildWorkSections(stablePinned, stableGroups),
+    [stablePinned, stableGroups],
   )
 
   const searching = query.trim().length > 0
@@ -331,6 +312,81 @@ export function WorkScreen() {
     (issueId: string) => void setIssueTucked(issueId, true),
     [setIssueTucked],
   )
+  // Stable per-id tuck thunks (POD-4421): `onTuck={() => tuck(id)}` would mint
+  // a fresh closure per row per render and defeat the memo below.
+  const tuckIssueStable = useRef(tuckIssue)
+  tuckIssueStable.current = tuckIssue
+  const tuckCacheRef = useRef(new Map<string, () => void>())
+  const tuckFor = useCallback((issueId: string): (() => void) => {
+    let fn = tuckCacheRef.current.get(issueId)
+    if (!fn) {
+      fn = () => tuckIssueStable.current(issueId)
+      tuckCacheRef.current.set(issueId, fn)
+    }
+    return fn
+  }, [])
+  // NARROW PER-ROW DATA, COMPUTED ONCE PER LIST (POD-4421). Each row used to
+  // receive the whole `issues`/`sessions`/`allWorktreePaths` arrays plus `now`
+  // and then run its own `issues.find`, `issueDisplayTitle` and
+  // `missionProgress` fallback — and the memo above it compared those arrays
+  // by identity, so a snapshot tick repainted everything. The maps below run
+  // once per publish; each row receives scalars with stable references.
+  const narrowById = useMemo(() => {
+    const label = new Map<string, string>()
+    const progress = new Map<string, MissionProgress | null>()
+    const originSeq = new Map<string, number | null>()
+    const status = new Map<string, string>()
+    const stamp = new Map<string, string | null>()
+    const tuckable = new Map<string, boolean>()
+    const snoozed = new Map<string, boolean>()
+    const unsnoozed = new Map<string, boolean>()
+    const all: UnifiedWorkRow[] = [
+      ...stablePinned,
+      ...stableGroups.flatMap((g) => [...g.rows, ...g.snoozedRows, ...g.closedRows]),
+    ]
+    for (const r of all) {
+      const id = workRowId(r)
+      if (r.kind === 'issue') {
+        label.set(id, issueDisplayTitle(r.issue, sessionsAll, allWorktreePaths))
+        progress.set(id, r.missionRollup?.progress ?? missionProgress(issues, sessionsAll, r.issue.id))
+        const dep = r.issue.deps.find((d) => d.type === 'discovered-from')
+        originSeq.set(id, dep ? (mobileIssueById.get(dep.id)?.seq ?? null) : null)
+      } else {
+        label.set(
+          id,
+          `${r.worktree.repoName ?? ''}${r.worktree.branch ? ` · ${r.worktree.branch}` : ''}`,
+        )
+        progress.set(id, null)
+        originSeq.set(id, null)
+      }
+      status.set(id, rowStatusLine(r, now, 0))
+      stamp.set(id, timeStamp(r, now))
+      tuckable.set(id, r.kind === 'issue' ? rowAwaitsTuck(r, null, false, now) : false)
+      snoozed.set(id, r.kind === 'issue' ? isIssueDeferred(r.issue, now) : false)
+      unsnoozed.set(id, r.kind === 'issue' ? issueReturnedFromDefer(r.issue, now) : false)
+    }
+    return { label, progress, originSeq, status, stamp, tuckable, snoozed, unsnoozed }
+  }, [
+    stablePinned,
+    stableGroups,
+    sessionsAll,
+    allWorktreePaths,
+    issues,
+    mobileIssueById,
+    now,
+  ])
+  // Prune tuck thunks for rows that left the list.
+  {
+    const live = new Set<string>([
+      ...stablePinned.map(workRowId),
+      ...stableGroups.flatMap((g) =>
+        [...g.rows, ...g.snoozedRows, ...g.closedRows].map(workRowId),
+      ),
+    ])
+    for (const key of tuckCacheRef.current.keys()) {
+      if (!live.has(key)) tuckCacheRef.current.delete(key)
+    }
+  }
 
   return (
     <Screen
@@ -428,20 +484,27 @@ export function WorkScreen() {
                 onToggle={() => toggleFold(section.key)}
               />
             )}
-            renderItem={({ item }) => (
-              <WorkRow
-                row={item}
-                issues={issues}
-                sessions={sessionsAll}
-                allWorktreePaths={allWorktreePaths}
-                now={now}
-                navPending={pendingNav !== null && pendingNav === workRowId(item)}
-                onOpenIssue={openIssue}
-                onOpenSession={openSessionFromRow}
-                onLongPress={openRowMenu}
-                onTuckIssue={tuckIssue}
-              />
-            )}
+            renderItem={({ item }) => {
+              const id = workRowId(item)
+              const isIssue = item.kind === 'issue'
+              return (
+                <WorkRow
+                  row={item}
+                  label={narrowById.label.get(id) ?? ''}
+                  progress={narrowById.progress.get(id) ?? null}
+                  originSeq={narrowById.originSeq.get(id) ?? null}
+                  statusLine={narrowById.status.get(id) ?? ''}
+                  stamp={narrowById.stamp.get(id) ?? null}
+                  snoozed={narrowById.snoozed.get(id) ?? false}
+                  unsnoozed={narrowById.unsnoozed.get(id) ?? false}
+                  onTuck={isIssue && narrowById.tuckable.get(id) ? tuckFor(id) : undefined}
+                  navPending={pendingNav !== null && pendingNav === id}
+                  onOpenIssue={openIssue}
+                  onOpenSession={openSessionFromRow}
+                  onLongPress={openRowMenu}
+                />
+              )
+            }}
             renderSectionFooter={({ section }) => (
               <View style={styles.folds}>
                 {section.snoozedRows.length > 0 ? (
@@ -660,218 +723,6 @@ function Fold({
   )
 }
 
-/**
- * MEMOIZED, and the callbacks above are stable for exactly this reason: a fold
- * toggle, a search keystroke or a row loader used to re-render every row in the
- * list, which is most of why folding read as sluggish on a full board. With
- * `memo`, local screen state touches only the rows whose props actually moved;
- * a snapshot tick still repaints everything (its arrays and `now` are new).
- */
-const WorkRow = memo(function WorkRow({
-  row,
-  issues,
-  sessions: allSessions,
-  allWorktreePaths,
-  now,
-  navPending,
-  onOpenIssue,
-  onOpenSession,
-  onLongPress,
-  onTuckIssue,
-}: {
-  row: UnifiedWorkRow
-  issues: readonly IssueWire[]
-  sessions: readonly SessionMeta[]
-  allWorktreePaths: string[]
-  now: number
-  /** This row's open is in flight — show the delayed native loader. */
-  navPending: boolean
-  onOpenIssue: (issue: IssueWire) => void
-  onOpenSession: (sessionId: SessionId, rowKey: string) => void
-  onLongPress: (issue: IssueNavigationModel) => void
-  onTuckIssue: (issueId: string) => void
-}) {
-  const issue = row.kind === 'issue' ? row.issue : undefined
-  const worktree = row.kind === 'worktree' ? row.worktree : undefined
-  const sessions = row.kind === 'issue' ? row.sessions : row.worktree.sessions
-  // The row speaks for its whole branch: descendants have no row of their own
-  // here, so the fleet stack reads the bubbled aggregate.
-  const fleetSessions = row.kind === 'issue' ? (row.aggregateSessions ?? sessions) : sessions
-  const hex = issue ? issueColorHex(issue.color) : undefined
-  const rowBg = hex ? flow.rowBg(hex) : color.engraved
-  const phase = rowMotionPhase(row)
-  // An ask outranks work in the phase, so the phase alone cannot answer "is an
-  // agent computing" — and on a one-row-per-mission list that left a running
-  // fleet reading as stopped (POD-703). Every working texture gates on this.
-  const working = rowHasWorkingSession(row)
-  const waiting = rowWaitingCount(row)
-  // The ask treatment follows the ROW, not the band it landed in: a waiting
-  // row stays put when pinned (see ../lib/work-sections.ts), so the tint, the
-  // count and the Answer/Review action must travel with the fact itself.
-  const attention = waiting > 0
-  const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
-  const rowUnread = rowUnreadEmphasized(row)
-  // The published row carries the Flight Deck's child-task rollup. Direct
-  // component fixtures use the same derivation as a fallback.
-  const progress = issue
-    ? ((row.kind === 'issue' ? row.missionRollup?.progress : null) ??
-      missionProgress(issues, allSessions, issue.id))
-    : null
-  // A draft vessel's only content is its agents — its row IS the agent, so it
-  // clicks straight into the session (desktop POD-282).
-  const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
-  // A freshly minted draft is not news to the person who just minted it: no
-  // unread dot or bold until its agent actually reports runtime state — the
-  // same gate the chats list applies (SessionCard's hidesDraftDot, round 2).
-  const draftQuiet =
-    draftOnly && !sessions[0]?.busy && (sessions[0]?.agentState?.phase ?? 'unknown') === 'unknown'
-  const unread = rowUnread && !draftQuiet
-  const label = issue
-    ? issueDisplayTitle(issue, allSessions, allWorktreePaths)
-    : `${worktree?.repoName ?? ''}${worktree?.branch ? ` · ${worktree.branch}` : ''}`
-  const stamp = timeStamp(row, now)
-  const statusLine = rowStatusLine(row, now, 0)
-  // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
-  // issue this one was spun off from — one quiet ⤷ tick on line 2.
-  const originDep = issue?.deps.find((d) => d.type === 'discovered-from')
-  const origin = originDep ? issues.find((i) => i.id === originDep.id) : undefined
-  const snoozed = issue ? isIssueDeferred(issue, now) : false
-  const unsnoozed = issue ? issueReturnedFromDefer(issue, now) : false
-  // Computed here rather than passed as a closure so the memo above can work:
-  // an inline `onTuck` arrow from renderItem would be new every list render.
-  const onTuck =
-    issue && rowAwaitsTuck(row, null, false, now) ? () => onTuckIssue(issue.id) : undefined
-  // Native, theme-tinted, and DELAYED: feedback only when the open is actually
-  // taking a beat, so a fast push never flashes a spinner (standard ~150ms).
-  const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
-
-  const press = () => {
-    if (issue) {
-      if (draftOnly && sessions[0]) onOpenSession(sessions[0].sessionId, workRowId(row))
-      else onOpenIssue(issue)
-      return
-    }
-    if (sessions[0]) onOpenSession(sessions[0].sessionId, workRowId(row))
-  }
-
-  return (
-    <View
-      style={[
-        styles.row,
-        attention ? styles.rowAttention : hex ? { backgroundColor: rowBg } : null,
-        phase === 'queued' && styles.rowQueued,
-        phase === 'done' && !onTuck && styles.rowDone,
-        issue?.audience === 'agent' && styles.rowInternal,
-      ]}
-    >
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={issue ? `${issueDisplayRef(issue)} ${label}` : `Worktree ${label}`}
-        onPress={press}
-        onLongPress={issue ? () => onLongPress(issue) : undefined}
-        delayLongPress={350}
-        scaleTo={0.99}
-        style={({ pressed }) => [
-          styles.rowMain,
-          attention && styles.rowMainAttention,
-          pressed && styles.pressed,
-        ]}
-      >
-        <View style={styles.rowText}>
-          <View style={styles.rowTitleLine}>
-            <Text
-              style={[
-                styles.rowTitle,
-                unread && styles.rowTitleUnread,
-                hex ? { color: flow.text(hex) } : null,
-              ]}
-              numberOfLines={1}
-            >
-              {label}
-            </Text>
-            {unread ? <View style={styles.unreadDot} /> : null}
-            {issue?.audience === 'agent' ? <Text style={styles.internal}>internal</Text> : null}
-            {snoozed ? <Icon as={AlarmClock} size={10} color={color.textMicro} /> : null}
-            {unsnoozed ? <Text style={styles.unsnoozed}>Unsnoozed</Text> : null}
-          </View>
-          <View style={styles.rowStatusLine}>
-            {issue ? <Text style={styles.rowRef}>{issueDisplayRef(issue)}</Text> : null}
-            {attention ? <Text style={styles.rowWaitCount}>{waiting}</Text> : null}
-            {issue?.pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}
-            {draftOnly ? null : <FleetSummary sessions={fleetSessions} />}
-            <Text
-              style={[
-                styles.status,
-                decision ? styles.statusDecision : null,
-                !decision && phase === 'working' ? styles.statusWorking : null,
-                !decision && phase === 'done' ? styles.statusDone : null,
-              ]}
-              numberOfLines={1}
-            >
-              {statusLine}
-            </Text>
-            {origin ? <Text style={styles.origin}>{`⤷ ${origin.seq}`}</Text> : null}
-            {issue ? (
-              <GitStampLine
-                branch={issue.branch}
-                git={issue.gitState}
-                suppressAhead={decision === 'merge'}
-              />
-            ) : null}
-            <View style={styles.spacer} />
-            <View style={styles.rowDatum}>
-              {navLoader ? (
-                <ActivityIndicator
-                  accessibilityLabel="Opening"
-                  size="small"
-                  color={color.textDim}
-                />
-              ) : (
-                <>
-                  {working ? <WorkingMark size={11} /> : null}
-                  {stamp ? (
-                    <Text style={styles.stamp} numberOfLines={1}>
-                      {stamp}
-                    </Text>
-                  ) : null}
-                </>
-              )}
-            </View>
-          </View>
-          {progress ? <RowProgressMeter progress={progress} working={working} /> : null}
-        </View>
-      </PressableScale>
-      {attention && issue ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`${decision ? 'Review' : 'Answer'} ${issueDisplayRef(issue)}`}
-          onPress={press}
-          style={({ pressed }) => [
-            styles.attentionAction,
-            decision ? styles.reviewAction : styles.answerAction,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text style={[styles.actionText, decision && styles.reviewActionText]}>
-            {decision ? 'Review' : 'Answer'}
-          </Text>
-        </PressableScale>
-      ) : null}
-      {onTuck ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`Tuck ${label} into Closed`}
-          onPress={onTuck}
-          style={({ pressed }) => [styles.tuck, pressed && styles.pressed]}
-        >
-          <Icon as={ArrowDownToLine} size={11} color={color.textMicro} />
-          <Text style={styles.tuckText}>Tuck</Text>
-        </PressableScale>
-      ) : null}
-    </View>
-  )
-})
-
 const styles = StyleSheet.create({
   headerAttention: {
     color: color.needsYouText,
@@ -954,209 +805,6 @@ const styles = StyleSheet.create({
     minWidth: 16,
     height: StyleSheet.hairlineWidth,
     backgroundColor: color.hairline,
-  },
-  // TINT, NOT OUTLINE. The issue colour arrives as a row BACKGROUND — the same
-  // `flow.rowBg` recipe the desktop row uses — and nothing draws a coloured
-  // border around it: four outlined rows in four different hues read as a stack
-  // of cards, which is precisely what a worklist must not look like. The 3pt gap
-  // is the separator.
-  row: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    minHeight: 62,
-    backgroundColor: color.engraved,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairline,
-    overflow: 'hidden',
-  },
-  rowAttention: {
-    minHeight: 68,
-    backgroundColor: alpha(color.needsYou, 0.05),
-    // The stock hairline DISAPPEARS on this tint: #24272d composites to about
-    // 1.06:1 against the bisque-washed ground (vs 1.16:1 on plain engraved).
-    // Deriving the seam from the tint itself — 16% bisque — lands it at about
-    // 1.4:1 on that ground, clearly above the plain list's own separator.
-    borderBottomColor: alpha(color.needsYou, 0.16),
-  },
-  rowQueued: {
-    opacity: 0.72,
-  },
-  rowDone: {
-    opacity: 0.75,
-  },
-  rowInternal: {
-    opacity: 0.8,
-  },
-  rowMain: {
-    flex: 1,
-    minHeight: 62,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    paddingLeft: space.lg,
-    paddingRight: space.md,
-    paddingVertical: 9,
-  },
-  rowMainAttention: {
-    minHeight: 68,
-  },
-  rowText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  rowTitleLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  rowTitle: {
-    ...sans(600),
-    flexShrink: 1,
-    color: color.body,
-    fontSize: 15,
-  },
-  rowTitleUnread: {
-    ...sans(600),
-    color: color.text,
-  },
-  unreadDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.info,
-    flexShrink: 0,
-  },
-  internal: {
-    ...monoLabel(9),
-    color: color.textMicro,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: radius.xs,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: alpha(color.textMicro, 0.5),
-  },
-  unsnoozed: {
-    ...monoLabel(9),
-    color: color.accentTint,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: radius.xs,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.accentBorder,
-  },
-  rowStatusLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  rowDatum: {
-    width: 58,
-    flexShrink: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 4,
-  },
-  rowRef: {
-    ...mono(600),
-    flexShrink: 0,
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  rowWaitCount: {
-    ...mono(600),
-    minWidth: 18,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    overflow: 'hidden',
-    borderRadius: radius.full,
-    backgroundColor: color.needsYou,
-    color: color.onAccent,
-    fontSize: font.micro,
-    textAlign: 'center',
-  },
-  spacer: {
-    flex: 1,
-    minWidth: 4,
-  },
-  status: {
-    ...mono(500),
-    flexShrink: 1,
-    color: color.textFaint,
-    fontSize: font.tiny,
-  },
-  statusDecision: {
-    ...mono(600),
-    color: color.needsYouText,
-  },
-  statusWorking: {
-    color: color.workingText,
-  },
-  statusDone: {
-    color: color.textMicro,
-  },
-  origin: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  // The clock never wraps: `12m ago` breaking onto a second line pushed the
-  // meter down and made two adjacent rows different heights.
-  stamp: {
-    ...mono(400),
-    flexShrink: 0,
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  attentionAction: {
-    alignSelf: 'center',
-    minWidth: 58,
-    height: 34,
-    marginRight: space.lg,
-    paddingHorizontal: space.sm + 2,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  answerAction: {
-    backgroundColor: color.needsYou,
-  },
-  reviewAction: {
-    backgroundColor: color.surfaceHigh,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-  },
-  actionText: {
-    ...sans(700),
-    color: color.onAccent,
-    fontSize: font.tiny,
-  },
-  reviewActionText: {
-    color: color.body,
-  },
-  // A chip, not a slab (desktop POD-293): the control is a quiet right-edge
-  // action on a finished row, so it must not out-weigh the row it dismisses.
-  tuck: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'center',
-    gap: 4,
-    height: 26,
-    marginRight: 6,
-    paddingHorizontal: 8,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surfaceHigh,
-  },
-  tuckText: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.micro,
-    letterSpacing: 0.2,
   },
   folds: {
     gap: 2,

@@ -1,6 +1,10 @@
 import {
   groupUnifiedWorkRows,
   isDraftAgentVessel,
+  issueDisplayTitle,
+  type IssueNavigationModel,
+  missionProgress,
+  type MissionProgress,
   planReorderKeys,
   type RepoNavView,
   reuseUnifiedWorkRows,
@@ -11,6 +15,7 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, type IssueId, isIssueDeferred } from '@podium/model/browser'
+import { issueDisplayRef } from '@podium/protocol'
 import * as m from 'motion/react-m'
 import type {
   AnimationEvent as ReactAnimationEvent,
@@ -31,8 +36,9 @@ import { FoldedRowMenu } from './FoldedRowMenu'
 import { PINNED_FOLD_KEY, projectFoldKey } from './fold-keys'
 import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-row'
 import { MAX_ROW_SHORTCUTS, type RowShortcutTarget, useRowShortcuts } from './row-shortcuts'
+import { usePerIdThunk } from './row-callbacks'
 import { useCollapsedKeys } from './sidebar-common'
-import { UnifiedIssueRow } from './UnifiedIssueRow'
+import { UnifiedIssueRow, type UnifiedIssueRowOrigin } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { useUnifiedWork } from './use-unified-work'
 import { useRowDrag } from './useRowDrag'
@@ -90,6 +96,28 @@ function withStableRow(placement: WorkPlacement, row: UnifiedWorkRow): WorkPlace
     return row.kind === 'issue' ? { ...placement, row } : placement
   }
   return { ...placement, row }
+}
+
+/**
+ * MEMOIZED WRAPPERS (POD-4421). `UnifiedIssueRow` is already memo'd at its
+ * definition; `UnifiedWorktreeRow` cannot be edited under the epic's file
+ * ownership (siblings run concurrently), so its memo boundary lives here, at
+ * the one call site that renders it. Additive: removing the wrapper restores
+ * the old behavior with no other change. (FoldedWorkRow is memo'd the same
+ * way, next to its use below, for the same reason.)
+ */
+const MemoUnifiedWorktreeRow = memo(UnifiedWorktreeRow)
+// Folded lanes: same treatment, same reason — the component lives in
+// work-folds, so the memo boundary lives at this call site.
+const MemoFoldedWorkRow = memo(FoldedWorkRow)
+
+function sameOriginTick(
+  a: UnifiedIssueRowOrigin | null,
+  b: UnifiedIssueRowOrigin | null,
+): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.id === b.id && a.seq === b.seq && a.title === b.title && a.ref === b.ref
 }
 
 /**
@@ -240,15 +268,57 @@ export function WorkSections({
   // The server also owns the clear-on-reopen rule now, so a reopened issue
   // cannot inherit a tuck from a prior close. `setIssueTucked` is optimistic
   // (outbox overlay) — the row folds on the press, before the round-trip.
-  const tuck = (id: string) => {
-    void setIssueTucked(id, true)
-  }
+  //
+  // STABLE ROW-ID-KEYED HANDLERS (POD-4421). Every callback below keeps one
+  // identity for the life of the list and reads the latest store action
+  // through `actionsRef`; per-row data it needs (`folded`) is looked up by id
+  // in `foldedByIdRef` at call time instead of being closed over per row. So a
+  // publish that changes one row's object leaves every other row's props
+  // referentially equal and `memo` keeps them cold.
+  const actionsRef = useRef({
+    selectIssue,
+    selectPanelForIssue,
+    openIssuePage,
+    renameIssue,
+    setIssueTucked,
+  })
+  actionsRef.current = { selectIssue, selectPanelForIssue, openIssuePage, renameIssue, setIssueTucked }
+  /** Row id -> whether that row sits in a folded lane (updated per render). */
+  const foldedByIdRef = useRef(new Map<string, boolean>())
+  /** Row id -> latest issue object (updated per render, for id-keyed lookup). */
+  const issueByIdLiveRef = useRef(new Map<string, IssueNavigationModel>())
+  const handleSelectIssue = useCallback((issue: IssueNavigationModel): void => {
+    const folded = foldedByIdRef.current.get(issue.id) ?? false
+    setSelectedClosedPlacement({ issueId: issue.id as IssueId, folded })
+    actionsRef.current.selectIssue(issue)
+  }, [])
+  const handleSelectPanelForIssue = useCallback(
+    (issue: IssueNavigationModel, sessionId: Parameters<typeof selectPanelForIssue>[1]): void => {
+      const folded = foldedByIdRef.current.get(issue.id) ?? false
+      setSelectedClosedPlacement({ issueId: issue.id as IssueId, folded })
+      actionsRef.current.selectPanelForIssue(issue, sessionId)
+    },
+    [],
+  )
+  const handleOpenIssue = useCallback((id: IssueId): void => {
+    actionsRef.current.openIssuePage(id)
+  }, [])
+  const handleRenameIssue = useCallback((id: string, title: string): void => {
+    actionsRef.current.renameIssue(id, title)
+  }, [])
+  const tuckAction = useCallback((id: string): void => {
+    void actionsRef.current.setIssueTucked(id, true)
+  }, [])
+  const { forId: tuckForId, prune: pruneTuckIds } = usePerIdThunk(tuckAction)
   // And back out again (POD-1188). Same store action with the flag flipped, so
   // the row leaves the fold on the press through the same outbox overlay that
   // put it there — nothing here is a second mechanism.
-  const bringBack = (id: string) => {
-    void setIssueTucked(id, false)
-  }
+  const bringBack = useCallback(
+    (id: string) => {
+      void setIssueTucked(id, false)
+    },
+    [setIssueTucked],
+  )
   /**
    * WHICH FOLDED ROW IS RIGHT-CLICKED. Column state, not row state: the folded
    * rows are rendered by `renderWorkRow`, which is a function rather than a
@@ -262,10 +332,10 @@ export function WorkSections({
     anchor: ContextMenuAnchor
   } | null>(null)
   const closeFoldedMenu = useCallback(() => setFoldedMenu(null), [])
-  const openFoldedMenu = (issueId: string, event: ReactMouseEvent): void => {
+  const openFoldedMenu = useCallback((issueId: string, event: ReactMouseEvent): void => {
     event.preventDefault()
     setFoldedMenu({ issueId, anchor: { x: event.clientX, y: event.clientY } })
-  }
+  }, [])
   const selectedWasFolded =
     selectedClosedPlacement?.issueId === selectedIssueId && selectedClosedPlacement.folded
   const forgetQuickArchive = (ids: readonly string[]): void => {
@@ -469,6 +539,192 @@ export function WorkSections({
     },
   })
   const onGripDown = (e: ReactPointerEvent, issueId: IssueId) => startDrag(e, issueId)
+  const gripDownRef = useRef(onGripDown)
+  gripDownRef.current = onGripDown
+  const handleGripDown = useCallback(
+    (e: ReactPointerEvent, issueId: IssueId): void => gripDownRef.current(e, issueId),
+    [],
+  )
+
+  // NARROW ROW DATA, COMPUTED ONCE PER LIST (POD-4421). Each row used to
+  // receive the whole `issues`/`sessions` arrays plus `allWorktreePaths` and
+  // then run its own `issues.find`, `issueDisplayTitle` and `missionProgress`
+  // fallback — O(N) lookups per row per render on top of the re-render itself.
+  // The maps below run once per publish for the visible rows; each row then
+  // receives only scalars with stable references, so `memo` can keep
+  // unaffected rows cold. Strings/booleans compare by value; `progress` reuses
+  // the row's own rollup reference; `origin` reuses the previous tick object
+  // when its fields are unchanged.
+  const titleById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const target of transitionTargets) {
+      const r = target.value.row
+      if (r.kind !== 'issue') continue
+      map.set(r.issue.id, issueDisplayTitle(r.issue, sessions, allWorktreePaths))
+    }
+    return map
+  }, [transitionTargets, sessions, allWorktreePaths])
+  const progressById = useMemo(() => {
+    const map = new Map<string, MissionProgress>()
+    for (const target of transitionTargets) {
+      const r = target.value.row
+      if (r.kind !== 'issue') continue
+      map.set(r.issue.id, r.missionRollup?.progress ?? missionProgress(issues, sessions, r.issue.id))
+    }
+    return map
+  }, [transitionTargets, issues, sessions])
+  const originCacheRef = useRef(new Map<string, UnifiedIssueRowOrigin | null>())
+  const originById = useMemo(() => {
+    const next = new Map<string, UnifiedIssueRowOrigin | null>()
+    for (const target of transitionTargets) {
+      const r = target.value.row
+      if (r.kind !== 'issue') continue
+      const dep = r.issue.deps.find((d) => d.type === 'discovered-from')
+      let tick: UnifiedIssueRowOrigin | null = null
+      if (dep) {
+        const found = issueById.get(dep.id)
+        if (found)
+          tick = { id: found.id, seq: found.seq, title: found.title, ref: issueDisplayRef(found) }
+      }
+      const prev = originCacheRef.current.get(r.issue.id)
+      if (prev !== undefined && sameOriginTick(prev, tick)) tick = prev
+      next.set(r.issue.id, tick)
+    }
+    originCacheRef.current = next
+    return next
+  }, [transitionTargets, issueById])
+  const activeById = useMemo(() => {
+    const map = new Map<string, boolean>()
+    for (const target of transitionTargets) {
+      const r = target.value.row
+      if (r.kind !== 'issue') continue
+      const base = selectedIssueId === r.issue.id
+      map.set(
+        r.issue.id,
+        isDraftAgentVessel(r.issue, r.sessions)
+          ? base && paneA === (r.sessions[0]?.sessionId ?? null)
+          : base,
+      )
+    }
+    return map
+  }, [transitionTargets, selectedIssueId, paneA])
+  // Context-menu payloads, built on open only: each row gets a stable resolver
+  // that reads the latest issue array through a ref, so the row itself never
+  // holds the array and `memo` never sees it.
+  const menuIssuesRef = useRef(issues)
+  menuIssuesRef.current = issues
+  const menuResolverCacheRef = useRef(new Map<string, () => { single: IssueNavigationModel[]; all: IssueNavigationModel[] }>())
+  const menuResolverFor = useCallback((issueId: string) => {
+    let fn = menuResolverCacheRef.current.get(issueId)
+    if (!fn) {
+      fn = () => {
+        const all = menuIssuesRef.current
+        const single = all.find((i) => i.id === issueId)
+        return { single: single ? [single] : [], all }
+      }
+      menuResolverCacheRef.current.set(issueId, fn)
+    }
+    return fn
+  }, [])
+  // Per-worktree filtered issue lists for the roster band's orphan lookups:
+  // only the issues the row's sessions actually reference, with a stable
+  // reference while those issues are unchanged.
+  const worktreeIssuesCacheRef = useRef(new Map<string, IssueNavigationModel[]>())
+  const filteredIssuesForWorktree = useCallback(
+    (path: string, sessionIssueIds: readonly (string | null | undefined)[]): IssueNavigationModel[] => {
+      const needed = new Set(sessionIssueIds.filter((id): id is string => !!id))
+      const filtered = menuIssuesRef.current.filter((i) => needed.has(i.id))
+      const prev = worktreeIssuesCacheRef.current.get(path)
+      if (
+        prev &&
+        prev.length === filtered.length &&
+        prev.every((v, index) => v === filtered[index])
+      )
+        return prev
+      worktreeIssuesCacheRef.current.set(path, filtered)
+      return filtered
+    },
+    [],
+  )
+  // Per-id stable handlers for the folded lanes and worktree rows.
+  const foldedSelectCacheRef = useRef(new Map<string, () => void>())
+  const foldedSelectFor = useCallback(
+    (issueId: string): (() => void) => {
+      let fn = foldedSelectCacheRef.current.get(issueId)
+      if (!fn) {
+        fn = () => {
+          const found = issueByIdLiveRef.current.get(issueId) ?? issueById.get(asIssueId(issueId))
+          if (found) handleSelectIssue(found)
+        }
+        foldedSelectCacheRef.current.set(issueId, fn)
+      }
+      return fn
+    },
+    [handleSelectIssue, issueById],
+  )
+  const foldedMenuCacheRef = useRef(new Map<string, (e: ReactMouseEvent) => void>())
+  const foldedMenuFor = useCallback(
+    (issueId: string): ((e: ReactMouseEvent) => void) => {
+      let fn = foldedMenuCacheRef.current.get(issueId)
+      if (!fn) {
+        fn = (e: ReactMouseEvent) => openFoldedMenu(issueId, e)
+        foldedMenuCacheRef.current.set(issueId, fn)
+      }
+      return fn
+    },
+    [openFoldedMenu],
+  )
+  const worktreeSelectCacheRef = useRef(new Map<string, () => void>())
+  const worktreeSelectFor = useCallback(
+    (path: string): (() => void) => {
+      let fn = worktreeSelectCacheRef.current.get(path)
+      if (!fn) {
+        fn = () => selectWorktree(path)
+        worktreeSelectCacheRef.current.set(path, fn)
+      }
+      return fn
+    },
+    [selectWorktree],
+  )
+  const worktreePanelCacheRef = useRef(new Map<string, (sid: Parameters<typeof selectPanel>[1]) => void>())
+  const worktreePanelFor = useCallback(
+    (path: string) => {
+      let fn = worktreePanelCacheRef.current.get(path)
+      if (!fn) {
+        fn = (sid: Parameters<typeof selectPanel>[1]) => selectPanel(path, sid)
+        worktreePanelCacheRef.current.set(path, fn)
+      }
+      return fn
+    },
+    [selectPanel],
+  )
+  // Keep the id-keyed lookups fresh for the stable handlers above, and prune
+  // the per-id caches to what is on screen.
+  {
+    const foldedNext = new Map<string, boolean>()
+    const liveNext = new Map<string, IssueNavigationModel>()
+    const activeIds: string[] = []
+    for (const target of transitionTargets) {
+      const r = target.value.row
+      if (r.kind !== 'issue') continue
+      const folded = target.value.lane === 'closed' || target.value.lane === 'snoozed'
+      foldedNext.set(r.issue.id, folded)
+      liveNext.set(r.issue.id, r.issue)
+      activeIds.push(r.issue.id)
+    }
+    foldedByIdRef.current = foldedNext
+    issueByIdLiveRef.current = liveNext
+    pruneTuckIds(activeIds)
+    for (const key of menuResolverCacheRef.current.keys()) {
+      if (!foldedNext.has(key)) menuResolverCacheRef.current.delete(key)
+    }
+    for (const key of foldedSelectCacheRef.current.keys()) {
+      if (!foldedNext.has(key)) foldedSelectCacheRef.current.delete(key)
+    }
+    for (const key of foldedMenuCacheRef.current.keys()) {
+      if (!foldedNext.has(key)) foldedMenuCacheRef.current.delete(key)
+    }
+  }
 
   // Motion's layout feature otherwise measures every mounted row whenever the
   // sidebar receives an unrelated store update. Feed it a structural revision
@@ -609,58 +865,58 @@ export function WorkSections({
       folded && row.kind === 'issue' ? (
         // Closed / suspended issues drop to one dim line (POD-293) — no chrome,
         // no unread, just how the work ended and a click back into it.
-        <FoldedWorkRow
+        // Memo'd at this call site with per-id stable handlers (POD-4421).
+        <MemoFoldedWorkRow
           issue={row.issue}
           lane={lane as 'closed' | 'snoozed'}
           now={now}
           active={selectedIssueId === row.issue.id}
-          onSelect={() => {
-            setSelectedClosedPlacement({ issueId: row.issue.id, folded })
-            selectIssue(row.issue)
-          }}
+          onSelect={foldedSelectFor(row.issue.id)}
           // Only the CLOSED lane (POD-1188): the one thing this menu offers is
           // the inverse of Tuck, and a snoozed row was never tucked — its own
           // inverse is Unsnooze, which the live row's menu already carries.
-          onContextMenu={
-            lane === 'closed' ? (event) => openFoldedMenu(row.issue.id, event) : undefined
-          }
+          onContextMenu={lane === 'closed' ? foldedMenuFor(row.issue.id) : undefined}
         />
       ) : row.kind === 'issue' ? (
+        // NARROW PROPS ONLY (POD-4421): the row object (stable via
+        // `reuseUnifiedWorkRows`), its title / progress / origin tick as
+        // scalars, and stable callbacks. No whole arrays, no fresh closures —
+        // an unrelated publish leaves every prop referentially equal.
         <UnifiedIssueRow
           row={row}
           shortcutDigit={shortcutNumbers.get(row.issue.id)}
-          allWorktreePaths={allWorktreePaths}
-          sessions={sessions}
-          issues={issues}
-          selectedIssueId={selectedIssueId}
-          paneA={paneA}
+          displayTitle={titleById.get(row.issue.id) ?? row.issue.title}
+          progress={progressById.get(row.issue.id)}
+          origin={originById.get(row.issue.id) ?? null}
+          active={activeById.get(row.issue.id) ?? false}
+          resolveMenuData={menuResolverFor(row.issue.id)}
           now={now}
-          onSelectIssue={(issue) => {
-            setSelectedClosedPlacement({ issueId: issue.id, folded })
-            selectIssue(issue)
-          }}
-          onSelectPanelForIssue={(issue, sessionId) => {
-            setSelectedClosedPlacement({ issueId: issue.id, folded })
-            selectPanelForIssue(issue, sessionId)
-          }}
-          onOpenIssue={openIssuePage}
-          onRenameIssue={renameIssue}
-          onGripDown={draggable ? onGripDown : undefined}
+          onSelectIssue={handleSelectIssue}
+          onSelectPanelForIssue={handleSelectPanelForIssue}
+          onOpenIssue={handleOpenIssue}
+          onRenameIssue={handleRenameIssue}
+          onGripDown={draggable ? handleGripDown : undefined}
           onTuck={
             rowAwaitsTuck(row, selectedIssueId, selectedWasFolded, now)
-              ? () => tuck(row.issue.id)
+              ? tuckForId(row.issue.id)
               : undefined
           }
         />
       ) : (
-        <UnifiedWorktreeRow
+        // Roster band: the same narrowing through the memo boundary at the top
+        // of this file — a per-row filtered issue list with a stable reference
+        // plus per-path stable handlers.
+        <MemoUnifiedWorktreeRow
           row={row}
-          issues={issues}
+          issues={filteredIssuesForWorktree(
+            row.worktree.path,
+            row.worktree.sessions.map((s) => s.issueId),
+          )}
           active={selectedIssueId === null && selectedWorktree === row.worktree.path}
           paneA={paneA}
           now={now}
-          onSelect={() => selectWorktree(row.worktree.path)}
-          onSelectPanel={(sid) => selectPanel(row.worktree.path, sid)}
+          onSelect={worktreeSelectFor(row.worktree.path)}
+          onSelectPanel={worktreePanelFor(row.worktree.path)}
         />
       )
     return (
