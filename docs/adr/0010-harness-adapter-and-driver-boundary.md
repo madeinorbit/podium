@@ -5,9 +5,9 @@
 | **Status** | Proposed (phase reviewer grades lanes 1.3–6.2 against this text) |
 | **Date** | 2026-09-20 |
 | **Issue** | POD-4468 (lane 1.2 of POD-4414; recreates POD-4123 from POD-4104) |
-| **File** | `docs/architecture/adr-10-harness-adapter-and-driver-boundary.md` (this leaf owns **only** this file) |
+| **File** | `docs/adr/0010-harness-adapter-and-driver-boundary.md` (this leaf owns **only** this file) |
 | **Related** | ADR 8 (amends D4.3); spec REV 2 `docs/plans/pod-4414-harness-adapter-spec.html`; review `docs/plans/pod-4414-review-outcome.md`; POD-3190 artifact #30 DESIGN-FROM-SCRATCH.md; POD-4104 spec rev 2; `docs/plans/pod-4414-terminal-layers-in-code.html` |
-| **Format note** | ADRs 1–9 live in `docs/adr/`; this record lands at the epic-required `docs/architecture/` path and follows the ADR 8 frontmatter/decision style. |
+| **Format note** | This record lives with ADRs 1–9 in `docs/adr/` under the pack's zero-padded naming (moved from `docs/architecture/` per POD-4485) and follows the ADR 8 frontmatter/decision style. |
 
 ## Context
 

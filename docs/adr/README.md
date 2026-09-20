@@ -20,6 +20,12 @@ tip `2ddfec21`. Source proposal committed at
 | 8 | [0008-package-topology.md](0008-package-topology.md) | Target package/app layout (L0–L4), node/host renames, transcript-core placement; ratifies SP-3b58 resolve-from-source; turbo membership for new packages |
 | 9 | [0009-identity-ownership-sharing.md](0009-identity-ownership-sharing.md) | **Identity, ownership and sharing (sole decider).** Principal taxonomy (human / agent-delegated / machine / system); owner, visibility and grants as first-class annotations; the five visibility classes; default-closed with a totality test; agent delegation (live intersection, human ceiling, attribution pair); machines as owned compute (`see`/`use`/`manage`); cross-boundary writes; superagent per-user vs undelegated system principals. **§3 is the pack's canonical open-items list (O1–O6)** |
 
+## Later ADRs (outside the POD-279 pack)
+
+| ADR | File | Decides |
+|---|---|---|
+| 10 | [0010-harness-adapter-and-driver-boundary.md](0010-harness-adapter-and-driver-boundary.md) | Harness adapter and driver boundary (POD-4468, 2026-09-20). One `Adapter` per harness, three mechanisms plus Descriptor projection, no vendor behaviour outside `adapters/` and driver families, one `@podium/harness` package, three-scope capability. Amends ADR 8 D4.3 only. |
+
 ## Amendments (2026-07-29 — multi-user)
 
 The **first five** encode the human decisions of 2026-07-28/29 recorded in
