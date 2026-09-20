@@ -8,21 +8,28 @@
  * Everything else in W3 wraps: `create` is the existing spawn, `events` is the
  * existing observer fan-out, `export` is the existing handoff package. This one
  * file is the exception, and the plan says so openly. The injection mechanics
- * live SERVER-side today, in `apps/server/src/modules/sessions/inbox.ts` — the
+ * lived SERVER-side, in `apps/server/src/modules/sessions/inbox.ts` — the
  * bracketed paste, the 90ms CR, the submit-verify retries, the ready-poll drain
- * — while the daemon only writes base64 `input` frames. A driver that lives on
- * the machine cannot wrap code that runs on the server, so the mechanics are
+ * — while the daemon only wrote base64 `input` frames. A driver that lives on
+ * the machine cannot wrap code that runs on the server, so the mechanics were
  * PORTED here, over ports, with every constant carried across verbatim.
+ * POD-4414 Phase 0 (POD-4427) then deleted the server delivery copy outright:
+ * this file is now the ONLY copy of the harness-delivery mechanics. The envelope
+ * constructor the server keeps (`sessions/paste.ts`) serves shell raw transport
+ * (`sendShellText`), not harness delivery — there is no second delivery path left
+ * to keep in sync.
  *
  * THE CONSTANTS ARE NOT RE-TUNED. Each one below is a measured fact about a
  * shipped CLI's key parser or its startup settle, and re-deriving them from
  * first principles is how a working stack quietly stops working. They are copied
  * with their original names so a diff against `inbox.ts` reads as identity.
  *
- * THE SERVER'S COPY REMAINS AUTHORITATIVE FOR THE FLAG-OFF PATH until W4 retires
- * it. Duplication for one phase is deliberate: the alternative is migrating every
- * caller in the same change that introduces the mechanism, which is the change
- * nobody can review.
+ * THE SERVER'S COPY IS RETIRED. The one-phase duplication this paragraph used to
+ * declare ended when the flag-off path it was written for was deleted instead of
+ * retired (POD-4414 Phase 0, POD-4427). What remains of the duplication is the
+ * envelope constructor alone, and it is split by side on purpose: the driver's
+ * `paste.ts` builds it for harness turns, the server's `paste.ts` for shell
+ * transport.
  *
  * ONE THING IS DELIBERATELY *NOT* A FAITHFUL PORT (POD-2708). The mechanics came
  * across verbatim; the TRUST BOUNDARY did not, because carrying it over verbatim

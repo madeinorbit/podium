@@ -9,12 +9,12 @@
  * a person's Experimental settings, and every flag in it defaults off with no
  * way to express "default on". This plane is not per-user — one session's fine
  * watch is shared by everyone looking at it, and one viewer with the flag on
- * would turn the token stream on for a viewer with it off. Worse, the whole
- * feature only exists for sessions already behind `PODIUM_RUNTIME_CONTRACT`,
- * whose operator is by definition someone who sets env vars.
+ * would turn the token stream on for a viewer with it off. Its operator is by
+ * definition someone who sets env vars.
  *
- * So it is a machine switch, shaped exactly like the one the contract path
- * itself uses (`apps/daemon/src/runtime/flag.ts`), and slice 5 of the spec is a
+ * So it is a machine switch (POD-4414 Phase 0 removed the runtime-contract
+ * switches this comment used to point at — `PODIUM_RUNTIME_CONTRACT` and
+ * `apps/daemon/src/runtime/flag.ts` no longer exist), and slice 5 of the spec is a
  * change to {@link TURN_PREVIEW_DEFAULT} after the soak — one line, in one
  * place, with the off switch still available.
  *

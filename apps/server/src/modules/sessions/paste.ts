@@ -7,15 +7,15 @@
  * driver, in `packages/agent-runtime/src/drivers/terminal/paste.ts`. Read it
  * there; this file is deliberately the same rule and not a second opinion.
  *
- * WHY A SECOND COPY EXISTS AT ALL. It mirrors, exactly, the duplication the
- * driver's own header already declares: the injection MECHANICS were ported to
- * the driver while `inbox.ts` stayed authoritative for the flag-off path, so
- * until W4 retires the server's copy there are two places on the live write
- * path that put caller text inside a bracketed paste. A boundary applied at
- * only one of them is a boundary that ships behind a feature flag, and the live
- * path today is the other one — `SessionInbox.typeText` is what the steward's
- * nudges and the automations drain reach, and neither of those has ever passed
- * through message rendering.
+ * WHY A SECOND COPY EXISTS AT ALL. The injection mechanics were ported to the
+ * driver while `inbox.ts` stayed authoritative for the flag-off path — and then
+ * POD-4414 Phase 0 (POD-4427) deleted the server's delivery copy instead of
+ * retiring it. So this file is no longer one of two delivery paths: it is the
+ * envelope constructor for shell raw transport (`SessionInbox.sendShellText`)
+ * plus the shared sanitize rule (`sanitizeForInjection`, borrowed by the
+ * message renderer). A boundary applied at the driver alone would leave shell
+ * sends — the one write path with no harness behind it — unwrapped, which is
+ * why this copy stays.
  *
  * A THIRD BUILDER EXISTS AND IS NOT COVERED: `packages/composer` exports the two
  * markers publicly and wraps text in them without a strip. It ships dark, so it
