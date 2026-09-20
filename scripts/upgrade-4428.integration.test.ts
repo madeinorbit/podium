@@ -68,7 +68,17 @@
  * process env afterwards. Child envs are built from the scrubbed set.
  */
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
@@ -171,19 +181,39 @@ function spawnLogged(
 ): ProcHandle {
   let captured = ''
   const logPath = join(runLogDir || stateDir, `log-${tag}.txt`)
-  const child = spawn(BUN, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
-  child.stdout?.on('data', (c) => {
-    captured += c
-    if (captured.length > 512_000) captured = captured.slice(-256_000)
+  // File-backed first: pipe capture alone has proven lossy across a daemon
+  // restart cycle, and a silent child is the worst failure mode here.
+  let fileFd: number | undefined
+  try {
+    fileFd = openSync(logPath, 'a')
+  } catch {}
+  const child = spawn(BUN, args, {
+    cwd,
+    env,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
   })
-  child.stderr?.on('data', (c) => {
-    captured += c
+  const note = (c: unknown): void => {
+    const s = String(c)
+    captured += s
     if (captured.length > 512_000) captured = captured.slice(-256_000)
-  })
+    if (fileFd !== undefined) {
+      try {
+        writeSync(fileFd, s)
+      } catch {}
+    }
+  }
+  child.stdout?.on('data', note)
+  child.stderr?.on('data', note)
   child.on('exit', () => {
     try {
       writeFileSync(logPath, captured)
     } catch {}
+    if (fileFd !== undefined) {
+      try {
+        closeSync(fileFd)
+      } catch {}
+    }
   })
   if (!child.pid) throw new Error(`upgrade-4428: failed to spawn ${tag}`)
   const pid = child.pid
@@ -226,6 +256,11 @@ function openDb(ro = true): {
   close: () => void
 } {
   const db = openDatabase(join(stateDir, 'podium.db'), ro ? { readOnly: true } : undefined)
+  // The servers write constantly (boot, heartbeats, drains); a lock-free
+  // read would flake SQLITE_BUSY against them.
+  try {
+    db.exec('PRAGMA busy_timeout = 15000')
+  } catch {}
   return {
     get: (sql: string, ...params: unknown[]) => db.prepare(sql).get(...params) as unknown,
     all: (sql: string, ...params: unknown[]) => db.prepare(sql).all(...params) as unknown[],
@@ -833,7 +868,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.close()
         }
       }
-      const { api: newApi } = await login(newPort)
+      const { api: newApi, cookie: newCookie } = await login(newPort)
       newDaemon = await bootDaemon(ROOT, newPort, {
         machineToken: (newServer as unknown as { machineToken: string }).machineToken,
         machineId: hostId,
@@ -938,29 +973,44 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // 30s quiet afterwards proves no second forward. A legacy retype would
       // have deleted the rows instead — the 4427-reverted red detector.
       {
-        await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
-        await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
+        // The owner poll starts BEFORE the resurrect (both NULL guaranteed)
+        // at 250ms — the forwards land seconds apart (one verification
+        // window each), so the transition order is observed, not inferred.
         let tRow1Set = 0
         let tRow2Set = 0
-        await waitFor(
-          () => {
-            const db = openDb()
-            try {
-              const rows = db.all(
-                'SELECT text, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
-                sQueue,
-              ) as any[]
-              const now = Date.now()
-              if (!tRow1Set && rows[0]?.delivery_owner === 'daemon') tRow1Set = now
-              if (!tRow2Set && rows[1]?.delivery_owner === 'daemon') tRow2Set = now
-              return tRow1Set > 0 && tRow2Set > 0
-            } finally {
-              db.close()
+        const pollOwners = (): boolean => {
+          const db = openDb()
+          try {
+            const rows = db.all(
+              'SELECT text, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
+              sQueue,
+            ) as any[]
+            const now = Date.now()
+            if (!tRow1Set && rows[0]?.delivery_owner === 'daemon') tRow1Set = now
+            if (!tRow2Set && rows[1]?.delivery_owner === 'daemon') tRow2Set = now
+            return tRow1Set > 0 && tRow2Set > 0
+          } finally {
+            db.close()
+          }
+        }
+        if (pollOwners()) throw new Error('upgrade-4428: rows already reserved pre-resurrect')
+        await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
+        // The owner poll runs CONCURRENTLY with the live-wait: the justBound
+        // drain starts at bind, possibly before live is visible, and both
+        // reserves would land before a sequential poll ever starts. At 250ms
+        // against ~5s-apart forwards, the transition order is observed.
+        await Promise.all([
+          waitStatus(newApi, sQueue, 'live', 'resumed queue session'),
+          (async () => {
+            const deadline = Date.now() + 120_000
+            while (!pollOwners()) {
+              if (Date.now() > deadline) {
+                throw new Error('upgrade-4428: timed out waiting for both rows reserved post-upgrade')
+              }
+              await sleep(250)
             }
-          },
-          '(5) both rows reserved post-upgrade',
-          120_000,
-        )
+          })(),
+        ])
         expect(tRow1Set, '(5) row 1 reserved').toBeGreaterThan(0)
         expect(tRow2Set, '(5) row 2 reserved').toBeGreaterThan(0)
         expect(tRow1Set < tRow2Set, '(5) FIFO order: row 1 reserved before row 2').toBe(true)
@@ -1045,8 +1095,17 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       }
     } finally {
       try {
-        const { copyFileSync } = await import('node:fs')
-        if (stateDir) copyFileSync(join(stateDir, 'podium.db'), join(runLogDir, 'final-podium.db'))
+        const { copyFileSync, existsSync } = await import('node:fs')
+        // Copy the WAL pair too: recent writes (including the whole
+        // post-upgrade phase) may live only there.
+        for (const suffix of ['', '-wal', '-shm', '-journal']) {
+          const src = join(stateDir, `podium.db${suffix}`)
+          if (stateDir && existsSync(src)) {
+            try {
+              copyFileSync(src, join(runLogDir, `final-podium.db${suffix}`))
+            } catch {}
+          }
+        }
       } catch {}
       if (newDaemon) {
         await newDaemon.kill().catch(() => {})
