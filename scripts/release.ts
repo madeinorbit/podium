@@ -427,9 +427,10 @@ export function writeClientBuildRecord(
  * a build can actually satisfy, and it means a Mac user and a Linux user on the same
  * release are served byte-identical web assets.
  *
- * The per-platform builds run in SEQUENCE. They share dist-bun/abduco.bin — the fixed
- * path the compiled binary embeds its helper from — so running them concurrently would
- * race to leave the wrong architecture's abduco inside a bundle. See scripts/build-bun.ts.
+ * The per-platform builds run in SEQUENCE. They share dist-bun/abduco.bin and
+ * dist-bun/podium-host.bin — the fixed paths the compiled binary embeds its
+ * helpers from — so running them concurrently would race to leave the wrong
+ * architecture's helpers inside a bundle. See scripts/build-bun.ts.
  */
 export async function prepareHeadlessCross(
   platforms: readonly HeadlessPlatform[] = RELEASE_PLATFORMS,

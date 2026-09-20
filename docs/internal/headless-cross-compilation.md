@@ -11,24 +11,28 @@ on, and how to regenerate the pieces.
 ## Why there used to be a matrix
 
 `bun build --compile` has always been able to emit a foreign binary. The thing
-that pinned each bundle to a runner of its own architecture was the **abduco
-helper**: the compiled daemon embeds it (see `scripts/embedded-abduco.ts`,
-because a compiled executable has no `abduco.c` on disk to compile at runtime),
-and the helper was built by the host's own `cc`. So the release workflow ran
+that pinned each bundle to a runner of its own architecture was the **helpers**:
+the compiled daemon embeds abduco (see `scripts/embedded-abduco.ts`) and
+podium-host (see `scripts/embedded-host.ts`), because a compiled executable has
+neither `abduco.c` nor `host.c` on disk to compile at runtime, and both helpers
+were built by the host's own `cc`. So the release workflow ran
 x64 on one runner and arm64 on another, and Darwin was not published at all.
 
 Two tools remove that constraint:
 
 | Tool | What it does | Where it is used |
 |---|---|---|
-| `zig cc` | cross-compiles `abduco.c` for every target from Linux | `scripts/abduco-cross.ts` |
+| `zig cc` | cross-compiles `abduco.c` and `host.c` for every target from Linux | `scripts/abduco-cross.ts`, `scripts/host-cross.ts` |
 | `rcodesign` | replaces Bun's linker signature with identifier `podium` + the five JIT entitlement keys | `scripts/build-bun.ts` |
 
-## The abduco helper
+## The abduco and podium-host helpers
 
-`scripts/abduco-cross.ts` builds it, from
+`scripts/abduco-cross.ts` builds abduco, from
 `packages/pty/vendor/abduco/abduco.c` — the same vendored source the native
-build uses.
+build uses. `scripts/host-cross.ts` builds podium-host, from
+`packages/pty/vendor/podium-host/host.c`, the same way: same four `zig cc`
+targets, same content-addressed cache shape, same staging-then-rename publish,
+same static musl Linux link, same ad-hoc rcodesign signature on Darwin.
 
 **Nothing is checked in.** The repository holds no binaries and this did not
 become the first: a committed helper can drift from the source under review,
@@ -37,9 +41,11 @@ the source hash:
 
 ```
 ~/.cache/podium/abduco/<projectKey>/<platform>-<sha256(abduco.c)[0:16]>
+~/.cache/podium/podium-host/<projectKey>/<platform>-<sha256(host.c)[0:16]>
 ```
 
-Touch `abduco.c` and every platform's entry is invalidated at once. A CI cache
+Touch `abduco.c` or `host.c` and every platform's entry for that helper is
+invalidated at once. A CI cache
 restored from another commit is therefore either exactly right or invisible;
 there is no state in which a stale helper is served under a current name.
 
@@ -48,11 +54,14 @@ is a hash of the repository's common git directory — the same identity the sha
 Turbo cache uses (`scripts/shared-cache-dir.ts`) — so every linked worktree of one
 repository shares one cache. That is the point: a release packages from a fresh
 detached worktree in /tmp, where an in-checkout `dist-bun/abduco-cache` is always
-created empty and every release paid the compiles again. Print the resolved path
-with `bun scripts/abduco-cross.ts --print-cache-dir`, and override it with
-`PODIUM_ABDUCO_CACHE_DIR` — which is how CI pins it back to `dist-bun/abduco-cache`,
-the fixed path an `actions/cache` `path:` can name. CI
-caches that directory keyed on `hashFiles('packages/pty/vendor/abduco/abduco.c')`,
+created empty and every release paid the compiles again. Print the resolved paths
+with `bun scripts/abduco-cross.ts --print-cache-dir` and
+`bun scripts/host-cross.ts --print-cache-dir`, and override them with
+`PODIUM_ABDUCO_CACHE_DIR` / `PODIUM_HOST_CACHE_DIR` — which is how CI pins them back
+to `dist-bun/abduco-cache` / `dist-bun/host-cache`,
+the fixed paths an `actions/cache` `path:` can name. CI
+caches those directories keyed on `hashFiles('packages/pty/vendor/abduco/abduco.c')`
+and `hashFiles('packages/pty/vendor/podium-host/host.c')`,
 so the compiles are paid for once.
 
 Regenerate by hand (Linux, `zig` and `rcodesign` on PATH):
@@ -60,6 +69,8 @@ Regenerate by hand (Linux, `zig` and `rcodesign` on PATH):
 ```sh
 bun scripts/abduco-cross.ts                              # all four
 bun scripts/abduco-cross.ts --platform darwin-aarch64 --force
+bun scripts/host-cross.ts                                # all four
+bun scripts/host-cross.ts --platform darwin-aarch64 --force
 ```
 
 Two details that are not obvious and will bite anyone who re-derives the flags:
@@ -77,8 +88,8 @@ Two details that are not obvious and will bite anyone who re-derives the flags:
 **Linux helpers link musl, statically.** The native leg linked the runner's
 glibc, which quietly made that glibc version the floor for every machine that
 took the bundle. A static musl helper has no libc floor at all. It is the one
-deliberate behavioural difference between the cross and native legs, and it is
-what the arm64 A/B check exists to confirm (see below).
+deliberate behavioural difference between the cross and native legs for either
+helper, and it is what the arm64 A/B check exists to confirm (see below).
 
 ## The Darwin signature
 

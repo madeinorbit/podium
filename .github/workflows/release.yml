@@ -24,10 +24,11 @@ permissions:
 # one, so the same tag drives the headless and desktop halves of one release to the same channel.
 # Edge assets always live under the fixed `edge` tag — that URL is baked into shipped updaters.
 env:
-  # Pin the abduco cache back inside the checkout so actions/cache can name it as a
-  # `path`. The default is durable and outside the checkout (POD-3162), which is what a
+  # Pin the helper caches back inside the checkout so actions/cache can name them as a
+  # `path`. The defaults are durable and outside the checkout (POD-3162), which is what a
   # developer box and a /tmp release worktree need and what an ephemeral runner cannot use.
   PODIUM_ABDUCO_CACHE_DIR: dist-bun/abduco-cache
+  PODIUM_HOST_CACHE_DIR: dist-bun/host-cache
   # `inputs.channel` is a required choice with a default, so it is never the empty string and
   # cannot trip the Actions ternary bug the desktop workflow documents. A rolling channel's TAG
   # is its own name; only stable is told a tag, and its tag is the ref that triggered it.
@@ -40,8 +41,8 @@ jobs:
   # ONE LINUX JOB, FOUR PLATFORMS [spec:SP-6144 section 8b].
   #
   # This used to be a matrix — x64 on Blacksmith Ubuntu, arm64 on a native ARM runner —
-  # because the compiled daemon embeds a native abduco helper and the helper had to be
-  # built on the architecture that would run it. `zig cc` builds that helper for every
+  # because the compiled daemon embeds native helpers and each helper had to be
+  # built on the architecture that would run it. `zig cc` builds those helpers for every
   # target from here. `rcodesign` does not add the Darwin signature — `bun build --compile`
   # already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out). rcodesign REPLACES
   # that with identifier podium plus the five Bun JIT entitlement keys. Drop rcodesign
@@ -54,21 +55,25 @@ jobs:
       TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
       - uses: actions/checkout@v4
-      # zig cross-compiles the abduco helper. rcodesign re-signs Darwin Mach-Os with
+      # zig cross-compiles the helpers. rcodesign re-signs Darwin Mach-Os with
       # Bun's JIT entitlements — it does not add the signature (Bun already did).
       # All tool versions come from mise.toml — the one pin site dev machines share.
       # That includes pigz, the parallel compressor for the release tarballs (optional at
       # build time; scripts/parallel-gzip.ts falls back to gzip if it is missing).
       - uses: jdx/mise-action@v2
-      # The abduco cache is content-addressed on the vendored source, so this key is the
-      # honest one: touch abduco.c and every platform's helper is rebuilt. PODIUM_ABDUCO_CACHE_DIR
-      # pins it back inside the checkout: locally the default is a durable per-repository
-      # path outside it (POD-3162), which buys nothing on an ephemeral runner and cannot be
-      # named by an actions/cache `path`.
+      # The helper caches are content-addressed on the vendored sources, so these keys are the
+      # honest ones: touch abduco.c or host.c and every platform's helper for that source
+      # is rebuilt. PODIUM_*_CACHE_DIR pins them back inside the checkout: locally the
+      # defaults are durable per-repository paths outside it (POD-3162), which buy nothing
+      # on an ephemeral runner and cannot be named by an actions/cache `path`.
       - uses: actions/cache@v4
         with:
           path: dist-bun/abduco-cache
           key: abduco-cross-${{ hashFiles('packages/pty/vendor/abduco/abduco.c') }}
+      - uses: actions/cache@v4
+        with:
+          path: dist-bun/host-cache
+          key: host-cross-${{ hashFiles('packages/pty/vendor/podium-host/host.c') }}
       - uses: actions/cache@v4
         with:
           path: ~/.bun/install/cache
@@ -296,7 +301,7 @@ jobs:
         with:
           install_args: bun
       # The published smoke opens the Darwin bundles it cannot execute, so it needs the
-      # Mach-O signature reader — and zig, to rebuild the reference abduco helpers it
+      # Mach-O signature reader — and zig, to rebuild the reference helpers it
       # checks the published binaries against. Without those references the embedded-helper
       # check could only be waived, and a waived check reads as a pass.
       - uses: jdx/mise-action@v2
@@ -304,6 +309,10 @@ jobs:
         with:
           path: dist-bun/abduco-cache
           key: abduco-cross-${{ hashFiles('packages/pty/vendor/abduco/abduco.c') }}
+      - uses: actions/cache@v4
+        with:
+          path: dist-bun/host-cache
+          key: host-cross-${{ hashFiles('packages/pty/vendor/podium-host/host.c') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Verify the published assets and signature
         env:

@@ -1,6 +1,7 @@
 # Runtime and build toolchain pins — the ONE place these versions are spelled.
 #
-# zig cross-compiles the abduco helper (scripts/abduco-cross.ts) and rcodesign re-signs
+# zig cross-compiles the abduco and podium-host helpers (scripts/abduco-cross.ts,
+# scripts/host-cross.ts) and rcodesign re-signs
 # Darwin Mach-Os with Bun's JIT entitlements (scripts/build-bun.ts). Both change the bytes
 # a release ships, so they are pinned; scripts/tool-pins.ts reads this file and
 # resolveZig/resolveRcodesign refuse a mismatched local install. CI installs from this

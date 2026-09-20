@@ -12,7 +12,8 @@
  * CROSS-COMPILATION [spec:SP-6144 §8b]. With `--target` this builds the bundle for
  * ANOTHER platform from a Linux box: `bun build --compile --target=…` produces the
  * foreign executable, `scripts/abduco-cross.ts` produces the foreign abduco helper
- * with `zig cc`, and a Darwin target is re-signed with `rcodesign`. bun build --compile
+ * with `zig cc`, `scripts/host-cross.ts` produces the foreign podium-host helper
+ * the same way, and a Darwin target is re-signed with `rcodesign`. bun build --compile
  * already emits an ad-hoc LINKER_SIGNED Mach-O (identifier a.out, no entitlements);
  * rcodesign replaces that signature with identifier podium plus the five Bun JIT
  * entitlement keys. Drop rcodesign and the binary still "signs" — what breaks is JIT,
@@ -20,8 +21,9 @@
  * matrix from one runner per architecture to one Linux job for all four.
  *
  * ONE TARGET PER INVOCATION, and deliberately so: the compiled binary embeds abduco
- * through a static `with { type: 'file' }` import of the FIXED path dist-bun/abduco.bin,
- * so two targets building at once would race to leave the wrong helper there. Callers
+ * and podium-host through static `with { type: 'file' }` imports of the FIXED paths
+ * dist-bun/abduco.bin and dist-bun/podium-host.bin,
+ * so two targets building at once would race to leave the wrong helpers there. Callers
  * that want several platforms (scripts/release.ts, the dev publisher) run this script
  * once per platform, in sequence.
  */
@@ -66,6 +68,7 @@ import {
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
 import { crossBuildAbduco, type HeadlessPlatform, resolveRcodesign } from './abduco-cross'
+import { crossBuildHost } from './host-cross'
 import { buildClients } from './build-clients'
 import {
   assertNoCallerSuppliedClientRootDigest,
@@ -595,13 +598,20 @@ export function packageHeadlessForFreshClients(
             console.log(`[build-bun] abduco -> ${abduco}`)
           }
           // podium-host (SPEC-6) rides beside abduco as a second static
-          // `with { type: 'file' }` import. A cross build has no cross helper for
-          // it yet, and Windows has no forkpty: both embed an EMPTY placeholder,
-          // which materializeEmbeddedHost reads as "no host here" and the daemon
-          // falls back to abduco.
-          if (spec || !hostSupported()) {
+          // `with { type: 'file' }` import, cross-built the same way: the host cc
+          // cannot emit a foreign architecture or object format, so a cross build
+          // comes from the zig-cc cache — built from the SAME vendored host.c,
+          // keyed on that source's hash. Copied to the fixed path the compiled
+          // binary's `with { type: 'file' }` import reads. Windows has no forkpty
+          // and still embeds an EMPTY placeholder, which materializeEmbeddedHost
+          // reads as "no host here" and the daemon falls back to abduco.
+          if (!hostSupported(spec?.nodePlatform ?? process.platform)) {
             console.log('[build-bun] podium-host: no prebuild for this target (abduco fallback)')
             writeFileSync(`${out}/podium-host.bin`, '')
+          } else if (spec) {
+            const hostHelper = crossBuildHost(spec.platform, { root })
+            cpSync(hostHelper, `${out}/podium-host.bin`)
+            console.log(`[build-bun] embedded podium-host (${spec.platform}) <- ${hostHelper}`)
           } else {
             console.log('[build-bun] prebuilding podium-host…')
             const host = buildVendoredHost(`${out}/podium-host.bin`)

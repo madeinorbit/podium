@@ -15,16 +15,18 @@ import {
   HEADLESS_PLATFORMS,
   isHeadlessPlatform,
 } from './abduco-cross'
+import { HOST_TARGETS, hostCachePath, hostCompileFlags } from './host-cross'
+import { HOST_FEATURES } from '../packages/pty/src/host-bin.js'
 import { BUN_TARGETS, bunTargetForPlatform, parseBuildTarget, targetOutputRoot } from './build-bun'
 import { headlessAsset, loadPreparedHeadless, RELEASE_PLATFORMS } from './release'
 import { CLIENT_ROOT_DIGEST_FILE } from './client-build-root-digest'
 
 /**
- * The four platform names are spoken by five things — the abduco cache, the bun
- * --compile target table, the release asset names, the manifest keys and the CLI's own
- * host derivation. These tests exist because a mismatch between any two of them is
- * invisible until a machine asks for an update and is told its platform was never
- * published.
+ * The four platform names are spoken by six things — the abduco cache, the
+ * podium-host cache, the bun --compile target table, the release asset names,
+ * the manifest keys and the CLI's own host derivation. These tests exist because
+ * a mismatch between any two of them is invisible until a machine asks for an
+ * update and is told its platform was never published.
  */
 describe('the headless platform set', () => {
   it('ships exactly the four platforms a release publishes', () => {
@@ -36,11 +38,16 @@ describe('the headless platform set', () => {
     ])
   })
 
-  it('gives every platform a bun --compile target and an abduco target', () => {
+  it('gives every platform a bun --compile target and helper targets', () => {
     for (const platform of HEADLESS_PLATFORMS) {
       const target = bunTargetForPlatform(platform)
       expect(BUN_TARGETS[target].platform).toBe(platform)
       expect(ABDUCO_TARGETS[platform].zigTarget).toBeTruthy()
+      expect(HOST_TARGETS[platform].zigTarget).toBeTruthy()
+      // The two helpers ship to the same machines, so they cross-compile for the
+      // same triples and agree on which outputs are Mach-O.
+      expect(HOST_TARGETS[platform].zigTarget).toBe(ABDUCO_TARGETS[platform].zigTarget)
+      expect(HOST_TARGETS[platform].darwin).toBe(ABDUCO_TARGETS[platform].darwin)
     }
   })
 
@@ -97,6 +104,34 @@ describe('abduco cross-build inputs', () => {
   it('links Linux helpers against musl, so the bundle carries no glibc floor', () => {
     expect(ABDUCO_TARGETS['linux-x86_64'].zigTarget).toContain('musl')
     expect(ABDUCO_TARGETS['linux-aarch64'].zigTarget).toContain('musl')
+    expect(HOST_TARGETS['linux-x86_64'].zigTarget).toContain('musl')
+    expect(HOST_TARGETS['linux-aarch64'].zigTarget).toContain('musl')
+  })
+})
+
+describe('podium-host cross-build inputs', () => {
+  it('keys the cache on the source hash, so an edited host.c invalidates every platform', () => {
+    const a = hostCachePath('linux-aarch64', 'a'.repeat(64), '/repo/')
+    const b = hostCachePath('linux-aarch64', 'b'.repeat(64), '/repo/')
+    expect(a).not.toBe(b)
+    expect(a).toContain('linux-aarch64-')
+  })
+
+  it('reserves Mach-O header room and the util.h shim only for Darwin targets', () => {
+    const darwin = hostCompileFlags(HOST_TARGETS['darwin-x86_64'], '/inc')
+    expect(darwin).toContain('-Wl,-headerpad,0x8000')
+    expect(darwin).toContain('/inc')
+    const linux = hostCompileFlags(HOST_TARGETS['linux-x86_64'], '/inc')
+    expect(linux).not.toContain('-Wl,-headerpad,0x8000')
+    expect(linux).not.toContain('/inc')
+  })
+
+  it('stamps the native feature level, so the cross helper reports what the resolver expects', () => {
+    // host-bin.ts builds with -DVERSION="<features>-podium" and resolves by that
+    // feature level; a cross helper stamped otherwise would never be selected.
+    expect(hostCompileFlags(HOST_TARGETS['linux-x86_64'], '/inc')).toContain(
+      `-DVERSION="${HOST_FEATURES}-podium"`,
+    )
   })
 })
 
