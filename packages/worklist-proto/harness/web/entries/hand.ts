@@ -1,4 +1,26 @@
-import { mountStub } from '../entrylib'
+import { handArm } from '../../../arms/hand/arm'
+import { createRowSource } from '../../../shared/src/row-source'
+import { buildCorpus } from '../../src/fixture/index'
+import { startEngineFromCorpus } from '../../src/engine-bootstrap'
+import { mountPage, readScale } from '../entrylib'
 
+const scale = readScale()
 const sha = new URLSearchParams(window.location.search).get('sha') ?? 'dev'
-mountStub('hand', 'pending POD-4446 (M1 hand-rolled arm)', sha)
+const corpus = buildCorpus(scale, 4443)
+const boot = await startEngineFromCorpus(corpus)
+const source = createRowSource(boot.engine, boot.replica)
+mountPage({
+  arm: 'hand',
+  createArm: () => handArm,
+  source: source.source,
+  boot,
+  scale,
+  counts: {
+    issues: corpus.stats.issues,
+    sessions: corpus.stats.sessions,
+    repos: corpus.stats.repos,
+    worktrees: corpus.stats.worktrees,
+  },
+  runtimeSha: sha,
+  el: document.getElementById('root')!,
+})
