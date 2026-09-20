@@ -1,0 +1,212 @@
+<title>Daemon Link Planes</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#f7f8f7;--ink:#1d2426;--muted:#5d6b70;--rule:#d5dbdd;--panel:#ffffff;
+  --accent:#1f7a8c;--accent-soft:#d9eef2;--absent:#b3503f;--absent-soft:#f3e1dd;--shared:#8a6d1f;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#171c1e;--ink:#e6ebec;--muted:#9aa8ad;--rule:#33403f;--panel:#1f2629;
+  --accent:#5fb8c9;--accent-soft:#1c3a41;--absent:#e08a78;--absent-soft:#3d2622;--shared:#d3b15a;}}
+:root[data-theme="dark"]{
+  --bg:#171c1e;--ink:#e6ebec;--muted:#9aa8ad;--rule:#33403f;--panel:#1f2629;
+  --accent:#5fb8c9;--accent-soft:#1c3a41;--absent:#e08a78;--absent-soft:#3d2622;--shared:#d3b15a;}
+body{background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.55;margin:0;padding-block:32px 64px;padding-inline:20px}
+main{max-width:920px;margin:0 auto}
+h1{font-size:28px;font-weight:600;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance}
+h2{font-size:20px;font-weight:600;margin:48px 0 12px;text-wrap:balance}
+h3{font-size:16px;font-weight:600;margin:28px 0 8px}
+p{max-width:68ch;margin:0 0 12px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.sub{color:var(--muted);max-width:70ch;margin-bottom:28px}
+code{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.92em}
+figure{margin:20px 0 8px;background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:16px;overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto;min-width:640px;color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif}
+figcaption{font-size:13px;color:var(--muted);margin-top:12px;max-width:80ch}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0 20px}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--rule)}
+th{font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td:first-child{white-space:nowrap;font-weight:500}
+.wrap{overflow-x:auto}
+ul{max-width:72ch;padding-left:20px}li{margin-bottom:6px}
+.keep{color:var(--accent);font-weight:500}.drop{color:var(--absent);font-weight:500}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--muted);margin:8px 0 0}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.l-yes::before{background:var(--accent)}.l-no::before{background:transparent;border:1.5px solid var(--absent)}.l-shared::before{background:var(--shared)}
+.rec{border-left:3px solid var(--accent);padding:4px 14px;margin:16px 0 24px;background:var(--accent-soft);border-radius:0 4px 4px 0;max-width:72ch}
+.rec p{margin:6px 0}
+</style>
+<main>
+<div class="eyebrow">Design note · single harness transport path · parked</div>
+<h1>Daemon Link Planes</h1>
+<p class="sub">Every link between server, supervisor, daemon and the processes on a machine, the three kinds of traffic on them, and what splitting the server-to-daemon link would cost. Parked until the layer work is done; kept so the discussion is not lost.</p>
+<h2>1. The planes on the server-to-daemon link</h2>
+<p>Every link in the system, network and local, drawn once so the plane discussion is about real sockets. Then the planes, then what a split would cost.</p>
+
+<figure>
+<svg viewBox="0 0 1000 620" role="img" aria-label="Every link between browser, server, supervisor, daemon, podium-host and engine processes, labelled with its kind and endpoint; network links cross from the coordinating host on the left to one machine on the right; local links stay inside each box">
+  <defs>
+    <marker id="l-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
+    <marker id="l-arr2" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M10,0 L0,5 L10,10 z" fill="currentColor"/></marker>
+    <marker id="l-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+    <marker id="l-abs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--absent)"/></marker>
+  </defs>
+  <rect x="20" y="40" width="320" height="560" rx="6" fill="none" stroke="var(--rule)"/><text x="34" y="62" font-size="11" fill="var(--muted)">coordinating host (server)</text>
+  <rect x="540" y="40" width="440" height="560" rx="6" fill="none" stroke="var(--rule)"/><text x="554" y="62" font-size="11" fill="var(--muted)">one machine (daemon side)</text>
+  <text x="440" y="62" font-size="11" text-anchor="middle" fill="var(--muted)">network</text>
+  <!-- left nodes: supervisor top, server middle, browser bottom; local participant to the left of server -->
+  <g font-size="12" text-anchor="middle">
+    <rect x="180" y="90" width="120" height="44" rx="4" fill="none" stroke="currentColor"/><text x="240" y="108">supervisor</text><text x="240" y="124" fill="var(--muted)">parent process</text>
+    <rect x="180" y="220" width="120" height="44" rx="4" fill="none" stroke="currentColor"/><text x="240" y="238">server</text><text x="240" y="254" fill="var(--muted)">control plane</text>
+    <rect x="34" y="220" width="110" height="44" rx="4" fill="none" stroke="currentColor" stroke-dasharray="4 3"/><text x="89" y="238">local update</text><text x="89" y="254" fill="var(--muted)">participant</text>
+    <rect x="180" y="420" width="120" height="40" rx="4" fill="none" stroke="currentColor"/><text x="240" y="444">browser</text>
+  </g>
+  <!-- right nodes -->
+  <g font-size="12" text-anchor="middle">
+    <rect x="560" y="90" width="120" height="44" rx="4" fill="none" stroke="currentColor"/><text x="620" y="108">supervisor</text><text x="620" y="124" fill="var(--muted)">parent process</text>
+    <rect x="560" y="220" width="120" height="44" rx="4" fill="none" stroke="currentColor"/><text x="620" y="238">daemon</text><text x="620" y="254" fill="var(--muted)">sessions</text>
+    <rect x="800" y="400" width="120" height="44" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="860" y="418">podium-host</text><text x="860" y="434" fill="var(--muted)">one per session</text>
+    <rect x="800" y="500" width="120" height="44" rx="4" fill="none" stroke="currentColor"/><text x="860" y="518">engine</text><text x="860" y="534" fill="var(--muted)">codex / opencode</text>
+    <rect x="560" y="500" width="120" height="44" rx="4" fill="none" stroke="currentColor" stroke-dasharray="4 3"/><text x="620" y="518">native TUI</text><text x="620" y="534" fill="var(--muted)">under a host</text>
+  </g>
+  <!-- /machine: supervisor(left) <-> server is NOT a link; the /machine socket is supervisor(right) -> server(left) -->
+  <path d="M560,112 C 480,112 420,236 300,236" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#l-arr)" marker-start="url(#l-arr2)"/>
+  <text x="440" y="150" font-size="11" text-anchor="middle" fill="currentColor" font-weight="600">/machine · WebSocket · network</text>
+  <text x="440" y="164" font-size="10.5" text-anchor="middle" fill="var(--muted)">supervisor hello + machine-key challenge,</text>
+  <text x="440" y="177" font-size="10.5" text-anchor="middle" fill="var(--muted)">serviceAssignment, updateGrant, updateStatus</text>
+  <!-- /daemon -->
+  <path d="M300,250 L560,250" stroke="currentColor" stroke-width="1.5" fill="none" marker-end="url(#l-arr)" marker-start="url(#l-arr2)"/>
+  <text x="430" y="272" font-size="11" text-anchor="middle" fill="currentColor" font-weight="600">/daemon · WebSocket · network</text>
+  <text x="430" y="286" font-size="10.5" text-anchor="middle" fill="var(--muted)">session control (no seq/ack) + pty bytes</text>
+  <text x="430" y="299" font-size="10.5" text-anchor="middle" fill="var(--muted)">+ runtime events (outbox+ack)</text>
+  <text x="430" y="312" font-size="10.5" text-anchor="middle" fill="var(--absent)">+ updateGrant (compat route)</text>
+  <!-- left local: supervisor -> server ipc -->
+  <path d="M240,134 L240,220" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-end="url(#l-acc)" marker-start="url(#l-arr2)"/>
+  <text x="34" y="160" font-size="10.5" fill="var(--accent)">lifecycle channel · 'ipc' fd · local</text><text x="34" y="173" font-size="10.5" fill="var(--muted)">same shape as on the machine:</text><text x="34" y="186" font-size="10.5" fill="var(--muted)">the server is a supervised child too</text>
+  <!-- browser -> server -->
+  <path d="M240,420 L240,264" stroke="currentColor" fill="none" marker-end="url(#l-arr)" marker-start="url(#l-arr2)"/>
+  <text x="34" y="330" font-size="10.5" fill="var(--muted)">client WebSocket (SocketHub)</text><text x="34" y="343" font-size="10.5" fill="var(--muted)">tRPC + terminal frames</text><text x="34" y="356" font-size="10.5" fill="var(--muted)">with seq and epoch</text>
+  <!-- server -> local participant -->
+  <path d="M180,242 L144,242" stroke="currentColor" fill="none" marker-end="url(#l-arr)"/>
+  <text x="34" y="284" font-size="10" fill="var(--muted)">in-process: registers the</text><text x="34" y="297" font-size="10" fill="var(--muted)">server's own machine as</text><text x="34" y="310" font-size="10" fill="var(--muted)">an update participant</text>
+  <!-- right local: supervisor <-> daemon ipc -->
+  <path d="M620,134 L620,220" stroke="var(--accent)" stroke-width="1.5" fill="none" marker-end="url(#l-acc)" marker-start="url(#l-arr2)"/>
+  <text x="628" y="160" font-size="10.5" fill="var(--accent)">lifecycle channel · spawn 'ipc' fd · local</text><text x="628" y="173" font-size="10.5" fill="var(--muted)">ready/heartbeat/stop; control-request</text><text x="628" y="186" font-size="10.5" fill="var(--muted)">(swap, handover, topology) ↔ control-result</text>
+  <!-- right local: daemon -> supervisor update control -->
+  <path d="M680,230 C 840,230 840,100 680,100" stroke="var(--absent)" stroke-width="1.2" fill="none" stroke-dasharray="4 3" marker-end="url(#l-abs)"/>
+  <text x="852" y="90" font-size="10.5" fill="var(--absent)">machine-update-control</text><text x="852" y="103" font-size="10.5" fill="var(--absent)">HTTP over unix socket · local</text><text x="852" y="116" font-size="10.5" fill="var(--absent)">/grant /prepare /activate</text><text x="852" y="129" font-size="10.5" fill="var(--absent)">/cancel /status</text><text x="852" y="142" font-size="10.5" fill="var(--absent)">(daemon forwards a</text><text x="852" y="155" font-size="10.5" fill="var(--absent)">/daemon grant here)</text>
+  <!-- daemon -> host -->
+  <path d="M680,250 C 760,250 780,422 800,422" stroke="currentColor" fill="none" marker-end="url(#l-arr)"/>
+  <text x="700" y="330" font-size="10.5" fill="var(--muted)">host protocol · unix socket · local</text><text x="700" y="343" font-size="10.5" fill="var(--muted)">WRITE(id)/WRITTEN, DATA(seq), REPLAY, RESIZE</text>
+  <!-- daemon -> engine rpc -->
+  <path d="M680,258 C 740,258 740,522 800,522" stroke="currentColor" fill="none" stroke-dasharray="4 3" marker-end="url(#l-arr)"/>
+  <text x="690" y="470" font-size="10.5" fill="var(--muted)">JSON-RPC · unix socket under the</text><text x="690" y="483" font-size="10.5" fill="var(--muted)">instance runtime root · local</text>
+  <!-- TUI -> engine -->
+  <path d="M800,522 L680,522" stroke="currentColor" fill="none" marker-end="url(#l-arr)" opacity=".7"/>
+  <text x="742" y="560" font-size="10" text-anchor="middle" fill="var(--muted)">TUI reaches the engine by address</text>
+  <!-- all-in-one -->
+  <text x="34" y="500" font-size="10.5" fill="var(--muted)">All-in-one: server and daemon are one process;</text><text x="34" y="513" font-size="10.5" fill="var(--muted)">/daemon becomes the in-process LocalDaemonLink</text><text x="34" y="526" font-size="10.5" fill="var(--muted)">(same frames, by reference). The daemon then</text><text x="34" y="539" font-size="10.5" fill="var(--muted)">REJECTS a /daemon updateGrant as a duplicate route.</text>
+</svg>
+<figcaption>Every link that exists today, with its kind and endpoint. Two cross the network: /daemon for sessions and /machine for the fleet. Inside a machine the supervisor holds an unforgeable spawn channel to each child, and the daemon can reach the supervisor's update control over a local unix socket. The update grant is the one message that travels on two network links, which is the leftover the machine plane still has to shed.</figcaption>
+</figure>
+
+<h3>The update grant, confirmed</h3>
+<p>The <code>updateGrant</code> frame is a member of the /daemon control union and the daemon has a handler for it. That handler is a three-way switch, read from the daemon's boot environment. If the supervisor owns updates, the daemon forwards the grant to the supervisor over the local update-control socket. If the daemon has no parent server, it applies the grant itself, which is the pre-supervisor installation still being migrated. In an all-in-one process it answers with an update status of rejected, naming the duplicate route. The server, for its part, sends grants to whichever of the supervisor or the compatibility participant it has for that machine, and a supervisor always wins. So the machine plane is one link with a migration-window second inlet, not a missing plane.</p>
+
+
+<h3>What the split costs, honestly</h3>
+<ul>
+<li><strong>Two handshakes and two auth exchanges</strong> per daemon instead of one. The peer dialer is shared code, so this is one more call site, but it is one more thing that can be half up.</li>
+<li><strong>Two connection state machines</strong> with independent reconnect timers. "Daemon online" becomes "control up, stream up", and the UI has to say which one is missing.</li>
+<li><strong>Cross-plane ordering is no longer free.</strong> A kill on control and bytes on stream can arrive in either order. The epoch fence handles the dangerous direction: bytes for a Terminal that no longer exists are dropped. The benign direction, bytes arriving before the bind, is handled by the stream not opening until bind has answered.</li>
+<li><strong>The in-process local link</strong> for all-in-one deployments must model two channels too, or it silently keeps head-of-line blocking on the one topology that hides it.</li>
+<li><strong>Proxies and per-host connection limits.</strong> Two sockets per daemon doubles the count a tunnel or a corporate proxy sees. Small numbers, but it is a new line in the deployment notes.</li>
+<li><strong>Observability doubles.</strong> Each plane needs its own liveness, lag and window-size metrics, or a stall on one is misread as a stall on the other.</li>
+</ul>
+
+<h3>The alternatives, side by side</h3>
+<div class="wrap"><table>
+<tr><th>Option</th><th>What changes</th><th>Fixes head-of-line?</th><th>Fixes loss and duplicates?</th><th>Complexity added</th></tr>
+<tr><td>A. One socket, channels in the envelope</td><td>Every frame tagged with a channel; stream channel gets seq and ack</td><td>No. One TCP stream, one event loop, a slow handler still blocks the reader</td><td>Yes</td><td>Lowest</td></tr>
+<tr><td>B. Two sockets: control and stream</td><td>Stream traffic moves to its own connection with its own reader</td><td>Yes at the transport; not yet at the event loop</td><td>Yes</td><td>Moderate, listed above</td></tr>
+<tr><td>C. B plus a worker for the stream plane</td><td>The stream reader and Terminal I/O run on a worker thread in the daemon (and the fan-out on the server)</td><td>Yes, fully</td><td>Yes</td><td>Highest: shared state between threads, message passing for every byte</td></tr>
+<tr><td>D. Worker only, one socket</td><td>Handlers move off the loop, socket stays shared</td><td>Partly: the loop is free but frames still queue behind each other on the wire</td><td>No, unless A is done too</td><td>Moderate, and it does not fix the wire</td></tr>
+</table></div>
+
+<div class="rec">
+<p><strong>Recommendation: B now, C only when measured.</strong> A and B share the same envelope work, so B is A plus one connection. B makes each plane observable on its own, which is what turns "the terminal feels laggy" into a number. C is the right answer to a specific symptom, a stalled <code>frames</code> bucket in the daemon's loop profile, and should wait for that symptom to show up on B rather than be built on suspicion.</p>
+<p>The machine plane does not change. It is already a separate link and a separate process; the work is to say so and stop routing inventory and update traffic through the session socket.</p>
+</div>
+
+<h3>What stays the same regardless of option</h3>
+<ul>
+<li>The daemon dials out; the server never connects in. NAT and tunnels do not care how many sockets that is.</li>
+<li>Idempotency lives in handlers, not in the framing. A REST endpoint would need the same request ids and keys; it would only lose the push direction.</li>
+<li>Durability lives in podium-host, not in any connection. Every link can drop and the process, its ring and its lease stay where they are.</li>
+</ul>
+<h2>2. The server and daemon seam today</h2>
+<p>Where the six objects sit relative to the network, and where the code that crosses it lives. Verified on the integration base, 2026-09-20.</p>
+
+<figure>
+<svg viewBox="0 0 960 400" role="img" aria-label="Server side holds Session and the viewer-facing surface; daemon side holds Terminal, RuntimeDriver, DurableProcess and podium-host; between them the protocol package defines every frame shape; inbound routing is one place on each side, outbound sends are spread across many files on both sides">
+  <defs><marker id="s-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker></defs>
+  <rect x="20" y="30" width="330" height="340" rx="6" fill="none" stroke="var(--rule)"/><text x="34" y="52" font-size="11" fill="var(--muted)">apps/server (coordinating host)</text>
+  <rect x="610" y="30" width="330" height="340" rx="6" fill="none" stroke="var(--rule)"/><text x="624" y="52" font-size="11" fill="var(--muted)">apps/daemon + @podium/process (machine)</text>
+  <rect x="380" y="30" width="200" height="340" rx="6" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="480" y="52" font-size="11" text-anchor="middle" fill="var(--accent)">the seam</text>
+  <g font-size="12" text-anchor="middle">
+    <rect x="40" y="80" width="130" height="36" rx="4" fill="none" stroke="currentColor"/><text x="105" y="102">Session</text>
+    <rect x="40" y="130" width="130" height="36" rx="4" fill="none" stroke="currentColor"/><text x="105" y="152">Viewer surface</text>
+    <rect x="640" y="80" width="130" height="36" rx="4" fill="none" stroke="currentColor"/><text x="705" y="102">RuntimeDriver</text>
+    <rect x="640" y="130" width="130" height="36" rx="4" fill="none" stroke="currentColor"/><text x="705" y="152">Terminal</text>
+    <rect x="640" y="180" width="130" height="36" rx="4" fill="none" stroke="currentColor"/><text x="705" y="202">DurableProcess</text>
+    <rect x="640" y="230" width="130" height="36" rx="4" fill="var(--accent-soft)" stroke="var(--accent)"/><text x="705" y="252">podium-host</text>
+  </g>
+  <g font-size="10.5" fill="currentColor">
+    <text x="392" y="80">SHAPES · one place</text>
+    <text x="392" y="94" fill="var(--muted)">packages/protocol/src/messages/*</text>
+    <text x="392" y="107" fill="var(--muted)">control.ts (server→daemon, ~90 arms)</text>
+    <text x="392" y="120" fill="var(--muted)">daemon.ts (daemon→server), terminal.ts,</text>
+    <text x="392" y="133" fill="var(--muted)">binary-envelope.ts, local-link.ts</text>
+    <text x="392" y="165">INBOUND · one place each side</text>
+    <text x="392" y="179" fill="var(--muted)">server: gateway/daemon-frame-routing.ts</text>
+    <text x="392" y="192" fill="var(--muted)">  frame → port (10 ports), plane·class table</text>
+    <text x="392" y="205" fill="var(--muted)">daemon: control/registry.ts</text>
+    <text x="392" y="218" fill="var(--muted)">  one dispatcher, 17 handler families</text>
+    <text x="392" y="250" fill="var(--absent)">OUTBOUND · spread</text>
+    <text x="392" y="264" fill="var(--absent)">server: 24 files call the machine port</text>
+    <text x="392" y="277" fill="var(--absent)">  (relay.ts, session-*.ts, hosts, issues, …)</text>
+    <text x="392" y="290" fill="var(--absent)">daemon: 24 files call ctx.send(…)</text>
+    <text x="392" y="316">CORRELATION · one broker, partial</text>
+    <text x="392" y="330" fill="var(--muted)">modules/daemon-request.ts (requestId,</text>
+    <text x="392" y="343" fill="var(--muted)">timeout, no retry) covers rpc frames;</text>
+    <text x="392" y="356" fill="var(--muted)">spawn/kill/reattach/resize are uncorrelated</text>
+  </g>
+  <path d="M170,98 L380,98" stroke="currentColor" fill="none" marker-end="url(#s-arr)"/>
+  <path d="M580,98 L640,98" stroke="currentColor" fill="none" marker-end="url(#s-arr)"/>
+  <path d="M580,148 L640,148" stroke="currentColor" fill="none" marker-end="url(#s-arr)"/>
+  <path d="M170,148 L380,148" stroke="currentColor" fill="none" marker-end="url(#s-arr)" opacity=".5"/>
+  <text x="34" y="220" font-size="10.5" fill="var(--muted)">Session drives Driver and Terminal</text><text x="34" y="233" font-size="10.5" fill="var(--muted)">verbs through the seam; it holds</text><text x="34" y="246" font-size="10.5" fill="var(--muted)">no process and no socket.</text>
+  <text x="34" y="290" font-size="10.5" fill="var(--muted)">The viewer surface fans terminal</text><text x="34" y="303" font-size="10.5" fill="var(--muted)">frames to browsers with its own</text><text x="34" y="316" font-size="10.5" fill="var(--muted)">seq and epoch (terminal.ts).</text>
+  <text x="784" y="102" font-size="10.5" fill="var(--muted)">never crosses</text>
+  <text x="784" y="152" font-size="10.5" fill="var(--muted)">never crosses</text>
+  <text x="784" y="202" font-size="10.5" fill="var(--muted)">never crosses</text>
+  <text x="784" y="252" font-size="10.5" fill="var(--muted)">never crosses</text>
+  <text x="640" y="300" font-size="10.5" fill="var(--muted)">Nothing on the machine side knows the</text><text x="640" y="313" font-size="10.5" fill="var(--muted)">server exists except connection-state.ts</text><text x="640" y="326" font-size="10.5" fill="var(--muted)">and the handler families it dispatches to.</text>
+</svg>
+<figcaption>The seam is clean in three of four respects. Frame shapes live in one package. Inbound routing is one table on the server and one dispatcher on the daemon. Correlation has one broker, but only for the frames that were designed as RPCs. Outbound sends are the exception: two dozen files on each side reach the wire directly.</figcaption>
+</figure>
+
+<h3>Is it one clean seam?</h3>
+<div class="wrap"><table>
+<tr><th>Aspect</th><th>Where</th><th>Verdict</th></tr>
+<tr><td>Frame shapes</td><td><code>packages/protocol/src/messages/</code>: one zod union per direction, plus terminal, binary envelope and the in-process local link</td><td><span class="keep">clean</span>. Nothing crosses the network that is not declared here.</td></tr>
+<tr><td>Server inbound</td><td><code>apps/server/src/gateway/daemon-frame-routing.ts</code>: a total table from frame type to owning port (sessions, machines, hosts, conversations, rpc, headless, agentRelay, approvals, updates, logs) and the plane and class of each frame</td><td><span class="keep">clean</span>. One place to ask "who handles this frame".</td></tr>
+<tr><td>Daemon inbound</td><td><code>apps/daemon/src/control/registry.ts</code>: one dispatcher over 17 handler families (sessions, runtime, discovery, transcripts, files, exec, headless, handoff, workspace, approvals, credentials, inventory, logs, updates, server transfer, server endpoint, shipping)</td><td><span class="keep">clean</span>. The families are the honest list of what the daemon does for the server.</td></tr>
+<tr><td>Request correlation</td><td><code>apps/server/src/modules/daemon-request.ts</code>: one broker minting request ids with timeouts and no retry, used by <code>machines/rpc.ts</code> and the runtime gateway</td><td><span class="drop">partial</span>. Spawn, kill, reattach and resize are fire-and-forget with out-of-band replies matched by session id. The planes page lists this as the control-plane fix.</td></tr>
+<tr><td>Server outbound</td><td>24 files call the machine port directly: <code>relay.ts</code>, most of <code>modules/sessions/session-*.ts</code>, hosts, issues, approvals, logs, superagent</td><td><span class="drop">spread</span>. There is no single "daemon client" on the server. Phase 0 removes the worst caller (the inbox loop); the rest is a Phase 3 consolidation if the planes work happens.</td></tr>
+<tr><td>Daemon outbound</td><td>24 files call <code>ctx.send</code>; the outbox for durable runtime events lives in <code>connection-state.ts</code></td><td><span class="drop">spread</span>, but bounded: every send goes through one <code>send</code> on the connection state, so a stream-plane envelope can be added in one place.</td></tr>
+</table></div>
+<p>Where the six objects sit: Session and the viewer surface are server code and never hold a process or a socket. RuntimeDriver, Terminal, DurableProcess and podium-host are machine code and never know the server exists beyond the connection state that dispatches to them. The seam between is the protocol package for shapes and one router per side for inbound frames. That is the part this epic must keep clean, and POD-4437 pins it. Consolidating outbound sends into one daemon client per side is the first concrete item if this page is picked up: it is where a stream-plane envelope and a control-plane idempotency key would be added once instead of in two dozen files.</p>
+
+
+</main>
