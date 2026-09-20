@@ -18,11 +18,10 @@ describe('Claude SDK runtime selection', () => {
     ['generic-pty'],
     ['claude-pty', 'generic-pty'],
   ] satisfies AcceptedDriverId[][])('accepts retired preferences with inventory %j', (...available) => {
-    for (const requested of ['claude-pty', true] as const) {
+    for (const requested of ['claude-pty'] as const) {
       const result = resolveRuntimeDriver({
         ...base,
         requested,
-        machineDefault: 'claude-pty',
         available,
       })
       expect(result).toEqual({ ok: true, driverId: 'generic-pty' })
@@ -42,36 +41,24 @@ describe('Claude SDK runtime selection', () => {
       resolveRuntimeDriver({
         ...base,
         requested: undefined,
-        machineDefault: undefined,
         available: ['generic-pty', 'claude-sdk'],
       }),
     ).toEqual({ ok: true, driverId: 'generic-pty' })
   })
 
-  it('does not let a machine default opt every Claude session into the SDK', () => {
-    expect(
-      resolveRuntimeDriver({
-        ...base,
-        requested: undefined,
-        machineDefault: 'claude-sdk',
-        available: ['generic-pty', 'claude-sdk'],
-      }),
-    ).toEqual({ ok: true, driverId: 'generic-pty' })
-  })
-
-  it('only an explicit per-spawn SDK request overrides a machine default', () => {
-    const selectedByMachineDefault = resolveRuntimeDriver({
+  it('only an explicit per-spawn SDK request selects the SDK', () => {
+    // POD-4426: there is no machine-wide default left to override — omission
+    // stays headed, and only the per-spawn spelling selects the experiment.
+    const selectedByDefault = resolveRuntimeDriver({
       ...base,
       requested: undefined,
-      machineDefault: 'claude-sdk',
       available: ['generic-pty', 'claude-sdk'],
     })
-    expect(selectedByMachineDefault).toEqual({ ok: true, driverId: 'generic-pty' })
+    expect(selectedByDefault).toEqual({ ok: true, driverId: 'generic-pty' })
 
     const selectedExplicitly = resolveRuntimeDriver({
       ...base,
       requested: 'claude-sdk',
-      machineDefault: 'claude-sdk',
       available: ['generic-pty', 'claude-sdk'],
     })
     expect(selectedExplicitly).toEqual({ ok: true, driverId: 'claude-sdk' })
@@ -82,7 +69,6 @@ describe('Claude SDK runtime selection', () => {
       resolveRuntimeDriver({
         ...base,
         requested: 'claude-sdk',
-        machineDefault: undefined,
         available: ['generic-pty'],
       }),
     ).toEqual({ ok: true, driverId: 'claude-sdk' })
@@ -99,7 +85,6 @@ describe('Claude SDK runtime selection', () => {
         ...base,
         auth: 'subscription',
         requested: undefined,
-        machineDefault: undefined,
         available: admitted,
       }),
     ).toEqual({ ok: true, driverId: 'generic-pty' })
@@ -108,7 +93,6 @@ describe('Claude SDK runtime selection', () => {
         ...base,
         auth: 'subscription',
         requested: undefined,
-        machineDefault: undefined,
         available: ['generic-pty'],
       }),
     ).toEqual({ ok: true, driverId: 'generic-pty' })
@@ -120,7 +104,6 @@ describe('Claude SDK runtime selection', () => {
         ...base,
         auth: 'unknown',
         requested: undefined,
-        machineDefault: undefined,
         available: ['generic-pty', 'claude-sdk'],
       }),
     ).toEqual({ ok: true, driverId: 'generic-pty' })

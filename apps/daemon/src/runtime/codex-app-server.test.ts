@@ -330,7 +330,6 @@ describe('selection — server first, terminal fallback', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: undefined,
-      machineDefault: undefined,
       available: ['claude-pty', 'generic-pty', 'codex-app-server'],
       platform: 'linux',
     })
@@ -342,7 +341,6 @@ describe('selection — server first, terminal fallback', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: 'codex-app-server',
-      machineDefault: undefined,
       available: ['claude-pty', 'generic-pty', 'codex-app-server'],
       platform: 'linux',
     })
@@ -358,7 +356,6 @@ describe('selection — server first, terminal fallback', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: 'codex-app-server',
-      machineDefault: undefined,
       available: ['claude-pty', 'generic-pty'],
       platform: 'linux',
     })
@@ -373,7 +370,6 @@ describe('selection — server first, terminal fallback', () => {
     const resolved = resolveRuntimeDriver({
       agentKind: 'codex',
       requested: 'codex-app-sever' as never,
-      machineDefault: undefined,
       available: ['generic-pty', 'codex-app-server'],
       platform: 'linux',
     })
