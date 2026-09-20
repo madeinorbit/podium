@@ -781,8 +781,11 @@ function Fold({
  * per-id tuck thunk. An unrelated publish leaves every prop referentially
  * equal and the row stays cold; a clock tick still updates the rows whose
  * strings actually moved.
+ *
+ * Exported for the render-count probe (POD-4421); the list itself is the only
+ * production caller.
  */
-const WorkRow = memo(function WorkRow({
+export const WorkRow = memo(function WorkRow({
   row,
   label,
   progress,
