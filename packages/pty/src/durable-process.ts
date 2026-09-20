@@ -82,6 +82,19 @@ export interface DurableAttachment {
 export interface DurableAdapter {
   readonly kind: DurableKind
   spawn(opts: AbducoSpawnOptions): Promise<AgentSession>
+  /**
+   * Spawn a HEADLESS engine (POD-4433): no pty, pipes instead, stdout+stderr
+   * merged into the host's sequence-numbered ring. Same label/scope discipline
+   * as `spawn` — the label is what a restarted daemon re-adopts. Only the host
+   * backend implements it; abduco refuses loudly.
+   */
+  spawnHeadless(opts: HeadlessSpawnOptions): Promise<HostAgentSession>
+  /**
+   * Re-attach to a headless engine after a daemon restart, as the writer. The
+   * caller checks the lease on `ready`: a stale daemon still holding it means
+   * this generation must refuse loudly, not read along silently.
+   */
+  attachHeadless(opts: HeadlessAttachOptions): Promise<HostAgentSession>
   attach(opts: DurableAttachOptions): Promise<DurableAttachment>
   /** A live host owns the label AND its program is still running. */
   has(label: string): Promise<boolean>
@@ -96,6 +109,25 @@ export interface DurableAdapter {
 }
 
 /**
+ * What a headless engine spawn carries: everything a pty spawn does except the
+ * geometry. The engine's address (socket path, port+secret) travels beside the
+ * label in the family's own journal, never here — this stays harness-agnostic.
+ */
+export type HeadlessSpawnOptions = Omit<AbducoSpawnOptions, 'cols' | 'rows' | 'noPty' | 'backend'>
+
+export interface HeadlessAttachOptions {
+  label: string
+  /** Existing socket path; resolved from the label when absent. */
+  socketPath?: string
+  /**
+   * Resume point: `'tail'` for new output only — the right default for a
+   * protocol channel whose pre-restart correlation ids died with the old
+   * daemon — or a seq to replay exactly what was missed.
+   */
+  fromSeq?: bigint | 'tail'
+}
+
+/**
  * What the daemon holds: the primary adapter (spawns go there) plus every
  * adapter a session might still live under (reattach, has, kill, census).
  */
@@ -105,6 +137,8 @@ export interface DurableProcess {
   /** Host first, then abduco — the order a reattach probes. */
   readonly all: readonly DurableAdapter[]
   spawn(opts: AbducoSpawnOptions): Promise<AgentSession>
+  spawnHeadless(opts: HeadlessSpawnOptions): Promise<HostAgentSession>
+  attachHeadless(opts: HeadlessAttachOptions): Promise<HostAgentSession>
   /** The adapter and socket that currently hold `label`, probing host then abduco. */
   locate(
     label: string,
@@ -121,10 +155,15 @@ export interface DurableProcess {
 /** Backwards-compatible alias: the daemon predates the `DurableProcess` name. */
 export type Durable = DurableProcess
 
+const NO_HEADLESS =
+  'abduco has no pty-less mode: headless engines require the podium-host backend'
+
 export function abducoDurableAdapter(): DurableAdapter {
   return {
     kind: 'abduco',
     spawn: (opts) => spawnAbducoAgent(opts),
+    spawnHeadless: (opts) => Promise.reject(new Error(`${NO_HEADLESS} (label '${opts.label}')`)),
+    attachHeadless: (opts) => Promise.reject(new Error(`${NO_HEADLESS} (label '${opts.label}')`)),
     async attach(opts) {
       // The agent has been running all along at a size of its own, and
       // `lastKnownGeometry` is only what the server last KNEW — after a daemon
@@ -166,6 +205,15 @@ export function hostDurableAdapter(): DurableAdapter {
   return {
     kind: 'host',
     spawn: (opts) => spawnHostAgent(opts),
+    spawnHeadless: (opts) => spawnHostAgent({ ...opts, noPty: true }),
+    attachHeadless: (opts) =>
+      Promise.resolve(
+        attachHostAgent({
+          label: opts.label,
+          ...(opts.socketPath ? { socketPath: opts.socketPath } : {}),
+          fromSeq: opts.fromSeq ?? 'tail',
+        }),
+      ),
     async attach(opts) {
       const session: HostAgentSession = attachHostAgent({
         label: opts.label,
@@ -213,6 +261,8 @@ export function createDurableProcess(
     primary,
     all,
     spawn: (opts) => primary.spawn(opts),
+    spawnHeadless: (opts) => primary.spawnHeadless(opts),
+    attachHeadless: (opts) => primary.attachHeadless(opts),
     async locate(label, env, opts) {
       const deadline = Date.now() + (opts?.waitMs ?? 0)
       for (;;) {

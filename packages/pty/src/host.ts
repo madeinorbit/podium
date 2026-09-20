@@ -773,12 +773,56 @@ export function attachHostAgent(opts: HostAttachOptions): HostAgentSession {
 
 // ---- spawn -------------------------------------------------------------------
 
+export interface HostCreateCommand {
+  socketPath: string
+  cwd: string
+  cmd: string
+  args?: string[]
+  cols?: number
+  rows?: number
+  /** Pipes instead of a pty: the headless-engine mode (POD-4433). */
+  noPty?: boolean
+}
+
+/**
+ * The `podium-host create` argv, pure so the engine lane pins it hermetically.
+ * `--no-pty` and `--cols/--rows` are exclusive — the binary refuses the mix,
+ * and failing here names the caller rather than the child's stderr.
+ */
+export function hostCreateArgs(opts: HostCreateCommand): string[] {
+  const tail = ['--cwd', opts.cwd, '--', opts.cmd, ...(opts.args ?? [])]
+  if (opts.noPty) {
+    if (opts.cols !== undefined || opts.rows !== undefined) {
+      throw new Error('podium-host --no-pty and --cols/--rows are exclusive')
+    }
+    return ['create', '--socket', opts.socketPath, '--no-pty', ...tail]
+  }
+  if (opts.cols === undefined || opts.rows === undefined) {
+    throw new Error('podium-host create needs --cols/--rows (or --no-pty for a headless engine)')
+  }
+  return [
+    'create',
+    '--socket',
+    opts.socketPath,
+    '--cols',
+    String(opts.cols),
+    '--rows',
+    String(opts.rows),
+    ...tail,
+  ]
+}
+
 /**
  * Create a host running the agent, then attach as the writer. Mirrors
  * {@link spawnAbducoAgent}: a live host under the label is ADOPTED; a create that
  * finds one already running (exit 3) adopts it too; on Linux the host is launched
  * in the same transient systemd scope, with the same unit name and budget, so it
  * outlives a redeploy.
+ *
+ * With `noPty` the child gets pipes instead of a pty and stdout+stderr merge
+ * into the same sequence-numbered ring; resize/size answer ERR NO_PTY. The
+ * label/scope/journal discipline is identical — that sameness is what lets a
+ * daemon restart re-adopt a headless engine (POD-4433).
  */
 export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostAgentSession> {
   const bin = resolveHostBin()
@@ -804,20 +848,15 @@ export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostAgen
   const live = await liveHostSocket(opts.label, childEnv)
   if (live && (await hostSocketAlive(live))) return adopt(live)
 
-  const createArgs = [
-    'create',
-    '--socket',
+  const createArgs = hostCreateArgs({
     socketPath,
-    '--cols',
-    String(opts.cols),
-    '--rows',
-    String(opts.rows),
-    '--cwd',
-    opts.cwd ?? process.cwd(),
-    '--',
-    opts.cmd,
-    ...(opts.args ?? []),
-  ]
+    cwd: opts.cwd ?? process.cwd(),
+    cmd: opts.cmd,
+    ...(opts.args ? { args: opts.args } : {}),
+    ...(opts.cols !== undefined ? { cols: opts.cols } : {}),
+    ...(opts.rows !== undefined ? { rows: opts.rows } : {}),
+    ...(opts.noPty ? { noPty: true as const } : {}),
+  })
   const execOpts = { cwd: opts.cwd ?? process.cwd(), env: childEnv } as const
   const attachCreated = async (): Promise<HostAgentSession> => {
     const path = await waitForHostSocket(opts.label, childEnv)

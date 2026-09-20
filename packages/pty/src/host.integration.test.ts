@@ -32,6 +32,7 @@ import {
   spawnHostAgent,
 } from './host.js'
 import type { AgentSession } from './session.js'
+import { createDurableProcess } from './durable-process.js'
 
 const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
   try {
@@ -556,5 +557,119 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
       { encoding: 'utf8', timeout: 5000 },
     )
     expect(r.status).toBe(0) // connected, then closed by the host without an answer
+  }, 30_000)
+})
+
+describe.skipIf(!hasCompiler)('podium-host pty-less engines through DurableProcess (POD-4433)', () => {
+  it('12. spawnHeadless round-trips stdin/stdout on the merged ring with hasPty=false', async () => {
+    const durable = createDurableProcess('host', { host: true, abduco: false })
+    const l = label('engine')
+    const s = await durable.spawnHeadless({
+      label: l,
+      cmd: process.execPath,
+      args: ['-e', 'process.stdin.pipe(process.stdout)'],
+      cwd: root,
+    })
+    sessions.push(s)
+    const w = await s.ready
+    expect(w.hasPty).toBe(false)
+    expect(w.childPid).toBeGreaterThan(0)
+    expect(s.pid).toBe(w.childPid)
+    let out = ''
+    s.connection.onData((_seq, d) => {
+      out += d.toString()
+    })
+    await s.connection.write(Buffer.from('ping\n'))
+    await waitFor(() => out === 'ping\n', 'pipe echo through the merged ring')
+  }, 30_000)
+
+  it('13. size operations on a headless engine are refused with ERR NO_PTY', async () => {
+    const durable = createDurableProcess('host', { host: true, abduco: false })
+    const l = label('nosize')
+    const s = await durable.spawnHeadless({
+      label: l,
+      cmd: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      cwd: root,
+    })
+    sessions.push(s)
+    await s.ready
+    await expect(s.connection.resize(10, 10)).rejects.toMatchObject({ code: HostErr.NO_PTY })
+    await expect(s.connection.size()).rejects.toMatchObject({ code: HostErr.NO_PTY })
+  }, 30_000)
+
+  it('14. a daemon restart re-attaches to the SAME child; EXITED carries the real status', async () => {
+    const first = createDurableProcess('host', { host: true, abduco: false })
+    const l = label('restart')
+    const s1 = await first.spawnHeadless({
+      label: l,
+      cmd: process.execPath,
+      args: ['-e', `process.stdin.once('data', () => process.exit(3)); setInterval(() => {}, 1000)`],
+      cwd: root,
+    })
+    const w1 = await s1.ready
+    expect(w1.hasPty).toBe(false)
+    // The daemon dies: its connection detaches, nothing is killed.
+    s1.dispose()
+    await wait(300)
+
+    // A new daemon generation: the engine is still there, and the writer lease
+    // is free again — a stale daemon holding it would refuse loudly instead.
+    const second = createDurableProcess('host', { host: true, abduco: false })
+    expect(await second.has(l)).toBe(true)
+    const s2 = await second.attachHeadless({ label: l, fromSeq: 'tail' })
+    sessions.push(s2)
+    const w2 = await s2.ready
+    expect(w2.lease).toBe(true)
+    expect(w2.childPid).toBe(w1.childPid)
+
+    // Exit status arrives through the host's EXITED frame, not a dead pipe.
+    const exited = new Promise<{ code: number; signal: number }>((resolve) =>
+      s2.connection.onExit((code, signal) => resolve({ code, signal })),
+    )
+    await s2.connection.write(Buffer.from('quit\n'))
+    const status = await exited
+    expect(status.code).toBe(3)
+  }, 30_000)
+
+  it('15. stderr merges into the same ring and replay replays both', async () => {
+    const durable = createDurableProcess('host', { host: true, abduco: false })
+    const l = label('merged')
+    const s = await durable.spawnHeadless({
+      label: l,
+      cmd: process.execPath,
+      args: ['-e', 'process.stdout.write("out\\n"); process.stderr.write("err\\n")'],
+      cwd: root,
+    })
+    sessions.push(s)
+    await s.ready
+    let live = ''
+    s.connection.onData((_seq, d) => {
+      live += d.toString()
+    })
+    await waitFor(() => live.includes('out\n') && live.includes('err\n'), 'both streams in the ring')
+    // A fresh reader replays the merged bytes with their original seqs.
+    const path = hostSocketPath(l)
+    const replayed = await new Promise<string>((resolve, reject) => {
+      const c = connectHost(path, { mode: 'reader', fromSeq: 0n })
+      let text = ''
+      c.onData((_seq, d) => {
+        text += d.toString()
+      })
+      c.welcome.then(() => c.replay(1 << 20).then(() => resolve(text), reject), reject)
+      setTimeout(() => {
+        c.destroy()
+        resolve(text)
+      }, 3000).unref?.()
+    })
+    expect(replayed).toContain('out\n')
+    expect(replayed).toContain('err\n')
+  }, 30_000)
+
+  it('16. the abduco backend refuses headless spawns instead of forking a pty', async () => {
+    const durable = createDurableProcess('abduco', { host: false, abduco: true })
+    await expect(
+      durable.spawnHeadless({ label: label('never'), cmd: 'sh', cwd: root }),
+    ).rejects.toThrow(/no pty-less mode/)
   }, 30_000)
 })
