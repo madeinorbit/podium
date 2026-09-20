@@ -76,11 +76,18 @@ echo "native --version: $nver"
 pass "the cross-built binary runs on $(uname -m) and reports the same version as the native one"
 
 # --- The embedded abduco: materialized by the real code path, then exercised ---
+# NOT `--version` [POD-3773]. Materialization is the compiled entry's
+# `afterInstanceStateClaim` callback (scripts/cli-compiled.ts), and since "keep diagnostics
+# state-free" (d1f21b79) `--version` is answered BEFORE that claim, on purpose, so asking a
+# binary its version cannot create a state root. `channel` is the cheapest invocation on the
+# other side of the claim. The same probe was wrong in smoke-headless-bundle.sh; it was fixed
+# there first and this copy was missed, which nothing noticed because this script has not
+# reached its behaviour section since 2026-08-21.
 materialize_abduco() {
   local root="$1" state="$2"
   rm -rf "$state"
   env -u PODIUM_ABDUCO -u PODIUM_AGENT_RELAY PODIUM_STATE_DIR="$state" PODIUM_HOME="$root" \
-    "$root/podium" --version >/dev/null 2>&1 || true
+    timeout 60 "$root/podium" channel >/dev/null 2>&1 || true
   [ -x "$state/bin/abduco" ] || fail "$root did not materialize an executable abduco into $state/bin"
   echo "$state/bin/abduco"
 }
