@@ -302,6 +302,9 @@ export interface IsolationBudget {
  * say NO (that failure is kept as the armed control test, never weakened).
  */
 export function assertIsolation(result: CountResult, budget: IsolationBudget): void {
+  // Both directions are guarded in count-harness.test.ts. Keep it that way: every
+  // other caller asserts this THROWS (the legacy control exists to fail), so a
+  // change that made it throw unconditionally would break every arm silently.
   if (result.rowsCommitted > budget.rowsCommitted) {
     const top = Object.entries(result.commitsByRow)
       .sort((a, b) => b[1] - a[1])
