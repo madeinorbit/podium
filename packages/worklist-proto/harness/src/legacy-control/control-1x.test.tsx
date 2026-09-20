@@ -11,7 +11,6 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../../shared/src/row-source'
 import { GROWTH_CORPORA, startScenarioEngine } from '../../../shared/src/scenarios'
@@ -65,13 +64,13 @@ describe('legacy control at 1x', () => {
       // carry the verdict under box load; walls land via the browser driver
       // when the box is quiet (see docs/plans/pod-4441-harness.md).
       const repos = ctx.engine.getSnapshot().repos as { worktrees?: unknown[] }[]
-      const resultsDir = join(
-        fileURLToPath(new URL('.', import.meta.url)),
-        '..',
-        '..',
-        'browser',
-        'results',
-      )
+      // Results dir, lane-independent: turbo runs the package lane with
+      // cwd=packages/worklist-proto, test:file and the unit lane with the
+      // repo root (`import.meta.url` is not a file URL under the transform).
+      const cwd = process.cwd()
+      const resultsDir = cwd.endsWith(join('packages', 'worklist-proto'))
+        ? join(cwd, 'harness', 'browser', 'results')
+        : join(cwd, 'packages', 'worklist-proto', 'harness', 'browser', 'results')
       mkdirSync(resultsDir, { recursive: true })
       writeFileSync(
         join(resultsDir, 'control-1x-counts.json'),
