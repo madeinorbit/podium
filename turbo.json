@@ -163,10 +163,8 @@
     },
     "@podium/web#test": {
       "dependsOn": [],
-      "env": ["PODIUM_D1_PROOF", "PODIUM_D7_PROOF"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/client-core/proofs/d1/*.{ts,tsx}",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",
@@ -520,10 +518,8 @@
     },
     "@podium/mobile#test": {
       "dependsOn": [],
-      "env": ["PODIUM_D1_PROOF", "PODIUM_D7_PROOF"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/client-core/proofs/d1/*.{ts,tsx}",
         "$TURBO_ROOT$/vitest.config.ts",
         "$TURBO_ROOT$/vitest.unit.config.ts",
         "$TURBO_ROOT$/vitest.smoke-requirements.ts",

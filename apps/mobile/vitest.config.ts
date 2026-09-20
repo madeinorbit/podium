@@ -85,9 +85,6 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
     alias: [
       ...sharedAliases,
-      // The proof dependency is owned by client-core; transform its ESM entry so
-      // its React import follows mobile's alias instead of its CJS peer graph.
-      { find: /^mobx-react-lite$/, replacement: fileURLToPath(new URL('../../packages/client-core/node_modules/mobx-react-lite/dist/mobxreactlite.esm.js', import.meta.url)) },
       // An ABSOLUTE replacement, because this rewrite also fires for inlined
       // third-party code (react-native-svg below), whose files live in the
       // isolated linker's store — a bare `react-native-web` would be resolved
@@ -155,7 +152,7 @@ export default defineConfig({
         // Gesture Handler and Worklets publish extensionless internal imports;
         // Reanimated imports a directory; Safe Area and SVG otherwise reach
         // React Native's Flow source through externalized CommonJS entries.
-        inline: [...mobileVitestResolution.inlineDependencies, 'mobx-react-lite', '@tanstack/react-db', 'use-sync-external-store'],
+        inline: [...mobileVitestResolution.inlineDependencies],
       },
     },
     // `one-react.ts` last: it turns a drifted checkout into a message that names the
