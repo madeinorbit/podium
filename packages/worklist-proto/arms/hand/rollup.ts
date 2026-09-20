@@ -174,8 +174,7 @@ export class RollupModule {
       }
     }
     if (this.spinOffTip(issue.id) !== null) return true
-    const dependents = (issue as SliceIssue & { dependents?: Array<{ type: string }> }).dependents ?? []
-    return dependents.some((dep) => dep.type === 'discovered-from')
+    return (this.indexes.dependentsOf.get(issue.id) ?? []).some((dep) => dep.type === 'discovered-from')
   }
 
   // ---------------------------------------------------------- progress

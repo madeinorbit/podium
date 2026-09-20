@@ -233,37 +233,37 @@ export function issueAbandoned(issue: Pick<SliceIssue, 'stage' | 'closedReason'>
   return closeOutcome(issue) === 'cancelled'
 }
 
-interface GitFields {
-  branch?: string | null
-  gitState?: { shared?: boolean; merged?: boolean; ahead?: number } | null
+interface WireExtra {
+  supersededBy?: string
+  duplicateOf?: string
 }
 
-function wireExtra(issue: SliceIssue): GitFields & { supersededBy?: string; duplicateOf?: string; dependents?: Array<{ id: string; type: string }> } {
-  return issue as SliceIssue & GitFields & { supersededBy?: string; duplicateOf?: string; dependents?: Array<{ id: string; type: string }> }
+function wireExtra(issue: SliceIssue): WireExtra {
+  return issue as SliceIssue & WireExtra
 }
 
-/** issueHasUnmergedDelivery (slices/issues.ts:361, private). */
-function hasUnmergedDelivery(issue: SliceIssue): boolean {
-  const extra = wireExtra(issue)
-  const git = extra.gitState
-  return (
-    Boolean(extra.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
-  )
-}
-
-/** issueAwaitingMerge (slices/issues.ts:369). */
-export function issueAwaitingMerge(issue: SliceIssue): boolean {
-  return issueFinished(issue) && !issueAbandoned(issue) && hasUnmergedDelivery(issue)
+/**
+ * issueAwaitingMerge (slices/issues.ts:369) is always false in the worklist:
+ * it reads `branch`/`gitState`, which the navigation model never carries
+ * (deriveIssueViews drops them — replica/issue-views.ts has no such read),
+ * so the legacy slice never sees an unmerged delivery. The oracle encodes
+ * that; a "better" merge reading would fail parity (spec: legacy wins).
+ */
+export function issueAwaitingMerge(_issue: SliceIssue): boolean {
+  return false
 }
 
 export type PendingDecision = 'merge' | 'review' | null
 
-/** issuePendingDecision (slices/issues.ts:391). */
+/**
+ * issuePendingDecision (slices/issues.ts:391) over model fields: without
+ * gitState only the review branch can fire — finished non-review issues
+ * hold no open question in the worklist.
+ */
 export function issuePendingDecision(issue: SliceIssue): PendingDecision {
   if (!issueFinished(issue) && issue.stage !== 'review') return null
   if (issue.blocked === true) return null
   if (issueAbandoned(issue)) return null
-  if (hasUnmergedDelivery(issue)) return 'merge'
   return issue.stage === 'review' ? 'review' : null
 }
 

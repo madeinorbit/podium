@@ -28,8 +28,10 @@ export class RowsModule {
     if (!this.visible.isVisible(id)) return null
     const summary = this.summary.summaries.get(id)
     const aggregate = this.rollup.aggregates.get(id)
-    const place = this.groups.placement.get(id)
-    if (summary === undefined || aggregate === undefined || place === undefined) return null
+    if (summary === undefined || aggregate === undefined) return null
+    // `closed` is the fold predicate, not the lane: pinned settled rows read
+    // closed while rendering in PINNED (the oracle projects rowInClosedFold
+    // directly, independent of lanes).
     return {
       id,
       displayRef: summary.displayRef,
@@ -41,7 +43,7 @@ export class RowsModule {
       asking: aggregate.asking,
       band: summary.band,
       repoKey: summary.repoKey,
-      closed: place.lane === 'closed',
+      closed: this.groups.closedOf(id),
     }
   }
 

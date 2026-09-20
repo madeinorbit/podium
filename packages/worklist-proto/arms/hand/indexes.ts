@@ -64,6 +64,10 @@ export class IndexSet {
   readonly originOf = new Map<string, string>()
   /** R4 adjacency: origin id -> live issues naming it (spin-off branches). */
   readonly spinOffChildren = new Map<string, Set<string>>()
+  /** Incoming edges per issue (the model's derived `dependents`). */
+  readonly dependentsOf = new Map<string, Array<{ id: string; type: string }>>()
+  /** Outgoing targets per issue, for diffing dependent seats. */
+  private readonly outgoingDeps = new Map<string, Array<{ to: string; type: string }>>()
   /** displayRef join: repo prefix per repo id. */
   readonly prefixByRepoId = new Map<string, string | null>()
   /** Issues per repo id (prefix-change fan-out). */
@@ -137,6 +141,38 @@ export class IndexSet {
       else this.originOf.set(id, nextOrigin)
       this.stats.index()
       out.push({ kind: 'OriginChanged', id })
+    }
+    // Incoming edges (dependents): re-derive from this issue's outgoing deps,
+    // the way deriveIssueViews does — the wire's `dependents` is not read.
+    // The dep's `id` names the edge target (the discovered-from origin).
+    const outgoing = (issue?.deps ?? []).map((dep) => ({ to: dep.id, type: dep.type }))
+    const prevOutgoing = this.outgoingDeps.get(id) ?? []
+    const same =
+      prevOutgoing.length === outgoing.length &&
+      prevOutgoing.every((edge, i) => edge.to === outgoing[i]?.to && edge.type === outgoing[i]?.type)
+    if (!same) {
+      for (const edge of prevOutgoing) {
+        const edges = this.dependentsOf.get(edge.to)
+        if (edges !== undefined) {
+          const kept = edges.filter((entry) => entry.id !== id)
+          if (kept.length === 0) this.dependentsOf.delete(edge.to)
+          else this.dependentsOf.set(edge.to, kept)
+          this.stats.index()
+        }
+      }
+      if (issue === undefined) {
+        this.outgoingDeps.delete(id)
+      } else {
+        this.outgoingDeps.set(id, outgoing)
+        for (const edge of outgoing) {
+          const edges = this.dependentsOf.get(edge.to) ?? []
+          edges.push({ id, type: edge.type })
+          this.dependentsOf.set(edge.to, edges)
+          this.stats.index()
+        }
+      }
+    } else if (issue === undefined) {
+      this.outgoingDeps.delete(id)
     }
     if (issue === undefined) {
       this.explicitByIssue.delete(id)
@@ -383,6 +419,8 @@ export class IndexSet {
     this.issuesByWorktree.clear()
     this.originOf.clear()
     this.spinOffChildren.clear()
+    this.dependentsOf.clear()
+    this.outgoingDeps.clear()
     this.prefixByRepoId.clear()
     this.issuesByRepo.clear()
     this.lanePaths.clear()
@@ -427,6 +465,15 @@ export class IndexSet {
           this.spinOffChildren.set(origin, siblings)
         }
         siblings.add(id)
+      }
+      const outgoing = (issue.deps ?? []).map((dep) => ({ to: dep.id, type: dep.type }))
+      if (outgoing.length > 0) {
+        this.outgoingDeps.set(id, outgoing)
+        for (const edge of outgoing) {
+          const edges = this.dependentsOf.get(edge.to) ?? []
+          edges.push({ id, type: edge.type })
+          this.dependentsOf.set(edge.to, edges)
+        }
       }
     }
     this.rebuildRoots()

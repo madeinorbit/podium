@@ -18,12 +18,20 @@ export class VisibleModule {
   readonly flat = new Set<string>()
   /** Sessionless rescue rows (visible without flat visibility). */
   readonly rescue = new Set<string>()
+  /**
+   * Flat-visible agent rows with no visible formal host (nestStartedByIssues
+   * drops top-level agent rows — "internal issues are operational detail:
+   * nested only, never top-level"). Human rows are never dropped.
+   */
+  readonly dropped = new Set<string>()
   /** Rescue refcounts: ancestor id -> visible descendants keeping it. */
   readonly keptBy = new Map<string, Set<string>>()
   /** Stored ancestor chain per visible row (for unchaining on moves). */
   private readonly chains = new Map<string, string[]>()
   /** Rows whose flat visibility can move with the coarse clock. */
   readonly decaySensitive = new Set<string>()
+  /** Flip listener for the agent worklist (set during apply). */
+  private flipSink: ((id: string) => void) | null = null
 
   constructor(
     private readonly tables: { issues: IssueTable },
@@ -101,13 +109,16 @@ export class VisibleModule {
    *  leaves visibility releases its own chain contributions, so multi-level
    *  rescue stacks collapse level by level. */
   private reconcile(issueId: string, out: Delta[]): void {
-    const want = this.flat.has(issueId) || (this.keptBy.get(issueId)?.size ?? 0) > 0
+    const want =
+      (this.flat.has(issueId) && !this.dropped.has(issueId)) ||
+      (this.keptBy.get(issueId)?.size ?? 0) > 0
     const has = this.visible.has(issueId)
     if (want && !has) {
       this.visible.add(issueId)
       if (!this.flat.has(issueId)) this.rescue.add(issueId)
       else this.rescue.delete(issueId)
       out.push({ kind: 'VisibilityChanged', id: issueId, visible: true })
+      this.flipSink?.(issueId)
       // Newly visible rows hold up their own ancestors in turn.
       this.chainRow(issueId, out)
     } else if (!want && has) {
@@ -116,6 +127,7 @@ export class VisibleModule {
       const chain = this.chains.get(issueId) ?? []
       this.chains.delete(issueId)
       out.push({ kind: 'VisibilityChanged', id: issueId, visible: false })
+      this.flipSink?.(issueId)
       for (const ancestor of chain) {
         this.dropKept(ancestor, issueId)
         this.reconcile(ancestor, out)
@@ -171,11 +183,46 @@ export class VisibleModule {
   private purge(issueId: string, out: Delta[]): void {
     this.keptBy.delete(issueId)
     this.chains.delete(issueId)
+    this.dropped.delete(issueId)
     for (const [ancestor, keepers] of [...this.keptBy]) {
       if (keepers.delete(issueId)) {
         if (keepers.size === 0) this.keptBy.delete(ancestor)
         this.reconcile(ancestor, out)
       }
+    }
+  }
+
+  /**
+   * Nesting host for an agent row (nestStartedByIssues): the nearest visible
+   * formal ancestor, walking through invisible intermediates, cycle-guarded.
+   * The started-by fallback is out of slice (spec §6) — and absent from the
+   * corpora — so an agent row with no visible formal host is dropped.
+   */
+  private hosted(issueId: string): boolean {
+    const issues = this.tables.issues.rows
+    const seen = new Set<string>([issueId])
+    let parentId = issues.get(issueId)?.parentId ?? null
+    while (parentId !== null && !seen.has(parentId)) {
+      seen.add(parentId)
+      if (this.visible.has(parentId)) return true
+      parentId = issues.get(parentId)?.parentId ?? null
+    }
+    return false
+  }
+
+  /** Re-check one row's agent drop; flip-free unless membership moves. */
+  private recheckAgent(issueId: string, out: Delta[]): void {
+    const issue = this.tables.issues.rows.get(issueId)
+    if (issue === undefined || !this.flat.has(issueId) || issue.audience !== 'agent') {
+      if (this.dropped.delete(issueId)) this.reconcile(issueId, out)
+      return
+    }
+    if (this.hosted(issueId)) {
+      if (this.dropped.delete(issueId)) this.reconcile(issueId, out)
+      if (this.visible.has(issueId)) this.chainRow(issueId, out)
+    } else if (!this.dropped.has(issueId)) {
+      this.dropped.add(issueId)
+      this.reconcile(issueId, out)
     }
   }
 
@@ -187,6 +234,23 @@ export class VisibleModule {
     while (stack.length > 0) {
       const id = stack.pop() as string
       if (this.visible.has(id)) out.push(id)
+      for (const child of this.indexes.childrenByParent.get(id) ?? []) {
+        if (seen.has(child)) continue
+        seen.add(child)
+        stack.push(child)
+      }
+    }
+    return out
+  }
+
+  /** Full formal subtree (visible or not) — agent rechecks reach dropped rows. */
+  private fullSubtree(childId: string): string[] {
+    const out: string[] = []
+    const stack = [childId]
+    const seen = new Set<string>([childId])
+    while (stack.length > 0) {
+      const id = stack.pop() as string
+      out.push(id)
       for (const child of this.indexes.childrenByParent.get(id) ?? []) {
         if (seen.has(child)) continue
         seen.add(child)
@@ -303,6 +367,43 @@ export class VisibleModule {
       if (synced.has(issueId) || !this.visible.has(issueId)) continue
       this.chainRow(issueId, out)
     }
+    // Agent nesting drops: re-check flat-visible agent rows whose hosting may
+    // have moved, to a fixpoint. Agent flips never move ancestors (agents are
+    // not keepers and flats are settled), so each row flips at most once and
+    // the worklist terminates.
+    const queue: string[] = []
+    const queued = new Set<string>()
+    const enqueue = (id: string): void => {
+      if (!queued.has(id)) {
+        queued.add(id)
+        queue.push(id)
+      }
+    }
+    for (const id of flats) enqueue(id)
+    for (const rootId of subtreeRoots) {
+      for (const id of this.fullSubtree(rootId)) enqueue(id)
+    }
+    for (const delta of out) {
+      if (delta.kind === 'VisibilityChanged') {
+        for (const id of this.fullSubtree(delta.id)) enqueue(id)
+      }
+    }
+    this.flipSink = (flipped: string): void => {
+      for (const sub of this.fullSubtree(flipped)) enqueue(sub)
+    }
+    try {
+      while (queue.length > 0) {
+        const id = queue.pop() as string
+        queued.delete(id)
+        const before = this.visible.has(id)
+        this.recheckAgent(id, out)
+        if (this.visible.has(id) !== before) {
+          for (const sub of this.fullSubtree(id)) enqueue(sub)
+        }
+      }
+    } finally {
+      this.flipSink = null
+    }
     return out
   }
 
@@ -311,23 +412,49 @@ export class VisibleModule {
     this.visible.clear()
     this.flat.clear()
     this.rescue.clear()
+    this.dropped.clear()
     this.keptBy.clear()
     this.chains.clear()
     this.decaySensitive.clear()
-    for (const issueId of this.tables.issues.rows.keys()) {
+    const issues = this.tables.issues.rows
+    for (const issueId of issues.keys()) {
       if (this.evaluateFlat(issueId)) this.flat.add(issueId)
       this.trackDecay(issueId, this.flat.has(issueId))
     }
+    // Humans first (agents never keep ancestors). Agent hosting then grows
+    // monotonically; rescued rows host in a second round (agents under
+    // rescue nest in legacy, since rescue materializes before nesting).
     for (const issueId of this.flat) {
-      const chain = this.chainOf(issueId)
-      this.chains.set(issueId, chain)
-      for (const ancestor of chain) {
-        const candidate = this.tables.issues.rows.get(ancestor)
-        if (candidate !== undefined && rescueEligible(candidate)) this.takeKept(ancestor, issueId)
-      }
+      if (issues.get(issueId)?.audience !== 'agent') this.visible.add(issueId)
     }
-    for (const issueId of this.flat) this.visible.add(issueId)
-    for (const keepers of this.keptBy.keys()) this.visible.add(keepers)
+    for (let round = 0; round < 2; round += 1) {
+      let grown = true
+      while (grown) {
+        grown = false
+        for (const issueId of this.flat) {
+          if (this.visible.has(issueId) || issues.get(issueId)?.audience !== 'agent') continue
+          if (this.hosted(issueId)) {
+            this.visible.add(issueId)
+            this.dropped.delete(issueId)
+            grown = true
+          } else {
+            this.dropped.add(issueId)
+          }
+        }
+      }
+      this.keptBy.clear()
+      this.chains.clear()
+      this.rescue.clear()
+      for (const issueId of this.visible) {
+        const chain = this.chainOf(issueId)
+        this.chains.set(issueId, chain)
+        for (const ancestor of chain) {
+          const candidate = issues.get(ancestor)
+          if (candidate !== undefined && rescueEligible(candidate)) this.takeKept(ancestor, issueId)
+        }
+      }
+      for (const keepers of this.keptBy.keys()) this.visible.add(keepers)
+    }
     for (const id of this.visible) {
       if (!this.flat.has(id)) this.rescue.add(id)
     }
