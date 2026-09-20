@@ -25,7 +25,7 @@
  * |---|---|---|---|
  * | unrelatedHeartbeat | #1 | 0 | 1 update, 1 row |
  * | visibleSessionPhaseChange | #2 | 1 + ancestors | 1 update, 1 row |
- * | selectionClick | #3 | 2 (latch) | 0 (locals only) |
+ * | selectionClick | #3 | 2 (latch) | 1 update, 1 row (eager mark-read; finding) |
  * | visibleTitleRename | #4 | 1 | 1 update, 1 row |
  * | stageMoveAcrossGroups | #5 | affected + order | 1 update, 1 row |
  * | newIssue | #6a | order + row | 1 update, 2 rows |
@@ -35,8 +35,8 @@
  * | clockTick | #8 | bands | 0 (time is a local) |
  * | optimisticEchoAndRejection | #9 | as #2 | press, echo, press, rollback |
  * | burst50 | #10 | bounded | 1 update, 50 rows |
- * | principalSwitch | #11 | full once | 1 replace, full |
- * | coldBootstrap | #12 | full once | 1 replace, full |
+ * | principalSwitch | #11 | full once | 1 replace, full (kernel install) |
+ * | coldBootstrap | #12 | full once | 0 events; arms snapshot (finding) |
  * | rescopeGrowth | #13 | full each | 2 replaces |
  *
  * DUAL-WRITE. Seed and scenario writes update wire AND projection rows
@@ -579,7 +579,17 @@ export async function visibleSessionPhaseChange(
   }
 }
 
-/** #3 — a selection click: locals only, no row event. */
+/** #3 — a selection click.
+ *
+ * FINDING (vs the "(locals only)" parenthetical in the issue brief): on this
+ * branch selection is NOT rows-free. Foregrounding the issue arms the
+ * mark-on-view reaction (`reactions.ts: updateIssueMarkReadTimer`), which
+ * fires EAGERLY on the leading edge (`MARK_READ_ON_VIEW_MS` throttle already
+ * elapsed since boot) and paints an optimistic `issueMarkRead` for the
+ * foregrounded row. The stream therefore reports one update with the clicked
+ * issue's row — faithfully, like production. Arms must treat a click as
+ * "locals + one mark-read row", and the methodology #3 budget ("2 rows
+ * committed") reads as the arm's latch rows plus this kernel row. */
 export async function selectionClick(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
   const ctx = await startScenarioEngine(spec)
   try {
@@ -934,7 +944,16 @@ export async function principalSwitch(
   }
 }
 
-/** #12 — cold bootstrap: the source is created before `start()`. */
+/** #12 — cold bootstrap: the source is created before `start()`.
+ *
+ * The natural cold path yields ZERO events, and that is correct: the
+ * hydrate-first seed is already in the snapshot the source primed against
+ * (same array identities, no kernel addresses), so there is nothing to
+ * report. Arms bootstrap from `source.snapshot()`, not from an event — the
+ * methodology #12 budget ("full, once") constrains ARM work, and the test
+ * asserts the snapshot is full. A kernel-driven install (bootstrap,
+ * rescope, principal switch) is what produces a `replace`; those paths are
+ * #11 and #13. */
 export async function coldBootstrap(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
   const cache = new ScenarioCache()
   seedCorpus(cache, spec)

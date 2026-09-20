@@ -315,6 +315,22 @@ describe('row-source over the real facade (fake runtime)', () => {
     }
   })
 
+  it('snapshot() serves current rows by kind for arm bootstrap', () => {
+    const { replica } = fixture()
+    const s = sessionValue('s1')
+    const i = issueValue('i1')
+    const runtime = fakeRuntime({ sessions: [s], issues: [i] })
+    const handle = createRowSource(runtime, replica)
+    try {
+      expect(handle.source.snapshot('session')).toEqual([
+        { kind: 'session', id: 's1', value: s },
+      ])
+      expect(handle.source.snapshot('issue')).toEqual([{ kind: 'issue', id: 'i1', value: i }])
+    } finally {
+      handle.dispose()
+    }
+  })
+
   it('a heartbeat visits 1 row regardless of corpus size', () => {
     const { cache, replica } = fixture()
     for (const n of [100, 1000]) {

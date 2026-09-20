@@ -85,9 +85,12 @@ describe('scenarios at functional scale', () => {
     expect(result.before.sessions.find((s) => s.sessionId === id)?.phase).toBe('working')
   }, 30_000)
 
-  it('#3 selectionClick: locals only, zero row events', async () => {
+  it('#3 selectionClick: locals plus the eager mark-read row', async () => {
     const result = await selectionClick(SMALL_CORPUS)
-    expect(result.events).toHaveLength(0)
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.type).toBe('update')
+    expect(result.events[0]?.rows).toHaveLength(1)
+    expect(result.events[0]?.rows[0]).toMatchObject({ kind: 'issue', id: 'i1' })
     expect(result.before.selectedIssueId).not.toBe(result.after.selectedIssueId)
     expect(result.after.selectedIssueId).toBe('i1')
   }, 30_000)
@@ -180,11 +183,10 @@ describe('scenarios at functional scale', () => {
     expect(issueRows).toHaveLength(SMALL_CORPUS.issues)
   }, 60_000)
 
-  it('#12 coldBootstrap: empty before, one full replace', async () => {
+  it('#12 coldBootstrap: empty before, silent stream, full snapshot', async () => {
     const result = await coldBootstrap(SMALL_CORPUS)
     expect(result.before).toEqual({ issues: [], sessions: [], selectedIssueId: null, coarseNow: 0 })
-    expect(result.events).toHaveLength(1)
-    expect(result.events[0]?.type).toBe('replace')
+    expect(result.events).toHaveLength(0)
     expect(result.after.issues).toHaveLength(SMALL_CORPUS.issues)
     expect(result.after.sessions).toHaveLength(SMALL_CORPUS.sessions)
   }, 60_000)
@@ -210,7 +212,11 @@ describe('heartbeat cost at live scales (counts only)', () => {
     for (const [scale, cost] of Object.entries(table)) {
       expect(cost.rows, `${scale}: one addressed row`).toBe(1)
       expect(cost.rowsVisited, `${scale}: O(addresses) visits`).toBe(1)
+      // Exactly one index rebuild: the sessions fold allocates a fresh array
+      // for one changed row (the legacy write-path cost). It is O(kind), not
+      // O(addresses) — pinned here so any new per-publication allocation
+      // fails loudly instead of hiding in the slope.
+      expect(cost.rebuilds, `${scale}: one kind rebuild`).toBe(1)
     }
-    console.info(`COST TABLE heartbeat ${JSON.stringify(table)}`)
   }, 300_000)
 })
