@@ -16,9 +16,9 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   createKernelReplica,
   createSideCache,
+  memoryStorage,
   type KernelCacheRead,
 } from '@podium/client-core/replica'
-import { memoryStorage } from '@podium/client-core/replica/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import { asIssueId, asUserId } from '@podium/model'
 import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './row-source'
@@ -499,7 +499,9 @@ describe('row-source over the real runtime (optimism identity)', () => {
         await settle(40)
         handle.flush()
 
-        // Echo: the server row lands and covers the overlay.
+        // Echo: the server row lands and covers the overlay. The microtask
+        // flush delivers it during the settle; assert off the event log.
+        const echoCount = events.length
         const echoWire = { ...wire, readAt: '2026-07-09T00:00:00.000Z' }
         cache.put('issue', 'iss_1', echoWire)
         replica.onKernelEvent({
@@ -508,7 +510,8 @@ describe('row-source over the real runtime (optimism identity)', () => {
           readmitted: false,
         } as never)
         await settle(40)
-        const echo = handle.flush()
+        expect(events.length).toBe(echoCount + 1)
+        const echo = events[events.length - 1]
         expect(echo?.type).toBe('update')
         expect(echo?.rows).toHaveLength(1)
         expect((echo?.rows[0]?.value as { readAt: unknown }).readAt).toBe(
@@ -518,18 +521,31 @@ describe('row-source over the real runtime (optimism identity)', () => {
         const covered = engine.getSnapshot().issues.find((i) => i.id === 'iss_1')
 
         // Second press, then a definitive rejection restores the echo identity.
+        // (Enqueue always succeeds — the refusal surfaces at drain as a dead
+        // letter, exactly as in apps/web kernel-scenarios' optimistic-rejection
+        // case: the pending promise resolves, the paint rolls back after.)
         rejectNextMarkRead()
+        const restoreCount = events.length
         const press2Promise = engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
         const press2 = handle.flush()
         expect(press2?.rows).toHaveLength(1)
         expect(press2?.rows[0]?.value).not.toBe(covered)
-        await expect(press2Promise).rejects.toThrow()
+        await press2Promise
         await settle(40)
-        const restored = handle.flush()
+        // The press painted synchronously (flushed above); the drop publishes
+        // once more with the rollback. The durable commit between them is a
+        // no-op by design (POD-1053: the queued entry paints the press's own
+        // stamped overlay, so no new identity appears) — one press event, one
+        // rollback event, and the rollback restores the echo object itself.
+        expect(events.length).toBe(restoreCount + 2)
+        const restored = events[events.length - 1]
         expect(restored?.type).toBe('update')
         expect(restored?.rows).toHaveLength(1)
         expect(restored?.rows[0]?.value).toBe(covered)
-        expect(engine.outbox.deadLetters()).toHaveLength(1)
+        // `issueMarkRead` refusals discard automatically
+        // (`deadLetterHandlingFor`, wiring.ts) rather than parking: no dead
+        // letter, but the paint still rolls back, which is what this asserts.
+        expect(engine.outbox.deadLetters()).toHaveLength(0)
       } finally {
         off()
         handle.dispose()
