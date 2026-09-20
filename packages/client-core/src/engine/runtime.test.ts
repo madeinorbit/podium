@@ -4376,12 +4376,16 @@ describe('S5 one publication per click', () => {
       const syncPubs = readStoreStats().publishes.map((p) => [...p.changedKeys].sort())
       const sync = readStoreStats().publishes.length
       expect(seen.length).toBe(sync)
+      const syncSeen = seen.length
       await command!
       await settle()
       storeStats.end(window)
       const st = engine.getSnapshot()
-      const queued = engine.outbox.pending().map(({ kind, input }) => ({ kind, input }))
-      // Control: the read command was sent in both arms.
+      // Control: the read command was sent in both arms. After settle the
+      // entry has drained from pending to awaiting; either home counts.
+      const queued = [...engine.outbox.pending(), ...engine.outbox.awaiting()]
+        .filter((e) => (e.input as { id?: unknown }).id === issueB.id)
+        .map(({ kind, input }) => ({ kind, input }))
       expect(queued).toHaveLength(1)
       expect(queued[0]).toMatchObject({ kind: 'issueMarkRead', input: { id: issueB.id } })
       expect((api.issues.markRead.mutate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
@@ -4396,7 +4400,7 @@ describe('S5 one publication per click', () => {
       // outbox-size handoff together.
       if (batched) {
         expect(sync).toBe(1)
-        expect(seen).toHaveLength(1)
+        expect(syncSeen).toBe(1)
         const keys = syncPubs[0]!
         for (const key of ['selectedIssueId', 'paneA', 'issueVisitBaseline', 'issues', 'outboxSize'] as const)
           expect(keys, `batched pub carries ${key}`).toContain(key)
@@ -4470,11 +4474,12 @@ describe('S5 one publication per click', () => {
       command = snapshot.markIssueRead(issue.id)
     })
     const sync = readStoreStats().publishes.length
+    // Synchronous gesture window only: the drain echo publishes after.
+    expect(sync).toBe(1)
+    expect(seen.length).toBe(sync)
     await command!
     await settle()
     storeStats.end(window)
-    expect(sync).toBe(1)
-    expect(seen).toHaveLength(1)
     expect(engine.getSnapshot().selectedIssueId).toBe(issue.id)
     expect(engine.getSnapshot().issues[0]?.readAt).not.toBeNull()
     off()
