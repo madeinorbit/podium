@@ -12,9 +12,9 @@
  */
 import { createGrokAcpRuntime, createOpencodeRuntime, createCodexRuntime } from '@podium/agent-runtime'
 import { createDurableProcess } from '@podium/process/durable'
-import { createCodexHost } from './codex-app-server.js'
-import { createGrokAcpHost } from './grok-acp-server.js'
-import { createOpencodeHost } from './opencode-server.js'
+import { createCodexHost } from '../runtime/codex-app-server.js'
+import { createGrokAcpHost } from '../runtime/grok-acp-server.js'
+import { createOpencodeHost } from '../runtime/opencode-server.js'
 
 const root = process.env.GEN1_ROOT as string
 const workdir = `${root}/work`

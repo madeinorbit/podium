@@ -38,7 +38,7 @@ import { createCodexHost, codexScopeLabel } from './codex-app-server'
 import { createGrokAcpHost, grokAcpProcessKey } from './grok-acp-server'
 import { createOpencodeHost, opencodeScopeLabel } from './opencode-server'
 
-const GEN1 = fileURLToPath(new URL('./server-host-survival.gen1.ts', import.meta.url))
+const GEN1 = fileURLToPath(new URL('../test-support/server-host-survival.gen1.ts', import.meta.url))
 
 /** A stub `codex app-server`: raw WS over its `--listen` socket, one open turn
  *  held until the COMPLETE file lands, second connections welcome. */
