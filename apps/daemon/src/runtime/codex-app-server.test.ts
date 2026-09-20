@@ -667,7 +667,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
       }),
     })
     try {
-      const endpoint = await host.adopt(binding)
+      const endpoint = await host.adopt?.(binding)
       expect(endpoint?.clientAddress).toBe(clientAddress)
       expect(endpoint?.process.key).toBe(codexScopeLabel(SESSION))
       expect(endpoint?.process.pid).toBe(7777)
@@ -693,7 +693,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
       },
       durable: fakeEngineDurable({ has: async () => false }),
     })
-    await expect(host.adopt(binding)).resolves.toBeUndefined()
+    await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   })
 
   it('adopt returns undefined when the journalled address is silent', async () => {
@@ -712,7 +712,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
         has: async () => true,
       }),
     })
-    await expect(host.adopt(binding)).resolves.toBeUndefined()
+    await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   }, 30_000)
 
   it('adopt refuses loudly when the writer lease is held elsewhere', async () => {
@@ -729,7 +729,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
         has: async () => true,
       }),
     })
-    await expect(host.adopt(binding)).rejects.toBeInstanceOf(CodexEngineLeaseRefused)
+    await expect(host.adopt?.(binding)).rejects.toBeInstanceOf(CodexEngineLeaseRefused)
   })
 
   it('adopt returns undefined for entries predating the journalled address', async () => {
@@ -740,6 +740,6 @@ describe('headless engine lifecycle (POD-4433)', () => {
         throw new Error('liveness must not be consulted without an address')
       } }),
     })
-    await expect(host.adopt(binding)).resolves.toBeUndefined()
+    await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   })
 })

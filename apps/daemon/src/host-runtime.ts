@@ -329,6 +329,20 @@ export async function createDaemonHostRuntime(args: {
   const launch = opts.launch ?? agentLaunchCommand
   const { backend, available: durableAvailable } = selectDurableBackend(opts)
   const durable = backend === 'none' ? undefined : createDurableProcess(backend, durableAvailable)
+  /**
+   * THE SERVER-FAMILY ENGINE DURABLE (POD-4433; added additively for the 2.1
+   * lifecycle lane inheriting this file). Engines are never terminal sessions,
+   * so they never follow the terminal `--backend`: this object always carries
+   * the host adapter, which is what pty-less `spawnHeadless` needs. It reuses
+   * the boot probe (`durableAvailable.host`) rather than probing again, and it
+   * exists even on `backend=none` so server drivers keep working wherever
+   * podium-host builds; where no host can be built their launch refuses loudly
+   * instead of forking a child no restart could re-adopt.
+   */
+  const engineDurable = createDurableProcess('host', {
+    host: durableAvailable.host,
+    abduco: false,
+  })
   const identityStateDir = opts.identityDir ?? stateDir()
   const handedMachineId = process.env[SUPERVISOR_MACHINE_ID_ENV]
   const identity = handedMachineId
@@ -1127,6 +1141,8 @@ export async function createDaemonHostRuntime(args: {
     host: createOpencodeHost({
       resources: (subject) => scopeMonitor.resources(subject),
       stageAttachment,
+      // The engine's durable owner (POD-4433): podium-host under the hood.
+      durable: engineDurable,
       /**
        * `attach()`'s client terminal (POD-2059), on the frames path this daemon
        * already runs. The stream id is the key, exactly as the engine variant's
@@ -1159,6 +1175,8 @@ export async function createDaemonHostRuntime(args: {
         // opencode host refuses a Native attach with its per-machine wording.
         ...(clientTerminals ? { clientTerminals } : {}),
         stageAttachment,
+        // The engine's durable owner (POD-4433): podium-host under the hood.
+        durable: engineDurable,
         ...(opencode2Executable ? { executablePath: opencode2Executable } : {}),
         ...(homeDir ? { homeDir } : {}),
         instanceUuid: instance.instanceUuid,
@@ -1199,6 +1217,8 @@ export async function createDaemonHostRuntime(args: {
     host: createCodexHost({
       resources: (subject) => scopeMonitor.resources(subject),
       stageAttachment,
+      // The engine's durable owner (POD-4433): podium-host under the hood.
+      durable: engineDurable,
       // Omitted outright on a backend=none daemon (POD-3917): without a
       // terminal host the codex host reports it cannot host one, rather than
       // reaching a backend this daemon never selected.
@@ -1238,6 +1258,8 @@ export async function createDaemonHostRuntime(args: {
     appliedGeometry: appliedGeometryFor(ctx),
     host: createGrokAcpHost({
       resources: (subject) => scopeMonitor.resources(subject),
+      // The engine's durable owner (POD-4433): podium-host under the hood.
+      durable: engineDurable,
       // Omitted outright on a backend=none daemon (POD-3917): same rule as the
       // codex host above — no terminal host, no attach arm.
       ...(clientTerminals
