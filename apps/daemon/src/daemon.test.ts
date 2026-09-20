@@ -404,7 +404,8 @@ describe('daemon multi-bridge', () => {
       agentKind: 'grok',
       cwd: '/tmp',
       geometry: G,
-      runtimeContract: 'generic-pty',
+      // Explicit headed terminal for the idle grok case under test.
+      requestedDriverId: 'generic-pty',
     })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'g1'))
 
@@ -1258,15 +1259,18 @@ describe('default server-driver spawn integration', () => {
     resetGrokAcpVersionProbe()
   })
 
-  it('routes a bare Codex spawn through app-server and binds that driver', async () => {
-    resetCodexAppServerVersionProbe()
-    expect(
-      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
-    ).toBe(true)
+  it('leaves a bare Codex spawn on its headed terminal driver without probing', async () => {
+    // POD-4426: with no per-spawn request the manifest's terminal driver id is
+    // the default — no probe, no degrade projection. (This test previously
+    // expected the app-server default; that routing has been red since
+    // 672bf9c6f "Keep implicit drivers headed" and the terminal default is what
+    // POD-4426 specifies. Explicit requests still reach the server driver —
+    // see the admission-control tests below. The full terminal bind for a bare
+    // spawn is pinned by 'reads Codex login from the same home inventory
+    // publishes', which runs a real daemon.)
     const sent: DaemonMessage[] = []
-    const runtime = defaultCodexRuntime(sent)
-    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
-    sessionHandlers.spawn(
+    const ctx = defaultServerSpawnContext(sent, {})
+    const result = await launchServerDriverSession(
       ctx,
       withTestBindingInstruction({
         type: 'spawn',
@@ -1275,15 +1279,18 @@ describe('default server-driver spawn integration', () => {
         cwd: '/tmp',
         geometry: G,
       }) as never,
+      async () => {
+        throw new Error('an omitted request must not probe a server binary')
+      },
     )
-    try {
-      await expect(waitForDefaultServerBind(sent, 'default-codex')).resolves.toMatchObject({
-        runtimeContract: true,
-        driverId: 'codex-app-server',
-      })
-    } finally {
-      runtime.dispose()
-    }
+    expect(result).toEqual({ handled: false })
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'driverSelected',
+        sessionId: 'default-codex',
+        driverId: 'generic-pty',
+      }),
+    )
   })
 
   /**
@@ -1315,6 +1322,9 @@ describe('default server-driver spawn integration', () => {
         agentKind: 'codex',
         cwd: '/tmp',
         geometry: G,
+        // Explicit: the readiness window is a server-driver property, and only
+        // an explicit request routes there now.
+        requestedDriverId: 'codex-app-server',
       }) as never,
     )
     try {
@@ -1374,6 +1384,8 @@ describe('default server-driver spawn integration', () => {
         agentKind: 'codex',
         cwd: '/tmp',
         geometry: G,
+        // Explicit: attachment staging is exercised against the server handle.
+        requestedDriverId: 'codex-app-server',
       }) as never,
     )
     try {
@@ -1514,13 +1526,12 @@ describe('default server-driver spawn integration', () => {
     }
   })
 
-  it('routes a bare Grok spawn through ACP and binds that driver', async () => {
-    resetGrokAcpVersionProbe()
-    expect((await grokAcpVersionProbe(() => ({ output: '0.2.118', ok: true }))).drivable).toBe(true)
+  it('leaves a bare Grok spawn on its headed terminal driver without probing', async () => {
+    // Same terminal default as Codex above: omitted means headed, and the ACP
+    // driver stays an explicit opt-in (see the admission-control tests).
     const sent: DaemonMessage[] = []
-    const runtime = defaultGrokRuntime(sent)
-    const ctx = defaultServerSpawnContext(sent, { grokRuntime: runtime })
-    sessionHandlers.spawn(
+    const ctx = defaultServerSpawnContext(sent, {})
+    const result = await launchServerDriverSession(
       ctx,
       withTestBindingInstruction({
         type: 'spawn',
@@ -1529,15 +1540,18 @@ describe('default server-driver spawn integration', () => {
         cwd: '/tmp',
         geometry: G,
       }) as never,
+      async () => {
+        throw new Error('an omitted request must not probe a server binary')
+      },
     )
-    try {
-      await expect(waitForDefaultServerBind(sent, 'default-grok')).resolves.toMatchObject({
-        runtimeContract: true,
-        driverId: 'grok-acp',
-      })
-    } finally {
-      runtime.dispose()
-    }
+    expect(result).toEqual({ handled: false })
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'driverSelected',
+        sessionId: 'default-grok',
+        driverId: 'generic-pty',
+      }),
+    )
   })
 })
 
@@ -1568,7 +1582,7 @@ describe('server-driver admission control path', () => {
 
   const spawn = (
     sessionId: string,
-    runtimeContract?: string,
+    requestedDriverId?: string,
     agentKind: 'codex' | 'opencode' = 'codex',
   ) =>
     withTestBindingInstruction({
@@ -1577,7 +1591,7 @@ describe('server-driver admission control path', () => {
       agentKind,
       cwd: '/tmp',
       geometry: G,
-      ...(runtimeContract ? { runtimeContract } : {}),
+      ...(requestedDriverId ? { requestedDriverId } : {}),
     }) as never
 
   it('starts no probe child for a logged-out default spawn', async () => {
@@ -1594,11 +1608,15 @@ describe('server-driver admission control path', () => {
       }),
     )
 
-    expect(result).toEqual({ handled: false, requestedDriverId: 'opencode-server' })
+    // POD-4426: an omitted request is the headed default — no probe, and no
+    // degrade projection to carry. (Previously the manifest server default
+    // degraded here with a requestedDriverId; that routing died with the env
+    // source.)
+    expect(result).toEqual({ handled: false })
     expect(childProcesses).toBe(0)
   })
 
-  it('degrades an unsettled Codex default to PTY but refuses an explicit server request', async () => {
+  it('keeps an unsettled Codex default headed but refuses an explicit server request', async () => {
     const sent: DaemonMessage[] = []
     const ctx = defaultServerSpawnContext(sent, {})
     ctx.harnessLoginState = () => 'unknown'
@@ -1610,7 +1628,6 @@ describe('server-driver admission control path', () => {
 
     await expect(launchServerDriverSession(ctx, spawn('grace-default'), probe)).resolves.toEqual({
       handled: false,
-      requestedDriverId: 'codex-app-server',
     })
     expect(sent).toContainEqual(
       expect.objectContaining({
@@ -1648,8 +1665,10 @@ describe('server-driver admission control path', () => {
       })
     })
 
-    const first = launchServerDriverSession(ctx, spawn('coalesced-one'), probe)
-    const second = launchServerDriverSession(ctx, spawn('coalesced-two'), probe)
+    // Explicit requests: an omitted one never reaches the probe (see the
+    // headed-default tests above), so coalescing is exercised opt-in.
+    const first = launchServerDriverSession(ctx, spawn('coalesced-one', 'codex-app-server'), probe)
+    const second = launchServerDriverSession(ctx, spawn('coalesced-two', 'codex-app-server'), probe)
     await Promise.resolve()
     expect(childProcesses).toBe(1)
     expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
@@ -1735,7 +1754,10 @@ describe('server-driver admission control path', () => {
     await expect(
       launchServerDriverSession(
         ctx,
-        spawn('parked-codex'),
+        // Explicit server request: an omitted spawn never reaches the journal
+        // adopt arm (headed default), so the parked resume carries the driver
+        // the session was journalled under.
+        spawn('parked-codex', 'codex-app-server'),
         cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true })),
       ),
     ).resolves.toEqual({ handled: true })
@@ -1749,7 +1771,6 @@ describe('server-driver admission control path', () => {
         // THE JOURNAL'S WORKDIR, not the frame's `/tmp`: the adopted child is
         // opened where the conversation actually lives.
         cwd: '/parked-workdir',
-        runtimeContract: true,
         driverId: 'codex-app-server',
       }),
     )
@@ -1788,7 +1809,9 @@ describe('server-driver admission control path', () => {
     await expect(
       launchServerDriverSession(
         ctx,
-        spawn('live-codex'),
+        // Explicit, like the parked test above: only a server-routed spawn
+        // reaches the create that refuses.
+        spawn('live-codex', 'codex-app-server'),
         cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true })),
       ),
     ).resolves.toEqual({ handled: true })
@@ -3125,7 +3148,7 @@ describe('agent state instrumentation', () => {
       agentKind: 'grok',
       cwd: '/tmp',
       geometry: G,
-      runtimeContract: 'generic-pty',
+      requestedDriverId: 'generic-pty',
     })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'gHook'))
     const post = (payload: unknown) =>
