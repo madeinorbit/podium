@@ -107,9 +107,25 @@ describe('agentLaunchCommand', () => {
   it('spawns opencode fresh with its provider command', () => {
     expect(agentLaunchCommand('opencode', { cwd: '/w' })).toEqual({
       cmd: resolveOpencodeBin(),
-      args: [],
+      args: ['--auto'],
       cwd: '/w',
     })
+  })
+
+  it('always spawns headed opencode in auto permissions mode', () => {
+    expect(agentLaunchCommand('opencode', { cwd: '/w' }).args).toContain('--auto')
+    expect(
+      agentLaunchCommand('opencode', {
+        cwd: '/w',
+        resume: { kind: 'opencode-session', value: 'ses_abc' },
+      }).args,
+    ).toContain('--auto')
+    expect(
+      agentLaunchCommand('opencode', { cwd: '/w', model: 'openai/gpt-5.5' }).args,
+    ).toContain('--auto')
+    expect(
+      agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: 'do work' }).args,
+    ).toContain('--auto')
   })
 
   it('selects a session-owned OpenCode store for a fresh terminal', () => {
@@ -129,13 +145,13 @@ describe('agentLaunchCommand', () => {
         cwd: '/w',
         resume: { kind: 'opencode-session', value: 'ses_abc' },
       }),
-    ).toEqual({ cmd: resolveOpencodeBin(), args: ['--session', 'ses_abc'], cwd: '/w' })
+    ).toEqual({ cmd: resolveOpencodeBin(), args: ['--auto', '--session', 'ses_abc'], cwd: '/w' })
   })
 
   it('passes model override to opencode', () => {
     expect(agentLaunchCommand('opencode', { cwd: '/w', model: 'openai/gpt-5.5' })).toEqual({
       cmd: resolveOpencodeBin(),
-      args: ['-m', 'openai/gpt-5.5'],
+      args: ['--auto', '-m', 'openai/gpt-5.5'],
       cwd: '/w',
     })
   })
@@ -221,8 +237,10 @@ describe('agentLaunchCommand', () => {
     it('uses the OpenCode startup prompt rather than typing during TUI initialization', () => {
       expect(
         agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: '--help\nDo real work' }).args,
-      ).toEqual(['--prompt=--help\nDo real work'])
-      expect(agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: '  ' }).args).toEqual([])
+      ).toEqual(['--auto', '--prompt=--help\nDo real work'])
+      expect(agentLaunchCommand('opencode', { cwd: '/w', initialPrompt: '  ' }).args).toEqual([
+        '--auto',
+      ])
     })
 
     it('does NOT append a prompt arg for non-argv agents (cursor/shell)', () => {
@@ -411,7 +429,7 @@ describe('agentLaunchCommand', () => {
         runtimeDir: '/runtime/session',
         instructions: [{ source: 'test', content: 'Keep the instructions.' }],
       })
-      expect(spec.args).toEqual(['-m', model])
+      expect(spec.args).toEqual(['--auto', '-m', model])
       expect(spec.env?.XDG_STATE_HOME).toBe('/runtime/session/opencode-state')
       expect(spec.files?.[0]).toEqual({
         path: '/runtime/session/opencode-state/opencode/model.json',
@@ -436,7 +454,7 @@ describe('agentLaunchCommand', () => {
     it('leaves native defaults alone when OpenCode effort is auto', () => {
       expect(agentLaunchCommand('opencode', { cwd: '/w', effort: 'auto' })).toEqual({
         cmd: resolveOpencodeBin(),
-        args: [],
+        args: ['--auto'],
         cwd: '/w',
       })
     })
