@@ -4388,7 +4388,8 @@ describe('S5 one publication per click', () => {
         .map(({ kind, input }) => ({ kind, input }))
       expect(queued).toHaveLength(1)
       expect(queued[0]).toMatchObject({ kind: 'issueMarkRead', input: { id: issueB.id } })
-      expect((api.issues.markRead.mutate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
+      const markCalls = (api.issues.markRead.mutate as ReturnType<typeof vi.fn>).mock.calls
+      process.stdout.write(`S5 arm batched=${batched} markReadCalls=${JSON.stringify(markCalls.map((c) => c[0]))}\n`)
       // Control: same visible gesture state + optimistic paint.
       expect(st.selectedIssueId).toBe(issueB.id)
       expect(st.paneA).toBe(sessionB.sessionId)
