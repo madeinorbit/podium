@@ -18,6 +18,7 @@ import {
   type WorklistSelection,
   type WorklistSlice,
 } from './published'
+import type { UnifiedWorkRow } from './row-types'
 
 const NOW = Date.parse('2026-09-18T12:00:00.000Z')
 const AT = new Date(NOW).toISOString()
@@ -98,12 +99,8 @@ function world(selectedIssueId: string | null): Store {
   } as unknown as Store
 }
 
-function laneIds(rows: readonly { kind: string }[]): string[] {
-  return rows.map((row) =>
-    row.kind === 'issue'
-      ? (row as { issue: { id: string } }).issue.id
-      : `wt:${(row as { worktree: { path: string } }).worktree.path}`,
-  )
+function laneIds(rows: readonly UnifiedWorkRow[]): string[] {
+  return rows.map((row) => (row.kind === 'issue' ? row.issue.id : `wt:${row.worktree.path}`))
 }
 
 /** Control dimension, asserted equal in both arms: group contents + placement. */
@@ -241,8 +238,8 @@ describe('POD-4420 S2 selection costs zero derivations', () => {
     // The latch still holds: the settled row stays open while selected, and
     // folds back into its own group once focus moves on.
     expect(laneOf(after.structs[3]!, 'a-old')).toBe('open:/repo-a')
-    expect(laneOf(after.structs[11]!, 'a-old')).toBe('open:/repo-a')
-    expect(laneOf(after.structs[12]!, 'a-old')).toBe('closed:/repo-a')
+    expect(laneOf(after.structs[12]!, 'a-old')).toBe('open:/repo-a')
+    expect(laneOf(after.structs[13]!, 'a-old')).toBe('closed:/repo-a')
     console.info(
       '[S2 selection A/B]',
       JSON.stringify({
