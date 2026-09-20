@@ -113,17 +113,14 @@ export interface DaemonCodexRuntime extends CodexRuntime {
   /**
    * Re-bind a session after a daemon restart, from the journal alone.
    *
-   * FOR THIS FAMILY THAT MEANS RESUMING THE THREAD, NOT REBINDING A PROCESS,
-   * and the difference is measured rather than stylistic: `codex app-server`
-   * exits cleanly on stdin EOF, and its channel IS the child's stdio, so when
-   * the daemon dies its pipes close and every codex child dies with it. There is
-   * never a survivor to find.
-   *
-   * What survives is the conversation — codex writes each thread to its own
-   * rollout JSONL — so `driver.adopt()` starts a fresh child and resumes the
-   * journalled thread id. Session id, thread id, transcript, resume ref, turn
-   * epoch and event seq all hold; the process is new and says so by bumping the
-   * binding version. `undefined` when there is nothing to rebind from.
+   * FOR THIS FAMILY THAT USUALLY MEANS REBINDING THE SURVIVOR, NOT RESUMING
+   * THE THREAD (POD-4433): the engine runs under podium-host `--no-pty`, so a
+   * daemon restart leaves it running and `driver.adopt()` opens a second
+   * protocol client on the journalled listener — the in-flight turn continues
+   * rather than being abandoned. Only when nothing survived does adopt fall
+   * back to a fresh child plus `thread/resume` of the journalled thread id,
+   * whose rollout JSONL outlived the process. `undefined` when there is
+   * nothing to rebind from.
    */
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
 }
