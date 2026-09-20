@@ -288,10 +288,12 @@ describe('terminal recovery ownership', () => {
     sessionHandlers.reattach(ctx, reattachMessage())
     await vi.waitFor(() => expect(sent.some((m) => m.type === 'bind')).toBe(true))
     expect(ctx.agentRuntime?.handleFor(SESSION)?.binding.family).toBe('terminal')
+    // Migration without a flag: a previous-release row carries no requested
+    // driver, and the first bind after upgrade still announces one.
     expect(sent.find((m) => m.type === 'bind')).toMatchObject({
-      runtimeContract: true,
       driverId: 'generic-pty',
     })
+    expect(sent.find((m) => m.type === 'bind')).not.toHaveProperty('runtimeContract')
     expect(stub.state.redraws).toBe(1)
   })
 
@@ -327,8 +329,27 @@ describe('terminal recovery ownership', () => {
       agentKind: 'shell',
     } as Parameters<typeof sessionHandlers.reattach>[1])
     await vi.waitFor(() => expect(sent.some((m) => m.type === 'bind')).toBe(true))
+    // Shells bind driverless by structure: no handle, no driverId, no contract field.
+    expect(sent.find((m) => m.type === 'bind')).not.toHaveProperty('driverId')
     expect(sent.find((m) => m.type === 'bind')).not.toHaveProperty('runtimeContract')
+    expect(ctx.agentRuntime?.handleFor(SESSION)).toBeUndefined()
     expect(stub.state.redraws).toBe(1)
+  })
+
+  it('refuses a reattach for a kind with no manifest instead of binding it driverless', async () => {
+    reset()
+    const sent: Array<{ type: string; resizesBefore: number }> = []
+    const ctx = ctxFor(sent)
+    sessionHandlers.reattach(ctx, {
+      ...(reattachMessage() as object),
+      agentKind: 'not-a-harness',
+    } as Parameters<typeof sessionHandlers.reattach>[1])
+    await vi.waitFor(() => expect(sent.some((m) => m.type === 'reattachFailed')).toBe(true))
+    expect(sent.find((m) => m.type === 'reattachFailed')).toMatchObject({
+      reason: expect.stringContaining('not-a-harness'),
+    })
+    expect(sent.some((m) => m.type === 'bind')).toBe(false)
+    expect(ctx.agentRuntime?.handleFor(SESSION)).toBeUndefined()
   })
 
   it('reports missing processes and wrong incarnations without publishing bind', async () => {

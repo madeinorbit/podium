@@ -50,7 +50,7 @@
  * ESTABLISHMENT. There is no dedicated WS create/resume/adopt verb for
  * headless sessions: they are established the same way every other
  * contract session is — `spawn`/`reattach` carrying
- * `runtimeContract: 'headless'`, resolved to this driver by explicit
+ * `requestedDriverId: 'headless'`, resolved to this driver by explicit
  * preference (no manifest `select()` ever returns it) and created via
  * `runtime.create`/`resume`/`adopt` on the host-minted session id. The legacy
  * `control/headless.ts` port (`headlessTurnRequest` and friends) keeps serving

@@ -212,7 +212,6 @@ export function createDaemonGrokRuntime(deps: {
           cmd: `grok agent stdio (${handle.binding.driver})`,
           cwd: input.cwd,
           agentKind: 'grok',
-          runtimeContract: true,
           driverId: handle.binding.driver,
           // POD-3087: what this driver's configure() can change. Grok's answer is
           // `permissionMode` alone — it never sends a model — and reporting that

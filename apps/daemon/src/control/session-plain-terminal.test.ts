@@ -84,16 +84,14 @@ beforeEach(() => {
   vi.mocked(terminalProfileFor).mockClear()
 })
 
-// Exercise the actual launch fork with an available runtime and contract ON.
-// The process boundary is mocked: no shell, login CLI, daemon or service starts.
+// Exercise the actual launch fork with an available runtime and NO env.
+// Every profiled kind binds unconditionally; shells and logins stay plain.
 it.each([
   { name: 'shell', agentKind: 'shell' },
   { name: 'native login shell', agentKind: 'shell', loginHarness: 'claude-code' },
   // A profile-bearing kind isolates the login exemption from the no-profile one.
   { name: 'profile-bearing login', agentKind: 'claude-code', loginHarness: 'claude-code' },
-  { name: 'profile-less host', agentKind: 'codex', missingProfile: true },
 ] as const)('keeps $name on a plain terminal', async (row) => {
-  if ('missingProfile' in row) vi.mocked(terminalProfileFor).mockReturnValueOnce(undefined)
   const createTerminal = vi.fn()
   const ctx = contextForSpawn()
   ctx.agentRuntime = {
@@ -110,13 +108,46 @@ it.each([
     ...('loginHarness' in row ? { loginHarness: row.loginHarness } : {}),
     cwd: '/repo',
     geometry: { cols: 80, rows: 24 },
-    runtimeContract: true,
   } as Parameters<typeof launchSpawn>[1])
   expect(createTerminal).not.toHaveBeenCalled()
   expect(ctx.agentRuntime?.bindTerminal).not.toHaveBeenCalled()
   expect(captured).toBeDefined()
   expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
+  expect(ctx.send).toHaveBeenCalledWith(
+    expect.not.objectContaining({ type: 'bind', driverId: expect.anything() }),
+  )
   expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
+})
+
+it('refuses a non-shell kind with no manifest instead of opening an undrivable session', async () => {
+  // Coordinator 4414: !profile conflates shells (deliberately driverless) with
+  // unknown harnesses (nothing can drive them). The latter must refuse loudly
+  // with the kind named — after POD-4427 there is no legacy path left to catch it.
+  const createTerminal = vi.fn()
+  const bindTerminal = vi.fn()
+  const ctx = contextForSpawn()
+  ctx.agentRuntime = {
+    createTerminal,
+    bindTerminal,
+    handleFor: () => undefined,
+    has: () => false,
+  } as unknown as DaemonContext['agentRuntime']
+  ctx.send = vi.fn()
+  await launchSpawn(ctx, {
+    type: 'spawn',
+    sessionId: 'plain-unknown-harness',
+    agentKind: 'not-a-harness',
+    cwd: '/repo',
+    geometry: { cols: 80, rows: 24 },
+  } as unknown as Parameters<typeof launchSpawn>[1])
+  expect(captured).toBeUndefined()
+  expect(createTerminal).not.toHaveBeenCalled()
+  expect(bindTerminal).not.toHaveBeenCalled()
+  expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
+    type: 'spawnError',
+    message: expect.stringContaining('not-a-harness'),
+  }))
+  expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
 })
 
 function spawnMessage(agentKind: 'codex' | 'claude-code' | 'grok' | 'opencode' | 'cursor' = 'codex') {
@@ -150,8 +181,8 @@ function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'w
     return handles.get(id)
   })
   const recoverTerminal = vi.fn(async (...[msg, profile]: Parameters<NonNullable<DaemonContext['agentRuntime']>['recoverTerminal']>) => {
-    if (typeof msg.runtimeContract === 'string' && canonicalDriverId(msg.runtimeContract) !== profile.driverId) {
-      throw new Error(`runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`)
+    if (typeof msg.requestedDriverId === 'string' && canonicalDriverId(msg.requestedDriverId) !== profile.driverId) {
+      throw new Error(`runtime driver '${msg.requestedDriverId}' cannot recover as '${profile.driverId}'`)
     }
     await bindTerminal({ sessionId: msg.sessionId, agentKind: msg.agentKind, cwd: msg.cwd, resume: msg.resume ?? null, rebind: true }, profile)
     await recoverTerminalHost(ctx, msg, () => {})
@@ -171,7 +202,7 @@ function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'w
 }
 
 it.each(['codex', 'claude-code', 'grok', 'opencode', 'cursor'] as const)(
-  'admits omitted-request %s with a verified headed handle even with the rollout disabled',
+  'admits omitted-request %s with a verified headed handle and no env set',
   async (agentKind) => {
     const ctx = contextForSpawn()
     const { createTerminal, bindTerminal } = installRuntime(ctx)
@@ -179,9 +210,10 @@ it.each(['codex', 'claude-code', 'grok', 'opencode', 'cursor'] as const)(
     await launchSpawn(ctx, msg)
     expect(createTerminal).toHaveBeenCalledOnce()
     expect(bindTerminal).toHaveBeenCalledOnce()
-    expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'bind', runtimeContract: true, driverId: terminalProfileFor(agentKind)!.driverId,
-    }))
+    const bind = vi.mocked(ctx.send).mock.calls.map(([m]) => m).find((m) => m.type === 'bind')
+    expect(bind).toMatchObject({ driverId: terminalProfileFor(agentKind)!.driverId })
+    // The deleted wire field stays off the frame: driverId presence is the signal.
+    expect(bind).not.toHaveProperty('runtimeContract')
     expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
   },
 )
@@ -268,15 +300,15 @@ function reconnectMessage() {
 
 it.each([undefined, 'generic-pty', 'claude-pty'] as const)(
   'reconnects an old or terminal-selected row (%s) with a verified handle',
-  async (runtimeContract) => {
+  async (requestedDriverId) => {
     const ctx = contextForSpawn()
     const { bindTerminal } = installRuntime(ctx)
     const msg = reconnectMessage()
     ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
     ctx.bridges.set(msg.sessionId, { redraw: vi.fn(), dispose } as never)
-    sessionHandlers.reattach(ctx, { ...msg, ...(runtimeContract ? { runtimeContract } : {}) })
+    sessionHandlers.reattach(ctx, { ...msg, ...(requestedDriverId ? { requestedDriverId } : {}) })
     await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'bind', runtimeContract: true, driverId: terminalProfileFor('codex')!.driverId,
+      type: 'bind', driverId: terminalProfileFor('codex')!.driverId,
     })))
     expect(bindTerminal).toHaveBeenCalledWith(expect.objectContaining({ rebind: true }), expect.anything())
     expect(dispose).not.toHaveBeenCalled()
@@ -303,25 +335,32 @@ it.each(['codex-app-server', 'codex-pty', 'unknown-driver'])(
   const { bindTerminal } = installRuntime(ctx)
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
   ctx.bridges.set(reconnectMessage().sessionId, { redraw: vi.fn(), dispose } as never)
-  sessionHandlers.reattach(ctx, { ...reconnectMessage(), runtimeContract: driver })
+  sessionHandlers.reattach(ctx, { ...reconnectMessage(), requestedDriverId: driver })
   await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
     type: 'reattachFailed', reason: expect.stringContaining(driver),
   })))
   expect(bindTerminal).not.toHaveBeenCalled()
 })
 
-it('keeps omitted launch intent headed despite a headless machine default', async () => {
-  vi.stubEnv('PODIUM_RUNTIME_DRIVER', 'codex-app-server')
-  try {
-    const ctx = contextForSpawn()
-    installRuntime(ctx)
-    const probe = vi.fn()
-    expect(await launchServerDriverSession(ctx, spawnMessage(), probe)).toEqual({ handled: false })
-    expect(probe).not.toHaveBeenCalled()
-    expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'driverSelected', driverId: terminalProfileFor('codex')!.driverId,
-    }))
-  } finally {
-    vi.unstubAllEnvs()
-  }
+it('refuses a reattach for a non-shell kind with no manifest', async () => {
+  const ctx = contextForSpawn()
+  installRuntime(ctx)
+  const msg = reconnectMessage()
+  ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
+  sessionHandlers.reattach(ctx, { ...msg, agentKind: 'not-a-harness' } as never)
+  await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
+    type: 'reattachFailed', reason: expect.stringContaining('not-a-harness'),
+  })))
+  expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
+})
+
+it('keeps omitted launch intent headed with no machine default to consult', async () => {
+  const ctx = contextForSpawn()
+  installRuntime(ctx)
+  const probe = vi.fn()
+  expect(await launchServerDriverSession(ctx, spawnMessage(), probe)).toEqual({ handled: false })
+  expect(probe).not.toHaveBeenCalled()
+  expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
+    type: 'driverSelected', driverId: terminalProfileFor('codex')!.driverId,
+  }))
 })

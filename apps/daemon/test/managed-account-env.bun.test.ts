@@ -172,7 +172,7 @@ async function dumpEnvOfSpawnedProcess(
     type: 'spawn',
     sessionId,
     agentKind,
-    runtimeContract: 'generic-pty',
+    requestedDriverId: 'generic-pty',
     cwd: process.cwd(),
     geometry: { cols: 120, rows: 30 },
     binding: {

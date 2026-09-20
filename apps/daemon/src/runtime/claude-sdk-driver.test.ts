@@ -100,7 +100,6 @@ describe('Claude SDK daemon host adapter', () => {
       expect.objectContaining({
         type: 'bind',
         sessionId: SESSION_ID,
-        runtimeContract: true,
         driverId: 'claude-sdk',
       }),
     )
@@ -201,7 +200,6 @@ describe('Claude SDK daemon host adapter', () => {
     expect(binds).toHaveLength(1)
     expect(binds[0]).toMatchObject({
       sessionId: SESSION_ID,
-      runtimeContract: true,
       driverId: 'claude-sdk',
     })
     expect(states.length).toBeGreaterThanOrEqual(1)

@@ -38,9 +38,8 @@ import type { Tier } from '../output-scheduler'
 import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { driverTiming } from '../runtime/driver-timing'
-import { runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
-import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
+import { handleFor, runtimeDriverIdFor } from '../runtime/handlers'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
 import {
   opencode2VersionProbe,
@@ -749,9 +748,20 @@ export async function launchSpawn(
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)
     const profile = terminalProfileFor(msg.agentKind)
+    // SHELL RULE, STATED POSITIVELY (POD-4426): shells and login panes have no
+    // driver by structure — a shell has no turns for a driver to be honest
+    // about. A NON-shell kind with no manifest is not a shell: it is a harness
+    // this build does not know, and opening a session nothing can drive would
+    // be a silent failure, so it refuses loudly with the kind named.
+    const isPlainTerminal = msg.agentKind === 'shell' || !!msg.loginHarness
+    if (!isPlainTerminal && !profile) {
+      throw new Error(
+        `no manifest for harness '${msg.agentKind}': this build declares no runtime for it`,
+      )
+    }
     // Driver selection and handle admission are independent: omission still means
     // headed, but every profile-bearing agent must have a runtime to bind it.
-    if (profile && !msg.loginHarness && !ctx.agentRuntime) {
+    if (profile && !isPlainTerminal && !ctx.agentRuntime) {
       throw new Error('agent runtime is unavailable; retry after the daemon recovers')
     }
     const spec: SessionSpec = {
@@ -840,7 +850,7 @@ export async function launchSpawn(
         ...(newSessionId ? { newSessionId } : {}),
       })
       ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
-      await bindRuntimeContract(ctx, msg, false, profile)
+      await bindDriver(ctx, msg, false, profile)
       const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
       // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
       // session. attach() is a no-op for harnesses without a driver. Reads the
@@ -875,12 +885,9 @@ export async function launchSpawn(
           cwd: cmd.cwd,
           agentKind: msg.agentKind,
           ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-          // The driver handle actually exists for this session (POD-1761 W4). The
-          // server records it and W4's senders branch on it — see BindMessage.
-          // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
-          // one would report `false` for a server-family session and route its
-          // sends down the legacy PTY path, for a session that has no PTY.
-          ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+          // The driver handle actually exists for this session (POD-1761 W4,
+          // unconditional since POD-4426). The server records `driverId` on the
+          // row and keys its senders on its presence — see BindMessage.
           ...(driverId
             ? {
                 driverId,
@@ -896,17 +903,19 @@ export async function launchSpawn(
       const handle = handleFor(ctx, msg.sessionId)
       if (handle) driverTiming.sessionReady(handle.binding)
     }
-    // Permanent plain-terminal exemption, independent of the legacy rollout flag.
-    // Shells/profile-less hosts and login commands have no agent runtime session
-    // to create. This is a driver-creation decision, not a subtree deletion boundary.
-    // Both paths share launch, durable host, bridge, observers, screen, draft engine,
-    // transcript source and reaper; terminal driver handles still need that machinery.
-    // The else-only step prepares instrumentation and calls launch without creating
-    // a driver. Keep the plain-terminal path and shared machinery when removing legacy.
-    const hostHasNoRuntimeSession = !profile || !!msg.loginHarness
+    // Permanent plain-terminal exemption, by structure not by switch (POD-4426).
+    // Shells and login commands have no agent runtime session to create: the
+    // shell rule above already split them from unknown harnesses, which refused
+    // before reaching here. This is a driver-creation decision, not a subtree
+    // deletion boundary. Both paths share launch, durable host, bridge,
+    // observers, screen, draft engine, transcript source and reaper; terminal
+    // driver handles still need that machinery. The contract arm is the
+    // survivor: `createTerminal` prepares instrumentation exactly as the legacy
+    // branch did (profile.instrumentationRequired → required/none) and the
+    // launch closure binds the driver before the bind frame goes out.
     if (installedInstrumentation) {
       await launch(installedInstrumentation)
-    } else if (!hostHasNoRuntimeSession) {
+    } else if (profile && !isPlainTerminal) {
       const runtime = ctx.agentRuntime
       if (!runtime) {
         throw new Error('agent runtime is unavailable; retry after the daemon recovers')
@@ -971,18 +980,36 @@ function requireTerminalHandle(
 }
 
 /** Bind before publishing success, including historical rows with no driver ID.
- * Shell, login and profile-less terminals have no agent runtime to construct. */
-async function bindRuntimeContract(
+ *
+ * UNCONDITIONAL SINCE POD-4426: every profile-bearing spawn and every
+ * profile-bearing reattach binds a driver — there is no flag to consult and no
+ * legacy path left to fall back to, so a build failure here throws and the
+ * caller reports it (spawnError on spawn, reattachFailed on reattach) rather
+ * than logging a warning and continuing driverless.
+ *
+ * The shell rule is positive: shells and login panes return with no driver. A
+ * non-shell kind with no profile refuses loudly — an unknown harness must never
+ * open a session nothing can drive.
+ */
+async function bindDriver(
   ctx: DaemonContext,
   msg: SpawnControl | ReattachControl,
   rebind: boolean,
   profile: ReturnType<typeof terminalProfileFor>,
 ): Promise<void> {
-  if (!profile || ('loginHarness' in msg && msg.loginHarness)) return
+  if (msg.agentKind === 'shell' || ('loginHarness' in msg && msg.loginHarness)) return
+  if (!profile) {
+    throw new Error(
+      `no manifest for harness '${msg.agentKind}': this build declares no runtime for it`,
+    )
+  }
   // Reconnect can carry an old or unavailable explicit ID. It must obey the
   // same canonical terminal identity as launch, rather than silently ignoring it.
-  if (typeof msg.runtimeContract === 'string' && canonicalDriverId(msg.runtimeContract) !== profile.driverId) {
-    throw new Error(`runtime driver '${msg.runtimeContract}' cannot bind as '${profile.driverId}'; retry with an available driver`)
+  if (
+    typeof msg.requestedDriverId === 'string' &&
+    canonicalDriverId(msg.requestedDriverId) !== profile.driverId
+  ) {
+    throw new Error(`runtime driver '${msg.requestedDriverId}' cannot bind as '${profile.driverId}'; retry with an available driver`)
   }
   if (!ctx.agentRuntime) {
     throw new Error('agent runtime is unavailable; retry after the daemon recovers')
@@ -1015,7 +1042,7 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     })
     return
   }
-  const requestedDriverId = spawnNamedServerDriver(msg.runtimeContract)
+  const requestedDriverId = spawnNamedServerDriver(msg.requestedDriverId)
   driverTiming.sessionRequested({
     sessionId: msg.sessionId,
     harness: msg.agentKind,
@@ -1110,30 +1137,31 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
  *     build ships no such driver, so it is a typo or a spawn from a newer
  *     server, and an operator who asked for `opencode-sever` and got a working
  *     terminal session would read it as proof the override works.
- *   - AN UNSUPPORTED DRIVER FROM THE MACHINE-WIDE DEFAULT DEGRADES to whatever
- *     the manifest ranks next, which today is terminal. The machine's opencode
- *     answered and the gate refused its version; `selectRuntimeDriver` already
+ *   - A MANIFEST-DEFAULT SERVER PREFERENCE THIS BOX CANNOT RUN DEGRADES to
+ *     whatever the manifest ranks next, which today is terminal. The machine's
+ *     opencode answered and the gate refused its version; `select()` already
  *     drops a preference the machine cannot run, and honouring it anyway would
- *     turn a stale `PODIUM_RUNTIME_DRIVER` into a machine where NO session can
- *     start. Pinned by `opencode-server.test.ts`'s "DEGRADES an opt-in the
- *     machine cannot run".
+ *     turn one stale binary into a machine where NO session can start. Pinned
+ *     by `opencode-server.test.ts`'s "DEGRADES an opt-in the machine cannot
+ *     run".
  *   - THE SAME REQUEST MADE PER-SPAWN REFUSES (POD-2113). An id on the spawn
  *     frame is not a setting anyone forgot; it is this session's reason for
  *     existing, and every operator who sends one is testing whether the driver
  *     works. Silently answering with a terminal session gave them the one
  *     outcome that looks exactly like the answer they wanted. Degrading is right
- *     for a value inherited from a machine and wrong for a value typed for a
- *     session, so the split is on WHERE the id came from, not on what it says.
+ *     for a policy default and wrong for a value typed for a session, so the
+ *     split is on WHERE the id came from — policy or frame — not on what it
+ *     says.
  *   - A DRIVER WE COULD NOT PROBE REFUSES, when the spawn named it explicitly.
  *     Added after POD-2056 measured `opencode --version` at 11–15s on the build
  *     host against a 15s budget: losing that race made an explicit
- *     `runtimeContract: 'opencode-server'` become a PTY session, and it did so
- *     invisibly — the session went live, the row still said `runtimeContract:
- *     true` (the TERMINAL driver had registered), and the first send came back
- *     `unverified`, which reads as a model problem four steps from the cause.
- *     "This machine's opencode is too old" is a fact about the machine and
- *     degrading on it is honest; "I could not find out" is a fact about load,
- *     and an operator who NAMED the driver would rather be told.
+ *     `requestedDriverId: 'opencode-server'` become a PTY session, and it did so
+ *     invisibly — the session went live, the bind carried the TERMINAL driver
+ *     id with nothing saying a server was asked for, and the first send came
+ *     back `unverified`, which reads as a model problem four steps from the
+ *     cause. "This machine's opencode is too old" is a fact about the machine
+ *     and degrading on it is honest; "I could not find out" is a fact about
+ *     load, and an operator who NAMED the driver would rather be told.
  *
  * The difference is whether the REQUEST is meaningless, genuinely unsatisfiable
  * here, or merely unanswered — and only the middle one is safe to paper over.
@@ -1228,10 +1256,9 @@ async function adoptServerDriverSession(
         // 120-column default behind it: a producer with no truth behind it either
         // way, since the frame's field is only the server's last-known and the
         // fallback was not even that.
-        // The same fact the launch path states, and for the same reason: W4's
-        // senders branch on it, and a rebound session that reported `false` would
-        // be routed to a PTY it does not have.
-        runtimeContract: true,
+        // The same fact the launch path states, and for the same reason: the
+        // server keys its senders on `driverId`'s presence, and a rebound
+        // session that omitted it would be routed to a PTY it does not have.
         driverId: handle.binding.driver,
         // POD-3087. Reported wherever `driverId` is, because the two answer the
         // same question — which live driver holds this session — and a bind that
@@ -1280,8 +1307,8 @@ async function adoptHeadlessSession(
   const existingHeadless =
     existing && existing.binding.driver === 'headless' ? existing : undefined
   const requested =
-    typeof msg.runtimeContract === 'string' &&
-    canonicalDriverId(msg.runtimeContract) === 'headless'
+    typeof msg.requestedDriverId === 'string' &&
+    canonicalDriverId(msg.requestedDriverId) === 'headless'
   if (!requested && !existingHeadless) return false
   const fail = (reason: string): true => {
     ctx.send({ type: 'reattachFailed', sessionId: msg.sessionId, reason })
@@ -1308,7 +1335,6 @@ async function adoptHeadlessSession(
         cmd: `headless (${handle.binding.driver})`,
         cwd: msg.cwd,
         agentKind: msg.agentKind,
-        runtimeContract: true,
         driverId: handle.binding.driver,
         configureFields: [...configureFieldsForDriver(handle.binding.driver)],
         attachKinds: [...attachKindsForDriver(handle.binding.driver)],
@@ -1357,7 +1383,6 @@ async function adoptHeadlessSession(
           cmd: `headless (${handle.binding.driver})`,
           cwd: msg.cwd,
           agentKind: msg.agentKind,
-          runtimeContract: true,
           driverId: handle.binding.driver,
           configureFields: [...configureFieldsForDriver(handle.binding.driver)],
           attachKinds: [...attachKindsForDriver(handle.binding.driver)],
@@ -1461,9 +1486,9 @@ async function resumeJournalledServerSession(
         // requested geometry would be an intent, not a report; the hardcoded
         // default it fell back to was not even an intent.
         // The same fact the launch and reattach paths state, and for the same
-        // reason: W4's senders branch on it, and a resumed session that reported
-        // `false` would be routed to a PTY it does not have.
-        runtimeContract: true,
+        // reason: the server keys its senders on `driverId`'s presence, and a
+        // resumed session that omitted it would be routed to a PTY it does not
+        // have.
         driverId: handle.binding.driver,
         // POD-3087. Reported wherever `driverId` is, because the two answer the
         // same question — which live driver holds this session — and a bind that
@@ -1517,8 +1542,8 @@ export function resolvedAdmissionExecutable(
 
 /**
  * Emit the operator-facing record for a permitted runtime-driver degradation
- * (machine-wide or manifest-default) and return the preferred id for the bind
- * projection.
+ * (a manifest-default server preference this box cannot run) and return the
+ * preferred id for the bind projection.
  * Keeping both consequences behind one guard prevents the log and read surface
  * from disagreeing about whether a degradation happened.
  */
@@ -1630,14 +1655,15 @@ export async function launchServerDriverSession(
   msg: SpawnControl,
   probeDriver: ServerDriverAdmissionProbe = defaultServerDriverAdmissionProbe,
 ): Promise<ServerDriverLaunchResult> {
-  if (msg.loginHarness || !terminalProfileFor(msg.agentKind)) return { handled: false }
+  if (msg.agentKind === 'shell' || msg.loginHarness || !terminalProfileFor(msg.agentKind)) {
+    return { handled: false }
+  }
   const { preferred } = runtimeDriverIntentForSpawn({
     agentKind: msg.agentKind,
-    perSpawn: msg.runtimeContract,
-    machineDefault: runtimeDriverByEnv(),
+    perSpawn: msg.requestedDriverId,
   })
   const embeddedRequested =
-    msg.runtimeContract === 'claude-sdk' && isEmbeddedDriver(msg.agentKind, 'claude-sdk')
+    msg.requestedDriverId === 'claude-sdk' && isEmbeddedDriver(msg.agentKind, 'claude-sdk')
   if (!preferred && !embeddedRequested) {
     // No server/embedded driver is in play: ordinary Claude, cursor, or a shell.
     // The answer is the terminal one and it is known without probing
@@ -1649,13 +1675,12 @@ export async function launchServerDriverSession(
     return { handled: false }
   }
   /**
-   * WHAT *THIS SPAWN* SAID, as opposed to what the machine was configured to
-   * prefer. `requested` has the env default folded in and cannot tell them
-   * apart; every refusal below keys on this instead, and the reason is the rule
-   * this function's docstring states — a fact about the MACHINE may be papered
-   * over, an instruction from THIS SPAWN may not.
+   * WHAT *THIS SPAWN* SAID. Every refusal below keys on the per-spawn field —
+   * the single preference left now that the machine-wide default is gone — and
+   * the reason is the rule this function's docstring states: a fact about the
+   * MACHINE may be papered over, an instruction from THIS SPAWN may not.
    */
-  const namedHere = spawnNamedServerDriver(msg.runtimeContract)
+  const namedHere = spawnNamedServerDriver(msg.requestedDriverId)
   // Login is cheaper and more authoritative than availability for a headless
   // default: a known logout always selects the PTY login path, so probing a
   // server binary first can only delay the same answer.
@@ -1711,19 +1736,16 @@ export async function launchServerDriverSession(
    * REFUSED ONLY WHEN *THIS SPAWN* NAMED THE DRIVER — the fix to a defect this
    * very check used to have (POD-2113, found by review).
    *
-   * It read `isServerDriverId(requested)`, so a machine-wide
-   * `PODIUM_RUNTIME_DRIVER` triggered it too. `ok` is false on ENOENT as well as
-   * on a timeout and an `unprobeable` verdict is only briefly memoized, so
-   * on a daemon whose PATH lacks the binary — installed under `~/.opencode/bin`
-   * while the daemon starts from a systemd unit, which is the normal case — one
-   * env var refused every spawn of every harness. That is precisely "a stale
-   * env var kills every spawn on the box", the outcome this whole function
-   * argues must never happen, and it was the docstring three lines up that was
-   * telling the truth while the code was not. W6's second driver doubled the
-   * ways in without changing the shape.
+   * It used to read the env-folded value, so a stale machine-wide default on a
+   * daemon whose PATH lacks the binary — installed under `~/.opencode/bin`
+   * while the daemon starts from a systemd unit, which is the normal case —
+   * refused every spawn of every harness: `ok` is false on ENOENT as well as on
+   * a timeout and an `unprobeable` verdict is only briefly memoized. The env
+   * source is gone (POD-4426); the per-spawn field is the only preference left,
+   * and both refusals ask it.
    *
-   * `namedHere === requested` whenever this fires (the per-spawn field wins in
-   * `runtimeDriverFor`), so `namedProbe` is this driver's own probe.
+   * `namedHere` is this driver's own id, so `namedProbe` is this driver's own
+   * probe.
    */
   if (namedProbe !== undefined && !namedProbe.drivable && namedProbe.reason === 'unprobeable') {
     ctx.send({
@@ -1749,8 +1771,7 @@ export async function launchServerDriverSession(
   }
   const resolution = runtime.resolveDriver({
     agentKind: msg.agentKind,
-    requested: msg.runtimeContract,
-    machineDefault: runtimeDriverByEnv(),
+    requested: msg.requestedDriverId,
     // Only the preferred server is probed and admitted. An explicit terminal
     // request therefore avoids every server probe.
     available: availableDriverIds({
@@ -1792,14 +1813,14 @@ export async function launchServerDriverSession(
    * is a terminal driver, `isServerDriver` is false, the function answers "not
    * mine", and the spawn falls through to the PTY launch. The operator gets a
    * healthy session that obeyed nothing — and no signal afterwards either, since
-   * the row records `runtimeContract: true` (the TERMINAL driver registered) and
-   * no read surface carries a driver id at all.
+   * the bind would carry the TERMINAL driver id with nothing saying a server
+   * was asked for.
    *
    * The refuse/degrade split itself lives in {@link unhonouredSpawnDriver},
    * where it can be tested without a daemon.
    */
   const unhonoured = unhonouredSpawnDriver({
-    perSpawn: msg.runtimeContract,
+    perSpawn: msg.requestedDriverId,
     resolved: resolution.driverId,
   })
   if (unhonoured !== undefined) {
@@ -1848,9 +1869,9 @@ export async function launchServerDriverSession(
     /**
      * THE DEGRADE THAT SURVIVES, SAID OUT LOUD.
      *
-     * A manifest-default or machine-wide server preference this box cannot run
-     * degrades deliberately, so an unsupported binary or transient probe miss
-     * cannot kill the spawn. The warning is the machine-level operational trace;
+     * A manifest-default server preference this box cannot run degrades
+     * deliberately, so an unsupported binary or transient probe miss cannot
+     * kill the spawn. The warning is the machine-level operational trace;
      * the same guard supplies preferred-versus-actual to bind.
      *
      * Explicit per-spawn server ids never reach here: the refusal above keeps
@@ -2000,7 +2021,7 @@ async function adoptOrResumeEmbeddedClaudeSession(
     existing.binding.harness === 'claude-code'
       ? existing
       : undefined
-  const requested = msg.runtimeContract === 'claude-sdk'
+  const requested = msg.requestedDriverId === 'claude-sdk'
   if (!requested && !existingClaude) return false
   const fail = (reason: string): true => {
     ctx.send({
@@ -2211,18 +2232,30 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
   // An explicit nonterminal request cannot be satisfied by a surviving PTY.
   // Old rows with omitted intent still recover through their headed profile.
   if (
-    typeof msg.runtimeContract === 'string' &&
-    (isServerDriverId(msg.runtimeContract) || msg.runtimeContract === 'claude-sdk')
+    typeof msg.requestedDriverId === 'string' &&
+    (isServerDriverId(msg.requestedDriverId) || msg.requestedDriverId === 'claude-sdk')
   ) {
     ctx.send({
       type: 'reattachFailed',
       sessionId: msg.sessionId,
-      reason: `runtime driver '${msg.runtimeContract}' has no recoverable binding; retry this session`,
+      reason: `runtime driver '${msg.requestedDriverId}' has no recoverable binding; retry this session`,
     })
     return
   }
 
   const profile = terminalProfileFor(msg.agentKind)
+  // SHELL RULE, POSITIVE (POD-4426, matching the spawn path): shells keep the
+  // host recovery route. A non-shell kind with no manifest is an unknown
+  // harness, and a reattach that recovered it as a plain terminal would open a
+  // session nothing can drive — so it fails loudly with the kind named.
+  if (!profile && msg.agentKind !== 'shell') {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: `no manifest for harness '${msg.agentKind}': this build declares no runtime for it`,
+    })
+    return
+  }
   // Plain terminals retain their host recovery route. Old harness rows need a
   // driver too: absence of a persisted request is not a plain-terminal marker.
   if (profile) {
@@ -2297,12 +2330,9 @@ export async function recoverTerminalHost(
         // belief back as a daemon report — the lie that made `geometryState` read
         // `current` after a reconnect that confirmed nothing.
         ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-        // The driver handle actually exists for this session (POD-1761 W4). The
-        // server records it and W4's senders branch on it — see BindMessage.
-        // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
-        // one would report `false` for a server-family session and route its
-        // sends down the legacy PTY path, for a session that has no PTY.
-        ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+        // The driver handle actually exists for this session (POD-1761 W4,
+        // unconditional since POD-4426). The server records `driverId` on the
+        // row and keys its senders on its presence — see BindMessage.
         ...(driverId
           ? {
               driverId,
@@ -2471,12 +2501,9 @@ export async function recoverTerminalHost(
         // record's answer now (POD-3290), not this site's. The server reads the
         // absence as "W is unknown to me" and waits for the first ask.
         ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-        // The driver handle actually exists for this session (POD-1761 W4). The
-        // server records it and W4's senders branch on it — see BindMessage.
-        // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
-        // one would report `false` for a server-family session and route its
-        // sends down the legacy PTY path, for a session that has no PTY.
-        ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+        // The driver handle actually exists for this session (POD-1761 W4,
+        // unconditional since POD-4426). The server records `driverId` on the
+        // row and keys its senders on its presence — see BindMessage.
         ...(driverId
           ? {
               driverId,

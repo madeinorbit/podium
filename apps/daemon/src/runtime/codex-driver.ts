@@ -339,16 +339,15 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
           agentKind: 'codex',
           /**
            * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023's
-           * lesson, unchanged here). The server records it on the row and W4's
-           * migrated senders branch on it to choose between the contract and the
-           * legacy PTY path. A SERVER session that got it wrong would be handed to
-           * a path that types at a PTY this session does not have — the write
-           * would go nowhere and report success.
+           * lesson, unchanged here). The server records `driverId` on the row
+           * and keys its senders on its presence to choose the contract path.
+           * A SERVER session that omitted it would be handed to a path that
+           * types at a PTY this session does not have — the write would go
+           * nowhere and report success.
            *
-           * Hardcoded `true` rather than probed, because reaching this line IS the
-           * proof: the handle above was constructed and registered.
+           * Stated outright rather than probed, because reaching this line IS
+           * the proof: the handle above was constructed and registered.
            */
-          runtimeContract: true,
           driverId: handle.binding.driver,
           // POD-3087: what this driver's configure() can change, read off its own
           // declaration so no consumer has to keep a second copy of it.

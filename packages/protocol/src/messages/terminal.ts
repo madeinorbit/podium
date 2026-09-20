@@ -441,33 +441,6 @@ export type SessionBindingAdoptLaunchInstruction = z.infer<
   typeof SessionBindingAdoptLaunchInstruction
 >
 
-/**
- * HOW A SPAWN ASKS TO BE DRIVEN THROUGH THE CONTRACT (POD-1761 W3, widened by W5).
- *
- * `true` — drive this session through the contract with whatever driver the
- * harness manifest's `select()` policy picks, which today means the terminal
- * one for every harness. This is W3's meaning, unchanged.
- *
- * A DRIVER ID — drive it through the contract with THAT driver specifically.
- * This is the operator's explicit per-spawn override (spec §9 phase 3): it is
- * how one session runs on `opencode-server` while every other session on the
- * same daemon stays terminal, and it is why the default needs no change at all.
- *
- * WIDENED RATHER THAN JOINED BY A SECOND FIELD, deliberately. The two would
- * always have to be read together — "contract on, and also this driver" — and a
- * pair of independently-optional fields has a fourth state ("a driver, but the
- * contract off") that means nothing and that every reader would have to decide
- * about separately.
- *
- * TYPED AS A BARE STRING HERE, and validated at the daemon. `DriverId` is
- * defined in `@podium/harness`, which sits ABOVE this package — the same
- * direction that keeps the driver taxonomy out of the `runtime` message family.
- * An unknown id is refused where the driver registry is, which is the only place
- * that can tell a typo from a driver this build does not ship.
- */
-export const RuntimeContractRequest = z.union([z.boolean(), z.string().min(1)])
-export type RuntimeContractRequest = z.infer<typeof RuntimeContractRequest>
-
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
   sessionId: SessionIdField,
@@ -524,13 +497,20 @@ export const SpawnMessage = z.object({
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
   /**
-   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3, universal since POD-4280).
-   * A driver id names the engine for this spawn; true delegates to the manifest
-   * policy; absent means the headed default. The daemon always builds a driver
-   * handle for profile-bearing agents — shells, logins and profile-less hosts
-   * are the permanent exemption, not a flag.
+   * EXPLICIT PER-SPAWN DRIVER REQUEST (POD-4426).
+   *
+   * A driver id names the engine for this spawn; absent means the manifest's
+   * headed terminal default. The daemon binds a driver handle for every
+   * profile-bearing agent unconditionally — shells, logins and profile-less
+   * hosts are the permanent exemption, not a flag.
+   *
+   * TYPED AS A BARE STRING HERE, and validated at the daemon. `DriverId` is
+   * defined in `@podium/harness`, which sits ABOVE this package — the same
+   * direction that keeps the driver taxonomy out of the `runtime` message family.
+   * An unknown id is refused where the driver registry is, which is the only place
+   * that can tell a typo from a driver this build does not ship.
    */
-  runtimeContract: RuntimeContractRequest.optional(),
+  requestedDriverId: z.string().min(1).optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -567,8 +547,22 @@ export const ReattachMessage = z.object({
   // Draft Sync v2 (POD-859): as SpawnMessage.draftSync — the daemon runs its
   // composer engine for this reattached session only when true.
   draftSync: z.boolean().optional(),
-  /** Prior daemon-reported server preference (manifest or machine) that
-   * degraded for this live session. Echoed on reattach so reconnect preserves it. */
+  /** THE DRIVER THIS SESSION IS EXPECTED TO REBIND TO (POD-4426).
+   *
+   * A driver id names the engine a revived session rebinds to. The server sends
+   * the session's selected driver (the value its `reattachDriverRequest`
+   * computed for the old `runtimeContract` field): a server/embedded/headless
+   * id routes to the adopt paths, a terminal id must canonically match the
+   * harness profile. Absent means the manifest's headed terminal default —
+   * which is also what rows created under the previous release carry, so their
+   * first reattach after upgrade binds a driver through the ordinary profile
+   * path (migration without a flag).
+   *
+   * TYPED AS A BARE STRING HERE, and validated at the daemon — see
+   * SpawnMessage.requestedDriverId for why the taxonomy lives above this package.
+   * The daemon echoes the value back on `bind`; the server persists the degraded
+   * preference at spawn and never lets the echo widen into a second request.
+   */
   requestedDriverId: z.string().min(1).optional(),
   /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
   observationGeneration: z.number().int().positive().optional(),
@@ -583,13 +577,6 @@ export const ReattachMessage = z.object({
   /** Last durably accepted causal checkpoint. Optional for mixed-version
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
-  /**
-   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3, universal since POD-4280).
-   * Same driver-selection carriage as spawn: an id names the engine, true
-   * delegates to policy, absent is the headed default. Reconnect carries the
-   * prior explicit choice so a revived session rebinds to the same driver.
-   */
-  runtimeContract: RuntimeContractRequest.optional(),
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),
@@ -735,25 +722,16 @@ export const BindMessage = z.object({
   // sampler/flush. Additive; older daemons omit it (no engine).
   draftSyncEngine: z.boolean().optional(),
   /**
-   * AGENT RUNTIME CONTRACT, REPORTED BY THE PARTY THAT DECIDED IT (POD-1761 W4).
+   * THE DRIVER THAT HOLDS THIS SESSION (POD-1761 W4, unconditional since POD-4426).
    *
-   * True when the daemon actually built a driver handle for this session — i.e.
-   * `bindRuntimeContract` registered it. The server cannot compute this itself:
-   * the daemon takes the OR of a machine-wide env var it owns and the per-spawn
-   * field, and it declines the flag for profileless harnesses (a shell has no
-   * turns to be honest about). A server that inferred the answer from the field
-   * it sent would be wrong in both directions — flagged-by-env sessions it never
-   * asked for, and asked-for sessions the daemon refused.
+   * The runtime driver the daemon actually bound, reported from the live
+   * handle's binding rather than inferred from the spawn request. Present on
+   * every bind for a profile-bearing agent — the daemon refuses to acknowledge
+   * a driverless one — and absent for shells, which have no driver by structure.
    *
-   * This is what W4's migrated senders branch on: a receipt only exists for a
-   * session with a driver behind it, so the branch has to key on the driver, not
-   * on an intent. Additive; older daemons omit it (legacy path only).
-   */
-  runtimeContract: z.boolean().optional(),
-  /**
-   * The runtime driver this daemon actually bound, reported from the live
-   * handle's binding rather than inferred from the spawn request. Absent means
-   * either an older daemon or a legacy session with no runtime handle.
+   * THIS IS THE DRIVEN SIGNAL. The server records it on the row and keys its
+   * senders on its presence: a receipt only exists for a session with a driver
+   * behind it, so the branch keys on the driver, not on an intent.
    */
   driverId: z.string().min(1).optional(),
   /** Manifest-default or machine-wide server preference that degraded to
