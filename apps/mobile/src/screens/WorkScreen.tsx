@@ -6,6 +6,7 @@ import {
   isDraftAgentVessel,
   issueDisplayTitle,
   missionProgress,
+  type MissionProgress,
   rowAwaitsTuck,
   rowCanBringBack,
   rowHasWorkingSession,
@@ -15,11 +16,12 @@ import {
   rowStatusLine,
   rowUnreadEmphasized,
   rowWaitingCount,
+  reuseUnifiedWorkRows,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta } from '@podium/model'
+import type { IssueWire, SessionId } from '@podium/model'
 import {
   canonicalIssueCloseReason,
   ISSUE_STATUS_LABELS,
@@ -201,6 +203,33 @@ export function WorkScreen() {
   // one derivation per snapshot, carrying the clock it was derived against, so
   // the phone and the desk cannot disagree about whether a snooze has lapsed.
   const { pinned, groups, allWorktreePaths, now } = useSlice(worklistSlice)
+  // ROW IDENTITY REUSE (POD-4421). The published slice builds fresh row
+  // objects per derivation, so without this every snapshot tick hands the list
+  // all-new row identities and `memo` on WorkRow can never hit. Reusing
+  // unchanged rows here is the same stabilization the desktop sidebar applies
+  // in its transition layer — consumer-side, so the slice itself is untouched.
+  const stableAllRef = useRef<UnifiedWorkRow[]>([])
+  const { stablePinned, stableGroups } = useMemo(() => {
+    const nextFlat: UnifiedWorkRow[] = [
+      ...pinned,
+      ...groups.flatMap((g) => [...g.rows, ...g.snoozedRows, ...g.closedRows]),
+    ]
+    const stableFlat = reuseUnifiedWorkRows(stableAllRef.current, nextFlat)
+    stableAllRef.current = stableFlat
+    const byKey = new Map(stableFlat.map((r) => [workRowId(r), r]))
+    const pick = (r: UnifiedWorkRow): UnifiedWorkRow => byKey.get(workRowId(r)) ?? r
+    return {
+      stablePinned: pinned.map(pick),
+      stableGroups: groups.map((g) => ({
+        ...g,
+        rows: g.rows.map(pick),
+        snoozedRows: g.snoozedRows.map(pick),
+        closedRows: g.closedRows.map(pick),
+      })),
+    }
+  }, [pinned, groups])
+  // Per-row issue lookup for the origin tick, built once per publish.
+  const mobileIssueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
   const [menuTarget, setMenuTarget] = useState<WorkIssueMenuTarget | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -213,8 +242,8 @@ export function WorkScreen() {
   )
 
   const { sections, issueCount, pinnedCount, attentionCount } = useMemo(
-    () => buildWorkSections(pinned, groups),
-    [pinned, groups],
+    () => buildWorkSections(stablePinned, stableGroups),
+    [stablePinned, stableGroups],
   )
 
   const searching = query.trim().length > 0
@@ -331,6 +360,81 @@ export function WorkScreen() {
     (issueId: string) => void setIssueTucked(issueId, true),
     [setIssueTucked],
   )
+  // Stable per-id tuck thunks (POD-4421): `onTuck={() => tuck(id)}` would mint
+  // a fresh closure per row per render and defeat the memo below.
+  const tuckIssueStable = useRef(tuckIssue)
+  tuckIssueStable.current = tuckIssue
+  const tuckCacheRef = useRef(new Map<string, () => void>())
+  const tuckFor = useCallback((issueId: string): (() => void) => {
+    let fn = tuckCacheRef.current.get(issueId)
+    if (!fn) {
+      fn = () => tuckIssueStable.current(issueId)
+      tuckCacheRef.current.set(issueId, fn)
+    }
+    return fn
+  }, [])
+  // NARROW PER-ROW DATA, COMPUTED ONCE PER LIST (POD-4421). Each row used to
+  // receive the whole `issues`/`sessions`/`allWorktreePaths` arrays plus `now`
+  // and then run its own `issues.find`, `issueDisplayTitle` and
+  // `missionProgress` fallback — and the memo above it compared those arrays
+  // by identity, so a snapshot tick repainted everything. The maps below run
+  // once per publish; each row receives scalars with stable references.
+  const narrowById = useMemo(() => {
+    const label = new Map<string, string>()
+    const progress = new Map<string, MissionProgress | null>()
+    const originSeq = new Map<string, number | null>()
+    const status = new Map<string, string>()
+    const stamp = new Map<string, string | null>()
+    const tuckable = new Map<string, boolean>()
+    const snoozed = new Map<string, boolean>()
+    const unsnoozed = new Map<string, boolean>()
+    const all: UnifiedWorkRow[] = [
+      ...stablePinned,
+      ...stableGroups.flatMap((g) => [...g.rows, ...g.snoozedRows, ...g.closedRows]),
+    ]
+    for (const r of all) {
+      const id = workRowId(r)
+      if (r.kind === 'issue') {
+        label.set(id, issueDisplayTitle(r.issue, sessionsAll, allWorktreePaths))
+        progress.set(id, r.missionRollup?.progress ?? missionProgress(issues, sessionsAll, r.issue.id))
+        const dep = r.issue.deps.find((d) => d.type === 'discovered-from')
+        originSeq.set(id, dep ? (mobileIssueById.get(dep.id)?.seq ?? null) : null)
+      } else {
+        label.set(
+          id,
+          `${r.worktree.repoName ?? ''}${r.worktree.branch ? ` · ${r.worktree.branch}` : ''}`,
+        )
+        progress.set(id, null)
+        originSeq.set(id, null)
+      }
+      status.set(id, rowStatusLine(r, now, 0))
+      stamp.set(id, timeStamp(r, now))
+      tuckable.set(id, r.kind === 'issue' ? rowAwaitsTuck(r, null, false, now) : false)
+      snoozed.set(id, r.kind === 'issue' ? isIssueDeferred(r.issue, now) : false)
+      unsnoozed.set(id, r.kind === 'issue' ? issueReturnedFromDefer(r.issue, now) : false)
+    }
+    return { label, progress, originSeq, status, stamp, tuckable, snoozed, unsnoozed }
+  }, [
+    stablePinned,
+    stableGroups,
+    sessionsAll,
+    allWorktreePaths,
+    issues,
+    mobileIssueById,
+    now,
+  ])
+  // Prune tuck thunks for rows that left the list.
+  {
+    const live = new Set<string>([
+      ...stablePinned.map(workRowId),
+      ...stableGroups.flatMap((g) =>
+        [...g.rows, ...g.snoozedRows, ...g.closedRows].map(workRowId),
+      ),
+    ])
+    for (const key of tuckCacheRef.current.keys()) {
+      if (!live.has(key)) tuckCacheRef.current.delete(key)
+    }
+  }
 
   return (
     <Screen
@@ -428,20 +532,27 @@ export function WorkScreen() {
                 onToggle={() => toggleFold(section.key)}
               />
             )}
-            renderItem={({ item }) => (
-              <WorkRow
-                row={item}
-                issues={issues}
-                sessions={sessionsAll}
-                allWorktreePaths={allWorktreePaths}
-                now={now}
-                navPending={pendingNav !== null && pendingNav === workRowId(item)}
-                onOpenIssue={openIssue}
-                onOpenSession={openSessionFromRow}
-                onLongPress={openRowMenu}
-                onTuckIssue={tuckIssue}
-              />
-            )}
+            renderItem={({ item }) => {
+              const id = workRowId(item)
+              const isIssue = item.kind === 'issue'
+              return (
+                <WorkRow
+                  row={item}
+                  label={narrowById.label.get(id) ?? ''}
+                  progress={narrowById.progress.get(id) ?? null}
+                  originSeq={narrowById.originSeq.get(id) ?? null}
+                  statusLine={narrowById.status.get(id) ?? ''}
+                  stamp={narrowById.stamp.get(id) ?? null}
+                  snoozed={narrowById.snoozed.get(id) ?? false}
+                  unsnoozed={narrowById.unsnoozed.get(id) ?? false}
+                  onTuck={isIssue && narrowById.tuckable.get(id) ? tuckFor(id) : undefined}
+                  navPending={pendingNav !== null && pendingNav === id}
+                  onOpenIssue={openIssue}
+                  onOpenSession={openSessionFromRow}
+                  onLongPress={openRowMenu}
+                />
+              )
+            }}
             renderSectionFooter={({ section }) => (
               <View style={styles.folds}>
                 {section.snoozedRows.length > 0 ? (
@@ -661,38 +772,54 @@ function Fold({
 }
 
 /**
- * MEMOIZED, and the callbacks above are stable for exactly this reason: a fold
- * toggle, a search keystroke or a row loader used to re-render every row in the
- * list, which is most of why folding read as sluggish on a full board. With
- * `memo`, local screen state touches only the rows whose props actually moved;
- * a snapshot tick still repaints everything (its arrays and `now` are new).
+ * MEMOIZED OVER NARROW PROPS (POD-4421). The row used to receive the whole
+ * `issues`/`sessions`/`allWorktreePaths` arrays plus `now`, so — in its own
+ * author's words — "a snapshot tick still repaints everything (its arrays and
+ * `now` are new)". It now receives its row object (stable across publishes
+ * via `reuseUnifiedWorkRows` above) plus the scalars it displays, computed
+ * once per list: label, progress, origin seq, status line, stamp and a stable
+ * per-id tuck thunk. An unrelated publish leaves every prop referentially
+ * equal and the row stays cold; a clock tick still updates the rows whose
+ * strings actually moved.
  */
 const WorkRow = memo(function WorkRow({
   row,
-  issues,
-  sessions: allSessions,
-  allWorktreePaths,
-  now,
+  label,
+  progress,
+  originSeq,
+  statusLine,
+  stamp,
+  snoozed,
+  unsnoozed,
+  onTuck,
   navPending,
   onOpenIssue,
   onOpenSession,
   onLongPress,
-  onTuckIssue,
 }: {
   row: UnifiedWorkRow
-  issues: readonly IssueWire[]
-  sessions: readonly SessionMeta[]
-  allWorktreePaths: string[]
-  now: number
+  /** Narrow display title, computed once per list. */
+  label: string
+  /** Narrow progress (the row's own rollup, fallback computed per list). */
+  progress: MissionProgress | null
+  /** Narrow spin-off origin seq; null = no tick. */
+  originSeq: number | null
+  /** Narrow status phrase for `now`, computed once per list. */
+  statusLine: string
+  /** Narrow timer stamp for `now`, computed once per list. */
+  stamp: string | null
+  /** Narrow snooze marks for `now`, computed once per list. */
+  snoozed: boolean
+  unsnoozed: boolean
+  /** Stable per-id tuck thunk; absent = not tuckable. */
+  onTuck?: () => void
   /** This row's open is in flight — show the delayed native loader. */
   navPending: boolean
   onOpenIssue: (issue: IssueWire) => void
   onOpenSession: (sessionId: SessionId, rowKey: string) => void
   onLongPress: (issue: IssueNavigationModel) => void
-  onTuckIssue: (issueId: string) => void
 }) {
   const issue = row.kind === 'issue' ? row.issue : undefined
-  const worktree = row.kind === 'worktree' ? row.worktree : undefined
   const sessions = row.kind === 'issue' ? row.sessions : row.worktree.sessions
   // The row speaks for its whole branch: descendants have no row of their own
   // here, so the fleet stack reads the bubbled aggregate.
@@ -711,12 +838,6 @@ const WorkRow = memo(function WorkRow({
   const attention = waiting > 0
   const decision = row.kind === 'issue' ? rowPendingDecision(row) : null
   const rowUnread = rowUnreadEmphasized(row)
-  // The published row carries the Flight Deck's child-task rollup. Direct
-  // component fixtures use the same derivation as a fallback.
-  const progress = issue
-    ? ((row.kind === 'issue' ? row.missionRollup?.progress : null) ??
-      missionProgress(issues, allSessions, issue.id))
-    : null
   // A draft vessel's only content is its agents — its row IS the agent, so it
   // clicks straight into the session (desktop POD-282).
   const draftOnly = issue ? isDraftAgentVessel(issue, sessions) : false
@@ -726,21 +847,6 @@ const WorkRow = memo(function WorkRow({
   const draftQuiet =
     draftOnly && !sessions[0]?.busy && (sessions[0]?.agentState?.phase ?? 'unknown') === 'unknown'
   const unread = rowUnread && !draftQuiet
-  const label = issue
-    ? issueDisplayTitle(issue, allSessions, allWorktreePaths)
-    : `${worktree?.repoName ?? ''}${worktree?.branch ? ` · ${worktree.branch}` : ''}`
-  const stamp = timeStamp(row, now)
-  const statusLine = rowStatusLine(row, now, 0)
-  // Spin-off provenance (POD-85): an outgoing discovered-from edge names the
-  // issue this one was spun off from — one quiet ⤷ tick on line 2.
-  const originDep = issue?.deps.find((d) => d.type === 'discovered-from')
-  const origin = originDep ? issues.find((i) => i.id === originDep.id) : undefined
-  const snoozed = issue ? isIssueDeferred(issue, now) : false
-  const unsnoozed = issue ? issueReturnedFromDefer(issue, now) : false
-  // Computed here rather than passed as a closure so the memo above can work:
-  // an inline `onTuck` arrow from renderItem would be new every list render.
-  const onTuck =
-    issue && rowAwaitsTuck(row, null, false, now) ? () => onTuckIssue(issue.id) : undefined
   // Native, theme-tinted, and DELAYED: feedback only when the open is actually
   // taking a beat, so a fast push never flashes a spinner (standard ~150ms).
   const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
@@ -810,7 +916,7 @@ const WorkRow = memo(function WorkRow({
             >
               {statusLine}
             </Text>
-            {origin ? <Text style={styles.origin}>{`⤷ ${origin.seq}`}</Text> : null}
+            {originSeq !== null ? <Text style={styles.origin}>{`⤷ ${originSeq}`}</Text> : null}
             {issue ? (
               <GitStampLine
                 branch={issue.branch}
