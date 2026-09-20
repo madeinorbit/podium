@@ -1,27 +1,45 @@
 import type { SessionId } from '@podium/model'
-import { hookBoolean, hookEventName, isGrokHookPayload } from './hook-payload'
-
-/** Delivers issue mail at each harness's blocking boundary. Claude/Codex block Stop;
- *  Grok can only deny PreToolUse, so one tool call is denied with the inbox pointer and
- *  can be retried after the agent reads it. [spec:SP-79c5] The Stop path keeps its
- *  stop_hook_active loop guard; both modes share the per-session cooldown. */
+/** Mail policy is harness-neutral. Drivers own boundary selection, veto encoding,
+ * loop guards and delivery; the server owns unread/reminded_at persistence. */
 export const MAIL_BLOCK_COOLDOWN_MS = 60_000
 
-type MailDeliveryMode = 'stop' | 'grok_pre_tool'
-
-function mailDeliveryMode(payload: unknown): MailDeliveryMode | undefined {
-  const event = hookEventName(payload)
-  if (isGrokHookPayload(payload)) return event === 'PreToolUse' ? 'grok_pre_tool' : undefined
-  return event === 'Stop' ? 'stop' : undefined
+export interface MailContextSource {
+  pendingContext(sessionId: SessionId, signal?: AbortSignal): Promise<string | null>
 }
 
-function intervention(mode: MailDeliveryMode, reason: string): string {
-  return JSON.stringify({
-    // Grok's only blocking hook is PreToolUse and its native decision is deny.
-    // Claude/Codex Stop hooks use block to continue the turn.
-    decision: mode === 'grok_pre_tool' ? 'deny' : 'block',
-    reason,
-  })
+/** Suppress concurrent polls, not just successive deliveries. In particular a
+ * duplicate completion must not consume two server-persisted reminders. */
+function contextSource(
+  read: (sessionId: SessionId) => Promise<string | null>,
+  now: () => number,
+): MailContextSource {
+  const lastBlockedAt = new Map<SessionId, number>()
+  const pending = new Map<SessionId, object>()
+  return {
+    async pendingContext(sessionId, signal) {
+      if (signal?.aborted) return null
+      const at = lastBlockedAt.get(sessionId)
+      if (pending.has(sessionId) || (at !== undefined && now() - at < MAIL_BLOCK_COOLDOWN_MS))
+        return null
+      const claim = {}
+      pending.set(sessionId, claim)
+      const release = () => {
+        if (pending.get(sessionId) === claim) pending.delete(sessionId)
+      }
+      signal?.addEventListener('abort', release, { once: true })
+      try {
+        const text = await read(sessionId)
+        if (signal?.aborted) return null
+        if (text !== null) lastBlockedAt.set(sessionId, now())
+        return text
+      } catch {
+        return null // old server, non-issue session or failed relay: fail open
+      } finally {
+        signal?.removeEventListener('abort', release)
+        release()
+      }
+    },
+  }
 }
 
 /** Pointer rendering (#237) [spec:SP-34d7]: coalesce N pending messages into one
@@ -37,46 +55,18 @@ function mailBlockReason(unread: number, senders: string[]): string {
 export function createMailInjector(
   relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
   now: () => number = Date.now,
-): {
-  respondTo(sessionId: SessionId, payload: unknown): Promise<string | null>
-  /** Harness-neutral inbox context, sharing the callback path's cooldown. */
-  pendingContext(sessionId: SessionId): Promise<string | null>
-} {
-  const lastBlockedAt = new Map<string, number>()
-  async function pendingContext(sessionId: SessionId): Promise<string | null> {
-    const at = lastBlockedAt.get(sessionId)
-    if (at !== undefined && now() - at < MAIL_BLOCK_COOLDOWN_MS) return null
-    let unread: unknown
-    let senders: string[] = []
-    try {
-      const r = await relay(sessionId)
-      if (!r.ok) return null
-      const result = r.result as { unread?: unknown; senders?: unknown } | null
-      unread = result?.unread
-      // senders is optional (#237): an old server omits it — fall back to the
-      // sender-less rendering rather than failing the block.
-      if (Array.isArray(result?.senders)) {
-        senders = result.senders.filter((s): s is string => typeof s === 'string').slice(0, 5)
-      }
-    } catch {
-      // Non-issue sessions / relay errors / timeouts: never block, never throw.
-      return null
-    }
-    if (typeof unread !== 'number' || unread <= 0) return null
-    lastBlockedAt.set(sessionId, now())
+): MailContextSource {
+  return contextSource(async (sessionId) => {
+    const r = await relay(sessionId)
+    if (!r.ok) return null
+    const result = r.result as { unread?: unknown; senders?: unknown } | null
+    const unread = result?.unread
+    if (typeof unread !== 'number' || !Number.isFinite(unread) || unread <= 0) return null
+    const senders = Array.isArray(result?.senders)
+      ? result.senders.filter((s): s is string => typeof s === 'string').slice(0, 5)
+      : []
     return mailBlockReason(unread, senders)
-  }
-  return {
-    pendingContext,
-    async respondTo(sessionId, payload) {
-      const mode = mailDeliveryMode(payload)
-      if (!mode) return null
-      if (mode === 'stop' && hookBoolean(payload, 'stop_hook_active', 'stopHookActive') === true)
-        return null
-      const context = await pendingContext(sessionId)
-      return context === null ? null : intervention(mode, context)
-    },
-  }
+  }, now)
 }
 
 /**
@@ -88,55 +78,71 @@ export function createMailInjector(
 export function createAckReminderInjector(
   relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
   now: () => number = Date.now,
-): { respondTo(sessionId: SessionId, payload: unknown): Promise<string | null> } {
-  const lastBlockedAt = new Map<string, number>()
+): MailContextSource {
+  return contextSource(async (sessionId) => {
+    const r = await relay(sessionId)
+    if (!r.ok || !Array.isArray(r.result)) return null
+    const reminders = r.result.filter(
+      (m): m is { id: string; from: string } =>
+        typeof (m as { id?: unknown })?.id === 'string' &&
+        typeof (m as { from?: unknown })?.from === 'string',
+    )
+    if (reminders.length === 0) return null
+    const lines = reminders
+      .slice(0, 5)
+      .map(
+        (m) =>
+          `- ${m.id} (from ${m.from}): reply with what you did — podium mail reply ${m.id} --body "…"`,
+      )
+    return (
+      `You have ${reminders.length} podium message(s) awaiting your reply before you go idle:\n` +
+      `${lines.join('\n')}\n` +
+      'This is your only reminder; unanswered senders get a mechanical system notice instead.'
+    )
+  }, now)
+}
+
+/** Unread mail wins. Do not consume persisted ack reminders until they can be
+ * delivered; fetching both in parallel would mark an unseen reminder sent. */
+export function composeMailContext(...sources: MailContextSource[]): MailContextSource {
+  const pending = new Map<SessionId, object>()
   return {
-    async respondTo(sessionId, payload) {
-      const mode = mailDeliveryMode(payload)
-      if (!mode) return null
-      if (mode === 'stop' && hookBoolean(payload, 'stop_hook_active', 'stopHookActive') === true)
-        return null
-      const at = lastBlockedAt.get(sessionId)
-      if (at !== undefined && now() - at < MAIL_BLOCK_COOLDOWN_MS) return null
-      let reminders: { id: string; from: string }[]
-      try {
-        const r = await relay(sessionId)
-        if (!r.ok || !Array.isArray(r.result)) return null
-        reminders = r.result.filter(
-          (m): m is { id: string; from: string } =>
-            typeof (m as { id?: unknown })?.id === 'string' &&
-            typeof (m as { from?: unknown })?.from === 'string',
-        )
-      } catch {
-        return null // old server / relay error: never block, never throw
+    async pendingContext(sessionId, signal) {
+      if (signal?.aborted || pending.has(sessionId)) return null
+      const claim = {}
+      pending.set(sessionId, claim)
+      const release = () => {
+        if (pending.get(sessionId) === claim) pending.delete(sessionId)
       }
-      if (reminders.length === 0) return null
-      lastBlockedAt.set(sessionId, now())
-      const lines = reminders
-        .slice(0, 5)
-        .map(
-          (m) =>
-            `- ${m.id} (from ${m.from}): reply with what you did — podium mail reply ${m.id} --body "…"`,
-        )
-      return JSON.stringify({
-        decision: mode === 'grok_pre_tool' ? 'deny' : 'block',
-        reason:
-          `You have ${reminders.length} podium message(s) awaiting your reply before you go idle:\n` +
-          `${lines.join('\n')}\n` +
-          'This is your only reminder; unanswered senders get a mechanical system notice instead.',
-      })
+      signal?.addEventListener('abort', release, { once: true })
+      try {
+        for (const source of sources) {
+          if (signal?.aborted) return null
+          try {
+            const text = await source.pendingContext(sessionId, signal)
+            if (text !== null) return text
+          } catch {
+            // A failing source must not silence the next source.
+          }
+        }
+        return null
+      } finally {
+        signal?.removeEventListener('abort', release)
+        release()
+      }
     },
   }
 }
 
 /** First non-null response wins; a responder that throws is skipped (fail-open). */
 export function composeResponders(
-  ...fns: Array<(sessionId: SessionId, payload: unknown) => Promise<string | null>>
-): (sessionId: SessionId, payload: unknown) => Promise<string | null> {
-  return async (sessionId, payload) => {
+  ...fns: Array<(sessionId: SessionId, payload: unknown, signal?: AbortSignal) => Promise<string | null>>
+): (sessionId: SessionId, payload: unknown, signal?: AbortSignal) => Promise<string | null> {
+  return async (sessionId, payload, signal) => {
     for (const fn of fns) {
+      if (signal?.aborted) return null
       try {
-        const r = await fn(sessionId, payload)
+        const r = await fn(sessionId, payload, signal)
         if (r !== null) return r
       } catch {
         // fail-open: a broken responder must not silence the others

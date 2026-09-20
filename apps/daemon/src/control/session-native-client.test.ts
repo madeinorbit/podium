@@ -134,7 +134,7 @@ describe('server-family native client control', () => {
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 91, rows: 33 })
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
 
-    expect(clientTerminals.input).toHaveBeenCalledWith(SESSION, 'aGVsbG8=')
+    expect(clientTerminals.input).toHaveBeenCalledWith(SESSION, Buffer.from('hello'))
     expect(clientTerminals.resize).toHaveBeenCalledWith(SESSION, 91, 33)
     expect(clientTerminals.redraw).toHaveBeenCalledWith(SESSION, true)
     expect(ctx.pendingResizes.has(SESSION)).toBe(false)

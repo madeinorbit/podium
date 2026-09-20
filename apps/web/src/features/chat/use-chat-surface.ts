@@ -21,6 +21,7 @@ import {
   type OperatorPromptOptions,
   parseEnvelopeBatch,
   pendingAskFromState,
+  matchesQuestionInteraction,
   queuedState,
   type RenderableRow,
   renderableRows,
@@ -157,6 +158,7 @@ export interface ChatSurface {
   /** Present only while the addressed session can accept or safely resume for
    *  a retry. Its absence removes the action from durable failed rows. */
   retryFailedMessage: ((text: string) => void) | undefined
+  answerInteractionId?: string
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
 
@@ -638,18 +640,25 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   // stable — ChatBlockView is memo'd and a fresh callback each render would
   // defeat that for every block. Who answered is the authority's to stamp
   // (doc §3.1.3 A3); the payload carries only the answer shape.
+  const currentQuestion = useStoreSelector((s) => (s.pendingInteractions ?? []).find(
+    (row) => row.sessionId === sessionId && row.kind === 'question' && row.status === 'asked',
+  ))
   const answerAsk = useMemo(
     () => async (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => {
+      if (currentQuestion && (answer.interactionId !== currentQuestion.id ||
+          !answer.question || !matchesQuestionInteraction(currentQuestion, answer.question))) {
+        throw new Error('The question changed; wait for the current menu.')
+      }
       // A refused answer must reach the card. The server types nothing when it
       // cannot express a choice as keystrokes, and a resolved promise there
       // would show the operator "sent" over a question still on screen — the
       // silent substitution POD-770 was about, one layer up.
       const sent = (await trpc.sessions.answerAskUserQuestion.mutate(
-        'skip' in answer ? { sessionId, skip: true } : { sessionId, choices: answer.choices },
+        'skip' in answer ? { sessionId, interactionId: answer.interactionId, skip: true } : { sessionId, interactionId: answer.interactionId, choices: answer.choices },
       )) as { ok?: boolean; reason?: string } | undefined
       if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
     },
-    [trpc, sessionId],
+    [trpc, sessionId, currentQuestion],
   )
 
   // Searching matches over LOADED blocks, and the initial window is sized for a
@@ -774,6 +783,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     retractQueuedMessage: send.retractQueuedMessage,
     retryFailedMessage: canRetryFailedMessage ? (text) => void send.send(text) : undefined,
     answerAsk,
+    answerInteractionId: currentQuestion?.id,
     activity,
 
     headlessTurn,

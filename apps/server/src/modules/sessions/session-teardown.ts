@@ -125,7 +125,8 @@ export class SessionTeardown {
       draft.stoppedAt = new Date(this.ports.now()).toISOString()
       draft.stopReason = 'parent'
     })
-    this.killStoppedSession(session)
+    if (!await this.gracefulStopThenKill(session))
+      throw new Error('process retirement was not confirmed')
     this.ports.broadcastSessions()
   }
 
@@ -154,9 +155,9 @@ export class SessionTeardown {
       draft.stoppedAt = new Date(this.ports.now()).toISOString()
       draft.stopReason = 'parent'
     })
-    this.killStoppedSession(session)
+    const retired = await this.gracefulStopThenKill(session)
     this.ports.broadcastSessions()
-    return { ok: true }
+    return retired ? { ok: true } : { ok: false, reason: 'process retirement was not confirmed' }
   }
 
   /**
@@ -195,9 +196,9 @@ export class SessionTeardown {
       draft.stoppedAt = new Date(this.ports.now()).toISOString()
       draft.stopReason = 'parent'
     })
-    this.killStoppedSession(session)
+    const retired = await this.gracefulStopThenKill(session)
     this.ports.broadcastSessions()
-    return { ok: true }
+    return retired ? { ok: true } : { ok: false, reason: 'process retirement was not confirmed' }
   }
 
   /** Authoritatively revalidate a stopped-session decay proposal [spec:SP-6144]. */
@@ -366,8 +367,9 @@ export class SessionTeardown {
           },
         )
         if (!freed.ok) {
-          if ((wasRunning || input.reapParked === true) && !input.selfStop)
-            await this.gracefulStopThenKill(session)
+          if ((wasRunning || input.reapParked === true) && !input.selfStop &&
+              !await this.gracefulStopThenKill(session))
+            return { ok: false, reason: 'process retirement was not confirmed; worktree not freed', worktreeFreed: false }
           return {
             ok: true,
             reason: `session stopped but worktree not freed: ${freed.output}`,
@@ -383,8 +385,9 @@ export class SessionTeardown {
     // Peer/operator: graceful stop now, kill only as escalation. Self-stop:
     // hold both until the relay has delivered agentRelayResult
     // (finalizeDeferredStopKill) [spec:SP-9904].
-    if ((wasRunning || input.reapParked === true) && !input.selfStop)
-      await this.gracefulStopThenKill(session)
+    if ((wasRunning || input.reapParked === true) && !input.selfStop &&
+        !await this.gracefulStopThenKill(session))
+      return { ok: false, reason: 'process retirement was not confirmed', worktreeFreed }
 
     return {
       ok: true,
@@ -402,35 +405,20 @@ export class SessionTeardown {
     })
   }
 
-  /**
-   * POD-3989: graceful stop first, legacy kill frame only as escalation.
-   *
-   * `runtimeLifecycle(stop)` reaches the driver's `handle.stop()` on the
-   * daemon (handlers.ts); the kill frame reaches `handle.kill()` /
-   * `beginServerDriverReap(retire:true)`. A settled `{ok:true}` means the
-   * driver took the graceful path, so no kill follows. Any refusal
-   * (`not_running` — including the RPC timeout, which surfaces as
-   * `not_running` — or a throw) escalates to the legacy kill frame, which is
-   * also the path for sessions never behind the contract (terminal family).
-   *
-   * ESCALATION TIMEOUT: none of its own — it is `RUNTIME_VERB_TIMEOUT_MS`
-   * (10s, machines/rpc.ts) owned by `DaemonRpcService.runtimeLifecycle`. Stop
-   * is a local driver op like the other verbs sharing that timeout (no
-   * verification window to wait out, unlike `runtimeSend`'s 12s), long enough
-   * for a slow driver to settle and bounded so a lost daemon cannot stall the
-   * stop UI past 10s before the kill escalation fires.
-   */
-  private async gracefulStopThenKill(session: Session): Promise<void> {
+  /** A driver acknowledgement alone is not evidence of process retirement.
+   * Old/offline daemons still receive the orphan-reaping frame, but the caller
+   * sees an unconfirmed outcome until a measured lifecycle reply exists. */
+  private async gracefulStopThenKill(session: Session): Promise<boolean> {
     try {
       const res = await this.ports.rpc.runtimeLifecycle(
-        { sessionId: session.sessionId, verb: 'stop' },
-        session.machineId,
+        { sessionId: session.sessionId, verb: 'stop' }, session.machineId,
       )
-      if (res?.result && 'ok' in res.result && res.result.ok) return
+      if ('ok' in res.result && res.result.retirement === 'confirmed') return true
     } catch {
-      // Fall through to the kill escalation below.
+      // Preserve queued orphan recovery when the correlated request fails.
     }
     this.killStoppedSession(session)
+    return false
   }
 
   /**
@@ -444,7 +432,8 @@ export class SessionTeardown {
     if (!session) return
     // Only kill if still parked from stop (hibernated/exited) — never a live row.
     if (session.status !== 'hibernated' && session.status !== 'exited') return
-    await this.gracefulStopThenKill(session)
+    if (!await this.gracefulStopThenKill(session))
+      throw new Error('deferred process retirement was not confirmed')
   }
 
   /**
@@ -635,12 +624,8 @@ export class SessionTeardown {
       throw error
     }
     this.ports.autoContinue.onSessionGone(sessionId)
-    this.ports.toMachine(session.machineId, {
-      type: 'kill',
-      sessionId,
-      ...(session ? { durableLabel: session.durableLabel } : {}),
-    })
+    const retired = await this.gracefulStopThenKill(session)
     this.ports.broadcastSessions()
-    return { ok: true }
+    return retired ? { ok: true } : { ok: false, reason: 'process retirement was not confirmed' }
   }
 }

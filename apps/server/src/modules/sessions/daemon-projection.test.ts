@@ -17,10 +17,10 @@ const cases: { name: string; frame: SessionProjectionDaemonFrame; fallback?: boo
   { name: 'prompt title', frame: { type: 'transcriptDelta', sessionId, items: [] }, fallback: true },
 ]
 
-function fixture(fallback = false) {
+function fixture(fallback = false, agentKind: 'claude-code' | 'codex' = 'claude-code') {
   const session = new Session({
     ownerUserId: firstAdminMemberId(),
-    sessionId, machineId, durableLabel: 'projection-session', agentKind: 'claude-code',
+    sessionId, machineId, durableLabel: 'projection-session', agentKind,
     cwd: '/old', title: 'Old title', origin: { kind: 'spawn' },
     createdAt: '2026-09-07T00:00:00.000Z', geometry: { cols: 80, rows: 24 },
     toDaemon: vi.fn(), issueId: asIssueId('projection-issue'),
@@ -58,7 +58,7 @@ function fixture(fallback = false) {
     adoptWorktree: () => { published.push('adopt') },
     recordSessionGitActivity: vi.fn(),
   }
-  return { projection: new SessionDaemonProjection(ports), pending, published, save }
+  return { projection: new SessionDaemonProjection(ports), pending, published, save, session }
 }
 
 describe('daemon projection write completion', () => {
@@ -100,4 +100,78 @@ describe('daemon projection write completion', () => {
       }
     })
   }
+})
+
+
+describe('contract metadata projection', () => {
+  const observation = (seq: number, change: import('@podium/protocol/daemon').SessionMetadataChange,
+    generation = 1): import('@podium/protocol/daemon').SessionMetadataObservation => ({
+    t: 'metadata', change, at: '2026-09-01T00:00:00.000Z', provenance: 'live',
+    cursor: { segmentId: 'metadata', components: { seq } }, observerGeneration: generation, turnEpoch: 1,
+  })
+
+  it('deduplicates compatibility frames and native events without changing requested settings or user naming', async () => {
+    const f = fixture()
+    f.pending.resolve()
+    f.session.name = 'User name'
+    f.session.nameSource = 'user'
+    f.session.requestedModel = 'requested-model'
+    f.session.requestedEffort = 'low'
+    const event = observation(1, { kind: 'model', source: 'native', model: 'actual-model', effort: 'high' })
+    await f.projection.handle(machineId, { type: 'agentModel', sessionId, model: 'actual-model', effort: 'high' })
+    await f.projection.runtimeEvent(sessionId, event)
+    await f.projection.runtimeEvent(sessionId, event)
+    expect(f.save).toHaveBeenCalledTimes(1)
+    await f.projection.runtimeEvent(sessionId, observation(2, { kind: 'title', source: 'native', title: 'Agent summary' }))
+    expect(f.session).toMatchObject({ name: 'User name', nameSource: 'user', title: 'Agent summary',
+      observedModel: 'actual-model', observedEffort: 'high', requestedModel: 'requested-model', requestedEffort: 'low' })
+    f.projection.disposeTitle(sessionId)
+  })
+
+  it('hydrates snapshot metadata but rejects stale bootstrap racing a live update', async () => {
+    const f = fixture()
+    f.pending.resolve()
+    const old = observation(1, { kind: 'context', source: 'transcript', percent: 80 })
+    const snapshot: import('@podium/protocol/daemon').SessionSnapshot = {
+      binding: { sessionId, driver: 'terminal-claude', family: 'terminal', harness: 'claude-code',
+        workdir: '/repo', resume: null, process: { key: 'process' }, bindingVersion: 1 },
+      metadata: [old], state: {}, cursor: old.cursor, observerGeneration: 1, turnEpoch: 1,
+      interactions: [], at: old.at,
+    }
+    await f.projection.metadataSnapshot(sessionId, snapshot)
+    expect(f.session.contextUsagePercent).toBe(80)
+    await f.projection.runtimeEvent(sessionId, observation(2, { kind: 'context', source: 'transcript', percent: 0 }))
+    await f.projection.metadataSnapshot(sessionId, snapshot)
+    expect(f.session.contextUsagePercent).toBe(0)
+    expect(f.save).toHaveBeenCalledTimes(2)
+    await f.projection.runtimeEvent(sessionId, observation(3, { kind: 'color', source: 'transcript', color: 'blue' }))
+    await f.projection.runtimeEvent(sessionId, observation(4, { kind: 'color', source: 'transcript', color: 'default' }))
+    expect(f.session.agentColor).toBeUndefined()
+  })
+
+  it('keeps first-prompt fallback and stable title debounce on the contract path', async () => {
+    vi.useFakeTimers()
+    const f = fixture(true)
+    f.pending.resolve()
+    try {
+      await f.projection.promptTitle(sessionId)
+      expect(f.session.title).toBe('A useful prompt title')
+      await f.projection.runtimeEvent(sessionId, observation(1, { kind: 'title', source: 'osc', title: 'Claude Code' }))
+      expect(f.session.title).toBe('A useful prompt title')
+      await f.projection.runtimeEvent(sessionId, observation(2, { kind: 'title', source: 'osc', title: '◐ Better summary' }))
+      await f.projection.runtimeEvent(sessionId, observation(3, { kind: 'title', source: 'osc', title: '◑ Better summary' }))
+      expect(f.session.title).toBe('Better summary')
+      await vi.advanceTimersByTimeAsync(500)
+      expect(f.published.filter((entry) => entry === 'title')).toHaveLength(2)
+    } finally { f.projection.disposeTitle(sessionId); vi.useRealTimers() }
+  })
+
+  it('refuses OSC titles for Codex even if the host forwards a spinner', async () => {
+    const f = fixture(false, 'codex')
+    f.pending.resolve()
+    await f.projection.runtimeEvent(sessionId, observation(1, { kind: 'title', source: 'native', title: 'Native summary' }))
+    await f.projection.runtimeEvent(sessionId, observation(2, { kind: 'title', source: 'osc', title: '◐ project' }))
+    expect(f.session.title).toBe('Native summary')
+    f.projection.disposeTitle(sessionId)
+  })
 })

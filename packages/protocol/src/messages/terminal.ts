@@ -1,3 +1,4 @@
+import { NativeBindingReceipt } from './native-binding'
 import { SessionDelegation } from '@podium/model'
 import {
   AgentKind,
@@ -33,6 +34,7 @@ export const SessionResumeRefAckMessage = z.object({
   resume: ResumeRef,
   /** Binding owner resolved by the server; absent from older rolling peers. */
   ownerId: UserIdField.optional(),
+  receipt: NativeBindingReceipt.optional(),
 })
 
 /** Server verdict for an exact native-id collision. Both host observations
@@ -522,15 +524,11 @@ export const SpawnMessage = z.object({
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
   /**
-   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3). When true this session is
-   * ALSO driven through `@podium/agent-runtime`'s `RuntimeDriver` — the daemon
-   * builds a driver handle beside the existing bridge and answers `runtime*`
-   * frames for it. Absent/false = the legacy path only, byte for byte.
-   *
-   * PER-SPAWN as well as per-daemon (`PODIUM_RUNTIME_CONTRACT=1`) so a single
-   * session can be flagged without flipping a machine: the daemon takes the OR
-   * of the two, which is what lets the e2e lane prove the flag-on path while
-   * every other session on the same daemon stays on the legacy one.
+   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3, universal since POD-4280).
+   * A driver id names the engine for this spawn; true delegates to the manifest
+   * policy; absent means the headed default. The daemon always builds a driver
+   * handle for profile-bearing agents — shells, logins and profile-less hosts
+   * are the permanent exemption, not a flag.
    */
   runtimeContract: RuntimeContractRequest.optional(),
 })
@@ -586,15 +584,10 @@ export const ReattachMessage = z.object({
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
   /**
-   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3). When true this session is
-   * ALSO driven through `@podium/agent-runtime`'s `RuntimeDriver` — the daemon
-   * builds a driver handle beside the existing bridge and answers `runtime*`
-   * frames for it. Absent/false = the legacy path only, byte for byte.
-   *
-   * PER-SESSION as well as per-daemon (`PODIUM_RUNTIME_CONTRACT=1`) so a single
-   * session can be flagged without flipping a machine: the daemon takes the OR
-   * of the two, which is what lets the e2e lane prove the flag-on path while
-   * every other session on the same daemon stays on the legacy one.
+   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3, universal since POD-4280).
+   * Same driver-selection carriage as spawn: an id names the engine, true
+   * delegates to policy, absent is the headed default. Reconnect carries the
+   * prior explicit choice so a revived session rebinds to the same driver.
    */
   runtimeContract: RuntimeContractRequest.optional(),
 })
@@ -858,10 +851,13 @@ export const TitleMessage = z.object({
   type: z.literal('title'),
   sessionId: SessionIdField,
   title: z.string(),
+  source: z.enum(['osc', 'native']).optional(),
 })
 // Daemon → server: the agent's `/color` accent, parsed from the transcript tail.
 export const AgentColorMessage = z.object({
   type: z.literal('agentColor'),
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
   sessionId: SessionIdField,
   color: z.string(),
 })
@@ -870,7 +866,9 @@ export const AgentColorMessage = z.object({
 // mid-session `/model` switches; rides the same transcript tail as agentColor.
 export const AgentModelMessage = z.object({
   type: z.literal('agentModel'),
-  sessionId: SessionIdField,
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
+  source: z.enum(['transcript', 'native']).optional(),  sessionId: SessionIdField,
   model: z.string(),
   /** The observed reasoning-effort tier (assistant records' top-level `effort`),
    *  when the transcript reports one. Optional for wire-compat with older daemons. */
@@ -880,6 +878,8 @@ export const AgentModelMessage = z.object({
 // transcript. Harnesses without a reliable numerator + window do not emit it.
 export const AgentContextMessage = z.object({
   type: z.literal('agentContext'),
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
   // Branded like every sibling frame in this file. main added this frame
   // (POD-1262) with a bare z.string(); the rewrite's ids are branded, and the
   // deletion ratchet flags exactly this shape — a key naming an entity id whose

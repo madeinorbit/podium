@@ -220,16 +220,14 @@ export interface InteractionServiceDeps {
   deliverStructured?(input: {
     sessionId: SessionId
     interactionId: string
+    principal: InboxPrincipalReference
     answer: InteractionAnswer
   }): Promise<InteractionAnswerOutcome>
   /**
    * IS THIS SESSION'S INPUT THE DRIVER'S TO WRITE (POD-3986)?
    *
-   * Bound at the composition root to `contractDeliveryRequested`, the ONE
-   * predicate the server already uses for "this session is answered through the
-   * runtime contract" — the same one `interruptText` and `continueSession` were
-   * routed behind. A second answer to that question living here is how the two
-   * would drift apart.
+   * Bound to the session's runtime ownership. A driver-owned question cannot
+   * fall back to the server script when the headed text-delivery rollout is off.
    *
    * It exists because {@link deliverStructured} alone cannot decide it. A
    * terminal ask is raised `keystroke-emulated` — honestly, because the answer
@@ -556,6 +554,8 @@ export class InteractionService {
         )
         return
       }
+      const driverOwned = await this.deps.contractRouted?.(input.sessionId)
+      if (driverOwned && input.next.phase === 'needs_user') return
       const questionOptions =
         input.next.phase === 'needs_user' && input.next.need?.kind === 'question'
           ? await this.readQuestionOptions(input.sessionId)
@@ -578,7 +578,7 @@ export class InteractionService {
         //
         // Scoped to what this path synthesized — see {@link STATE_DERIVED_SOURCES}.
         await this.closeOpen(input.sessionId, 'superseded', 'the session left the asking state', (row) =>
-          STATE_DERIVED_SOURCES.has(row.source),
+          STATE_DERIVED_SOURCES.has(row.source) && !(driverOwned && (row.kind === 'question' || row.kind === 'permission')),
         )
         return
       }
@@ -587,7 +587,7 @@ export class InteractionService {
       // open asks on one terminal session would both claim the same menu. Same
       // scoping: a driver's own ask is not this path's to supersede.
       for (const open of await this.deps.store.listOpen(input.sessionId)) {
-        if (!STATE_DERIVED_SOURCES.has(open.source)) continue
+        if (!STATE_DERIVED_SOURCES.has(open.source) || (driverOwned && (open.kind === 'question' || open.kind === 'permission'))) continue
         if (open.fingerprint !== ask.fingerprint) await this.supersede(open.id)
       }
       // ONE INTERNAL CALLER of the public ingress: the bus path has no more
@@ -698,14 +698,9 @@ export class InteractionService {
   }
 
   /**
-   * A DRIVER RETIRED ONE OF ITS OWN ASKS (POD-2414).
-   *
-   * The compatibility frame that opens a protocol ask carries only the `asked`
-   * arm, so before this the aggregate had no way to learn that a person had
-   * answered a permission prompt in opencode's own UI: the row stayed open, and
-   * a list whose promise is "these sessions are blocked" accumulated sessions
-   * that were not. The coarse stream carries all three arms; this is the other
-   * two.
+   * Admitted interaction events share the runtime gate's durable projection.
+   * Asked events preserve the driver's identity and enrich that same row;
+   * resolution events retire it. Terminal evidence remains keystroke-emulated.
    *
    * SUPERSEDED, NOT ANSWERED, for the `answered` arm — the aggregate did not
    * record the decision and must not claim to know what it was. `expired` is
@@ -717,7 +712,32 @@ export class InteractionService {
    * `answered` event from the driver that applied it.
    */
   async onInteractionResolved(input: { sessionId: SessionId; ev: InteractionEvent }): Promise<void> {
-    if (input.ev.ev === 'asked') return await Promise.resolve()
+    if (input.ev.ev === 'asked') {
+      const interaction = input.ev.interaction
+      if (interaction.sessionId !== input.sessionId) throw new Error('interaction session mismatch')
+      return await this.chain(input.sessionId, async () => {
+        const existing = await this.deps.store.get(interaction.id)
+        if (existing) {
+          if (existing.sessionId !== input.sessionId) throw new Error('interaction identity collision')
+          if (existing.status === 'asked' && JSON.stringify(existing.payload) !== JSON.stringify(interaction.payload)) {
+            await this.deps.store.enrich(existing.id, interaction.payload)
+            const row = await this.deps.store.get(existing.id)
+            if (row) this.announce(row)
+          }
+          return
+        }
+        if (interaction.answerable === 'keystroke-emulated') {
+          await this.closeOpen(input.sessionId, 'superseded', 'the driver observed a replacement menu',
+            (row) => row.kind === 'question' || row.kind === 'permission')
+        }
+        await this.ask({ interaction: {
+          ...interaction,
+          // Driver identity is authoritative even when its evidence is classified.
+          // Equal-looking replacement menus must not inherit the old answer authority.
+          fingerprint: `runtime:${interaction.id}`,
+        } })
+      })
+    }
     // EAGER, DELIBERATELY AHEAD OF THE CHAIN. The driver settled it, so an
     // in-flight policy answer for the same row has been overtaken and must not
     // reopen behind it — and a reopen races the chain rather than joining it,
@@ -872,6 +892,10 @@ export class InteractionService {
     // escalation and needs nothing; a claimed row with an unproven delivery is
     // the one to hand back.
     const settled = await this.deps.store.get(row.id)
+    if (!outcome.ok && outcome.reason === 'partial-delivery') {
+      this.policyDeliveryInFlight.delete(row.id)
+      return
+    }
     if (settled?.status !== 'answered' || settled.deliveredVia !== 'unverified') {
       // Every terminal path drops the marker, including the successful one —
       // it is the lifetime of ONE delivery, and a marker left behind for a
@@ -915,6 +939,26 @@ export class InteractionService {
    * silently reopened. The spec's own send vocabulary draws the same line for
    * the same reason.
    */
+  async answerChoices(input: {
+    sessionId: SessionId; interactionId?: string
+    choices?: import('../sessions/inbox').AnswerChoice[]; skip?: boolean
+    principal: InboxPrincipalReference
+  }): Promise<InteractionAnswerOutcome> {
+    if (!input.interactionId) return { ok: false, reason: 'unknown-interaction' }
+    const row = await this.deps.store.get(input.interactionId)
+    if (!row || row.sessionId !== input.sessionId || row.kind !== 'question') {
+      return { ok: false, reason: 'unknown-interaction' }
+    }
+    return await this.answer({ id: row.id,
+      answer: { kind: 'question', ...(input.skip ? { skip: true as const } : {}),
+        selections: (input.choices ?? []).map((choice) => 'freeText' in choice
+          ? { optionIndices: choice.otherIndex === undefined ? [] : [choice.otherIndex], text: choice.freeText }
+          : { optionIndices: choice.optionIndices }) },
+      principal: input.principal,
+      answeredBy: input.principal.kind === 'user' ? 'human' : input.principal.kind === 'agent' ? 'superagent' : 'policy',
+    })
+  }
+
   async answer(input: AnswerInput): Promise<InteractionAnswerOutcome & { detail?: string }> {
     const row = await this.deps.store.get(input.id)
     if (!row) return { ok: false, reason: 'unknown-interaction' }
@@ -1089,6 +1133,9 @@ export class InteractionService {
     if (answer.kind === 'plan-approval' || answer.kind === 'login' || answer.kind === 'recovery') {
       return false
     }
+    // Persisted provenance, independent of a later binding's delivery mode.
+    // These fingerprints are minted only by the admitted runtime ingress.
+    if (row.fingerprint === `runtime:${row.id}`) return true
     if (!this.deps.contractRouted) return false
     return await this.deps.contractRouted(row.sessionId)
   }
@@ -1118,11 +1165,14 @@ export class InteractionService {
      * session that has no terminal would be answering a menu that does not
      * exist.
      */
-    if (this.deps.deliverStructured && (await this.answeredByDriver(row, answer))) {
+    if (await this.answeredByDriver(row, answer)) {
+      if (!this.deps.deliverStructured) return { ok: false, via: 'unverified',
+        refusal: 'not-yet-supported', detail: 'the authoritative answer gateway is unavailable' }
       try {
         const outcome = await this.deps.deliverStructured({
           sessionId: row.sessionId,
           interactionId: row.id,
+          principal,
           answer,
         })
         return outcome.ok

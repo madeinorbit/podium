@@ -90,6 +90,7 @@ export type InteractionAnswerOutcome =
         /** The capability exists and the REPLY did not arrive — retry, do not
          *  report a permanent gap (POD-2023). */
         | 'delivery-failed'
+        | 'partial-delivery'
       detail?: string
     }
 

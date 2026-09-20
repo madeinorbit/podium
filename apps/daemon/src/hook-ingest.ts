@@ -65,14 +65,17 @@ export async function startHookIngest(opts: {
   port?: number
   /** Stable, instance-scoped Unix socket used by Codex hooks. */
   socketPath?: string
+  /** Driver-owned hidden context, evaluated before optional legacy responders.
+   * Removing respondTo must not remove startup/compaction context delivery. */
+  boundaryContext?: (sessionId: SessionId, payload: unknown, signal: AbortSignal) => Promise<string | null>
   /**
    * Optional bounded response. When provided, the resolved JSON string is sent
    * as the hook response body (Claude Code reads it as e.g. additionalContext);
    * `null`/timeout/throw all fall back to `'{}'`. `onPayload` still fires for
-   * every request. Absent → behaves exactly as before (immediate `'{}'`).
+   * every request. Absent → only the driver boundary is evaluated.
    */
-  respondTo?: (sessionId: SessionId, payload: unknown) => Promise<string | null>
-  /** Max time to await `respondTo` before falling back to `'{}'`. Default 3000. */
+  respondTo?: (sessionId: SessionId, payload: unknown, signal: AbortSignal) => Promise<string | null>
+  /** Max time for driver context and legacy responders together before falling back to `'{}'`. Default 3000. */
   respondTimeoutMs?: number
 }): Promise<HookIngest> {
   const onRequest: RequestListener = (req, res) => {
@@ -132,13 +135,14 @@ export async function startHookIngest(opts: {
           // observer must never throw into the response path
         }
         const respondTo = opts.respondTo
-        if (!respondTo) {
+        if (!respondTo && !opts.boundaryContext) {
           res.writeHead(200, { 'content-type': 'application/json' })
           res.end('{}')
           return
         }
         // Optional bounded response: await respondTo, but never delay the agent past the timeout.
         const timeoutMs = opts.respondTimeoutMs ?? 3000
+        const responseLifetime = new AbortController()
         let settled = false
         const finish = (bodyText: string): void => {
           if (settled) return
@@ -152,17 +156,31 @@ export async function startHookIngest(opts: {
             // so swallow it — the settled guard still prevents any double-send.
           }
         }
-        const timer = setTimeout(() => finish('{}'), timeoutMs)
+        const timer = setTimeout(() => {
+          responseLifetime.abort()
+          finish('{}')
+        }, timeoutMs)
         timer.unref?.()
         // A client disconnect mid-await cancels the pending response so the
         // timer/promise callback becomes a no-op instead of writing to a closed
         // socket (which would otherwise throw uncaught out of the timer callback).
         res.on('close', () => {
+          if (!settled) responseLifetime.abort()
           settled = true
           clearTimeout(timer)
         })
         Promise.resolve()
-          .then(() => respondTo(sessionId, payload))
+          .then(async () => {
+            const signal = responseLifetime.signal
+            let context: string | null = null
+            try {
+              context = await opts.boundaryContext?.(sessionId, payload, signal) ?? null
+            } catch {
+              // Driver fetch failures remain fail-open for later responders.
+            }
+            if (signal.aborted) return null
+            return context ?? respondTo?.(sessionId, payload, signal) ?? null
+          })
           .then((body) => {
             clearTimeout(timer)
             finish(typeof body === 'string' && body.length > 0 ? body : '{}')

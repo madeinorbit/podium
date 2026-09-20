@@ -110,7 +110,7 @@ export interface HostsDeps {
   sessions(): Iterable<HostSessionView> | Promise<Iterable<HostSessionView>>
   hibernateSession(input: {
     sessionId: SessionId
-    requireTerminalProof?: boolean
+    requireTerminalProof: true
   }): { ok: boolean; reason?: string } | Promise<{ ok: boolean; reason?: string }>
   /**
    * Park a live shell for the idle-shell policy: kill the process, keep the
@@ -118,7 +118,6 @@ export interface HostsDeps {
    * Does not free worktrees — that stays an explicit stop.
    */
   parkShellSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }>
-  parkStaleSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }>
   hasScheduledWakeup(sessionId: SessionId, now: number): boolean | Promise<boolean>
   /** Server-authoritative, atomically revalidated two-pass terminal proof. */
   hasValidTerminalProof(sessionId: SessionId): boolean | Promise<boolean>
@@ -502,9 +501,8 @@ export class HostsService {
     )
   }
 
-  /** Hibernation refuses without a resume ref. Unobserved agents that have one
-   *  skip terminal proof — no observer ran, so the long quiet window is the
-   *  safety gate. */
+  /** Host-owned safety boundary: every automatic agent park consumes proof.
+   * Quiet policy selects candidates; neither quiet, idle nor resume authorizes retirement. */
   private async tryHibernateCandidate(
     target: HostSessionView,
     failed: Set<string>,
@@ -513,10 +511,9 @@ export class HostsService {
       failed.add(target.sessionId)
       return false
     }
-    const unobserved = this.isUnobservedPhase(target)
     const result = await this.deps.hibernateSession({
       sessionId: target.sessionId,
-      requireTerminalProof: !unobserved,
+      requireTerminalProof: true,
     })
     if (!result.ok) {
       failed.add(target.sessionId)
@@ -609,7 +606,7 @@ export class HostsService {
     })
   }
 
-  /** Last-resort process bound: complete quiet authorizes parking without terminal proof. */
+  /** The backstop selects old sessions but cannot waive agent parking evidence. */
   private async applyIdleBackstop(
     machineId: MachineId,
     backstopMinutes: number,
@@ -632,7 +629,18 @@ export class HostsService {
     )
     const unscheduled: HostSessionView[] = []
     for (const session of quiet) {
-      if (!(await this.deps.hasScheduledWakeup(session.sessionId, now))) unscheduled.push(session)
+      if (await this.deps.hasScheduledWakeup(session.sessionId, now)) continue
+      if (session.agentKind !== 'shell') {
+        if (!session.resume) continue
+        const phase = session.agentState?.phase
+        if (phase !== 'idle' && phase !== 'ended' && !this.isUnobservedPhase(session)) continue
+        if (
+          this.isUnobservedPhase(session) &&
+          !this.isFullyQuietFor(session, this.unknownQuietWindowMs(backstopMinutes), now)
+        ) continue
+        if (!await this.deps.hasValidTerminalProof(session.sessionId)) continue
+      }
+      unscheduled.push(session)
     }
     const target = unscheduled.sort(
       (a, b) => this.quietSinceMs(a) - this.quietSinceMs(b),
@@ -641,7 +649,7 @@ export class HostsService {
     const result =
       target.agentKind === 'shell'
         ? await this.deps.parkShellSession({ sessionId: target.sessionId })
-        : await this.deps.parkStaleSession({ sessionId: target.sessionId })
+        : { ok: await this.tryHibernateCandidate(target, failed) }
     if (!result.ok) {
       failed.add(target.sessionId)
       return
@@ -749,7 +757,7 @@ export class HostsService {
         // state event-time advance) and the resume ref checked above. The
         // revalidated terminal proof below still applies — and a contract
         // session never holds one, so this branch stays closed for it in
-        // production; the unobserved branch below is its live path.
+        // production until equivalent causal evidence is supplied.
         const phaseEligible =
           this.effectiveIdleSinceMs(session) <= idleCutoff &&
           (this.isContractBacked(session) || now - session.lastOutputAtMs >= OUTPUT_QUIET_MS)
@@ -772,9 +780,12 @@ export class HostsService {
         continue
       }
 
-      // Unobserved harness agent with a resume ref: long quiet substitutes for
-      // terminal proof — no observer ever ran.
-      if (this.isUnobservedPhase(session) && this.isFullyQuietFor(session, unknownQuietMs, now)) {
+      // The unknown-phase floor is additional policy, never a proof substitute.
+      if (
+        this.isUnobservedPhase(session) &&
+        this.isFullyQuietFor(session, unknownQuietMs, now) &&
+        await this.deps.hasValidTerminalProof(session.sessionId)
+      ) {
         eligible.push(session)
       }
     }
@@ -796,8 +807,7 @@ export class HostsService {
    * above, so a session reaches the sort only after passing every safety gate
    * independently — resume ref present, phase idle/ended (or unobserved after
    * the long quiet window), idle past `idleMinutes`, output quiet (or the
-   * unobserved quiet floor), and a revalidated terminal proof (skipped only
-   * when no observer ever ran). A closed issue therefore buys a session no less
+   * unobserved quiet floor), and a revalidated terminal proof. A closed issue buys no less
    * protection than an open one; it only loses its place in a queue it already
    * qualified for.
    *

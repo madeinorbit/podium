@@ -85,6 +85,7 @@ interface MobileTrpcExtras {
     answerAskUserQuestion: MutationProcedure<
       {
         sessionId: SessionId
+        interactionId?: string
         skip?: true
         choices?: AskAnswerChoice[]
       },

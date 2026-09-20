@@ -221,6 +221,23 @@ export function createAgentRuntime(composition: AgentRuntimeComposition): Machin
   ): { source: AgentRuntimeDriverSource; driver: RuntimeDriver } => {
     const manifest = manifestFor(spec.harness as AgentKind)
     if (!manifest) throw new Error("no runtime manifest for harness '" + spec.harness + "'")
+    // The headless process-per-turn driver is never returned by a manifest
+    // `select()` — heads never spawn it — but an explicit operator preference
+    // addresses it directly. Bypass the policy here so `runtime.create` with
+    // `selection.preference: 'headless'` reaches the wired headless source
+    // instead of degrading to the harness's terminal fallback.
+    const preference = spec.selection.preference
+      ? canonicalDriverId(spec.selection.preference)
+      : undefined
+    if (preference === 'headless') {
+      const match = driverMatchFor(spec.harness, 'headless')
+      if (!match) {
+        throw new Error(
+          "runtime driver 'headless' is not wired for harness '" + spec.harness + "'",
+        )
+      }
+      return match
+    }
     const driverId = manifest.runtime.select(spec.selection)
     const match = driverMatchFor(spec.harness, driverId)
     if (!match) {

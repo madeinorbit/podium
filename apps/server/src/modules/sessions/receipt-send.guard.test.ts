@@ -268,6 +268,67 @@ describe('W4 guard: the durable queue is never forwarded to a machine (C5)', () 
     await Promise.resolve()
   })
 
+  it('refuses attachments held behind a non-empty durable queue instead of reordering them', async () => {
+    // ORDERING HOLD, WITH FILES. Without attachments the same hold enqueues (see
+    // 'holds a live send behind a non-empty durable queue'); with staged refs it
+    // must refuse — the durable table cannot carry them, and typing past older
+    // rows would reorder the conversation. The caller retries after the drain.
+    const attachment = {
+      id: 'att-1',
+      path: '/state/uploads/s1/att-1.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const receipts: string[] = []
+    const held = sender(true, true)
+    expect(
+      await held.s.send(
+        'now',
+        { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
+        (receipt) =>
+          receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
+      ),
+    ).toEqual({
+      ok: false,
+      reason: 'files cannot wait behind another turn; try again when pending messages have delivered',
+    })
+    expect(held.enqueued).toEqual([])
+    expect(held.forwarded).toEqual([])
+    expect(receipts).toEqual(['unsupported'])
+  })
+
+  it('refuses attachments while a native view holds the lease instead of queueing them', async () => {
+    // NATIVE-VIEW HOLD, WITH FILES. Without attachments the same hold enqueues
+    // (see 'reports a native-held send as queued'); with staged refs it must
+    // refuse — a native terminal owns the human-controller lease, and a queued
+    // attachment would wait behind a turn whose drain cannot carry it. The
+    // caller retries once the view clears.
+    const attachment = {
+      id: 'att-1',
+      path: '/state/uploads/s1/att-1.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    const receipts: string[] = []
+    const held = sender(true, false, {}, true)
+    expect(
+      await held.s.send(
+        'now',
+        { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
+        (receipt) =>
+          receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
+      ),
+    ).toEqual({
+      ok: false,
+      reason: 'files cannot wait behind another turn; try again when pending messages have delivered',
+    })
+    expect(held.enqueued).toEqual([])
+    expect(held.forwarded).toEqual([])
+    expect(receipts).toEqual(['unsupported'])
+  })
+
   it('refuses a staged ref on the off-contract arm instead of dropping it into legacy text', async () => {
     const attachment = {
       id: 'att-1',

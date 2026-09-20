@@ -243,6 +243,7 @@ export class SessionLifecycle {
   readonly queuedMessagePosition!: SessionInbox['queuedMessagePosition']
   readonly resumeAndSend!: SessionInbox['resumeAndSend']
   readonly answerAskUserQuestion!: (input: {
+    interactionId?: string
     sessionId: SessionId
     choices?: AnswerChoice[]
     skip?: boolean
@@ -315,6 +316,8 @@ export class SessionLifecycle {
    * than queued — a server-family session cannot exist before the aggregate
    * does, because nothing can spawn one until the server is serving.
    */
+  interactionAnswer?: NonNullable<import('./inbox').SessionInboxDeps['contractAnswer']>
+  pendingQuestion?: (sessionId: SessionId) => Promise<import('@podium/protocol').PendingInteractionWire | null>
   interactionAsk?: (msg: { sessionId: SessionId; interaction: PendingInteraction }) => void
   /**
    * THE FAILURE SINK (POD-2414), late-bound for the same reason and on the same

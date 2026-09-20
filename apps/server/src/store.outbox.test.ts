@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { openTestStore } from './test-support/open-test-store'
@@ -47,6 +50,28 @@ describe('SessionStore applied_mutations', () => {
 })
 
 describe('SessionStore queued_messages', () => {
+  it('retains custody and attempts after reopening the durable store', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'delivery-custody-'))
+    const path = join(dir, 'store.db')
+    let store: Awaited<ReturnType<typeof openTestStore>> | undefined
+    try {
+      store = await openTestStore(path)
+      const sessionId = asSessionId('reserved')
+      await store.sync.enqueueMessage({ id: 'row', sessionId, text: 'once', queuedAt: 1 })
+      await store.sync.bumpQueuedAttempts('row')
+      await store.sync.reserveQueuedDelivery('row')
+      await store.close()
+      store = undefined
+      store = await openTestStore(path)
+      expect(await store.sync.listQueuedMessages(sessionId)).toEqual([
+        expect.objectContaining({ id: 'row', deliveryOwner: 'daemon', attempts: 1 }),
+      ])
+    } finally {
+      await store?.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('lists FIFO by queued_at, then insertion order for ties', async () => {
     const store = await openTestStore(':memory:')
     // Inserted out of time order + a same-timestamp pair to prove BOTH sort keys

@@ -579,6 +579,7 @@ describe('driverFamilyForId (POD-2290)', () => {
     expect(driverFamilyForId('opencode-server')).toBe('server')
     expect(driverFamilyForId('codex-app-server')).toBe('server')
     expect(driverFamilyForId('grok-acp')).toBe('server')
+    expect(driverFamilyForId('headless')).toBe('server')
     expect(driverFamilyForId('claude-pty')).toBe('terminal')
     expect(driverFamilyForId('generic-pty')).toBe('terminal')
   })
@@ -609,7 +610,14 @@ describe('driverFamilyForId (POD-2290)', () => {
     // `driverIdIsServerFamily` used to walk the manifests itself. Two walks over
     // the same declarations is exactly where the reap guard and the view would
     // eventually disagree about the same session.
-    for (const id of ['opencode-server', 'codex-app-server', 'grok-acp', 'claude-pty', 'fake']) {
+    for (const id of [
+      'opencode-server',
+      'codex-app-server',
+      'grok-acp',
+      'headless',
+      'claude-pty',
+      'fake',
+    ]) {
       expect(driverIdIsServerFamily(id), id).toBe(driverFamilyForId(id) === 'server')
     }
   })

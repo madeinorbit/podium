@@ -281,20 +281,13 @@ describe('cold-start runtime driver choice', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
     expect(await screen.findByRole('menuitem', { name: 'Headed (driver contract)' })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: 'Headed (legacy PTY)' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Headed (legacy PTY)' })).toBeNull()
     expect(screen.getByRole('menuitem', { name: 'OpenCode 1 (headless)' })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Headed (driver contract)' }))
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({ agentKind: 'opencode', runtimeContract: 'generic-pty' }),
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Headed (legacy PTY)' }))
-    fireEvent.click(screen.getByTestId('cold-start-launch'))
-    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ runtimeContract: expect.anything() }),
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))

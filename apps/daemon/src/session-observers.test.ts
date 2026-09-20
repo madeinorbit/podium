@@ -1,3 +1,4 @@
+import type { TerminalStateObservation } from './runtime/terminal-driver'
 import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -58,6 +59,8 @@ function agentStateMsgs(sent: DaemonMessage[], sessionId: SessionId) {
  */
 function setupControlledSession(sessionId = asSessionId('s-idle')) {
   const sent: DaemonMessage[] = []
+  const states: TerminalStateObservation[] = []
+  const idle: boolean[] = []
   let nextEvents: AgentStateEvent[] = []
   const provider: AgentStateProvider = {
     instrumentation: () => ({ args: [] }),
@@ -69,6 +72,8 @@ function setupControlledSession(sessionId = asSessionId('s-idle')) {
   }
   const observers = createSessionObservers({
     send: (m) => sent.push(m),
+    onState: (state) => states.push(state),
+    onIdleState: (_sessionId, value) => idle.push(value),
     onTranscriptDirty: vi.fn(),
     cwdTracker: { onHookCwd: vi.fn(async () => {}) },
   })
@@ -100,7 +105,7 @@ function setupControlledSession(sessionId = asSessionId('s-idle')) {
     await Promise.resolve()
   }
 
-  return { sent, apply, observers, sessionId }
+  return { sent, states, idle, apply, observers, sessionId }
 }
 
 describe('session observer stat polling', () => {
@@ -855,6 +860,28 @@ describe('session observer →idle debounce', () => {
     vi.useRealTimers()
   })
 
+  it('keeps private state and composer idle debounced across idle refreshes', async () => {
+    const { states, idle, apply, observers, sessionId } = setupControlledSession()
+    try {
+      await apply([{ kind: 'prompt_submitted' }])
+      await apply([{ kind: 'turn_completed' }])
+      await vi.advanceTimersByTimeAsync(500)
+      await apply([{ kind: 'turn_completed', verdict: { kind: 'open_todos' } }])
+      expect(states.map(({ state }) => state.phase)).toEqual(['working'])
+      expect(idle).toEqual([false])
+      await vi.advanceTimersByTimeAsync(500)
+      expect(states.map(({ state }) => state.phase)).toEqual(['working', 'idle'])
+      expect(states.at(-1)).toMatchObject({
+        observerGeneration: 1,
+        bindingVersion: 1,
+        state: { idle: { kind: 'open_todos' } },
+      })
+      expect(idle).toEqual([false, true])
+    } finally {
+      observers.clearSession(sessionId)
+    }
+  })
+
   it('holds a transition into idle and emits only after the debounce window', async () => {
     const { sent, apply, observers, sessionId } = setupControlledSession()
     await apply([{ kind: 'prompt_submitted' }])
@@ -1289,6 +1316,54 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       observers.clearSession(sessionId)
       await rm(home, { recursive: true, force: true })
       await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('bootstraps a quiet survivor from recorded identity without waiting for a hook', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-quiet-bootstrap-'))
+    const transcript = join(dir, 'claude-quiet.jsonl')
+    await writeFile(transcript, '')
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    const sessionId = asSessionId('quiet-survivor')
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'reattach',
+          sessionId,
+          agentKind: 'claude-code',
+          cwd: dir,
+          durableLabel: 'podium-quiet-survivor',
+          lastKnownGeometry: G,
+          resume: { kind: 'claude-session', value: 'claude-quiet' },
+          pathHint: transcript,
+          observationGeneration: 8,
+          observationBindingVersion: 2,
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      await vi.waitFor(() =>
+        expect(sent.some((message) => message.type === 'agentObservation')).toBe(true),
+      )
+      const snapshot = sent.find((message) => message.type === 'agentObservation')!.observation
+      expect(snapshot).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        observerGeneration: 8,
+        bindingVersion: 2,
+        providerSessionId: 'claude-quiet',
+        state: { phase: 'idle' },
+      })
+      expect(sent.some((message) => message.type === 'agentState')).toBe(false)
+    } finally {
+      observers.clearSession(sessionId)
+      await rm(dir, { recursive: true, force: true })
     }
   })
 

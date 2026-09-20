@@ -1,4 +1,4 @@
-import { firstAdminMemberId } from '@podium/model'
+import { firstAdminMemberId, asAgentIdentityId } from '@podium/model'
 import { asMachineId, asSessionId, type MachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
@@ -24,6 +24,7 @@ function deferred() {
 function fixture() {
   const session = new Session({
     ownerUserId: firstAdminMemberId(),
+    delegation: { actor: asAgentIdentityId('durable-order'), onBehalfOf: firstAdminMemberId(), grantedScope: { kind: 'all' }, parentBindingId: null, revision: 1 },
     sessionId: asSessionId('durable-order'),
     durableLabel: 'podium-durable-order',
     agentKind: 'claude-code',
@@ -66,7 +67,10 @@ describe('durable session write ordering', () => {
       repository: f.repository,
       now: () => 0,
       autoContinue: { onSessionGone() {} },
-      toMachine: () => { f.events.push(`kill:${f.session.status}`) },
+      rpc: { runtimeLifecycle: async () => {
+        f.events.push(`kill:${f.session.status}`)
+        return { result: { ok: true, retirement: 'confirmed' } }
+      } },
       broadcastSessions() {},
     } as unknown as SessionTeardownPorts)
     const pending = teardown.hibernateSession({ sessionId: f.session.sessionId })
@@ -111,6 +115,10 @@ describe('durable session write ordering', () => {
       toMachine: () => { f.events.push('kill') },
       sleep: async () => {},
       rpc: {
+        runtimeLifecycle: async () => {
+          f.events.push('kill')
+          return { result: { ok: true, retirement: 'confirmed' } }
+        },
         handoffExport: async () => ({ ok: false, error: 'export refused' }),
         handoffBindingFinalize: async () => ({ ok: true }),
       },
@@ -132,6 +140,41 @@ describe('durable session write ordering', () => {
     expect(f.events).toEqual(phase === 'source'
       ? ['commit', 'kill', 'commit', 'resume:hibernated']
       : ['commit', 'resume:hibernated'])
+  })
+
+  it('handoff aborts before export when source retirement is unconfirmed', async () => {
+    const f = fixture()
+    const transfer = new HandoffTransfer({
+      write: f.repository.write,
+      onSessionGone() {},
+      broadcastSessions() {},
+      toMachine: () => { f.events.push('escalation-kill') },
+      sleep: async () => {},
+      rpc: {
+        // A legacy acknowledgement: the verb ran, but no process death was measured.
+        runtimeLifecycle: async () => {
+          f.events.push('lifecycle')
+          return { result: { ok: true } }
+        },
+        handoffExport: async () => {
+          f.events.push('export')
+          return { ok: false, error: 'export must not run' }
+        },
+        handoffBindingFinalize: async () => ({ ok: true }),
+      },
+      resurrectSession: async () => ({ ok: true }),
+    } as unknown as HandoffTransferPorts)
+    const pending = transfer.apply(
+      { session: f.session, sourceRepo: { repoId: 'repo' } } as HandoffPlacement,
+      {} as HandoffPreflightResult,
+      { sessionId: f.session.sessionId, machineId: asMachineId('target') },
+      {} as Parameters<HandoffTransfer['apply']>[3],
+      () => {},
+    ).then(() => 'unexpected success', error => error.message)
+    await f.entered.promise
+    f.commit.resolve()
+    expect(await pending).toBe('source process retirement was not confirmed')
+    expect(f.events).toEqual(['commit', 'lifecycle', 'escalation-kill', 'commit'])
   })
 
   function revival(f: ReturnType<typeof fixture>) {
@@ -248,7 +291,10 @@ describe('async session port boundaries', () => {
       now: () => 0,
       autoContinue: { onSessionGone() {} },
       rearmUnread: async () => {},
-      toMachine: () => { f.events.push(`kill:${f.session.status}`) },
+      rpc: { runtimeLifecycle: async () => {
+        f.events.push(`kill:${f.session.status}`)
+        return { result: { ok: true, retirement: 'confirmed' } }
+      } },
       broadcastSessions() {},
     } as unknown as SessionTeardownPorts)
     const pending = kind === 'archive' ? teardown.parkArchivedSession(f.session.sessionId)

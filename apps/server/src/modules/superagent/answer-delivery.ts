@@ -26,7 +26,9 @@ export interface AnswerTargetSession {
 export interface AnswerDeliveryDeps {
   getSession(sessionId: SessionId): AnswerTargetSession | undefined | Promise<AnswerTargetSession | undefined>
   sessions: {
+    pendingQuestion?(sessionId: SessionId): Promise<import('@podium/protocol').PendingInteractionWire | null>
     answerAskUserQuestion(input: {
+      interactionId?: string
       sessionId: SessionId
       choices?: AnswerChoice[]
       skip?: boolean
@@ -121,20 +123,26 @@ export async function deliverAnswerToSession(
   // The live prompt's options live in the transcript: the LAST
   // AskUserQuestion call carries them as structured toolInputJson (the same
   // source the chat card renders from).
-  const { items } = await deps.rpc.readTranscript({ sessionId, direction: 'before', limit: 50 })
-  const q = [...items]
-    .reverse()
-    .find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
-  if (!q) return { ok: false, message: 'no pending AskUserQuestion found in the transcript tail' }
+  // Capture identity before any asynchronous option work; replacement never
+  // redirects this answer onto the new menu.
+  const pending = await deps.sessions.pendingQuestion?.(sessionId)
+  if (deps.sessions.pendingQuestion && !pending) return { ok: false, message: 'no authoritative pending question' }
   let questions: Array<{
     question?: string
     multiSelect?: boolean
-    options?: Array<{ label?: string; preview?: string }>
+    options?: ReadonlyArray<{ label?: string; preview?: string }>
   }> = []
-  try {
-    const parsed = JSON.parse(q.toolInputJson ?? '{}') as { questions?: unknown }
-    if (Array.isArray(parsed?.questions)) questions = parsed.questions
-  } catch {}
+  if (pending) {
+    questions = [...(pending.payload as import('@podium/protocol').QuestionAsk).questions]
+  } else {
+    const { items } = await deps.rpc.readTranscript({ sessionId, direction: 'before', limit: 50 })
+    const q = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
+    if (!q) return { ok: false, message: 'no pending AskUserQuestion found in the transcript tail' }
+    try {
+      const parsed = JSON.parse(q.toolInputJson ?? '{}') as { questions?: unknown }
+      if (Array.isArray(parsed.questions)) questions = parsed.questions
+    } catch {}
+  }
   if (questions.length === 0)
     return { ok: false, message: 'pending question has no parseable options' }
   // One choice entry per question (the registry types digits into the
@@ -178,7 +186,7 @@ export async function deliverAnswerToSession(
       ...(previewLayout ? { previewLayout: true } : {}),
     })
   }
-  const r = await deps.sessions.answerAskUserQuestion({ sessionId, choices, principal: input.principal })
+  const r = await deps.sessions.answerAskUserQuestion({ sessionId, interactionId: pending?.id, choices, principal: input.principal })
   // A reason only ever accompanies the undeliverable-choice refusal; the older
   // not-live refusal is bare, and keeps its original wording.
   if (!r.ok) return { ok: false, message: `failed: ${r.reason ?? 'session not running'}` }

@@ -40,7 +40,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
-import { driverFamilyForId, type HarnessComposerReadiness, type HarnessInterrupt } from '../../harness-manifest'
+import { type HarnessComposerReadiness, type HarnessInterrupt } from '../../harness-manifest'
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session, SessionDurableState } from './session'
@@ -70,12 +70,6 @@ export type InterruptOutcome =
 const log = createLogger('server:session-inbox')
 
 const SUBMIT_CR_DELAY_MS = 90
-/** Gap between two keystrokes typed into a native menu — see
- *  {@link SessionInbox.answerAskUserQuestion}. Comfortably above the CLI key
- *  parser's own 50ms byte-run window, so no two keys share a read. */
-const MENU_KEY_DELAY_MS = 120
-/** Extra settle before the keystroke that COMMITS the answer set. */
-const MENU_CONFIRM_DELAY_MS = 240
 const SUBMIT_VERIFY_DELAY_MS = 1_600
 const SUBMIT_MAX_RETRIES = 2
 const READY_FLOOR_MS = 800
@@ -206,6 +200,7 @@ export interface QueuedInboxMessage {
    *  NEWER row. */
   queuedAt: number
   attempts: number
+  deliveryOwner?: string | null
   inputOrigin: ObservationInputOrigin
   principal: InboxPrincipalReference
   sourceMessageId: string | null
@@ -224,6 +219,7 @@ export interface InboxQueuePort {
   list(sessionId: SessionId): Promise<QueuedInboxMessage[]>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   bumpAttempts(id: string): Promise<void>
+  reserveDelivery?(id: string): Promise<void>
   /** A FRESH PROCESS HAS NEVER BEEN TYPED INTO (POD-1242). Attempts bound how
    *  many copies of a row one CLI may receive; the count dies with that CLI.
    *  UNBRANDED BY DECISION: queue primary key, as above. */
@@ -357,14 +353,22 @@ export interface SessionInboxDeps {
    */
   nativeViewActive?(sessionId: SessionId): boolean
 
-  /** Bind-reported contract delivery, including headed sessions when the hot
-   * rollout switch is enabled. Legacy bindings always keep the server path. */
+  /** Bind-reported contract delivery: true means the daemon built a driver handle
+   * for this session and the contract is its only delivery. Shells and unbound
+   * sessions keep the server path. Optional only as a fixture affordance. */
   contractDelivery?(session: Session): boolean
+  contractAnswer?(input: {
+    sessionId: SessionId; interactionId?: string; choices?: AnswerChoice[]; skip?: boolean
+    principal: InboxPrincipalReference
+  }): Promise<{ ok: boolean; reason?: string }>
+
   /** Cancel a daemon-owned queued row before deleting its durable intent. */
   contractCancel?(sessionId: SessionId, rowId: string): Promise<{ ok: true } | Refusal>
   contractDeliver?(input: {
     sessionId: SessionId
     turnId: string
+    deliveryRecovery?: boolean
+    initialPrompt?: boolean
     text: string
     origin: ObservationInputOrigin
     principal: InboxPrincipalReference
@@ -411,67 +415,6 @@ export type AnswerChoice = { multiSelect?: boolean; previewLayout?: boolean } & 
   | { optionIndices: number[] }
   | { freeText: string; otherIndex: number }
 )
-
-/** Several picks can only have come from a multi-select, so a client that
- *  cannot say so is still read correctly. */
-const isMultiSelect = (choice: AnswerChoice): boolean =>
-  choice.multiSelect ?? ('optionIndices' in choice && choice.optionIndices.length > 1)
-
-/** The side-by-side preview dialog. It is single-select BY CONSTRUCTION (the CLI
- *  only reaches for it when `!multiSelect`), so a choice claiming both is a
- *  client bug and must not be typed at all. */
-const isPreviewLayout = (choice: AnswerChoice): boolean =>
-  choice.previewLayout === true && !isMultiSelect(choice)
-
-/** The ONE shape the native menu commits by itself, so the ONE shape that must
- *  not be given a closing CR. Kept next to the choice type because both sides
- *  of the asymmetry have to read the same way. Holds in the preview layout too:
- *  a lone question auto-submits the moment the CR selects a row. */
-const isLoneSingleSelect = (choices: AnswerChoice[]): boolean => {
-  const only = choices.length === 1 ? choices[0] : undefined
-  return only !== undefined && !isMultiSelect(only)
-}
-
-/** One typed digit. Anything else cannot be a menu keystroke. */
-const isMenuDigit = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 9
-
-/**
- * Why this answer cannot be typed into the native menu, or null when it can.
- *
- * Checked for EVERY choice before a single byte moves. The old code skipped an
- * undeliverable choice and kept going, which is how POD-770 stayed silent: the
- * skipped question was left highlighted on its first row and the closing CR
- * committed that row as though the operator had chosen it.
- */
-const undeliverable = (choice: AnswerChoice, at: number): string | null => {
-  const where = `question ${at + 1}`
-  const digits = 'optionIndices' in choice ? choice.optionIndices.filter(isMenuDigit) : []
-  // The preview dialog is single-select by construction and its Enter selects
-  // exactly the one highlighted row, so both ways of asking it for several
-  // answers are contradictions rather than something to type half of. Checked
-  // before `isMultiSelect`, whose several-picks inference would misdescribe the
-  // second one as a multi-select question.
-  if (choice.previewLayout === true) {
-    if (choice.multiSelect === true) return `${where}: a preview question cannot be multi-select`
-    if (digits.length > 1) {
-      return `${where}: a preview question takes one option, got ${digits.join(',')}`
-    }
-  }
-  if ('freeText' in choice) {
-    if (choice.freeText.trim() === '') return `${where}: empty free text`
-    // The Other row only exists in the classic list layout; the preview layout
-    // reaches its Notes field with `n` and needs no index.
-    if (!isPreviewLayout(choice) && !isMenuDigit(choice.otherIndex)) {
-      return `${where}: Other is at ${choice.otherIndex}, outside the menu's 1-9 digits`
-    }
-    return null
-  }
-  if (digits.length === 0) {
-    const got = choice.optionIndices.join(',') || 'nothing'
-    return `${where}: no option in the menu's 1-9 digits (got ${got})`
-  }
-  return null
-}
 
 export interface InboxSendInput {
   sessionId: SessionId
@@ -528,10 +471,10 @@ const tailUserTurnMatches = (session: Session, needle: string, exact = false): b
 const WITNESS_CLOCK_SKEW_MS = 5 * 60_000
 
 /**
- * Was this queued row ALREADY TYPED into the session by an earlier custody
- * (POD-4360)? The proof is the transcript: a user turn carrying the row's text,
- * recorded at or after the row was queued. A turn without a timestamp can only
- * prove the TAIL — the same rule the legacy drain's late-landing check uses.
+ * Was this queued row ALREADY DELIVERED by an earlier custody (POD-4360)? The
+ * proof is the transcript: a user turn carrying the row's text, recorded at or
+ * after the row was queued. A turn without a timestamp can only prove the TAIL
+ * — the same rule the legacy drain's late-landing check uses.
  *
  * WHY THIS EXISTS. Custody of a forwarded row lives in server memory: a restart
  * forgets it and hands every remaining row to the daemon again. That is correct
@@ -543,16 +486,30 @@ const WITNESS_CLOCK_SKEW_MS = 5 * 60_000
 const transcriptWitnesses = (session: Session, row: QueuedInboxMessage): boolean => {
   const needle = confirmationNeedle(row.text)
   if (needle === null) return false
-  const items = session.terminal.transcriptItems()
+  // Contract-era transcript lives in both surfaces: legacy provider deltas land
+  // in `transcriptItems`, driver runtime events land in `runtimeTranscript`
+  // (and are bridged into `transcript`). Check both so a witness is seen
+  // whichever path carried it after a restart. The runtime surface is optional
+  // only as a fixture affordance — production terminals always carry it.
+  const surfaces = [session.terminal.transcriptItems()]
+  const runtimeItems = session.terminal.runtimeTranscriptItems?.()
+  if (runtimeItems) surfaces.push(runtimeItems)
   const notBefore = row.queuedAt - WITNESS_CLOCK_SKEW_MS
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i]
-    if (item?.role !== 'user') continue
-    const at = item.ts ? Date.parse(item.ts) : Number.NaN
-    // Untimed turns: the tail is the only position that proves anything.
-    if (!Number.isFinite(at)) return normalizeForMatch(item.text).includes(needle)
-    if (at < notBefore) return false
-    if (normalizeForMatch(item.text).includes(needle)) return true
+  for (const items of surfaces) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i]
+      if (item?.role !== 'user') continue
+      const at = item.ts ? Date.parse(item.ts) : Number.NaN
+      // Untimed turns: the tail is the only position that proves anything.
+      // A non-matching tail ends this surface, not the search: the other
+      // surface may still carry a timed witness.
+      if (!Number.isFinite(at)) {
+        if (normalizeForMatch(item.text).includes(needle)) return true
+        break
+      }
+      if (at < notBefore) break
+      if (normalizeForMatch(item.text).includes(needle)) return true
+    }
   }
   return false
 }
@@ -597,8 +554,6 @@ export class SessionInbox {
   private sweepingQueuedInputs = false
   /** Generation fence for timers and contract receipts that outlive a bind. */
   private readonly drainGenerations = new Map<SessionId, number>()
-  /** A fresh server bind must not trust the previous process state projection. */
-  private readonly unobservedServerBinds = new Set<SessionId>()
   /** Recovery answers may queue while a failed session is being woken. */
   private readonly recoveryDrains = new Set<SessionId>()
   /**
@@ -660,7 +615,6 @@ export class SessionInbox {
   dispose(): void {
     this.disposed = true
     this.activeDrains.clear()
-    this.unobservedServerBinds.clear()
     this.forwardedRows.clear()
   }
 
@@ -714,11 +668,11 @@ export class SessionInbox {
    *  had a second (POD-2836). */
   markSessionBound(sessionId: SessionId): void {
     this.forwardedRows.delete(sessionId)
+    this.forwarding.delete(sessionId)
     this.invalidateDrain(sessionId)
     const session = this.deps.getSession(sessionId)
     if (!session) return
     this.legacyDeliveryBatches.delete(session)
-    this.unobservedServerBinds.add(sessionId)
     this.inputReadySessions.delete(session)
     this.boundAtMs.set(session, this.deps.now())
   }
@@ -795,6 +749,15 @@ export class SessionInbox {
       ? sessionSendRefusalReason(session, input.allowErrored === true)
       : undefined
     if (blockedReason) return { ok: false, reason: blockedReason }
+    // Agents always queue (POD-4279): the durable queue down the drain's
+    // contract branch is the only delivery. A non-running agent has no turn to
+    // join, so it is refused rather than queued into a wake it did not ask for
+    // — queueText stays the explicit wake path (resumeAndSend). Plain-terminal
+    // shells (POD-4278) keep direct typing below — they have no driver.
+    if (session && session.agentKind !== 'shell') {
+      if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
+      return await this.queueText(input)
+    }
     if (
       session &&
       (isAgentComputing(session) ||
@@ -881,23 +844,20 @@ export class SessionInbox {
       return { ok: false, reason: 'session not running' }
     }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    // A server-family session has no PTY bridge: the daemon discards typed
-    // bytes without an error, so the abort key below would be bytes into
-    // nothing answered ok:true. Route the stop through the contract port
-    // instead, exactly as interruptTurn does.
-    if (this.routesThroughContract(session) === true) {
+    // Contract-only stops for agents (POD-4279). The driver owns the abort key
+    // behind its manifest idle guard; the server never types it. Plain-terminal
+    // shells (POD-4278) keep the raw path below — they have no driver to call.
+    if (session.agentKind !== 'shell') {
       await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
       // An idle agent has no turn to cut into, so the interrupt is SKIPPED
       // rather than refused — the message still lands, which is the point of
-      // this path. The terminal-path analog is the abort-key skip below.
+      // this path.
       if (session.agentState?.phase === 'working') {
         const interruption = await this.contractInterrupt(session, input)
         if (!interruption.ok) return { ok: false, reason: interruption.reason }
       }
       // The follow-up text rides the durable queue down the drain's contract
-      // branch: typeText refuses contract sessions, and that refusal used to
-      // be scheduled and discarded here. The queue result is the caller's
-      // answer, not a silent ok:true.
+      // branch. The queue result is the caller's answer, not a silent ok:true.
       return await this.queueText({ ...input, principal })
     }
     // An idle agent has no turn to cut into, so the abort key is skipped rather
@@ -955,7 +915,9 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
-    if (this.routesThroughContract(session) === true) {
+    // Contract-only stops for agents (POD-4279). Plain-terminal shells
+    // (POD-4278) keep the raw abort path below — they have no driver to call.
+    if (session.agentKind !== 'shell') {
       const cancelled = await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
       if (cancelled && session.agentState?.phase !== 'working') return { ok: true, requested: 'retraction' }
       if (session.agentState?.phase !== 'working') {
@@ -1127,9 +1089,14 @@ export class SessionInbox {
       }
       return verification
     }
-    if (this.routesThroughContract(session)) {
+    // Agents cancel through the driver (POD-4279). A daemon-owned row needs a
+    // successful driver cancel — retracting it locally would desync a delivery
+    // the daemon still holds. A server-held row the daemon never admitted
+    // retracts locally, so an idle stop still pulls back a queued send. Shells
+    // keep the local-only path — they have no driver to call.
+    if (session.agentKind !== 'shell') {
       const result = await this.deps.contractCancel?.(sessionId, head.id)
-      if (!result || !('ok' in result)) return false
+      if ((!result || !('ok' in result)) && head.deliveryOwner === 'daemon') return false
     }
     const deletion: Promise<void> = this.deps.queue.delete(head.id)
     await deletion
@@ -1280,9 +1247,12 @@ export class SessionInbox {
     )
     if (matches.length === 0) return false
     for (const row of matches) {
-      if (this.routesThroughContract(session)) {
+      // Agents cancel through the driver (POD-4279): daemon-owned rows need a
+      // successful driver cancel, server-held rows retract locally. Shells
+      // keep the local-only path — they have no driver to call.
+      if (session.agentKind !== 'shell') {
         const result = await this.deps.contractCancel?.(sessionId, row.id)
-        if (!result || !('ok' in result)) return false
+        if ((!result || !('ok' in result)) && row.deliveryOwner === 'daemon') return false
       }
       const deletion: Promise<void> = this.deps.queue.delete(row.id)
       await deletion
@@ -1370,9 +1340,14 @@ export class SessionInbox {
   /** Switching cannot transfer a row already typed or admitted by the other owner.
    * Legacy batches finish unchanged. On rollback, daemon rows settle (or the
    * operator cancels them) before newly queued input can use the legacy loop.
+   *
+   * A bound session (runtimeContract true) is always behind the contract now
+   * (POD-4280): headed and headless alike. The family check is gone with the
+   * daemon-headed-delivery switch; shells and unbound sessions keep the server
+   * path below.
    */
-  private routesThroughContract(session: Session): boolean {
-    if (session.runtimeContract === true && driverFamilyForId(session.driverId ?? '') !== 'terminal') {
+  routesThroughContract(session: Session): boolean {
+    if (session.runtimeContract === true) {
       return true
     }
     if (this.legacyDeliveryBatches.has(session)) {
@@ -1387,7 +1362,10 @@ export class SessionInbox {
   /** Admission only: no readiness, confirmation, retry clocks or delivery polling. */
   private async forwardContractRows(session: Session, justBound: boolean): Promise<void> {
     const sessionId = session.sessionId
-    if (justBound) this.forwardedRows.delete(sessionId)
+    if (justBound) {
+      this.forwardedRows.delete(sessionId)
+      this.forwarding.delete(sessionId)
+    }
     const pending = this.forwarding.get(sessionId)
     if (pending) { await pending; return this.forwardContractRows(session, false) }
     const run = async () => {
@@ -1399,48 +1377,82 @@ export class SessionInbox {
       const binding = forwarded
       const current = () => !this.disposed && this.deps.getSession(sessionId) === session &&
         session.machineId === binding.machineId && this.forwardedRows.get(sessionId) === binding &&
-        session.status === 'live' && this.deps.contractDelivery?.(session) === true &&
+        // A starting session WITH transcript history is rebinding after a
+        // restart (POD-4360): its transcript may not yet carry the witness
+        // turns the previous custody delivered, so forwarding now would
+        // duplicate them. Hold until live, when hydration has landed and the
+        // witness check below is reliable. New sessions (no transcript) still
+        // forward from admission.
+        (session.status === 'live' || (session.status === 'starting' && !session.transcriptAvailable)) &&
+        // No rollout gate (POD-4279): drain only calls this for agents, and the
+        // contract is their only delivery. The contractDelivery switch itself
+        // survives for POD-4280 to remove.
         this.deps.nativeViewActive?.(sessionId) !== true &&
         !sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
       const rows = await this.deps.queue.list(sessionId)
-      // A server restart may have forgotten the active legacy batch. Its durable
-      // attempts still prove that typing began; enabling cannot replay it.
-      if (binding.ids.size === 0 && driverFamilyForId(session.driverId ?? '') === 'terminal' &&
-        rows.some((row) => row.attempts > 0)) {
-        this.legacyDeliveryBatches.add(session)
-        await this.drain(sessionId)
-        return
-      }
       for (const row of rows) {
-        if (!current() || this.deps.nativeViewActive?.(sessionId) || session.status !== 'live') return
+        if (!current() || this.deps.nativeViewActive?.(sessionId)) return
         if (binding.ids.has(row.id)) continue
-        if (!this.deps.contractDeliver) return
+        if (!this.deps.contractDeliver || !this.deps.queue.reserveDelivery) return
         const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId })
         if (!current()) return
         // A cancel can race asynchronous admission. The durable row remains the authority.
         if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
         if (!current()) return
         if (!allowed.ok) {
+          // Revocation cannot erase an existing owner's work or acceptance proof.
+          if (row.deliveryOwner === 'daemon') {
+            if (!this.deps.contractCancel) return
+            const cancelled = await this.deps.contractCancel(sessionId, row.id)
+            if (!current() || !('ok' in cancelled && cancelled.ok)) return
+            if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
+            if (!current()) return
+          }
           await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason: allowed.reason })
           await this.deps.queue.delete(row.id)
           continue
         }
-        // ALREADY IN THE TRANSCRIPT (POD-4360): a previous custody typed it and
-        // the outcome never came back. Settle it here; typing it again is the
-        // duplicate the agent would read as a replay.
+        // ALREADY DELIVERED (POD-4360): a previous custody delivered it and
+        // the outcome never came back. Settle it here; delivering it again is
+        // the duplicate the agent would read as a replay.
         if (transcriptWitnesses(session, row)) {
-          log.info('queued row already witnessed in the transcript; settling without retyping', {
+          log.info('queued row already witnessed in the transcript; settling without redelivery', {
             sessionId, rowId: row.id,
           })
           await this.settleDelivered(session, row)
           continue
         }
+        const recovery = row.attempts > 0 || row.deliveryOwner === 'daemon'
+        // The durable reservation precedes every possible external write. On a
+        // replacement owner it means confirm-or-fail, never replay the prompt.
+        if (row.deliveryOwner !== 'daemon') await this.deps.queue.reserveDelivery(row.id)
+        if (!current()) return
+        if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
+        if (!current()) return
         binding.ids.add(row.id)
-        // Awaiting this RPC would put subsequent rows behind a slow transport reply.
-        // Receipts acknowledge custody only; the event stream owns settlement.
-        void this.deps.contractDeliver({ sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin, principal: row.principal }).catch((error) => {
+        try {
+          // Await custody in FIFO order. A queued receipt is NOT acceptance;
+          // only the fenced delivery event can settle the durable row.
+          const receipt = await this.deps.contractDeliver({
+            sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin,
+            principal: row.principal, deliveryRecovery: recovery,
+            initialPrompt: isInitialPromptRow(sessionId, row),
+          })
+          if (!current()) return
+          if (receipt.outcome !== 'queued' && receipt.outcome !== 'accepted') {
+            binding.ids.delete(row.id)
+            await this.reportContractUnconfirmed(sessionId, row, receipt.outcome === 'refused'
+              ? receipt.refusal.detail ?? receipt.refusal.reason
+              : 'the daemon did not acknowledge custody; delivery remains unconfirmed')
+            return
+          }
+        } catch (error) {
+          if (!current()) return
+          binding.ids.delete(row.id)
           log.warn('contract queue forwarding failed', { sessionId, err: error })
-        })
+          await this.reportContractUnconfirmed(sessionId, row, 'the daemon did not acknowledge custody; delivery remains unconfirmed')
+          return
+        }
       }
       if (current()) {
         const remaining = await this.deps.queue.list(sessionId)
@@ -1457,14 +1469,40 @@ export class SessionInbox {
    *  applied, a draft holding the same text clears, the row leaves the queue. */
   private async settleDelivered(session: Session, row: QueuedInboxMessage): Promise<void> {
     const sessionId = session.sessionId
+    this.reportedPromptFailures.delete(row.id)
     if (row.sourceMessageId) await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
     if (this.deps.draftText?.(sessionId) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
     await this.deps.queue.delete(row.id)
     this.forwardedRows.get(sessionId)?.ids.delete(row.id)
   }
 
+  /** Transport uncertainty keeps the row: a delayed proof may still settle it. */
+  private async reportContractUnconfirmed(sessionId: SessionId, row: QueuedInboxMessage, reason: string): Promise<void> {
+    if (this.reportedPromptFailures.has(row.id)) return
+    if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) return
+    this.reportedPromptFailures.add(row.id)
+    const draft = this.deps.draftText?.(sessionId)
+    if (draft === undefined || draft === '' || draft === row.text) {
+      await this.deps.setSessionDraft?.({ sessionId, text: row.text })
+    }
+    const ownerUserId = await this.deps.ownerOf(sessionId)
+    await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}),
+      sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
+  }
+
+  private readonly settlingDeliveries = new Map<string, Promise<void>>()
+
   /** Already ownership/generation-fenced by the runtime event gate. Repeat-safe by row id. */
   async deliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
+    const key = `${sessionId}:${event.rowId}`
+    const pending = this.settlingDeliveries.get(key)
+    if (pending) { await pending; return }
+    const settlement = this.settleDeliveryOutcome(sessionId, event)
+    this.settlingDeliveries.set(key, settlement)
+    try { await settlement } finally { this.settlingDeliveries.delete(key) }
+  }
+
+  private async settleDeliveryOutcome(sessionId: SessionId, event: { rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }): Promise<void> {
     const session = this.deps.getSession(sessionId)
     if (!session) return
     const row = (await this.deps.queue.list(sessionId)).find((entry) => entry.id === event.rowId)
@@ -1475,6 +1513,10 @@ export class SessionInbox {
       await this.deps.authorization.interrupted?.({ sessionId, sourceMessageId: row.sourceMessageId })
     } else {
       const reason = event.reason ?? 'daemon could not confirm delivery'
+      const draft = this.deps.draftText?.(sessionId)
+      if (draft === undefined || draft === '' || draft === row.text) {
+        await this.deps.setSessionDraft?.({ sessionId, text: row.text })
+      }
       await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason })
       const ownerUserId = await this.deps.ownerOf(sessionId)
       await this.deps.attention.promptFailed({ ...(ownerUserId ? { ownerUserId } : {}), sessionId, text: row.text, reason, initialPrompt: isInitialPromptRow(sessionId, row) })
@@ -1491,7 +1533,16 @@ export class SessionInbox {
 
   async drain(sessionId: SessionId, opts?: { justBound?: boolean }): Promise<void> {
     const contractSession = this.deps.getSession(sessionId)
-    if (contractSession && this.routesThroughContract(contractSession)) {
+    const admissionGeneration = this.drainGenerations.get(sessionId)
+    if (!contractSession || this.disposed) return
+    if (this.disposed || this.deps.getSession(sessionId) !== contractSession ||
+      this.drainGenerations.get(sessionId) !== admissionGeneration) return
+    // Agents always forward (POD-4279): the driver contract is the only
+    // delivery, regardless of the headed rollout flag — that switch is
+    // POD-4280's to remove. Plain-terminal shells (POD-4278) keep the legacy
+    // typing loop below: they have no driver, and chat-to-shell types into
+    // the PTY the operator is watching.
+    if (contractSession && contractSession.agentKind !== 'shell') {
       if (this.deps.nativeViewActive?.(sessionId) === true) return
       void this.forwardContractRows(contractSession, opts?.justBound === true).catch((error) => {
         log.warn('contract admission failed', { sessionId, err: error })
@@ -2200,7 +2251,28 @@ export class SessionInbox {
    * not answer stay on their first row, and the closing CR would commit those
    * rows as if the operator had picked them. The caller surfaces the reason.
    */
+  async deliverInteractionAnswer(
+    input: { sessionId: SessionId; principal: InboxPrincipalReference },
+    deliver: () => Promise<import('@podium/protocol').InteractionAnswerOutcome>,
+  ): Promise<import('@podium/protocol').InteractionAnswerOutcome> {
+    const session = this.deps.getSession(input.sessionId)
+    const ownerUserId = await this.deps.ownerOf(input.sessionId)
+    if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
+      return { ok: false, reason: 'expired' }
+    }
+    const origin = input.principal.kind === 'user' ? 'human' : input.principal.kind === 'agent' ? 'steward' : 'system'
+    await this.deps.prepareSend(input.sessionId, input.principal.attribution, 'answer', origin)
+    if (this.deps.getSession(input.sessionId) !== session ||
+        await this.deps.ownerOf(input.sessionId) !== ownerUserId ||
+        (session.status !== 'live' && session.status !== 'starting')) return { ok: false, reason: 'expired' }
+    const result = await deliver()
+    if (result.ok) await this.deps.attention.answered({ ownerUserId, sessionId: input.sessionId,
+      attribution: input.principal.attribution })
+    return result
+  }
+
   async answerAskUserQuestion(input: {
+    interactionId?: string
     sessionId: SessionId
     choices?: AnswerChoice[]
     skip?: boolean
@@ -2215,15 +2287,13 @@ export class SessionInbox {
     if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
-    const choices = input.skip ? [] : (input.choices ?? [])
-    if (!input.skip && choices.length === 0) return { ok: false, reason: 'no choices to type' }
-    for (let i = 0; i < choices.length; i++) {
-      const choice = choices[i]
-      const why = choice ? undeliverable(choice, i) : `question ${i + 1}: missing`
-      if (why) return { ok: false, reason: why }
-    }
+    // Contract-only answers (POD-4279). The driver owns the menu script behind
+    // its interaction identity; the server never types menu keys. Transcript-
+    // derived choices without an authoritative interaction id fail closed
+    // rather than typing blind — see POD-4292 and the terminal-answer-contract
+    // test for the exercised replacement. Offer retirement still gates
+    // admission, exactly as it did for typed answers.
     const attribution = input.principal.attribution
-    // Retire the offer before the first answer keystroke is scheduled.
     const answerState = session.agentState
     await this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
     if (
@@ -2233,66 +2303,8 @@ export class SessionInbox {
       (session.status !== 'live' && session.status !== 'starting')
     )
       return { ok: false, reason: 'session changed during answer admission' }
-    let delayMs = 0
-    let typed = false
-    const key = (data: string, gapBefore = MENU_KEY_DELAY_MS): void => {
-      if (typed) delayMs += gapBefore
-      this.scheduleInput(input.sessionId, data, 'human', attribution, delayMs)
-      typed = true
-    }
-    if (input.skip) {
-      key('\x1b')
-    } else {
-      for (const choice of choices) {
-        const preview = isPreviewLayout(choice)
-        if ('freeText' in choice) {
-          // Ink needs a frame to move focus into the field before characters
-          // land as the custom answer rather than as menu keys.
-          key(preview ? 'n' : String(choice.otherIndex))
-          key(choice.freeText)
-          key('\r')
-        } else {
-          const digits = choice.optionIndices.filter(isMenuDigit)
-          if (preview) {
-            // The digit only moves the cursor here; the CR is what selects.
-            key(String(digits[0]))
-            key('\r')
-          } else {
-            for (const digit of digits) key(String(digit))
-          }
-        }
-        if (isMultiSelect(choice)) key('\t')
-      }
-      if (typed && !isLoneSingleSelect(choices)) key('\r', MENU_CONFIRM_DELAY_MS)
-    }
-    await this.deps.attention.answered({
-      ownerUserId,
-      sessionId: input.sessionId,
-      attribution,
-    })
-    return { ok: true }
-  }
-
-  /** Send now, or after `delayMs`. The session is re-read at send time: a menu
-   *  dies with its process, and a late keystroke must not land in whatever
-   *  replaced it. Unref'd so a pending keystroke cannot hold the process up. */
-  private scheduleInput(
-    sessionId: SessionId,
-    data: string,
-    inputOrigin: ObservationInputOrigin,
-    attribution: Attribution,
-    delayMs: number,
-  ): void {
-    const send = (): void => {
-      const session = this.deps.getSession(sessionId)
-      if (!session || (session.status !== 'live' && session.status !== 'starting')) return
-      this.sendInput(session, data, inputOrigin, attribution)
-    }
-    if (delayMs <= 0) {
-      send()
-      return
-    }
-    setTimeout(send, delayMs).unref?.()
+    if (!input.interactionId || !this.deps.contractAnswer) return { ok: false, reason: 'unknown-interaction' }
+    return await this.deps.contractAnswer(input)
   }
 
   async stateChanged(input: {

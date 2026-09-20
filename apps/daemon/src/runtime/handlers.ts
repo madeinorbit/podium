@@ -29,6 +29,7 @@ import type {
   RuntimeHistoryResultMessage,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
+import { stopSessionProcess } from '../control/session'
 import { runtimeAttachmentBelongsToSession } from './attachment-staging'
 import { driverTiming } from './driver-timing'
 import type { ControlHandlers, DaemonContext } from '../control/context'
@@ -79,6 +80,7 @@ export const runtimeHandlers: Pick<
   ControlHandlers,
   | 'runtimeStageAttachmentRequest'
   | 'runtimeSendRequest'
+  | 'runtimeDurableSendRequest'
   | 'runtimeInterruptRequest'
   | 'runtimeAnswerRequest'
   | 'runtimeLifecycleRequest'
@@ -150,6 +152,10 @@ export const runtimeHandlers: Pick<
       })
   },
 
+  runtimeDurableSendRequest: (ctx, msg) => {
+    runtimeHandlers.runtimeSendRequest(ctx, { ...msg, type: 'runtimeSendRequest' })
+  },
+
   runtimeSendRequest: (ctx, msg) => {
     const handle = handleFor(ctx, msg.sessionId)
     if (!handle) {
@@ -183,9 +189,43 @@ export const runtimeHandlers: Pick<
       return
     }
     driverTiming.promptRequested(handle.binding, msg.turnId)
+    // Per-turn model/effort ride the wire as plain strings; the driver reads
+    // them as a supported() override (session sticky is the fallback there).
+    const modelEffort =
+      msg.model !== undefined || msg.effort !== undefined
+        ? {
+            overrides: {
+              supported: true as const,
+              value: {
+                ...(msg.model !== undefined ? { model: msg.model } : {}),
+                ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+              },
+            },
+          }
+        : {}
     void handle
       .send(
-        { id: msg.turnId, rowId: msg.rowId, text: msg.text, attachments: msg.attachments },
+        {
+          id: msg.turnId,
+          rowId: msg.rowId,
+          deliveryRecovery: msg.deliveryRecovery,
+          initialPrompt: msg.initialPrompt,
+          text: msg.text,
+          attachments: msg.attachments,
+          ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
+          ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
+          ...(msg.toolPolicy ? { toolPolicy: msg.toolPolicy } : {}),
+          ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
+          ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
+          ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
+          ...(msg.accountId ? { accountId: msg.accountId } : {}),
+          ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
+          ...(msg.structuredPermissions ? { structuredPermissions: msg.structuredPermissions } : {}),
+          ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
+          ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+          ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
+          ...modelEffort,
+        },
         { origin: msg.origin, delivery: msg.delivery },
       )
       .then((receipt) => {
@@ -260,7 +300,7 @@ export const runtimeHandlers: Pick<
       return
     }
     void handle
-      .answer(msg.interactionId, msg.answer)
+      .answer(msg.interactionId, msg.answer, { principal: msg.principal })
       .then((outcome) => {
         ctx.send({
           type: 'runtimeAnswerResult',
@@ -281,32 +321,23 @@ export const runtimeHandlers: Pick<
 
   runtimeLifecycleRequest: (ctx, msg) => {
     const handle = handleFor(ctx, msg.sessionId)
-    const answer = (result: { ok: true } | { reason: 'not_running' | 'no_resume_ref' }): void => {
-      ctx.send({
-        type: 'runtimeLifecycleResult',
-        requestId: msg.requestId,
-        sessionId: msg.sessionId,
-        result,
-      })
+    const answer = (result: { ok: true; retirement: 'confirmed' } | { reason: 'not_running' | 'no_resume_ref'; detail?: string }): void => {
+      ctx.send({ type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
     }
-    if (!handle) {
-      answer({ reason: 'not_running' })
+    // Refusal is checked before touching any process. Registry loss is not
+    // proof of death: stop/kill must still reach the host's orphan reapers.
+    if (msg.verb === 'hibernate' && !handle?.binding.resume) {
+      answer({ reason: handle ? 'no_resume_ref' : 'not_running' })
       return
     }
-    const verb =
-      msg.verb === 'hibernate'
-        ? handle.hibernate()
-        : msg.verb === 'kill'
-          ? handle.kill().then(() => ({ ok: true as const }))
-          : handle.stop().then(() => ({ ok: true as const }))
-    void verb
-      .then((result) => {
-        // `hibernate` legitimately REFUSES without a resume ref. That is an
-        // outcome the caller handles, not an error, so it travels as the value
-        // the handle returned.
-        answer('ok' in result ? { ok: true } : { reason: result.reason as 'no_resume_ref' })
-      })
-      .catch(() => answer({ reason: 'not_running' }))
+    void (async () => {
+      const retired = handle?.binding.family === 'terminal'
+        ? await (msg.verb === 'hibernate' ? handle.hibernate() : msg.verb === 'kill' ? handle.kill() : handle.stop()).then((result) => !result || 'ok' in result)
+        : await stopSessionProcess(ctx, { sessionId: msg.sessionId }, { retire: msg.verb === 'kill' })
+      answer(retired
+        ? { ok: true, retirement: 'confirmed' }
+        : { reason: 'not_running', detail: 'process retirement was not confirmed' })
+    })().catch((error) => answer({ reason: 'not_running', detail: String(error) }))
   },
 
   /**

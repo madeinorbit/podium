@@ -221,6 +221,7 @@
       "variant": "full/arm1",
       "wire": {
         "kind": "question",
+        "skip": true,
         "selections": [
           {
             "optionIndices": [2],
@@ -231,7 +232,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[2],\"text\":\"selections[0].text\"}]}"
+      "encoded": "{\"kind\":\"question\",\"skip\":true,\"selections\":[{\"optionIndices\":[2],\"text\":\"selections[0].text\"}]}"
     },
     {
       "schema": "InteractionAnswer",
@@ -872,6 +873,7 @@
         "answeredBy": "superagent",
         "answer": {
           "kind": "question",
+          "skip": true,
           "selections": [
             {
               "optionIndices": [2],
@@ -885,7 +887,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"payload.questions[0].question\",\"header\":\"payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"payload.questions[0].options[0].label\",\"description\":\"payload.questions[0].options[0].description\",\"preview\":\"payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"answered\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"superagent\",\"answer\":{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[2],\"text\":\"answer.selections[0].text\"}]},\"deliveredVia\":\"text\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"payload.questions[0].question\",\"header\":\"payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"payload.questions[0].options[0].label\",\"description\":\"payload.questions[0].options[0].description\",\"preview\":\"payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"answered\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"superagent\",\"answer\":{\"kind\":\"question\",\"skip\":true,\"selections\":[{\"optionIndices\":[2],\"text\":\"answer.selections[0].text\"}]},\"deliveredVia\":\"text\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "PendingInteractionWire",
@@ -1211,6 +1213,7 @@
       "variant": "full",
       "wire": {
         "kind": "question",
+        "skip": true,
         "selections": [
           {
             "optionIndices": [1],
@@ -1221,7 +1224,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[1],\"text\":\"selections[0].text\"}]}"
+      "encoded": "{\"kind\":\"question\",\"skip\":true,\"selections\":[{\"optionIndices\":[1],\"text\":\"selections[0].text\"}]}"
     },
     {
       "schema": "QuestionAsk",
@@ -1497,6 +1500,10 @@
         "requestId": "requestId",
         "sessionId": "sessionId",
         "interactionId": "interactionId",
+        "principal": {
+          "kind": "user",
+          "ref": "principal.ref"
+        },
         "answer": {
           "answer.key": {
             "unknownFixture": "answer.answer.key"
@@ -1506,7 +1513,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeAnswerRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"interactionId\":\"interactionId\",\"answer\":{\"answer.key\":{\"unknownFixture\":\"answer.answer.key\"}}}"
+      "encoded": "{\"type\":\"runtimeAnswerRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"interactionId\":\"interactionId\",\"principal\":{\"kind\":\"user\",\"ref\":\"principal.ref\"},\"answer\":{\"answer.key\":{\"unknownFixture\":\"answer.answer.key\"}}}"
     },
     {
       "schema": "RuntimeAnswerResultMessage",
@@ -1656,6 +1663,8 @@
       "wire": {
         "type": "runtimeSendRequest",
         "rowId": "rowId",
+        "deliveryRecovery": false,
+        "initialPrompt": false,
         "requestId": "requestId",
         "turnId": "turnId",
         "sessionId": "sessionId",
@@ -1675,7 +1684,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}]}"
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":false,\"initialPrompt\":false,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}]}"
     },
     {
       "schema": "RuntimeCommandMessage",
@@ -1699,6 +1708,10 @@
         "requestId": "requestId",
         "sessionId": "sessionId",
         "interactionId": "interactionId",
+        "principal": {
+          "kind": "system",
+          "ref": "principal.ref"
+        },
         "answer": {
           "answer.key": {
             "unknownFixture": "answer.answer.key"
@@ -1708,7 +1721,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeAnswerRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"interactionId\":\"interactionId\",\"answer\":{\"answer.key\":{\"unknownFixture\":\"answer.answer.key\"}}}"
+      "encoded": "{\"type\":\"runtimeAnswerRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"interactionId\":\"interactionId\",\"principal\":{\"kind\":\"system\",\"ref\":\"principal.ref\"},\"answer\":{\"answer.key\":{\"unknownFixture\":\"answer.answer.key\"}}}"
     },
     {
       "schema": "RuntimeCommandMessage",
@@ -2143,6 +2156,55 @@
       "encoded": "{\"type\":\"runtimeDraftResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\"}}"
     },
     {
+      "schema": "RuntimeDurableSendRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeDurableSendRequest",
+        "rowId": "rowId",
+        "deliveryRecovery": true,
+        "initialPrompt": true,
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "text": "text",
+        "origin": "human",
+        "delivery": "when-ready"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDurableSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\"}"
+    },
+    {
+      "schema": "RuntimeDurableSendRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeDurableSendRequest",
+        "rowId": "rowId",
+        "deliveryRecovery": true,
+        "initialPrompt": true,
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "text": "text",
+        "origin": "human",
+        "delivery": "when-ready",
+        "attachments": [
+          {
+            "id": "attachments[0].id",
+            "path": "attachments[0].path",
+            "filename": "attachments[0].filename",
+            "mediaType": "attachments[0].mediaType",
+            "kind": "image"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeDurableSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}]}"
+    },
+    {
       "schema": "RuntimeEvent",
       "variant": "minimal",
       "wire": {
@@ -2256,6 +2318,12 @@
             "toolTitle": "item.item.toolTitle",
             "toolInputJson": "item.item.toolInputJson",
             "toolResult": "item.item.toolResult",
+            "toolEffects": [
+              {
+                "kind": "background-task",
+                "taskId": "item.item.toolEffects[0].taskId"
+              }
+            ],
             "toolUseId": "item.item.toolUseId",
             "tags": [
               {
@@ -2274,7 +2342,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"tool\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"tool\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}}"
     },
     {
       "schema": "RuntimeEvent",
@@ -2295,17 +2363,47 @@
         },
         "observerGeneration": 4,
         "turnEpoch": 4,
-        "t": "interaction",
-        "ev": {
-          "ev": "expired",
-          "id": "ev.id",
-          "at": "2026-01-02T03:04:05.000Z"
-        }
+        "t": "transcript-reset",
+        "items": [
+          {
+            "id": "items[0].id",
+            "cursor": "items[0].cursor",
+            "role": "system",
+            "ts": "items[0].ts",
+            "text": "items[0].text",
+            "toolName": "items[0].toolName",
+            "toolInput": "items[0].toolInput",
+            "toolTitle": "items[0].toolTitle",
+            "toolInputJson": "items[0].toolInputJson",
+            "toolResult": "items[0].toolResult",
+            "toolEffects": [
+              {
+                "kind": "termination",
+                "interrupted": true,
+                "timedOutAfterMs": 4,
+                "interpretation": "items[0].toolEffects[0].interpretation"
+              }
+            ],
+            "toolUseId": "items[0].toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "items[0].tags[0].label"
+              }
+            ],
+            "toolPaths": ["items[0].toolPaths[0]"],
+            "event": "interrupt",
+            "answer": false,
+            "systemKind": "duration",
+            "durationMs": 4
+          }
+        ],
+        "tail": "tail"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"transcript-reset\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":4}],\"tail\":\"tail\"}"
     },
     {
       "schema": "RuntimeEvent",
@@ -2326,19 +2424,17 @@
         },
         "observerGeneration": 5,
         "turnEpoch": 5,
-        "t": "turn",
+        "t": "interaction",
         "ev": {
-          "ev": "failed",
-          "turnEpoch": 5,
-          "reason": "timeout",
-          "disposition": "fatal",
-          "detail": "ev.detail"
+          "ev": "expired",
+          "id": "ev.id",
+          "at": "2026-01-02T03:04:05.000Z"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":5,\"reason\":\"timeout\",\"disposition\":\"fatal\",\"detail\":\"ev.detail\"}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
     },
     {
       "schema": "RuntimeEvent",
@@ -2359,16 +2455,19 @@
         },
         "observerGeneration": 6,
         "turnEpoch": 6,
-        "t": "process",
+        "t": "turn",
         "ev": {
-          "ev": "adopted",
-          "bindingVersion": 6
+          "ev": "failed",
+          "turnEpoch": 6,
+          "reason": "interrupted",
+          "disposition": "fatal",
+          "detail": "ev.detail"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":6}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":6,\"reason\":\"interrupted\",\"disposition\":\"fatal\",\"detail\":\"ev.detail\"}}"
     },
     {
       "schema": "RuntimeEvent",
@@ -2389,17 +2488,16 @@
         },
         "observerGeneration": 7,
         "turnEpoch": 7,
-        "t": "workspace",
+        "t": "process",
         "ev": {
-          "ev": "git-activity",
-          "commits": ["ev.commits[0]"],
-          "touchedFiles": ["ev.touchedFiles[0]"]
+          "ev": "adopted",
+          "bindingVersion": 7
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"ev.commits[0]\"],\"touchedFiles\":[\"ev.touchedFiles[0]\"]}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":7}}"
     },
     {
       "schema": "RuntimeEvent",
@@ -2420,16 +2518,17 @@
         },
         "observerGeneration": 8,
         "turnEpoch": 8,
-        "t": "open-url",
+        "t": "workspace",
         "ev": {
-          "url": "ev.url",
-          "intent": "link"
+          "ev": "git-activity",
+          "commits": ["ev.commits[0]"],
+          "touchedFiles": ["ev.touchedFiles[0]"]
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"open-url\",\"ev\":{\"url\":\"ev.url\",\"intent\":\"link\"}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"ev.commits[0]\"],\"touchedFiles\":[\"ev.touchedFiles[0]\"]}}"
     },
     {
       "schema": "RuntimeEventAckMessage",
@@ -2519,6 +2618,12 @@
             "toolTitle": "item.item.toolTitle",
             "toolInputJson": "item.item.toolInputJson",
             "toolResult": "item.item.toolResult",
+            "toolEffects": [
+              {
+                "kind": "background-task",
+                "taskId": "item.item.toolEffects[0].taskId"
+              }
+            ],
             "toolUseId": "item.item.toolUseId",
             "tags": [
               {
@@ -2537,11 +2642,57 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"tool\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}}"
+      "encoded": "{\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"tool\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}}"
     },
     {
       "schema": "RuntimeEventBody",
       "variant": "full/arm3",
+      "wire": {
+        "t": "transcript-reset",
+        "items": [
+          {
+            "id": "items[0].id",
+            "cursor": "items[0].cursor",
+            "role": "system",
+            "ts": "items[0].ts",
+            "text": "items[0].text",
+            "toolName": "items[0].toolName",
+            "toolInput": "items[0].toolInput",
+            "toolTitle": "items[0].toolTitle",
+            "toolInputJson": "items[0].toolInputJson",
+            "toolResult": "items[0].toolResult",
+            "toolEffects": [
+              {
+                "kind": "termination",
+                "interrupted": true,
+                "timedOutAfterMs": 4,
+                "interpretation": "items[0].toolEffects[0].interpretation"
+              }
+            ],
+            "toolUseId": "items[0].toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "items[0].tags[0].label"
+              }
+            ],
+            "toolPaths": ["items[0].toolPaths[0]"],
+            "event": "interrupt",
+            "answer": false,
+            "systemKind": "duration",
+            "durationMs": 4
+          }
+        ],
+        "tail": "tail"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"transcript-reset\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":4}],\"tail\":\"tail\"}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "full/arm4",
       "wire": {
         "t": "interaction",
         "ev": {
@@ -2557,13 +2708,13 @@
     },
     {
       "schema": "RuntimeEventBody",
-      "variant": "full/arm4",
+      "variant": "full/arm5",
       "wire": {
         "t": "turn",
         "ev": {
           "ev": "failed",
-          "turnEpoch": 5,
-          "reason": "timeout",
+          "turnEpoch": 6,
+          "reason": "interrupted",
           "disposition": "fatal",
           "detail": "ev.detail"
         }
@@ -2571,26 +2722,26 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":5,\"reason\":\"timeout\",\"disposition\":\"fatal\",\"detail\":\"ev.detail\"}}"
+      "encoded": "{\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":6,\"reason\":\"interrupted\",\"disposition\":\"fatal\",\"detail\":\"ev.detail\"}}"
     },
     {
       "schema": "RuntimeEventBody",
-      "variant": "full/arm5",
+      "variant": "full/arm6",
       "wire": {
         "t": "process",
         "ev": {
           "ev": "adopted",
-          "bindingVersion": 6
+          "bindingVersion": 7
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":6}}"
+      "encoded": "{\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":7}}"
     },
     {
       "schema": "RuntimeEventBody",
-      "variant": "full/arm6",
+      "variant": "full/arm7",
       "wire": {
         "t": "workspace",
         "ev": {
@@ -2603,21 +2754,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"ev.commits[0]\"],\"touchedFiles\":[\"ev.touchedFiles[0]\"]}}"
-    },
-    {
-      "schema": "RuntimeEventBody",
-      "variant": "full/arm7",
-      "wire": {
-        "t": "open-url",
-        "ev": {
-          "url": "ev.url",
-          "intent": "link"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"t\":\"open-url\",\"ev\":{\"url\":\"ev.url\",\"intent\":\"link\"}}"
     },
     {
       "schema": "RuntimeEventMessage",
@@ -2751,6 +2887,12 @@
               "toolTitle": "event.item.item.toolTitle",
               "toolInputJson": "event.item.item.toolInputJson",
               "toolResult": "event.item.item.toolResult",
+              "toolEffects": [
+                {
+                  "kind": "background-task",
+                  "taskId": "event.item.item.toolEffects[0].taskId"
+                }
+              ],
               "toolUseId": "event.item.item.toolUseId",
               "tags": [
                 {
@@ -2770,7 +2912,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"tool\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"tool\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"event.item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}}}"
     },
     {
       "schema": "RuntimeEventMessage",
@@ -2795,18 +2937,48 @@
           },
           "observerGeneration": 4,
           "turnEpoch": 4,
-          "t": "interaction",
-          "ev": {
-            "ev": "expired",
-            "id": "event.ev.id",
-            "at": "2026-01-02T03:04:05.000Z"
-          }
+          "t": "transcript-reset",
+          "items": [
+            {
+              "id": "event.items[0].id",
+              "cursor": "event.items[0].cursor",
+              "role": "system",
+              "ts": "event.items[0].ts",
+              "text": "event.items[0].text",
+              "toolName": "event.items[0].toolName",
+              "toolInput": "event.items[0].toolInput",
+              "toolTitle": "event.items[0].toolTitle",
+              "toolInputJson": "event.items[0].toolInputJson",
+              "toolResult": "event.items[0].toolResult",
+              "toolEffects": [
+                {
+                  "kind": "termination",
+                  "interrupted": true,
+                  "timedOutAfterMs": 4,
+                  "interpretation": "event.items[0].toolEffects[0].interpretation"
+                }
+              ],
+              "toolUseId": "event.items[0].toolUseId",
+              "tags": [
+                {
+                  "kind": "file",
+                  "label": "event.items[0].tags[0].label"
+                }
+              ],
+              "toolPaths": ["event.items[0].toolPaths[0]"],
+              "event": "interrupt",
+              "answer": false,
+              "systemKind": "duration",
+              "durationMs": 4
+            }
+          ],
+          "tail": "event.tail"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"event.ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"transcript-reset\",\"items\":[{\"id\":\"event.items[0].id\",\"cursor\":\"event.items[0].cursor\",\"role\":\"system\",\"ts\":\"event.items[0].ts\",\"text\":\"event.items[0].text\",\"toolName\":\"event.items[0].toolName\",\"toolInput\":\"event.items[0].toolInput\",\"toolTitle\":\"event.items[0].toolTitle\",\"toolInputJson\":\"event.items[0].toolInputJson\",\"toolResult\":\"event.items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"event.items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"event.items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.items[0].tags[0].label\"}],\"toolPaths\":[\"event.items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":4}],\"tail\":\"event.tail\"}}"
     },
     {
       "schema": "RuntimeEventMessage",
@@ -2831,20 +3003,18 @@
           },
           "observerGeneration": 5,
           "turnEpoch": 5,
-          "t": "turn",
+          "t": "interaction",
           "ev": {
-            "ev": "failed",
-            "turnEpoch": 5,
-            "reason": "timeout",
-            "disposition": "fatal",
-            "detail": "event.ev.detail"
+            "ev": "expired",
+            "id": "event.ev.id",
+            "at": "2026-01-02T03:04:05.000Z"
           }
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":5,\"reason\":\"timeout\",\"disposition\":\"fatal\",\"detail\":\"event.ev.detail\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"event.ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
     },
     {
       "schema": "RuntimeEventMessage",
@@ -2869,17 +3039,20 @@
           },
           "observerGeneration": 6,
           "turnEpoch": 6,
-          "t": "process",
+          "t": "turn",
           "ev": {
-            "ev": "adopted",
-            "bindingVersion": 6
+            "ev": "failed",
+            "turnEpoch": 6,
+            "reason": "interrupted",
+            "disposition": "fatal",
+            "detail": "event.ev.detail"
           }
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":6}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":6,\"reason\":\"interrupted\",\"disposition\":\"fatal\",\"detail\":\"event.ev.detail\"}}}"
     },
     {
       "schema": "RuntimeEventMessage",
@@ -2904,18 +3077,17 @@
           },
           "observerGeneration": 7,
           "turnEpoch": 7,
-          "t": "workspace",
+          "t": "process",
           "ev": {
-            "ev": "git-activity",
-            "commits": ["event.ev.commits[0]"],
-            "touchedFiles": ["event.ev.touchedFiles[0]"]
+            "ev": "adopted",
+            "bindingVersion": 7
           }
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"event.ev.commits[0]\"],\"touchedFiles\":[\"event.ev.touchedFiles[0]\"]}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":7}}}"
     },
     {
       "schema": "RuntimeEventMessage",
@@ -2940,17 +3112,18 @@
           },
           "observerGeneration": 8,
           "turnEpoch": 8,
-          "t": "open-url",
+          "t": "workspace",
           "ev": {
-            "url": "event.ev.url",
-            "intent": "link"
+            "ev": "git-activity",
+            "commits": ["event.ev.commits[0]"],
+            "touchedFiles": ["event.ev.touchedFiles[0]"]
           }
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"event.ev.commits[0]\"],\"touchedFiles\":[\"event.ev.touchedFiles[0]\"]}}}"
     },
     {
       "schema": "RuntimeFineEvent",
@@ -3040,6 +3213,22 @@
             "toolTitle": "item.item.toolTitle",
             "toolInputJson": "item.item.toolInputJson",
             "toolResult": "item.item.toolResult",
+            "toolEffects": [
+              {
+                "kind": "git-operation",
+                "operation": {
+                  "commit": {
+                    "sha": "item.item.toolEffects[0].operation.commit.sha",
+                    "kind": "item.item.toolEffects[0].operation.commit.kind",
+                    "branch": "item.item.toolEffects[0].operation.commit.branch"
+                  },
+                  "branch": {
+                    "ref": "item.item.toolEffects[0].operation.branch.ref",
+                    "action": "item.item.toolEffects[0].operation.branch.action"
+                  }
+                }
+              }
+            ],
             "toolUseId": "item.item.toolUseId",
             "tags": [
               {
@@ -3058,7 +3247,186 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"assistant\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"assistant\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"item.item.toolEffects[0].operation.commit.sha\",\"kind\":\"item.item.toolEffects[0].operation.commit.kind\",\"branch\":\"item.item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"item.item.toolEffects[0].operation.branch.ref\",\"action\":\"item.item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "full/arm2",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 3
+          }
+        },
+        "observerGeneration": 3,
+        "turnEpoch": 3,
+        "t": "item",
+        "item": {
+          "kind": "partial",
+          "item": {
+            "id": "item.item.id",
+            "cursor": "item.item.cursor",
+            "role": "tool",
+            "ts": "item.item.ts",
+            "text": "item.item.text",
+            "toolName": "item.item.toolName",
+            "toolInput": "item.item.toolInput",
+            "toolTitle": "item.item.toolTitle",
+            "toolInputJson": "item.item.toolInputJson",
+            "toolResult": "item.item.toolResult",
+            "toolEffects": [
+              {
+                "kind": "background-task",
+                "taskId": "item.item.toolEffects[0].taskId"
+              }
+            ],
+            "toolUseId": "item.item.toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "item.item.tags[0].label"
+              }
+            ],
+            "toolPaths": ["item.item.toolPaths[0]"],
+            "event": "interrupt",
+            "answer": true,
+            "systemKind": "duration",
+            "durationMs": 3
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"tool\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "full/arm3",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 4
+          }
+        },
+        "observerGeneration": 4,
+        "turnEpoch": 4,
+        "t": "item",
+        "item": {
+          "kind": "partial",
+          "item": {
+            "id": "item.item.id",
+            "cursor": "item.item.cursor",
+            "role": "system",
+            "ts": "item.item.ts",
+            "text": "item.item.text",
+            "toolName": "item.item.toolName",
+            "toolInput": "item.item.toolInput",
+            "toolTitle": "item.item.toolTitle",
+            "toolInputJson": "item.item.toolInputJson",
+            "toolResult": "item.item.toolResult",
+            "toolEffects": [
+              {
+                "kind": "termination",
+                "interrupted": true,
+                "timedOutAfterMs": 4,
+                "interpretation": "item.item.toolEffects[0].interpretation"
+              }
+            ],
+            "toolUseId": "item.item.toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "item.item.tags[0].label"
+              }
+            ],
+            "toolPaths": ["item.item.toolPaths[0]"],
+            "event": "interrupt",
+            "answer": false,
+            "systemKind": "duration",
+            "durationMs": 4
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":4}}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "full/arm4",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 5
+          }
+        },
+        "observerGeneration": 5,
+        "turnEpoch": 5,
+        "t": "item",
+        "item": {
+          "kind": "partial",
+          "item": {
+            "id": "item.item.id",
+            "cursor": "item.item.cursor",
+            "role": "system",
+            "ts": "item.item.ts",
+            "text": "item.item.text",
+            "toolName": "item.item.toolName",
+            "toolInput": "item.item.toolInput",
+            "toolTitle": "item.item.toolTitle",
+            "toolInputJson": "item.item.toolInputJson",
+            "toolResult": "item.item.toolResult",
+            "toolEffects": [
+              {
+                "kind": "unknown",
+                "key": "item.item.toolEffects[0].key"
+              }
+            ],
+            "toolUseId": "item.item.toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "item.item.tags[0].label"
+              }
+            ],
+            "toolPaths": ["item.item.toolPaths[0]"],
+            "event": "interrupt",
+            "answer": true,
+            "systemKind": "duration",
+            "durationMs": 5
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"item.item.toolEffects[0].key\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":5}}}"
     },
     {
       "schema": "RuntimeFineEventMessage",
@@ -3159,6 +3527,22 @@
               "toolTitle": "event.item.item.toolTitle",
               "toolInputJson": "event.item.item.toolInputJson",
               "toolResult": "event.item.item.toolResult",
+              "toolEffects": [
+                {
+                  "kind": "git-operation",
+                  "operation": {
+                    "commit": {
+                      "sha": "event.item.item.toolEffects[0].operation.commit.sha",
+                      "kind": "event.item.item.toolEffects[0].operation.commit.kind",
+                      "branch": "event.item.item.toolEffects[0].operation.commit.branch"
+                    },
+                    "branch": {
+                      "ref": "event.item.item.toolEffects[0].operation.branch.ref",
+                      "action": "event.item.item.toolEffects[0].operation.branch.action"
+                    }
+                  }
+                }
+              ],
               "toolUseId": "event.item.item.toolUseId",
               "tags": [
                 {
@@ -3178,7 +3562,198 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"assistant\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}}"
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"assistant\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"event.item.item.toolEffects[0].operation.commit.sha\",\"kind\":\"event.item.item.toolEffects[0].operation.commit.kind\",\"branch\":\"event.item.item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"event.item.item.toolEffects[0].operation.branch.ref\",\"action\":\"event.item.item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 3
+            }
+          },
+          "observerGeneration": 3,
+          "turnEpoch": 3,
+          "t": "item",
+          "item": {
+            "kind": "partial",
+            "item": {
+              "id": "event.item.item.id",
+              "cursor": "event.item.item.cursor",
+              "role": "tool",
+              "ts": "event.item.item.ts",
+              "text": "event.item.item.text",
+              "toolName": "event.item.item.toolName",
+              "toolInput": "event.item.item.toolInput",
+              "toolTitle": "event.item.item.toolTitle",
+              "toolInputJson": "event.item.item.toolInputJson",
+              "toolResult": "event.item.item.toolResult",
+              "toolEffects": [
+                {
+                  "kind": "background-task",
+                  "taskId": "event.item.item.toolEffects[0].taskId"
+                }
+              ],
+              "toolUseId": "event.item.item.toolUseId",
+              "tags": [
+                {
+                  "kind": "file",
+                  "label": "event.item.item.tags[0].label"
+                }
+              ],
+              "toolPaths": ["event.item.item.toolPaths[0]"],
+              "event": "interrupt",
+              "answer": true,
+              "systemKind": "duration",
+              "durationMs": 3
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"tool\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"event.item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 4
+            }
+          },
+          "observerGeneration": 4,
+          "turnEpoch": 4,
+          "t": "item",
+          "item": {
+            "kind": "partial",
+            "item": {
+              "id": "event.item.item.id",
+              "cursor": "event.item.item.cursor",
+              "role": "system",
+              "ts": "event.item.item.ts",
+              "text": "event.item.item.text",
+              "toolName": "event.item.item.toolName",
+              "toolInput": "event.item.item.toolInput",
+              "toolTitle": "event.item.item.toolTitle",
+              "toolInputJson": "event.item.item.toolInputJson",
+              "toolResult": "event.item.item.toolResult",
+              "toolEffects": [
+                {
+                  "kind": "termination",
+                  "interrupted": true,
+                  "timedOutAfterMs": 4,
+                  "interpretation": "event.item.item.toolEffects[0].interpretation"
+                }
+              ],
+              "toolUseId": "event.item.item.toolUseId",
+              "tags": [
+                {
+                  "kind": "file",
+                  "label": "event.item.item.tags[0].label"
+                }
+              ],
+              "toolPaths": ["event.item.item.toolPaths[0]"],
+              "event": "interrupt",
+              "answer": false,
+              "systemKind": "duration",
+              "durationMs": 4
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"system\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"event.item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":4}}}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 5
+            }
+          },
+          "observerGeneration": 5,
+          "turnEpoch": 5,
+          "t": "item",
+          "item": {
+            "kind": "partial",
+            "item": {
+              "id": "event.item.item.id",
+              "cursor": "event.item.item.cursor",
+              "role": "system",
+              "ts": "event.item.item.ts",
+              "text": "event.item.item.text",
+              "toolName": "event.item.item.toolName",
+              "toolInput": "event.item.item.toolInput",
+              "toolTitle": "event.item.item.toolTitle",
+              "toolInputJson": "event.item.item.toolInputJson",
+              "toolResult": "event.item.item.toolResult",
+              "toolEffects": [
+                {
+                  "kind": "unknown",
+                  "key": "event.item.item.toolEffects[0].key"
+                }
+              ],
+              "toolUseId": "event.item.item.toolUseId",
+              "tags": [
+                {
+                  "kind": "file",
+                  "label": "event.item.item.tags[0].label"
+                }
+              ],
+              "toolPaths": ["event.item.item.toolPaths[0]"],
+              "event": "interrupt",
+              "answer": true,
+              "systemKind": "duration",
+              "durationMs": 5
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"system\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"event.item.item.toolEffects[0].key\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":5}}}}"
     },
     {
       "schema": "RuntimeHistoryPage",
@@ -3194,7 +3769,7 @@
     },
     {
       "schema": "RuntimeHistoryPage",
-      "variant": "full",
+      "variant": "full/arm0",
       "wire": {
         "items": [
           {
@@ -3208,6 +3783,31 @@
             "toolTitle": "items[0].toolTitle",
             "toolInputJson": "items[0].toolInputJson",
             "toolResult": "items[0].toolResult",
+            "toolEffects": [
+              {
+                "kind": "file-edit",
+                "edit": {
+                  "kind": "file-edit",
+                  "path": "items[0].toolEffects[0].edit.path",
+                  "mode": "replace",
+                  "hunks": [
+                    {
+                      "path": "items[0].toolEffects[0].edit.hunks[0].path",
+                      "oldText": "items[0].toolEffects[0].edit.hunks[0].oldText",
+                      "newText": "items[0].toolEffects[0].edit.hunks[0].newText"
+                    }
+                  ],
+                  "patch": "items[0].toolEffects[0].edit.patch",
+                  "added": 1,
+                  "removed": 1,
+                  "changedFileCount": 1,
+                  "moreFiles": 1,
+                  "unavailable": true,
+                  "truncated": true
+                },
+                "userModified": true
+              }
+            ],
             "toolUseId": "items[0].toolUseId",
             "tags": [
               {
@@ -3249,7 +3849,279 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":1}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":1}},\"hasMore\":true}"
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":1}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":1}},\"hasMore\":true}"
+    },
+    {
+      "schema": "RuntimeHistoryPage",
+      "variant": "full/arm1",
+      "wire": {
+        "items": [
+          {
+            "id": "items[0].id",
+            "cursor": "items[0].cursor",
+            "role": "assistant",
+            "ts": "items[0].ts",
+            "text": "items[0].text",
+            "toolName": "items[0].toolName",
+            "toolInput": "items[0].toolInput",
+            "toolTitle": "items[0].toolTitle",
+            "toolInputJson": "items[0].toolInputJson",
+            "toolResult": "items[0].toolResult",
+            "toolEffects": [
+              {
+                "kind": "git-operation",
+                "operation": {
+                  "commit": {
+                    "sha": "items[0].toolEffects[0].operation.commit.sha",
+                    "kind": "items[0].toolEffects[0].operation.commit.kind",
+                    "branch": "items[0].toolEffects[0].operation.commit.branch"
+                  },
+                  "branch": {
+                    "ref": "items[0].toolEffects[0].operation.branch.ref",
+                    "action": "items[0].toolEffects[0].operation.branch.action"
+                  }
+                }
+              }
+            ],
+            "toolUseId": "items[0].toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "items[0].tags[0].label"
+              }
+            ],
+            "toolPaths": ["items[0].toolPaths[0]"],
+            "event": "interrupt",
+            "answer": false,
+            "systemKind": "duration",
+            "durationMs": 2
+          }
+        ],
+        "head": {
+          "segmentId": "head.segmentId",
+          "predecessorSegmentId": "head.predecessorSegmentId",
+          "pathHint": "head.pathHint",
+          "device": "head.device",
+          "inode": "head.inode",
+          "integrity": "head.integrity",
+          "components": {
+            "head.components.key": 2
+          }
+        },
+        "tail": {
+          "segmentId": "tail.segmentId",
+          "predecessorSegmentId": "tail.predecessorSegmentId",
+          "pathHint": "tail.pathHint",
+          "device": "tail.device",
+          "inode": "tail.inode",
+          "integrity": "tail.integrity",
+          "components": {
+            "tail.components.key": 2
+          }
+        },
+        "hasMore": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"assistant\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].toolEffects[0].operation.branch.ref\",\"action\":\"items[0].toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":2}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":2}},\"hasMore\":false}"
+    },
+    {
+      "schema": "RuntimeHistoryPage",
+      "variant": "full/arm2",
+      "wire": {
+        "items": [
+          {
+            "id": "items[0].id",
+            "cursor": "items[0].cursor",
+            "role": "tool",
+            "ts": "items[0].ts",
+            "text": "items[0].text",
+            "toolName": "items[0].toolName",
+            "toolInput": "items[0].toolInput",
+            "toolTitle": "items[0].toolTitle",
+            "toolInputJson": "items[0].toolInputJson",
+            "toolResult": "items[0].toolResult",
+            "toolEffects": [
+              {
+                "kind": "background-task",
+                "taskId": "items[0].toolEffects[0].taskId"
+              }
+            ],
+            "toolUseId": "items[0].toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "items[0].tags[0].label"
+              }
+            ],
+            "toolPaths": ["items[0].toolPaths[0]"],
+            "event": "interrupt",
+            "answer": true,
+            "systemKind": "duration",
+            "durationMs": 3
+          }
+        ],
+        "head": {
+          "segmentId": "head.segmentId",
+          "predecessorSegmentId": "head.predecessorSegmentId",
+          "pathHint": "head.pathHint",
+          "device": "head.device",
+          "inode": "head.inode",
+          "integrity": "head.integrity",
+          "components": {
+            "head.components.key": 3
+          }
+        },
+        "tail": {
+          "segmentId": "tail.segmentId",
+          "predecessorSegmentId": "tail.predecessorSegmentId",
+          "pathHint": "tail.pathHint",
+          "device": "tail.device",
+          "inode": "tail.inode",
+          "integrity": "tail.integrity",
+          "components": {
+            "tail.components.key": 3
+          }
+        },
+        "hasMore": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"tool\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":3}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":3}},\"hasMore\":true}"
+    },
+    {
+      "schema": "RuntimeHistoryPage",
+      "variant": "full/arm3",
+      "wire": {
+        "items": [
+          {
+            "id": "items[0].id",
+            "cursor": "items[0].cursor",
+            "role": "system",
+            "ts": "items[0].ts",
+            "text": "items[0].text",
+            "toolName": "items[0].toolName",
+            "toolInput": "items[0].toolInput",
+            "toolTitle": "items[0].toolTitle",
+            "toolInputJson": "items[0].toolInputJson",
+            "toolResult": "items[0].toolResult",
+            "toolEffects": [
+              {
+                "kind": "termination",
+                "interrupted": true,
+                "timedOutAfterMs": 4,
+                "interpretation": "items[0].toolEffects[0].interpretation"
+              }
+            ],
+            "toolUseId": "items[0].toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "items[0].tags[0].label"
+              }
+            ],
+            "toolPaths": ["items[0].toolPaths[0]"],
+            "event": "interrupt",
+            "answer": false,
+            "systemKind": "duration",
+            "durationMs": 4
+          }
+        ],
+        "head": {
+          "segmentId": "head.segmentId",
+          "predecessorSegmentId": "head.predecessorSegmentId",
+          "pathHint": "head.pathHint",
+          "device": "head.device",
+          "inode": "head.inode",
+          "integrity": "head.integrity",
+          "components": {
+            "head.components.key": 4
+          }
+        },
+        "tail": {
+          "segmentId": "tail.segmentId",
+          "predecessorSegmentId": "tail.predecessorSegmentId",
+          "pathHint": "tail.pathHint",
+          "device": "tail.device",
+          "inode": "tail.inode",
+          "integrity": "tail.integrity",
+          "components": {
+            "tail.components.key": 4
+          }
+        },
+        "hasMore": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":4}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":4}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":4}},\"hasMore\":false}"
+    },
+    {
+      "schema": "RuntimeHistoryPage",
+      "variant": "full/arm4",
+      "wire": {
+        "items": [
+          {
+            "id": "items[0].id",
+            "cursor": "items[0].cursor",
+            "role": "system",
+            "ts": "items[0].ts",
+            "text": "items[0].text",
+            "toolName": "items[0].toolName",
+            "toolInput": "items[0].toolInput",
+            "toolTitle": "items[0].toolTitle",
+            "toolInputJson": "items[0].toolInputJson",
+            "toolResult": "items[0].toolResult",
+            "toolEffects": [
+              {
+                "kind": "unknown",
+                "key": "items[0].toolEffects[0].key"
+              }
+            ],
+            "toolUseId": "items[0].toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "items[0].tags[0].label"
+              }
+            ],
+            "toolPaths": ["items[0].toolPaths[0]"],
+            "event": "interrupt",
+            "answer": true,
+            "systemKind": "duration",
+            "durationMs": 5
+          }
+        ],
+        "head": {
+          "segmentId": "head.segmentId",
+          "predecessorSegmentId": "head.predecessorSegmentId",
+          "pathHint": "head.pathHint",
+          "device": "head.device",
+          "inode": "head.inode",
+          "integrity": "head.integrity",
+          "components": {
+            "head.components.key": 5
+          }
+        },
+        "tail": {
+          "segmentId": "tail.segmentId",
+          "predecessorSegmentId": "tail.predecessorSegmentId",
+          "pathHint": "tail.pathHint",
+          "device": "tail.device",
+          "inode": "tail.inode",
+          "integrity": "tail.integrity",
+          "components": {
+            "tail.components.key": 5
+          }
+        },
+        "hasMore": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":5}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":5}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":5}},\"hasMore\":true}"
     },
     {
       "schema": "RuntimeHistoryRange",
@@ -3373,6 +4245,31 @@
                 "toolTitle": "result.page.items[0].toolTitle",
                 "toolInputJson": "result.page.items[0].toolInputJson",
                 "toolResult": "result.page.items[0].toolResult",
+                "toolEffects": [
+                  {
+                    "kind": "file-edit",
+                    "edit": {
+                      "kind": "file-edit",
+                      "path": "result.page.items[0].toolEffects[0].edit.path",
+                      "mode": "replace",
+                      "hunks": [
+                        {
+                          "path": "result.page.items[0].toolEffects[0].edit.hunks[0].path",
+                          "oldText": "result.page.items[0].toolEffects[0].edit.hunks[0].oldText",
+                          "newText": "result.page.items[0].toolEffects[0].edit.hunks[0].newText"
+                        }
+                      ],
+                      "patch": "result.page.items[0].toolEffects[0].edit.patch",
+                      "added": 1,
+                      "removed": 1,
+                      "changedFileCount": 1,
+                      "moreFiles": 1,
+                      "unavailable": true,
+                      "truncated": true
+                    },
+                    "userModified": true
+                  }
+                ],
                 "toolUseId": "result.page.items[0].toolUseId",
                 "tags": [
                   {
@@ -3416,7 +4313,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"page\":{\"items\":[{\"id\":\"result.page.items[0].id\",\"cursor\":\"result.page.items[0].cursor\",\"role\":\"user\",\"ts\":\"result.page.items[0].ts\",\"text\":\"result.page.items[0].text\",\"toolName\":\"result.page.items[0].toolName\",\"toolInput\":\"result.page.items[0].toolInput\",\"toolTitle\":\"result.page.items[0].toolTitle\",\"toolInputJson\":\"result.page.items[0].toolInputJson\",\"toolResult\":\"result.page.items[0].toolResult\",\"toolUseId\":\"result.page.items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"result.page.items[0].tags[0].label\"}],\"toolPaths\":[\"result.page.items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"head\":{\"segmentId\":\"result.page.head.segmentId\",\"predecessorSegmentId\":\"result.page.head.predecessorSegmentId\",\"pathHint\":\"result.page.head.pathHint\",\"device\":\"result.page.head.device\",\"inode\":\"result.page.head.inode\",\"integrity\":\"result.page.head.integrity\",\"components\":{\"result.page.head.components.key\":1}},\"tail\":{\"segmentId\":\"result.page.tail.segmentId\",\"predecessorSegmentId\":\"result.page.tail.predecessorSegmentId\",\"pathHint\":\"result.page.tail.pathHint\",\"device\":\"result.page.tail.device\",\"inode\":\"result.page.tail.inode\",\"integrity\":\"result.page.tail.integrity\",\"components\":{\"result.page.tail.components.key\":1}},\"hasMore\":true}}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"page\":{\"items\":[{\"id\":\"result.page.items[0].id\",\"cursor\":\"result.page.items[0].cursor\",\"role\":\"user\",\"ts\":\"result.page.items[0].ts\",\"text\":\"result.page.items[0].text\",\"toolName\":\"result.page.items[0].toolName\",\"toolInput\":\"result.page.items[0].toolInput\",\"toolTitle\":\"result.page.items[0].toolTitle\",\"toolInputJson\":\"result.page.items[0].toolInputJson\",\"toolResult\":\"result.page.items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"result.page.items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"result.page.items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"result.page.items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"result.page.items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"result.page.items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"result.page.items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"result.page.items[0].tags[0].label\"}],\"toolPaths\":[\"result.page.items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"head\":{\"segmentId\":\"result.page.head.segmentId\",\"predecessorSegmentId\":\"result.page.head.predecessorSegmentId\",\"pathHint\":\"result.page.head.pathHint\",\"device\":\"result.page.head.device\",\"inode\":\"result.page.head.inode\",\"integrity\":\"result.page.head.integrity\",\"components\":{\"result.page.head.components.key\":1}},\"tail\":{\"segmentId\":\"result.page.tail.segmentId\",\"predecessorSegmentId\":\"result.page.tail.predecessorSegmentId\",\"pathHint\":\"result.page.tail.pathHint\",\"device\":\"result.page.tail.device\",\"inode\":\"result.page.tail.inode\",\"integrity\":\"result.page.tail.integrity\",\"components\":{\"result.page.tail.components.key\":1}},\"hasMore\":true}}}"
     },
     {
       "schema": "RuntimeHistoryResultMessage",
@@ -3434,6 +4331,57 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeHistoryResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeHistoryResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "unsupported",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeHistoryResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeHistoryResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "no_resume_ref",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeHistoryResultMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeHistoryResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "session_ended",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\"}}"
     },
     {
       "schema": "RuntimeInteractionAskedMessage",
@@ -3728,13 +4676,14 @@
         "requestId": "requestId",
         "sessionId": "sessionId",
         "result": {
-          "ok": true
+          "ok": true,
+          "retirement": "confirmed"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true}}"
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true,\"retirement\":\"confirmed\"}}"
     },
     {
       "schema": "RuntimeLifecycleResultMessage",
@@ -3996,6 +4945,8 @@
       "wire": {
         "type": "runtimeSendRequest",
         "rowId": "rowId",
+        "deliveryRecovery": true,
+        "initialPrompt": true,
         "requestId": "requestId",
         "turnId": "turnId",
         "sessionId": "sessionId",
@@ -4015,7 +4966,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}]}"
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"rowId\":\"rowId\",\"deliveryRecovery\":true,\"initialPrompt\":true,\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}]}"
     },
     {
       "schema": "RuntimeSendResultMessage",
@@ -4248,6 +5199,32 @@
               }
             ],
             "draft": "result.snapshot.draft",
+            "title": "result.snapshot.title",
+            "metadata": [
+              {
+                "at": "2026-01-02T03:04:05.000Z",
+                "provenance": "bootstrap",
+                "cursor": {
+                  "segmentId": "result.snapshot.metadata[0].cursor.segmentId",
+                  "predecessorSegmentId": "result.snapshot.metadata[0].cursor.predecessorSegmentId",
+                  "pathHint": "result.snapshot.metadata[0].cursor.pathHint",
+                  "device": "result.snapshot.metadata[0].cursor.device",
+                  "inode": "result.snapshot.metadata[0].cursor.inode",
+                  "integrity": "result.snapshot.metadata[0].cursor.integrity",
+                  "components": {
+                    "result.snapshot.metadata[0].cursor.components.key": 1
+                  }
+                },
+                "observerGeneration": 1,
+                "turnEpoch": 1,
+                "t": "metadata",
+                "change": {
+                  "kind": "title",
+                  "source": "osc",
+                  "title": "result.snapshot.metadata[0].change.title"
+                }
+              }
+            ],
             "at": "2026-01-02T03:04:05.000Z"
           }
         }
@@ -4255,7 +5232,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"snapshot\":{\"binding\":{\"sessionId\":\"result.snapshot.binding.sessionId\",\"driver\":\"result.snapshot.binding.driver\",\"family\":\"server\",\"harness\":\"result.snapshot.binding.harness\",\"workdir\":\"result.snapshot.binding.workdir\",\"resume\":{\"kind\":\"result.snapshot.binding.resume.kind\",\"value\":\"result.snapshot.binding.resume.value\"},\"principal\":\"result.snapshot.binding.principal\",\"process\":{\"key\":\"result.snapshot.binding.process.key\",\"scopeUnit\":\"result.snapshot.binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"result.snapshot.state.key\":{\"unknownFixture\":\"result.snapshot.state.result.snapshot.state.key\"}},\"cursor\":{\"segmentId\":\"result.snapshot.cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.cursor.pathHint\",\"device\":\"result.snapshot.cursor.device\",\"inode\":\"result.snapshot.cursor.inode\",\"integrity\":\"result.snapshot.cursor.integrity\",\"components\":{\"result.snapshot.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"result.snapshot.interactions[0].id\",\"sessionId\":\"result.snapshot.interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"result.snapshot.interactions[0].payload.toolName\",\"inputSummary\":\"result.snapshot.interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"result.snapshot.interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"result.snapshot.draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"snapshot\":{\"binding\":{\"sessionId\":\"result.snapshot.binding.sessionId\",\"driver\":\"result.snapshot.binding.driver\",\"family\":\"server\",\"harness\":\"result.snapshot.binding.harness\",\"workdir\":\"result.snapshot.binding.workdir\",\"resume\":{\"kind\":\"result.snapshot.binding.resume.kind\",\"value\":\"result.snapshot.binding.resume.value\"},\"principal\":\"result.snapshot.binding.principal\",\"process\":{\"key\":\"result.snapshot.binding.process.key\",\"scopeUnit\":\"result.snapshot.binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"result.snapshot.state.key\":{\"unknownFixture\":\"result.snapshot.state.result.snapshot.state.key\"}},\"cursor\":{\"segmentId\":\"result.snapshot.cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.cursor.pathHint\",\"device\":\"result.snapshot.cursor.device\",\"inode\":\"result.snapshot.cursor.inode\",\"integrity\":\"result.snapshot.cursor.integrity\",\"components\":{\"result.snapshot.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"result.snapshot.interactions[0].id\",\"sessionId\":\"result.snapshot.interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"result.snapshot.interactions[0].payload.toolName\",\"inputSummary\":\"result.snapshot.interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"result.snapshot.interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"result.snapshot.draft\",\"title\":\"result.snapshot.title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"result.snapshot.metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.metadata[0].cursor.pathHint\",\"device\":\"result.snapshot.metadata[0].cursor.device\",\"inode\":\"result.snapshot.metadata[0].cursor.inode\",\"integrity\":\"result.snapshot.metadata[0].cursor.integrity\",\"components\":{\"result.snapshot.metadata[0].cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"metadata\",\"change\":{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"result.snapshot.metadata[0].change.title\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
     },
     {
       "schema": "RuntimeSnapshotResultMessage",
@@ -4544,6 +5521,221 @@
       "encoded": "{\"sessionId\":\"sessionId\",\"driver\":\"driver\",\"family\":\"server\",\"harness\":\"harness\",\"workdir\":\"workdir\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"principal\":\"principal\",\"process\":{\"key\":\"process.key\",\"scopeUnit\":\"process.scopeUnit\",\"pid\":1},\"bindingVersion\":1}"
     },
     {
+      "schema": "SessionMetadataChange",
+      "variant": "minimal",
+      "wire": {
+        "kind": "title",
+        "source": "osc",
+        "title": "title"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"title\"}"
+    },
+    {
+      "schema": "SessionMetadataChange",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "title",
+        "source": "osc",
+        "title": "title"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"title\"}"
+    },
+    {
+      "schema": "SessionMetadataChange",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "model",
+        "source": "native",
+        "model": "model",
+        "effort": "effort"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"model\",\"source\":\"native\",\"model\":\"model\",\"effort\":\"effort\"}"
+    },
+    {
+      "schema": "SessionMetadataChange",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "color",
+        "source": "transcript",
+        "color": "color"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"color\",\"source\":\"transcript\",\"color\":\"color\"}"
+    },
+    {
+      "schema": "SessionMetadataChange",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "context",
+        "source": "transcript",
+        "percent": 4
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}"
+    },
+    {
+      "schema": "SessionMetadataObservation",
+      "variant": "minimal",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "components": {}
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "t": "metadata",
+        "change": {
+          "kind": "title",
+          "source": "osc",
+          "title": "change.title"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"metadata\",\"change\":{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"change.title\"}}"
+    },
+    {
+      "schema": "SessionMetadataObservation",
+      "variant": "full/arm0",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 1
+          }
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "t": "metadata",
+        "change": {
+          "kind": "title",
+          "source": "osc",
+          "title": "change.title"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"metadata\",\"change\":{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"change.title\"}}"
+    },
+    {
+      "schema": "SessionMetadataObservation",
+      "variant": "full/arm1",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "live",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 2
+          }
+        },
+        "observerGeneration": 2,
+        "turnEpoch": 2,
+        "t": "metadata",
+        "change": {
+          "kind": "model",
+          "source": "native",
+          "model": "change.model",
+          "effort": "change.effort"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"metadata\",\"change\":{\"kind\":\"model\",\"source\":\"native\",\"model\":\"change.model\",\"effort\":\"change.effort\"}}"
+    },
+    {
+      "schema": "SessionMetadataObservation",
+      "variant": "full/arm2",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 3
+          }
+        },
+        "observerGeneration": 3,
+        "turnEpoch": 3,
+        "t": "metadata",
+        "change": {
+          "kind": "color",
+          "source": "transcript",
+          "color": "change.color"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"metadata\",\"change\":{\"kind\":\"color\",\"source\":\"transcript\",\"color\":\"change.color\"}}"
+    },
+    {
+      "schema": "SessionMetadataObservation",
+      "variant": "full/arm3",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 4
+          }
+        },
+        "observerGeneration": 4,
+        "turnEpoch": 4,
+        "t": "metadata",
+        "change": {
+          "kind": "context",
+          "source": "transcript",
+          "percent": 4
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}}"
+    },
+    {
       "schema": "SessionSnapshot",
       "variant": "minimal",
       "wire": {
@@ -4638,12 +5830,38 @@
           }
         ],
         "draft": "draft",
+        "title": "title",
+        "metadata": [
+          {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "bootstrap",
+            "cursor": {
+              "segmentId": "metadata[0].cursor.segmentId",
+              "predecessorSegmentId": "metadata[0].cursor.predecessorSegmentId",
+              "pathHint": "metadata[0].cursor.pathHint",
+              "device": "metadata[0].cursor.device",
+              "inode": "metadata[0].cursor.inode",
+              "integrity": "metadata[0].cursor.integrity",
+              "components": {
+                "metadata[0].cursor.components.key": 1
+              }
+            },
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "t": "metadata",
+            "change": {
+              "kind": "title",
+              "source": "osc",
+              "title": "metadata[0].change.title"
+            }
+          }
+        ],
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interactions[0].payload.toolName\",\"inputSummary\":\"interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interactions[0].payload.toolName\",\"inputSummary\":\"interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"metadata\",\"change\":{\"kind\":\"title\",\"source\":\"osc\",\"title\":\"metadata[0].change.title\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -4717,12 +5935,39 @@
           }
         ],
         "draft": "draft",
+        "title": "title",
+        "metadata": [
+          {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "live",
+            "cursor": {
+              "segmentId": "metadata[0].cursor.segmentId",
+              "predecessorSegmentId": "metadata[0].cursor.predecessorSegmentId",
+              "pathHint": "metadata[0].cursor.pathHint",
+              "device": "metadata[0].cursor.device",
+              "inode": "metadata[0].cursor.inode",
+              "integrity": "metadata[0].cursor.integrity",
+              "components": {
+                "metadata[0].cursor.components.key": 2
+              }
+            },
+            "observerGeneration": 2,
+            "turnEpoch": 2,
+            "t": "metadata",
+            "change": {
+              "kind": "model",
+              "source": "native",
+              "model": "metadata[0].change.model",
+              "effort": "metadata[0].change.effort"
+            }
+          }
+        ],
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"embedded\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":2},\"bindingVersion\":2},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"interactions[0].payload.questions[0].question\",\"header\":\"interactions[0].payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"interactions[0].payload.questions[0].options[0].label\",\"description\":\"interactions[0].payload.questions[0].options[0].description\",\"preview\":\"interactions[0].payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"embedded\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":2},\"bindingVersion\":2},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"interactions[0].payload.questions[0].question\",\"header\":\"interactions[0].payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"interactions[0].payload.questions[0].options[0].label\",\"description\":\"interactions[0].payload.questions[0].options[0].description\",\"preview\":\"interactions[0].payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"metadata\",\"change\":{\"kind\":\"model\",\"source\":\"native\",\"model\":\"metadata[0].change.model\",\"effort\":\"metadata[0].change.effort\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -4782,12 +6027,38 @@
           }
         ],
         "draft": "draft",
+        "title": "title",
+        "metadata": [
+          {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "replay",
+            "cursor": {
+              "segmentId": "metadata[0].cursor.segmentId",
+              "predecessorSegmentId": "metadata[0].cursor.predecessorSegmentId",
+              "pathHint": "metadata[0].cursor.pathHint",
+              "device": "metadata[0].cursor.device",
+              "inode": "metadata[0].cursor.inode",
+              "integrity": "metadata[0].cursor.integrity",
+              "components": {
+                "metadata[0].cursor.components.key": 3
+              }
+            },
+            "observerGeneration": 3,
+            "turnEpoch": 3,
+            "t": "metadata",
+            "change": {
+              "kind": "color",
+              "source": "transcript",
+              "color": "metadata[0].change.color"
+            }
+          }
+        ],
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":3},\"bindingVersion\":3},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"interactions[0].payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":3},\"bindingVersion\":3},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"interactions[0].payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"metadata\",\"change\":{\"kind\":\"color\",\"source\":\"transcript\",\"color\":\"metadata[0].change.color\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -4852,12 +6123,38 @@
           }
         ],
         "draft": "draft",
+        "title": "title",
+        "metadata": [
+          {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "replay",
+            "cursor": {
+              "segmentId": "metadata[0].cursor.segmentId",
+              "predecessorSegmentId": "metadata[0].cursor.predecessorSegmentId",
+              "pathHint": "metadata[0].cursor.pathHint",
+              "device": "metadata[0].cursor.device",
+              "inode": "metadata[0].cursor.inode",
+              "integrity": "metadata[0].cursor.integrity",
+              "components": {
+                "metadata[0].cursor.components.key": 4
+              }
+            },
+            "observerGeneration": 4,
+            "turnEpoch": 4,
+            "t": "metadata",
+            "change": {
+              "kind": "context",
+              "source": "transcript",
+              "percent": 4
+            }
+          }
+        ],
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":4},\"bindingVersion\":4},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"interactions[0].payload.message\",\"requestedSchema\":{\"interactions[0].payload.requestedSchema.key\":{\"unknownFixture\":\"interactions[0].payload.requestedSchema.interactions[0].payload.requestedSchema.key\"}},\"serverName\":\"interactions[0].payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":4},\"bindingVersion\":4},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"interactions[0].payload.message\",\"requestedSchema\":{\"interactions[0].payload.requestedSchema.key\":{\"unknownFixture\":\"interactions[0].payload.requestedSchema.interactions[0].payload.requestedSchema.key\"}},\"serverName\":\"interactions[0].payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -4918,12 +6215,38 @@
           }
         ],
         "draft": "draft",
+        "title": "title",
+        "metadata": [
+          {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "replay",
+            "cursor": {
+              "segmentId": "metadata[0].cursor.segmentId",
+              "predecessorSegmentId": "metadata[0].cursor.predecessorSegmentId",
+              "pathHint": "metadata[0].cursor.pathHint",
+              "device": "metadata[0].cursor.device",
+              "inode": "metadata[0].cursor.inode",
+              "integrity": "metadata[0].cursor.integrity",
+              "components": {
+                "metadata[0].cursor.components.key": 5
+              }
+            },
+            "observerGeneration": 5,
+            "turnEpoch": 5,
+            "t": "metadata",
+            "change": {
+              "kind": "context",
+              "source": "transcript",
+              "percent": 5
+            }
+          }
+        ],
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":5},\"bindingVersion\":5},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"interactions[0].payload.provider\",\"reason\":\"re-auth\",\"url\":\"interactions[0].payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":5},\"bindingVersion\":5},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"interactions[0].payload.provider\",\"reason\":\"re-auth\",\"url\":\"interactions[0].payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":5}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -4984,12 +6307,38 @@
           }
         ],
         "draft": "draft",
+        "title": "title",
+        "metadata": [
+          {
+            "at": "2026-01-02T03:04:05.000Z",
+            "provenance": "replay",
+            "cursor": {
+              "segmentId": "metadata[0].cursor.segmentId",
+              "predecessorSegmentId": "metadata[0].cursor.predecessorSegmentId",
+              "pathHint": "metadata[0].cursor.pathHint",
+              "device": "metadata[0].cursor.device",
+              "inode": "metadata[0].cursor.inode",
+              "integrity": "metadata[0].cursor.integrity",
+              "components": {
+                "metadata[0].cursor.components.key": 6
+              }
+            },
+            "observerGeneration": 6,
+            "turnEpoch": 6,
+            "t": "metadata",
+            "change": {
+              "kind": "context",
+              "source": "transcript",
+              "percent": 6
+            }
+          }
+        ],
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":6},\"bindingVersion\":6},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interactions[0].payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":6},\"bindingVersion\":6},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interactions[0].payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":6}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "TranscriptItemDelta",
@@ -5023,6 +6372,31 @@
           "toolTitle": "item.toolTitle",
           "toolInputJson": "item.toolInputJson",
           "toolResult": "item.toolResult",
+          "toolEffects": [
+            {
+              "kind": "file-edit",
+              "edit": {
+                "kind": "file-edit",
+                "path": "item.toolEffects[0].edit.path",
+                "mode": "replace",
+                "hunks": [
+                  {
+                    "path": "item.toolEffects[0].edit.hunks[0].path",
+                    "oldText": "item.toolEffects[0].edit.hunks[0].oldText",
+                    "newText": "item.toolEffects[0].edit.hunks[0].newText"
+                  }
+                ],
+                "patch": "item.toolEffects[0].edit.patch",
+                "added": 1,
+                "removed": 1,
+                "changedFileCount": 1,
+                "moreFiles": 1,
+                "unavailable": true,
+                "truncated": true
+              },
+              "userModified": true
+            }
+          ],
           "toolUseId": "item.toolUseId",
           "tags": [
             {
@@ -5040,7 +6414,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"complete\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"user\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}}"
+      "encoded": "{\"kind\":\"complete\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"user\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"item.toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"item.toolEffects[0].edit.hunks[0].path\",\"oldText\":\"item.toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"item.toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"item.toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}}"
     },
     {
       "schema": "TranscriptItemDelta",
@@ -5071,6 +6445,12 @@
           "toolTitle": "item.toolTitle",
           "toolInputJson": "item.toolInputJson",
           "toolResult": "item.toolResult",
+          "toolEffects": [
+            {
+              "kind": "background-task",
+              "taskId": "item.toolEffects[0].taskId"
+            }
+          ],
           "toolUseId": "item.toolUseId",
           "tags": [
             {
@@ -5088,7 +6468,91 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"tool\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}"
+      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"tool\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}"
+    },
+    {
+      "schema": "TranscriptItemDelta",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "partial",
+        "item": {
+          "id": "item.id",
+          "cursor": "item.cursor",
+          "role": "system",
+          "ts": "item.ts",
+          "text": "item.text",
+          "toolName": "item.toolName",
+          "toolInput": "item.toolInput",
+          "toolTitle": "item.toolTitle",
+          "toolInputJson": "item.toolInputJson",
+          "toolResult": "item.toolResult",
+          "toolEffects": [
+            {
+              "kind": "termination",
+              "interrupted": true,
+              "timedOutAfterMs": 4,
+              "interpretation": "item.toolEffects[0].interpretation"
+            }
+          ],
+          "toolUseId": "item.toolUseId",
+          "tags": [
+            {
+              "kind": "file",
+              "label": "item.tags[0].label"
+            }
+          ],
+          "toolPaths": ["item.toolPaths[0]"],
+          "event": "interrupt",
+          "answer": false,
+          "systemKind": "duration",
+          "durationMs": 4
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":4}}"
+    },
+    {
+      "schema": "TranscriptItemDelta",
+      "variant": "full/arm4",
+      "wire": {
+        "kind": "partial",
+        "item": {
+          "id": "item.id",
+          "cursor": "item.cursor",
+          "role": "system",
+          "ts": "item.ts",
+          "text": "item.text",
+          "toolName": "item.toolName",
+          "toolInput": "item.toolInput",
+          "toolTitle": "item.toolTitle",
+          "toolInputJson": "item.toolInputJson",
+          "toolResult": "item.toolResult",
+          "toolEffects": [
+            {
+              "kind": "unknown",
+              "key": "item.toolEffects[0].key"
+            }
+          ],
+          "toolUseId": "item.toolUseId",
+          "tags": [
+            {
+              "kind": "file",
+              "label": "item.tags[0].label"
+            }
+          ],
+          "toolPaths": ["item.toolPaths[0]"],
+          "event": "interrupt",
+          "answer": true,
+          "systemKind": "duration",
+          "durationMs": 5
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"item.toolEffects[0].key\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":5}}"
     },
     {
       "schema": "TurnDelivery",

@@ -1,3 +1,6 @@
+import { respondToMailBoundary, type MailBoundaryContext } from './mail-boundary'
+import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '@podium/agent-runtime'
+import type { ReattachControl } from '../session-observers'
 import { withDeliveryQueue } from '@podium/agent-runtime'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import {
@@ -54,6 +57,7 @@ import {
  */
 
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import type {
   AcceptPort,
   ActingPrincipal,
@@ -83,6 +87,8 @@ import type {
   SessionHealth,
   SessionLease,
   SessionSnapshot,
+  SessionMetadataChange,
+  SessionMetadataObservation,
   SessionSpec,
   TerminalInjectionMachine,
   TimerHandle,
@@ -104,6 +110,8 @@ import {
   terminalCapabilities,
 } from '@podium/agent-runtime'
 
+import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '@podium/harness/metadata'
+import { canonicalDriverId } from '@podium/harness'
 import type {
   AgentStateEvent,
   TerminalAcceptCorrelation,
@@ -177,7 +185,11 @@ const PENDING_FRAME_LIMIT = 256
  * interface is the contract's own discipline applied one layer down: it names
  * what it needs, and `apps/daemon/src/host-runtime.ts` satisfies it structurally.
  */
+/** Refusing a foreign identity or stale lease must never reap the current owner. */
+export class TerminalRecoveryRefusal extends Error {}
+
 export interface TerminalRuntimeHost {
+  boundaryContext?: MailBoundaryContext
   /** Outbound daemon frames. The driver's only path to the server. */
   send(msg: DaemonMessage): void
   stageAttachment: AttachmentStager
@@ -197,8 +209,11 @@ export interface TerminalRuntimeHost {
   /** Does a durable master still hold this label? The ONLY thing that makes an
    *  adopt exact rather than hopeful. */
   durableHostAlive(label: string): Promise<boolean>
+  /** Rebuild/reuse the exact process bridge, observer lease, screen and composer.
+   * Call ready after composition, before publishing bind or replaying redraw. */
+  recover(msg: ReattachControl, ready: () => void): Promise<void>
   /** The daemon half of the survival table — dispose the bridge, reap the host. */
-  stopSession(input: { sessionId: SessionId; durableLabel: string }): void
+  stopSession(input: { sessionId: SessionId; durableLabel: string }): Promise<boolean>
   /** The existing spawn path. `create()`/`resume()` go through it rather than
    *  around it, which is what keeps a contract-driven session byte-identical to
    *  a server-spawned one. */
@@ -299,6 +314,8 @@ interface LoggedEvent {
 }
 
 interface DriverSession {
+  resumeConfidence?: 'exact' | 'heuristic'
+  identityGeneration?: number
   sessionId: SessionId
   agentKind: AgentKind
   driverId: DriverId
@@ -307,20 +324,32 @@ interface DriverSession {
   resume: ResumeRef | null
   bindingVersion: number
   observerGeneration: number
+  state?: AgentRuntimeState
+  stateGeneration?: number
+  lastEmittedCursor?: ProviderCursor
   turnEpoch: number
   /** Highest epoch whose terminal observation has already been folded. */
   fencedTurnEpoch: number
   /** The newest cursor an observation gave us; null until one arrives. */
   providerCursor: ProviderCursor | null
+  publishedCursor: ProviderCursor | null
   /** Driver-local event counter — the `seq` inside a driver-local cursor, and
    *  the position an `events(after)` consumer resumes from. */
   seq: number
   log: LoggedEvent[]
   wakers: Set<() => void>
   interactions: Map<string, PendingInteraction>
+  interactionOwners: Map<string, {
+    bridge: ReturnType<TerminalRuntimeHost['bridge']>
+    pid: number | undefined
+    generation: number
+    bindingVersion: number
+  }>
+  answerScript?: { cancel(detail: string): void }
   answered: Set<string>
   lease: SessionLease | null
   draft: string | undefined
+  metadata: Map<SessionMetadataChange['kind'], SessionMetadataObservation>
   contextUsedPercent: number | undefined
   observedStatePhase: AgentRuntimeState['phase'] | undefined
   transcriptVersions: Map<string, string>
@@ -363,6 +392,7 @@ interface DriverSession {
   /** Has the CLI finished starting? The drain types into `live` only — see
    *  `TerminalInjectionPorts.live`. */
   live: boolean
+  liveAtMs?: number
   /** This driver performed the teardown. The one thing that lets an exit be
    *  classified `killed` rather than guessed at from a code. */
   terminatedByDriver: boolean
@@ -415,52 +445,17 @@ export interface TerminalHarnessProfile {
 // Observation → RuntimeEvent translation
 // ---------------------------------------------------------------------------
 
-/**
- * The phase transition an observation reports, as the normalized state
- * vocabulary.
- *
- * EVERY FIELD COMES FROM THE OBSERVATION. `needs_user`'s `need` is the state's
- * own, the completion verdict is the state's own idle verdict, and a transition
- * whose event cannot be named honestly (a subagent bookkeeping tick, whose delta
- * direction the observation does not carry) produces NO event rather than a
- * guessed one. The contract would rather be silent than plausible.
- */
-export function stateEventForObservation(observation: AgentObservation): AgentStateEvent | null {
-  const state = observation.state
-  switch (observation.transitionKind) {
-    case 'turn_opened':
-      return { kind: 'prompt_submitted', at: observation.providerAt ?? undefined }
-    case 'activity':
-      return { kind: 'activity', at: observation.providerAt ?? undefined }
-    case 'needs_user':
-      return {
-        kind: 'needs_user',
-        need: state.need?.kind ?? 'question',
-        ...(state.need?.summary ? { summary: state.need.summary } : {}),
-        ...(state.need?.ask ? { ask: state.need.ask } : {}),
-        at: observation.providerAt ?? undefined,
-      }
-    case 'compaction':
-      // Direction is READ, not assumed: entering the compacting phase is the
-      // start, leaving it is the end. That boundary is what re-primes the
-      // instruction channel, so getting it backwards would re-prime at the wrong
-      // moment — which is exactly the kind of thing a guess gets wrong quietly.
-      return {
-        kind: 'compaction',
-        phase: observation.nextPhase === 'compacting' ? 'start' : 'end',
-        at: observation.providerAt ?? undefined,
-      }
-    case 'turn_terminal':
-      return {
-        kind: 'turn_completed',
-        ...(state.idle ? { verdict: state.idle } : {}),
-        at: observation.providerAt ?? undefined,
-      }
-    case 'session_terminal':
-      return { kind: 'session_ended', at: observation.providerAt ?? undefined }
-    case 'snapshot':
-    case 'subagent_bookkeeping':
-      return null
+/** An observation already contains the folded state, including identity and
+ * phase details that cannot be reconstructed from its transition label. This
+ * is a snapshot, never an invented task delta or turn acceptance. */
+export function stateEventForObservation(
+  observation: AgentObservation,
+): Extract<AgentStateEvent, { kind: 'state_snapshot' }> {
+  return {
+    kind: 'state_snapshot',
+    state: observation.state,
+    at: observation.providerAt ??
+      (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt),
   }
 }
 
@@ -493,7 +488,21 @@ export function turnEventForObservation(observation: AgentObservation): RuntimeE
 // The runtime
 // ---------------------------------------------------------------------------
 
+export interface TerminalStateObservation {
+  sessionId: SessionId
+  state: AgentRuntimeState
+  observerGeneration: number
+  bindingVersion: number
+  bootstrap?: boolean
+}
+
+type TerminalObservation = DaemonMessage | ({ type: 'terminalState' } & TerminalStateObservation)
+
 export interface TerminalRuntime {
+  /** Undefined means this session has no driver-owned context channel. */
+  boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined
+
+  recoverWithId(msg: ReattachControl, profile: TerminalHarnessProfile): Promise<AgentSessionHandle>
   observeDraft(sessionId: SessionId, text: string): void
   /** Put a session behind the contract. Idempotent for the same binding version:
    *  a reconnect re-sends reattach, and re-registering must rebind rather than
@@ -508,9 +517,11 @@ export interface TerminalRuntime {
   has(sessionId: SessionId): boolean
   /** THE EVENT SOURCE. Tap on the daemon's outbound frame stream — see the
    *  header. Returns immediately for a session that is not registered. */
-  observe(msg: DaemonMessage): void
+  observe(msg: TerminalObservation): void
+  observeState(observation: TerminalStateObservation): void
   /** The causal accept signal: a raw hook payload, before the observers fold it. */
   onHookPayload(sessionId: SessionId, payload: unknown): void
+  respondToHook(sessionId: SessionId, payload: unknown, signal?: AbortSignal): Promise<string | null>
   /**
    * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
    * (POD-2413).
@@ -562,7 +573,26 @@ export interface TerminalRuntimeControl {
   askInteraction(sessionId: SessionId, interaction: PendingInteraction): void
 }
 
-export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntime {
+export function createTerminalRuntime(
+  host: TerminalRuntimeHost,
+  primeSource?: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
+): TerminalRuntime {
+  const contexts = new Map<SessionId, ReturnType<typeof createBoundaryContext>>()
+  function boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined {
+    if (!primeSource || !profiles.get(sessionId)?.instrumentationRequired) return undefined
+    let context = contexts.get(sessionId)
+    if (!context) {
+      context = createBoundaryContext(() => primeSource(sessionId))
+      contexts.set(sessionId, context)
+    }
+    const owner = context
+    return async (request) => {
+      if (contexts.get(sessionId) !== owner) return null
+      const result = await owner.respond(request)
+      return contexts.get(sessionId) === owner ? result : null
+    }
+  }
+
   const sessions = new Map<SessionId, DriverSession>()
   /**
    * Stream position and turn epoch, per PROCESS identity.
@@ -610,7 +640,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
    * floor as before — this map holds one entry per in-flight create/adopt, never
    * one per frame the daemon sends about somebody else's session.
    */
-  const pendingFrames = new Map<SessionId, DaemonMessage[]>()
+  const pendingFrames = new Map<SessionId, TerminalObservation[]>()
 
   // -- event plumbing -------------------------------------------------------
 
@@ -659,7 +689,14 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   ): ProviderCursor => {
     const base = provider ?? session.providerCursor
     if (!base) return driverLocalCursor(session.label, seq)
-    return { ...base, components: { ...base.components, seq } }
+    const previous = session.lastEmittedCursor ?? session.publishedCursor
+    const predecessor =
+      previous &&
+      previous.segmentId !== base.segmentId &&
+      previous.segmentId === driverLocalCursor(session.label, 0).segmentId
+        ? { predecessorSegmentId: previous.segmentId }
+        : {}
+    return { ...base, ...predecessor, components: { ...base.components, seq } }
   }
 
   function emit(
@@ -688,6 +725,9 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       observerGeneration: session.observerGeneration,
       turnEpoch: session.turnEpoch,
     })
+    session.lastEmittedCursor = event.cursor
+    session.publishedCursor = event.cursor
+    if (event.t === 'metadata') session.metadata.set(event.change.kind, event)
     session.log.push({ seq: session.seq, event })
     const timingBinding = handles.get(session.sessionId)?.binding
     if (timingBinding) driverTiming.runtimeEvent(timingBinding, event)
@@ -779,7 +819,11 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       answerable: 'keystroke-emulated',
     }
     if (session.interactions.has(interaction.id) || session.answered.has(interaction.id)) return
+    closeOpenInteractions(session, interaction.askedAt, observation.provenance, null)
     session.interactions.set(interaction.id, interaction)
+    const bridge = host.bridge(session.sessionId)
+    session.interactionOwners.set(interaction.id, { bridge, pid: bridge?.pid,
+      generation: session.observerGeneration, bindingVersion: session.bindingVersion })
     emit(
       session,
       { t: 'interaction', ev: { ev: 'asked', interaction } },
@@ -787,6 +831,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       observation.provenance,
       observation.providerCursor,
     )
+    if (interaction.kind === 'question' && interaction.payload.questions.every((q) => q.options.length === 0)) {
+      const generation = session.observerGeneration
+      const bridge = host.bridge(session.sessionId)
+      void host.readTranscript({ sessionId: session.sessionId, agentKind: session.agentKind,
+        cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) }, { limit: 50 })
+        .then((items) => {
+          if (session.disposed || session.answerScript || session.observerGeneration !== generation ||
+              host.bridge(session.sessionId) !== bridge || session.interactions.get(interaction.id) !== interaction) return
+          const item = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
+          if (!item?.toolInputJson) return
+          const parsed = JSON.parse(item.toolInputJson) as { questions?: NonNullable<NonNullable<AgentRuntimeState['need']>['interview']>['questions'] }
+          if (!Array.isArray(parsed.questions) || parsed.questions.length === 0) return
+          // A historical tool call cannot enrich a different on-screen prompt.
+          const summary = interaction.payload.questions[0]?.question
+          if (!summary || !parsed.questions.some((q) => q.question === summary)) return
+          const questions = interviewPrompts({ kind: 'question', summary, interview: { questions: parsed.questions } })
+          if (!questions) return
+          const enriched: PendingInteraction = { ...interaction, payload: { v: 1, questions } }
+          session.interactions.set(interaction.id, enriched)
+          emit(session, { t: 'interaction', ev: { ev: 'asked', interaction: enriched } }, interaction.askedAt, observation.provenance)
+        }).catch(() => { /* The observed menu remains authoritative when enrichment fails. */ })
+    }
   }
 
   /**
@@ -801,14 +867,16 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     session: DriverSession,
     at: string,
     provenance: ObservationProvenance,
-    answeredBy: 'policy' | 'superagent' | 'human',
+    answeredBy: 'policy' | 'superagent' | 'human' | null,
   ): void {
+    session.answerScript?.cancel('the menu was resolved or replaced')
     for (const id of [...session.interactions.keys()]) {
       session.interactions.delete(id)
+      session.interactionOwners.delete(id)
       session.answered.add(id)
       emit(
         session,
-        { t: 'interaction', ev: { ev: 'answered', id, answeredBy, at } },
+        { t: 'interaction', ev: answeredBy === null ? { ev: 'expired', id, at } : { ev: 'answered', id, answeredBy, at } },
         at,
         provenance,
       )
@@ -825,7 +893,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
    * and only the one or two ids with a create/adopt in flight have an entry to
    * push onto. See {@link pendingFrames}.
    */
-  function holdUntilRegistered(sessionId: SessionId, msg: DaemonMessage): void {
+  function holdUntilRegistered(sessionId: SessionId, msg: TerminalObservation): void {
     const held = pendingFrames.get(sessionId)
     if (!held) return
     if (held.length >= PENDING_FRAME_LIMIT) {
@@ -886,7 +954,62 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     emit(session, { t: 'draft', text }, observedAt(), 'live')
   }
 
-  function observe(msg: DaemonMessage): void {
+  function observeMetadata(session: DriverSession, change: SessionMetadataChange, at?: string): void {
+    const prior = session.metadata.get(change.kind)
+    if (change.kind === 'title') {
+      if (isCommandWrapperText(change.title)) return
+      const title = stripSpinnerFrame(change.title)
+      if (isTransientTitle(title)) return
+      if (isGenericClaudeTitle(title) && prior?.change.kind === 'title' &&
+          !isGenericClaudeTitle(prior.change.title)) return
+      change = { ...change, title }
+    }
+    // Omitted effort is not a reset. Keep the latest pair in the snapshot even
+    // when the next assistant record names only its model.
+    if (change.kind === 'model' && change.effort === undefined && prior?.change.kind === 'model') {
+      change = { ...change, ...(prior.change.effort !== undefined ? { effort: prior.change.effort } : {}) }
+    }
+    if (JSON.stringify(prior?.change) === JSON.stringify(change)) return
+    // Prefer the native record's time. OSC and native callbacks without a
+    // timestamp have only a sighting time; snapshot/reconnect preserves it.
+    emit(session, { t: 'metadata', change }, at ?? observedAt(), 'live')
+  }
+
+  function observe(msg: TerminalObservation): void {
+    if (msg.type === 'terminalState') {
+      const session = sessions.get(msg.sessionId)
+      if (!session) {
+        holdUntilRegistered(msg.sessionId, msg)
+        return
+      }
+      if (
+        msg.observerGeneration !== session.observerGeneration ||
+        msg.bindingVersion !== session.bindingVersion
+      )
+        return
+      const bootstrap =
+        msg.bootstrap === true ||
+        (session.observerGeneration > 1 && session.stateGeneration !== session.observerGeneration)
+      if (!bootstrap) applyStateLifecycle(session, msg.state)
+      else session.observedStatePhase = msg.state.phase
+      publishState(
+        session,
+        msg.state,
+        msg.state.stateObservedAt ?? msg.state.since,
+        bootstrap ? 'bootstrap' : 'live',
+      )
+      return
+    }
+    const claimedId =
+      msg.type === 'agentObservation'
+        ? msg.observation.podiumSessionId
+        : 'sessionId' in msg
+          ? (msg.sessionId as SessionId)
+          : undefined
+    if (claimedId && pendingFrames.has(claimedId)) {
+      holdUntilRegistered(claimedId, msg)
+      return
+    }
     // `agentObservation` is keyed by `observation.podiumSessionId`, not by a
     // top-level `sessionId` — it is the one frame whose session id lives inside
     // its payload, so it is matched before the shared guard below.
@@ -913,7 +1036,19 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // `rawFirstTurn`, which is a question about the CONVERSATION's position
         // and not about any one delivery. Delivery is proven by content, below.
         creditEchoWaiters(session, msg.items)
-        emitTranscriptItems(session, msg.items, msg.reset ? 'bootstrap' : 'live')
+        if (msg.reset) {
+          session.transcriptVersions.clear()
+          for (const item of msg.items) {
+            session.transcriptVersions.set(item.cursor ?? item.id, JSON.stringify(item))
+          }
+          emit(session, {
+            t: 'transcript-reset',
+            items: msg.items,
+            ...(msg.tail !== undefined ? { tail: msg.tail } : {}),
+          }, msg.items.at(-1)?.ts ?? observedAt(), 'bootstrap')
+        } else {
+          emitTranscriptItems(session, msg.items, 'live')
+        }
         return
       }
       case 'bind': {
@@ -923,9 +1058,11 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // daemon already publishes. Everything before this is `starting`, which
         // is the state the queue drain must not type into.
         session.live = true
+        session.liveAtMs = host.now()
         return
       }
       case 'agentExit': {
+        session.answerScript?.cancel('the process ended')
         session.alive = false
         session.live = false
         // The process tree is gone. Its stream position dies with it for the
@@ -963,15 +1100,37 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         return
       }
       case 'sessionCwd': {
+        // Track the worktree root the daemon resolved: the snapshot's
+        // binding.workdir must stay current for reconnect, and the contract
+        // event must carry the full native facts (kind/branch/repoRoot/
+        // explicit) so the server's contract-only projection can update the
+        // row and adopt the issue worktree without the legacy frame.
+        session.cwd = msg.cwd
         emit(
           session,
-          { t: 'workspace', ev: { ev: 'cwd-changed', cwd: msg.cwd } },
+          {
+            t: 'workspace',
+            ev: {
+              ev: 'cwd-changed',
+              cwd: msg.cwd,
+              ...(msg.kind ? { kind: msg.kind } : {}),
+              ...(msg.branch ? { branch: msg.branch } : {}),
+              ...(msg.repoRoot ? { repoRoot: msg.repoRoot } : {}),
+              ...(msg.explicit ? { explicit: true } : {}),
+            },
+          },
           observedAt(),
           'live',
         )
         return
       }
       case 'sessionGitActivity': {
+        // Late attribution travels here: git-capture's async rev-parse/rev-list
+        // can resolve after the turn completed or the next turn started. The
+        // event carries the session's identity, not a turn's — the server
+        // admits workspace git-activity lifecycle-independently, attributes to
+        // the session's issue, and never reopens the turn. Empty (baseline
+        // registration) still projects so the issue leaves fallback mode.
         emit(
           session,
           {
@@ -988,11 +1147,24 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         return
       }
       case 'sessionOpenUrl': {
+        // Full native identity, not URL-only: requestId preserves callback/
+        // dismissal routing and reconnect idempotence, callbackTarget preserves
+        // the loopback paste-back capability, expiresAt preserves expiry, and
+        // intent preserves login-versus-link affordance. The daemon's
+        // BrowserOpenManager still owns the pending capability and executes
+        // the callback; this event is how the server's gateway learns it
+        // without the legacy frame.
         emit(
           session,
           {
             t: 'open-url',
-            ev: { url: msg.url, intent: msg.intent === 'login' ? 'login' : 'link' },
+            ev: {
+              url: msg.url,
+              intent: msg.intent === 'login' ? 'login' : 'link',
+              requestId: msg.requestId,
+              ...(msg.callbackTarget ? { callbackTarget: msg.callbackTarget } : {}),
+              expiresAt: msg.expiresAt,
+            },
           },
           new Date(host.now()).toISOString(),
           'live',
@@ -1003,19 +1175,54 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         observeDraft(session.sessionId, msg.text)
         return
       }
-      case 'agentState': {
-        applyStateLifecycle(session, msg.state)
+      case 'agentState':
+        // Legacy transport is no longer a driver input.
+        return
+      case 'title': {
+        const source = msg.source ?? 'native'
+        if (source === 'osc' && harnessCapabilitiesFor(session.agentKind)?.oscTitle === false) return
+        observeMetadata(session, { kind: 'title', source, title: msg.title })
+        return
+      }
+      case 'agentColor': {
+        observeMetadata(session, { kind: 'color', source: 'transcript', color: msg.color }, msg.at)
+        return
+      }
+      case 'agentModel': {
+        observeMetadata(session, { kind: 'model', source: msg.source ?? 'transcript', model: msg.model,
+          ...(msg.effort !== undefined ? { effort: msg.effort } : {}) }, msg.at)
         return
       }
       case 'agentContext': {
         session.contextUsedPercent = msg.percent
+        observeMetadata(session, { kind: 'context', source: 'transcript', percent: msg.percent }, msg.at)
         return
       }
       case 'sessionResumeRef': {
         // The harness minted its native id. Captured as EARLY as the harness
         // allows, per `resumeRefTiming` — this is that moment for every terminal
         // harness, and it is what unblocks `hibernate()` and `export()`.
+        if (
+          (msg.observerGeneration !== undefined && msg.observerGeneration !== session.observerGeneration) ||
+          (msg.bindingVersion !== undefined && msg.bindingVersion !== session.bindingVersion)
+        ) return
+        if (msg.confidence !== 'exact' && session.resumeConfidence === 'exact') return
+        if (!msg.receipt && session.resume?.kind === msg.resume.kind &&
+            session.resume.value === msg.resume.value &&
+            session.resumeConfidence === (msg.confidence ?? 'heuristic')) return
         session.resume = msg.resume
+        session.resumeConfidence = msg.confidence ?? 'heuristic'
+        const identityBootstrap = session.observerGeneration > 1 &&
+          session.identityGeneration !== session.observerGeneration &&
+          session.stateGeneration !== session.observerGeneration
+        session.identityGeneration = session.observerGeneration
+        emit(session, {
+          t: 'binding', resume: msg.resume,
+          confidence: msg.confidence ?? 'heuristic',
+          bindingVersion: session.bindingVersion,
+          ...(msg.ackRequested ? { ackRequested: true } : {}),
+          ...(msg.receipt ? { receipt: msg.receipt } : {}),
+        }, observedAt(), identityBootstrap ? 'bootstrap' : 'live')
         return
       }
       case 'agentFrame':
@@ -1068,10 +1275,43 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     }
   }
 
+  function publishState(
+    session: DriverSession,
+    state: AgentRuntimeState,
+    at: string,
+    provenance: ObservationProvenance,
+    cursor?: ProviderCursor,
+  ): void {
+    if (
+      !cursor &&
+      session.stateGeneration === session.observerGeneration &&
+      isDeepStrictEqual(session.state, state)
+    )
+      return
+    session.state = state
+    session.stateGeneration = session.observerGeneration
+    emit(
+      session,
+      { t: 'state', change: { kind: 'state_snapshot', state, at } },
+      at,
+      provenance,
+      cursor,
+    )
+  }
+
   function applyObservation(session: DriverSession, observation: AgentObservation): void {
     // A stale generation is REJECTED, never merged — the rule the envelope's
     // `observerGeneration` exists to enforce, applied at the driver's own door.
-    if (observation.observerGeneration < session.observerGeneration) return
+    if (
+      observation.observerGeneration < session.observerGeneration ||
+      observation.bindingVersion < session.bindingVersion ||
+      (session.resume && observation.providerSessionId !== session.resume.value)
+    )
+      return
+    if (session.observerGeneration !== observation.observerGeneration ||
+        session.bindingVersion < observation.bindingVersion) {
+      session.answerScript?.cancel('observer ownership changed')
+    }
     session.observerGeneration = observation.observerGeneration
     session.bindingVersion = Math.max(session.bindingVersion, observation.bindingVersion)
     session.providerCursor = observation.providerCursor
@@ -1094,7 +1334,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       bindingVersion: session.bindingVersion,
     }
 
-    const at = observation.providerAt ?? observation.receivedAt
+    const at = observation.providerAt ??
+      (observation.provenance === 'bootstrap' ? observation.state.since : observation.receivedAt)
     // Poll state owns lifecycle and epochs for this harness. The observation
     // envelope still carries cursor, generation, asks, transcript items and
     // state events, so only its lifecycle mutation and turn event are skipped.
@@ -1102,13 +1343,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     if (turn) emit(session, turn, at, observation.provenance, observation.providerCursor)
 
     const change = stateEventForObservation(observation)
-    if (change) {
-      emit(session, { t: 'state', change }, at, observation.provenance, observation.providerCursor)
-    }
+    session.state = change.state
+    session.stateGeneration = session.observerGeneration
+    emit(session, { t: 'state', change }, at, observation.provenance, observation.providerCursor)
 
     // This boundary is the current causal envelope, after generation/binding adoption.
-    // Screen-classifier agentState frames are intentionally legacy and may be rejected
-    // by the server once this fenced observation stream exists; they do not authorize this read.
+    // Driver-private screen state does not authorize transcript reconciliation.
     if (observation.transitionKind === 'turn_terminal') {
       void reconcileTranscript(session, transcriptFence)
     }
@@ -1308,17 +1548,26 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     const label = host.durableLabel(registration.sessionId)
     const existing = sessions.get(registration.sessionId)
     if (existing) {
+      closeOpenInteractions(existing, new Date(host.now()).toISOString(), 'live', null)
       // A REBIND, not a second record. The observer generation and binding
       // version go UP and the conversation position does not move — which is
       // exactly the invariant the corpus pins across a supervisor restart.
       existing.observerGeneration = Math.max(
-        existing.observerGeneration + 1,
+        registration.observerGeneration === undefined
+          ? existing.observerGeneration + 1
+          : existing.observerGeneration,
         registration.observerGeneration ?? 0,
       )
       existing.bindingVersion = Math.max(
-        existing.bindingVersion + 1,
+        registration.bindingVersion === undefined
+          ? existing.bindingVersion + 1
+          : existing.bindingVersion,
         registration.bindingVersion ?? 0,
       )
+      if (!existing.alive) {
+        existing.live = false
+        existing.liveAtMs = undefined
+      }
       existing.alive = true
       if (registration.resume) existing.resume = registration.resume
       emit(
@@ -1351,19 +1600,23 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       cwd: registration.cwd,
       label,
       resume: registration.resume,
+      resumeConfidence: registration.resume ? 'exact' : undefined,
       bindingVersion: registration.bindingVersion ?? 1,
       observerGeneration: registration.observerGeneration ?? 1,
       turnEpoch: carried?.turnEpoch ?? 0,
       fencedTurnEpoch: carried?.fencedTurnEpoch ?? 0,
       providerCursor: null,
+      publishedCursor: null,
       seq: carried?.seq ?? seqFloor,
       log: [],
       wakers: new Set(),
       interactions: new Map(),
+      interactionOwners: new Map(),
       answered: new Set(),
       lease: null,
       draft: undefined,
       contextUsedPercent: undefined,
+      metadata: new Map(),
       observedStatePhase: undefined,
       transcriptVersions: new Map(),
       injection: undefined as unknown as TerminalInjectionMachine,
@@ -1454,6 +1707,17 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       bindingVersion: session.bindingVersion,
     })
 
+    const deliveryReady = (): boolean => {
+      const liveAt = session.liveAtMs
+      if (!session.live || !session.alive || liveAt === undefined) return false
+      const now = host.now()
+      return (
+        now - liveAt >= 6000 ||
+        (session.lastOutputAtMs > liveAt &&
+          now - liveAt >= 800 &&
+          now - session.lastOutputAtMs >= 600)
+      )
+    }
     const handle: AgentSessionHandle = {
       get binding() {
         return binding()
@@ -1461,13 +1725,15 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       // ---- lifecycle ----
       async stop() {
+        session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
         // The PROCESS is gone, so its stream position goes with it: a later
         // process under the same label is a different conversation, and carrying
         // a position across would fence its first events out as already-seen.
         streamPositions.delete(session.label)
-        host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
+        if (!await host.stopSession({ sessionId: session.sessionId, durableLabel: session.label }))
+          throw new Error('terminal process retirement was not confirmed')
       },
 
       async hibernate() {
@@ -1475,17 +1741,21 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // hibernate, so a session with nothing to resume from would simply be
         // gone — data loss wearing a lifecycle verb's name.
         if (!session.resume) return refuse('no_resume_ref')
+        session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
-        host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
+        if (!await host.stopSession({ sessionId: session.sessionId, durableLabel: session.label }))
+          throw new Error('terminal process retirement was not confirmed')
         return { ok: true as const }
       },
 
       async kill() {
+        session.answerScript?.cancel('the process ended')
         session.alive = false
         session.terminatedByDriver = true
         streamPositions.delete(session.label)
-        host.stopSession({ sessionId: session.sessionId, durableLabel: session.label })
+        if (!await host.stopSession({ sessionId: session.sessionId, durableLabel: session.label }))
+          throw new Error('terminal process retirement was not confirmed')
       },
 
       async health(): Promise<SessionHealth> {
@@ -1512,15 +1782,17 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       async snapshot(): Promise<SessionSnapshot> {
         return {
           binding: binding(),
-          state: host.trackedState(session.sessionId) ?? {
-            phase: 'unknown',
-            since: new Date(host.now()).toISOString(),
-            nativeSubagentCount: 0,
-          },
+          state: session.state ??
+            host.trackedState(session.sessionId) ?? {
+              phase: 'unknown',
+              since: new Date(host.now()).toISOString(),
+              nativeSubagentCount: 0,
+            },
           cursor: cursorFor(session, session.seq),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
           interactions: [...session.interactions.values()],
+          metadata: [...session.metadata.values()],
           ...(session.draft !== undefined ? { draft: session.draft } : {}),
           at: new Date(host.now()).toISOString(),
         }
@@ -1582,6 +1854,12 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         }
       },
 
+      ...(primeSource && profiles.get(session.sessionId)?.instrumentationRequired ? {
+        boundaryContext: (request: BoundaryContextRequest) => {
+          if (session.disposed || sessions.get(session.sessionId) !== session) return Promise.resolve(null)
+          return boundaryContextFor(session.sessionId)?.(request) ?? Promise.resolve(null)
+        },
+      } : {}),
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
         if (options.delivery === 'at-boundary') {
@@ -1652,6 +1930,28 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // turn, so `steer` becomes `queue` and `deliveredAs` says so.
         const requested: TurnDelivery = options.delivery
         if (requested === 'steer' || requested === 'queue') return enqueue()
+        // SEND OUTCOME DECISION (POD-4387): `when-ready` on an idle session is
+        // `accepted`, never `queued`. POD-4291's durable-custody change gated
+        // direct sends on `deliveryReady()` (live + 6s settle/quiet) and routed
+        // fresh idle sessions through the inner queue, so every conformance
+        // profile reported `queued` where the contract requires `accepted` — and
+        // the gate ran before the `needs_user` refusal, turning a blocking ask
+        // into a parked turn. The settle wait belongs to the QUEUE DRAIN (and to
+        // the outer durable `withDeliveryQueue` via `deliveryReady` as its
+        // `ready`), not to the direct path: typing immediately is what the
+        // verification ladder proves, and `queued` is reserved for explicit
+        // `queue`/`steer`/lease requests. Durable `deliveryAttempt` retries keep
+        // the narrow `busy` refusal so the outer queue waits instead of nesting
+        // queues; normal sends fall through to `deliver` exactly as before
+        // POD-4291. Custody (delivery_owner, recovery, durable/initialPrompt
+        // windows) is untouched.
+        if (
+          requested === 'when-ready' &&
+          options.deliveryAttempt &&
+          ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '')
+        ) {
+          return { outcome: 'refused', refusal: refuse('busy') }
+        }
 
         if (requested === 'interrupt') {
           // The manifest key first, then the replacement prompt one CR-delay
@@ -1675,6 +1975,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
             origin: options.origin,
             delivery: 'when-ready',
             signal: options.signal,
+            durable: options.deliveryAttempt,
+            initialPrompt: input.initialPrompt,
           }),
         )
       },
@@ -1705,7 +2007,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         if (session.answered.has(interactionId)) return { ok: false, reason: 'already-answered' }
         const interaction = session.interactions.get(interactionId)
         if (!interaction) return { ok: false, reason: 'unknown-interaction' }
-        if (!session.alive || !host.bridge(session.sessionId)) {
+        const owner = session.interactionOwners.get(interactionId)
+        if (session.disposed || !session.alive || !owner?.bridge ||
+            host.bridge(session.sessionId) !== owner.bridge || owner.bridge.pid !== owner.pid ||
+            owner.generation !== session.observerGeneration || owner.bindingVersion !== session.bindingVersion) {
           return { ok: false, reason: 'expired' }
         }
         const script = menuScriptFor(answer, interaction)
@@ -1722,14 +2027,61 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         // string, so `"12"` arrives as the key "12", matches no digit, and the
         // menu does not move at all (POD-609). The gaps are the keystroke
         // path's own: 120ms between keys, 240ms before the closing commit.
-        script.script.keys.forEach((key, at) => {
-          const send = (): void =>
-            host.bridge(session.sessionId)?.write(Buffer.from(key, 'utf8').toString('base64'))
-          const delay = script.script.at[at] ?? 0
-          if (delay <= 0) send()
-          else host.setTimer(send, delay)
+        if (session.answerScript) return { ok: false, reason: 'already-answered' }
+        const bridge = host.bridge(session.sessionId)
+        if (!bridge || session.disposed) return { ok: false, reason: 'expired' }
+        const pid = bridge.pid
+        const generation = session.observerGeneration
+        const bindingVersion = session.bindingVersion
+        const completed = await new Promise<InteractionAnswerOutcome>((resolve) => {
+          const timers = new Set<TimerHandle>()
+          let writes = 0
+          let settled = false
+          const finish = (outcome: InteractionAnswerOutcome): void => {
+            if (settled) return
+            settled = true
+            for (const timer of timers) host.clearTimer(timer)
+            if (session.answerScript === running) session.answerScript = undefined
+            resolve(outcome)
+          }
+          const running = {
+            cancel(detail: string): void {
+              // A partial script must never be retried against this menu.
+              if (writes > 0) {
+                session.interactions.delete(interactionId)
+                session.interactionOwners.delete(interactionId)
+                session.answered.add(interactionId)
+              }
+              finish({ ok: false, reason: writes > 0 ? 'partial-delivery' : 'expired',
+                detail: `${detail}; ${writes}/${script.script.keys.length} writes completed` })
+            },
+          }
+          session.answerScript = running
+          const send = (key: string, index: number): void => {
+            if (settled) return
+            if (session.disposed || !session.alive || sessions.get(session.sessionId) !== session ||
+                host.bridge(session.sessionId) !== bridge || bridge.pid !== pid ||
+                session.observerGeneration !== generation || session.bindingVersion !== bindingVersion ||
+                session.interactions.get(interactionId) !== interaction || session.answerScript !== running) {
+              running.cancel('answer ownership changed')
+              return
+            }
+            // Count an attempted write conservatively: a throwing bridge may have written bytes.
+            writes += 1
+            try { bridge.write(Buffer.from(key, 'utf8').toString('base64')) }
+            catch { running.cancel('bridge write failed'); return }
+            if (index === script.script.keys.length - 1) finish({ ok: true })
+          }
+          for (const [index, key] of script.script.keys.entries()) {
+            if (settled) break
+            const delay = script.script.at[index] ?? 0
+            if (delay <= 0) send(key, index)
+            else timers.add(host.setTimer(() => send(key, index), delay))
+          }
         })
+        if (!completed.ok) return completed
         session.interactions.delete(interactionId)
+        session.interactionOwners.delete(interactionId)
         session.answered.add(interactionId)
         const at = new Date(host.now()).toISOString()
         emit(
@@ -1787,6 +2139,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
 
       async state(): Promise<AgentRuntimeState> {
         return (
+          session.state ??
           host.trackedState(session.sessionId) ?? {
             phase: 'unknown',
             since: new Date(host.now()).toISOString(),
@@ -1891,28 +2244,10 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       },
     }
 
-    let liveAt: number | undefined
-    let baseOutput = 0
     return withDeliveryQueue(
       handle,
       (event) => emit(session, event, new Date(host.now()).toISOString(), 'live'),
-      () => {
-        if (!session.live || !session.alive) {
-          liveAt = undefined
-          return false
-        }
-        const now = host.now()
-        if (liveAt === undefined) {
-          liveAt = now
-          baseOutput = session.lastOutputAtMs
-        }
-        return (
-          now - liveAt >= 6000 ||
-          (session.lastOutputAtMs > baseOutput &&
-            now - liveAt >= 800 &&
-            now - session.lastOutputAtMs >= 600)
-        )
-      },
+      deliveryReady,
       () => !session.disposed,
     )
   }
@@ -1926,7 +2261,9 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     registrations.set(registration.sessionId, registration)
     profiles.set(registration.sessionId, profile)
     const session = openSession(registration, profile)
-    const handle = makeHandle(session)
+    // Rebinding the same daemon-owned process must preserve queued custody and
+    // completed outcome replay, including an acceptance still in flight.
+    const handle = handles.get(registration.sessionId) ?? makeHandle(session)
     handles.set(registration.sessionId, handle)
     replayHeldFrames(registration.sessionId)
     return handle
@@ -1978,8 +2315,11 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
   }
 
   function clear(sessionId: SessionId): void {
+    contexts.get(sessionId)?.reset()
+    contexts.delete(sessionId)
     const session = sessions.get(sessionId)
     if (session) {
+      session.answerScript?.cancel('the driver was disposed')
       session.disposed = true
       session.injection.dispose()
       // The PROCESS is gone — `clear` is called from the daemon's teardown path
@@ -2007,6 +2347,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       // because a restarted daemon has none; the durable masters keep running,
       // which is what `adopt()` then has to find.
       for (const session of [...sessions.values()]) {
+        session.answerScript?.cancel('the driver was disposed')
         session.disposed = true
         session.injection.dispose()
         for (const wake of [...session.wakers]) wake()
@@ -2018,6 +2359,9 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       const session = sessions.get(sessionId)
       if (!session) return
       session.interactions.set(interaction.id, interaction)
+      const bridge = host.bridge(session.sessionId)
+      session.interactionOwners.set(interaction.id, { bridge, pid: bridge?.pid,
+        generation: session.observerGeneration, bindingVersion: session.bindingVersion })
       emit(
         session,
         { t: 'interaction', ev: { ev: 'asked', interaction } },
@@ -2034,6 +2378,8 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
     launch: (instrumentation: InstalledTerminalInstrumentation) => Promise<void>,
     resume?: ResumeRef,
   ): Promise<AgentSessionHandle> {
+    contexts.get(sessionId)?.reset()
+    contexts.delete(sessionId)
     profiles.set(sessionId, profile)
     // Claim before installation/launch: initial frames can arrive during either await.
     try {
@@ -2056,20 +2402,112 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         )
       })
     } catch (error) {
-      if (!handles.has(sessionId)) profiles.delete(sessionId)
+      if (!handles.has(sessionId)) {
+        contexts.get(sessionId)?.reset()
+        contexts.delete(sessionId)
+        profiles.delete(sessionId)
+      }
       throw error
     }
   }
 
+  const recoveries = new Map<SessionId, Promise<AgentSessionHandle>>()
+
+  function recoverWithId(
+    msg: ReattachControl,
+    profile: TerminalHarnessProfile,
+    verifyDurable = false,
+  ): Promise<AgentSessionHandle> {
+    // Serialize one session's leases. The host's fan-out gate only bounds work
+    // across sessions; it cannot fence a late, older recovery of the same id.
+    const previous = recoveries.get(msg.sessionId)
+    const recovery = (async () => {
+      await previous?.catch(() => undefined)
+      if (
+        typeof msg.runtimeContract === 'string' &&
+        canonicalDriverId(msg.runtimeContract) !== profile.driverId
+      ) {
+        throw new TerminalRecoveryRefusal(
+          `runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`,
+        )
+      }
+      const current = sessions.get(msg.sessionId)
+      if (
+        current &&
+        (current.label !== msg.durableLabel ||
+          current.agentKind !== msg.agentKind ||
+          current.driverId !== profile.driverId ||
+          (msg.observationGeneration !== undefined &&
+            msg.observationGeneration < current.observerGeneration) ||
+          (msg.observationBindingVersion !== undefined &&
+            msg.observationBindingVersion < current.bindingVersion))
+      )
+        throw new TerminalRecoveryRefusal(
+          'terminal recovery identity or observation fence is stale',
+        )
+      return claiming(msg.sessionId, async () => {
+        if (verifyDurable && !(await host.durableHostAlive(msg.durableLabel))) {
+          throw new Error(`terminal driver: no surviving durable host for ${msg.durableLabel}`)
+        }
+        let handle: AgentSessionHandle | undefined
+        await host.recover(msg, () => {
+          handle = register(
+            {
+              sessionId: msg.sessionId,
+              agentKind: msg.agentKind,
+              cwd: msg.cwd,
+              resume: msg.resume ?? null,
+              ...(msg.observationGeneration !== undefined
+                ? { observerGeneration: msg.observationGeneration }
+                : {}),
+              ...(msg.observationBindingVersion !== undefined
+                ? { bindingVersion: msg.observationBindingVersion }
+                : {}),
+              rebind: true,
+            },
+            profile,
+          )
+          if (!current) {
+            const session = sessions.get(msg.sessionId)!
+            emit(
+              session,
+              { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
+              observedAt(),
+              'live',
+            )
+          }
+        })
+        if (!handle) throw new Error('terminal recovery did not compose a live host')
+        return handle
+      })
+    })()
+    recoveries.set(msg.sessionId, recovery)
+    void recovery
+      .finally(() => {
+        if (recoveries.get(msg.sessionId) === recovery) recoveries.delete(msg.sessionId)
+      })
+      .catch(() => undefined)
+    return recovery
+  }
+
   return {
+    boundaryContextFor,
     createWithId,
+    recoverWithId,
     register,
     handleFor: (sessionId) => handles.get(sessionId),
     bindings: () => [...handles.values()].map((handle) => handle.binding),
     has: (sessionId) => sessions.has(sessionId),
     observe,
+    observeState: (observation) => observe({ type: 'terminalState', ...observation }),
     observeDraft,
     onHookPayload,
+    async respondToHook(sessionId, payload, signal) {
+      const session = sessions.get(sessionId)
+      if (!session) return null
+      const response = await respondToMailBoundary(host.boundaryContext, sessionId, payload, signal)
+      return sessions.get(sessionId) === session ? response : null
+    },
     reportOomKill(sessionId, scopeUnit) {
       const session = sessions.get(sessionId)
       if (!session) return
@@ -2115,49 +2553,30 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
         },
 
         async adopt(bound: RuntimeSessionBinding): Promise<AgentSessionHandle> {
-          // EXACT IDENTITY, and it is checked against the world rather than
-          // against our own memory: the durable master either still holds this
-          // label or it does not. A heuristic match here adopts the wrong
-          // process, which is worse than not adopting at all.
-          //
-          // CLAIMED ACROSS THE PROBE, not after it: this is the window in which a
-          // surviving master's frames — the reattach `bind` above all — name a
-          // session this driver has just lost to a supervisor restart.
-          return claiming(bound.sessionId, async () => {
-            if (!(await host.durableHostAlive(bound.process.key))) {
-              throw new Error(`terminal driver: no surviving durable host for ${bound.process.key}`)
-            }
-            profiles.set(bound.sessionId, profile)
-            const handle = register(
-              {
-                sessionId: bound.sessionId,
-                agentKind: harness,
-                cwd: bound.workdir,
-                resume: bound.resume,
-                bindingVersion: bound.bindingVersion + 1,
-                rebind: true,
-              },
-              profile,
-            )
-            const session = sessions.get(bound.sessionId)
-            if (session) {
-              // A rebind is a NEW observer generation and a NEW binding version,
-              // so a stale one is rejectable. The conversation position — turn
-              // epoch, cursor — does not move.
-              session.observerGeneration = Math.max(
-                session.observerGeneration,
-                bound.bindingVersion + 1,
-              )
-              session.bindingVersion = bound.bindingVersion + 1
-              emit(
-                session,
-                { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
-                new Date(host.now()).toISOString(),
-                'live',
-              )
-            }
-            return handle
-          })
+          if (
+            bound.family !== 'terminal' ||
+            bound.driver !== profile.driverId ||
+            bound.harness !== harness ||
+            bound.process.key !== host.durableLabel(bound.sessionId)
+          ) {
+            throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
+          }
+          return recoverWithId(
+            {
+              type: 'reattach',
+              sessionId: bound.sessionId,
+              durableLabel: bound.process.key,
+              agentKind: harness,
+              cwd: bound.workdir,
+              ...(bound.resume ? { resume: bound.resume } : {}),
+              // Screen parser hint only; host recovery never applies this to PTY.
+              lastKnownGeometry: { cols: 80, rows: 24 },
+              observationBindingVersion: bound.bindingVersion + 1,
+              observationGeneration: bound.bindingVersion + 1,
+            },
+            profile,
+            true,
+          )
         },
       }
     },
@@ -2383,6 +2802,7 @@ function menuScriptFor(answer: unknown, ask: PendingInteraction): MenuScriptResu
       detail: `an answer of kind '${String(record.kind)}' cannot answer this menu`,
     }
   }
+  if (record.skip === true) return { ok: true, script: { keys: [ESC], at: [0] } }
   const selections = Array.isArray(record.selections)
     ? (record.selections as readonly QuestionSelection[])
     : null
@@ -2416,6 +2836,13 @@ function questionScriptFor(
     const prompt = prompts[at]
     const selection = selections[at]
     if (!prompt || !selection) return { ok: false, detail: `prompt ${at + 1}: missing` }
+    if (prompt.options.length === 0) return { ok: false, detail: `prompt ${at + 1}: options are unreadable` }
+    if (!prompt.multiSelect && selection.optionIndices.length > 1) {
+      return { ok: false, detail: `prompt ${at + 1}: this question takes one option` }
+    }
+    if (selection.text !== undefined && /[\r\n]/.test(selection.text)) {
+      return { ok: false, detail: `prompt ${at + 1}: free text must be a single line` }
+    }
     const shape = {
       ...(prompt.multiSelect ? { multiSelect: true as const } : {}),
       ...(prompt.previewLayout ? { previewLayout: true as const } : {}),

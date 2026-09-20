@@ -3,6 +3,7 @@
 
 import type { AgentRuntimeState, ResumeRef, TranscriptItem } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
+import type { BoundaryContextOperation } from './boundary-context.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from './attach.js'
 import type { SessionArchive, SessionBinding, SessionSnapshot } from './binding.js'
 import type {
@@ -16,6 +17,7 @@ import type { EventStreamStart, RuntimeEvent, WatchLevel } from './events.js'
 import type { DriverFamily, DriverId } from './families.js'
 import type { InteractionAnswerOutcome, PendingInteraction } from './interactions.js'
 import type { SessionSpec } from './session-spec.js'
+import type { OneShotOptions, ProcedureOptions } from './procedures.js'
 import type {
   AnswerOptions,
   AttachmentSource,
@@ -46,7 +48,11 @@ export interface AgentSessionHandle {
   /** Graceful shutdown; the survival table is unchanged from today. */
   stop(): Promise<void>
   /** REFUSES without a resume ref — hibernating a session we cannot bring back
-   *  is data loss wearing a lifecycle verb's name. */
+   *  is data loss wearing a lifecycle verb's name.
+   *  This is an execution primitive, not automatic-parking authorization.
+   *  The host owns quiet policy, causal proof and transactional consumption
+   *  (docs/architecture/automatic-parking-proof.md); idle/health/resume alone
+   *  cannot authorize an automatic call. */
   hibernate(): Promise<Refusal | { ok: true }>
   kill(): Promise<void>
   /** daemon-internal (POD-3990): no server-side frame, called only by
@@ -59,6 +65,10 @@ export interface AgentSessionHandle {
   /** daemon-internal (POD-3990): no server-side frame, no prod caller today;
    *  the implementations serve the claude-sdk archive path (native store). */
   export(): Promise<SessionArchive>
+
+  /** Provider-facing hidden context boundary. Absent means unsupported; never
+   * emulate it with send(). Drivers own startup/resume and compaction rearming. */
+  readonly boundaryContext?: BoundaryContextOperation
 
   // ---- Turns and control (CORE) ----
   send(input: TurnInput, options: SendOptions): Promise<TurnReceipt>
@@ -168,9 +178,17 @@ export interface RuntimeDriver {
  */
 export interface DriverProcedureOverrides {
   /** send + await the matching turn-completed. */
-  askAndAwait(handle: AgentSessionHandle, input: TurnInput): Promise<TurnEvent>
+  askAndAwait(
+    handle: AgentSessionHandle,
+    input: TurnInput,
+    options?: ProcedureOptions,
+  ): Promise<TurnEvent>
   /** ephemeral create → send → await → kill. Drivers with a native one-shot form
    *  (`claude -p`, `codex exec --ephemeral`) override this rather than paying for
    *  a full session. */
-  oneShot(spec: SessionSpec, prompt: string): Promise<readonly TranscriptItem[]>
+  oneShot(
+    spec: SessionSpec,
+    prompt: string,
+    options?: OneShotOptions,
+  ): Promise<readonly TranscriptItem[]>
 }

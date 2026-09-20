@@ -1,3 +1,5 @@
+import { NativeBindingReceipt } from './native-binding'
+export { NativeBindingReceipt } from './native-binding'
 import { ResumeRef, SessionIdField, TranscriptItem } from '@podium/model'
 import { z } from 'zod'
 import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
@@ -264,7 +266,19 @@ export const TranscriptItemDelta = z.discriminatedUnion('kind', [
 ])
 export type TranscriptItemDelta = z.infer<typeof TranscriptItemDelta>
 
-export const CwdChanged = z.object({ ev: z.literal('cwd-changed'), cwd: z.string().min(1) })
+export const CwdChanged = z.object({
+  ev: z.literal('cwd-changed'),
+  cwd: z.string().min(1),
+  // Full native worktree facts from the daemon's git classification (the only
+  // side that can run git here). Mirrors SessionCwdMessage so the contract-only
+  // projection can update the session row and adopt the issue worktree without
+  // the legacy frame. All optional for rolling upgrades: absent means "cwd only",
+  // which degrades to prior grouping without adoption.
+  kind: z.enum(['main', 'worktree', 'none']).optional(),
+  branch: z.string().optional(),
+  repoRoot: z.string().optional(),
+  explicit: z.boolean().optional(),
+})
 export const GitActivity = z.object({
   ev: z.literal('git-activity'),
   /** READONLY on the wire as well as in the contract: these are observations,
@@ -284,19 +298,53 @@ export const GitActivity = z.object({
  * first place. `@podium/agent-runtime` re-narrows it to `AgentStateEvent` at its
  * own boundary, where the import is legal.
  */
+export const SessionMetadataChange = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('title'), source: z.enum(['osc', 'native']), title: z.string() }),
+  z.object({ kind: z.literal('model'), source: z.enum(['transcript', 'native']), model: z.string(), effort: z.string().optional() }),
+  z.object({ kind: z.literal('color'), source: z.literal('transcript'), color: z.string() }),
+  z.object({ kind: z.literal('context'), source: z.literal('transcript'), percent: z.number() }),
+])
+export type SessionMetadataChange = z.infer<typeof SessionMetadataChange>
+export const SessionMetadataObservation = z.intersection(CausalEnvelope, z.object({
+  t: z.literal('metadata'), change: SessionMetadataChange,
+}))
+export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
+
 export const RuntimeEventBody = z.discriminatedUnion('t', [
+  z.object({ t: z.literal('binding'), resume: ResumeRef, confidence: z.enum(['exact', 'heuristic']), bindingVersion: z.number().int().nonnegative(), ackRequested: z.boolean().optional(), receipt: NativeBindingReceipt.optional() }),
   z.object({ t: z.literal('delivery'), rowId: z.string().min(1), outcome: z.enum(['delivered', 'failed', 'dropped']), reason: z.string().optional() }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
+  z.object({ t: z.literal('transcript-reset'), items: z.array(TranscriptItem).readonly(), tail: z.string().optional() }),
   z.object({ t: z.literal('interaction'), ev: InteractionEvent }),
   z.object({ t: z.literal('turn'), ev: TurnEvent }),
   z.object({ t: z.literal('process'), ev: ProcessEvent }),
   z.object({ t: z.literal('workspace'), ev: z.union([CwdChanged, GitActivity]) }),
   z.object({
     t: z.literal('open-url'),
-    ev: z.object({ url: z.string(), intent: z.enum(['login', 'link']) }),
+    // Full native browser-open identity. A URL-only event cannot replace the
+    // login callback protocol: requestId preserves dismissal/callback routing
+    // and reconnect idempotence, callbackTarget preserves the loopback
+    // paste-back capability, expiresAt preserves the user-visible expiry, and
+    // intent preserves login-versus-link affordance. All but url/intent are
+    // optional for rolling upgrades; absent degrades to a link-only offer with
+    // no callback capability.
+    ev: z.object({
+      url: z.string(),
+      intent: z.enum(['login', 'link']),
+      requestId: z.string().min(1).optional(),
+      callbackTarget: z
+        .object({
+          host: z.enum(['localhost', '127.0.0.1', '::1']),
+          port: z.number().int().min(1).max(65_535),
+          path: z.string().startsWith('/'),
+        })
+        .optional(),
+      expiresAt: z.number().int().positive().optional(),
+    }),
   }),
   z.object({ t: z.literal('draft'), text: z.string() }),
+  z.object({ t: z.literal('metadata'), change: SessionMetadataChange }),
 ])
 export type RuntimeEventBody = z.infer<typeof RuntimeEventBody>
 
@@ -305,9 +353,17 @@ export type RuntimeEvent = z.infer<typeof RuntimeEvent>
 
 /**
  * Daemon retention, independent of the server's coarse-event projection path.
- * State, workspace and draft observations are superseded by later observations:
- * send them live, without a delivery id, fsync, retry or acknowledgement. They
- * can be lost across a link drop. Fine item fragments remain live-only too.
+ * State, cwd-changed workspace and draft observations are superseded by later
+ * observations: send them live, without a delivery id, fsync, retry or
+ * acknowledgement. They can be lost across a link drop. Fine item fragments
+ * remain live-only too.
+ *
+ * Git-activity is the workspace exception: commits are additive, not
+ * superseded — a dropped git-activity is a lost commit attribution no later
+ * observation repairs. It is retained like any other one-shot effect so late
+ * Git results survive a link drop as well as a turn boundary. Cwd-changed
+ * stays live-only: the next move supersedes it, and the snapshot/bootstrap
+ * carries the current workdir for reconnect.
  *
  * Bootstrap overrides the coarse kind: the server needs it to admit a replacement
  * observer generation, so losing it can strand later durable events as well.
@@ -317,20 +373,28 @@ export type RuntimeEvent = z.infer<typeof RuntimeEvent>
  * Turn starts admit the next epoch; turn failures drive attention. Neither is
  * replaced by a transcript mirror. Receipts, process boundaries, interactions
  * and open-url requests are likewise one-shot effects, not replaceable snapshots.
+ * Metadata is retained too: the native sources emit on change, so a dropped
+ * update is not guaranteed to be repeated while the connection remains open.
  */
 export function isDurableRuntimeEvent(event: RuntimeEvent): boolean {
   if (isRuntimeFineEvent(event)) return false
   if (event.provenance === 'bootstrap') return true
   switch (event.t) {
     case 'state':
-    case 'workspace':
     case 'draft':
       return false
+    case 'workspace':
+      // Git-activity is additive (one lost event is one lost commit ledger);
+      // cwd-changed is superseded (the next move replaces it).
+      return event.ev.ev === 'git-activity'
+    case 'metadata':
+    case 'binding':
     case 'delivery':
     case 'process':
     case 'interaction':
     case 'open-url':
     case 'item':
+    case 'transcript-reset':
     case 'turn':
       return true
     default: {
@@ -412,6 +476,8 @@ export function isRuntimeFineEvent(event: RuntimeEvent): event is RuntimeFineEve
 export const RuntimeSendRequestMessage = z.object({
   type: z.literal('runtimeSendRequest'),
   rowId: z.string().min(1).optional(),
+  deliveryRecovery: z.boolean().optional(),
+  initialPrompt: z.boolean().optional(),
   requestId: z.string(),
   /**
    * Stable delivery identity, distinct from the one-shot RPC correlation id.
@@ -429,8 +495,43 @@ export const RuntimeSendRequestMessage = z.object({
   origin: ObservationInputOrigin,
   delivery: TurnDelivery,
   attachments: z.array(RuntimeAttachmentRef).optional(),
+  // HEADLESS PER-TURN POLICY (POD-4386). All optional; absent means absent.
+  // Carried so superagent/shipwright turns can migrate off the legacy headless
+  // port onto the driver-contract WS relay without losing per-turn tool, MCP,
+  // permission, conversation or durable-identity semantics.
+  allowedTools: z.array(z.string()).optional(),
+  permissionMode: z.string().optional(),
+  toolPolicy: z.literal('none').optional(),
+  mcpConfig: z.string().optional(),
+  resumeValue: z.string().optional(),
+  sessionUuid: z.string().optional(),
+  accountId: z.string().optional(),
+  requestDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  structuredPermissions: z.literal(true).optional(),
+  // HEADLESS PER-TURN PROMPT CHANNELS + BUDGET (this issue). All optional;
+  // absent means absent. Appended at the END so existing golden samples stay
+  // byte-identical.
+  contextPrompt: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
+  // Per-turn model/effort ride the contract as plain strings (mapped from
+  // TurnInput.overrides on the way in, reconstructed as supported() on the
+  // way out). Optional; absent means "session sticky".
+  model: z.string().optional(),
+  effort: z.string().optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
+
+/** A distinct command prevents old daemons from stripping recovery metadata
+ * and treating a migration import as permission to type again. */
+export const RuntimeDurableSendRequestMessage = RuntimeSendRequestMessage.extend({
+  type: z.literal('runtimeDurableSendRequest'),
+  rowId: z.string().min(1),
+  deliveryRecovery: z.boolean(),
+  initialPrompt: z.boolean(),
+})
+export type RuntimeDurableSendRequestMessage = z.infer<typeof RuntimeDurableSendRequestMessage>
+
 
 export const RuntimeStageAttachmentRequestMessage = z.object({
   type: z.literal('runtimeStageAttachmentRequest'),
@@ -457,6 +558,7 @@ export const RuntimeAnswerRequestMessage = z.object({
   requestId: z.string(),
   sessionId: z.string().min(1).pipe(SessionIdField),
   interactionId: z.string().min(1),
+  principal: z.object({ kind: z.enum(['user', 'agent', 'system']), ref: z.string() }).optional(),
   answer: z.record(z.string(), z.unknown()),
 })
 export type RuntimeAnswerRequestMessage = z.infer<typeof RuntimeAnswerRequestMessage>
@@ -568,6 +670,8 @@ export const SessionSnapshot = z.object({
   turnEpoch: z.number().int().nonnegative(),
   interactions: z.array(PendingInteraction).readonly(),
   draft: z.string().optional(),
+  title: z.string().optional(),
+  metadata: z.array(SessionMetadataObservation).readonly().optional(),
   at: z.string().datetime(),
 })
 export type SessionSnapshot = z.infer<typeof SessionSnapshot>
@@ -726,6 +830,7 @@ export const RuntimeCommandMessage = z.discriminatedUnion('type', [
   // while one inserted mid-list re-indexes the ones after it.
   RuntimeConfigureRequestMessage,
   RuntimeDraftRequestMessage,
+  RuntimeDurableSendRequestMessage,
 ])
 export type RuntimeCommandMessage = z.infer<typeof RuntimeCommandMessage>
 
@@ -835,7 +940,8 @@ export const RuntimeLifecycleResultMessage = z.object({
   sessionId: z.string().min(1).pipe(SessionIdField),
   /** A refusal is an OUTCOME, not an error: `hibernate` without a resume ref
    *  is expected and the caller handles it. */
-  result: z.union([z.object({ ok: z.literal(true) }), Refusal]),
+  // Optional for older peers: ok alone acknowledges the verb, not process death.
+  result: z.union([z.object({ ok: z.literal(true), retirement: z.literal('confirmed').optional() }), Refusal]),
 })
 export type RuntimeLifecycleResultMessage = z.infer<typeof RuntimeLifecycleResultMessage>
 
@@ -956,6 +1062,7 @@ export type RuntimeMessage = z.infer<typeof RuntimeMessage>
 export const RUNTIME_FRAME_TYPES = [
   'runtimeStageAttachmentRequest',
   'runtimeSendRequest',
+  'runtimeDurableSendRequest',
   'runtimeInterruptRequest',
   'runtimeAnswerRequest',
   'runtimeLifecycleRequest',

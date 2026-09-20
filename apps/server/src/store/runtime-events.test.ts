@@ -1,12 +1,12 @@
-import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
-import type { RuntimeEvent } from '@podium/protocol/daemon'
-import { describe, expect, it } from 'vitest'
+import { asSessionId, firstAdminMemberId, type SessionId } from "@podium/model"
+import type { ControlMessage, RuntimeEvent } from "@podium/protocol/daemon"
+import { describe, expect, it, vi } from "vitest"
 import {
   RuntimeEventGate,
   type RuntimeEventGatePorts,
   type RuntimeEventGateResult,
-} from '../modules/sessions/runtime-event-gate'
-import { mergeLatestTranscriptPage, mergeTranscriptItems } from '../modules/sessions/terminal'
+} from "../modules/sessions/runtime-event-gate"
+import { mergeLatestTranscriptPage, mergeTranscriptItems } from "../modules/sessions/terminal"
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -88,12 +88,12 @@ function terminalItemEvent(input: {
   }
 }
 
-async function bindContract(registry: SessionRegistry, store: SessionStore, runtimeContract = true) {
+async function bindContract(registry: SessionRegistry, store: SessionStore, runtimeContract = true, onCommand: (message: ControlMessage) => void = () => {}) {
   await store.machines.upsertMachine({
     id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
     ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
   })
-  await registry.gateway.attachDaemon(store.hostMachineId, () => {})
+  await registry.gateway.attachDaemon(store.hostMachineId, onCommand)
   const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: '/project',
@@ -113,6 +113,102 @@ async function bindContract(registry: SessionRegistry, store: SessionStore, runt
 }
 
 describe('durable runtime observation gate', () => {
+  it('restores full state after a quiet restart and accepts bookkeeping after a closed turn', async () => {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      const sessionId = await bindContract(registry, store)
+      const at = '2026-08-23T00:00:00.000Z'
+      const send = async (event: RuntimeEvent) =>
+        registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'runtimeEvent',
+          sessionId,
+          deliveryId: `state-${event.observerGeneration}-${event.cursor.components.seq}`,
+          event,
+        })
+      await send(
+        stateEvent({
+          at,
+          seq: 20,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+          change: { kind: 'session_started' },
+        }),
+      )
+      await send(turnEvent({ at, seq: 21, turnEpoch: 1, ev: 'completed' }))
+      const state = { phase: 'idle', since: at, nativeSubagentCount: 0, idle: { kind: 'done' } }
+      await send(
+        stateEvent({
+          at,
+          seq: 1,
+          observerGeneration: 2,
+          provenance: 'bootstrap',
+          change: { kind: 'state_snapshot', state },
+        }),
+      )
+      expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toMatchObject(
+        state,
+      )
+      expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+        observerGeneration: 2,
+        cursor: { components: { seq: 1 } },
+      })
+      for (const [index, phase] of ['needs_user', 'compacting', 'unknown', 'idle'].entries()) {
+        const next = {
+          ...state,
+          phase,
+          nativeSubagentCount: phase === 'idle' ? 0 : 1,
+          ...(phase === 'idle' ? {} : { nativeSubagents: [{ id: 'child-1', type: 'Explore' }] }),
+        }
+        await send(
+          stateEvent({
+            at,
+            seq: index + 2,
+            observerGeneration: 2,
+            change: { kind: 'state_snapshot', state: next },
+          }),
+        )
+        expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toMatchObject(
+          next,
+        )
+      }
+      const providerPosition = stateEvent({ at, seq: 6, observerGeneration: 2, change: { kind: 'state_snapshot', state } })
+      providerPosition.cursor.components.transcript = 50
+      await send(providerPosition)
+      const regressed = stateEvent({ at, seq: 1, observerGeneration: 3, provenance: 'bootstrap', change: { kind: 'state_snapshot', state: { ...state, phase: 'working' } } })
+      regressed.cursor.components.transcript = 49
+      await send(regressed)
+      expect((await store.events.runtimeEventCheckpoint(sessionId))?.observerGeneration).toBe(2)
+      await send(
+        stateEvent({
+          at,
+          seq: 100,
+          observerGeneration: 1,
+          change: { kind: 'state_snapshot', state: { ...state, phase: 'working' } },
+        }),
+      )
+      expect((await registry.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe(
+        'idle',
+      )
+      await send(
+        stateEvent({
+          at,
+          seq: 1,
+          observerGeneration: 3,
+          provenance: 'bootstrap',
+          segmentId: 'foreign',
+          change: { kind: 'state_snapshot', state: { ...state, phase: 'working' } },
+        }),
+      )
+      expect((await registry.modules.sessions.sessionById(sessionId))?.agentState?.phase).toBe(
+        'idle',
+      )
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
+  })
+
   it('keeps legacy-only bindings authoritative without a runtime checkpoint', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -356,6 +452,9 @@ describe('durable runtime observation gate', () => {
       await terminalItemReplayIndexCompletion
     }
 
+    vi.spyOn(registry.modules.rpc, 'runtimeHistory').mockResolvedValue({
+      sessionId, result: { page: { items, hasMore: false } },
+    })
     const liveTranscript = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 50 },
       { kind: 'user', id: firstAdminMemberId() },
@@ -1369,4 +1468,200 @@ it('projects draft changes after a completed turn without recording agent activi
     await registry.dispose()
     await store.close()
   }
+})
+
+
+it('projects metadata after a closed turn, preserves recency, and deduplicates durable replay', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  try {
+    const sessionId = await bindContract(registry, store)
+    const gateway = registry.modules.sessions.runtimeGateway
+    const at = '2026-09-15T00:00:00.000Z'
+    await gateway.record(store.hostMachineId, { sessionId,
+      event: turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started', provenance: 'bootstrap' }) })
+    await gateway.record(store.hostMachineId, { sessionId,
+      event: turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }) })
+    const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
+    const event: RuntimeEvent = {
+      t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 },
+      at: '2099-09-16T00:00:00.000Z', provenance: 'live',
+      cursor: { segmentId: 'runtime-segment', components: { seq: 3 } }, observerGeneration: 1, turnEpoch: 1,
+    }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'accepted' })
+    await gateway.replayBoardProjection()
+    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 42, lastActiveAt: before })
+    expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'duplicate' })
+    await gateway.replayBoardProjection()
+    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 42, lastActiveAt: before })
+  } finally {
+    await registry.dispose()
+    await store.close()
+  }
+})
+
+
+it('admits native bootstrap after the same session early metadata prefix', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  try {
+    const sessionId = await bindContract(registry, store)
+    const gateway = registry.modules.sessions.runtimeGateway
+    const at = '2026-09-15T00:00:00.000Z'
+    const metadata: RuntimeEvent = { t: 'metadata', change: { kind: 'title', source: 'native', title: 'Early title' },
+      at, provenance: 'live', observerGeneration: 1, turnEpoch: 0,
+      cursor: { segmentId: 'driver:process', components: { seq: 1 } } }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: metadata })).toMatchObject({ kind: 'accepted' })
+    const seed: RuntimeEvent = { t: 'item', item: { kind: 'complete', item: {
+      id: 'first-user', role: 'user', text: 'First real prompt', ts: at,
+    } }, at, provenance: 'bootstrap', observerGeneration: 1, turnEpoch: 0,
+      cursor: { segmentId: 'driver:process', components: { seq: 2 } } }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: seed })).toMatchObject({ kind: 'accepted' })
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: seed })).toMatchObject({ kind: 'duplicate' })
+    const native: RuntimeEvent = { ...stateEvent({ at, seq: 3, observerGeneration: 1, turnEpoch: 0, provenance: 'bootstrap' }),
+      cursor: { segmentId: 'native', predecessorSegmentId: 'driver:process', components: { seq: 3 } } }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: native })).toMatchObject({ kind: 'accepted' })
+    await gateway.replayBoardProjection()
+  } finally { await registry.dispose(); await store.close() }
+})
+
+
+it('restores metadata through the actual bind snapshot RPC on reconnect without compatibility frames', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  let percent = 33
+  let seq = 1
+  const at = '2025-01-01T00:00:00.000Z'
+  const replies: Promise<void>[] = []
+  try {
+    const sessionId = await bindContract(registry, store, true, (message) => {
+      if (message.type !== 'runtimeSnapshotRequest') return
+      const event = { t: 'metadata' as const, change: { kind: 'context' as const, source: 'transcript' as const, percent },
+        at, provenance: 'live' as const, observerGeneration: 1, turnEpoch: 0,
+        cursor: { segmentId: 'native', components: { seq } } }
+      replies.push(registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeSnapshotResult', requestId: message.requestId, sessionId: message.sessionId,
+        result: { snapshot: {
+          binding: { sessionId: message.sessionId, driver: 'generic-pty', family: 'terminal', harness: 'codex',
+            workdir: '/project', resume: null, process: { key: 'process' }, bindingVersion: 1 },
+          state: {}, cursor: event.cursor, observerGeneration: 1, turnEpoch: 0,
+          interactions: [], metadata: [event], draft: '', at,
+        } },
+      }))
+    })
+    await vi.waitFor(async () => expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 33 }))
+    const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
+    percent = 0
+    seq = 2
+    await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'bind', sessionId, cmd: 'codex', cwd: '/project', agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 }, runtimeContract: true, driverId: 'generic-pty',
+    })
+    await vi.waitFor(async () => expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 0, lastActiveAt: before }))
+  } finally {
+    await Promise.all(replies)
+    await registry.dispose()
+    await store.close()
+}
+})
+describe('durable transcript replacement windows', () => {
+  it.each([false, true])('removes stale overlays across reset, mixed carriage and restart (empty=%s)', async (empty) => {
+    const store = await openTestStore(':memory:')
+    let registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      const sessionId = await bindContract(registry, store, false)
+      const at = '2026-08-23T00:00:00.000Z'
+      const old = { id: 'old', cursor: 'old-native', role: 'assistant' as const, text: 'removed', ts: at }
+      const kept = { id: 'kept', cursor: 'rotated-native', role: 'assistant' as const, text: 'kept', ts: at }
+      const replacement = empty ? [] : [kept]
+      const send = async (event: RuntimeEvent) => registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent', sessionId, deliveryId: 'reset-' + event.cursor.components.seq, event,
+      })
+      await send(stateEvent({ at, seq: 1, observerGeneration: 1, provenance: 'bootstrap' }))
+      await send(terminalItemEvent({ at, seq: 2, item: old }))
+      await send(turnEvent({ at, seq: 3, turnEpoch: 1, ev: 'completed' }))
+      const reset: RuntimeEvent = {
+        ...stateEvent({ at, seq: 4, observerGeneration: 1, provenance: 'bootstrap' }),
+        t: 'transcript-reset', items: replacement, ...(empty ? {} : { tail: kept.cursor }),
+      }
+      await send(reset)
+      await send(reset) // durable outbox replay is harmless
+      expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
+      await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'transcriptDelta', sessionId, items: replacement, reset: true,
+      })
+      expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
+      expect((await store.events.listRuntimeTranscriptEvents(sessionId)).map((event) => event.t))
+        .toEqual(['item', 'transcript-reset'])
+      await registry.dispose()
+      registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+      expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
+      const page = await registry.modules.rpc.readTranscript(
+        { sessionId, direction: 'before', limit: 50 }, { kind: 'user', id: firstAdminMemberId() },
+      )
+      expect(page.items).toEqual(replacement)
+    } finally {
+      await registry.dispose()
+      await store.close()
+    }
+  })
+})
+
+it('projects native binding receipts after a closed turn and restores the projection on replay', async () => {
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  try {
+    const sessionId = await bindContract(registry, store)
+    const at = '2026-09-18T00:00:00.000Z'
+    const send = (event: RuntimeEvent) => registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'runtimeEvent', sessionId, deliveryId: `native-${event.cursor.components.seq}`, event,
+    })
+    await send(turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started' }))
+    await send(turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }))
+    const event: RuntimeEvent = { t: 'binding', resume: { kind: 'codex-thread', value: 'native-thread' },
+      confidence: 'exact', ackRequested: true, bindingVersion: 1, at, provenance: 'live',
+      observerGeneration: 1, turnEpoch: 1, cursor: { segmentId: 'runtime-segment', components: { seq: 3 } } }
+    await send(event)
+    await registry.modules.sessions.runtimeGateway.replayBoardProjection()
+    expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
+    await send(event)
+    await registry.modules.sessions.runtimeGateway.replayBoardProjection()
+    expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
+    await send({ ...event, resume: { kind: 'codex-thread', value: 'wrong-generation' },
+      observerGeneration: 0, cursor: { segmentId: 'runtime-segment', components: { seq: 4 } } })
+    await registry.modules.sessions.runtimeGateway.replayBoardProjection()
+    expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
+  } finally {
+    await registry.dispose()
+    await store.close()
+  }
+})
+
+it('retains the binding projection cursor when receipt persistence fails', async () => {
+  let cursor = 0
+  let fail = true
+  const sessionId = asSessionId('binding-retry')
+  const event: RuntimeEvent = { t: 'binding', resume: { kind: 'codex-thread', value: 'native' },
+    confidence: 'exact', bindingVersion: 1, ackRequested: true, at: '2026-09-18T00:00:00.000Z',
+    provenance: 'live', observerGeneration: 1, turnEpoch: 0,
+    cursor: { segmentId: 'native', components: { seq: 1 } } }
+  const projected: string[] = []
+  const ports: RuntimeEventGatePorts = {
+    events: {
+      runtimeEventProjectionCursor: async () => cursor,
+      saveRuntimeEventProjectionCursor: async (_name: string, next: number) => { cursor = next },
+      listRuntimeEventsAfter: async (after: number) => after < 1 ? [{ id: 1, sessionId, event }] : [],
+    } as unknown as RuntimeEventGatePorts['events'],
+    session: () => undefined, persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
+    binding: async (_id, receipt) => {
+      if (fail) throw new Error('binding persistence unavailable')
+      projected.push(receipt.resume.value)
+    },
+  }
+  await expect(new RuntimeEventGate(ports).replayBoardProjection()).rejects.toThrow('binding persistence unavailable')
+  expect(cursor).toBe(0)
+  fail = false
+  await new RuntimeEventGate(ports).replayBoardProjection()
+  expect(cursor).toBe(1)
+  expect(projected).toEqual(['native'])
 })

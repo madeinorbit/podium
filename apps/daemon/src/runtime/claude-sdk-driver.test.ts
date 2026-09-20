@@ -163,6 +163,11 @@ describe('Claude SDK daemon host adapter', () => {
       opencode2: serverRuntime('opencode2-server', 'opencode'),
       codex: serverRuntime('codex-app-server', 'codex'),
       grok: serverRuntime('grok-acp', 'grok'),
+      headless: {
+        driverFor: () => undefined,
+        handleFor: () => undefined,
+        bindings: () => [],
+      },
       inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
     } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
 

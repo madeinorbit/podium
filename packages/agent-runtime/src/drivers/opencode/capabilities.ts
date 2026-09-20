@@ -35,7 +35,7 @@ export function opencodeServerCapabilities(): DriverCapabilities {
        * to prevent silent substitution — the place the substitution happened.
        * The driver degrades to `queue` and says so.
        */
-      native: ['when-ready', 'queue', 'interrupt'],
+      native: ['at-boundary', 'when-ready', 'queue', 'interrupt'],
       /** The 204. Nothing else is consulted, and nothing else is needed. */
       proof: ['protocol-ack'],
       /**

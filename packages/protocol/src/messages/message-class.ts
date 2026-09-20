@@ -267,6 +267,7 @@ export const CONTROL_PLANE_CLASS = {
   // in `./runtime.ts`'s header.
   runtimeStageAttachmentRequest: 'control.command',
   runtimeSendRequest: 'control.command',
+  runtimeDurableSendRequest: 'control.command',
   runtimeInterruptRequest: 'control.command',
   runtimeAnswerRequest: 'control.command',
   runtimeLifecycleRequest: 'control.command',

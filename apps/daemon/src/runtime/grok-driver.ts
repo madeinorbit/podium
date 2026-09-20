@@ -16,6 +16,7 @@ import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import { driverTiming } from './driver-timing'
+import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
 import { grokAcpProcessKey } from './grok-acp-server.js'
 import { reportQueueAbandonment } from './queue-abandonment'
 
@@ -38,6 +39,7 @@ export interface DaemonGrokRuntime extends GrokAcpRuntime {
 
 export function createDaemonGrokRuntime(deps: {
   send(msg: DaemonMessage): void
+  boundaryContext?: MailBoundaryContext
   /**
    * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
    * written by nothing in this file. A server-family session has no terminal at
@@ -110,7 +112,13 @@ export function createDaemonGrokRuntime(deps: {
     if (!handle) return
     void (async () => {
       try {
-        for await (const event of handle.events('bootstrap')) translate(sessionId, event)
+        const boundary = createMailContinuation(handle, deps.boundaryContext,
+          () => runtime.handleFor(sessionId) === handle,
+          (error) => log.warn('issue mail boundary delivery failed', { sessionId, error }))
+        for await (const event of handle.events('bootstrap')) {
+          translate(sessionId, event)
+          boundary(event)
+        }
       } catch (err) {
         log.warn('Grok runtime event stream ended', { err, sessionId })
       }

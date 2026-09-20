@@ -4,6 +4,11 @@ import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { sendHarnessVersion } from '../harness-version-reporting'
+import {
+  managementInventoryCacheKey,
+  resolveManagementCredentialHome,
+  type HarnessManagementContext,
+} from '../harness-management.js'
 import { opencode2VersionProbeForExecutable } from '../runtime/opencode-server'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -91,8 +96,21 @@ function reportHarnessInventory(send: DaemonContext['send'], inventory: Inventor
   }
 }
 
+/**
+ * MANAGEMENT OWNERSHIP (POD-4305 F12): executable/version/login reprobes and
+ * model discovery are non-live harness-management services. They observe the
+ * machine (CLIs, credential homes, generation snapshots) before any agent handle
+ * can exist and must survive logged-out, uninstalled, zero-session and
+ * multi-home states. Takes `HarnessManagementContext` so legacy turn-path
+ * removal cannot delete this as "legacy control". Executable/version admission
+ * (`gate*Version`, opencode2 drivable probe), credential-home isolation
+ * (`resolveManagementCredentialHome`), per-home memoization
+ * (`managementInventoryCacheKey`) and login PTY argv (resolved in
+ * `control/session.ts` via `managementLoginCommandFor`) stay with the owner.
+ * Shell/login exemption itself is POD-4278; no shell manifest/driver is added.
+ */
 export async function reportInventory(
-  ctx: DaemonContext,
+  ctx: HarnessManagementContext,
   opts: { rebuild?: boolean; reprobe?: boolean } = {},
 ): Promise<void> {
   // The separator is a real NUL written as an ESCAPE, deliberately. NUL cannot
@@ -132,7 +150,7 @@ export async function reportInventory(
     return
   }
 
-  const key = `${ctx.machineId}\u0000${ctx.homeDir ?? ''}`
+  const key = managementInventoryCacheKey(ctx.machineId, ctx.homeDir)
   let pending: Promise<MachineHarnessInventory> | undefined
   try {
     // A refresh interval, credential install, or server request can arrive while
@@ -241,13 +259,16 @@ export function startInventoryRefresh(
  * secret does not cross to a machine just to shorten a model list.
  */
 async function runModelProbe(
-  ctx: DaemonContext,
+  ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'modelProbeRequest' }>,
 ): Promise<void> {
   let byAgent: Awaited<ReturnType<typeof probeAllModels>> = {}
   try {
     const snapshot = await ctx.harnessRuntime?.current()
-    const credentialHome = ctx.accountHome?.path ?? ctx.homeDir
+    // MANAGEMENT CREDENTIAL HOME (POD-4305 F12): the probe must name the account
+    // the child will run as — the provisioned native-account HOME when present —
+    // never the operator's ambient HOME and never a server-side secret.
+    const credentialHome = resolveManagementCredentialHome(ctx)
     byAgent = await probeAllModels({
       ...(snapshot
         ? {

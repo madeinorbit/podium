@@ -156,6 +156,35 @@ describe('createAgentRuntime', () => {
       "session '" + binding.sessionId + "' is indexed by more than one runtime driver",
     )
   })
+  it("selects the headless driver by explicit preference even though no manifest select() returns it", async () => {
+    const driver = createFakeDriver({ harness: 'codex', id: 'headless' })
+    const driverSource = source(driver)
+    const runtime = createAgentRuntime({
+      sources: () => [driverSource],
+      primitiveSupport: PRIMITIVE_SUPPORT,
+      landArchive: async (archive) => archive.resume,
+      list: async () => [],
+      inventory: async () => INVENTORY,
+    })
+    const headlessSpec: SessionSpec = {
+      harness: 'codex',
+      selection: {
+        auth: 'unknown',
+        platform: 'linux',
+        available: ['generic-pty'],
+        preference: 'headless',
+        role: 'executor',
+      },
+      workdir: '/tmp/headless-explicit',
+      model: {},
+      instructions: unsupported('fixture'),
+      mcpServers: unsupported('fixture'),
+    }
+    const handle = await runtime.create(headlessSpec)
+    expect(handle.binding.driver).toBe('headless')
+    expect(handle.binding.family).toBe('server')
+  })
+
   it('routes an explicit Claude SDK resume through the source with the exact id', async () => {
     const sessionId = 'claude-root-session' as SessionId
     const resume: ResumeRef = { kind: 'claude-session', value: 'claude-root-ref' }

@@ -48,6 +48,10 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   async function setup() {
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-read-'))
     const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
+      id: asMachineId('m1'), name: 'Archive fixture', hostname: 'test', tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(), assignment: { server: false, agentExecution: true },
+    })
     const registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       mirrorLakeDir: lakeDir,

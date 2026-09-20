@@ -1187,6 +1187,8 @@ function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {
     case 'observation_gap':
       return false
     case 'task_delta':
+    case 'state_snapshot':
+      // Restoring state is not evidence that new work occurred.
       return current
   }
 }

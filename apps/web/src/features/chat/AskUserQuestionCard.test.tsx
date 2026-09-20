@@ -464,3 +464,13 @@ describe('AskUserQuestionCard', () => {
     expect(container.textContent).toContain('Scope')
   })
 })
+
+
+it('submits the identity and question captured by the rendered card', async () => {
+  const block = ask([{ question: 'Pick', options: [{ label: 'One' }, { label: 'Two' }] }])
+  const onAnswer = vi.fn(async () => {})
+  act(() => root.render(<AskUserQuestionCard block={block} cls="" index={0} livePending interactionId="ask:rendered" onAnswer={onAnswer} />))
+  await act(async () => { options()[1]?.click() })
+  expect(onAnswer).toHaveBeenCalledWith({ interactionId: 'ask:rendered', question: block.item.toolInputJson,
+    choices: [{ optionIndices: [2] }] })
+})

@@ -13,10 +13,17 @@ type InstrumentationFailure =
   | 'unreadable-hooks-json'
   | 'not-an-object'
   | 'unsupported-version'
+  | 'untrusted'
   | 'error'
 
 // Classify installer refusals only. Exceptions always use error, regardless of text.
 function installerFailure(reason: string | undefined): InstrumentationFailure {
+  if (
+    reason === 'untrusted' ||
+    reason?.startsWith('untrusted codex hooks') ||
+    reason?.includes('hook trust')
+  )
+    return 'untrusted'
   switch (reason) {
     case 'no ~/.codex':
     case 'no GROK_HOME':
@@ -108,9 +115,16 @@ export async function installTerminalInstrumentation(input: {
           ? ensurePodiumCodexHooks({ codexHome: harnessHome })
           : ensurePodiumGrokHooks({ grokHome: harnessHome }),
       )
+      // POD-4076: an installed-but-untrusted Codex hook file reads as success
+      // to the installer but runs nothing in Codex. Degrade loudly so the
+      // session falls back to poll-only state with the operator told why.
+      // Grok results carry no `trusted` field and never take this arm.
       if (!result.installed) {
         degradedReason = result.reason ?? 'hook installation failed'
         degradedKind = installerFailure(result.reason)
+      } else if ('trusted' in result && result.trusted === false) {
+        degradedReason = result.reason ?? 'untrusted codex hooks'
+        degradedKind = 'untrusted'
       }
     } catch (error) {
       degradedReason = error instanceof Error ? error.message : String(error)
@@ -153,7 +167,8 @@ export function reportInstrumentationDegradation(
 ): void {
   const reason = installation.degradedReason
   if (!reason) return
-  const code = `${harness}-hooks-${installation.degradedKind ?? 'error'}`
+  const kind = installation.degradedKind ?? 'error'
+  const code = `${harness}-hooks-${kind}`
   let seen = warnings.get(owner)
   if (!seen) {
     seen = new Set()
@@ -161,11 +176,18 @@ export function reportInstrumentationDegradation(
   }
   if (seen.has(code)) return
   seen.add(code)
+  // POD-4076: the untrusted arm is installed-but-dead, not failed-to-install.
+  // Name the /hooks remedy in the description the attention item shows first;
+  // the generic "installation failed" sentence would be a lie for it.
+  const description =
+    kind === 'untrusted'
+      ? `${harness} hooks are installed but Codex has not trusted them; approve them in Codex's /hooks flow. Sessions run poll-only until then.`
+      : `${harness} hook installation failed; sessions can still start.`
   send({
     type: 'machineDiagnostic',
     code,
     title: `${harness} hooks unavailable`,
-    description: `${harness} hook installation failed; sessions can still start.`,
+    description,
     body: `${harness} instrumentation unavailable: ${reason}. The session will start; hook observations may be missing.`,
   })
 }

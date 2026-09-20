@@ -1,34 +1,67 @@
+import {
+  createBoundaryContext,
+  type BoundaryContextEvent,
+  type BoundaryContextOperation,
+} from '@podium/agent-runtime'
 import type { SessionId } from '@podium/model'
-import { hookEventName } from './hook-payload'
+import { hookEventName, hookString } from './hook-payload'
 
-/** Decides whether a Claude hook event should carry injected `prime` context, and builds the
- *  additionalContext response. Primes once per (re)start; a PreCompact re-arms it so the next
- *  prompt re-injects after compaction. Relay fetches the session's capability-scoped prime. */
+/** Legacy responder retained until every provider has demonstrated boundary parity. */
 export function createPrimeInjector(
   relay: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
-): {
-  respondTo(sessionId: SessionId, payload: unknown): Promise<string | null>
-  reset(sessionId: SessionId): void
-} {
-  const primed = new Set<string>()
+) {
+  const contexts = new Map<SessionId, ReturnType<typeof createBoundaryContext>>()
   return {
-    reset(sessionId) {
-      primed.delete(sessionId)
+    reset(sessionId: SessionId) {
+      contexts.get(sessionId)?.reset()
+      contexts.delete(sessionId)
     },
-    async respondTo(sessionId, payload) {
-      const event = hookEventName(payload)
-      if (event === 'PreCompact') {
-        primed.delete(sessionId)
-        return null
+    async respondTo(sessionId: SessionId, payload: unknown, signal?: AbortSignal) {
+      let context = contexts.get(sessionId)
+      if (!context) {
+        context = createBoundaryContext(() => relay(sessionId))
+        contexts.set(sessionId, context)
       }
-      if (event !== 'SessionStart' && event !== 'UserPromptSubmit') return null
-      if (primed.has(sessionId)) return null
-      const r = await relay(sessionId)
-      if (!r.ok || typeof r.result !== 'string' || r.result.length === 0) return null
-      primed.add(sessionId)
-      return JSON.stringify({
-        hookSpecificOutput: { hookEventName: event, additionalContext: r.result },
-      })
+      return primeHookResponse(context.respond, payload, signal)
     },
   }
+}
+
+/** Wire codec only. The driver operation owns once/rearm and fetch state. */
+export async function primeHookResponse(
+  respond: BoundaryContextOperation,
+  payload: unknown,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const name = hookEventName(payload)
+  // Codex never sends PreCompact (hooks.json omits it: PreCompact supports
+  // only the common output fields, never additionalContext). Its only
+  // post-compaction signal is SessionStart with source 'compact', so re-arm
+  // here before priming — otherwise the once/rearm logic treats it as an
+  // already-consumed start and the agent loses scoped context after every
+  // compaction.
+  if (name === 'SessionStart' && hookString(payload, 'source', 'source') === 'compact') {
+    await respond({ event: 'before-compaction' })
+    const context = await respond({ event: 'start', ...(signal ? { signal } : {}) })
+    return context === null
+      ? null
+      : JSON.stringify({
+          hookSpecificOutput: { hookEventName: name, additionalContext: context },
+        })
+  }
+  const event: BoundaryContextEvent | undefined =
+    name === 'SessionStart'
+      ? 'start'
+      : name === 'UserPromptSubmit'
+        ? 'prompt'
+        : name === 'PreCompact'
+          ? 'before-compaction'
+          : undefined
+  if (!event) return null
+  const context = await respond({ event, ...(signal ? { signal } : {}) })
+  return context === null
+    ? null
+    : JSON.stringify({
+        hookSpecificOutput: { hookEventName: name, additionalContext: context },
+      })
 }

@@ -6,7 +6,7 @@ export function claudeSdkCapabilities(): DriverCapabilities {
   return {
     send: {
       readiness: { kind: 'driver-managed' },
-      native: ['when-ready', 'queue'],
+      native: ['at-boundary', 'when-ready', 'queue'],
       proof: ['sdk-callback'],
       mayReturnUnverified: false,
     },

@@ -669,9 +669,9 @@ export class SessionTerminal {
     return this.runtimeTranscript
   }
 
-  applyRuntimeDelta(items: TranscriptItem[]): boolean {
-    this.runtimeTranscript = mergeTranscriptItems(this.runtimeTranscript, items)
-    return this.applyDelta(items, {})
+  applyRuntimeDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string } = {}): boolean {
+    this.runtimeTranscript = mergeTranscriptItems(opts.reset ? [] : this.runtimeTranscript, items)
+    return this.applyDelta(items, opts)
   }
 
   applyDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string }): boolean {

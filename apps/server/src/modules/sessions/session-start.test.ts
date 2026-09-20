@@ -13,7 +13,8 @@
 
 import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { runAgentCli } from '../../../../cli/src/agent-cli'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -25,10 +26,26 @@ afterEach(async () => {
 })
 
 async function makeRegistry(store?: SessionStore): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+  store ??= await openTestStore(':memory:')
+  await store.machines.upsertMachine({
+    id: store.hostMachineId, name: 'test-host', hostname: 'test-host', tokenHash: 'test',
+    ownerUserId: await firstAdminMemberId(store),
+    assignment: { server: true, agentExecution: true },
+  })
+  for (const path of ['/r', '/proj']) await store.repos.addRepo(path, store.hostMachineId)
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+    daemon.push(m)
+    // POD-4302: hibernate parks on confirmed process retirement. The fixture
+    // daemon answers the lifecycle request with a measured confirmation so the
+    // driver-selection tests pin revival without waiting out the 10s RPC timeout.
+    if (m.type === 'runtimeLifecycleRequest') void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeLifecycleResult', requestId: m.requestId, sessionId: m.sessionId,
+      result: { ok: true, retirement: 'confirmed' },
+    })
+  })
   return { reg, daemon }
 }
 
@@ -144,6 +161,7 @@ describe('resolved runtime driver projection', () => {
         message.type === 'reattach' && message.sessionId === sessionId,
     )
     expect(reattach?.requestedDriverId).toBe('opencode-server')
+    expect(reattach?.runtimeContract).toBe('codex-app-server')
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -213,9 +231,15 @@ describe('Claude SDK continuity projection', () => {
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     daemon.length = 0
-    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
-      daemon.push(message),
-    )
+    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) => {
+      daemon.push(message)
+      // Same confirmed-retirement fixture as makeRegistry: hibernate below must
+      // not wait out the 10s lifecycle timeout on the reloaded registry.
+      if (message.type === 'runtimeLifecycleRequest') void reloaded.gateway.routeDaemonFrame(reloaded.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult', requestId: message.requestId, sessionId: message.sessionId,
+        result: { ok: true, retirement: 'confirmed' },
+      })
+    })
     const reattach = daemon.find(
       (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
         message.type === 'reattach' && message.sessionId === sessionId,
@@ -432,4 +456,112 @@ describe('SessionStart: live session-id collision guard', () => {
     // No second spawn frame — an overwrite would re-fire spawn for the same id.
     expect(spawns(daemon).filter((m) => m.sessionId === sessionId)).toHaveLength(1)
   })
+})
+
+describe('non-picker driver requests', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('CLI agent spawn requests the advertised headed driver', async () => {
+    const { reg, daemon } = await makeRegistry()
+    const machineId = reg.sessionStore.hostMachineId
+    await reg.modules.machines.recordInventory(machineId, {
+      os: 'linux', arch: 'x64', tools: [],
+      agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
+      runtimeDrivers: [
+        { harness: 'codex', id: 'codex-app-server', family: 'server' },
+        { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+        { harness: 'codex', id: 'codex-pty', family: 'terminal' },
+      ],
+    })
+    const issue = await reg.issues.create({
+      repoPath: '/proj', title: 'CLI contract request', startNow: false,
+      defaultAgent: 'codex', machineId,
+    })
+    const output = await runAgentCli(['spawn', '--issue', issue.id, '--prompt', 'hello', '--json'], {
+      messages: {
+        spawnAgent: { mutate: (input) => reg.modules.messageGate.dispatch(
+          { role: 'admin', scope: { kind: 'all' }, actorUser: firstAdminMemberId(), onBehalfOf: firstAdminMemberId() }, undefined, 'spawnAgent', input,
+        ) },
+        awaitAgent: { mutate: async () => undefined },
+      },
+      sessions: { status: { query: async () => undefined } },
+    })
+    const { data: { sessionId } } = JSON.parse(output)
+    const frame = spawns(daemon).find((m) => m.sessionId === sessionId)
+    expect(frame).toMatchObject({ agentKind: 'codex', runtimeContract: 'codex-pty' })
+    const row = await reg.sessionStore.sessions.getSession(sessionId)
+    expect(row?.requestedDriverId).toBe('codex-pty')
+  })
+
+  it('refuses a missing headed driver instead of silently spawning legacy', async () => {
+    const { reg, daemon } = await makeRegistry()
+    await expect(reg.modules.sessions.createSession({
+      cwd: '/proj', agentKind: 'codex', requestTerminalDriver: true,
+    })).rejects.toThrow('no advertised terminal runtime driver for codex')
+    expect(spawns(daemon)).toEqual([])
+  })
+
+  it('preserves explicit driver choices and shell exemptions', async () => {
+    const { reg, daemon } = await makeRegistry()
+    await reg.modules.sessions.createSession({
+      cwd: '/proj', agentKind: 'codex', requestTerminalDriver: true,
+      runtimeContract: 'codex-app-server',
+    })
+    expect(spawns(daemon).at(-1)?.runtimeContract).toBe('codex-app-server')
+    await reg.modules.sessions.createSession({
+      cwd: '/proj', agentKind: 'shell', requestTerminalDriver: true,
+    })
+    expect(spawns(daemon).at(-1)).not.toHaveProperty('runtimeContract')
+  })
+})
+
+
+describe('driver admission recovery diagnosis', () => {
+  it.each([
+    { selectedDriverId: undefined, requestedDriverId: undefined },
+    { selectedDriverId: 'generic-pty', requestedDriverId: undefined },
+    { selectedDriverId: 'generic-pty', requestedDriverId: 'codex-app-server' },
+  ] as const)(
+    'keeps an old row ($selectedDriverId / $requestedDriverId) headed and persists a failed reconnect reason',
+    async ({ selectedDriverId, requestedDriverId }) => {
+      const store = await openTestStore(':memory:')
+      const first = await makeRegistry(store)
+      const { sessionId } = await first.reg.modules.sessions.createSession({
+        agentKind: 'codex', cwd: '/proj',
+      })
+      await first.reg.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'bind', sessionId, cmd: 'codex', cwd: '/proj', agentKind: 'codex',
+        geometry: { cols: 80, rows: 24 },
+        ...(selectedDriverId ? { driverId: selectedDriverId } : {}),
+        ...(requestedDriverId ? { requestedDriverId } : {}),
+      })
+      expect(await store.sessions.getSession(sessionId)).toMatchObject({
+        requestedDriverId: requestedDriverId ?? null, selectedDriverId: selectedDriverId ?? null,
+      })
+      first.reg.gateway.detachDaemon(store.hostMachineId)
+      await first.reg.dispose()
+
+      const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+      registries.push(reloaded)
+      const daemon: ControlMessage[] = []
+      await reloaded.gateway.attachDaemon(store.hostMachineId, (message) => daemon.push(message))
+      const reattach = daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId)
+      if (requestedDriverId) {
+        expect(reattach).toMatchObject({ runtimeContract: selectedDriverId, requestedDriverId })
+      } else {
+        expect(reattach).not.toHaveProperty('runtimeContract')
+      }
+      const reason = 'terminal driver could not establish a handle; retry this session'
+      await reloaded.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'reattachFailed', sessionId, reason,
+      })
+      expect((await reloaded.modules.sessions.listSessions(undefined, 'rpc'))
+        .find((session) => session.sessionId === sessionId)).toMatchObject({
+          status: 'exited', spawnFailure: reason,
+        })
+      expect(await store.sessions.getSession(sessionId)).toMatchObject({
+        spawnFailure: reason, selectedDriverId: selectedDriverId ?? null,
+      })
+    },
+  )
 })

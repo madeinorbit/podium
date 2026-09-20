@@ -57,7 +57,7 @@ import type {
   TurnFailureReason,
 } from './errors.js'
 import type { SessionBinding, SessionSnapshot } from './binding.js'
-import type { CausalEnvelope, RuntimeEvent, TranscriptItemDelta } from './events.js'
+import type { CausalEnvelope, RuntimeEvent, TranscriptItemDelta, SessionMetadataChange, SessionMetadataObservation } from './events.js'
 import type {
   InteractionAnswerability,
   InteractionAnswerOutcome,
@@ -138,6 +138,8 @@ import type {
   ProcessEvent as ProcessEventWire,
   RefusalReason as RefusalReasonWire,
   Refusal as RefusalWire,
+  SessionMetadataChange as SessionMetadataChangeWire,
+  SessionMetadataObservation as SessionMetadataObservationWire,
   RuntimeEvent as RuntimeEventWire,
   SendProof as SendProofWire,
   SessionBinding as SessionBindingWire,
@@ -188,6 +190,8 @@ exact<z.infer<typeof TurnFailureReasonWire>, TurnFailureReason>(true)
 exact<z.infer<typeof FailureDispositionWire>, FailureDisposition>(true)
 exact<z.infer<typeof ExitClassificationWire>, ExitClassification>(true)
 exact<z.infer<typeof CausalEnvelopeWire>, CausalEnvelope>(true)
+exact<z.infer<typeof SessionMetadataChangeWire>, SessionMetadataChange>(true)
+exact<z.infer<typeof SessionMetadataObservationWire>, SessionMetadataObservation>(true)
 exact<z.infer<typeof TurnReceiptWire>, TurnReceipt>(true)
 exact<z.infer<typeof TurnEventWire>, TurnEvent>(true)
 exact<z.infer<typeof PendingInteractionWire>, PendingInteraction>(true)

@@ -13,11 +13,12 @@ export function withDeliveryQueue(
     input: TurnInput
     options: SendOptions
     abort: AbortController
-    attempts: number
+    admittedAt: number
     inFlight?: Promise<TurnReceipt>
   }
   const rows = new Map<string, Row>()
-  const finished = new Map<string, 'delivered' | 'failed' | 'dropped'>()
+  type Outcome = Extract<RuntimeEventBody, { t: 'delivery' }>
+  const finished = new Map<string, Outcome>()
   const send = handle.send.bind(handle)
   let draining = false
   const pause = (ms: number) =>
@@ -27,9 +28,10 @@ export function withDeliveryQueue(
     })
   function settle(id: string, outcome: 'delivered' | 'failed' | 'dropped', reason?: string) {
     if (finished.has(id)) return
-    finished.set(id, outcome)
+    const event: Outcome = { t: 'delivery', rowId: id, outcome, ...(reason ? { reason } : {}) }
+    finished.set(id, event)
     rows.delete(id)
-    emit({ t: 'delivery', rowId: id, outcome, ...(reason ? { reason } : {}) })
+    emit(event)
   }
   async function drain() {
     if (draining) return
@@ -46,6 +48,13 @@ export function withDeliveryQueue(
           rows.delete(id)
           continue
         }
+        // A durable reservation from a previous owner is evidence of a
+        // possible write, not permission to retry. Same-owner repeats never
+        // reach here: rows/finished replay custody or its proven outcome.
+        if (row.input.deliveryRecovery) {
+          settle(id, 'failed', 'previous delivery could not be confirmed; check the transcript before retrying')
+          continue
+        }
         let receipt: TurnReceipt
         try {
           // These reads never leave the owning daemon. Drivers refuse a raced
@@ -53,7 +62,12 @@ export function withDeliveryQueue(
           const state = await handle.state()
           if (row.abort.signal.aborted) continue
           if (state.phase !== 'idle' || !ready()) {
-            await pause(200)
+            const ceiling = (state.phase === 'working' || state.phase === 'compacting') ? 30 * 60_000 : 60_000
+            if (Date.now() - row.admittedAt >= ceiling) {
+              settle(id, 'failed', 'the agent did not become ready before the delivery deadline')
+            } else {
+              await pause(200)
+            }
             continue
           }
           row.inFlight = send(
@@ -83,7 +97,11 @@ export function withDeliveryQueue(
           receipt.outcome === 'refused' &&
           ['busy', 'needs_user', 'lease_held'].includes(receipt.refusal.reason)
         ) {
-          await pause(200)
+          if (Date.now() - row.admittedAt >= 30 * 60_000) {
+            settle(id, 'failed', 'the agent stayed busy before accepting this input')
+          } else {
+            await pause(200)
+          }
           continue
         }
         if (
@@ -95,12 +113,12 @@ export function withDeliveryQueue(
           settle(id, 'failed', receipt.refusal.detail ?? receipt.refusal.reason)
           continue
         }
-        row.attempts++
-        if (row.attempts >= 5) {
-          settle(id, 'failed', 'delivery could not be confirmed after 5 attempts')
-        } else {
-          await pause(2000 * row.attempts)
-        }
+        // Neither an unverified write nor admission to another local queue
+        // proves loss. Retyping either can open a duplicate turn. The durable
+        // failure keeps the text recoverable for an explicit operator retry.
+        settle(id, 'failed', row.input.initialPrompt
+          ? 'the creation prompt was not confirmed; it will not be typed again automatically'
+          : 'delivery could not be confirmed; check the transcript before retrying')
       }
     } finally {
       draining = false
@@ -112,8 +130,10 @@ export function withDeliveryQueue(
     if (options.delivery === 'at-boundary') {
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
     }
-    if (!finished.has(input.rowId) && !rows.has(input.rowId)) {
-      rows.set(input.rowId, { input, options, abort: new AbortController(), attempts: 0 })
+    const prior = finished.get(input.rowId)
+    if (prior) emit(prior)
+    if (!prior && !rows.has(input.rowId)) {
+      rows.set(input.rowId, { input, options, abort: new AbortController(), admittedAt: Date.now() })
       void drain()
     }
     return {
@@ -134,9 +154,18 @@ export function withDeliveryQueue(
         settle(id, 'delivered')
         return { reason: 'busy', detail: 'the row was already delivered' }
       }
+      if (receipt && receipt.outcome !== 'refused') {
+        settle(id, 'failed', 'cancellation could not retract an unconfirmed delivery; check the transcript before retrying')
+        return { reason: 'busy', detail: 'delivery may already have occurred' }
+      }
       settle(id, 'dropped')
-    } else if (finished.get(id) === 'delivered') {
+    } else if (finished.get(id)?.outcome === 'delivered') {
+      emit(finished.get(id)!)
       return { reason: 'busy', detail: 'the row was already delivered' }
+    } else if (!finished.has(id)) {
+      // Cancel may arrive before an in-flight admission RPC. Keep a tombstone
+      // so that late admission cannot resurrect work already retracted.
+      settle(id, 'dropped')
     }
     return { ok: true }
   }

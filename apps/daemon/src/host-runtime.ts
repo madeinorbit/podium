@@ -1,22 +1,24 @@
 import { legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
 import { createRecoveryReadiness } from './recovery-readiness'
 import type { BindingConfirmations } from '@podium/protocol'
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { createOpencode2Client } from '@podium/agent-runtime'
+import { createOpencode2Client, DriverRefusalError } from '@podium/agent-runtime'
 import {
   agentLaunchCommand,
   buildMachineInventory,
+  buildResolvedInventory,
   declaredValue,
   type HarnessEnvironment,
   harnessDetectLogin,
   harnessLoginReadEnv,
+  manifestFor,
   resolvedHarnessPath,
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type MachineId, type SessionId } from '@podium/model'
-import { createDurableProcess, sweepStaleDurableBindTemps } from '@podium/process/durable'
+import { createDurableProcess, durableProcessFor, sweepStaleDurableBindTemps } from '@podium/process/durable'
 import type { AgentSession } from '@podium/process/screen'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -63,8 +65,11 @@ import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
 import { appliedGeometryFor } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
+import { assertNativeHeadlessAccount } from './control/headless'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
-import { rememberDurableSeq } from './control/session'
+import { launchSpawn, recoverTerminalHost, rememberDurableSeq, sessionRelayEnv, stopSessionProcess } from './control/session'
+import { spawnEnv } from './control/session-env'
+import { sourceForRead } from './control/transcripts'
 import {
   createSchemaGate,
   refuseConvergence,
@@ -77,7 +82,7 @@ import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
-import { sweepHandoffStage } from './handoff-package'
+import { sweepHandoffStage, transcriptForExport } from './handoff-package'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
 import type { HeadlessTurnHandle } from './headless-drivers.js'
@@ -87,12 +92,12 @@ import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { dumpLoopTotals, reportLongTick, startLoopAttribution } from './loop-attribution'
 import { AGENT_RELAY_ENDPOINT, describePortConflict, HOOK_INGEST_ENDPOINT } from './loopback-listen'
-import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
+import { composeMailContext, composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
 import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { OutputScheduler } from './output-scheduler'
 import { readPendingGrant, writePendingGrant } from './pending-grant'
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
-import { createPrimeInjector } from './prime-injector'
+import { createPrimeInjector, primeHookResponse } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
@@ -102,10 +107,10 @@ import {
 } from './runtime/claude-sdk-driver'
 import { createCodexHost } from './runtime/codex-app-server'
 import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
-import { runtimeContractEnabledByEnv } from './runtime/flag'
 import { createGrokAcpHost } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
 import { daemonRuntimeHost } from './runtime/host'
+import { createHeadlessRuntime, type HeadlessRuntime } from './runtime/headless-driver'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
@@ -283,6 +288,7 @@ export async function createDaemonHostRuntime(args: {
   let opencode2Runtime: DaemonOpencodeRuntime | undefined
   let codexRuntime: DaemonCodexRuntime | undefined
   let grokRuntime: DaemonGrokRuntime | undefined
+  let headlessRuntime: HeadlessRuntime | undefined
   let agentRuntime: DaemonMachineRuntime | undefined
   /**
    * The context, once it exists, for the frame sink below. Declared here for the
@@ -297,8 +303,7 @@ export async function createDaemonHostRuntime(args: {
    * or adopts a session above the assignment would silently lose the native-attach
    * re-arm for it. Keep the assignment as early as the wiring allows.
    */
-  let context: DaemonContext | undefined
-  const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
+   let context: DaemonContext | undefined
   /**
    * Every outbound daemon frame, past both observation taps.
    *
@@ -567,6 +572,7 @@ export async function createDaemonHostRuntime(args: {
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
+    onState: (observation) => terminalRuntime?.observeState(observation),
     onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
     sharedScreenFor: (sessionId) =>
       daemonCtx ? terminalScreenFor(daemonCtx, sessionId).model : undefined,
@@ -582,16 +588,9 @@ export async function createDaemonHostRuntime(args: {
         pendingServerAck: { nativeKind: 'codex-thread', value: nativeId },
       })
       if (!(await bindingStore.recordPendingCodexReceipt(sessionId, nativeId, 'process'))) {
-        send({
-          type: 'sessionResumeRef',
-          sessionId,
-          resume: { kind: 'codex-thread', value: nativeId },
-          confidence: 'exact',
-          ackRequested: true,
-        })
-        return
+        throw new Error(`Codex receipt ${sessionId} has no owned binding`)
       }
-      await replayPendingBindingReceipts()
+      await bindingStore.replayPendingReceiptForSession(sessionId, send)
     },
     tailSeedGate: gates.tailSeedGate,
   })
@@ -604,14 +603,14 @@ export async function createDaemonHostRuntime(args: {
       return classify?.(url)
     },
   })
-  const primeInjector = createPrimeInjector((sessionId) =>
+  const primeSource = (sessionId: SessionId) =>
     agentRelayHub.relay({
       sessionId,
       router: 'issues',
       proc: 'prime',
       input: {},
-    }),
-  )
+    })
+  const primeInjector = createPrimeInjector(primeSource)
   const mailInjector = createMailInjector((sessionId) =>
     agentRelayHub.relay({
       sessionId,
@@ -628,25 +627,35 @@ export async function createDaemonHostRuntime(args: {
       input: {},
     }),
   )
+  const mailContext = composeMailContext(mailInjector, ackReminder)
   const respondTo = composeResponders(
-    (sessionId, payload) => primeInjector.respondTo(sessionId, payload),
-    (sessionId, payload) => mailInjector.respondTo(sessionId, payload),
-    (sessionId, payload) => ackReminder.respondTo(sessionId, payload),
+    (sessionId, payload, signal) => terminalRuntime?.boundaryContextFor(sessionId)
+      ? Promise.resolve(null)
+      : primeInjector.respondTo(sessionId, payload, signal),
+    async (sessionId, payload, signal) => terminalRuntime?.respondToHook(sessionId, payload, signal) ?? null,
   )
   const ingest = await startHookIngest({
     port: opts.hooks?.port ?? resolveHookPort(config),
     ...(instance.hookSocketPath ? { socketPath: instance.hookSocketPath } : {}),
+    // Driver context is a transport boundary, independent of optional legacy responders.
+    boundaryContext: async (sessionId, payload, signal) => {
+      const operation = terminalRuntime?.boundaryContextFor(sessionId)
+      return operation ? primeHookResponse(operation, payload, signal) : null
+    },
     respondTo,
     beforeAck: async (sessionId, payload) => {
-      if (!(await bindingStore.acceptsNativeKind(sessionId, 'codex-thread'))) return
-      const nativeId =
-        payload && typeof payload === 'object'
-          ? (payload as Record<string, unknown>).session_id
-          : undefined
+      const fields = payload && typeof payload === 'object'
+        ? payload as Record<string, unknown> : undefined
+      const nativeId = fields?.session_id ?? fields?.sessionId
       if (typeof nativeId !== 'string' || nativeId.length === 0) return
-      if (!(await bindingStore.recordPendingCodexReceipt(sessionId, nativeId, 'native-hook'))) {
-        throw new Error(`Codex receipt ${sessionId} has no owned binding`)
-      }
+      const binding = await bindingStore.read(sessionId)
+      if (!binding) throw new Error(`Native receipt ${sessionId} has no owned binding`)
+      const nativeKind = manifestFor(binding.agentKind)?.resumeKind
+      if (!nativeKind) return
+      if (!(await bindingStore.recordPendingNativeReceipt(
+        sessionId, { kind: nativeKind, value: nativeId }, 'native-hook',
+      ))) throw new Error(`Native receipt ${sessionId} has no owned binding`)
+      await bindingStore.replayPendingReceiptForSession(sessionId, send)
     },
     onPayload: (sessionId, payload) => {
       // THE DRIVER SEES THE RAW HOOK FIRST. A `UserPromptSubmit` is the causal
@@ -975,7 +984,6 @@ export async function createDaemonHostRuntime(args: {
     retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
     ...args.endpointHandoff,
     applyUpdateGrant,
-    runtimeContractEnabled,
   }
   // Close the late-bound observer loop: observer setup from here on reads the
   // session's one TerminalScreen model.
@@ -1081,12 +1089,13 @@ export async function createDaemonHostRuntime(args: {
   // Built AFTER the context because the driver hosts need that context. The
   // single assignment at the end closes the wiring cycle: handlers reach every
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
-  const contractHost = daemonRuntimeHost(ctx, send, stageAttachment)
-  terminalRuntime = createTerminalRuntime(contractHost)
+  const contractHost = { ...daemonRuntimeHost(ctx, send, stageAttachment), boundaryContext: mailContext.pendingContext }
+  terminalRuntime = createTerminalRuntime(contractHost, primeSource)
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   const opencode2Executable = generationInventory?.commandEnvironment.resolve('opencode2')
   claudeRuntime = createDaemonClaudeSdkRuntime({
     send,
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1111,6 +1120,7 @@ export async function createDaemonHostRuntime(args: {
    */
   opencodeRuntime = createDaemonOpencodeRuntime({
     send,
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1138,6 +1148,7 @@ export async function createDaemonHostRuntime(args: {
   })
   opencode2Runtime = createDaemonOpencodeRuntime({
     send,
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1181,7 +1192,7 @@ export async function createDaemonHostRuntime(args: {
    */
   codexRuntime = createDaemonCodexRuntime({
     send,
-    boundaryContext: (sessionId) => mailInjector.pendingContext(sessionId),
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1221,6 +1232,7 @@ export async function createDaemonHostRuntime(args: {
   })
   grokRuntime = createDaemonGrokRuntime({
     send,
+    boundaryContext: mailContext.pendingContext,
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
@@ -1250,6 +1262,85 @@ export async function createDaemonHostRuntime(args: {
       instanceUuid: instance.instanceUuid,
     }),
   })
+  /**
+   * THE HEADLESS RUNTIME (POD-4392): process-per-turn harness sessions behind
+   * the contract. Constructed unconditionally like the server-family runtimes —
+   * it allocates maps, and no harness child starts until a headless turn
+   * dispatches through it. `control/headless.ts` keeps serving the legacy port
+   * until the caller migration lands; this runtime is the destination it moves to.
+   */
+  headlessRuntime = createHeadlessRuntime({
+    send,
+    snapshot: () =>
+      harnessRuntime
+        ? harnessRuntime.current()
+        : buildResolvedInventory({
+            ...(ctx.homeDir ? { machineHome: ctx.homeDir } : {}),
+            ...(ctx.accountHome ? { credentialHome: ctx.accountHome.path } : {}),
+          }),
+    durable: () => durableProcessFor(ctx),
+    assertNativeAccount: (agent, accountId, inventory) =>
+      assertNativeHeadlessAccount({
+        agent,
+        accountId,
+        accountHome: ctx.accountHome,
+        inventory,
+      }),
+    sessionEnv: ({ sessionId, agent, toolPolicyNone, snapshot }) =>
+      spawnEnv({
+        sessionEnv: snapshot.commandEnvironment.env,
+        podiumEnv: {
+          ...sessionRelayEnv(
+            sessionId,
+            ctx.agentRelayEndpointFor(sessionId),
+            ctx.instanceId,
+            agent,
+            ctx.instanceUuid,
+          ),
+          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+          ...(toolPolicyNone && ctx.accountHome
+            ? {
+                HOME: ctx.accountHome.path,
+                CLAUDE_CONFIG_DIR: join(ctx.accountHome.path, '.claude'),
+              }
+            : {}),
+        },
+      }),
+    durableLabel: (sessionId) => ctx.durableLabelFor(sessionId),
+    bindHeadlessSession: (sessionId, agentKind, cwd, resumeValue) =>
+      ctx.observers.bindHeadlessSession(sessionId, agentKind, cwd, resumeValue),
+    readHistory: async (session, range) => {
+      const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
+      if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'foreign history cursor' },
+          'transcript.history',
+        )
+      }
+      const source = await sourceForRead(ctx, session)
+      const slice = await source.readSlice({
+        ...(range.from ? { anchor: range.from.pathHint } : {}),
+        direction: range.direction ?? 'before',
+        limit: range.limit,
+      })
+      const cursor = (anchor: string) => ({ segmentId, pathHint: anchor, components: {} })
+      return {
+        items: slice.items,
+        ...(slice.head ? { head: cursor(slice.head) } : {}),
+        ...(slice.tail ? { tail: cursor(slice.tail) } : {}),
+        hasMore: slice.hasMore,
+      }
+    },
+    archiveTranscript: (input) =>
+      transcriptForExport({
+        agentKind: input.agentKind,
+        cwd: input.cwd,
+        resumeValue: input.resumeValue,
+        home: ctx.homeDir ?? process.env.HOME ?? '',
+      }),
+    readFileBytes: async (path) => new Uint8Array(await readFile(path)),
+    now: () => Date.now(),
+  })
   agentRuntime = createDaemonMachineRuntime({
     terminal: terminalRuntime,
     claude: claudeRuntime,
@@ -1257,6 +1348,7 @@ export async function createDaemonHostRuntime(args: {
     opencode2: opencode2Runtime,
     codex: codexRuntime,
     grok: grokRuntime,
+    headless: headlessRuntime,
     inventory: async () =>
       harnessRuntime
         ? (await harnessRuntime.current()).inventory

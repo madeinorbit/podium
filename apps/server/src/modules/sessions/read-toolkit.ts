@@ -80,7 +80,7 @@ export interface SessionReadToolkitDeps {
     anchor?: string
     direction: 'before' | 'after'
     limit: number
-  }): Promise<{ items: TranscriptItem[]; hasMore: boolean }>
+  }): Promise<{ items: TranscriptItem[]; head?: string; tail?: string; reset?: boolean; hasMore: boolean }>
   now(): string
 }
 
@@ -381,7 +381,16 @@ export class SessionReadToolkit {
         ...(i.toolInput ? { toolInput: i.toolInput } : {}),
         ...(i.ts ? { ts: i.ts } : {}),
       })),
-      cursor: kept[0]?.cursor ?? slice.items[0]?.cursor ?? null,
+      // Truncation can remove the oldest rows. Ask the same source for the
+      // retained window's boundary instead of manufacturing a provider cursor.
+      cursor: kept.length > 0 && kept.length < slice.items.length
+        ? (await this.deps.readTranscript({
+            sessionId: target.sessionId,
+            ...(input.cursor ? { anchor: input.cursor } : {}),
+            direction: 'before',
+            limit: kept.length,
+          })).head ?? kept[0]?.cursor ?? null
+        : slice.head ?? kept[0]?.cursor ?? null,
       hasMore: slice.hasMore || truncated,
       truncated,
     }
@@ -420,28 +429,29 @@ export class SessionReadToolkit {
           direction: 'before',
           limit: RECAP_ITEM_CAP,
         })
+    const effectiveSince = slice.reset ? undefined : since
     const items = slice.items
     if (items.length === 0) {
       return {
         sessionId: target.sessionId,
-        recap: since
+        recap: effectiveSince
           ? `No new activity since watermark ${since}.`
           : 'No transcript items found for this session.',
-        watermark: since ?? null,
+        watermark: effectiveSince ?? null,
         newItems: 0,
-        delta: since !== undefined,
+        delta: effectiveSince !== undefined,
       }
     }
     const head = buildBtwRecap(items)
-    const body = since
-      ? buildBtwDelta({ prev: { itemId: since }, delta: items, now: this.deps.now() })
+    const body = effectiveSince
+      ? buildBtwDelta({ prev: { itemId: effectiveSince }, delta: items, now: this.deps.now() })
       : `Latest activity (${items.length} items):\n${items.map(lineForItem).join('\n')}`
     const recap = `${head}\n\n${body}`.slice(0, RECAP_CHAR_CAP)
     // The watermark is the newest item's cursor (the transcriptRead paging
     // anchor). Items without a cursor keep the previous mark rather than
     // corrupting it.
     const last = [...items].reverse().find((i) => i.cursor)
-    const watermark = last?.cursor ?? since ?? null
+    const watermark = slice.tail ?? last?.cursor ?? effectiveSince ?? null
     if (watermark) {
       await this.deps.watermarks.setRecapWatermark(reader, target.sessionId, watermark, this.deps.now())
     }
@@ -450,7 +460,7 @@ export class SessionReadToolkit {
       recap,
       watermark,
       newItems: items.length,
-      delta: since !== undefined,
+      delta: effectiveSince !== undefined,
     }
   }
 

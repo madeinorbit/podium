@@ -1,11 +1,24 @@
+import { respondToMailBoundary } from './runtime/mail-boundary'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   composeResponders,
-  createAckReminderInjector,
-  createMailInjector,
+  createAckReminderInjector as ackPolicy,
+  createMailInjector as mailPolicy,
   MAIL_BLOCK_COOLDOWN_MS,
 } from './mail-injector'
+
+
+const createMailInjector = (...args: Parameters<typeof mailPolicy>) => {
+  const source = mailPolicy(...args)
+  return { ...source, respondTo: (id: Parameters<typeof respondToMailBoundary>[1], payload: unknown) =>
+    respondToMailBoundary(source.pendingContext, id, payload) }
+}
+const createAckReminderInjector = (...args: Parameters<typeof ackPolicy>) => {
+  const source = ackPolicy(...args)
+  return { ...source, respondTo: (id: Parameters<typeof respondToMailBoundary>[1], payload: unknown) =>
+    respondToMailBoundary(source.pendingContext, id, payload) }
+}
 
 const unreadRelay = (unread: number) => async () => ({ ok: true, result: { unread } })
 
@@ -108,6 +121,25 @@ describe('composeResponders', () => {
       async () => '"third"',
     )
     expect(await composed(asSessionId('s1'), {})).toBe('"second"')
+  })
+
+  it('does not start reminders when the shared deadline expires during an earlier lookup', async () => {
+    let finish!: (value: string | null) => void
+    let reminders = 0
+    const controller = new AbortController()
+    const composed = composeResponders(
+      (_sessionId, _payload, signal) => {
+        expect(signal).toBe(controller.signal)
+        return new Promise<string | null>((resolve) => { finish = resolve })
+      },
+      async () => { reminders++; return 'persisted reminder' },
+    )
+    const response = composed(asSessionId('deadline'), {}, controller.signal)
+    controller.abort()
+    finish(null)
+    const result = await response
+    expect(reminders).toBe(0)
+    expect(result).toBeNull()
   })
 
   it('returns null when all responders decline', async () => {

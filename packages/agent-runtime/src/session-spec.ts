@@ -17,9 +17,9 @@ import type { InteractionKind } from './interactions.js'
  *  `developer_instructions`, `--rules`. Declared because the transport differs
  *  and some harnesses have none.
  *
- *  RE-PRIMED AFTER COMPACTION — that is why it is part of the SPEC rather than a
- *  launch argument: the driver owns re-delivering it at the compaction boundary
- *  reported by `{ t: 'state' }` events. */
+ *  This static launch channel is not the capability-scoped issue prime. Dynamic
+ *  startup/compaction context uses the driver's boundaryContext operation;
+ *  observing a compaction event alone does not deliver instructions. */
 export interface InstructionChannel {
   /** Attributed machine-authored context, kept out of the visible user turn.
    *  `AgentInstruction` is `@podium/protocol`'s existing `{ source, content }`
@@ -87,6 +87,30 @@ export interface SessionSpec {
   env?: Readonly<Record<string, string>>
   /** A first prompt delivered as part of the spawn where the harness accepts one. */
   initialPrompt?: string
+  /**
+   * HEADLESS SESSION DEFAULTS (POD-4386).
+   *
+   * The legacy headless port carried per-session durable identity
+   * (durableLabel, executablePath) plus session-level tool policy that the
+   * contract could not name. All OPTIONAL and ABSENT-MEANS-ABSENT. Per-turn
+   * values on TurnInput win over these session defaults; a driver that does
+   * not implement a field refuses `unsupported` rather than silently dropping
+   * it.
+   */
+  /** Exact durable host label for the owning instance/session. */
+  durableLabel?: string
+  /** Absolute executable captured from the current generation. */
+  executablePath?: string
+  /** Route SDK tool authorization through structured RuntimeDriver interactions. */
+  structuredPermissions?: true
+  /** Session-default tools pre-approved; per-turn TurnInput.allowedTools wins. */
+  allowedTools?: string[]
+  /** Session-default permission mode; per-turn TurnInput.permissionMode wins. */
+  permissionMode?: string
+  /** Session-default all-tools-off mode; per-turn TurnInput.toolPolicy wins. */
+  toolPolicy?: 'none'
+  /** Exact native-login fingerprint for the session (durable identity). */
+  accountId?: string
 }
 
 /**

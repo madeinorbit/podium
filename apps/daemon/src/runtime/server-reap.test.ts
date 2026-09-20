@@ -23,6 +23,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../control/context'
 import { sessionHandlers, stopSessionProcess } from '../control/session'
+import { runtimeHandlers } from './handlers'
 import { beginServerDriverReap, type ServerReapIo } from './server-reap'
 import {
   SERVER_GRACEFUL_EXIT_MS,
@@ -482,7 +483,7 @@ describe('teardown through a live handle — once per driver registry', () => {
     expect(io.signals).toHaveLength(0)
   })
 
-  it('with no recorded pid the verbs are trusted, not measured — and nothing touches the process table', async () => {
+  it('with no recorded pid a completed verb cannot confirm retirement', async () => {
     const state: FakeProcessState = { alive: true, diesOn: 'never' }
     const { handle, calls } = fakeHandle({})
     const { ctx, sent } = fakeCtx('opencodeRuntime', { handle })
@@ -493,7 +494,7 @@ describe('teardown through a live handle — once per driver registry', () => {
 
     expect(calls).toEqual(['stop'])
     expect(io.signals).toHaveLength(0)
-    expect(killResult(sent)).toMatchObject({ killed: true })
+    expect(killResult(sent)).toMatchObject({ killed: false })
   })
 })
 
@@ -545,9 +546,8 @@ describe('teardown from the journal alone — the post-daemon-restart arm, once 
     // The scope stop still ran — it is session-named and cannot hit a
     // bystander, and it clears any lingering cgroup the pid signal missed.
     expect(io.systemctl.length).toBeGreaterThan(0)
-    // Retire still clears the journal: the row is gone, the credential's
-    // address must go with it.
-    expect(journalCleared).toEqual([SESSION])
+    // Ambiguity cannot retire the only recovery identity.
+    expect(journalCleared).toEqual([])
   })
 
   it('a journalled reap of a DEAD pid stays a clean receipt — no ambiguity note', async () => {
@@ -939,6 +939,7 @@ describe('the choke point: every teardown frame lands in stopSessionProcess', ()
       outputScheduler: { remove: () => {} },
       portableStateFence: { runSync: (fn: () => void) => fn() },
       agentRuntime: {
+        handleFor: () => handle,
         serverHandleFor: (sessionId: SessionId) => (sessionId === SESSION ? handle : undefined),
         journalledServerProcess: () => undefined,
         clearTerminal: () => {},
@@ -1004,4 +1005,149 @@ describe('the choke point: every teardown frame lands in stopSessionProcess', ()
 
     expect(calls).toEqual(['kill'])
   })
+
+  it('nothing measured means nothing confirmed — an unowned session resolves false', async () => {
+    const { handle } = fakeHandle({})
+    const { ctx } = wiringCtx(handle)
+    Object.assign(ctx, {
+      agentRuntime: {
+        handleFor: () => undefined,
+        serverHandleFor: () => undefined,
+        journalledServerProcess: () => undefined,
+        clearTerminal: () => {},
+      },
+    })
+    // No bridge, no handle, no journal, backend 'none': no family measured
+    // anything, so the shared choke point must not report retirement.
+    await expect(stopSessionProcess(ctx, { sessionId: SESSION })).resolves.toBe(false)
+  })
+
+  it('a timeout retry observes the same retirement instead of reaping twice', async () => {
+    const state: FakeProcessState = { alive: true, diesOn: 'SIGTERM' }
+    const { handle, calls } = fakeHandle({
+      pid: 4321,
+      onStop: () => { state.alive = false },
+    })
+    const { ctx } = wiringCtx(handle)
+    Object.assign(ctx, { serverReapIo: fakeIo(state) })
+    const [first, second] = await Promise.all([
+      stopSessionProcess(ctx, { sessionId: SESSION }),
+      stopSessionProcess(ctx, { sessionId: SESSION }),
+    ])
+    expect(first).toBe(true)
+    expect(second).toBe(true)
+    // The handle verb ran once: the second caller joined the same retirement
+    // rather than reaping the now-empty registry a second time.
+    expect(calls).toEqual(['stop'])
+  })
+})
+
+
+describe('retirement evidence', () => {
+  it('reports a surviving grandchild after the leader exits', async () => {
+    const { handle } = fakeHandle({ pid: 42, scopeUnit: 'session.scope' })
+    const { ctx, sent } = fakeCtx('codexRuntime', { handle })
+    const io = fakeIo({ alive: false, diesOn: 'never' })
+    io.scopeAlive = () => true
+    let retired: boolean | undefined
+    await beginServerDriverReap(ctx, SESSION, { retire: false, completed: value => { retired = value } }, io)
+    expect(retired).toBe(false)
+    expect(killResult(sent)).toMatchObject({ killed: false })
+    expect(io.systemctl.length).toBeGreaterThan(0)
+  })
+
+  it('does not acknowledge a terminal lifecycle until the host finishes', async () => {
+    let finish!: () => void
+    const stop = new Promise<void>(resolve => { finish = resolve })
+    const sent: DaemonMessage[] = []
+    const ctx = {
+      agentRuntime: { handleFor: () => ({ binding: { family: 'terminal' }, stop: () => stop }) },
+      send: (message: DaemonMessage) => { sent.push(message) },
+    } as unknown as DaemonContext
+    runtimeHandlers.runtimeLifecycleRequest(ctx, { type: 'runtimeLifecycleRequest', requestId: 'stop', sessionId: SESSION, verb: 'stop' })
+    await Promise.resolve()
+    expect(sent).toEqual([])
+    finish()
+    await vi.waitFor(() => expect(sent).toContainEqual(expect.objectContaining({ result: { ok: true, retirement: 'confirmed' } })))
+  })
+
+  it('a durable reap that throws reports unconfirmed rather than guessing', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = {
+      backend: 'host',
+      durable: {
+        kill: async () => { throw new Error('scope bus unavailable') },
+        has: async () => { throw new Error('scope bus unavailable') },
+      },
+      settingsDir: '/nonexistent/podium-test-settings',
+      bridges: new Map(),
+      pendingResizes: new Map(),
+      durableLabels: new Map(),
+      durableLabelFor: (sessionId: SessionId) => `podium-${sessionId}`,
+      observers: { clearSession: () => {} },
+      outputScheduler: { remove: () => {} },
+      portableStateFence: { runSync: (fn: () => void) => fn() },
+      agentRuntime: {
+        handleFor: () => undefined,
+        serverHandleFor: () => undefined,
+        journalledServerProcess: () => undefined,
+        clearTerminal: () => {},
+      },
+      instanceUuid: undefined,
+      send: (msg: DaemonMessage) => void sent.push(msg),
+    } as unknown as DaemonContext
+    // The kill threw AND the follow-up probe threw: nothing was measured, so
+    // the receipt must not claim the process is gone.
+    await expect(stopSessionProcess(ctx, { sessionId: SESSION })).resolves.toBe(false)
+    expect(killResult(sent)).toMatchObject({ killed: false, reason: 'scope bus unavailable' })
+  })
+
+  it('a journalled reap that throws after corroboration keeps killed:false and the journal', async () => {
+    const { ctx, sent, journalCleared } = fakeCtx('opencodeRuntime', {
+      journalEntry: journalEntryFor('opencode'),
+    })
+    let probes = 0
+    const io = {
+      ...fakeIo({ alive: true, diesOn: 'never' }),
+      signal: () => { throw new Error('signal bus unavailable') },
+      probeOpencode: async () => {
+        probes += 1
+        if (probes > 1) throw new Error('probe bus unavailable')
+        return true
+      },
+    }
+    await beginServerDriverReap(ctx, SESSION, { retire: true }, io)
+    await vi.waitFor(() => expect(killResult(sent)).toBeDefined())
+    // Corroborated alive, then the signal threw and the re-probe threw: the
+    // process may still be running, so the receipt stays unconfirmed and the
+    // journal — the only recovery identity — is retained.
+    expect(killResult(sent)).toMatchObject({ killed: false, reason: 'signal bus unavailable' })
+    expect(journalCleared).toEqual([])
+  })
+})
+
+
+it('lifecycle stop reaps a journal after registry loss without adopting a new process', async () => {
+  const state: FakeProcessState = { alive: true, diesOn: 'SIGTERM' }
+  const io = fakeIo(state, { cgroup: true })
+  const { ctx, sent } = fakeCtx('codexRuntime', {
+    journalEntry: { process: { key: 'orphan', pid: 42, scopeUnit: 'orphan.scope' } },
+  })
+  const adopt = vi.fn()
+  Object.assign(ctx, {
+    backend: 'none', settingsDir: '/nonexistent/podium-test-settings',
+    bridges: new Map(), pendingResizes: new Map(), durableLabels: new Map(),
+    durableLabelFor: () => 'orphan', observers: { clearSession() {} },
+    outputScheduler: { remove() {} }, portableStateFence: { runSync: (fn: () => void) => fn() },
+    serverReapIo: io,
+    agentRuntime: { ...ctx.agentRuntime, handleFor: () => undefined, clearTerminal() {}, adoptFromJournal: adopt },
+  })
+  runtimeHandlers.runtimeLifecycleRequest(ctx, {
+    type: 'runtimeLifecycleRequest', requestId: 'orphan-stop', sessionId: SESSION, verb: 'stop',
+  })
+  await vi.waitFor(() => expect(sent).toContainEqual(expect.objectContaining({
+    type: 'runtimeLifecycleResult', result: { ok: true, retirement: 'confirmed' },
+  })))
+  expect(state.alive).toBe(false)
+  expect(adopt).not.toHaveBeenCalled()
 })

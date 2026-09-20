@@ -250,8 +250,9 @@ export class EventsRepository {
         and(
           eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
           eq(podiumEvents.subject, sessionId),
-          sql`json_extract(${podiumEvents.payload}, '$.t') = 'item'`,
-          sql`json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'`,
+          sql`(json_extract(${podiumEvents.payload}, '$.t') = 'transcript-reset'
+            OR (json_extract(${podiumEvents.payload}, '$.t') = 'item'
+              AND json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'))`,
         ),
       )
       .orderBy(desc(podiumEvents.id))

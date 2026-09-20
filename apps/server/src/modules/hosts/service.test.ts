@@ -142,13 +142,6 @@ function harness(input: {
       parked.push(sessionId)
       return { ok: true }
     },
-    parkStaleSession: async ({ sessionId }) => {
-      const target = input.sessions.find((item) => item.sessionId === sessionId)
-      if (!target || target.status !== 'live') return { ok: false, reason: 'not running' }
-      target.status = target.resume ? 'hibernated' : 'exited'
-      parked.push(sessionId)
-      return { ok: true }
-    },
     hasScheduledWakeup: async (sessionId) => input.scheduledWakeups?.has(sessionId) ?? false,
     parkShellSession: async ({ sessionId }) => {
       if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
@@ -730,7 +723,7 @@ describe('idle-session cap', () => {
       logs.restore()
     })
 
-    it('hibernates a long-quiet unobserved agent that has a resume ref without terminal proof', async () => {
+    it('refuses a long-quiet unobserved agent without terminal proof', async () => {
       const sessions = [unobserved(asSessionId('hookless-resumable'))]
       const { service, parked, hibernateRequireProof } = harness({
         sessions,
@@ -741,10 +734,8 @@ describe('idle-session cap', () => {
 
       await service.onHostMetrics(asMachineId('local'), sample(10))
 
-      expect(parked).toEqual(['hookless-resumable'])
-      expect(hibernateRequireProof).toEqual([
-        { sessionId: 'hookless-resumable', requireTerminalProof: false },
-      ])
+      expect(parked).toEqual([])
+      expect(hibernateRequireProof).toEqual([])
     })
 
     it('never routes an unobserved session without a resume ref into hibernateSession', async () => {
@@ -929,6 +920,27 @@ describe('idle-session cap', () => {
       expect(parked).toEqual(['forgotten'])
     })
 
+    it.each(['proof', 'resume', 'working', 'unknown floor'] as const)(
+      'cannot bypass %s at the backstop', async (missing) => {
+        const target = ancient(asSessionId('unsafe'))
+        if (missing === 'resume') target.resume = undefined
+        if (missing === 'working') target.agentState = { phase: 'working', since: target.lastActiveAt, nativeSubagentCount: 0 }
+        if (missing === 'unknown floor') {
+          target.lastActiveAt = new Date(NOW - 2 * HOUR).toISOString()
+          target.lastInputAtMs = target.lastOutputAtMs = NOW - 2 * HOUR
+        }
+        const { service, parked, hibernateRequireProof } = harness({
+          sessions: [target], maxIdleSessions: null, idleShellMinutes: null,
+          backstopMinutes: 60,
+          proven: missing === 'proof' ? new Set() : new Set(['unsafe']),
+        })
+        await service.onHostMetrics(asMachineId('local'), sample(10))
+        expect(parked).toEqual([])
+        expect(hibernateRequireProof).toEqual([])
+        expect(target.status).toBe('live')
+      },
+    )
+
     it('leaves a backstop-quiet session alone when a wake-up is already scheduled', async () => {
       const sessions = [ancient(asSessionId('forgotten'))]
       const { service, parked } = harness({
@@ -1045,7 +1057,6 @@ describe('daemon loop minutes', () => {
       sessions: async () => [],
       hibernateSession: async () => ({ ok: false }),
       parkShellSession: async () => ({ ok: false }),
-      parkStaleSession: async () => ({ ok: false }),
       hasScheduledWakeup: async () => false,
       hasValidTerminalProof: async () => true,
       terminalProofMissing: async () => false,

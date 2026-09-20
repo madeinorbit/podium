@@ -497,6 +497,7 @@ interface TranscriptFeedRowProps {
   liveQuestion: boolean
   streaming: boolean
   assetContext?: TranscriptAssetContext
+  answerInteractionId?: string
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   onRefPress?: (ref: string) => void
   onRetryPending?: (turn: PendingTurn) => void
@@ -551,6 +552,7 @@ const TranscriptFeedRow = memo(
     streaming,
     assetContext,
     onAnswer,
+    answerInteractionId,
     onRefPress,
     onRetryPending,
     onRetractPending,
@@ -633,7 +635,7 @@ const TranscriptFeedRow = memo(
         break
       }
       case 'question':
-        content = <AskQuestionCard item={row.item} live={liveQuestion} onAnswer={onAnswer} />
+        content = <AskQuestionCard key={liveQuestion ? answerInteractionId : row.item.id} interactionId={liveQuestion ? answerInteractionId : undefined} item={row.item} live={liveQuestion} onAnswer={onAnswer} />
         break
       case 'receipt':
         content = <AskReceipt item={row.item} />
@@ -739,6 +741,7 @@ const TranscriptFeedRow = memo(
     previous.streaming === next.streaming &&
     sameAssetContext(previous.assetContext, next.assetContext) &&
     previous.onAnswer === next.onAnswer &&
+    previous.answerInteractionId === next.answerInteractionId &&
     previous.onRefPress === next.onRefPress &&
     previous.onRetryPending === next.onRetryPending &&
     previous.onRetractPending === next.onRetractPending &&
@@ -834,6 +837,7 @@ export function TranscriptList({
   liveItem,
   live,
   onAnswer,
+  answerInteractionId,
   onLoadOlder,
   onRefPress,
   assetContext,
@@ -858,6 +862,7 @@ export function TranscriptList({
   /** In-progress assistant prose, kept outside the stable settled item array. */
   liveItem?: TranscriptItem
   live: boolean
+  answerInteractionId?: string
   onAnswer: (answer: AskQuestionAnswer) => Promise<void>
   /** Called when the user scrolls back to the oldest loaded item (paging). */
   onLoadOlder?: () => void
@@ -1254,6 +1259,7 @@ export function TranscriptList({
                 streaming={streaming && row.key === liveRow?.key}
                 assetContext={assetContext}
                 onAnswer={answerRow}
+                answerInteractionId={answerInteractionId}
                 onRefPress={onRefPress ? pressRowRef : undefined}
                 onRetryPending={onRetryPending ? retryPendingRow : undefined}
                 onRetractPending={onRetractPending ? retractPendingRow : undefined}
@@ -1277,6 +1283,7 @@ export function TranscriptList({
             streaming={streaming && liveRow === undefined && row.key === latestAssistantKey}
             assetContext={assetContext}
             onAnswer={answerRow}
+                answerInteractionId={answerInteractionId}
             onRefPress={onRefPress ? pressRowRef : undefined}
             onRetryPending={onRetryPending ? retryPendingRow : undefined}
             onRetractPending={onRetractPending ? retractPendingRow : undefined}

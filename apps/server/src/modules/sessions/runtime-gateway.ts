@@ -117,11 +117,27 @@ export interface RuntimeDaemonRpcPort {
     input: {
       sessionId: SessionId
       rowId?: string
+      deliveryRecovery?: boolean
+      initialPrompt?: boolean
       turnId?: string
       text: string
       origin: ObservationInputOrigin
       delivery: TurnDelivery
       attachments?: readonly RuntimeAttachmentRef[]
+      allowedTools?: string[]
+      permissionMode?: string
+      toolPolicy?: 'none'
+      mcpConfig?: string
+      resumeValue?: string
+      sessionUuid?: string
+      accountId?: string
+      requestDigest?: string
+      structuredPermissions?: true
+      contextPrompt?: string
+      systemPrompt?: string
+      timeoutMs?: number
+      model?: string
+      effort?: string
     },
     machineId: MachineId,
   ): Promise<TurnReceipt>
@@ -138,7 +154,7 @@ export interface RuntimeDaemonRpcPort {
     cancelRowId?: string,
   ): Promise<{ result: { ok: true } | Refusal }>
   runtimeAnswer(
-    input: { sessionId: SessionId; interactionId: string; answer: Record<string, unknown> },
+    input: { sessionId: SessionId; interactionId: string; principal?: { kind: 'user' | 'agent' | 'system'; ref: string }; answer: Record<string, unknown> },
     machineId: MachineId,
   ): Promise<InteractionAnswerOutcome>
   runtimeLifecycle(
@@ -206,11 +222,27 @@ export class SessionRuntimeGateway {
   async send(input: {
     sessionId: SessionId
     rowId?: string
+    deliveryRecovery?: boolean
+    initialPrompt?: boolean
     turnId?: string
     text: string
     origin: ObservationInputOrigin
     delivery: TurnDelivery
     attachments?: readonly RuntimeAttachmentRef[]
+    allowedTools?: string[]
+    permissionMode?: string
+    toolPolicy?: 'none'
+    mcpConfig?: string
+    resumeValue?: string
+    sessionUuid?: string
+    accountId?: string
+    requestDigest?: string
+    structuredPermissions?: true
+    contextPrompt?: string
+    systemPrompt?: string
+    timeoutMs?: number
+    model?: string
+    effort?: string
     /**
      * The party this send acts for.
      *
@@ -299,6 +331,7 @@ export class SessionRuntimeGateway {
   async answer(input: {
     sessionId: SessionId
     interactionId: string
+    principal?: { kind: 'user' | 'agent' | 'system'; ref: string }
     answer: Record<string, unknown>
   }): Promise<InteractionAnswerOutcome> {
     const machineId = this.ports.machineOf(input.sessionId)

@@ -1,3 +1,4 @@
+import { NativeBindingReceipt } from './native-binding'
 import { ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 import { ApprovalExecResultMessage } from './approvals'
@@ -109,8 +110,12 @@ export const SessionResumeRefMessage = z.object({
   // Heuristic/absent = cwd/time inference from an older daemon. Optional keeps
   // rolling upgrades wire-compatible.
   confidence: z.enum(['exact', 'heuristic']).optional(),
+  // Discovery belongs to this observer incarnation, when supplied by the host.
+  observerGeneration: z.number().int().nonnegative().optional(),
+  bindingVersion: z.number().int().nonnegative().optional(),
   // Retained native-hook evidence is removed only after this is persisted.
   ackRequested: z.boolean().optional(),
+  receipt: NativeBindingReceipt.optional(),
 })
 
 // daemon -> server: the agent's live working directory changed (read from the

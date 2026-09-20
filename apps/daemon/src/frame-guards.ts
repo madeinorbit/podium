@@ -5,7 +5,7 @@ import { encodeDaemonMessage, parseControlMessage } from '@podium/protocol/daemo
 import type { RawData, WebSocket } from 'ws'
 import type { DaemonContext } from './control/context'
 import { dispatchControlMessage } from './control/registry'
-import { dispatchInputBytes } from './control/session'
+import { dispatchInputBytes } from './control/legacy-terminal-input'
 import { beginControlTurn, timeTask } from './loop-attribution'
 
 const log = createLogger('daemon:frames')

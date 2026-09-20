@@ -201,4 +201,58 @@ describe('terminal instrumentation installation', () => {
     })
     expect(ensure).toHaveBeenCalledWith({ codexHome: join(homeDir, '.codex') })
   })
+
+  it('degrades an installed-but-untrusted Codex home as poll-only with the /hooks remedy', async () => {
+    const homeDir = await directory()
+    vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockResolvedValue({
+      installed: true,
+      changed: true,
+      degraded: true,
+      reason: 'untrusted codex hooks (missing trust for: Stop); approve in Codex /hooks',
+      trusted: false,
+      untrustedEvents: ['Stop'],
+    })
+    const result = await installTerminalInstrumentation({
+      sessionId: asSessionId('codex-untrusted'),
+      spec: spec('codex'),
+      homeDir,
+      settingsDir: join(homeDir, 'settings'),
+    })
+    expect(result).toMatchObject({
+      degradedKind: 'untrusted',
+      degradedReason: expect.stringContaining('untrusted'),
+    })
+    // Wiring is retained: the session starts poll-only, it is not refused.
+    expect(result.env).toEqual(expect.any(Object))
+
+    const send = vi.fn()
+    reportInstrumentationDegradation({}, 'codex', result, send)
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'machineDiagnostic',
+        code: 'codex-hooks-untrusted',
+        description: expect.stringContaining('/hooks'),
+      }),
+    )
+  })
+
+  it('keeps a trusted Codex install silent', async () => {
+    const homeDir = await directory()
+    vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockResolvedValue({
+      installed: true,
+      changed: false,
+      trusted: true,
+      untrustedEvents: [],
+    })
+    const send = vi.fn()
+    const result = await installTerminalInstrumentation({
+      sessionId: asSessionId('codex-trusted'),
+      spec: spec('codex'),
+      homeDir,
+      settingsDir: join(homeDir, 'settings'),
+    })
+    expect(result.degradedReason).toBeUndefined()
+    reportInstrumentationDegradation({}, 'codex', result, send)
+    expect(send).not.toHaveBeenCalled()
+  })
 })

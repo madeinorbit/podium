@@ -99,3 +99,21 @@ describe('reapInstanceSessionProcesses', () => {
     expect(io.signals).toEqual([{ pid: 42, signal: 'SIGTERM' }])
   })
 })
+
+
+it('reports a surviving owned process when signalling throws', async () => {
+  const io = fakeIo({ signal: () => { throw new Error('permission denied') } })
+  const result = await reapInstanceSessionProcesses({ instanceUuid: UUID, sessionId: 'session-1', io })
+  expect(result.remaining).toBe(1)
+})
+
+it('reports a new descendant born during retirement', async () => {
+  const io = fakeIo()
+  let census = 0
+  io.listPids = () => ++census === 1 ? [42, 43] : [42, 43, 44]
+  const environment = io.readEnvironment
+  io.readEnvironment = pid => pid === 44 ? { instanceUuid: UUID, sessionId: 'session-1' } : environment(pid)
+  io.alive.set(44, true)
+  const result = await reapInstanceSessionProcesses({ instanceUuid: UUID, sessionId: 'session-1', io, termGraceMs: 0, killGraceMs: 0 })
+  expect(result.remaining).toBe(1)
+})

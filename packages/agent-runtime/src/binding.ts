@@ -1,3 +1,4 @@
+import type { SessionMetadataObservation } from './events.js'
 // Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
@@ -72,6 +73,8 @@ export interface SessionSnapshot {
    * that own the fallback (first-prompt truncation, OSC sniffing).
    */
   title?: string
+  /** Latest observation per metadata kind, retaining its original causal envelope. */
+  metadata?: readonly SessionMetadataObservation[]
   /** The composer's contents, where the driver has a draft. */
   draft?: string
   at: string

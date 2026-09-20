@@ -1,24 +1,21 @@
 import { execFile } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { homedir, hostname, tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { mkdirSync, statSync } from 'node:fs'
+import { homedir, hostname } from 'node:os'
+import { dirname } from 'node:path'
 import { promisify } from 'node:util'
-import { bindHarnessExec, buildResolvedInventory, harnessMcpConfigTransport } from '@podium/harness'
 import type { UsageBucketWire, UsageSourceWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
 import { bundleStagePath } from '../handoff-package'
-import { buildHarnessExec } from '../harness-exec.js'
+import { executeBufferedHarnessTurn } from '../buffered-harness.js'
 import { scanQuotaHistory } from '../quota-history-scan'
 import { repoOpCommand } from '../repo-op'
 import { scanHostUsageSources, UsageScanCache } from '../usage-scan'
+import type {
+  HarnessManagementContext,
+} from '../harness-management.js'
 import type { ControlHandlers, DaemonContext } from './context'
-import {
-  harnessChildStripEnv,
-  harnessInstanceEnv,
-} from './session-env'
 
 const execFileAsync = promisify(execFile)
 
@@ -105,90 +102,25 @@ async function runRepoOp(
   }
 }
 
-/** One-shot `claude -p` / `codex exec` / `grok -p` for the harness-backed superagent. */
+/** One-shot `claude -p` / `codex exec` / `grok -p` for the harness-backed superagent.
+ *
+ * COMPATIBILITY WIRE (POD-4304, F09): the frame is registered but has no
+ * in-tree initiator — an older peer can still send it, and dynamic callers
+ * were not measured, so absence of a caller is not a removal verdict. The
+ * semantics live in `../buffered-harness.js` (manifest-bound argv, 240s
+ * default, 4MiB cap, stdin prompt, MCP temp file, truthful ok/output); this
+ * adapter only narrows the context (homeDir + harness runtime, no runtime
+ * handles per POD-4301) and preserves the old-peer result shape.
+ */
 async function runHarnessExec(
   ctx: DaemonContext,
   msg: Extract<ControlMessage, { type: 'harnessExecRequest' }>,
 ): Promise<void> {
-  // Claude's --mcp-config must be a file path, so write the JSON to a temp
-  // file for the run and clean it up afterwards. Codex takes the raw JSON
-  // instead (translated to `-c` overrides in buildHarnessExec) — no file.
-  let mcpConfigPath: string | undefined
-  if (msg.mcpConfig && harnessMcpConfigTransport(msg.agent) === 'path') {
-    mcpConfigPath = join(tmpdir(), `podium-mcp-${randomUUID()}.json`)
-    try {
-      writeFileSync(mcpConfigPath, msg.mcpConfig)
-    } catch {
-      mcpConfigPath = undefined
-    }
-  }
-  try {
-    // Inside the try: buildHarnessExec THROWS on a malformed codex MCP config
-    // (refusing a silent tool-less run) — that must surface as a failed turn.
-    const snapshot = ctx.harnessRuntime
-      ? await ctx.harnessRuntime.current()
-      : await buildResolvedInventory({ ...(ctx.homeDir ? { machineHome: ctx.homeDir } : {}) })
-    const {
-      cmd,
-      args,
-      stdin,
-      env: execEnv,
-    } = bindHarnessExec(
-      snapshot,
-      msg.agent,
-      buildHarnessExec(msg.agent, {
-        env: snapshot.commandEnvironment.env,
-        prompt: msg.prompt,
-        ...(msg.model ? { model: msg.model } : {}),
-        ...(msg.effort ? { effort: msg.effort } : {}),
-        ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
-        ...(mcpConfigPath ? { mcpConfigPath } : {}),
-        ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-        ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-      }),
-    )
-    // promisified execFile still exposes the child: deliver the prompt on
-    // stdin (claude — variadic --allowedTools would eat an argv prompt) and
-    // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.
-    // Timeout/maxBuffer kill-budget semantics are execFileAsync's, unchanged.
-    // codex's MCP bearer token rides `execEnv` (POD-1021), merged over process.env.
-    const childEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...execEnv,
-      ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-      ...harnessInstanceEnv(msg.agent, ctx.homeDir),
-    }
-    for (const key of harnessChildStripEnv(msg.agent, execEnv)) delete childEnv[key]
-    const pending = execFileAsync(cmd, args, {
-      timeout: msg.timeoutMs ?? 240_000,
-      maxBuffer: 4 * 1024 * 1024,
-      ...(msg.cwd ? { cwd: msg.cwd } : {}),
-      env: childEnv,
-    })
-    pending.child.stdin?.end(stdin ?? '')
-    const { stdout } = await pending
-    ctx.send({
-      type: 'harnessExecResult',
-      requestId: msg.requestId,
-      ok: true,
-      output: stdout.trim(),
-    })
-  } catch (err) {
-    ctx.send({
-      type: 'harnessExecResult',
-      requestId: msg.requestId,
-      ok: false,
-      output: err instanceof Error ? err.message : String(err),
-    })
-  } finally {
-    if (mcpConfigPath) {
-      try {
-        rmSync(mcpConfigPath, { force: true })
-      } catch {
-        // best-effort temp cleanup
-      }
-    }
-  }
+  const result = await executeBufferedHarnessTurn(
+    { homeDir: ctx.homeDir, harnessRuntime: ctx.harnessRuntime },
+    msg,
+  )
+  ctx.send({ type: 'harnessExecResult', requestId: msg.requestId, ...result })
 }
 
 // A usage scan reads every recently-active transcript — memo it (ctx.usageMemo)
@@ -212,9 +144,20 @@ const USAGE_MEMO_TTL_MS = 120_000
  */
 // Keyed by context, never module-global: two daemon runtimes in one process (the
 // test lane makes them routinely) must not share one another's in-flight scan.
-const usageRescans = new WeakMap<DaemonContext, Promise<void>>()
+const usageRescans = new WeakMap<HarnessManagementContext, Promise<void>>()
 
-function rescanUsage(ctx: DaemonContext, sinceMs: number): Promise<void> {
+/**
+ * MANAGEMENT OWNERSHIP (POD-4305 F11): historical usage, account quota and quota
+ * boot seed are non-live harness-management services. They read account/disk
+ * evidence (transcripts, quota endpoints, rollout files) — never a live
+ * `AgentSessionHandle`. `handle.usage()` reports one live session's context
+ * percentage only and cannot replace them. These handlers take
+ * `HarnessManagementContext` so legacy turn-path removal cannot delete them as
+ * "legacy control" and live-session cleanup cannot retire them. Memoization
+ * (usage memo + quota TTL), historical-source attribution (`sources`,
+ * `sourcesSinceMs`) and instance isolation (`homeDir`) stay with the owner.
+ */
+function rescanUsage(ctx: HarnessManagementContext, sinceMs: number): Promise<void> {
   // One scan at a time — concurrent pollers must not stack copies of a
   // CPU-bound walk onto the loop they are already competing with.
   const pending = usageRescans.get(ctx)
@@ -243,7 +186,7 @@ function rescanUsage(ctx: DaemonContext, sinceMs: number): Promise<void> {
 }
 
 async function runUsageScan(
-  ctx: DaemonContext,
+  ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'usageRequest' }>,
 ): Promise<void> {
   const sinceMs = msg.sinceMs ?? Date.now() - 7 * 24 * 3_600_000
@@ -276,7 +219,7 @@ async function runUsageScan(
 }
 
 async function runAgentQuotaScan(
-  ctx: DaemonContext,
+  ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'agentQuotaRequest' }>,
 ): Promise<void> {
   const agents = await ctx.quotaFetcher.getAgentQuota(msg.refresh ?? false)
@@ -292,7 +235,7 @@ async function runAgentQuotaScan(
  * would be memory spent on nothing.
  */
 async function runQuotaHistoryScan(
-  ctx: DaemonContext,
+  ctx: HarnessManagementContext,
   msg: Extract<ControlMessage, { type: 'quotaHistoryRequest' }>,
 ): Promise<void> {
   let samples: QuotaHistorySampleWire[] = []

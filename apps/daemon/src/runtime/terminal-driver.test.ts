@@ -1,8 +1,12 @@
+import { composeMailContext, createMailInjector, createAckReminderInjector } from '../mail-injector'
+import { startHookIngest } from '../hook-ingest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pageHistory } from '@podium/agent-runtime'
 import * as codexHooks from '../codex-hooks'
+import { primeHookResponse } from '../prime-injector'
 import { installTerminalInstrumentation } from './terminal-instrumentation'
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
@@ -43,11 +47,6 @@ import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  RUNTIME_CONTRACT_ENV,
-  runtimeContractEnabledByEnv,
-  runtimeContractEnabledFor,
-} from './flag'
 import { terminalProfileFor } from './registry'
 import {
   createTerminalRuntime,
@@ -141,6 +140,7 @@ interface World {
   /** The `bind` frame — the daemon saying this session's CLI is up. It is what
    *  the server flips `status` on, and what the drain waits for. */
   bind(sessionId: SessionId): void
+  ready(sessionId: SessionId): void
   /**
    * Say the CLI comes up DURING the launch, before `create()` resolves.
    *
@@ -164,7 +164,7 @@ interface World {
 }
 
 function makeWorld(
-  options: { readTranscript?: TerminalRuntimeHost['readTranscript'] } = {},
+  options: { readTranscript?: TerminalRuntimeHost['readTranscript']; primeSource?: Parameters<typeof createTerminalRuntime>[1] } = {},
 ): World {
   let clock = Date.UTC(2026, 7, 14)
   let timers: VirtualTimer[] = []
@@ -209,6 +209,7 @@ function makeWorld(
     })
   }
 
+  const bridges = new Map<SessionId, NonNullable<ReturnType<TerminalRuntimeHost['bridge']>>>()
   const host: TerminalRuntimeHost = {
     installInstrumentation: async () => ({ args: [] }),
     stageAttachment: async ({ source }) => ({
@@ -219,41 +220,58 @@ function makeWorld(
       kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
     }),
     send: (msg) => frames.push(msg),
-    bridge: (sessionId) =>
-      alive.get(`podium-${sessionId}`)
-        ? {
-            pid: 99,
-            write: (dataBase64) => {
-              const text = Buffer.from(dataBase64, 'base64').toString('utf8')
-              written.push(text)
-              const paste = pastedText(text)
-              if (paste !== undefined) {
-                pendingPaste.set(sessionId, paste)
-                return
-              }
-              if (text !== '\r') return
-              const pasted = pendingPaste.get(sessionId)
-              pendingPaste.delete(sessionId)
-              const hook = autoHook.get(sessionId)
-              if (!hook || pasted === undefined) return
-              runtime.onHookPayload(
-                sessionId,
-                hook.payload ?? {
-                  hook_event_name: 'UserPromptSubmit',
-                  prompt: hook.prompt ?? pasted,
-                },
-              )
-            },
-          }
-        : undefined,
+    bridge: (sessionId) => {
+      if (!alive.get(`podium-${sessionId}`)) return undefined
+      let bridge = bridges.get(sessionId)
+      if (!bridge) {
+        bridge = {
+          pid: 99,
+          write: (dataBase64) => {
+            const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+            written.push(text)
+            const paste = pastedText(text)
+            if (paste !== undefined) {
+              pendingPaste.set(sessionId, paste)
+              return
+            }
+            if (text !== '\r') return
+            const pasted = pendingPaste.get(sessionId)
+            pendingPaste.delete(sessionId)
+            const hook = autoHook.get(sessionId)
+            if (!hook || pasted === undefined) return
+            runtime.onHookPayload(
+              sessionId,
+              hook.payload ?? {
+                hook_event_name: 'UserPromptSubmit',
+                prompt: hook.prompt ?? pasted,
+              },
+            )
+          },
+        }
+        bridges.set(sessionId, bridge)
+      }
+      return bridge
+    },
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
     durableLabel: (sessionId) => `podium-${sessionId}`,
     scopeUnit: () => undefined,
     durableHostAlive: async (label) => alive.get(label) === true,
-    stopSession: ({ durableLabel }) => {
+    recover: async (msg, ready) => {
+      if (!alive.get(msg.durableLabel)) throw new Error('session not found')
+      ready()
+      runtime?.observe({
+        type: 'bind',
+        sessionId: msg.sessionId,
+        cmd: 'fixture',
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+      })
+    },
+    stopSession: async ({ durableLabel }) => {
       alive.set(durableLabel, false)
+      return true
     },
     launch: async (msg) => {
       alive.set(`podium-${msg.sessionId}`, true)
@@ -305,7 +323,7 @@ function makeWorld(
     },
   }
 
-  runtime = createTerminalRuntime(host)
+  runtime = createTerminalRuntime(host, options.primeSource)
 
   return {
     runtime,
@@ -332,6 +350,13 @@ function makeWorld(
       })
     },
     bind: bindFrame,
+    // Receipt tests start with an already settled CLI. Startup tests use bind
+    // directly and exercise the actual readiness delay.
+    ready: (sessionId) => {
+      clock -= 6000
+      bindFrame(sessionId)
+      clock += 6000
+    },
     bindDuringLaunch: () => {
       bindOnLaunch = true
     },
@@ -550,6 +575,7 @@ describe('attachment path prompts', () => {
   it('prepends staged paths to the terminal prompt', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
     const staged = await session.stageAttachment(source)
     if ('reason' in staged) throw new Error(staged.detail ?? staged.reason)
     world.hookOnSubmit(session.binding.sessionId)
@@ -563,6 +589,7 @@ describe('attachment path prompts', () => {
   it('refuses staging after the terminal session is no longer running', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.kill()
     await expect(session.stageAttachment(source)).resolves.toEqual({ reason: 'not_running' })
   })
@@ -573,6 +600,7 @@ describe('attachment path prompts', () => {
       throw new Error('disk full')
     }
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
     await expect(session.stageAttachment(source)).resolves.toEqual({
       reason: 'staging_failed',
       detail: 'Error: disk full',
@@ -587,6 +615,7 @@ describe('attachment path prompts', () => {
       reason: RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
     })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await expect(session.stageAttachment(source)).resolves.toEqual({
       reason: 'unsupported',
       detail: RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
@@ -597,6 +626,7 @@ describe('attachment path prompts', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await expect(
       session.send(
         {
@@ -621,27 +651,6 @@ describe('attachment path prompts', () => {
       },
     })
     expect(world.written).toEqual([])
-  })
-})
-
-describe('the flag', () => {
-  it('is on only for an explicit 1 or true', () => {
-    expect(runtimeContractEnabledByEnv({ [RUNTIME_CONTRACT_ENV]: '1' })).toBe(true)
-    expect(runtimeContractEnabledByEnv({ [RUNTIME_CONTRACT_ENV]: 'true' })).toBe(true)
-    // The failure mode this exists to prevent: an env-var flag that reads any
-    // non-empty string as on, so `=0` turns it on.
-    expect(runtimeContractEnabledByEnv({ [RUNTIME_CONTRACT_ENV]: '0' })).toBe(false)
-    expect(runtimeContractEnabledByEnv({ [RUNTIME_CONTRACT_ENV]: 'false' })).toBe(false)
-    expect(runtimeContractEnabledByEnv({})).toBe(false)
-  })
-
-  it('ORs the machine-wide switch with the per-session field, neither winning', () => {
-    expect(runtimeContractEnabledFor(false, undefined)).toBe(false)
-    expect(runtimeContractEnabledFor(true, undefined)).toBe(true)
-    expect(runtimeContractEnabledFor(false, true)).toBe(true)
-    // A per-session `false` does NOT veto the machine switch: both mean the same
-    // thing, so an operator who flipped the machine gets what they asked for.
-    expect(runtimeContractEnabledFor(true, false)).toBe(true)
   })
 })
 
@@ -691,6 +700,7 @@ describe('send receipts', () => {
       },
     })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.hookOnSubmit(session.binding.sessionId, {
       payload: { event: 'synthetic-accept', submitted: 'SHIP IT' },
     })
@@ -713,6 +723,7 @@ describe('send receipts', () => {
       },
     })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const receipt = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
     await Promise.resolve()
     world.echo(session.binding.sessionId, 'SHIP IT')
@@ -722,6 +733,7 @@ describe('send receipts', () => {
   it('cannot prove an accept without a supplied matcher even when both channels answer', async () => {
     const driver = world.runtime.driverFor('claude-code', { ...CLAUDE, acceptCorrelation: {} })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.hookOnSubmit(session.binding.sessionId)
     const receipt = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
     await Promise.resolve()
@@ -737,6 +749,7 @@ describe('send receipts', () => {
       },
     })
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.hookOnSubmit(session.binding.sessionId)
     const receipt = await session.send(
       { text: 'ship it' },
@@ -745,29 +758,32 @@ describe('send receipts', () => {
     expect(receipt.outcome).toBe('unverified')
   })
 
-  it.each(['hook', 'transcript-echo'] as const)(
-    'credits only one identical overlapping send per %s observation',
-    async (proof) => {
-      const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
-      const first = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
-      const second = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
-      await Promise.resolve()
-      if (proof === 'hook') {
-        world.runtime.onHookPayload(session.binding.sessionId, {
-          hook_event_name: 'UserPromptSubmit', prompt: 'ship it',
-        })
-      } else {
-        world.echo(session.binding.sessionId, 'ship it')
-      }
-      const receipts = await Promise.all([first, second])
-      expect(receipts[0]).toMatchObject({ outcome: 'accepted', provenBy: proof })
-      expect(receipts[1].outcome).toBe('unverified')
-    },
-  )
+  it.each([
+    'hook',
+    'transcript-echo',
+  ] as const)('credits only one identical overlapping send per %s observation', async (proof) => {
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
+    const first = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    const second = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
+    await Promise.resolve()
+    if (proof === 'hook') {
+      world.runtime.onHookPayload(session.binding.sessionId, {
+        hook_event_name: 'UserPromptSubmit',
+        prompt: 'ship it',
+      })
+    } else {
+      world.echo(session.binding.sessionId, 'ship it')
+    }
+    const receipts = await Promise.all([first, second])
+    expect(receipts[0]).toMatchObject({ outcome: 'accepted', provenBy: proof })
+    expect(receipts[1].outcome).toBe('unverified')
+  })
 
   it('anchors an accept to the causal hook on Claude, ahead of any echo', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // The hook fires the way Claude's does — on submission, before the
@@ -777,7 +793,9 @@ describe('send receipts', () => {
       { text: 'ship it' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}"`)
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(
+      `"{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}"`,
+    )
     expect(resolved.outcome).toBe('accepted')
     if (resolved.outcome !== 'accepted') return
     // THE MECHANISM IS DECLARED, and this is the one that makes a terminal
@@ -790,6 +808,7 @@ describe('send receipts', () => {
   it('does not credit a hook that belongs to a different prompt', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // A hook for somebody ELSE's send — a queue drain overlapping a chat send is
@@ -800,13 +819,16 @@ describe('send receipts', () => {
       { text: 'first' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(
+      `"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`,
+    )
     expect(resolved.outcome).toBe('unverified')
   })
 
   it('credits the send a content-block hook NAMES, with another send in flight', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // THE SHAPE A REAL `UserPromptSubmit` TAKES whenever the CLI has anything to
@@ -829,7 +851,9 @@ describe('send receipts', () => {
     const named = session.send({ text: 'ship it' }, { origin: 'human', delivery: 'when-ready' })
     const [otherReceipt, namedReceipt] = await Promise.all([other, named])
 
-    expect(JSON.stringify([otherReceipt, namedReceipt])).toMatchInlineSnapshot(`"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}]"`)
+    expect(JSON.stringify([otherReceipt, namedReceipt])).toMatchInlineSnapshot(
+      `"[{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"},{"outcome":"accepted","turnEpoch":1,"deliveredAs":"when-ready","provenBy":"hook","at":"2026-08-14T00:00:01.600Z"}]"`,
+    )
     expect(namedReceipt.outcome).toBe('accepted')
     if (namedReceipt.outcome !== 'accepted') return
     expect(namedReceipt.provenBy).toBe('hook')
@@ -841,6 +865,7 @@ describe('send receipts', () => {
   it('does not credit a content-block hook that belongs to a different prompt', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // The same array shape, for somebody else's send. This is the case a
@@ -854,13 +879,16 @@ describe('send receipts', () => {
       { text: 'first' },
       { origin: 'human', delivery: 'when-ready' },
     )
-    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(
+      `"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`,
+    )
     expect(resolved.outcome).toBe('unverified')
   })
 
   it('leaves the waiter open for a payload it cannot fingerprint at all', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // A submit whose only block is a tool result — nothing a person typed, so
@@ -880,7 +908,9 @@ describe('send receipts', () => {
     )
     // `unverified` IS THE TRUE ANSWER, and it is not the same as "not sent": the
     // keystrokes went out and the caller is told exactly that much.
-    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(`"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`)
+    expect(JSON.stringify(resolved)).toMatchInlineSnapshot(
+      `"{"outcome":"unverified","deliveredAs":"when-ready","verificationWindowMs":4800,"at":"2026-08-14T00:00:04.800Z"}"`,
+    )
     expect(resolved.outcome).toBe('unverified')
     expect(world.written[0]).toBe(`${PASTE_START}did this land?${PASTE_END}`)
   })
@@ -888,6 +918,7 @@ describe('send receipts', () => {
   it('answers `unverified` when the window closes with no proof, and says how long it waited', async () => {
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
 
     const resolved = await session.send(
       { text: 'did this land?' },
@@ -904,6 +935,7 @@ describe('send receipts', () => {
   it('types a later Grok turn as bracketed paste and a separate CR, never one chunk', async () => {
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.echo(session.binding.sessionId, 'the first turn already happened')
     await session.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
     // The CLI's key parser folds a multi-character chunk into ONE key event, so
@@ -915,6 +947,7 @@ describe('send receipts', () => {
   it('reports a steer downgrade through deliveredAs', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const receipt = await session.send({ text: 'and this' }, { origin: 'mail', delivery: 'steer' })
     expect(receipt.outcome).toBe('queued')
     if (receipt.outcome !== 'queued') return
@@ -926,6 +959,45 @@ describe('send receipts', () => {
   it('refuses a send while a native prompt is open, and typing nothing is the point', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
+    world.setPhase(session.binding.sessionId, 'needs_user')
+    const receipt = await session.send(
+      { text: 'go on' },
+      { origin: 'steward', delivery: 'when-ready' },
+    )
+    expect(receipt).toEqual({
+      outcome: 'refused',
+      refusal: { reason: 'needs_user', detail: 'a native prompt is open' },
+    })
+    expect(world.written).toEqual([])
+  })
+
+  it('POD-4387: when-ready on a fresh idle session is accepted, not queued, even before settle', async () => {
+    // THE SEND-OUTCOME PIN. POD-4291 gated direct `when-ready` on `deliveryReady()`
+    // (live + 6s settle/quiet) and routed every fresh idle session through the inner
+    // queue, so the conformance corpus reported `queued` where the contract requires
+    // `accepted` — for all six terminal profiles. The settle wait belongs to the queue
+    // drain and the outer durable `withDeliveryQueue`, never to the direct path.
+    // Uses `bind` (just came up, unsettled), deliberately NOT `ready` (settled).
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    world.bind(session.binding.sessionId)
+    world.hookOnSubmit(session.binding.sessionId)
+    const receipt = await session.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+    expect(receipt.outcome).toBe('accepted')
+    if (receipt.outcome !== 'accepted') return
+    expect(receipt.turnEpoch).toBeGreaterThan(0)
+    expect(receipt.deliveredAs).toBe('when-ready')
+    expect(receipt.provenBy).toBe('hook')
+  })
+
+  it('POD-4387: needs_user still refuses on an unsettled session instead of queueing', async () => {
+    // REFUSAL PRECEDENCE. The same gate ran before the `needs_user` check, turning a
+    // blocking ask into a parked turn. An open native prompt refuses even when the CLI
+    // just came up — queueing would bury the question the user has to answer.
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    world.bind(session.binding.sessionId)
     world.setPhase(session.binding.sessionId, 'needs_user')
     const receipt = await session.send(
       { text: 'go on' },
@@ -941,6 +1013,7 @@ describe('send receipts', () => {
   it('sends ESC before the replacement prompt on an interrupt delivery', async () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.setPhase(session.binding.sessionId, 'needs_user')
     world.hookOnSubmit(session.binding.sessionId)
     const resolved = await session.send(
@@ -969,6 +1042,7 @@ describe('send receipts', () => {
     try {
       const driver = world.runtime.driverFor('claude-code', CLAUDE)
       const session = await driver.create(SPEC)
+      world.ready(session.binding.sessionId)
       // No hookOnSubmit and no echo: the instrumentation channel never answered.
       const first = await session.send(
         { text: 'first without a channel' },
@@ -1024,6 +1098,7 @@ describe('the paste boundary at the driver seam', () => {
     // function's return value.
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     // A causal accept stops the real profile's submit-verification nudges;
     // this property is about the one accepted payload's paste boundary.
     world.hookOnSubmit(session.binding.sessionId)
@@ -1052,6 +1127,7 @@ describe('the paste boundary at the driver seam', () => {
     // that would have been very easy to ship.
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     world.hookOnSubmit(session.binding.sessionId)
     const resolved = await session.send(
       { text: `look at this${PASTE_CLOSE} and then stop` },
@@ -1068,6 +1144,7 @@ describe('the paste boundary at the driver seam', () => {
     // which is exactly the "fix that breaks normal operation" the bar rules out.
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.interrupt()
     expect(world.written[0]).toBe(ESC)
   })
@@ -1078,6 +1155,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.lease.acquire('human:mgw', 'human-controller')
 
     const receipt = await session.send(
@@ -1101,6 +1179,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.lease.acquire('human:mgw', 'human-controller')
 
     const receipt = await session.send(
@@ -1117,6 +1196,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
     await session.lease.acquire('human:mgw', 'human-controller')
 
@@ -1145,6 +1225,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.lease.acquire('human:mgw', 'human-controller')
 
     // Human origin, but NOT the holder. Before the fix this was indistinguishable
@@ -1167,6 +1248,7 @@ describe('the human-controller lease', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     await session.lease.acquire('human:mgw', 'human-controller')
 
     // No principal at all. It MIGHT be the holder, and that is exactly the point:
@@ -1187,6 +1269,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
     // A conversation that already happened.
     world.echo(sessionId, 'turn one')
@@ -1232,6 +1315,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1268,6 +1352,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1286,6 +1371,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1303,6 +1389,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1324,6 +1411,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1342,6 +1430,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     // A queue drain overlapping a chat send — the scenario the hook path names
@@ -1371,6 +1460,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     const receipt = session.send(
@@ -1391,6 +1481,7 @@ describe('the echo baseline', () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
     world.echo(sessionId, 'turn one')
 
@@ -1415,6 +1506,7 @@ describe('the echo baseline', () => {
     // The real Grok profile uses raw input only before its first native turn.
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
     const sessionId = session.binding.sessionId
 
     void session.send({ text: 'first' }, { origin: 'human', delivery: 'when-ready' })
@@ -1432,7 +1524,7 @@ describe('the echo baseline', () => {
   it('does not type a raw first turn into an ADOPTED conversation whose replay buffer has rolled', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
-    const created = await driver.create(SPEC)
+    const created = await driver.create({ ...SPEC, harness: 'grok' })
     const sessionId = created.binding.sessionId
     const binding = created.binding
 
@@ -1441,6 +1533,7 @@ describe('the echo baseline', () => {
     // reason it may not be read out of the driver's own event log.
     world.runtime.control.restartSupervisor()
     const session = await driver.adopt(binding)
+    world.ready(session.binding.sessionId)
 
     // Everything the adopted driver learns about turns that happened before it
     // arrives as the harness's OWN transcript, re-tailed and re-delivered.
@@ -1463,6 +1556,42 @@ describe('the echo baseline', () => {
 })
 
 describe('the queue drain', () => {
+  it('POD-4387: direct when-ready is NOT gated behind composer readiness (queued is for explicit queue)', async () => {
+    // SUPERSEDES the two `queued`-for-unsettled pins POD-4291 added here. Those pinned
+    // the defect this issue fixes: gating direct `when-ready` on `deliveryReady()` made
+    // every fresh idle session report `queued` where the contract requires `accepted`,
+    // breaking the conformance corpus for all six profiles and turning `needs_user`
+    // into a parked turn. The settle wait belongs to the QUEUE DRAIN (next test) and to
+    // the outer durable `withDeliveryQueue` via `deliveryReady` as its `ready` — never to
+    // the direct path, which types immediately and reports `accepted`/`unverified`.
+    // `re-arms` case: settled, then a fresh bind (unsettled again) — still direct.
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.ready(session.binding.sessionId)
+    world.bind(session.binding.sessionId)
+    // No hook/echo: typed immediately, proof never arrives → `unverified`, not `queued`.
+    const receipt = await session.send(
+      { text: 'new bind' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('unverified')
+    expect(world.written.length).toBeGreaterThan(0)
+  })
+
+  it('POD-4387: direct when-ready before any bind still types (does not queue)', async () => {
+    // See above: pre-bind (not live) direct sends type and report the verification
+    // truth (`unverified` with no proof), they do not park as `queued`. `queued` is
+    // reserved for explicit `queue`/`steer`/lease requests (next test).
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const receipt = await session.send(
+      { text: 'too early' },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt.outcome).toBe('unverified')
+    expect(world.written.length).toBeGreaterThan(0)
+  })
+
   it('does not type into a session that is still starting', async () => {
     const world = makeWorld()
     const driver = world.runtime.driverFor('grok', GROK)
@@ -1665,9 +1794,7 @@ describe('the queue drain', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 400; i++) await Promise.resolve()
 
-    expect(world.written.filter((text) => text !== '\r')).toEqual([
-      'delivered',
-    ])
+    expect(world.written.filter((text) => text !== '\r')).toEqual(['delivered'])
     expect(world.abandoned).toEqual([])
   })
 
@@ -1739,9 +1866,7 @@ describe('the queue drain', () => {
     ).toBe('queued')
     await new Promise((resolve) => setTimeout(resolve, 0))
     for (let i = 0; i < 400; i++) await Promise.resolve()
-    expect(world.written.filter((text) => text !== '\r')).toEqual([
-      'after launch',
-    ])
+    expect(world.written.filter((text) => text !== '\r')).toEqual(['after launch'])
   })
 
   it('holds a bind for the session it named, never for the next one (POD-2107)', async () => {
@@ -1870,6 +1995,80 @@ describe('adopt', () => {
     expect(adopted.event.provenance).toBe('live')
     expect(Number(adopted.event.cursor.components.seq)).toBeGreaterThan(lastSeq)
   })
+  it('composes the host before returning adoption and propagates reconstruction failure', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const binding = session.binding
+    world.runtime.control.restartSupervisor()
+    let composed = false
+    const recover = world.host.recover
+    world.host.recover = async (msg, ready) => {
+      expect(world.runtime.handleFor(msg.sessionId)).toBeUndefined()
+      expect(msg.durableLabel).toBe(binding.process.key)
+      await recover(msg, ready)
+      composed = true
+    }
+    const adopted = await driver.adopt(binding)
+    expect(composed).toBe(true)
+    expect(adopted.binding.process.key).toBe(binding.process.key)
+    world.runtime.control.restartSupervisor()
+    world.host.recover = async () => {
+      throw new Error('screen reconstruction failed')
+    }
+    await expect(driver.adopt(binding)).rejects.toThrow('screen reconstruction failed')
+    expect(world.runtime.handleFor(binding.sessionId)).toBeUndefined()
+  })
+
+  it('rejects a prefix or foreign incarnation before composing a host', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const binding = session.binding
+    world.host.recover = async () => {
+      throw new Error('must not compose')
+    }
+    for (const key of [binding.process.key.slice(0, -1), `${binding.process.key}-other`]) {
+      await expect(driver.adopt({ ...binding, process: { key } })).rejects.toThrow(
+        'identity mismatch',
+      )
+    }
+  })
+
+  it('buffers recovery observations until the new lease is installed and refuses stale reattach', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    const sessionId = session.binding.sessionId
+    const recover = world.host.recover
+    world.host.recover = async (msg, ready) => {
+      world.observe(sessionId, { observerGeneration: 9, bindingVersion: 7, turnEpoch: 12 })
+      await recover(msg, ready)
+    }
+    const msg = {
+      type: 'reattach' as const,
+      sessionId,
+      agentKind: 'claude-code' as const,
+      durableLabel: session.binding.process.key,
+      cwd: SPEC.workdir,
+      lastKnownGeometry: { cols: 120, rows: 40 },
+      observationGeneration: 9,
+      observationBindingVersion: 7,
+      observationCheckpoint: { retained: 'opaque host checkpoint' },
+    }
+    const recovered = await world.runtime.recoverWithId(msg, CLAUDE)
+    const snapshot = await recovered.snapshot()
+    expect(snapshot.observerGeneration).toBe(9)
+    expect(snapshot.binding.bindingVersion).toBe(7)
+    expect(snapshot.turnEpoch).toBe(12)
+    await expect(
+      world.runtime.recoverWithId({ ...msg, observationGeneration: 8 }, CLAUDE),
+    ).rejects.toThrow('fence is stale')
+    // Repeated delivery of the same authoritative lease does not invent a fence.
+    const repeated = await world.runtime.recoverWithId(msg, CLAUDE)
+    expect((await repeated.snapshot()).observerGeneration).toBe(9)
+    expect(repeated.binding.bindingVersion).toBe(7)
+  })
 
   it('continues a live stream after its bounded replay buffer trims', async () => {
     const world = makeWorld()
@@ -1950,6 +2149,136 @@ describe('observation translation', () => {
     state: { phase: 'working', since: '2026-08-14T00:00:00.000Z', nativeSubagentCount: 0 },
   }
 
+  it('restores quiet bootstrap and native subagent identity without inventing turns', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    const since = '2026-01-01T00:00:00.000Z'
+    for (const count of [1, 0]) {
+      const state: AgentRuntimeState = {
+        phase: count ? 'working' : 'idle',
+        since,
+        nativeSubagentCount: count,
+        ...(count
+          ? { nativeSubagents: [{ id: 'child-1', type: 'Explore' }], awaitingSubagents: true }
+          : { idle: { kind: 'done' } }),
+      }
+      world.observe(sessionId, {
+        transitionKind: count ? 'snapshot' : 'subagent_bookkeeping',
+        provenance: count ? 'bootstrap' : 'live',
+        state,
+        providerAt: count ? null : since,
+      })
+      expect((await session.snapshot()).state).toEqual(state)
+    }
+    const events = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' ? [frame.event] : [],
+    )
+    expect(events.map((event) => event.t)).toEqual(['state', 'state'])
+    expect(events[0]).toMatchObject({
+      provenance: 'bootstrap',
+      at: since,
+      change: { state: { nativeSubagents: [{ id: 'child-1', type: 'Explore' }] } },
+    })
+    expect(events[1]).toMatchObject({
+      change: { state: { phase: 'idle', nativeSubagentCount: 0 } },
+    })
+  })
+
+  it('publishes screen-only prompts and rejects stale state and foreign observation identities', async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    const since = '2026-01-01T00:00:00.000Z'
+    const state: AgentRuntimeState = {
+      phase: 'needs_user',
+      since,
+      nativeSubagentCount: 0,
+      stateSource: 'classifier',
+      need: { kind: 'permission', summary: 'Sign in to continue' },
+    }
+    world.runtime.observeState({ sessionId, state, observerGeneration: 1, bindingVersion: 1 })
+    expect((await session.state()).need?.summary).toBe('Sign in to continue')
+    const before = world.frames.length
+    world.runtime.observeState({
+      sessionId,
+      state: { ...state, phase: 'idle' },
+      observerGeneration: 0,
+      bindingVersion: 1,
+    })
+    world.observe(sessionId, { observerGeneration: 0 })
+    world.observe(sessionId, { bindingVersion: 0 })
+    expect(world.frames).toHaveLength(before)
+    expect(world.frames[0]).toMatchObject({
+      type: 'runtimeEvent',
+      event: { t: 'state', at: since, change: { state } },
+    })
+    expect(world.written).toEqual([])
+  })
+
+  it.each(['generation', 'binding', 'provider'] as const)(
+    'rejects an observation with stale or foreign %s independently', async (guard) => {
+      const world = makeWorld()
+      const session = await world.runtime.driverFor('claude-code', CLAUDE).resume(
+        { kind: 'claude-session', value: 'native-owned' }, SPEC,
+      )
+      const sessionId = session.binding.sessionId
+      const initial = await session.snapshot()
+      const observerGeneration = initial.observerGeneration
+      const bindingVersion = session.binding.bindingVersion
+      world.observe(sessionId, { providerSessionId: 'native-owned', observerGeneration, bindingVersion })
+      expect((await session.state()).phase).toBe('working')
+      const before = await session.snapshot()
+      const frameCount = world.frames.length
+      world.observe(sessionId, {
+        providerSessionId: guard === 'provider' ? 'native-foreign' : 'native-owned',
+        observerGeneration: guard === 'generation' ? observerGeneration - 1 : observerGeneration,
+        bindingVersion: guard === 'binding' ? bindingVersion - 1 : bindingVersion,
+        state: { phase: 'idle', since: '2026-01-02T00:00:00.000Z', nativeSubagentCount: 7 },
+      })
+      expect(world.frames).toHaveLength(frameCount)
+      expect(await session.snapshot()).toEqual(before)
+      world.runtime.dispose()
+    },
+  )
+
+  it.each(['working', 'compacting', 'needs_user'] as const)(
+    'bootstraps the first %s poll after rebind without inventing a turn', async (phase) => {
+      const world = makeWorld()
+      const profile = shippedProfile('opencode')
+      const session = await world.runtime.driverFor('opencode', profile).create({ ...SPEC, harness: 'opencode' })
+      const sessionId = session.binding.sessionId
+      const initial = await session.snapshot()
+      world.runtime.observeState({
+        sessionId, observerGeneration: initial.observerGeneration,
+        bindingVersion: session.binding.bindingVersion,
+        state: { phase: 'idle', since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, stateSource: 'poll' },
+      })
+      world.runtime.register({ sessionId, agentKind: 'opencode', cwd: SPEC.workdir, resume: null }, profile)
+      const rebound = await session.snapshot()
+      expect(rebound.observerGeneration).toBeGreaterThan(initial.observerGeneration)
+      const start = world.frames.length
+      const state: AgentRuntimeState = {
+        phase, since: '2026-01-01T00:00:01.000Z', nativeSubagentCount: 0, stateSource: 'poll',
+      }
+      const poll = (state: AgentRuntimeState) => world.runtime.observeState({
+        sessionId, state, observerGeneration: rebound.observerGeneration,
+        bindingVersion: session.binding.bindingVersion,
+      })
+      poll(state)
+      expect(world.frames.slice(start)).toEqual([
+        expect.objectContaining({ type: 'runtimeEvent', event: expect.objectContaining({
+          t: 'state', provenance: 'bootstrap', change: { kind: 'state_snapshot', state, at: state.since },
+        }) }),
+      ])
+      expect((await session.snapshot()).turnEpoch).toBe(initial.turnEpoch)
+      poll({ ...state, since: '2026-01-01T00:00:02.000Z' })
+      expect(world.frames.slice(start)).toHaveLength(2)
+      expect(world.frames.at(-1)).toMatchObject({ type: 'runtimeEvent', event: { t: 'state', provenance: 'live' } })
+      world.runtime.dispose()
+    },
+  )
+
   // Regression from POD-4056: the selected poll source owns this boundary once.
 
   it('emits one start when observation and poll report the same turn', async () => {
@@ -1965,8 +2294,9 @@ describe('observation translation', () => {
       nextPhase: 'working',
       turnEpoch: 1,
     })
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'working',
@@ -1982,57 +2312,67 @@ describe('observation translation', () => {
     expect(turns.map((event) => event.ev.ev)).toEqual(['started'])
   })
 
-  it.each(['state-first', 'observation-first'] as const)(
-    'keeps OpenCode poll epochs authoritative across turns (%s)',
-    async (order) => {
-      const world = makeWorld()
-      const profile = terminalProfileFor('opencode')
-      if (!profile) throw new Error('OpenCode terminal profile missing')
-      expect(profile.lifecycleFromState).toBe(true)
-      const session = await world.runtime.driverFor('opencode', profile).create({
-        ...SPEC,
-        harness: 'opencode',
-      })
-      const sessionId = session.binding.sessionId
+  it.each([
+    'state-first',
+    'observation-first',
+  ] as const)('keeps OpenCode poll epochs authoritative across turns (%s)', async (order) => {
+    const world = makeWorld()
+    const profile = terminalProfileFor('opencode')
+    if (!profile) throw new Error('OpenCode terminal profile missing')
+    expect(profile.lifecycleFromState).toBe(true)
+    const session = await world.runtime.driverFor('opencode', profile).create({
+      ...SPEC,
+      harness: 'opencode',
+    })
+    const sessionId = session.binding.sessionId
 
-      for (let epoch = 1; epoch <= 3; epoch++) {
-        for (const phase of ['working', 'idle'] as const) {
-          const state: AgentRuntimeState = {
-            phase,
-            since: `2026-08-14T00:00:0${epoch}.000Z`,
-            nativeSubagentCount: 0,
-            stateSource: 'poll',
-            ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
-          }
-          const poll = () => world.runtime.observe({ type: 'agentState', sessionId, state })
-          const observe = () => world.observe(sessionId, {
+    for (let epoch = 1; epoch <= 3; epoch++) {
+      for (const phase of ['working', 'idle'] as const) {
+        const state: AgentRuntimeState = {
+          phase,
+          since: `2026-08-14T00:00:0${epoch}.000Z`,
+          nativeSubagentCount: 0,
+          stateSource: 'poll',
+          ...(phase === 'idle' ? { idle: { kind: 'done' as const } } : {}),
+        }
+        const poll = () =>
+          world.runtime.observeState({
+            sessionId,
+            state,
+            observerGeneration: 1,
+            bindingVersion: session.binding.bindingVersion,
+          })
+        const observe = () =>
+          world.observe(sessionId, {
             transitionKind: phase === 'working' ? 'turn_opened' : 'turn_terminal',
             priorPhase: phase === 'working' ? 'idle' : 'working',
             nextPhase: phase,
             turnEpoch: epoch,
             state,
           })
-          if (order === 'state-first') {
-            poll()
-            observe()
-          } else {
-            observe()
-            poll()
-          }
-          expect((await session.snapshot()).turnEpoch).toBe(epoch)
+        if (order === 'state-first') {
+          poll()
+          observe()
+        } else {
+          observe()
+          poll()
         }
+        expect((await session.snapshot()).turnEpoch).toBe(epoch)
       }
+    }
 
-      const turns = world.frames.flatMap((frame) =>
-        frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],
-      )
-      expect(turns.map(({ ev, turnEpoch }) => [ev, turnEpoch])).toEqual([
-        ['started', 1], ['completed', 1],
-        ['started', 2], ['completed', 2],
-        ['started', 3], ['completed', 3],
-      ])
-    },
-  )
+    const turns = world.frames.flatMap((frame) =>
+      frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],
+    )
+    expect(turns.map(({ ev, turnEpoch }) => [ev, turnEpoch])).toEqual([
+      ['started', 1],
+      ['completed', 1],
+      ['started', 2],
+      ['completed', 2],
+      ['started', 3],
+      ['completed', 3],
+    ])
+  })
 
   it('does not let an observation epoch or fence poison the OpenCode poll counter', async () => {
     const world = makeWorld()
@@ -2056,11 +2396,12 @@ describe('observation translation', () => {
     // turn emits nothing — so nothing is lost by asking the surface that exists.
     expect(observed.observerGeneration).toBe(9)
     expect(observed.cursor.segmentId).toBe('seg')
-    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent')).toHaveLength(2)
+    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent')).toHaveLength(3)
 
     for (const phase of ['working', 'idle', 'working', 'idle'] as const) {
-      world.runtime.observe({
-        type: 'agentState',
+      world.runtime.observeState({
+        observerGeneration: (await session.snapshot()).observerGeneration,
+        bindingVersion: session.binding.bindingVersion,
         sessionId,
         state: {
           phase,
@@ -2075,8 +2416,10 @@ describe('observation translation', () => {
       frame.type === 'runtimeEvent' && frame.event.t === 'turn' ? [frame.event.ev] : [],
     )
     expect(turns.map(({ ev, turnEpoch }) => [ev, turnEpoch])).toEqual([
-      ['started', 1], ['completed', 1],
-      ['started', 2], ['completed', 2],
+      ['started', 1],
+      ['completed', 1],
+      ['started', 2],
+      ['completed', 2],
     ])
   })
 
@@ -2086,8 +2429,9 @@ describe('observation translation', () => {
     const driver = world.runtime.driverFor('opencode', profile)
     const session = await driver.create({ ...SPEC, harness: 'opencode' })
     const sessionId = session.binding.sessionId
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'working',
@@ -2096,8 +2440,9 @@ describe('observation translation', () => {
         stateSource: 'classifier',
       },
     })
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'idle',
@@ -2107,10 +2452,13 @@ describe('observation translation', () => {
         stateSource: 'classifier',
       },
     })
-    expect(world.frames).toEqual([])
+    expect(
+      world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn'),
+    ).toEqual([])
 
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'idle',
@@ -2120,8 +2468,9 @@ describe('observation translation', () => {
         stateSource: 'poll',
       },
     })
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'working',
@@ -2130,8 +2479,9 @@ describe('observation translation', () => {
         stateSource: 'poll',
       },
     })
-    world.runtime.observe({
-      type: 'agentState',
+    world.runtime.observeState({
+      observerGeneration: (await session.snapshot()).observerGeneration,
+      bindingVersion: session.binding.bindingVersion,
       sessionId,
       state: {
         phase: 'idle',
@@ -2203,7 +2553,9 @@ describe('observation translation', () => {
         frame.event.t === 'item' &&
         frame.event.item.kind === 'complete'
           ? [{ event: frame.event, item: frame.event.item.item }]
-          : [],
+          : frame.type === 'runtimeEvent' && frame.event.t === 'transcript-reset'
+            ? frame.event.items.map((item) => ({ event: frame.event, item }))
+            : [],
       )
       expect(items.map((entry) => entry.item.id)).toEqual([user.id, assistant.id])
       expect(items[1]?.event).toMatchObject({ observerGeneration: 2 })
@@ -2420,29 +2772,25 @@ describe('observation translation', () => {
     })
   })
 
-  it('reads the compaction direction rather than assuming it', () => {
-    // Getting this backwards would re-prime the instruction channel at the wrong
-    // boundary — a silent failure, which is why it is read from the phase.
-    expect(
-      stateEventForObservation({
-        ...base,
-        transitionKind: 'compaction',
-        nextPhase: 'compacting',
-      }),
-    ).toMatchObject({ kind: 'compaction', phase: 'start' })
-    expect(
-      stateEventForObservation({
-        ...base,
-        transitionKind: 'compaction',
-        nextPhase: 'idle',
-      }),
-    ).toMatchObject({ kind: 'compaction', phase: 'end' })
+  it.each([
+    'compacting',
+    'idle',
+    'unknown',
+  ] as const)('preserves the complete %s phase', (phase) => {
+    const state = { ...base.state, phase }
+    expect(stateEventForObservation({ ...base, transitionKind: 'compaction', state })).toEqual({
+      kind: 'state_snapshot',
+      state,
+      at: base.providerAt ?? base.receivedAt,
+    })
   })
 
-  it('emits NOTHING for a transition it cannot name honestly', () => {
+  it('preserves bookkeeping state without inventing a delta', () => {
     // The observation does not carry a subagent delta's direction, so there is no
-    // event that would be true. Silence beats plausible.
-    expect(stateEventForObservation({ ...base, transitionKind: 'subagent_bookkeeping' })).toBeNull()
+    // delta that would be true. The full folded state is lossless.
+    expect(
+      stateEventForObservation({ ...base, transitionKind: 'subagent_bookkeeping' }),
+    ).toMatchObject({ kind: 'state_snapshot', state: base.state })
     expect(turnEventForObservation({ ...base, transitionKind: 'activity' })).toBeNull()
   })
 
@@ -2688,5 +3036,421 @@ describe('draft write availability', () => {
     )
     expect(drafts).toHaveLength(2)
     expect((await session.snapshot()).draft).toBe('')
+  })
+})
+
+describe('answer script ownership', () => {
+  it('refuses an observed ask after its bridge is replaced, before the first key', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    world.observe(handle.binding.sessionId, { nextPhase: 'needs_user' })
+    const id = (await handle.interactions())[0]!.id
+    const replacementWrites: string[] = []
+    world.host.bridge = () => ({ pid: 99, write: (data) => replacementWrites.push(data) })
+    expect(await handle.answer(id, { index: 0 })).toEqual({ ok: false, reason: 'expired' })
+    expect(world.written).toEqual([])
+    expect(replacementWrites).toEqual([])
+    world.runtime.dispose()
+  })
+
+  it.each(['replacement', 'human', 'bridge', 'bridge-disposal', 'dispose', 'clear', 'rebind', 'exit'] as const)(
+    'cancels the remaining multikey script after %s', async (cause) => {
+      const world = makeWorld()
+      const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+      const sessionId = handle.binding.sessionId
+      vi.useFakeTimers()
+      world.host.setTimer = (fn, delay) => setTimeout(fn, delay)
+      world.host.clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)
+      const ask = (transitionId: string) => world.observe(sessionId, {
+        transitionId, nextPhase: 'needs_user', priorPhase: 'working',
+        state: { phase: 'needs_user', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0,
+          need: { kind: 'question', summary: 'Pick', interview: { questions: [
+            { question: 'Pick', multiSelect: true, options: [{ label: 'One' }, { label: 'Two' }] },
+          ] } } },
+      })
+      try {
+        ask('first')
+        const id = (await handle.interactions())[0]!.id
+        const pending = handle.answer(id, { kind: 'question', selections: [{ optionIndices: [1, 2] }] })
+        expect(world.written).toEqual(['1'])
+        expect(answeredEvents(world)).toEqual([])
+        if (cause === 'replacement') ask('second')
+        if (cause === 'human') world.observe(sessionId, { priorPhase: 'needs_user', nextPhase: 'working' })
+        const replacementWrites: string[] = []
+        if (cause === 'bridge') world.host.bridge = () => ({ pid: 99, write: (data) => replacementWrites.push(data) })
+        if (cause === 'bridge-disposal') world.host.bridge = () => undefined
+        if (cause === 'dispose') world.runtime.dispose()
+        if (cause === 'clear') world.runtime.clear(sessionId)
+        if (cause === 'rebind') world.runtime.register({ sessionId, agentKind: 'claude-code', cwd: SPEC.workdir, resume: null }, CLAUDE)
+        if (cause === 'exit') world.runtime.observe({ type: 'agentExit', sessionId, code: 0 })
+        await vi.advanceTimersByTimeAsync(2000)
+        expect(await pending).toMatchObject({ ok: false, reason: 'partial-delivery' })
+        expect(world.written).toEqual(['1'])
+        expect(replacementWrites).toEqual([])
+        expect(await handle.answer(id, { index: 0 })).toMatchObject({ ok: false })
+      } finally {
+        world.runtime.dispose()
+        vi.useRealTimers()
+      }
+    },
+  )
+
+  it('reports completion only after the final write and keeps replay idempotent', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    vi.useFakeTimers()
+    world.host.setTimer = (fn, delay) => setTimeout(fn, delay)
+    world.host.clearTimer = (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>)
+    try {
+      world.observe(handle.binding.sessionId, { transitionId: 'preview', nextPhase: 'needs_user',
+        state: { phase: 'needs_user', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0,
+          need: { kind: 'question', summary: 'Pick', interview: { questions: [
+            { question: 'Pick', options: [{ label: 'One', preview: 'Preview' }] },
+          ] } } },
+      })
+      const id = (await handle.interactions())[0]!.id
+      const pending = handle.answer(id, { kind: 'question', selections: [{ optionIndices: [1] }] })
+      expect(world.written).toEqual(['1'])
+      expect(answeredEvents(world)).toEqual([])
+      expect(await handle.answer(id, { index: 0 })).toEqual({ ok: false, reason: 'already-answered' })
+      await vi.advanceTimersByTimeAsync(120)
+      expect(await pending).toEqual({ ok: true })
+      expect(world.written).toEqual(['1', '\r'])
+      expect(answeredEvents(world)).toHaveLength(1)
+    } finally { world.runtime.dispose(); vi.useRealTimers() }
+  })
+})
+
+describe('driver-private mail hook intervention', () => {
+  it.each(['stop', 'tool'] as const)('returns the %s veto through the real hook endpoint and preserves the active turn', async (kind) => {
+    const world = makeWorld()
+    const unread = vi.fn(async () => ({ ok: true, result: { unread: 1, senders: ['parent'] } }))
+    const ack = vi.fn(async () => ({ ok: true, result: [{ id: 'reply-1', from: 'parent' }] }))
+    world.host.boundaryContext = composeMailContext(createMailInjector(unread), createAckReminderInjector(ack)).pendingContext
+    const session = await world.runtime.driverFor(kind === 'stop' ? 'claude-code' : 'grok', kind === 'stop' ? CLAUDE : GROK).create({
+      ...SPEC, harness: kind === 'stop' ? 'claude-code' : 'grok',
+    })
+    const id = session.binding.sessionId
+    world.setPhase(id, 'working')
+    const before = await session.snapshot()
+    const ing = await startHookIngest({ port: 0, onPayload: world.runtime.onHookPayload, respondTo: world.runtime.respondToHook })
+    const post = async (payload: unknown) => (await fetch(ing.endpointFor(id), {
+      method: 'POST', body: JSON.stringify(payload),
+    })).json() as Promise<{ decision?: string; reason?: string }>
+    try {
+      const payload = kind === 'stop' ? { hook_event_name: 'Stop' } : { hookEventName: 'PreToolUse', toolName: 'Bash' }
+      const response = await post(payload)
+      expect(response.decision).toBe(kind === 'stop' ? 'block' : 'deny')
+      expect(response.reason).toContain('from parent')
+      expect((await session.state()).phase).toBe('working')
+      expect((await session.snapshot()).turnEpoch).toBe(before.turnEpoch)
+      expect(world.written).toEqual([]) // response veto, never an injected recursive prompt
+      expect(ack).not.toHaveBeenCalled()
+      if (kind === 'stop') {
+        expect(await post({ ...payload, stop_hook_active: true })).toEqual({})
+        expect(ack).not.toHaveBeenCalled()
+      }
+      // Unread cooldown lets the second policy supply its one persisted reminder.
+      expect((await post(payload)).reason).toContain('podium mail reply reply-1')
+      expect(await post(payload)).toEqual({})
+      expect(unread).toHaveBeenCalledTimes(1)
+      expect(ack).toHaveBeenCalledTimes(1)
+    } finally {
+      await ing.close()
+      world.runtime.dispose()
+    }
+  })
+
+  it('does not poll mail for a session the terminal driver does not own', async () => {
+    const world = makeWorld()
+    const source = vi.fn(async () => 'mail')
+    world.host.boundaryContext = source
+    expect(await world.runtime.respondToHook('foreign-session' as SessionId, { hook_event_name: 'Stop' })).toBeNull()
+    expect(source).not.toHaveBeenCalled()
+    world.runtime.dispose()
+  })
+})
+
+describe('driver-owned prime boundary', () => {
+  it.each(['claude-code', 'codex', 'grok'] as const)(
+    '%s preserves startup, duplicate, compaction, failed fetch, scope and resume behavior', async (harness) => {
+      const source = vi.fn(async (sessionId: SessionId) => ({ ok: true, result: `prime:${sessionId}` }))
+      const world = makeWorld({ primeSource: source })
+      const profile = terminalProfileFor(harness)!
+      const spec = { ...SPEC, harness }
+      const driver = world.runtime.driverFor(harness, profile)
+      try {
+        const handle = await driver.create(spec)
+        const sessionId = handle.binding.sessionId
+        const event = (name: string) => harness === 'grok'
+          ? { hookEventName: name } : { hook_event_name: name }
+        const respond = (name: string) => primeHookResponse(handle.boundaryContext!, event(name))
+        expect(JSON.parse((await respond('SessionStart'))!)).toEqual({
+          hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `prime:${sessionId}` },
+        })
+        expect(await respond('SessionStart')).toBeNull()
+        expect(await respond('UserPromptSubmit')).toBeNull()
+        expect(source).toHaveBeenCalledTimes(1)
+        expect(await respond('PreCompact')).toBeNull()
+        source.mockResolvedValueOnce({ ok: false, result: '' })
+        expect(await respond('UserPromptSubmit')).toBeNull()
+        expect(JSON.parse((await respond('UserPromptSubmit'))!).hookSpecificOutput.additionalContext)
+          .toBe(`prime:${sessionId}`)
+        expect(source.mock.calls.every(([id]) => id === sessionId)).toBe(true)
+        expect(world.written).toEqual([])
+        expect(world.frames.some((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn')).toBe(false)
+        const kind = harness === 'codex' ? 'codex-thread' : harness === 'grok' ? 'grok-session' : 'claude-session'
+        const resumed = await driver.resume({ kind, value: 'native' }, spec)
+        expect(await resumed.boundaryContext!({ event: 'start' })).toBe(`prime:${resumed.binding.sessionId}`)
+        expect(await resumed.boundaryContext!({ event: 'prompt' })).toBeNull()
+      } finally {
+        world.runtime.dispose()
+      }
+    },
+  )
+
+  // Full-stack parity: the same driver operation, reached through the real
+  // hook transport each harness posts to (Codex over the instance Unix
+  // socket, Claude and Grok over HTTP with their own payload spelling).
+  // Hidden context travels in the hook response — never typed into the PTY,
+  // never opened as a turn — on every wire.
+  const deliversOverWire = async (harness: 'claude-code' | 'codex' | 'grok'): Promise<void> => {
+    const source = vi.fn(async (sessionId: SessionId) => ({ ok: true, result: `prime:${sessionId}` }))
+    const world = makeWorld({ primeSource: source })
+    const profile = terminalProfileFor(harness)!
+    const handle = await world.runtime
+      .driverFor(harness, profile)
+      .create({ ...SPEC, harness })
+    const sessionId = handle.binding.sessionId
+    const wire = (name: string): Record<string, string> =>
+      harness === 'grok' ? { hookEventName: name } : { hook_event_name: name }
+    const root = harness === 'codex' ? await mkdtemp(join(tmpdir(), 'podium-prime-codex-')) : undefined
+    const ing = await startHookIngest({
+      port: 0,
+      ...(root ? { socketPath: join(root, 'ingest.sock') } : {}),
+      onPayload: world.runtime.onHookPayload,
+      // Same composition as the daemon host: driver context first, the
+      // driver's mail responder behind it.
+      boundaryContext: async (sid, payload, signal) => {
+        const operation = world.runtime.boundaryContextFor(sid)
+        return operation ? primeHookResponse(operation, payload, signal) : null
+      },
+      respondTo: world.runtime.respondToHook,
+    })
+    const postWire = async (body: unknown): Promise<string> => {
+      if (root) {
+        return new Promise<string>((resolve, reject) => {
+          const req = request(
+            {
+              socketPath: join(root, 'ingest.sock'),
+              path: `/hooks/${sessionId}`,
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+            },
+            (res) => {
+              const chunks: Buffer[] = []
+              res.on('data', (chunk: Buffer) => chunks.push(chunk))
+              res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
+            },
+          )
+          req.on('error', reject)
+          req.end(JSON.stringify(body))
+        })
+      }
+      const res = await fetch(ing.endpointFor(sessionId), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      return res.text()
+    }
+    try {
+      expect(JSON.parse(await postWire(wire('SessionStart')))).toEqual({
+        hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `prime:${sessionId}` },
+      })
+      expect(await postWire(wire('UserPromptSubmit'))).toBe('{}')
+      expect(source).toHaveBeenCalledTimes(1)
+      expect(world.written).toEqual([])
+      expect(world.frames.some((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'turn')).toBe(false)
+      expect(await postWire(wire('PreCompact'))).toBe('{}')
+      expect(
+        JSON.parse(await postWire(wire('UserPromptSubmit'))).hookSpecificOutput.additionalContext,
+      ).toBe(`prime:${sessionId}`)
+    } finally {
+      await ing.close()
+      if (root) await rm(root, { recursive: true, force: true })
+      world.runtime.dispose()
+    }
+  }
+
+  it.each(['claude-code', 'grok'] as const)(
+    '%s delivers driver prime through its real hook transport without sending',
+    deliversOverWire,
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'codex delivers driver prime through its real hook transport without sending',
+    () => deliversOverWire('codex'),
+  )
+
+  it('owns the startup boundary before the harness launch completes', async () => {
+    const world = makeWorld({ primeSource: async () => ({ ok: true, result: 'early' }) })
+    const sessionId = 'early-prime' as SessionId
+    try {
+      const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {
+        expect(await world.runtime.boundaryContextFor(sessionId)?.({ event: 'start' })).toBe('early')
+      })
+      expect(await handle.boundaryContext!({ event: 'start' })).toBeNull()
+    } finally {
+      world.runtime.dispose()
+    }
+  })
+
+  it('fences retained callbacks and late prime fetches from a replacement session with the same id', async () => {
+    let resolve!: (result: { ok: boolean; result: string }) => void
+    const source = vi.fn()
+      .mockImplementationOnce(() => new Promise<{ ok: boolean; result: string }>((done) => { resolve = done }))
+      .mockResolvedValue({ ok: true, result: 'replacement prime' })
+    const world = makeWorld({ primeSource: source })
+    const sessionId = 'reused-prime' as SessionId
+    try {
+      const old = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {})
+      const callback = world.runtime.boundaryContextFor(sessionId)!
+      const pending = callback({ event: 'start' })
+      world.runtime.clear(sessionId)
+      const replacement = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {})
+      expect(await old.boundaryContext!({ event: 'start' })).toBeNull()
+      expect(await callback({ event: 'start' })).toBeNull()
+      expect(source).toHaveBeenCalledTimes(1)
+      resolve({ ok: true, result: 'old prime' })
+      expect(await pending).toBeNull()
+      expect(await replacement.boundaryContext!({ event: 'start' })).toBe('replacement prime')
+      expect(source).toHaveBeenCalledTimes(2)
+    } finally {
+      world.runtime.dispose()
+    }
+  })
+
+  it('does not advertise hidden context on a terminal without instrumentation', async () => {
+    const source = vi.fn(async () => ({ ok: true, result: 'prime' }))
+    const world = makeWorld({ primeSource: source })
+    try {
+      const handle = await world.runtime.driverFor('opencode', shippedProfile('opencode'))
+        .create({ ...SPEC, harness: 'opencode' })
+      expect(handle.boundaryContext).toBeUndefined()
+      expect(world.runtime.boundaryContextFor(handle.binding.sessionId)).toBeUndefined()
+      expect(source).not.toHaveBeenCalled()
+    } finally {
+      world.runtime.dispose()
+    }
+  })
+})
+
+describe('terminal transcript replacement events', () => {
+  it('preserves identical and empty resets, clears dedup state, and retains item identity', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    const item: TranscriptItem = { id: 'stable', cursor: 'native', role: 'assistant', text: 'same' }
+    const before = world.frames.length
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item], reset: true, tail: 'native' })
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [], reset: true })
+    world.runtime.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    const events = world.frames.slice(before).flatMap((frame) => frame.type === 'runtimeEvent' ? [frame.event] : [])
+    expect(events.map((event) => event.t)).toEqual(['item', 'transcript-reset', 'transcript-reset', 'item'])
+    expect(events[1]).toMatchObject({ t: 'transcript-reset', items: [item], tail: 'native' })
+    expect(events[2]).toMatchObject({ t: 'transcript-reset', items: [] })
+    expect(events[3]).toMatchObject({ t: 'item', item: { kind: 'complete', item } })
+  })
+})
+
+describe('native identity publication', () => {
+  it('publishes late native discovery and repin with exact confidence, independently of snapshots', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    for (const value of ['first-native', 'repinned-native']) {
+      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
+        resume: { kind: 'claude-session', value }, confidence: 'exact',
+        observerGeneration: 1, bindingVersion: handle.binding.bindingVersion })
+    }
+    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding')
+      .map((frame) => frame.type === 'runtimeEvent' && frame.event)).toMatchObject([
+      { t: 'binding', resume: { value: 'first-native' }, confidence: 'exact', observerGeneration: 1 },
+      { t: 'binding', resume: { value: 'repinned-native' }, confidence: 'exact', observerGeneration: 1 },
+    ])
+    expect(handle.binding.resume?.value).toBe('repinned-native')
+    world.runtime.dispose()
+  })
+
+  it('holds discovery before registration and retains receipt metadata', async () => {
+    const world = makeWorld()
+    const sessionId = 'early-native' as SessionId
+    const receipt = { id: 'receipt', ownerId: 'owner' as import('@podium/model').UserId,
+      attemptId: 'attempt', observerGeneration: 1 }
+    const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {
+      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
+        resume: { kind: 'claude-session', value: 'early' }, confidence: 'exact',
+        ackRequested: true, receipt, observerGeneration: 1, bindingVersion: 1 })
+    })
+    expect(handle.binding.resume?.value).toBe('early')
+    expect(world.frames.find((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding'))
+      .toMatchObject({ event: { t: 'binding', receipt, ackRequested: true } })
+    world.runtime.dispose()
+  })
+
+  it('rejects wrong-generation discovery and heuristic replacement of an exact identity', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    const discover = (value: string, observerGeneration: number, confidence: 'exact' | 'heuristic') =>
+      world.runtime.observe({ type: 'sessionResumeRef', sessionId,
+        resume: { kind: 'claude-session', value }, confidence, observerGeneration,
+        bindingVersion: handle.binding.bindingVersion })
+    discover('current', 1, 'exact')
+    discover('stale', 0, 'exact')
+    discover('future', 2, 'exact')
+    discover('guess', 1, 'heuristic')
+    expect(handle.binding.resume?.value).toBe('current')
+    expect(world.frames.filter((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding')).toHaveLength(1)
+    world.runtime.dispose()
+  })
+})
+
+describe('terminal retirement completion', () => {
+  it.each(['stop', 'kill'] as const)('%s waits for host measurement and propagates failure', async (verb) => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    let finish!: (retired: boolean) => void
+    world.host.stopSession = () => new Promise<boolean>(resolve => { finish = resolve })
+    let settled = false
+    const pending = handle[verb]().finally(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    finish(false)
+    await expect(pending).rejects.toThrow('retirement was not confirmed')
+    world.runtime.dispose()
+  })
+
+  it('refuses hibernate without a resume reference before asking the host to retire', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const stop = vi.spyOn(world.host, 'stopSession')
+    await expect(handle.hibernate()).resolves.toMatchObject({ reason: 'no_resume_ref' })
+    expect(stop).not.toHaveBeenCalled()
+    world.runtime.dispose()
+  })
+
+  it('hibernate rejects when the host does not confirm retirement', async () => {
+    const world = makeWorld()
+    const handle = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = handle.binding.sessionId
+    world.runtime.observe({ type: 'sessionResumeRef', sessionId,
+      resume: { kind: 'claude-session', value: 'native' }, confidence: 'exact',
+      observerGeneration: 1, bindingVersion: handle.binding.bindingVersion })
+    world.host.stopSession = async () => false
+    await expect(handle.hibernate()).rejects.toThrow('terminal process retirement was not confirmed')
+    world.runtime.dispose()
   })
 })

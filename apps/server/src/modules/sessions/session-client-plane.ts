@@ -80,6 +80,7 @@ export class SessionClientPlane {
         ? 'allowed'
         : 'denied'
     const requestedGeneration = observationLease?.observationGeneration ?? 1
+    const driverRequest = session.reattachDriverRequest()
     return {
       type: 'reattach',
       sessionId: session.sessionId,
@@ -117,9 +118,7 @@ export class SessionClientPlane {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
-      ...(session.lifecycleDriverRequest()
-        ? { runtimeContract: session.lifecycleDriverRequest() }
-        : {}),
+      ...(driverRequest ? { runtimeContract: driverRequest } : {}),
       ...(transcriptHint ?? {}),
       // Spawn-time floor for observer-based harnesses (codex): lets a reattached
       // observer discover a lazily-created rollout it never saw before the restart.

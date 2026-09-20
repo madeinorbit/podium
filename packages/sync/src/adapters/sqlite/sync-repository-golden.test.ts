@@ -173,7 +173,7 @@ describe('the statements themselves', () => {
     // THE WIDENING RULE 39 FORBIDS IS INVISIBLE DOWNSTREAM, so it is pinned here
     // on the emitted SELECT list. The counts are the ones the hand-written
     // statements named: five of nine on `changes`, four of four on
-    // `change_latest`, eleven of thirteen on `queued_messages`, three of five on
+    // `change_latest`, thirteen of fourteen on `queued_messages`, three of five on
     // `upstream_outbox`.
     const { repo, sql } = recordingRepo()
     await repo.changesSince(0)
@@ -194,6 +194,7 @@ describe('the statements themselves', () => {
       'text',
       'queued_at',
       'attempts',
+      'delivery_owner',
       'input_origin',
       'principal_kind',
       'principal_ref',
@@ -389,11 +390,12 @@ describe('the session inbox', () => {
     expect(await enqueue('m1', 's1', 10)).toBe(true)
     expect(
       stored(
-        'SELECT attempts, input_origin, principal_kind, principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id FROM queued_messages',
+        'SELECT attempts, delivery_owner, input_origin, principal_kind, principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id FROM queued_messages',
       ),
     ).toEqual([
       {
         attempts: 0,
+        delivery_owner: null,
         input_origin: 'unknown',
         principal_kind: 'system',
         principal_ref: 'legacy-session-inbox',
@@ -427,6 +429,7 @@ describe('the session inbox', () => {
         text: 'hello',
         queuedAt: 10,
         attempts: 0,
+        deliveryOwner: null,
         inputOrigin: 'human',
         principalKind: 'agent',
         principalRef: 'agent-7',

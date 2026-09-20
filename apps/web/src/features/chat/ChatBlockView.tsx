@@ -244,6 +244,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   onOpenImage,
   askLivePending,
   onAnswerAsk,
+  answerInteractionId,
   collapseContext = false,
   compact = false,
   ctxSeq = null,
@@ -267,6 +268,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   onOpenImage: (src: string) => void
   /** True only for the latest unanswered AskUserQuestion on a live session. */
   askLivePending: boolean
+  answerInteractionId?: string
   onAnswerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   /** Headless superagent sessions: collapse machine-authored [BTW/CONCIERGE
    *  CONTEXT/UPDATE] user blocks into a quiet disclosure row. */
@@ -363,6 +365,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   if (item.role === 'tool' && item.toolName === 'AskUserQuestion' && item.toolInputJson)
     return (
       <AskUserQuestionCard
+        key={askLivePending ? answerInteractionId : item.id}
+        interactionId={askLivePending ? answerInteractionId : undefined}
         block={block}
         cls={rowClass}
         index={index}

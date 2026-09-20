@@ -1,3 +1,7 @@
+import { createBoundaryContext } from '@podium/agent-runtime'
+import { primeHookResponse } from './prime-injector'
+import { createPrimeInjector } from './prime-injector'
+import { composeResponders } from './mail-injector'
 import { access, mkdtemp, rm } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -323,4 +327,223 @@ describe('hook-ingest respondTo', () => {
       await ing.close()
     }
   })
+})
+
+
+describe('prime response deadline', () => {
+  it('cancels a timed-out fetch without consuming prime or calling later responders', async () => {
+    let resolve!: (value: { ok: boolean; result: string }) => void
+    let calls = 0
+    let laterCalls = 0
+    const injector = createPrimeInjector(async () => {
+      if (++calls === 1) return new Promise<{ ok: boolean; result: string }>((done) => { resolve = done })
+      return { ok: true, result: 'fresh prime' }
+    })
+    const ing = await startHookIngest({
+      port: 0,
+      onPayload: () => {},
+      respondTimeoutMs: 30,
+      boundaryContext: injector.respondTo,
+      respondTo: composeResponders(async () => { laterCalls++; return null }),
+    })
+    try {
+      const endpoint = ing.endpointFor(asSessionId('deadline'))
+      expect((await post(endpoint, { hook_event_name: 'SessionStart' })).text).toBe('{}')
+      const next = await post(endpoint, { hook_event_name: 'UserPromptSubmit' })
+      expect(JSON.parse(next.text).hookSpecificOutput.additionalContext).toBe('fresh prime')
+      resolve({ ok: true, result: 'expired prime' })
+      await new Promise<void>((done) => setImmediate(done))
+      expect(laterCalls).toBe(0)
+      expect((await post(endpoint, { hook_event_name: 'UserPromptSubmit' })).text).toBe('{}')
+      expect(laterCalls).toBe(1)
+      expect(calls).toBe(2)
+    } finally {
+      await ing.close()
+    }
+  })
+})
+
+
+it('delivers driver prime even when all legacy responders are absent', async () => {
+  const context = createBoundaryContext(async () => ({ ok: true, result: 'driver prime' }))
+  const ing = await startHookIngest({
+    port: 0,
+    onPayload: () => {},
+    boundaryContext: (_sessionId, payload, signal) => primeHookResponse(context.respond, payload, signal),
+  })
+  try {
+    const endpoint = ing.endpointFor(asSessionId('driver-only'))
+    const first = await post(endpoint, { hook_event_name: 'SessionStart' })
+    expect(JSON.parse(first.text).hookSpecificOutput.additionalContext).toBe('driver prime')
+    expect((await post(endpoint, { hook_event_name: 'UserPromptSubmit' })).text).toBe('{}')
+    expect((await post(endpoint, { hook_event_name: 'PreCompact' })).text).toBe('{}')
+    const next = await post(endpoint, { hook_event_name: 'UserPromptSubmit' })
+    expect(JSON.parse(next.text).hookSpecificOutput.additionalContext).toBe('driver prime')
+  } finally {
+    await ing.close()
+  }
+})
+
+/**
+ * PRIME BOUNDARY PER-HARNESS PARITY (this issue).
+ *
+ * POD-4295 verified the boundary for Claude over HTTP with snake_case
+ * payloads. Codex rides the instance Unix socket (same snake_case codec) and
+ * Grok rides HTTP with camelCase payloads. The daemon must answer all three
+ * wires identically: driver prime first, an expired hook cancelled instead of
+ * continuing to mail, and fail-open to the legacy chain only once prime
+ * declines. Each arm posts the payload shape its real hooks send.
+ */
+type ParityHarness = 'claude-code' | 'codex' | 'grok'
+
+const parityPayload = (harness: ParityHarness, event: string): Record<string, string> =>
+  harness === 'grok' ? { hookEventName: event } : { hook_event_name: event }
+
+interface ParityIngest {
+  post: (body: unknown) => Promise<{ status: number; text: string }>
+  close: () => Promise<void>
+}
+
+async function startParityIngest(
+  harness: ParityHarness,
+  opts: {
+    boundaryContext: (
+      sessionId: SessionId,
+      payload: unknown,
+      signal: AbortSignal,
+    ) => Promise<string | null>
+    respondTo?: (
+      sessionId: SessionId,
+      payload: unknown,
+      signal: AbortSignal,
+    ) => Promise<string | null>
+    respondTimeoutMs?: number
+  },
+): Promise<ParityIngest> {
+  const sessionId = asSessionId(`parity-${harness}`)
+  if (harness === 'codex') {
+    const root = await mkdtemp(join(tmpdir(), 'podium-parity-codex-'))
+    const socketPath = join(root, 'ingest.sock')
+    const ing = await startHookIngest({ port: 0, socketPath, onPayload: () => {}, ...opts })
+    return {
+      post: (body) => postSocket(socketPath, sessionId, body),
+      close: async () => {
+        await ing.close()
+        await rm(root, { recursive: true, force: true })
+      },
+    }
+  }
+  const ing = await startHookIngest({ port: 0, onPayload: () => {}, ...opts })
+  const endpoint = ing.endpointFor(sessionId)
+  return { post: (body) => post(endpoint, body), close: () => ing.close() }
+}
+
+describe('prime boundary per-harness parity', () => {
+  // HTTP arms run everywhere; the Codex arm rides the instance Unix socket
+  // its real hooks post to, so it skips where sockets are unavailable.
+  const httpHarnesses = ['claude-code', 'grok'] as const
+  const runHttp = (
+    name: string,
+    fn: (harness: ParityHarness) => Promise<void>,
+  ): void => {
+    it.each(httpHarnesses)(`%s ${name}`, fn)
+  }
+  const runCodex = (name: string, fn: (harness: ParityHarness) => Promise<void>): void => {
+    it.skipIf(process.platform === 'win32')(`codex ${name}`, () => fn('codex'))
+  }
+
+  const answersStartOnce: (harness: ParityHarness) => Promise<void> = async (harness) => {
+    const context = createBoundaryContext(async () => ({ ok: true, result: `${harness} prime` }))
+    const mailPayloads: unknown[] = []
+    const ing = await startParityIngest(harness, {
+      boundaryContext: (_sessionId, payload, signal) =>
+        primeHookResponse(context.respond, payload, signal),
+      respondTo: async (_sessionId, payload) => {
+        mailPayloads.push(payload)
+        return null
+      },
+    })
+    try {
+      const first = await ing.post(parityPayload(harness, 'SessionStart'))
+      expect(first.status).toBe(200)
+      expect(JSON.parse(first.text)).toEqual({
+        hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `${harness} prime` },
+      })
+      // Prime-first: the legacy/mail chain is never consulted while the
+      // driver answers, so it cannot double-deliver or consume its cooldown.
+      expect(mailPayloads).toEqual([])
+      expect((await ing.post(parityPayload(harness, 'UserPromptSubmit'))).text).toBe('{}')
+      // Fail-open: once prime declines, the same event reaches the legacy chain.
+      expect(mailPayloads).toHaveLength(1)
+    } finally {
+      await ing.close()
+    }
+  }
+  runHttp('answers start with driver prime and leaves mail silent while prime answers', answersStartOnce)
+  runCodex('answers start with driver prime and leaves mail silent while prime answers', answersStartOnce)
+
+  const cancelsExpired: (harness: ParityHarness) => Promise<void> = async (harness) => {
+    let resolve!: (value: { ok: boolean; result: string }) => void
+    let calls = 0
+    const context = createBoundaryContext(() => {
+      if (++calls === 1)
+        return new Promise<{ ok: boolean; result: string }>((done) => {
+          resolve = done
+        })
+      return Promise.resolve({ ok: true, result: 'fresh prime' })
+    })
+    let mailCalls = 0
+    const ing = await startParityIngest(harness, {
+      respondTimeoutMs: 30,
+      boundaryContext: (_sessionId, payload, signal) =>
+        primeHookResponse(context.respond, payload, signal),
+      respondTo: async () => {
+        mailCalls++
+        return null
+      },
+    })
+    try {
+      expect((await ing.post(parityPayload(harness, 'SessionStart'))).text).toBe('{}')
+      resolve({ ok: true, result: 'stale prime' })
+      await new Promise<void>((done) => setImmediate(done))
+      // The expired hook must not continue into the mail chain after the
+      // shared deadline, on any transport.
+      expect(mailCalls).toBe(0)
+      const next = await ing.post(parityPayload(harness, 'UserPromptSubmit'))
+      expect(JSON.parse(next.text).hookSpecificOutput.additionalContext).toBe('fresh prime')
+      expect(calls).toBe(2)
+    } finally {
+      await ing.close()
+    }
+  }
+  runHttp('cancels an expired prime fetch instead of continuing to mail', cancelsExpired)
+  runCodex('cancels an expired prime fetch instead of continuing to mail', cancelsExpired)
+
+  const prefersDriver: (harness: ParityHarness) => Promise<void> = async (harness) => {
+    const context = createBoundaryContext(async () => ({ ok: true, result: 'driver prime' }))
+    const legacy = createPrimeInjector(async () => ({ ok: true, result: 'legacy prime' }))
+    let legacyCalls = 0
+    const ing = await startParityIngest(harness, {
+      boundaryContext: (_sessionId, payload, signal) =>
+        primeHookResponse(context.respond, payload, signal),
+      respondTo: composeResponders(async (sessionId, payload, signal) => {
+        legacyCalls++
+        return legacy.respondTo(sessionId, payload, signal)
+      }),
+    })
+    try {
+      const first = await ing.post(parityPayload(harness, 'SessionStart'))
+      expect(JSON.parse(first.text).hookSpecificOutput.additionalContext).toBe('driver prime')
+      expect(legacyCalls).toBe(0)
+      // The legacy responder stays armed behind the driver: once the driver
+      // is consumed, the same event falls through to it instead of going empty.
+      const second = await ing.post(parityPayload(harness, 'UserPromptSubmit'))
+      expect(JSON.parse(second.text).hookSpecificOutput.additionalContext).toBe('legacy prime')
+      expect(legacyCalls).toBe(1)
+    } finally {
+      await ing.close()
+    }
+  }
+  runHttp('prefers driver prime over a legacy responder answering the same event', prefersDriver)
+  runCodex('prefers driver prime over a legacy responder answering the same event', prefersDriver)
 })

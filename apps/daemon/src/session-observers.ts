@@ -1,3 +1,4 @@
+import type { TerminalStateObservation } from './runtime/terminal-driver'
 import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentRuntimeState,
@@ -71,6 +72,8 @@ export interface SessionObserversDeps {
   /** The sole durable SessionBinding transition surface. */
   sessionBinding?: SessionBinding
   send(msg: DaemonMessage): void
+  /** Driver-private folded state; independent of the retiring legacy wire. */
+  onState?: (observation: TerminalStateObservation) => void
   /** Test/embedding override; production creates one ticker for this registry. */
   statTick?: StatTick
   /** Discovery homeDir override (tests / isolated HOME). */
@@ -140,7 +143,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const captureTranscript = deps.captureClaudeTranscript ?? captureClaudeTranscript
   // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
   const statTick = deps.statTick ?? createSharedStatTick()
-  const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
+  const trackers = new Map<
+    string,
+    {
+      provider: AgentStateProvider
+      state: AgentRuntimeState
+      observerGeneration: number
+      bindingVersion: number
+    }
+  >()
   const screenObservers = new Map<SessionId, TerminalScreenObserver>()
   const earlyScreenFrames = new Map<SessionId, { frames: Uint8Array[]; bytes: number }>()
   // Per-session pending →idle wire emissions. Cancelled on non-idle transition
@@ -414,6 +425,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         observation.providerSessionId !== lease.providerSessionId)
     )
       return
+    applyCausalAgentState(sessionId, observation.state)
     deliverObservation(observation)
   }
 
@@ -470,7 +482,6 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     causal.transcriptPath = causal.observer.currentTranscriptPath
     if (observation) {
       causal.pendingObservation = observation
-      applyCausalAgentState(observation.podiumSessionId, observation.state)
       emitObservation(observation.podiumSessionId, observation)
       return
     }
@@ -681,7 +692,6 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (causalLeases.get(sessionId) !== lease || trackers.get(sessionId) !== tracker) return
     claudeCausal.set(sessionId, causal)
     claudeStarting.delete(sessionId)
-    applyCausalAgentState(sessionId, bootstrapState)
     emitObservation(sessionId, snapshot)
   }
 
@@ -994,6 +1004,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       acceptedCheckpoint,
       cwd: lease.cwd,
     })
+    // A pending idle decision belongs to the old identity. The same private
+    // screen/provider objects continue only under the acknowledged fence.
+    cancelPendingIdleEmit(msg.sessionId)
+    const tracker = trackers.get(msg.sessionId)
+    if (tracker) {
+      tracker.observerGeneration = msg.observerGeneration
+      tracker.bindingVersion = msg.bindingVersion
+    }
     liveConfirmationStates.delete(msg.sessionId)
     observations.get(msg.sessionId)?.observation.onProviderRebindAck?.(msg)
     for (const observation of pending.bufferedObservations) {
@@ -1105,12 +1123,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           recordToItems,
           statTick,
           // The agent's `/color` accent rides the same transcript tail.
-          onColor: (color) => send({ type: 'agentColor', sessionId, color }),
+          onColor: (color, at) => send({ type: 'agentColor', sessionId, color, ...(at ? { at } : {}) }),
           // As do the observed model + effort (assistant `message.model` / `effort`).
-          onModel: (model, effort) =>
-            send({ type: 'agentModel', sessionId, model, ...(effort ? { effort } : {}) }),
+          onModel: (model, effort, at) =>
+            send({ type: 'agentModel', sessionId, model, source: 'transcript', ...(at ? { at } : {}), ...(effort ? { effort } : {}) }),
           recordRuntime: transcriptRuntimeReaderFor(agentKind) ?? (() => ({})),
-          onContextUsage: (percent) => send({ type: 'agentContext', sessionId, percent }),
+          onContextUsage: (percent, at) => send({ type: 'agentContext', sessionId, percent, ...(at ? { at } : {}) }),
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,
@@ -1159,6 +1177,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // Debounce only transitions INTO idle. Non-idle phases emit immediately
     // so working/needs_user/errored stay snappy; a false-idle beat must not
     // reach the wire (delivery fires on idle).
+    if (next.phase === 'idle' && pendingIdleEmits.has(sessionId)) return
     const enteringIdle = prev.phase !== 'idle' && next.phase === 'idle'
     if (enteringIdle) {
       cancelPendingIdleEmit(sessionId)
@@ -1166,8 +1185,16 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         pendingIdleEmits.delete(sessionId)
         const current = trackers.get(sessionId)?.state
         // Still tracked and still idle: apply the authoritative current state.
-        if (current?.phase === 'idle') {
-          if (emitLegacyWireState) send({ type: 'agentState', sessionId, state: current })
+        if (trackers.get(sessionId) === tracker && current?.phase === 'idle') {
+          if (emitLegacyWireState) {
+            deps.onState?.({
+              sessionId,
+              state: current,
+              observerGeneration: tracker.observerGeneration,
+              bindingVersion: tracker.bindingVersion,
+            })
+            send({ type: 'agentState', sessionId, state: current })
+          }
           deps.onIdleState?.(sessionId, true)
         }
       }, IDLE_TRANSITION_DEBOUNCE_MS)
@@ -1176,7 +1203,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
 
     cancelPendingIdleEmit(sessionId)
-    if (emitLegacyWireState) send({ type: 'agentState', sessionId, state: next })
+    if (emitLegacyWireState) {
+      deps.onState?.({
+        sessionId,
+        state: next,
+        observerGeneration: tracker.observerGeneration,
+        bindingVersion: tracker.bindingVersion,
+      })
+      send({ type: 'agentState', sessionId, state: next })
+    }
     deps.onIdleState?.(sessionId, next.phase === 'idle')
   }
 
@@ -1198,58 +1233,65 @@ export function createSessionObservers(deps: SessionObserversDeps) {
 
   // The daemon services an adapter's observation drives, closed over one
   // session. Every per-agent difference is behind these five callbacks.
-  const hostFor = (sessionId: SessionId, adapter: HarnessAdapter): HarnessObserverHost => ({
-    tailFile: (path) =>
-      ensureTranscriptTail(
-        sessionId,
-        path,
-        adapter.kind,
-        transcriptRecordMapperFor(adapter.kind) ?? (() => []),
-      ),
-    // Recording a resume ref marks the session resumable (→ hibernate button);
-    // the first transcript frame marks it chat-capable (→ chat switcher + BTW
-    // button). The kind comes off the adapter — never a literal.
-    onResumeValue: (value, confidence) => {
-      nativeSessionIds.set(sessionId, value)
-      if (
-        adapter.capabilities.observationProtocol === 'codex-exact' &&
-        confidence === 'exact' &&
-        deps.onExactCodexBinding
-      ) {
-        void deps
-          .onExactCodexBinding(sessionId, value)
-          .catch((err) => log.warn('codex identity receipt failed', { err, sessionId }))
-        return
-      }
-      send({
-        type: 'sessionResumeRef',
-        sessionId,
-        resume: { kind: adapter.resumeKind, value },
-        ...(confidence ? { confidence } : {}),
-      })
-    },
-    onTitle: (title) => send({ type: 'title', sessionId, title }),
-    onStateEvents: (events) => applyAgentStateEvents(sessionId, events),
-    onObservation: (observation) => emitObservation(sessionId, observation),
-    onLiveObservationCycle: (cursor) => emitLiveConfirmation(sessionId, cursor),
-    onExactProviderRebind: (rebind) => sendProviderRebind(sessionId, rebind),
-    onTranscriptItems: (items, reset) => {
-      if (items.length === 0 && !reset) return
-      // Items arrive already cursor-stamped by the observer (opencode:
-      // stampOpencodeItems), so the live delta carries the same cursors the
-      // on-demand read produces.
-      const tail = items.at(-1)?.cursor
-      send({
-        type: 'transcriptDelta',
-        sessionId,
-        items,
-        ...(reset ? { reset: true } : {}),
-        ...(tail ? { tail } : {}),
-      })
-    },
-    onModel: (model, effort) =>
-      send({ type: 'agentModel', sessionId, model, ...(effort ? { effort } : {}) }),
-  })
+  const hostFor = (sessionId: SessionId, adapter: HarnessAdapter): HarnessObserverHost => {
+    const tracker = trackers.get(sessionId)
+    return {
+      tailFile: (path) =>
+        ensureTranscriptTail(
+          sessionId,
+          path,
+          adapter.kind,
+          transcriptRecordMapperFor(adapter.kind) ?? (() => []),
+        ),
+      // Recording a resume ref marks the session resumable (→ hibernate button);
+      // the first transcript frame marks it chat-capable (→ chat switcher + BTW
+      // button). The kind comes off the adapter — never a literal.
+      onResumeValue: (value, confidence) => {
+        if (tracker && trackers.get(sessionId) !== tracker) return
+        nativeSessionIds.set(sessionId, value)
+        if (
+          adapter.capabilities.observationProtocol === 'codex-exact' &&
+          confidence === 'exact' &&
+          deps.onExactCodexBinding
+        ) {
+          void deps
+            .onExactCodexBinding(sessionId, value)
+            .catch((err) => log.warn('codex identity receipt failed', { err, sessionId }))
+          return
+        }
+        send({
+          type: 'sessionResumeRef',
+          sessionId,
+          resume: { kind: adapter.resumeKind, value },
+          ...(tracker ? { observerGeneration: tracker.observerGeneration, bindingVersion: tracker.bindingVersion } : {}),
+          ...(confidence ? { confidence } : {}),
+        })
+      },
+      onTitle: (title) => send({ type: 'title', sessionId, title, source: 'native' }),
+      onStateEvents: (events) => {
+        if (trackers.get(sessionId) === tracker) applyAgentStateEvents(sessionId, events)
+      },
+      onObservation: (observation) => emitObservation(sessionId, observation),
+      onLiveObservationCycle: (cursor) => emitLiveConfirmation(sessionId, cursor),
+      onExactProviderRebind: (rebind) => sendProviderRebind(sessionId, rebind),
+      onTranscriptItems: (items, reset) => {
+        if (items.length === 0 && !reset) return
+        // Items arrive already cursor-stamped by the observer (opencode:
+        // stampOpencodeItems), so the live delta carries the same cursors the
+        // on-demand read produces.
+        const tail = items.at(-1)?.cursor
+        send({
+          type: 'transcriptDelta',
+          sessionId,
+          items,
+          ...(reset ? { reset: true } : {}),
+          ...(tail ? { tail } : {}),
+        })
+      },
+      onModel: (model, effort) =>
+        send({ type: 'agentModel', sessionId, model, source: 'native', ...(effort ? { effort } : {}) }),
+    }
+  }
 
   const stopObservation = (sessionId: SessionId): void => {
     observations.get(sessionId)?.observation.stop()
@@ -1290,6 +1332,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     pathHint?: string,
   ): Promise<void> => {
     if (!provider.bootEvents) return
+    const originalTracker = trackers.get(sessionId)
     let events: AgentStateEvent[]
     try {
       events = await provider.bootEvents({
@@ -1303,7 +1346,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       return
     }
     const tracker = trackers.get(sessionId)
-    if (!tracker) return
+    if (!tracker || tracker !== originalTracker) return
     for (const event of events) {
       // Unknown with provenance can be an observed gap; a delayed boot
       // assumption must not turn that uncertainty into fabricated idle.
@@ -1311,6 +1354,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       const next = reduceAgentState(tracker.state, event, new Date().toISOString())
       if (next === tracker.state) continue
       tracker.state = next
+      deps.onState?.({
+        sessionId,
+        state: next,
+        observerGeneration: tracker.observerGeneration,
+        bindingVersion: tracker.bindingVersion,
+        bootstrap: true,
+      })
       send({ type: 'agentState', sessionId, state: next })
       deps.onIdleState?.(sessionId, next.phase === 'idle')
     }
@@ -1341,7 +1391,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           providerSessionId: survivingClaude.providerSessionId,
           transcriptPath: survivingClaude.transcriptPath,
         }
-      : undefined
+      : msg.type === 'reattach' && msg.resume?.value && pathHintOf(msg)
+        ? { providerSessionId: msg.resume.value, transcriptPath: pathHintOf(msg)! }
+        : undefined
 
     // Spawn/reattach is authoritative even when it replaces an identical
     // generation. Preserve only the identity above for fresh-lease adoption;
@@ -1362,9 +1414,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       ('loginHarness' in msg && msg.loginHarness
         ? agentStateProviderFor(msg.loginHarness)
         : undefined)
-    if (provider) {
+    if (screenProvider) {
       trackers.set(msg.sessionId, {
-        provider,
+        provider: screenProvider,
+        observerGeneration: msg.observationGeneration ?? 1,
+        bindingVersion: msg.observationBindingVersion ?? 1,
         state: initialAgentState(new Date().toISOString()),
       })
     }
@@ -1378,11 +1432,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
        * the first applied resize through `onResize`.
        */
       const screenGeometry = msg.type === 'spawn' ? msg.geometry : msg.lastKnownGeometry
+      const screenTracker = trackers.get(msg.sessionId)
       const screenObserver = createTerminalScreenObserver(
         screenProvider,
         screenGeometry,
         {
-          onStateEvents: (events) => applyAgentStateEvents(msg.sessionId, events),
+          onStateEvents: (events) => {
+            if (trackers.get(msg.sessionId) === screenTracker)
+              applyAgentStateEvents(msg.sessionId, events)
+          },
           onLoginSignal: () => deps.onAuthSignal?.(msg.sessionId),
         },
         // P2c: read the session's one screen model instead of constructing a
@@ -1618,6 +1676,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: bound.adapter.resumeKind, value: harnessSessionId },
+        observerGeneration: tracker.observerGeneration,
+        bindingVersion: tracker.bindingVersion,
         confidence: 'exact',
         ...(bound.adapter.capabilities.observationProtocol === 'codex-exact'
           ? { ackRequested: true }
@@ -1660,7 +1720,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     if (bound.observation.onHookPayload?.(payload)) return
     void tracker.provider
       .translate(payload)
-      .then((events) => applyAgentStateEvents(sessionId, events))
+      .then((events) => {
+        if (trackers.get(sessionId) === tracker) applyAgentStateEvents(sessionId, events)
+      })
       .catch((err) => log.warn('hook translate failed', { err, sessionId }))
   }
 

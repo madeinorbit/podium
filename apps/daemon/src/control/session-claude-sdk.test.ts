@@ -173,7 +173,7 @@ describe('Claude SDK embedded teardown', () => {
   it('ends an embedded handle from the generic hibernate/kill choke point', async () => {
     const kill = vi.fn(async () => {})
     const sent: DaemonMessage[] = []
-    const runtimeHandle = { ...handle(SESSION_ID, RESUME), kill }
+    const runtimeHandle = { ...handle(SESSION_ID, RESUME), stop: kill, kill }
     const ctx = {
       backend: 'none',
       settingsDir: '/nonexistent/podium-test-settings',
@@ -194,8 +194,8 @@ describe('Claude SDK embedded teardown', () => {
       send: (message: DaemonMessage) => sent.push(message),
     } as unknown as DaemonContext
 
-    stopSessionProcess(ctx, { sessionId: SESSION_ID })
-    await vi.waitFor(() => expect(kill).toHaveBeenCalledTimes(1))
+    await expect(stopSessionProcess(ctx, { sessionId: SESSION_ID })).resolves.toBe(true)
+    expect(kill).toHaveBeenCalledTimes(1)
     expect(sent).toEqual([])
   })
 })

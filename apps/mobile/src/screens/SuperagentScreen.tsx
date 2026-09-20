@@ -1,3 +1,5 @@
+import { matchesQuestionInteraction } from '@podium/client-core/viewmodels'
+import { useStoreSelector } from '@podium/client-core/react'
 import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
   mergeTranscriptFrame,
@@ -123,6 +125,9 @@ export function SuperagentScreen() {
   const publishedSid =
     superagent.activeSessionId === clearedSid ? undefined : superagent.activeSessionId
   const podiumSid = ackedSid ?? publishedSid
+  const currentQuestion = useStoreSelector((s) => (s.pendingInteractions ?? []).find(
+    (row) => row.sessionId === podiumSid && row.kind === 'question' && row.status === 'asked',
+  ))
   const transcriptSession = podiumSid
     ? sessions.find((session) => session.sessionId === podiumSid)
     : undefined
@@ -555,10 +560,16 @@ export function SuperagentScreen() {
                     />
                   ) : undefined
                 }
+                answerInteractionId={currentQuestion?.id}
                 onAnswer={async (answer) => {
+                  if (currentQuestion && (answer.interactionId !== currentQuestion.id ||
+                      !answer.question || !matchesQuestionInteraction(currentQuestion, answer.question))) {
+                    throw new Error('The question changed; wait for the current menu.')
+                  }
                   if (!podiumSid) return
                   const sent = await trpc.sessions.answerAskUserQuestion.mutate({
                     sessionId: podiumSid,
+                    interactionId: answer.interactionId,
                     ...answer,
                   })
                   if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')

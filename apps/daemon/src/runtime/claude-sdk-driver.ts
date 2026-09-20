@@ -17,6 +17,7 @@ import { runClaudeSdkChildTurn } from '../claude-sdk-client'
 import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import type { HeadlessTurnSpec } from '../headless-drivers'
 import { driverTiming } from './driver-timing'
+import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
 import { reportQueueAbandonment } from './queue-abandonment'
 import type { TerminalRuntimeHost } from './terminal-driver'
 
@@ -119,6 +120,7 @@ export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
  */
 export function createDaemonClaudeSdkRuntime(deps: {
   send(msg: DaemonMessage): void
+  boundaryContext?: MailBoundaryContext
   host: TerminalRuntimeHost
   /** This daemon's applied-size record (POD-3290) — see `emitClaudeBinding`. */
   appliedGeometry?: AppliedGeometryRecord
@@ -290,7 +292,13 @@ export function createDaemonClaudeSdkRuntime(deps: {
     if (!handle) return
     void (async () => {
       try {
-        for await (const event of handle.events('bootstrap')) translate(sessionId, event)
+        const boundary = createMailContinuation(handle, deps.boundaryContext,
+          () => runtime.handleFor(sessionId) === handle,
+          (error) => log.warn('issue mail boundary delivery failed', { sessionId, error }))
+        for await (const event of handle.events('bootstrap')) {
+          translate(sessionId, event)
+          boundary(event)
+        }
       } catch (error) {
         log.warn('Claude SDK runtime event stream ended', { error, sessionId })
       }

@@ -2,7 +2,7 @@
 // surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { AgentStateEvent } from '@podium/harness'
-import type { TranscriptItem } from '@podium/model'
+import type { ResumeRef, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { ProcessEvent, TurnEvent } from './errors.js'
 import type { InteractionAnswered, InteractionAsked, InteractionExpired } from './interactions.js'
@@ -59,7 +59,25 @@ export type RuntimeEvent = CausalEnvelope & RuntimeEventBody
  * building an event before stamping it needs this exact type, so it is named
  * here instead of re-derived (incorrectly) at each producer.
  */
+/** Native observations only: requested configuration and account usage are separate.
+ * Missing effort preserves the last observed effort; colour reset remains a value.
+ * Sources survive both the live event and snapshot paths. */
+export type SessionMetadataChange =
+  | { kind: 'title'; source: 'osc' | 'native'; title: string }
+  | { kind: 'model'; source: 'transcript' | 'native'; model: string; effort?: string }
+  | { kind: 'color'; source: 'transcript'; color: string }
+  | { kind: 'context'; source: 'transcript'; percent: number }
+
+export type SessionMetadataObservation = CausalEnvelope & {
+  t: 'metadata'
+  change: SessionMetadataChange
+}
+
 export type RuntimeEventBody =
+  | { t: 'metadata'; change: SessionMetadataChange }
+  /** Native discovery, distinct from snapshot bootstrap. Exact receipts retain
+   * their host acknowledgement protocol until the server projection commits. */
+  | { t: 'binding'; resume: ResumeRef; confidence: 'exact' | 'heuristic'; bindingVersion: number; ackRequested?: boolean; receipt?: import('@podium/protocol/daemon').NativeBindingReceipt }
   | { t: 'draft'; text: string }
   | { t: 'delivery'; rowId: string; outcome: 'delivered' | 'failed' | 'dropped'; reason?: string }
   | {
@@ -69,17 +87,35 @@ export type RuntimeEventBody =
       change: AgentStateEvent
     }
   | { t: 'item'; item: TranscriptItemDelta }
+  /** Authoritative replacement window, including an empty/rotated store. */
+  | { t: 'transcript-reset'; items: readonly TranscriptItem[]; tail?: string }
   | { t: 'interaction'; ev: InteractionAsked | InteractionAnswered | InteractionExpired }
   | { t: 'turn'; ev: TurnEvent }
   | { t: 'process'; ev: ProcessEvent }
   /** `cd`/EnterWorktree moves, commits and touched files. */
   | { t: 'workspace'; ev: CwdChanged | GitActivity }
-  /** Forwarded browser opens, classified by the harness manifest. */
-  | { t: 'open-url'; ev: { url: string; intent: 'login' | 'link' } }
+  /** Forwarded browser opens, classified by the harness manifest. A URL-only
+   *  event cannot replace the native login callback protocol: requestId,
+   *  callbackTarget and expiresAt preserve routing, paste-back, expiry and
+   *  reconnect idempotence. */
+  | {
+      t: 'open-url'
+      ev: {
+        url: string
+        intent: 'login' | 'link'
+        requestId?: string
+        callbackTarget?: { host: 'localhost' | '127.0.0.1' | '::1'; port: number; path: string }
+        expiresAt?: number
+      }
+    }
 
 export interface CwdChanged {
   ev: 'cwd-changed'
   cwd: string
+  kind?: 'main' | 'worktree' | 'none'
+  branch?: string
+  repoRoot?: string
+  explicit?: boolean
 }
 
 export interface GitActivity {

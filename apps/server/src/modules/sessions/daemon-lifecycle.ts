@@ -81,6 +81,7 @@ export interface SessionDaemonLifecyclePorts {
    * go, and because every existing fixture predates it — an unflagged session
    * produces none of these frames, so an absent sink is not a dropped fact.
    */
+  initializeRuntimeMetadata?(sessionId: SessionId, machineId: MachineId): Promise<void>
   runtimeEvents?: {
     record(
       machineId: MachineId,
@@ -356,6 +357,14 @@ export class SessionDaemonLifecycle {
     switch (msg.type) {
       case 'sessionOpenUrl': {
         const session = this.sessions.get(msg.sessionId)
+        // Contract-owned sessions route browser opens through the runtime
+        // open-url port, not this legacy frame. The daemon's shim still mints
+        // the request (capture) and still owns the callback execution — only
+        // the serverward offer moves. Ignoring the legacy here keeps the
+        // gateway single-writer while plain shell/login sessions keep theirs.
+        // Callback/dismiss/result frames below are the callback protocol
+        // itself and are never suppressed.
+        if (session?.runtimeContract) break
         // A daemon may only originate intents for sessions it owns. The bus is
         // the typed notification seam from capture to client routing. [spec:SP-a43e]
         if (session?.machineId === machineId) this.bus.emit('session.openUrl', msg)
@@ -466,6 +475,10 @@ export class SessionDaemonLifecycle {
         // Catchup (POD-859 §6): seed native with a chat draft edited while the
         // session was down — on BIND (the engine is attached by the time the daemon
         // reports draftSyncEngine), not on reattach (dispatched before attach).
+        if (msg.runtimeContract) {
+          void this.ports.initializeRuntimeMetadata?.(msg.sessionId, machineId)
+            .catch((error: unknown) => log.warn('runtime metadata bootstrap failed', { sessionId: msg.sessionId, err: error }))
+        }
         if (msg.runtimeContract || msg.draftSyncEngine) {
           void this.state.initializeRuntimeDraft(msg.sessionId, machineId)
             .catch((error: unknown) => log.warn('runtime draft bootstrap failed', { sessionId: msg.sessionId, err: error }))
@@ -540,8 +553,12 @@ export class SessionDaemonLifecycle {
         // survivor that fails to reattach is a real death — mark it exited.
         if (s && s.status !== 'exited') {
           this.autoContinue.onSessionGone(s.sessionId) // cancel any armed retry promptly, not at the next backoff tick
-          // the durable host is gone; the agent died with it
-          await this.write(s, (draft) => s.onExit(-1, draft))
+          // Admission can fail even when a durable process survived. Preserve
+          // its diagnosis so the user can distinguish recovery from process loss.
+          await this.write(s, (draft) => {
+            s.onExit(-1, draft)
+            draft.spawnFailure = msg.reason.trim().slice(0, 2000) || 'unknown reattach failure'
+          })
           // Real death (not a boot-time probe of an already-exited row) —
           // notify lock auto-release etc. [spec:SP-85d1]. onExit keeps a
           // hibernated row 'hibernated'; only a genuine exit fires. (Fresh
@@ -1024,7 +1041,13 @@ export class SessionDaemonLifecycle {
           break
         }
         let result: import('./runtime-event-gate').RuntimeEventGateResult | undefined
-        if (owner?.machineId === machineId) {
+        const identityLease = msg.event.t === 'binding'
+          ? this.observationLeases.get(msg.sessionId) : undefined
+        if (msg.event.t === 'binding' && identityLease &&
+            (identityLease.observationGeneration !== msg.event.observerGeneration ||
+             identityLease.bindingVersion !== msg.event.bindingVersion)) {
+          result = { kind: 'rejected', reason: 'stale-observer-generation' }
+        } else if (owner?.machineId === machineId) {
           if (runtimeEvents) {
             const completion: Promise<import('./runtime-event-gate').RuntimeEventGateResult> =
               runtimeEvents.record(machineId, msg)

@@ -47,6 +47,7 @@ import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import { driverTiming } from './driver-timing'
+import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
 import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:codex-driver')
@@ -56,7 +57,7 @@ export interface CodexSessionHost {
   send(msg: DaemonMessage): void
   host: CodexRuntimeHost
   /** Fetch issue context after a successfully completed provider turn. */
-  boundaryContext?(sessionId: SessionId): Promise<string | null>
+  boundaryContext?: MailBoundaryContext
   /**
    * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
    * written by nothing in this file. A server-family session has no terminal at
@@ -149,37 +150,17 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
     if (!handle) return
     void (async () => {
       try {
-        let mailTurn = false
+        const boundary = createMailContinuation(handle, deps.boundaryContext,
+          () => runtime.handleFor(sessionId) === handle,
+          (error) => log.warn('issue mail boundary delivery failed', { sessionId, error }))
         for await (const event of handle.events('bootstrap')) {
           translate(sessionId, event)
-          if (event.t === 'turn' && event.ev.ev === 'started') mailTurn = event.ev.origin === 'mail'
-          if (!mailTurn && event.t === 'turn' && event.ev.ev === 'completed' && event.ev.verdict === 'done') {
-            // Do not await here: the event pump must still report asks and exits
-            // while the relay is in flight. The driver serializes delivery.
-            void continueAtBoundary(sessionId, handle)
-          }
+          boundary(event)
         }
       } catch (err) {
         log.warn('codex runtime event stream ended', { err, sessionId })
       }
     })()
-  }
-
-  async function continueAtBoundary(sessionId: SessionId, handle: AgentSessionHandle): Promise<void> {
-    try {
-      if (!deps.boundaryContext) return
-      const text = await deps.boundaryContext(sessionId)
-      if (!text || runtime.handleFor(sessionId) !== handle) return
-      const receipt = await handle.send(
-        { text },
-        { origin: 'mail', delivery: 'at-boundary', principal: { kind: 'system', ref: 'issue-mail' } },
-      )
-      if (receipt.outcome === 'refused' || receipt.outcome === 'unverified') {
-        log.warn('issue mail boundary delivery was not accepted', { sessionId, receipt })
-      }
-    } catch (err) {
-      log.warn('issue mail boundary delivery failed', { sessionId, err })
-    }
   }
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {

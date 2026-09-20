@@ -16,6 +16,11 @@ import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:transcripts')
 
+/** Retained native archive service, independent of runtime handles, bridges and
+ * process inventory. Keep this boundary when removing legacy session control.
+ * Ownership and server lake integration: docs/architecture/transcript-archive.md. */
+export type TranscriptArchiveContext = Pick<DaemonContext, 'homeDir' | 'send'>
+
 /**
  * Resolve a session's TRUE harness for the transcript-source layer, which routes
  * on `agentKind` alone. A session's real harness can hide behind its `resume.kind`
@@ -63,8 +68,8 @@ export function sourceForRead(
 // harness, opencode included (the source layer hides the storage difference).
 // No anchor + 'before' = newest window; an anchor + 'before' pages older; 'after'
 // pages newer. Items carry cursors that interoperate with the live deltas.
-async function readTranscript(
-  ctx: DaemonContext,
+export async function readTranscript(
+  ctx: TranscriptArchiveContext,
   msg: Extract<ControlMessage, { type: 'transcriptRead' }>,
 ): Promise<void> {
   let res: SliceResult = { items: [], hasMore: false }
@@ -102,8 +107,8 @@ async function readTranscript(
 // to discovery-provider roots via realpath prefix check — the mirror can never be
 // used as an arbitrary file reader (spec invariant 3). Must-answer posture (like
 // readTranscript): every requestId gets a reply, an error one rather than a hang.
-async function readTranscriptMirror(
-  ctx: DaemonContext,
+export async function readTranscriptMirror(
+  ctx: TranscriptArchiveContext,
   msg: Extract<ControlMessage, { type: 'transcriptMirrorRead' }>,
 ): Promise<void> {
   const reply = (r: {

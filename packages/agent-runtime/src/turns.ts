@@ -28,6 +28,68 @@ export type InputOrigin = ObservationInputOrigin
 export interface TurnInput {
   /** Durable inbox row; asks the owning daemon to deliver asynchronously. */
   rowId?: string
+  /** An earlier owner may already have written this row; never write it again. */
+  deliveryRecovery?: boolean
+  /** Creation prompts retain at-most-once submission across ambiguous receipts. */
+  initialPrompt?: boolean
+  /**
+   * HEADLESS PER-TURN POLICY (POD-4386).
+   *
+   * The legacy headless port carried these per turn (HeadlessTurnRequestMessage:
+   * allowedTools, permissionMode, toolPolicy, mcpConfig, resumeValue,
+   * sessionUuid, accountId, requestDigest). The contract carried none of them,
+   * so superagent/shipwright could not migrate. They are OPTIONAL and
+   * ABSENT-MEANS-ABSENT: a driver that does not implement a field refuses
+   * `unsupported` rather than silently dropping it, and a turn that names no
+   * field behaves exactly as before.
+   *
+   * `accountId`/`requestDigest` are the durable identity: the exact
+   * native-login fingerprint and the SHA-256 of the canonical immutable facts.
+   * See `canonicalHeadlessContractFacts` / `verifyHeadlessDigest` in
+   * `./headless-turn.ts`. Drivers verify both before dispatch and refuse on
+   * mismatch, exactly as `apps/daemon/src/control/headless.ts` does today.
+   */
+  /** Tools pre-approved for THIS TURN ONLY. Session default lives on SessionSpec. */
+  allowedTools?: string[]
+  /** Permission mode for THIS TURN ONLY (e.g. 'auto', 'bypassPermissions'). */
+  permissionMode?: string
+  /** Requests the adapter's tested all-tools-off mode for THIS TURN ONLY. */
+  toolPolicy?: 'none'
+  /** MCP config JSON ({ mcpServers: … }) for THIS TURN ONLY. */
+  mcpConfig?: string
+  /** Harness session id to resume; absent = first turn (mint a new session). */
+  resumeValue?: string
+  /** Claude only: mint the first-turn session with this UUID. */
+  sessionUuid?: string
+  /** Exact native-login fingerprint selected by the server. */
+  accountId?: string
+  /** SHA-256 of the canonical immutable turn facts. */
+  requestDigest?: string
+  /** Route SDK tool authorization through structured RuntimeDriver interactions. */
+  structuredPermissions?: true
+  /**
+   * HEADLESS PER-TURN PROMPT CHANNELS (this issue).
+   *
+   * The legacy headless port carried `prompt` (human text), `contextPrompt`
+   * (machine-authored seed/delta/focus) and `systemPrompt` (orchestrator
+   * identity + output contract) as three separate channels so harnesses with
+   * a native hidden instruction channel need not fold machine context into
+   * the visible user message. The contract carried only `text`, so callers
+   * could not migrate without collapsing the channels. All OPTIONAL and
+   * ABSENT-MEANS-ABSENT.
+   */
+  /** Machine-authored seed/delta/focus context for THIS TURN ONLY. */
+  contextPrompt?: string
+  /** Orchestrator identity + output contract for THIS TURN ONLY. */
+  systemPrompt?: string
+  /**
+   * Harness kill budget for THIS TURN ONLY (ms).
+   *
+   * Distinct from `ProcedureOptions.timeoutMs`, which bounds the caller's
+   * WAIT: this bounds the harness child itself, exactly as the legacy
+   * `HeadlessTurnRequestMessage.timeoutMs` did. Absent = runner default.
+   */
+  timeoutMs?: number
   /**
    * Stable identity supplied by the caller when a later delivery outcome has
    * to reconcile durable state outside the driver. Drivers must carry it
@@ -41,6 +103,10 @@ export interface TurnInput {
    * rather than inventing an id the server would fail to find a row for.
    * A turn with no id is therefore never SILENTLY lost, but it is also never
    * receipt-corrected.
+   *
+   * The at-least-once discussion below applies to calls WITHOUT rowId.
+   * Durable row admissions reserve custody before dispatch and recover an
+   * unconfirmed earlier attempt as a visible failure instead of retyping it.
    *
    * THE WRITE PATH IS AT-LEAST-ONCE, AND THIS ID IS WHAT MAKES THAT SURVIVABLE
    * (POD-2297). A send whose outcome is UNKNOWN — an `unverified` receipt, an

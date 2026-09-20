@@ -79,6 +79,7 @@ export const HANDOFF_UNKNOWN_SESSION = 'unknown session'
 
 /** The five daemon legs, exactly as `DaemonRpcService` already exposes them. */
 export interface HandoffRpcPort {
+  runtimeLifecycle: import('../../machines/rpc').DaemonRpcService['runtimeLifecycle']
   repoOp(
     op: 'revParseVerify',
     repoPath: string,

@@ -39,7 +39,6 @@ import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
 import { SessionActivityHistory } from './activity-history'
 import { AgentConcurrencyHistory } from './concurrency-history'
-import { contractDeliveryRequested } from './contract-delivery'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
@@ -65,7 +64,7 @@ import { SessionRepository } from './repository'
 import { RuntimeEventGate } from './runtime-event-gate'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 import { SessionRuntimeGateway } from './runtime-gateway'
-import { runtimeTranscriptItemFromEvent } from './runtime-transcript'
+import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
 import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionClientPlane } from './session-client-plane'
@@ -357,6 +356,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     write: (session, mutate) => bag.repository.write(session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
     clients: () => bag.clients.values(),
+    // Late-bound: the gateway is constructed further down; reads inside the
+    // closure stay legal per the file header.
+    relay: () => bag.runtimeGateway,
+    store: () => ({
+      history: (sessionId, machineId, range) => bag.rpc.runtimeHistory(sessionId, machineId, range),
+      snapshot: (sessionId, machineId) => bag.rpc.runtimeSnapshot(sessionId, machineId),
+    }),
   })
   const inbox = new SessionInbox({
     getSession: (sessionId) => bag.sessions.get(sessionId),
@@ -385,6 +391,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           text: row.text,
           queuedAt: row.queuedAt,
           attempts: row.attempts,
+          deliveryOwner: row.deliveryOwner,
           inputOrigin: row.inputOrigin,
           principal: {
             kind: row.principalKind,
@@ -399,6 +406,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         }))
       },
       bumpAttempts: (id) => store.sync.bumpQueuedAttempts(id),
+      reserveDelivery: (id) => store.sync.reserveQueuedDelivery(id),
       resetAttempts: (id) => store.sync.resetQueuedAttempts(id),
       delete: (id) => store.sync.deleteQueuedMessage(id),
       // The same per-session tally that seeds Session.queuedMessageCount at
@@ -452,7 +460,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         })
       },
       promptFailed: async ({ ownerUserId, sessionId, text, reason, initialPrompt }) => {
-        const title = initialPrompt ? 'Initial prompt not delivered' : 'Input not delivered'
+        const title = initialPrompt ? 'Initial prompt unconfirmed' : 'Input delivery unconfirmed'
         const body = `${reason}. The queued text is still recoverable; check the session and send it again.`
         // Persist first. The bus attention event is intentionally only a live
         // notification; the event and queue are the recovery record even when
@@ -509,9 +517,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Take-control / hold-control re-auth at every apply (POD-1081).
     authorizeDrive: (principal, sessionId) => ownership.authorizeClientDrive(principal, sessionId),
     nativeViewActive,
-    // The bind frame owns runtimeContract. This rollout only changes delivery;
-    // native renderer ownership above remains the separate no-PTY fact.
-    contractDelivery: contractDeliveryRequested,
+    // The bind frame owns runtimeContract: true means the daemon built a driver
+    // handle for this session, and that handle is the only delivery. Shells and
+    // unbound sessions keep the server path. No rollout flag remains (POD-4280).
+    contractDelivery: (session) => session.runtimeContract === true,
+    contractAnswer: (input) => bag.interactionAnswer?.(input) ?? Promise.resolve({ ok: false, reason: 'unknown-interaction' }),
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after
     // a bind frame — long past composition.
@@ -521,6 +531,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         sessionId: input.sessionId,
         turnId: input.turnId,
         rowId: input.turnId,
+        deliveryRecovery: input.deliveryRecovery,
+        initialPrompt: input.initialPrompt,
         text: input.text,
         origin: input.origin,
         delivery: 'when-ready',
@@ -672,6 +684,18 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
    * stay on compatibility frames until their own vertical slices migrate.
    */
   runtimeEventGate = new RuntimeEventGate({
+    metadata: (sessionId, event) => bag.daemonProjection.runtimeEvent(sessionId, event),
+    binding: async (sessionId, event) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) return
+      const lease = bag.observationLeases.get(sessionId)
+      if (lease && (lease.observationGeneration !== event.observerGeneration ||
+          lease.bindingVersion !== event.bindingVersion)) return
+      await bag.bindingReceipts.observeResumeRef(session.machineId, {
+        type: 'sessionResumeRef', sessionId, resume: event.resume,
+        confidence: event.confidence, ackRequested: event.ackRequested, receipt: event.receipt,
+      })
+    },
     delivery: (sessionId, event) => bag.inbox.deliveryOutcome(sessionId, event),
     events: store.events,
     session: (sessionId) => bag.sessions.get(sessionId),
@@ -693,6 +717,60 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       })
     },
     board: (event) => bag.bus.emitDurable('issue.runtimeDerived', event),
+    // Contract-only workspace moves: the single projection that updates the
+    // row and adopts the issue worktree without the legacy sessionCwd frame.
+    // Mirrors SessionDaemonProjection's sessionCwd handling (cwd ask-before-
+    // write, broadcast, adoptWorktree) so contract-only external projections
+    // reproduce the user-visible effect. Safe to repeat: row write asks first,
+    // adoption is guarded on worktreePath null.
+    workspace: async (input) => {
+      const session = bag.sessions.get(input.sessionId)
+      if (!session) return
+      if (input.cwd && session.cwd !== input.cwd) {
+        const cwd = input.cwd
+        await bag.repository.write(session, (draft: SessionDurableState) => {
+          draft.cwd = cwd
+        })
+        bag.broadcastSessions()
+      }
+      if (input.cwd && session.issueId) {
+        bag.bus.emit('issue.sessionDerived', {
+          kind: 'adoptWorktree',
+          issueId: session.issueId,
+          machineId: session.machineId,
+          message: {
+            type: 'sessionCwd',
+            sessionId: input.sessionId,
+            cwd: input.cwd,
+            ...(input.kind ? { kind: input.kind } : {}),
+            ...(input.branch ? { branch: input.branch } : {}),
+            ...(input.repoRoot ? { repoRoot: input.repoRoot } : {}),
+            ...(input.explicit ? { explicit: true } : {}),
+          },
+        })
+      }
+    },
+    // Contract-only browser opens: how the gateway learns the request without
+    // the legacy sessionOpenUrl frame. The daemon's BrowserOpenManager still
+    // owns the pending capability and executes the callback; this only routes
+    // the offer to clients. Gateway dedupes by sessionId:requestId, so oplog
+    // replay is safe. Missing requestId (rolling upgrade) falls back to a
+    // link-only offer keyed by the durable event id.
+    openUrl: async (input) => {
+      const session = bag.sessions.get(input.sessionId)
+      if (!session) return
+      const requestId = input.requestId ?? `contract:${input.eventId}`
+      const expiresAt = input.expiresAt ?? bag.now() + 10 * 60 * 1_000
+      bag.browserOpen.onOpenUrl({
+        type: 'sessionOpenUrl',
+        sessionId: input.sessionId,
+        requestId,
+        url: input.url,
+        ...(input.intent ? { intent: input.intent } : {}),
+        ...(input.callbackTarget ? { callbackTarget: input.callbackTarget } : {}),
+        expiresAt,
+      })
+    },
     // DEFERRED READ, on the same terms as `runtimeInteractions.ask` below: the
     // interactions aggregate is built by the composition root after this
     // function runs, so the sink is read through the closure rather than
@@ -778,14 +856,15 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       await bag.state.handleNativeDraft(sessionId, event.text)
       return
     }
-    const item = runtimeTranscriptItemFromEvent(event)
-    if (!item) return
+    const delta = runtimeTranscriptDeltaFromEvent(event)
+    if (!delta) return
     const session = bag.sessions.get(sessionId)
     if (!session) return
-    if (session.terminal.applyRuntimeDelta([item])) {
+    if (session.terminal.applyRuntimeDelta(delta.items, delta)) {
       await bag.repository.persist(session)
       bag.broadcastSessions()
     }
+    await bag.daemonProjection.promptTitle(sessionId)
   })
   /**
    * THE PREVIEW PLANE (POD-2293), SUBSCRIBED TO A RECEIVER THAT ALREADY EXISTED.
@@ -835,11 +914,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     legacy: inbox,
     contract: { send: (input) => bag.runtimeGateway.send(input) },
     queue: durableQueue,
-    // REPORTED BY THE DAEMON ON BIND, never computed here: the daemon ORs a
-    // machine-wide env var it owns with the per-spawn field and declines the flag
-    // for harnesses with no turns to be honest about, so a server that inferred
-    // the answer would be wrong in both directions.
-    onContract: (sessionId: SessionId) => bag.sessions.get(sessionId)?.runtimeContract === true,
+    // Immediate and durable sends share rollout and active-custody routing.
+    onContract: (sessionId: SessionId) => {
+      const session = bag.sessions.get(sessionId)
+      return session ? bag.inbox.routesThroughContract(session) : false
+    },
     liveWithEmptyQueue: (sessionId: SessionId) => {
       const s = bag.sessions.get(sessionId)
       return s?.status === 'live' && s.queuedMessageCount === 0
@@ -865,6 +944,28 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     now: () => bag.now(),
   })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
+    initializeRuntimeMetadata: async (sessionId, machineId) => {
+      const session = bag.sessions.get(sessionId)
+      const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
+      if (!session || bag.sessions.get(sessionId) !== session || session.machineId !== machineId || !session.runtimeContract) return
+      if ('snapshot' in reply.result) {
+        await bag.daemonProjection.metadataSnapshot(sessionId, reply.result.snapshot)
+        // Reconnect: the driver's snapshot binding carries its current
+        // worktree root (session.cwd is kept current on every sessionCwd).
+        // Restamp the row so grouping survives a daemon restart without
+        // waiting for the next move. Adoption itself already happened via the
+        // workspace oplog before the restart (the row and issue worktreePath
+        // persist), and the snapshot carries no kind/branch to re-adopt
+        // safely, so this is grouping only.
+        const workdir = reply.result.snapshot.binding.workdir
+        if (typeof workdir === 'string' && workdir !== '' && session.cwd !== workdir) {
+          await bag.repository.write(session, (draft: SessionDurableState) => {
+            draft.cwd = workdir
+          })
+          bag.broadcastSessions()
+        }
+      }
+    },
     sessions: bag.sessions,
     bus: bag.bus,
     browserOpen: bag.browserOpen,
@@ -959,6 +1060,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.sessionKill = new SessionKill({
     store,
+    rpc: bag.rpc,
     repository: bag.repository,
     state: bag.state,
     autoContinue: bag.autoContinue,

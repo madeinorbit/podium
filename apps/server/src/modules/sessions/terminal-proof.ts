@@ -209,7 +209,8 @@ export class SessionTerminalProof {
     if (facts.pendingMessages.length !== 0) return 'pending_messages'
     if (facts.autoContinueActive) return 'auto_continue_active'
     const active = facts.activeWork
-    if (active.nativeSubagentCount !== 0 || active.awaitingSubagents) return 'native_subagents'
+    if (active.nativeSubagentCount !== 0 || active.nativeSubagentIds.length !== 0 || active.awaitingSubagents)
+      return 'native_subagents'
     if (active.childSessions.length !== 0) return 'child_sessions'
     if (active.queueDrainActive) return 'queue_drain_active'
     return null

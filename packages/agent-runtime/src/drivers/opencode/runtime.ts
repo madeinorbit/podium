@@ -1468,9 +1468,6 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.delivery === 'at-boundary') {
-          return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery is not implemented by this driver' } }
-        }
         if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
         if (options.deliveryAttempt && (session.busy || session.lease?.kind === 'human-controller')) {
           return { outcome: 'refused', refusal: { reason: session.busy ? 'busy' : 'lease_held' } }
@@ -1505,13 +1502,13 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
           return {
             outcome: 'queued',
             position: session.queue.length,
-            deliveredAs: 'queue',
+            deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
             at: iso(),
           }
         }
 
         const wanted = options.delivery
-        if (wanted === 'queue' || wanted === 'steer') {
+        if (wanted === 'queue' || wanted === 'steer' || wanted === 'at-boundary') {
           if (session.busy || session.queue.length > 0) {
             session.queue.push({ input, options })
             return {
@@ -1520,7 +1517,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
               // THE DOWNGRADE, REPORTED. opencode has no steer verb — a prompt
               // POSTed into an open turn becomes a separate turn afterwards —
               // so `steer` is answered as what it actually was.
-              deliveredAs: 'queue',
+              deliveredAs: options.delivery === 'at-boundary' ? 'at-boundary' : 'queue',
               at: iso(),
             }
           }

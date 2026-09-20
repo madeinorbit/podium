@@ -3,12 +3,17 @@ import { describe, expect, it } from 'vitest'
 import {
   isDurableRuntimeEvent,
   RuntimeEventMessage,
+  SessionSnapshot,
+  RuntimeDurableSendRequestMessage,
+  RuntimeSendRequestMessage,
   type RuntimeEventBody,
   type RuntimeEvent,
 } from './runtime'
 
 const at = '2026-09-18T12:00:00.000Z'
 const bodies = {
+  metadata: { t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 } },
+  binding: { t: 'binding', resume: { kind: 'codex-thread', value: 'native' }, confidence: 'exact', bindingVersion: 1, ackRequested: true },
   delivery: { t: 'delivery', rowId: 'row', outcome: 'delivered' },
   state: { t: 'state', change: { kind: 'activity' } },
   item: { t: 'item', item: { kind: 'complete', item: { id: 'item', role: 'system', text: 'Interrupted', ts: at } } },
@@ -18,6 +23,7 @@ const bodies = {
   workspace: { t: 'workspace', ev: { ev: 'cwd-changed', cwd: '/repo' } },
   'open-url': { t: 'open-url', ev: { url: 'https://example.com/login', intent: 'login' } },
   draft: { t: 'draft', text: 'latest draft' },
+  'transcript-reset': { t: 'transcript-reset', items: [] },
 } satisfies Record<RuntimeEventBody['t'], RuntimeEventBody>
 
 function event(body: RuntimeEventBody, provenance: RuntimeEvent['provenance'] = 'live'): RuntimeEvent {
@@ -28,11 +34,16 @@ function event(body: RuntimeEventBody, provenance: RuntimeEvent['provenance'] = 
 }
 
 describe('runtime event retention contract', () => {
-  it.each(['delivery', 'item', 'interaction', 'turn', 'process', 'open-url'] as const)(
+  it.each(['metadata', 'binding', 'delivery', 'item', 'transcript-reset', 'interaction', 'turn', 'process', 'open-url'] as const)(
     'retains %s because loss is not repaired by the next observation', (kind) => {
       expect(isDurableRuntimeEvent(event(bodies[kind]))).toBe(true)
     },
   )
+
+  it('retains git-activity because commits are additive, not superseded', () => {
+    const git = event({ t: 'workspace', ev: { ev: 'git-activity', commits: ['sha'], touchedFiles: [] } })
+    expect(isDurableRuntimeEvent(git)).toBe(true)
+  })
 
   it.each(['state', 'workspace', 'draft'] as const)(
     'sends %s live without a delivery id, but retains its bootstrap', (kind) => {
@@ -48,4 +59,28 @@ describe('runtime event retention contract', () => {
     expect(isDurableRuntimeEvent(event({ t: 'item', item: { kind: 'delta', itemId: 'item', textDelta: 'token' } }, provenance))).toBe(false)
     expect(isDurableRuntimeEvent(event({ t: 'item', item: { kind: 'partial', item: { id: 'tool', role: 'assistant', text: 'running', ts: at } } }, provenance))).toBe(false)
   })
+})
+
+
+describe('durable admission command', () => {
+  it('requires migration discriminators and cannot parse as a legacy send', () => {
+    const frame = { type: 'runtimeDurableSendRequest', requestId: 'rpc', sessionId: 'session',
+      turnId: 'row', rowId: 'row', deliveryRecovery: true, initialPrompt: true,
+      text: 'create once', origin: 'human', delivery: 'when-ready' }
+    expect(RuntimeDurableSendRequestMessage.parse(frame)).toMatchObject(frame)
+    expect(RuntimeSendRequestMessage.safeParse(frame).success).toBe(false)
+    expect(RuntimeDurableSendRequestMessage.safeParse({ ...frame, deliveryRecovery: undefined }).success).toBe(false)
+  })
+})
+
+
+it('preserves title and causal metadata through the snapshot wire schema', () => {
+  const metadata = event(bodies.metadata)
+  const snapshot = {
+    binding: { sessionId: 'session', harness: 'claude-code', driver: 'terminal-claude', family: 'terminal', workdir: '/repo', resume: null,
+      bindingVersion: 1, process: { key: 'process' } },
+    state: {}, cursor: metadata.cursor, observerGeneration: 2, turnEpoch: 1,
+    interactions: [], title: 'Native title', metadata: [metadata], at,
+  }
+  expect(SessionSnapshot.parse(snapshot)).toMatchObject({ title: 'Native title', metadata: [metadata] })
 })

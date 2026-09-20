@@ -1076,6 +1076,18 @@ export class Session {
     return ms > 0 ? new Date(ms).toISOString() : null
   }
 
+  /** Recover the engine that actually ran. A recorded policy degradation is not
+   * a request to replace a surviving terminal with the preferred server driver.
+   * Keep historical terminal omission headed; wake/retry still honors the request. */
+  reattachDriverRequest(): string | undefined {
+    const selectedFamily = driverFamilyForId(this.selectedDriverId ?? '')
+    if (this.selectedDriverId && selectedFamily) {
+      if (selectedFamily === 'terminal' && !this.requestedDriverId) return undefined
+      return this.selectedDriverId
+    }
+    return this.lifecycleDriverRequest()
+  }
+
   /** Preserve pre-requested-driver headless rows without turning terminal or unknown selections into policy. */
   lifecycleDriverRequest(): string | undefined {
     if (this.requestedDriverId) return this.requestedDriverId

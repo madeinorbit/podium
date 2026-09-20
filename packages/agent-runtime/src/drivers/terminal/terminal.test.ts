@@ -8,7 +8,7 @@
  * mean what they say on their own.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { PERMITTED_FAILURES } from '../../permitted-failures.js'
 import type { InputOrigin } from '../../turns.js'
 import {
@@ -481,5 +481,36 @@ describe('row cancellation at the terminal submit boundary', () => {
     expect((await delivery).outcome).toBe('unverified')
     expect(written).toHaveLength(1)
     expect(written).not.toContain('\r')
+  })
+})
+
+
+describe('durable prompt confirmation', () => {
+  it('keeps the original proof watch while busy, without submitting another payload', async () => {
+    vi.useFakeTimers()
+    try {
+      let phase = 'idle'
+      let confirm!: (accepted: boolean) => void
+      const accepted = new Promise<boolean>((resolve) => { confirm = resolve })
+      const { ports, written } = terminal({
+        phase: () => phase,
+        needsSubmitVerification: () => true,
+        echoAccept: { watch: () => ({ accepted, cancel: () => {} }) },
+        setTimer: (fn, delay) => setTimeout(fn, delay),
+      })
+      const delivery = createTerminalInjection(ports).deliver('one creation prompt', {
+        origin: 'human', delivery: 'when-ready', durable: true, initialPrompt: true,
+      })
+      await vi.advanceTimersByTimeAsync(100)
+      phase = 'working'
+      let settled = false
+      void delivery.then(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(settled).toBe(false)
+      expect(written.filter((bytes) => pasted(bytes) !== undefined)).toHaveLength(1)
+      expect(written.filter((bytes) => bytes === '\r')).toHaveLength(1)
+      confirm(true)
+      expect(await delivery).toMatchObject({ outcome: 'accepted', provenBy: 'transcript-echo' })
+    } finally { vi.useRealTimers() }
   })
 })

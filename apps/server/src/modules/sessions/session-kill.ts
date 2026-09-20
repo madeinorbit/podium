@@ -26,8 +26,9 @@ import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podi
 import type { AutoContinueController } from '../../auto-continue'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
-import { afterCommit } from '../../store/executor/executor'
+import { afterCommit, followUpAfterCommit } from '../../store/executor/executor'
 import type { EventBus } from '../bus'
+import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionRepository } from './repository'
@@ -53,6 +54,7 @@ export interface SessionKillPorts {
   now(): number
   toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
+  rpc: Pick<DaemonRpcService, 'runtimeLifecycle'>
   ledger: KillLedger
 }
 
@@ -78,8 +80,37 @@ export class SessionKill {
    * restored and therefore use generic process kill; standalone deletion is
    * terminal and emits the distinct binding-retirement instruction. */
   async removeSessionRuntime(sessionId: SessionId, terminalRetirement?: { retiredAt: string }): Promise<void> {
+    const session = this.ports.sessions.get(sessionId)
+    const machineId = session?.machineId ??
+      (await this.ports.store.sessions.getSession(sessionId))?.machineId ??
+      await this.ports.machines.defaultMachine()
     const remove = await this.prepareSessionRuntimeRemoval(sessionId, terminalRetirement)
     remove()
+    if (terminalRetirement) await this.retireSessionProcess({
+      sessionId, machineId, retiredAt: terminalRetirement.retiredAt,
+      ...(session ? { durableLabel: session.durableLabel } : {}),
+    })
+  }
+
+  private async retireSessionProcess(input: {
+    sessionId: SessionId; machineId: MachineId; retiredAt: string; durableLabel?: string
+  }): Promise<void> {
+    let confirmed = false
+    try {
+      const response = await this.ports.rpc.runtimeLifecycle(
+        { sessionId: input.sessionId, verb: 'kill' }, input.machineId,
+      )
+      confirmed = 'ok' in response.result && response.result.retirement === 'confirmed'
+    } finally {
+      // Binding retirement is a separate durable transition, and its queued
+      // frame keeps orphan recovery reachable when the lifecycle RPC fails.
+      this.ports.toMachine(input.machineId, {
+        type: 'sessionBindingRetire', sessionId: input.sessionId,
+        transitionId: `retire:${input.sessionId}`, retiredAt: input.retiredAt,
+        ...(input.durableLabel ? { durableLabel: input.durableLabel } : {}),
+      })
+    }
+    if (!confirmed) throw new Error('session removed durably; process retirement was not confirmed')
   }
 
   /** Resolve routing before commit so the irreversible apply step cannot yield. */
@@ -95,22 +126,10 @@ export class SessionKill {
       // Notify while membership/cwd are still resolvable, before removal.
       this.ports.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
 
-      this.ports.toMachine(
-        machineId,
-        terminalRetirement
-          ? {
-              type: 'sessionBindingRetire',
-              sessionId,
-              transitionId: `retire:${sessionId}`,
-              retiredAt: terminalRetirement.retiredAt,
-              ...(session ? { durableLabel: session.durableLabel } : {}),
-            }
-          : {
-              type: 'kill',
-              sessionId,
-              ...(session ? { durableLabel: session.durableLabel } : {}),
-            },
-      )
+      if (!terminalRetirement) this.ports.toMachine(machineId, {
+        type: 'kill', sessionId,
+        ...(session ? { durableLabel: session.durableLabel } : {}),
+      })
       this.ports.autoContinue.onSessionGone(sessionId)
       session?.terminal.detachAll()
       this.ports.sessions.delete(sessionId)
@@ -123,6 +142,10 @@ export class SessionKill {
 
   async killSession(input: { sessionId: SessionId }): Promise<void> {
     const session = this.ports.sessions.get(input.sessionId)
+    const row = session ? undefined : await this.ports.store.sessions.getSession(input.sessionId)
+    if (!session && !row) return
+    const machineId = session?.machineId ?? row?.machineId ??
+      await this.ports.machines.defaultMachine()
     const deletedAt = new Date(this.ports.now()).toISOString()
     const removeRuntime = await this.prepareSessionRuntimeRemoval(input.sessionId, { retiredAt: deletedAt })
     // The remove change commits in the SAME transaction as the tombstone (and
@@ -152,6 +175,13 @@ export class SessionKill {
         this.ports.repository.publishSessionProjection(changes)
       },
     })
+    let retirementConfirmed = false
+    await followUpAfterCommit(async () => {
+      await this.retireSessionProcess({ sessionId: input.sessionId, machineId, retiredAt: deletedAt,
+        ...(session ? { durableLabel: session.durableLabel } : {}),
+      })
+      retirementConfirmed = true
+    }, 'session-kill-retirement')
     // The broadcast and the death notification are mechanism 3: external
     // effects nobody waits for, whose failure must not be reported as a
     // divergent projection. `session` was captured before the commit, so the
@@ -164,7 +194,8 @@ export class SessionKill {
       // arrives, so the agentExit-path emit would be skipped — fire it here.
       // killSession is never the hibernate path (hibernateSession only flips
       // status).
-      await this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
+      if (retirementConfirmed)
+        await this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
     }, 'session-kill-broadcast')
   }
 

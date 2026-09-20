@@ -54,6 +54,7 @@ import {
   RuntimeHistoryRequestMessage,
   RuntimeStageAttachmentRequestMessage,
   RuntimeSendRequestMessage,
+  RuntimeDurableSendRequestMessage,
   RuntimeWatchMessage,
 } from './runtime'
 import { AgentObservationAckMessage, AgentObservationRebindAckMessage } from './runtime-state'
@@ -187,5 +188,6 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RuntimeConfigureRequestMessage,
   RuntimeDraftRequestMessage,
   SetDaemonLogLevelMessage,
+  RuntimeDurableSendRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

@@ -1,4 +1,6 @@
+import { seedRuntimeHistory } from '../runtime/history-seed'
 import { randomUUID } from 'node:crypto'
+import { dispatchInputBytes } from './legacy-terminal-input'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { RefusalReason, SessionSpec } from '@podium/agent-runtime'
@@ -6,14 +8,14 @@ import { attachKindsForDriver, configureFieldsForDriver } from '@podium/agent-ru
 import {
   agentStateProviderFor,
   bindHarnessLaunch,
+  canonicalDriverId,
   type DriverId,
-  declaredValue,
   type HarnessVersionDiagnostic,
   harnessCapabilitiesFor,
   type LaunchFile,
-  manifestFor,
   parseHarnessVersion,
 } from '@podium/harness'
+import { managementLoginCommandFor } from '../harness-management.js'
 import { createLogger } from '@podium/logger'
 import {
   type AgentKind,
@@ -36,7 +38,7 @@ import type { Tier } from '../output-scheduler'
 import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { driverTiming } from '../runtime/driver-timing'
-import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
+import { runtimeDriverByEnv } from '../runtime/flag'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
@@ -58,6 +60,7 @@ import {
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
+import { TerminalRecoveryRefusal } from '../runtime/terminal-driver'
 import { beginServerDriverReap } from '../runtime/server-reap'
 import {
   type InstalledTerminalInstrumentation,
@@ -81,7 +84,6 @@ import {
   trackSessionOutput,
   trackSessionSize,
 } from '../session-screens'
-import { sourceForRead } from './transcripts'
 
 const log = createLogger('daemon:session')
 
@@ -615,7 +617,7 @@ export function wireBridge(
   // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
   // title, so forward it for them.
   if (harnessCapabilitiesFor(agentKind)?.oscTitle ?? true) {
-    session.onTitle((title) => ctx.send({ type: 'title', sessionId, title }))
+    session.onTitle((title) => ctx.send({ type: 'title', sessionId, title, source: 'osc' }))
   }
   session.onExit((code) => {
     ctx.bridges.delete(sessionId)
@@ -698,13 +700,12 @@ export async function launchSpawn(
       !msg.resume && harnessCapabilitiesFor(msg.agentKind)?.newSessionIdFlag
         ? randomUUID()
         : undefined
+    // MANAGEMENT OWNERSHIP (POD-4305 F12): the native login argv resolves before
+    // any agent handle can exist — static manifest declaration only, bound to the
+    // generation's verified executable below. Never a shell manifest/driver
+    // (POD-4278 owns that exemption); unknown/unsupported harnesses throw here.
     const loginCommand = msg.loginHarness
-      ? declaredValue(
-          manifestFor(msg.loginHarness)?.inventory.loginCommand ?? {
-            supported: false,
-            reason: 'unknown harness',
-          },
-        )
+      ? managementLoginCommandFor(msg.loginHarness)
       : undefined
     if (msg.loginHarness && !loginCommand) {
       throw new Error(`${msg.loginHarness} does not declare a native login command`)
@@ -748,6 +749,11 @@ export async function launchSpawn(
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)
     const profile = terminalProfileFor(msg.agentKind)
+    // Driver selection and handle admission are independent: omission still means
+    // headed, but every profile-bearing agent must have a runtime to bind it.
+    if (profile && !msg.loginHarness && !ctx.agentRuntime) {
+      throw new Error('agent runtime is unavailable; retry after the daemon recovers')
+    }
     const spec: SessionSpec = {
       harness: msg.agentKind,
       selection: {
@@ -834,7 +840,7 @@ export async function launchSpawn(
         ...(newSessionId ? { newSessionId } : {}),
       })
       ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
-      await bindRuntimeContract(ctx, msg, false)
+      await bindRuntimeContract(ctx, msg, false, profile)
       const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
       // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
       // session. attach() is a no-op for harnesses without a driver. Reads the
@@ -890,17 +896,25 @@ export async function launchSpawn(
       const handle = handleFor(ctx, msg.sessionId)
       if (handle) driverTiming.sessionReady(handle.binding)
     }
+    // Permanent plain-terminal exemption, independent of the legacy rollout flag.
+    // Shells/profile-less hosts and login commands have no agent runtime session
+    // to create. This is a driver-creation decision, not a subtree deletion boundary.
+    // Both paths share launch, durable host, bridge, observers, screen, draft engine,
+    // transcript source and reaper; terminal driver handles still need that machinery.
+    // The else-only step prepares instrumentation and calls launch without creating
+    // a driver. Keep the plain-terminal path and shared machinery when removing legacy.
+    const hostHasNoRuntimeSession = !profile || !!msg.loginHarness
     if (installedInstrumentation) {
       await launch(installedInstrumentation)
-    } else if (
-      profile &&
-      ctx.agentRuntime &&
-      !msg.loginHarness &&
-      runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)
-    ) {
-      await ctx.agentRuntime.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
+    } else if (!hostHasNoRuntimeSession) {
+      const runtime = ctx.agentRuntime
+      if (!runtime) {
+        throw new Error('agent runtime is unavailable; retry after the daemon recovers')
+      }
+      await runtime.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
+      requireTerminalHandle(ctx, msg, profile)
     } else {
-      // Shell/login and injected legacy hosts have no runtime session to create.
+      // Permanent plain terminals still need instrumentation and shared PTY plumbing.
       const instrumentation = await prepareTerminalInstrumentation(
         {
           instrumentation:
@@ -919,6 +933,9 @@ export async function launchSpawn(
       await launch(instrumentation)
     }
   } catch (err) {
+    // A process may already exist when handle construction fails. Use the shared
+    // reaper before reporting failure; never acknowledge a driverless agent.
+    if (ctx.bridges.has(msg.sessionId)) stopSessionProcess(ctx, msg)
     removeSessionInstructions(ctx, msg.sessionId)
     // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
     // must not be applied to whatever is spawned for this id next.
@@ -935,56 +952,58 @@ export async function launchSpawn(
 export const MISSING_SESSION_BINDING_MESSAGE =
   'server-minted SessionBinding instruction is required'
 
-/**
- * Put this session behind the Agent Runtime contract, when the flag says so
- * (POD-1761 W3).
- *
- * CALLED FROM BOTH THE SPAWN AND THE REATTACH PATHS, immediately after the
- * observers are wired, because those are the two moments a session acquires a
- * live bridge — and a driver handle without a bridge would answer `not_running`
- * to everything, which is true but useless.
- *
- * FLAG OFF RETURNS ON THE FIRST LINE. That is the whole of the "zero diff"
- * claim on this path: no handle, no queue, no observation tap entry, and the
- * legacy machinery above ran exactly as it always has.
- */
+/** A selection is intent; only a registered, matching handle admits an agent. */
+function requireTerminalHandle(
+  ctx: DaemonContext,
+  msg: SpawnControl | ReattachControl,
+  profile: NonNullable<ReturnType<typeof terminalProfileFor>>,
+): void {
+  const handle = handleFor(ctx, msg.sessionId)
+  if (
+    !handle ||
+    handle.binding.sessionId !== msg.sessionId ||
+    handle.binding.harness !== msg.agentKind ||
+    handle.binding.family !== 'terminal' ||
+    handle.binding.driver !== profile.driverId
+  ) {
+    throw new Error(`terminal driver '${profile.driverId}' did not establish a handle; retry this session`)
+  }
+}
+
+/** Bind before publishing success, including historical rows with no driver ID.
+ * Shell, login and profile-less terminals have no agent runtime to construct. */
 async function bindRuntimeContract(
   ctx: DaemonContext,
   msg: SpawnControl | ReattachControl,
   rebind: boolean,
+  profile: ReturnType<typeof terminalProfileFor>,
 ): Promise<void> {
-  if (!ctx.agentRuntime) return
-  if (!runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)) return
-  const profile = terminalProfileFor(msg.agentKind)
-  // A shell has no turns, no transcript and no state channel — there is nothing
-  // for a driver to be honest about, so the flag simply does not reach it.
-  if (!profile) return
-  try {
-    await ctx.agentRuntime.bindTerminal(
-      {
-        sessionId: msg.sessionId,
-        agentKind: msg.agentKind,
-        cwd: msg.cwd,
-        resume: msg.resume ?? null,
-        ...(msg.observationGeneration !== undefined
-          ? { observerGeneration: msg.observationGeneration }
-          : {}),
-        ...(msg.observationBindingVersion !== undefined
-          ? { bindingVersion: msg.observationBindingVersion }
-          : {}),
-        rebind,
-      },
-      profile,
-    )
-  } catch (err) {
-    // A DRIVER THAT CANNOT BE BUILT MUST NOT TAKE THE SESSION DOWN WITH IT. The
-    // legacy path is already wired and working at this point; the flagged path is
-    // additive, so its failure is a diagnostic, not a spawn error.
-    log.warn('could not put the session behind the runtime contract', {
-      err,
-      sessionId: msg.sessionId,
-    })
+  if (!profile || ('loginHarness' in msg && msg.loginHarness)) return
+  // Reconnect can carry an old or unavailable explicit ID. It must obey the
+  // same canonical terminal identity as launch, rather than silently ignoring it.
+  if (typeof msg.runtimeContract === 'string' && canonicalDriverId(msg.runtimeContract) !== profile.driverId) {
+    throw new Error(`runtime driver '${msg.runtimeContract}' cannot bind as '${profile.driverId}'; retry with an available driver`)
   }
+  if (!ctx.agentRuntime) {
+    throw new Error('agent runtime is unavailable; retry after the daemon recovers')
+  }
+  await ctx.agentRuntime.bindTerminal(
+    {
+      sessionId: msg.sessionId,
+      agentKind: msg.agentKind,
+      cwd: msg.cwd,
+      resume: msg.resume ?? null,
+      ...(msg.observationGeneration !== undefined
+        ? { observerGeneration: msg.observationGeneration }
+        : {}),
+      ...(msg.observationBindingVersion !== undefined
+        ? { bindingVersion: msg.observationBindingVersion }
+        : {}),
+      rebind,
+    },
+    profile,
+  )
+  requireTerminalHandle(ctx, msg, profile)
 }
 
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
@@ -1240,6 +1259,119 @@ async function adoptServerDriverSession(
 }
 
 /**
+ * Rebind a headless contract session after a daemon restart.
+ *
+ * Headless sessions hold no server journal and no PTY: between turns there is
+ * no process at all, only the harness conversation on disk and the durable
+ * turn journal. `adoptServerDriverSession` above therefore never finds them,
+ * and the PTY path below must never claim them. This is the headless twin of
+ * `adoptOrResumeEmbeddedClaudeSession`: an existing handle re-adopts (bumping
+ * the binding behind it), a requested `headless` reattach with no handle
+ * re-indexes via `runtime.adopt` on the exact durable label, falling back to
+ * `runtime.resume` when the resume ref is known. Anything else is not ours.
+ */
+async function adoptHeadlessSession(
+  ctx: DaemonContext,
+  msg: ReattachControl,
+): Promise<boolean> {
+  const runtime = ctx.agentRuntime
+  if (!runtime) return false
+  const existing = runtime.handleFor(msg.sessionId)
+  const existingHeadless =
+    existing && existing.binding.driver === 'headless' ? existing : undefined
+  const requested =
+    typeof msg.runtimeContract === 'string' &&
+    canonicalDriverId(msg.runtimeContract) === 'headless'
+  if (!requested && !existingHeadless) return false
+  const fail = (reason: string): true => {
+    ctx.send({ type: 'reattachFailed', sessionId: msg.sessionId, reason })
+    return true
+  }
+  if (requested && existing && !existingHeadless) {
+    return fail(`session '${msg.sessionId}' is already bound to '${existing.binding.driver}'`)
+  }
+  const binding = existingHeadless?.binding ?? {
+    sessionId: msg.sessionId,
+    driver: 'headless' as const,
+    family: 'server' as const,
+    harness: msg.agentKind,
+    workdir: msg.cwd,
+    resume: msg.resume ?? null,
+    process: { key: ctx.durableLabelFor(msg.sessionId) },
+    bindingVersion: 1,
+  }
+  try {
+    const handle = await runtime.adopt(binding)
+    ctx.send(
+      bindFrame(appliedGeometryFor(ctx), {
+        sessionId: msg.sessionId,
+        cmd: `headless (${handle.binding.driver})`,
+        cwd: msg.cwd,
+        agentKind: msg.agentKind,
+        runtimeContract: true,
+        driverId: handle.binding.driver,
+        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+      }),
+    )
+    ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+    log.info('adopted surviving headless session', {
+      sessionId: msg.sessionId,
+      driver: handle.binding.driver,
+    })
+    return true
+  } catch (adoptionError) {
+    if (!requested) {
+      return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
+    }
+    if (!msg.resume) {
+      return fail(
+        adoptionError instanceof Error ? adoptionError.message : String(adoptionError),
+      )
+    }
+    try {
+      const spec: SessionSpec = {
+        harness: msg.agentKind,
+        selection: {
+          auth: 'unknown',
+          platform: process.platform,
+          available: ['headless'],
+          preference: 'headless',
+          role: 'executor',
+        },
+        workdir: msg.cwd,
+        model: {},
+        instructions: {
+          supported: false,
+          reason: 'headless reattach carries no sticky instructions',
+        },
+        mcpServers: {
+          supported: false,
+          reason: 'headless reattach carries no MCP mount',
+        },
+      }
+      const handle = await runtime.resume(msg.resume, spec, msg.sessionId)
+      ctx.send(
+        bindFrame(appliedGeometryFor(ctx), {
+          sessionId: msg.sessionId,
+          cmd: `headless (${handle.binding.driver})`,
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          runtimeContract: true,
+          driverId: handle.binding.driver,
+          configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+          attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+        }),
+      )
+      ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+      return true
+    } catch (resumeError) {
+      return fail(resumeError instanceof Error ? resumeError.message : String(resumeError))
+    }
+  }
+}
+
+/**
  * A SPAWN FOR A SESSION THE SERVER FAMILY ALREADY JOURNALS IS A RESUME (POD-2775).
  *
  * `sessions.resume` reaches this machine as a `spawn` frame — the very frame a
@@ -1360,13 +1492,18 @@ async function resumeJournalledServerSession(
 
 type ServerDriverLaunchResult = { handled: true } | { handled: false; requestedDriverId?: string }
 
-/** The only server binary admission may probe after applying the login gate. */
+/** The only server binary admission may probe after applying the login gate.
+ * `headless` needs no binary probe: the process-per-turn driver has no version
+ * gate, admission is the harness's headless axis declaration checked at
+ * resolution and at create time. */
 export function admissionProbeDriver(
   preferred: string | undefined,
   selectionAuth: ReturnType<typeof selectionAuthForLogin>,
 ): string | undefined {
   if (selectionAuth === 'logged-out') return undefined
-  return preferred && isServerDriverId(preferred) ? preferred : undefined
+  if (!preferred || !isServerDriverId(preferred)) return undefined
+  if (preferred === 'headless') return undefined
+  return preferred
 }
 
 export function resolvedAdmissionExecutable(
@@ -1493,6 +1630,7 @@ export async function launchServerDriverSession(
   msg: SpawnControl,
   probeDriver: ServerDriverAdmissionProbe = defaultServerDriverAdmissionProbe,
 ): Promise<ServerDriverLaunchResult> {
+  if (msg.loginHarness || !terminalProfileFor(msg.agentKind)) return { handled: false }
   const { preferred } = runtimeDriverIntentForSpawn({
     agentKind: msg.agentKind,
     perSpawn: msg.runtimeContract,
@@ -1761,12 +1899,16 @@ export async function launchServerDriverSession(
    * RESUME BEFORE CREATE (POD-2775). A session the server family already
    * journals is being brought back, not brought into existence — see
    * {@link resumeJournalledServerSession} for why the create below cannot serve
-   * it and what the journal entry is for.
+   * it and what the journal entry is for. Headless sessions hold no server
+   * journal (their durability is the harness conversation plus the durable
+   * turn journal), so they skip this and go straight to the contract create
+   * below.
    */
-  if (isServerDriver(msg.agentKind, resolution.driverId)) {
+  if (isServerDriver(msg.agentKind, resolution.driverId) && resolution.driverId !== 'headless') {
     if (await resumeJournalledServerSession(ctx, msg)) return { handled: true }
   }
   try {
+    const isHeadless = resolution.driverId === 'headless'
     const spec: SessionSpec = {
       harness: msg.agentKind,
       selection: {
@@ -1774,7 +1916,9 @@ export async function launchServerDriverSession(
         platform: process.platform,
         available: [resolution.driverId],
         preference: resolution.driverId,
-        role: 'interactive',
+        // Headless sessions are executor-owned, never interactive: their first
+        // prompt arrives as a turn, not at creation.
+        role: isHeadless ? 'executor' : 'interactive',
       },
       workdir: msg.cwd,
       model: {
@@ -1806,14 +1950,21 @@ export async function launchServerDriverSession(
         reason: 'interactive sessions mount MCP through the harness native config file',
       },
       ...(msg.env ? { env: msg.env } : {}),
-      ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
+      // Headless sessions take their first prompt as a turn, not at creation —
+      // the headless driver refuses `initialPrompt`.
+      ...(!isHeadless && msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
     }
-    if (isEmbeddedDriver(msg.agentKind, resolution.driverId) && msg.resume) {
+    if (
+      (isEmbeddedDriver(msg.agentKind, resolution.driverId) || isHeadless) &&
+      msg.resume
+    ) {
       await runtime.resume(msg.resume, spec, msg.sessionId)
     } else {
       await runtime.create(spec, msg.sessionId)
     }
-    reconcileNativeClientTerminal(ctx, msg.sessionId)
+    // Headless sessions have no terminal to attach: their capabilities refuse
+    // `attach` as unsupported, so there is no native client to reconcile.
+    if (!isHeadless) reconcileNativeClientTerminal(ctx, msg.sessionId)
   } catch (err) {
     // A server that would not start is a SPAWN ERROR, reported on the frame the
     // UI already renders. The alternative — falling back to a PTY — would hide
@@ -2056,7 +2207,44 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
    */
   if (await adoptOrResumeEmbeddedClaudeSession(ctx, msg)) return
   if (await adoptServerDriverSession(ctx, msg)) return
+  if (await adoptHeadlessSession(ctx, msg)) return
+  // An explicit nonterminal request cannot be satisfied by a surviving PTY.
+  // Old rows with omitted intent still recover through their headed profile.
+  if (
+    typeof msg.runtimeContract === 'string' &&
+    (isServerDriverId(msg.runtimeContract) || msg.runtimeContract === 'claude-sdk')
+  ) {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: `runtime driver '${msg.runtimeContract}' has no recoverable binding; retry this session`,
+    })
+    return
+  }
 
+  const profile = terminalProfileFor(msg.agentKind)
+  // Plain terminals retain their host recovery route. Old harness rows need a
+  // driver too: absence of a persisted request is not a plain-terminal marker.
+  if (profile) {
+    if (!ctx.agentRuntime) throw new Error('terminal recovery runtime unavailable')
+    await ctx.agentRuntime.recoverTerminal(msg, profile)
+    return
+  }
+  await recoverTerminalHost(ctx, msg)
+}
+
+/** Shared host machinery. Agent recovery enters through TerminalRuntime; plain
+ * terminals call it directly. ready installs the handle after composition and
+ * before publishing bind, so failed attachment never creates a phantom handle. */
+export async function recoverTerminalHost(
+  ctx: DaemonContext,
+  msg: ReattachControl,
+  ready?: () => void,
+): Promise<void> {
+  const heldLabel = ctx.durableLabels.get(msg.sessionId)
+  if (heldLabel !== undefined && heldLabel !== msg.durableLabel) {
+    throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
+  }
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
     // Capture legacy state before observer replacement. A freshly fenced
@@ -2072,8 +2260,6 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         seedOnFrame: false,
       })
     }
-    await bindRuntimeContract(ctx, msg, true)
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     const cmd = durableProcessFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
@@ -2091,6 +2277,10 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
+    ready?.()
+    const recoveryProfile = terminalProfileFor(msg.agentKind)
+    if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     ctx.send(
       bindFrame(appliedGeometryFor(ctx), {
         sessionId: msg.sessionId,
@@ -2145,20 +2335,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
         // Keep bind/state/redraw above immediate, but pace the allocation-heavy
         // transcript read/parse/reset-send through the existing seed gate.
-        const source = await sourceForRead(ctx, msg)
-        const res = await source.readSlice({
-          direction: 'before',
-          limit: 2000,
-        })
-        if (res.items.length > 0) {
-          ctx.send({
-            type: 'transcriptDelta',
-            sessionId: msg.sessionId,
-            items: res.items,
-            reset: true,
-            ...(res.tail ? { tail: res.tail } : {}),
-          })
-        }
+        await seedRuntimeHistory(ctx, msg.sessionId)
       } catch (err) {
         log.warn('reattach re-seed failed', { err, sessionId: msg.sessionId })
       }
@@ -2208,12 +2385,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       }
     }
     if (!found) {
-      ctx.send({
-        type: 'reattachFailed',
-        sessionId: msg.sessionId,
-        reason: durable ? 'session not found' : 'durable backend unavailable',
-      })
-      return
+      throw new Error(durable ? 'session not found' : 'durable backend unavailable')
     }
     // NOTHING REPORTED, BECAUSE THE ATTACH APPLIED NOTHING (POD-3279). The only
     // geometry a reattach can honestly report is a resize this session was
@@ -2240,7 +2412,12 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     const downgraded = held ? undefined : (found.readGeometry ?? found.session.appliedGeometry)
     // No dispatch: the attach itself announced and applied the size, so the
     // session is already at it and this call only records and reports it.
-    if (downgraded) appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
+    if (downgraded) {
+      appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
+      // The host's kernel report also sizes the model before ring replay.
+      // This records the observed grid; it sends no resize to the process.
+      if (ready) trackSessionSize(ctx, msg.sessionId, downgraded.cols, downgraded.rows)
+    }
     const applied = held ?? downgraded
     rememberDurableSeq(ctx, msg.sessionId, found.session)
     // The settings file from the original spawn still points at our fixed port,
@@ -2261,8 +2438,6 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // them both through the ordinary onResize path.
     const screens = applied ?? msg.lastKnownGeometry
     ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
-    await bindRuntimeContract(ctx, msg, true)
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
       // The session's one TerminalScreen model (P2c), not a second emulator.
       ctx.composerEngine.attach(
@@ -2273,6 +2448,16 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
+    // A fresh host attachment starts at the output tail. Reconstruct the
+    // agent's missing screen through the existing bounded replay port after
+    // wiring all consumers; waiting for a viewer resize leaves idle survivors
+    // blank. Plain terminals retain their viewer-driven replay path.
+    const replay = (found.session as AgentSession & { replay?: (bytes: number) => Promise<void> }).replay
+    if (ready && replay) await replay.call(found.session, HOST_REPLAY_TAIL_BYTES)
+    ready?.()
+    const recoveryProfile = terminalProfileFor(msg.agentKind)
+    if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     ctx.send(
       bindFrame(appliedGeometryFor(ctx), {
         sessionId: msg.sessionId,
@@ -2321,11 +2506,39 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
  * reimplemented any part of this would be the second place a session's teardown
  * lived.
  */
+const pendingSessionStops = new WeakMap<DaemonContext, Map<SessionId, Promise<boolean>>>()
+
 export function stopSessionProcess(
   ctx: DaemonContext,
   msg: { sessionId: SessionId; durableLabel?: string },
   opts: { retire?: boolean } = {},
-): void {
+): Promise<boolean> {
+  let pending = pendingSessionStops.get(ctx)
+  if (!pending) pendingSessionStops.set(ctx, pending = new Map())
+  const previous = pending.get(msg.sessionId)
+  // A timeout retry must observe the same retirement, not the now-empty
+  // registry. Binding retirement may strengthen a park after it completes.
+  if (previous && !opts.retire) return previous
+  const work = (previous ? previous.catch(() => false) : Promise.resolve()).then(
+    () => stopSessionProcessOnce(ctx, msg, opts),
+  ).catch((error) => {
+    log.warn('session retirement failed', { error, sessionId: msg.sessionId })
+    return false
+  })
+  pending.set(msg.sessionId, work)
+  void work.finally(() => {
+    if (pending.get(msg.sessionId) === work) pending.delete(msg.sessionId)
+  })
+  return work
+}
+
+async function stopSessionProcessOnce(
+  ctx: DaemonContext,
+  msg: { sessionId: SessionId; durableLabel?: string },
+  opts: { retire?: boolean } = {},
+): Promise<boolean> {
+  const reaps: Promise<boolean>[] = []
+  let measured = false
   const session = ctx.bridges.get(msg.sessionId)
   const runtimeHandle = ctx.agentRuntime?.handleFor(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
@@ -2347,12 +2560,7 @@ export function stopSessionProcess(
   // registry is discarded. Server-family handles stay with beginServerDriverReap,
   // which owns their bounded transport teardown and process proof.
   if (runtimeHandle?.binding.family === 'embedded') {
-    void runtimeHandle.kill().catch((error) => {
-      log.warn('could not stop the embedded runtime session', {
-        error,
-        sessionId: msg.sessionId,
-      })
-    })
+    reaps.push((opts.retire ? runtimeHandle.kill() : runtimeHandle.stop()).then(() => { measured = true; return true }))
   }
   // A server-family session has no bridge and no durable host — its process is
   // behind a runtime handle (or, post-restart, a binding-journal entry), and
@@ -2364,37 +2572,41 @@ export function stopSessionProcess(
   // receipts for one session are harmless — the server acts only on
   // `killed:false`, and a receipt for an identity that was never there is a
   // truthful "nothing to kill".
-  void beginServerDriverReap(ctx, msg.sessionId, { retire: opts.retire === true }).catch((err) => {
-    log.warn('could not start reaping the server-driver session', {
-      err,
-      sessionId: msg.sessionId,
-    })
-  })
-  void reapInstanceSessionProcesses({
-    instanceUuid: ctx.instanceUuid,
-    sessionId: msg.sessionId,
-  })
-    .then((result) => {
-      if (result.examined > 0 && result.remaining > 0)
-        log.warn('instance-owned session processes survived escalation', {
-          sessionId: msg.sessionId,
-          ...result,
-        })
-    })
-    .catch((err) => {
-      log.warn('could not reap instance-owned session processes', { err, sessionId: msg.sessionId })
-    })
+  reaps.push((async () => {
+    let retired = false
+    const owned = await beginServerDriverReap(ctx, msg.sessionId, {
+      retire: opts.retire === true,
+      completed: (value) => { retired = value; measured = true },
+    }, ctx.serverReapIo)
+    return !owned || retired
+  })())
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.
   if (ctx.backend !== 'none') {
     const durableLabel =
       msg.durableLabel ?? ctx.durableLabels.get(msg.sessionId) ?? ctx.durableLabelFor(msg.sessionId)
-    void reapDurableHost(ctx, msg.sessionId, durableLabel)
+    reaps.push(reapDurableHost(ctx, msg.sessionId, durableLabel).then((retired) => {
+      measured = true
+      return retired
+    }))
   }
   ctx.durableLabels.delete(msg.sessionId)
   removeSessionUploads(msg.sessionId, ctx.portableStateFence)
   removeSessionInstructions(ctx, msg.sessionId)
+  const results = await Promise.allSettled(reaps)
+  // Give cooperative teardown its flush window before escalating descendants.
+  const descendants = await reapInstanceSessionProcesses({ instanceUuid: ctx.instanceUuid, sessionId: msg.sessionId })
+  measured ||= descendants.examined > 0
+  if (descendants.remaining > 0) ctx.send({
+    type: 'sessionKillResult', sessionId: msg.sessionId,
+    durableLabel: msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId),
+    killed: false, reason: 'instance-owned descendants survived process retirement',
+  })
+  const retired = measured && descendants.remaining === 0 &&
+    results.every((result) => result.status === 'fulfilled' && result.value)
+  if (!retired) log.warn('session process retirement was not confirmed', { sessionId: msg.sessionId })
+  return retired
 }
 
 /**
@@ -2411,7 +2623,7 @@ async function reapDurableHost(
   ctx: DaemonContext,
   sessionId: SessionId,
   durableLabel: string,
-): Promise<void> {
+): Promise<boolean> {
   const durable = durableProcessFor(ctx)
   const stillRunning = async (): Promise<boolean> => (await durable?.has(durableLabel)) ?? false
   try {
@@ -2432,71 +2644,20 @@ async function reapDurableHost(
       killed: !alive,
       ...(alive ? { reason: 'the durable host is still running' } : {}),
     })
+    return !alive
   } catch (err) {
     // A reap that THREW proves nothing about the process, so report what is
     // there rather than a guess — an unreported throw is the silent no-op again.
     log.warn('could not reap the durable host', { err, sessionId, durableLabel })
+    const alive = await stillRunning().catch(() => undefined)
     ctx.send({
-      type: 'sessionKillResult',
-      sessionId,
-      durableLabel,
-      killed: !(await stillRunning().catch(() => false)),
+      type: 'sessionKillResult', sessionId, durableLabel,
+      killed: alive === false,
       reason: err instanceof Error ? err.message : String(err),
     })
+    return alive === false
   }
 }
-type CanonicalInputMetadata = Pick<
-  Extract<ControlMessage, { type: 'input' }>,
-  'sessionId' | 'inputOrigin'
->
-
-/**
- * Deliver already-converged PTY input bytes. Legacy base64 frames and negotiated
- * binary envelopes enter here before origin accounting, composer activity, or PTY I/O.
- */
-export function dispatchInputBytes(
-  ctx: DaemonContext,
-  metadata: CanonicalInputMetadata,
-  bytes: Uint8Array,
-): void {
-  if (bytes.byteLength === 0) return
-  if (bytes.includes(0x0d) || bytes.includes(0x0a)) {
-    ctx.observers.recordInputOrigin(metadata.sessionId, metadata.inputOrigin)
-  }
-  const bridge = ctx.bridges.get(metadata.sessionId)
-  // The client terminal is a leased takeover surface, not a second write
-  // path. Once Chat releases the native request, stale frames must not reach
-  // the warm abduco master.
-  if (
-    !bridge &&
-    ctx.nativeClientRequests?.has(metadata.sessionId) &&
-    ctx.clientTerminals?.input(metadata.sessionId, bytes)
-  ) {
-    ctx.composerEngine.onInputByte(metadata.sessionId)
-    return
-  }
-  if (!bridge && sessionIsBehindContract(ctx, metadata.sessionId)) {
-    // Chat sends for a server-family session use `runtimeSendRequest`; Native
-    // bytes reach the client terminal above. Anything arriving here has
-    // neither surface and is malformed/stale rather than silently accepted.
-    log.warn('discarding input bytes for a bridgeless contract session', {
-      sessionId: metadata.sessionId,
-      bytes: bytes.byteLength,
-    })
-  }
-  if (
-    bridge &&
-    metadata.inputOrigin === 'human' &&
-    (bytes.includes(0x0d) || bytes.includes(0x0a))
-  ) {
-    driverTiming.nativePromptSubmitted(metadata.sessionId)
-  }
-  bridge?.writeBytes(bytes)
-  // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
-  // replica is hot, so the engine defers injection. No-op for unflagged sessions.
-  ctx.composerEngine.onInputByte(metadata.sessionId)
-}
-
 export const sessionHandlers: Pick<
   ControlHandlers,
   | 'spawn'
@@ -2517,10 +2678,27 @@ export const sessionHandlers: Pick<
   | 'sessionOpenUrlDismiss'
 > = {
   spawn: (ctx, msg) => {
-    void handleSpawn(ctx, msg)
+    void handleSpawn(ctx, msg).catch((err) => {
+      ctx.send({
+        type: 'spawnError',
+        sessionId: msg.sessionId,
+        message: err instanceof Error ? err.message : String(err),
+      })
+    })
   },
   reattach: (ctx, msg) => {
-    void handleReattach(ctx, msg)
+    void handleReattach(ctx, msg).catch((error) => {
+      // A refused lease belongs to another/newer owner. Only a composition
+      // failure may reap an acquired bridge, as required by agent admission.
+      if (!(error instanceof TerminalRecoveryRefusal) && ctx.bridges.has(msg.sessionId)) {
+        stopSessionProcess(ctx, msg)
+      }
+      ctx.send({
+        type: 'reattachFailed',
+        sessionId: msg.sessionId,
+        reason: error instanceof Error ? error.message : String(error),
+      })
+    })
   },
 
   kill: (ctx, msg) => {
@@ -2804,7 +2982,7 @@ export const sessionHandlers: Pick<
   },
   sessionResumeRefAck: (ctx, msg) => {
     void ctx.sessionBinding
-      .acknowledgeReceipt(msg.ownerId, msg.sessionId, msg.resume)
+      .acknowledgeReceipt(msg.ownerId, msg.sessionId, msg.resume, msg.receipt)
       .catch((err) => log.warn('could not acknowledge the Codex identity receipt', { err }))
   },
   sessionPriority: (ctx, msg) => {

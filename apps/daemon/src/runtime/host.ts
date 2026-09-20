@@ -19,7 +19,7 @@ import { readFile } from 'node:fs/promises'
 import type { AttachmentStager } from '@podium/agent-runtime'
 import { durableProcessFor, scopeUnitName } from '@podium/process/durable'
 import type { DaemonContext } from '../control/context'
-import { launchSpawn, stopSessionProcess } from '../control/session'
+import { launchSpawn, recoverTerminalHost, stopSessionProcess } from '../control/session'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { stageRuntimeAttachment } from './attachment-staging'
@@ -51,6 +51,7 @@ export function daemonRuntimeHost(
     // fabricated unit name would make `health()` report a cgroup nothing owns.
     scopeUnit: (label) => (process.platform === 'linux' ? scopeUnitName(label) : undefined),
     durableHostAlive: async (label) => (await durableProcessFor(ctx)?.has(label)) ?? false,
+    recover: (msg, ready) => recoverTerminalHost(ctx, msg, ready),
     stopSession: (input) => stopSessionProcess(ctx, input),
     installInstrumentation: (sessionId, spec) =>
       installTerminalInstrumentation({

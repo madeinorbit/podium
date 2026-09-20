@@ -109,3 +109,45 @@ if (!heuristic || !exact) throw new Error('fixture must build both sessions')
   expect(heuristic.captureDurableState()).toEqual(before)
   expect(exact.resume).toBeUndefined()
 })
+
+
+it('acknowledges a fenced native receipt only after persistence, and retries a failed write', async () => {
+  const owner = firstAdminMemberId()
+  const machineId = asMachineId('receipt-machine')
+  const session = new Session({ ownerUserId: owner, sessionId: asSessionId('receipt'),
+    durableLabel: 'receipt', agentKind: 'codex', cwd: '/project', title: 'receipt',
+    origin: { kind: 'spawn' }, createdAt: '2026-09-18T00:00:00.000Z',
+    geometry: { cols: 80, rows: 24 }, machineId, toDaemon: vi.fn() })
+  const toMachine = vi.fn()
+  let fail = true
+  const write = vi.fn<SessionBindingReceiptsDeps['write']>(async (target, mutate) => {
+    if (fail) throw new Error('disk failed')
+    const draft = target.captureDurableState()
+    mutate(draft)
+    target.installDurableState(draft)
+  })
+  const receipts = new SessionBindingReceipts({
+    memory: {
+      ensureConversationIdentity: async () => 'conversation' as ConversationId,
+      linkConversationSegment: async () => 'conversation' as ConversationId,
+    }, now: () => 0, sessions: () => [session], session: () => session,
+    sessionOwner: async () => ({ owner, grants: [] }), write, toMachine, broadcastSessions: vi.fn(),
+  })
+  const receipt = { id: 'native-receipt', ownerId: owner, attemptId: 'attempt', observerGeneration: 1 }
+  const message = { type: 'sessionResumeRef' as const, sessionId: session.sessionId,
+    resume: { kind: 'codex-thread', value: 'native' }, confidence: 'exact' as const,
+    ackRequested: true, receipt }
+  await expect(receipts.observeResumeRef(machineId, message)).rejects.toThrow('disk failed')
+  expect(toMachine).not.toHaveBeenCalled()
+  expect(session.resume).toBeUndefined()
+  fail = false
+  await receipts.observeResumeRef(machineId, message)
+  await receipts.observeResumeRef(machineId, message)
+  expect(session.resume).toEqual(message.resume)
+  expect(toMachine).toHaveBeenCalledTimes(2)
+  expect(toMachine).toHaveBeenLastCalledWith(machineId, {
+    type: 'sessionResumeRefAck', sessionId: session.sessionId, resume: message.resume, ownerId: owner, receipt,
+  })
+  await receipts.observeResumeRef(asMachineId('foreign'), { ...message, resume: { kind: 'codex-thread', value: 'foreign' } })
+  expect(session.resume).toEqual(message.resume)
+})

@@ -627,6 +627,17 @@ export const DRIVER_IDS = [
   'generic-pty',
   /** The in-memory reference driver the conformance corpus runs against. */
   'fake',
+  /** Process-per-turn headless harness sessions (POD-4392): the daemon's
+   *  headless RuntimeDriver, which wraps `runHeadlessTurn` /
+   *  `runDurableHeadlessTurn` behind the contract so superagent and shipwright
+   *  turns dispatch through the driver-contract WS relay instead of the legacy
+   *  headless port. One driver serves every harness with a headless axis; the
+   *  binding's `family` is `server` (protocol/event-stream driven, exact resume
+   *  identity, no PTY) and no manifest `select()` ever returns this id — heads
+   *  never spawn it by policy, executors address it directly via an explicit
+   *  `headless` preference (`spawn`/`reattach` with `runtimeContract:
+   *  'headless'`, or `runtime.create` with `selection.preference: 'headless'`). */
+  'headless',
 ] as const
 
 /** Driver ids accepted from older daemons and user preferences during rollout. */

@@ -42,7 +42,7 @@ import { createLogger } from '@podium/logger'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionView } from './view'
-import { runtimeTranscriptItemFromEvent } from './runtime-transcript'
+import { runtimeTranscriptDeltaFromEvent } from './runtime-transcript'
 
 const log = createLogger('server:sessions')
 
@@ -867,14 +867,16 @@ export class SessionRepository {
     // Re-seed runtime-backed transcript items before the session reaches clients.
     // Terminal drivers use this durable bridge when the legacy observation path
     // is fenced; provider-file deltas can still overlap and upsert by cursor/id.
-    const runtimeItems =
-      (hasRuntimeTranscript ? await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId) ?? [] : []).flatMap(
-        (event) => {
-          const item = runtimeTranscriptItemFromEvent(event)
-          return item ? [item] : []
-        },
-      ) ?? []
-    if (runtimeItems.length > 0) session.terminal.applyRuntimeDelta(runtimeItems)
+    const events = hasRuntimeTranscript
+      ? await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId) ?? []
+      : []
+    const lastReset = events.findLastIndex((event) => event.t === 'transcript-reset')
+    const items = events.slice(Math.max(0, lastReset)).flatMap(
+      (event) => runtimeTranscriptDeltaFromEvent(event)?.items ?? [],
+    )
+    if (items.length > 0 || lastReset >= 0) {
+      session.terminal.applyRuntimeDelta(items, { reset: lastReset >= 0 })
+    }
     return session
   }
 

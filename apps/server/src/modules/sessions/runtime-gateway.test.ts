@@ -200,6 +200,19 @@ describe('send', () => {
       }),
     ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
     expect(enqueued).toEqual([])
+    // `steer` degrades to the same durable queue a `queue` would ride, so it
+    // must refuse attachments for the same reason — otherwise a steered file
+    // would be the one lossy path through an otherwise honest gate.
+    await expect(
+      gateway.send({
+        sessionId: SESSION,
+        text: 'steer this file',
+        origin: 'human',
+        delivery: 'steer',
+        attachments: [attachment],
+      }),
+    ).resolves.toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
+    expect(enqueued).toEqual([])
   })
 
   it('refuses rather than forwarding into a socket that is not there', async () => {

@@ -25,6 +25,7 @@ import type { DaemonClaudeSdkRuntime } from './claude-sdk-driver'
 import type { DaemonCodexRuntime } from './codex-driver'
 import type { DaemonGrokRuntime } from './grok-driver'
 import type { DaemonOpencodeRuntime } from './opencode-driver'
+import { HEADLESS_DRIVER_ID, type HeadlessRuntime } from './headless-driver'
 import { type DriverResolution, resolveRuntimeDriver, terminalProfileFor } from './registry'
 import type {
   TerminalHarnessProfile,
@@ -60,11 +61,12 @@ export type DaemonDriverResolution =
 
 export interface DaemonMachineRuntime extends MachineAgentRuntime {
   createTerminal: TerminalRuntime['createWithId']
+  recoverTerminal: TerminalRuntime['recoverWithId']
   /** The live driver's declaration for one session, read off its BINDING — see
    *  `capabilitiesFor` below for why the binding and not a family guess. The
    *  configure handler reports `configure.effective` from it (POD-3081). */
   capabilitiesFor(sessionId: SessionId): DriverCapabilities | undefined
-  observe(message: DaemonMessage): void
+  observe(message: DaemonMessage): boolean
   onHookPayload(sessionId: SessionId, payload: unknown): void
   bindTerminal(
     registration: TerminalSessionRegistration,
@@ -109,6 +111,7 @@ export function createDaemonMachineRuntime(input: {
   opencode2: DaemonOpencodeRuntime
   codex: DaemonCodexRuntime
   grok: DaemonGrokRuntime
+  headless: HeadlessRuntime
   inventory(): ReturnType<MachineAgentRuntime['inventory']>
 }): DaemonMachineRuntime {
   const servers = [input.opencode, input.opencode2, input.codex, input.grok] as const
@@ -123,7 +126,7 @@ export function createDaemonMachineRuntime(input: {
     return found
   }
 
-  const terminalAdoptions = new Map<
+  const terminalCreations = new Map<
     SessionId,
     { registration: TerminalSessionRegistration; profile: TerminalHarnessProfile }
   >()
@@ -137,18 +140,18 @@ export function createDaemonMachineRuntime(input: {
     handleFor: (sessionId) => input.terminal.handleFor(sessionId),
     bindings: () => input.terminal.bindings(),
     createWithId(sessionId) {
-      const pending = terminalAdoptions.get(sessionId)
+      const pending = terminalCreations.get(sessionId)
       if (!pending) {
         throw new Error(`terminal session '${sessionId}' has no pending creation`)
       }
       return Promise.resolve(input.terminal.register(pending.registration, pending.profile))
     },
     adopt(binding) {
-      const pending = terminalAdoptions.get(binding.sessionId)
-      if (!pending) {
-        throw new Error(`terminal session '${binding.sessionId}' has no pending adoption`)
+      const profile = terminalProfileFor(binding.harness as AgentKind)
+      if (!profile || profile.driverId !== binding.driver) {
+        throw new Error(`terminal session '${binding.sessionId}' has an incompatible driver`)
       }
-      return Promise.resolve(input.terminal.register(pending.registration, pending.profile))
+      return input.terminal.driverFor(binding.harness as AgentKind, profile).adopt(binding)
     },
   }
 
@@ -208,6 +211,36 @@ export function createDaemonMachineRuntime(input: {
     },
   }
 
+  /**
+   * THE HEADLESS SOURCE (POD-4392): process-per-turn harness sessions behind
+   * the contract. No manifest `select()` ever returns the headless id — heads
+   * never spawn it by policy — but an explicit `selection.preference:
+   * 'headless'` bypasses the policy in `runtime.create`/`resume` (and
+   * `resolveRuntimeDriver` for the spawn path), so `spawn`/`reattach` carrying
+   * `runtimeContract: 'headless'` establishes these sessions over the existing
+   * WS relay with no dedicated create/resume/adopt verb. Once established the
+   * handle answers every relay verb (`handleFor`), capabilities resolve
+   * (`driverFor`), and a surviving binding re-adopts (`adopt`). Legacy
+   * production turns still arrive via `control/headless.ts` until callers
+   * migrate.
+   */
+  const headlessSource: AgentRuntimeDriverSource = {
+    driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined {
+      return driver === HEADLESS_DRIVER_ID ? input.headless.driverFor(harness) : undefined
+    },
+    handleFor: (sessionId) => input.headless.handleFor(sessionId),
+    bindings: () => input.headless.bindings(),
+    async createWithId(sessionId, spec) {
+      return input.headless.createWithId(sessionId, spec)
+    },
+    async resumeWithId(sessionId, ref, spec) {
+      return input.headless.resumeWithId(sessionId, ref, spec)
+    },
+    adopt(binding) {
+      return input.headless.adopt(binding)
+    },
+  }
+
   const serverSources: readonly AgentRuntimeDriverSource[] = [
     serverSource(input.opencode, (sessionId, spec) =>
       input.opencode.launch(serverLaunchFor(sessionId, spec)),
@@ -225,7 +258,7 @@ export function createDaemonMachineRuntime(input: {
 
   let runtime!: MachineAgentRuntime
   runtime = createAgentRuntime({
-    sources: () => [terminalSource, embeddedSource, ...serverSources],
+    sources: () => [terminalSource, embeddedSource, ...serverSources, headlessSource],
     primitiveSupport: {
       import: {
         supported: false,
@@ -280,15 +313,18 @@ export function createDaemonMachineRuntime(input: {
   return {
     ...runtime,
     createTerminal: (...args) => input.terminal.createWithId(...args),
+    recoverTerminal: (...args) => input.terminal.recoverWithId(...args),
     capabilitiesFor,
     observe(message) {
+      const ownsReceipt = message.type === 'sessionResumeRef' && input.terminal.has(message.sessionId)
       input.terminal.observe(message)
+      return ownsReceipt
     },
     onHookPayload(sessionId, payload) {
       input.terminal.onHookPayload(sessionId, payload)
     },
     async bindTerminal(registration, profile) {
-      terminalAdoptions.set(registration.sessionId, { registration, profile })
+      terminalCreations.set(registration.sessionId, { registration, profile })
       try {
         if (!registration.rebind) {
           const spec: SessionSpec = {
@@ -308,19 +344,9 @@ export function createDaemonMachineRuntime(input: {
           return await runtime.create(spec, registration.sessionId)
         }
 
-        const binding: SessionBinding = {
-          sessionId: registration.sessionId,
-          driver: profile.driverId,
-          family: 'terminal',
-          harness: registration.agentKind,
-          workdir: registration.cwd,
-          resume: registration.resume,
-          process: { key: registration.sessionId },
-          bindingVersion: Math.max(0, (registration.bindingVersion ?? 1) - 1),
-        }
-        return await runtime.adopt(binding)
+        throw new Error('terminal rebind requires recoverTerminal host composition')
       } finally {
-        terminalAdoptions.delete(registration.sessionId)
+        terminalCreations.delete(registration.sessionId)
       }
     },
     clearTerminal(sessionId) {

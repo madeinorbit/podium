@@ -17,8 +17,10 @@ import { declaredValue, manifestFor } from '@podium/harness'
 
 export { codexTranscriptPlacement } from '@podium/harness'
 
+import type { SessionArchive } from '@podium/agent-runtime'
 import type { Attribution, IssueId, MachineId, RepoId, SessionId } from '@podium/model'
 import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/model'
+import { archivePathParts, validateConversationArchive } from './handoff-driver-bridge'
 import { gitWorktree } from './worktree-resolve'
 
 const runFile = promisify(execFile)
@@ -430,6 +432,13 @@ export async function exportHandoffPackage(input: {
   owner: Extract<HandoffManifestType, { format: 2 }>['owner']
   visibility: Extract<HandoffManifestType, { format: 2 }>['visibility']
   homeDir?: string
+  /**
+   * THE LIVE CONVERSATION (POD-4306). When a driver handle exists, the caller
+   * passes its `export()` archive and the package carries THOSE bytes —
+   * the driver boundary owns the conversation. When absent (parked), the
+   * file locator below owns it. Never both, never neither without a throw.
+   */
+  conversation?: SessionArchive
 }): Promise<{ manifest: HandoffManifestType; stagePath: string; sizeBytes: number }> {
   const home = input.homeDir ?? homedir()
   const stageDir = stageDirFor(home)
@@ -451,14 +460,39 @@ export async function exportHandoffPackage(input: {
     const baseShas = await sourceKnownShas(cwd, input.baseShas)
     if (baseShas.length === 0)
       throw new Error('no bundle base shared between source and target repositories')
-    const transcript = await transcriptForExport({
-      agentKind: input.agentKind,
-      // Claude buckets transcripts by cwd, so look in the bucket the agent ran
-      // in — the drifted cwd reconstructed from the worktree root + subpath.
-      cwd: join(cwd, source.subpath),
-      resumeValue: input.resume.value,
-      home,
-    })
+    // THE DRIVER OWNS THE BYTES WHEN IT HAS THEM (POD-4306). A live handle's
+    // archive carries the conversation the driver vouches for; a parked
+    // session has no handle, so the file locator below owns it. The workspace
+    // snapshot above runs either way — this branch never replaces full handoff.
+    let transcriptFilename: string
+    let transcriptRelativeDir: string | undefined
+    let transcriptBytes: Uint8Array | undefined
+    let transcriptPath: string | undefined
+    if (input.conversation) {
+      validateConversationArchive(input.conversation, {
+        sessionId: input.sessionId,
+        agentKind: input.agentKind,
+        resume: input.resume,
+      })
+      const first = input.conversation.files[0]
+      if (!first) throw new Error('handoff refused: conversation archive is empty')
+      const parts = archivePathParts(first.path)
+      transcriptFilename = parts.filename
+      transcriptRelativeDir = parts.relativeDir
+      transcriptBytes = first.bytes
+    } else {
+      const transcript = await transcriptForExport({
+        agentKind: input.agentKind,
+        // Claude buckets transcripts by cwd, so look in the bucket the agent ran
+        // in — the drifted cwd reconstructed from the worktree root + subpath.
+        cwd: join(cwd, source.subpath),
+        resumeValue: input.resume.value,
+        home,
+      })
+      transcriptFilename = basename(transcript.path)
+      transcriptRelativeDir = transcript.relativeDir
+      transcriptPath = transcript.path
+    }
     const sourceInfo = await gitWorktree(cwd)
     const worktreeRelativePath = sourceInfo?.repoRoot
       ? repositoryRelativeWorktreePath(sourceInfo.repoRoot, cwd)
@@ -471,8 +505,8 @@ export async function exportHandoffPackage(input: {
       sessionId: input.sessionId,
       agentKind: input.agentKind,
       resume: input.resume,
-      transcriptFilename: basename(transcript.path),
-      ...(transcript.relativeDir ? { transcriptRelativeDir: transcript.relativeDir } : {}),
+      transcriptFilename,
+      ...(transcriptRelativeDir ? { transcriptRelativeDir } : {}),
       repoId: input.repoId,
       branch: actualBranch,
       headSha: snapshot.headSha,
@@ -490,7 +524,16 @@ export async function exportHandoffPackage(input: {
       visibility: input.visibility,
     })
     await writeFile(join(packageDir, 'manifest.json'), JSON.stringify(manifest, null, 2))
-    await copyFile(transcript.path, join(packageDir, 'transcript.jsonl'))
+    if (transcriptBytes) {
+      if (transcriptBytes.byteLength === 0)
+        throw new Error('handoff refused: conversation archive is empty')
+      await writeFile(join(packageDir, 'transcript.jsonl'), transcriptBytes)
+    } else {
+      // Parked fallback: no live handle, so the file locator above owns the
+      // bytes. The driver bridge never reaches this arm.
+      if (!transcriptPath) throw new Error('handoff refused: conversation archive is empty')
+      await copyFile(transcriptPath, join(packageDir, 'transcript.jsonl'))
+    }
     if (snapshot.snapshotSha || !baseShas.includes(snapshot.headSha)) {
       const revs = [
         actualBranch,
@@ -735,6 +778,11 @@ export async function importHandoffPackage(input: {
     const transcriptTarget = transcriptPlacement(manifest, newCwd, home)
     await mkdir(dirname(transcriptTarget), { recursive: true, mode: 0o700 })
     await copyFile(join(unpacked, 'transcript.jsonl'), transcriptTarget)
+    // THE TARGET MUST BE RESUMABLE (POD-4306). An empty transcript cannot
+    // continue a conversation anywhere — refuse before the binding claim so
+    // the source keeps ownership and the retry starts clean.
+    if ((await stat(transcriptTarget)).size === 0)
+      throw new Error('handoff refused: landed transcript is empty')
     await git(input.repoPath, [
       'update-ref',
       '-d',

@@ -32,8 +32,9 @@ export class SessionBinding {
     owner: UserId | undefined,
     sessionId: SessionId,
     resume: ResumeRef,
+    receipt?: Extract<import('@podium/protocol/daemon').DaemonMessage, { type: 'sessionResumeRef' }>['receipt'],
   ): Promise<boolean> {
-    return this.store.acknowledgePendingReceipt(owner, sessionId, resume)
+    return this.store.acknowledgePendingReceipt(owner, sessionId, resume, receipt)
   }
 
   recordReceiptConflict(input: {

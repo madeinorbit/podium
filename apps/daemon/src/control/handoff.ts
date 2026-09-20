@@ -9,6 +9,7 @@ import {
   importHandoffPackage,
   readExportChunk,
 } from '../handoff-package'
+import { exportConversationViaDriver, refuseUnsupportedHandoffHarness } from '../handoff-driver-bridge'
 import type { ControlHandlers, DaemonContext } from './context'
 
 type AppliedBindingOutcome = Extract<
@@ -102,6 +103,15 @@ async function exportPackage(
       toMachineId,
     })
     if (!binding || binding.agentKind !== msg.agentKind) throw new Error('handoff refused')
+    // THE LIVE BRIDGE (POD-4306). A live handle exports the conversation via
+    // the driver boundary; a parked session has no handle and the package
+    // falls back to the file locator. Either way the workspace snapshot,
+    // binding receipts and chunk transport below are unchanged — this never
+    // substitutes a same-named export for full handoff.
+    const conversation = await exportConversationViaDriver(ctx, msg.sessionId, {
+      agentKind: msg.agentKind,
+      resume: msg.resume,
+    })
     const result = await exportHandoffPackage({
       ...msg,
       cwd: exportCwd(ctx, msg.sessionId, msg.cwd),
@@ -110,6 +120,7 @@ async function exportPackage(
       owner: msg.binding.owner,
       visibility: msg.binding.visibility,
       homeDir: ctx.homeDir,
+      ...(conversation ? { conversation } : {}),
     })
     ctx.send({
       type: 'handoffExportResult',
@@ -217,6 +228,20 @@ async function importPackage(
           ? { error: 'handoff refused', refusal: 'unauthorized' as const }
           : { error: 'handoff target unreachable', refusal: 'unreachable' as const }
       ctx.send({ type: 'handoffImportResult', requestId: msg.requestId, ok: false, ...refusal })
+      return
+    }
+    // Refuse an unsupported harness before untarring, fetching, or
+    // hard-syncing a worktree (POD-4306). The driver boundary owns whether a
+    // conversation can land; the workspace service never sees one it cannot.
+    try {
+      refuseUnsupportedHandoffHarness(transfer.agentKind)
+    } catch (error) {
+      ctx.send({
+        type: 'handoffImportResult',
+        requestId: msg.requestId,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
       return
     }
     const result = await importHandoffPackage({ ...msg, homeDir: ctx.homeDir })
