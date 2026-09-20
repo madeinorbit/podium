@@ -825,7 +825,7 @@ describe('sendTurn (headless harness turns)', () => {
     // First-turn sessionUuid is harness-specific (claude premints, codex does
     // not); the contract carries it when the caller mints one.
     // The headless Podium session exists: live, PTY-less, flagged, established
-    // via spawn with runtimeContract headless (settings default frozen on).
+    // via spawn with requestedDriverId headless (settings default frozen on).
     const meta = (await h.registry.modules.sessions
       .listSessions(undefined, 'rpc'))
       .find((s) => s.sessionId === ack.podiumSessionId)

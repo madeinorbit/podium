@@ -248,11 +248,11 @@ Client terminals carry the attach budget and are still reclaimed first.
 ## Where the flag line falls
 
 Isolation is unconditional; truth rides the contract. Every session's scope is
-placed and budgeted at spawn regardless of `PODIUM_RUNTIME_CONTRACT`, because that
+placed and budgeted at spawn unconditionally, because that
 is the part that keeps a runaway from taking the host — it is argv, not a code path.
 Per-session `health()` and `process.oomKilled`, though, are agent-runtime surfaces:
 they exist for sessions that have a runtime binding, which for the terminal family
-means the contract flag. Server-family sessions always have one. The aggregate
+means a bound driver. Server-family sessions always have one. The aggregate
 pressure signal is universal either way, because it reads the slice rather than any
 session.
 
