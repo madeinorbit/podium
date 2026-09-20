@@ -694,6 +694,15 @@ export class SessionInbox {
       ? sessionSendRefusalReason(session, input.allowErrored === true)
       : undefined
     if (blockedReason) return { ok: false, reason: blockedReason }
+    // Agents always queue (POD-4279): the durable queue down the drain's
+    // contract branch is the only delivery. A non-running agent has no turn to
+    // join, so it is refused rather than queued into a wake it did not ask for
+    // — queueText stays the explicit wake path (resumeAndSend). Plain-terminal
+    // shells (POD-4278) keep direct typing below — they have no driver.
+    if (session && session.agentKind !== 'shell') {
+      if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
+      return await this.queueText(input)
+    }
     if (
       session &&
       (isAgentComputing(session) ||
@@ -1183,9 +1192,12 @@ export class SessionInbox {
     )
     if (matches.length === 0) return false
     for (const row of matches) {
-      if (row.deliveryOwner === 'daemon' || this.routesThroughContract(session)) {
+      // Agents cancel through the driver (POD-4279): daemon-owned rows need a
+      // successful driver cancel, server-held rows retract locally. Shells
+      // keep the local-only path — they have no driver to call.
+      if (session.agentKind !== 'shell') {
         const result = await this.deps.contractCancel?.(sessionId, row.id)
-        if (!result || !('ok' in result)) return false
+        if ((!result || !('ok' in result)) && row.deliveryOwner === 'daemon') return false
       }
       const deletion: Promise<void> = this.deps.queue.delete(row.id)
       await deletion
@@ -1306,16 +1318,15 @@ export class SessionInbox {
       const current = () => !this.disposed && this.deps.getSession(sessionId) === session &&
         session.machineId === binding.machineId && this.forwardedRows.get(sessionId) === binding &&
         (session.status === 'live' || session.status === 'starting') &&
-        (this.deps.contractDelivery?.(session) === true || session.runtimeContract === true) &&
+        // No rollout gate (POD-4279): drain only calls this for agents, and the
+        // contract is their only delivery. The contractDelivery switch itself
+        // survives for POD-4280 to remove.
         this.deps.nativeViewActive?.(sessionId) !== true &&
         !sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
       const rows = await this.deps.queue.list(sessionId)
       for (const row of rows) {
         if (!current() || this.deps.nativeViewActive?.(sessionId)) return
         if (binding.ids.has(row.id)) continue
-        // Rollback stops new admissions, but persisted custody still belongs to
-        // the daemon after server restart. Never fall back to legacy typing.
-        if (this.deps.contractDelivery?.(session) !== true && row.deliveryOwner !== 'daemon') return
         if (!this.deps.contractDeliver || !this.deps.queue.reserveDelivery) return
         const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId })
         if (!current()) return
@@ -1437,11 +1448,14 @@ export class SessionInbox {
     const contractSession = this.deps.getSession(sessionId)
     const admissionGeneration = this.drainGenerations.get(sessionId)
     if (!contractSession || this.disposed) return
-    const durableCustody = contractSession &&
-      (await this.deps.queue.list(sessionId)).some((row) => row.deliveryOwner === 'daemon')
     if (this.disposed || this.deps.getSession(sessionId) !== contractSession ||
       this.drainGenerations.get(sessionId) !== admissionGeneration) return
-    if (contractSession && (durableCustody || this.routesThroughContract(contractSession))) {
+    // Agents always forward (POD-4279): the driver contract is the only
+    // delivery, regardless of the headed rollout flag — that switch is
+    // POD-4280's to remove. Plain-terminal shells (POD-4278) keep the legacy
+    // typing loop below: they have no driver, and chat-to-shell types into
+    // the PTY the operator is watching.
+    if (contractSession && contractSession.agentKind !== 'shell') {
       if (this.deps.nativeViewActive?.(sessionId) === true) return
       void this.forwardContractRows(contractSession, opts?.justBound === true).catch((error) => {
         log.warn('contract admission failed', { sessionId, err: error })
