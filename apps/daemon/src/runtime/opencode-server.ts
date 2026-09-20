@@ -4,7 +4,8 @@ import {
   OPENCODE_VERSION_POLICY,
 } from '@podium/harness'
 /**
- * `opencode serve`, ONE PER SESSION, UNDER A SYSTEMD SCOPE (POD-1761 W5; plan §1).
+ * `opencode serve`, ONE PER SESSION, UNDER A PODIUM-HOST (`--no-pty`) OWNED BY
+ * THE DAEMON'S DURABLE PROCESS (POD-1761 W5; plan §1; POD-4433).
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS FILE OWNS, AND WHY IT IS THE ONLY PART IN THE DAEMON
@@ -12,10 +13,17 @@ import {
  *
  * The driver itself — client, SSE, receipts, interactions, events — is in
  * `@podium/agent-runtime`, testable in-process. What could not go there is
- * everything below: spawning a child, choosing its port, putting it in a
- * transient cgroup, and writing the journal that lets `adopt()` find it again
+ * everything below: composing the engine's argv and env, spawning it headless
+ * under podium-host, and writing the journal that lets `adopt()` find it again
  * after the daemon dies. This is the `OpencodeRuntimeHost` implementation, and
  * it is deliberately nothing but that.
+ *
+ * THE DAEMON NEVER FORKS HERE. Every process act — spawn, re-attach, kill —
+ * goes through the injected `DurableProcess`, whose host adapter owns the
+ * child. That is what makes a daemon restart leave the server running: the
+ * child is the HOST's, not the daemon's, so the driver's `adopt()` rebinds to
+ * the survivor instead of starting over. `grep child_process` in this file
+ * must stay empty; process mechanics live in `@podium/process`.
  *
  * ---------------------------------------------------------------------------
  * THE SECRET (spec §6) — THREE RULES, ALL LOAD-BEARING
@@ -35,21 +43,18 @@ import {
  * WHY THE SCOPE RECLAIM IS NOT `reclaimStaleScope`
  * ---------------------------------------------------------------------------
  *
- * `packages/pty` exports the pure argv/name builders (`systemdScopeArgv`,
- * `scopeUnitName`, `scopeReclaimArgvs`) and this file reuses them directly. What
- * it does NOT reuse is `reclaimStaleScope`, whose liveness guard asks abduco
- * whether a master exists — an opencode server has no abduco socket, so that
- * guard would answer "no master" for a perfectly live server and stop its scope.
- * The guard here is the one that fits: health-probe the journalled port with the
- * journalled secret, and only reclaim a unit whose server does not answer.
+ * `podium-host create` reclaims a stale scope squatting the label's unit name
+ * itself, guarded on no live host — the liveness guard that fits a host-owned
+ * child. The guard that stays HERE is the one that fits the SERVER: health-probe
+ * the journalled port with the journalled secret. A unit whose server answers
+ * is adopted, never reclaimed; only a server that does not answer is replaced.
  *
- * Without a reclaim at all, the documented failure is specific and nasty: the
+ * Without that distinction, the documented failure is specific and nasty: the
  * unit name is deterministic, `systemd-run` refuses "unit already exists", the
  * child SILENTLY falls back into the daemon's own cgroup, and the next redeploy's
  * `KillMode=control-group` takes the agent down with the daemon.
  */
 
-import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
@@ -71,17 +76,16 @@ import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import {
-  applySessionsSliceBudget,
-  canScopeMaster,
-  scopeReclaimArgvs,
   scopeUnitName,
-  systemdScopeArgv,
+  type DurableAdapter,
+  type DurableProcess,
+  type HostAgentSession,
 } from '@podium/process/durable'
 import { stateDir } from '@podium/runtime/config'
 import { serverChildEnv } from '../control/session-env'
 import { stageRuntimeAttachment } from './attachment-staging'
 import type { OpencodeClientTerminals } from './opencode-attach'
-import { SERVER_SYSTEMCTL_CALL_TIMEOUT_MS } from './server-teardown-budget'
+import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import {
   createVersionProbeCache,
   execVersionProbe,
@@ -420,11 +424,15 @@ export interface OpencodeHostDeps {
   clientTerminals?: OpencodeClientTerminals
   /** Exact OpenCode executable resolved by this daemon generation. */
   executablePath?: string
+  /**
+   * THE DURABLE OWNER OF EVERY ENGINE (POD-4433). Spawn, re-attach and kill go
+   * through it; this file composes argv/env and journals, never forks. Absent
+   * (tests that never launch) = launch/adopt/stop/kill refuse loudly rather
+   * than forking a child no restart could re-adopt.
+   */
+  durable?: DurableProcess
   /** Hermetic effect seams for proving the launch boundary without a child. */
   versionProbe?: VersionProbe
-  spawnProcess?: typeof spawn
-  canScope?: typeof canScopeMaster
-  runSystemctl?: (args: readonly string[]) => Promise<void>
   freePort?: () => Promise<number>
   /**
    * The instance agent home (`ctx.homeDir`), overriding the child's `HOME` the
@@ -450,8 +458,63 @@ export interface OpencodeHostDeps {
   }
 }
 
+/** The writer lease held by a daemon that did not die. A new generation must
+ *  refuse loudly — log line naming the session — not read along silently. */
+export class OpencodeEngineLeaseRefused extends Error {
+  override readonly name = 'OpencodeEngineLeaseRefused'
+
+  constructor(sessionId: SessionId, label: string) {
+    super(
+      `opencode engine for ${sessionId} is still driven: another daemon holds the writer lease on '${label}'`,
+    )
+  }
+}
+
+/**
+ * Pick the host adapter out of the daemon's durable object. Engines are never
+ * terminal sessions, so they never follow the terminal backend: abduco has no
+ * pty-less mode, and a daemon without a host adapter cannot own an engine at
+ * all. Loud, naming the session — a refused launch beats a child no restart
+ * could re-adopt.
+ */
+function engineAdapter(durable: DurableProcess | undefined, sessionId: SessionId): DurableAdapter {
+  const found = durable?.all.find((a) => a.kind === 'host') ?? durable?.primary
+  if (!found || found.kind !== 'host') {
+    throw new Error(
+      `opencode engine for ${sessionId} requires the podium-host backend: this daemon runs ${
+        durable ? `backend '${durable.backend}' with no host adapter` : 'with no durable backend'
+      }`,
+    )
+  }
+  return found
+}
+
+/** Absent on macOS, honestly so: there is no transient scope there, and a
+ *  fabricated unit name would make `health()` report a cgroup nothing owns. */
+const engineScopeUnit = (label: string): string | undefined =>
+  process.platform === 'linux' ? scopeUnitName(label) : undefined
+
+/** What the daemon holds for a live engine: the host attachment plus what the
+ *  host has told us since. The EXITED frame lands in `exit` — the exit status
+ *  reaches the daemon through the host, never inferred from a dead pipe. */
+interface HeldEngine {
+  session: HostAgentSession
+  childPid: number | undefined
+  exit: { code: number; signal: number } | undefined
+  banner: string
+}
+
+/** `process.env`-shaped composition into the string map a headless spawn takes. */
+function stringEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
+  return out
+}
+
 /** The label a session's scope unit is named from. Same shape as the PTY side's
- *  so an operator reading `systemctl --user list-units` sees one convention. */
+ *  so an operator reading `systemctl --user list-units` sees one convention.
+ *  It contains the session id, which is also what charges the host-held engine
+ *  to the session in `/proc` attribution. */
 export const opencodeScopeLabel = (sessionId: SessionId): string => `podium-oc-${sessionId}`
 
 export function opencodeServeArgv(executablePath: string, port: number): string[] {
@@ -462,15 +525,100 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
   const variant = deps.variant
   const journal = deps.journal ?? createOpencodeJournal(variant?.journalNamespace)
   const driverId = variant?.driverId ?? 'opencode-server'
-  const spawnProcess = deps.spawnProcess ?? spawn
-  const scopeAvailable = deps.canScope ?? canScopeMaster
   const username = variant?.username ?? USERNAME
   const healthPath = variant?.healthPath ?? '/global/health'
   const scopeLabel = (sessionId: SessionId): string =>
     `podium-${variant?.scopeToken ?? 'oc'}-${sessionId}`
   const health = (baseUrl: string, secret: string): Promise<boolean> =>
     probeHealth(baseUrl, secret, username, healthPath)
-  const children = new Map<SessionId, ReturnType<typeof spawn>>()
+  /** Every engine this daemon generation currently holds a host attachment for.
+   *  A daemon restart empties this map without touching the engines — the next
+   *  generation re-attaches by label through `attachEngine`. */
+  const engines = new Map<SessionId, HeldEngine>()
+
+  /**
+   * Tap a host attachment: the merged stdout/stderr ring feeds the launch
+   * banner, and the host's EXITED frame records the real status. The tap stays
+   * registered for the attachment's life; `engines.delete` before signalling
+   * is what keeps an EXPECTED ending (stop/kill) from logging as a crash.
+   */
+  function tapEngine(sessionId: SessionId, session: HostAgentSession): HeldEngine {
+    const held: HeldEngine = { session, childPid: undefined, exit: undefined, banner: '' }
+    engines.set(sessionId, held)
+    session.connection.onData((_seq, data) => {
+      held.banner = `${held.banner}${data.toString('utf8')}`.slice(-2000)
+    })
+    session.connection.onExit((code, signal) => {
+      held.exit = { code, signal }
+      if (engines.get(sessionId) === held) {
+        log.warn('opencode engine exited on its own', { sessionId, code, signal })
+      }
+    })
+    return held
+  }
+
+  /**
+   * Re-attach to the host holding this session's engine, as the writer.
+   * `undefined` when no host answers (nothing to rebind to); THROWS when a
+   * stale daemon still holds the writer lease — the new generation refuses
+   * loudly rather than driving half of an engine.
+   */
+  async function attachEngine(
+    adapter: DurableAdapter,
+    sessionId: SessionId,
+    label: string,
+  ): Promise<HeldEngine | undefined> {
+    let session: HostAgentSession
+    try {
+      session = await adapter.attachHeadless({ label, fromSeq: 'tail' })
+    } catch (err) {
+      log.warn('could not re-attach to the opencode engine host', { err, sessionId, label })
+      return undefined
+    }
+    const held = tapEngine(sessionId, session)
+    let welcome
+    try {
+      welcome = await session.ready
+    } catch (err) {
+      log.warn('opencode engine host never welcomed its re-attach', { err, sessionId, label })
+      session.dispose()
+      engines.delete(sessionId)
+      return undefined
+    }
+    held.childPid = welcome.childPid
+    if (!welcome.lease) {
+      session.dispose()
+      engines.delete(sessionId)
+      log.error('refusing an opencode engine whose writer lease is held elsewhere', {
+        sessionId,
+        label,
+      })
+      throw new OpencodeEngineLeaseRefused(sessionId, label)
+    }
+    return held
+  }
+
+  /** Did this engine report its own exit within the window? The host's EXITED
+   *  frame, never a dead-pipe inference. */
+  const engineExited = (held: HeldEngine, ms: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (held.exit) {
+        resolve(true)
+        return
+      }
+      const timer = setTimeout(() => {
+        off()
+        resolve(false)
+      }, ms)
+      timer.unref?.()
+      const off = held.session.connection.onExit(() => {
+        clearTimeout(timer)
+        resolve(true)
+      })
+    })
+
+  const adapterFor = (sessionId: SessionId): DurableAdapter =>
+    engineAdapter(deps.durable, sessionId)
 
   const endpointFor = (input: {
     sessionId: SessionId
@@ -478,6 +626,7 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
     secret: string
     pid: number | undefined
     scopeUnit: string | undefined
+    held: HeldEngine | undefined
   }): OpencodeServerEndpoint => ({
     baseUrl: input.baseUrl,
     username,
@@ -497,10 +646,36 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       ...(input.scopeUnit ? { scopeUnit: input.scopeUnit } : {}),
     },
     stop: async () => {
-      await terminate(input.sessionId, 'SIGTERM')
+      const held = input.held ?? engines.get(input.sessionId)
+      engines.delete(input.sessionId)
+      // SIGTERM is the graceful stop. There is no stdin-EOF equivalent under
+      // the host — the host owns the child's stdin — so the signal carries the
+      // grace the old EOF attempt used to spend, bounded by the shared budget.
+      if (held) {
+        try {
+          held.session.connection.signal(15)
+        } catch {
+          // Already gone; the sweep below is still owed its scope.
+        }
+        await engineExited(held, SERVER_GRACEFUL_EXIT_MS)
+        held.session.dispose()
+      }
+      // AND THE CLIENT TERMINAL. Attachment lifecycle is strictly subordinate to
+      // the session (spec §5): a client left alive against a server that just died
+      // shows a frozen screen and holds its memory for the warm TTL, for a session
+      // nobody can reach any more.
+      await deps.clientTerminals?.close(input.sessionId, 'opencode')
+      // AND THE SCOPE. On an exited engine this only sweeps the lingering host
+      // and the squatted unit name; on a wedged one the host escalates past
+      // SIGTERM on its own.
+      await adapterFor(input.sessionId).kill(scopeLabel(input.sessionId))
     },
     kill: async () => {
-      await terminate(input.sessionId, 'SIGKILL')
+      const held = input.held ?? engines.get(input.sessionId)
+      engines.delete(input.sessionId)
+      held?.session.dispose()
+      await deps.clientTerminals?.close(input.sessionId, 'opencode')
+      await adapterFor(input.sessionId).kill(scopeLabel(input.sessionId))
       journal.clear(input.sessionId)
     },
     resources: () =>
@@ -510,38 +685,9 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         ...(input.pid !== undefined ? { pid: input.pid } : {}),
         ...(input.scopeUnit ? { scopeUnit: input.scopeUnit } : {}),
       }),
+    /** The host's EXITED frame, when the engine has reported its own exit. */
+    engineExit: () => input.held?.exit ?? engines.get(input.sessionId)?.exit,
   })
-
-  async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL'): Promise<void> {
-    children.get(sessionId)?.kill(signal)
-    children.delete(sessionId)
-    // AND THE CLIENT TERMINAL. Attachment lifecycle is strictly subordinate to
-    // the session (spec §5): a client left alive against a server that just died
-    // shows a frozen screen and holds its memory for the warm TTL, for a session
-    // nobody can reach any more.
-    await deps.clientTerminals?.close(sessionId, 'opencode')
-    // AND THE SCOPE. Signalling the direct child leaves its cgroup — and any
-    // grandchild the agent spawned — behind, which is exactly the state that
-    // squats the deterministic unit name and pushes the NEXT spawn into the
-    // daemon's own cgroup.
-    if (!(await scopeAvailable())) return
-    const unit = scopeUnitName(scopeLabel(sessionId))
-    for (const args of scopeReclaimArgvs(unit)) {
-      await runSystemctl(args)
-    }
-  }
-
-  async function runSystemctl(args: readonly string[]): Promise<void> {
-    if (deps.runSystemctl) return deps.runSystemctl(args)
-    await new Promise<void>((resolve) => {
-      const child = spawnProcess('systemctl', [...args], { stdio: 'ignore' })
-      const done = (): void => resolve()
-      child.once('exit', done)
-      child.once('error', done)
-      const timer = setTimeout(done, SERVER_SYSTEMCTL_CALL_TIMEOUT_MS)
-      timer.unref?.()
-    })
-  }
 
   return {
     driverId,
@@ -574,26 +720,53 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       const port = await (deps.freePort ?? freeLoopbackPort)()
       const baseUrl = `http://127.0.0.1:${port}`
       const label = scopeLabel(input.sessionId)
-      const scoped = await scopeAvailable()
-      const unit = scopeUnitName(label)
+      const adapter = adapterFor(input.sessionId)
 
-      if (scoped) {
-        // Free a unit name a previous life of this session left squatted, but
-        // ONLY when nothing is answering behind it — the journalled entry is
-        // what tells us. Stopping a live server here would kill a session we
-        // were about to adopt.
-        const previous = journal.read(input.sessionId)
-        const stillAlive = previous ? await health(previous.baseUrl, previous.secret) : false
-        if (!stillAlive) {
-          for (const args of scopeReclaimArgvs(unit)) await runSystemctl(args)
+      /**
+       * A journalled server that still answers IS this session's engine.
+       *
+       * Before the host owned the child this guard only skipped the scope
+       * reclaim; the launch then started a SECOND server and orphaned the
+       * first. Now the live server is adopted in place — same port, same
+       * secret, same conversation — and no second engine ever exists under one
+       * label. The health probe with the journalled secret is still the exact-
+       * identity proof: a recycled port answers nothing on this credential.
+       */
+      const previous = journal.read(input.sessionId)
+      if (previous && (await health(previous.baseUrl, previous.secret))) {
+        // A lease held elsewhere throws out of here: spawning a second server
+        // beside one another daemon drives would be a split brain, so the
+        // refusal propagates instead of falling through to a fresh spawn.
+        const held = await attachEngine(adapter, input.sessionId, label)
+        if (held) {
+          return endpointFor({
+            sessionId: input.sessionId,
+            baseUrl: previous.baseUrl,
+            secret: previous.secret,
+            pid: held.childPid ?? previous.process.pid,
+            scopeUnit: engineScopeUnit(label),
+            held,
+          })
         }
+        // The server answers but no host holds it — a host crash orphaned it.
+        // Drivable is drivable: adopt without exit reporting (said out loud)
+        // rather than leak a live server beside a fresh one.
+        log.warn('adopting an opencode server its host no longer holds', {
+          sessionId: input.sessionId,
+          baseUrl: previous.baseUrl,
+        })
+        return endpointFor({
+          sessionId: input.sessionId,
+          baseUrl: previous.baseUrl,
+          secret: previous.secret,
+          pid: previous.process.pid,
+          scopeUnit: previous.process.scopeUnit,
+          held: undefined,
+        })
       }
 
       // LOOPBACK, NOT A SETTING. The host is fixed and not configurable.
       const serveArgv = opencodeServeArgv(executablePath, port)
-      const [command, ...args] = scoped
-        ? ['systemd-run', ...systemdScopeArgv(unit, serveArgv)]
-        : serveArgv
 
       const env: NodeJS.ProcessEnv = serverChildEnv({
         instanceUuid: deps.instanceUuid,
@@ -602,7 +775,6 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
       })
-      for (const key of STRIPPED_PROVIDER_KEYS) delete env[key]
       Object.assign(env, variant?.env)
       env.OPENCODE_SERVER_USERNAME = username
       // RULE 2: the secret is HERE. It appears in `serveArgv` nowhere, and this
@@ -613,43 +785,47 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // a feature that exists only in the type system.
       env.OPENCODE_ENABLE_QUESTION_TOOL = env.OPENCODE_ENABLE_QUESTION_TOOL ?? '1'
 
-      const child = spawnProcess(command ?? 'opencode', args, {
-        cwd: input.workdir,
-        env,
-        /**
-         * PIPED, NOT IGNORED, and this is a bug that cost an hour: with
-         * `stdio: 'ignore'` the child was observed not to come up on this host.
-         * The banner is also the only thing a "did not become ready" failure has
-         * to report, so it is captured rather than dropped.
-         */
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: false,
-      })
-      children.set(input.sessionId, child)
-      let banner = ''
-      child.stdout?.on('data', (chunk: Buffer) => {
-        banner = `${banner}${chunk.toString('utf8')}`.slice(-2000)
-      })
-      child.stderr?.on('data', (chunk: Buffer) => {
-        banner = `${banner}${chunk.toString('utf8')}`.slice(-2000)
-      })
-
-      // The instance's sessions slice exists now that a scope named it, so its
-      // aggregate throttle can be set (POD-2413). Fire and forget, memoized on
-      // success: a session must never wait on a best-effort budget call.
-      if (scoped) void applySessionsSliceBudget()
+      /**
+       * THE ENGINE, UNDER THE HOST. `spawnHeadless` puts `opencode serve` under
+       * podium-host `--no-pty` in the session's transient scope: pipes, not a
+       * pty, and the host — not this daemon — holds the child's stdin. Provider
+       * keys are stripped by the host AFTER the env merge, the same removal the
+       * old `delete` loop did, so the session uses exactly the credential
+       * `opencode auth login` stored.
+       */
+      const [command, ...args] = serveArgv
+      let held: HeldEngine
+      try {
+        held = tapEngine(
+          input.sessionId,
+          await adapter.spawnHeadless({
+            label,
+            cmd: command ?? executablePath,
+            args,
+            cwd: input.workdir,
+            env: stringEnv(env),
+            stripEnv: STRIPPED_PROVIDER_KEYS,
+          }),
+        )
+        held.childPid = (await held.session.ready).childPid
+      } catch (err) {
+        engines.delete(input.sessionId)
+        throw err
+      }
 
       const ready = await waitForReady(health, baseUrl, input.secret, READY_TIMEOUT_MS)
       if (!ready) {
-        child.kill('SIGKILL')
-        children.delete(input.sessionId)
+        const banner = held.banner.trim()
+        engines.delete(input.sessionId)
+        held.session.dispose()
+        await adapter.kill(label)
         throw new Error(
           `opencode serve did not answer ${healthPath} on ${baseUrl} within ${READY_TIMEOUT_MS}ms${
-            banner ? `: ${banner.trim()}` : ''
+            banner ? `: ${banner}` : ''
           }`,
         )
       }
-      if (!scoped) {
+      if (process.platform !== 'linux') {
         // DECLARED, NOT HIDDEN. Without a systemd user manager the session runs
         // in the daemon's cgroup: it still works, but per-session memory
         // accounting and OOM isolation are gone, and a redeploy's
@@ -662,8 +838,9 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         sessionId: input.sessionId,
         baseUrl,
         secret: input.secret,
-        pid: child.pid,
-        scopeUnit: scoped ? unit : undefined,
+        pid: held.childPid,
+        scopeUnit: engineScopeUnit(label),
+        held,
       })
     },
 
@@ -698,6 +875,22 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
       // port that has been recycled answers nothing on this credential, which is
       // exactly the discrimination we need.
       if (!(await health(entry.baseUrl, entry.secret))) return abandon()
+      // The server survived — and because it runs under the host, the host did
+      // too. Re-attach to it as the writer: the attachment carries the exit
+      // reporting and the writer lease proves no stale daemon still drives it.
+      // A lease held elsewhere throws out of here rather than abandoning: the
+      // driver must hear the refusal loudly, not resume a server it cannot own.
+      const label = scopeLabel(binding.sessionId)
+      const held = await attachEngine(adapterFor(binding.sessionId), binding.sessionId, label)
+      if (!held) {
+        // The server answers but no host holds it — a host crash orphaned it.
+        // Drivable is drivable: adopt without exit reporting (said out loud)
+        // rather than strand a live conversation.
+        log.warn('adopting an opencode server its host no longer holds', {
+          sessionId: binding.sessionId,
+          baseUrl: entry.baseUrl,
+        })
+      }
       // The session survived this daemon, and so may its client terminal: the
       // attachment is in its own scope precisely so a redeploy cannot reach it.
       // Nobody is holding its idle clock any more, so put it back under the
@@ -707,8 +900,9 @@ export function createOpencodeHost(deps: OpencodeHostDeps): OpencodeRuntimeHost 
         sessionId: binding.sessionId,
         baseUrl: entry.baseUrl,
         secret: entry.secret,
-        pid: entry.process.pid,
-        scopeUnit: entry.process.scopeUnit,
+        pid: held?.childPid ?? entry.process.pid,
+        scopeUnit: held ? engineScopeUnit(label) : entry.process.scopeUnit,
+        held,
       })
     },
 

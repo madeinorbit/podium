@@ -15,6 +15,13 @@ import { join } from 'node:path'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
+import type {
+  DurableAdapter,
+  DurableProcess,
+  HeadlessAttachOptions,
+  HeadlessSpawnOptions,
+  HostAgentSession,
+} from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   admissionProbeDriver,
@@ -27,6 +34,7 @@ import {
   createOpencodeHost,
   createOpencodeJournal,
   opencode2VersionProbe,
+  OpencodeEngineLeaseRefused,
   opencodeScopeLabel,
   opencodeServeArgv,
   opencodeVersionDiagnostic,
@@ -49,6 +57,80 @@ import {
 } from './registry'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
+
+/**
+ * A DurableProcess that captures headless spawns and answers attaches from a
+ * script — the hermetic stand-in for podium-host in the engine-lifecycle tests.
+ */
+function fakeEngineDurable(hooks: {
+  spawnHeadless?: (opts: HeadlessSpawnOptions) => Promise<HostAgentSession>
+  attachHeadless?: (opts: HeadlessAttachOptions) => Promise<HostAgentSession>
+  killed?: (label: string) => void
+}): DurableProcess {
+  const adapter: DurableAdapter = {
+    kind: 'host',
+    spawn: () => Promise.reject(new Error('terminal spawn is not under test')),
+    spawnHeadless:
+      hooks.spawnHeadless ?? (() => Promise.reject(new Error('unexpected spawnHeadless'))),
+    attachHeadless:
+      hooks.attachHeadless ?? (() => Promise.reject(new Error('no engine host answers'))),
+    attach: () => Promise.reject(new Error('terminal attach is not under test')),
+    has: async () => false,
+    kill: async (label: string) => {
+      hooks.killed?.(label)
+    },
+    list: async () => [],
+    socketPath: async () => undefined,
+    waitForSocket: () => Promise.reject(new Error('unused')),
+    hasMasterSync: () => false,
+    attachCommand: (target: string) => target,
+  }
+  return {
+    backend: 'host',
+    primary: adapter,
+    all: [adapter],
+    spawn: (opts) => adapter.spawn(opts),
+    spawnHeadless: (opts) => adapter.spawnHeadless(opts),
+    attachHeadless: (opts) => adapter.attachHeadless(opts),
+    locate: async () => undefined,
+    has: (label) => adapter.has(label),
+    kill: (label) => adapter.kill(label),
+    list: () => adapter.list(),
+    hasMasterSync: (label, env) => adapter.hasMasterSync(label, env),
+  }
+}
+
+/** A held engine attachment the test drives by hand: welcome on demand, EXITED
+ *  by invoking the captured callbacks. */
+function fakeEngineSession(input: { childPid?: number; lease?: boolean } = {}): {
+  session: HostAgentSession
+  exits: Array<(code: number, signal: number) => void>
+} {
+  const exits: Array<(code: number, signal: number) => void> = []
+  const session = {
+    ready: Promise.resolve({
+      version: 1,
+      hostPid: 111,
+      childPid: input.childPid ?? 4242,
+      hasPty: false,
+      cols: 0,
+      rows: 0,
+      seqLow: 0n,
+      seqHigh: 0n,
+      lease: input.lease ?? true,
+    }),
+    connection: {
+      onData: () => () => {},
+      onExit: (cb: (code: number, signal: number) => void) => {
+        exits.push(cb)
+        return () => {}
+      },
+      signal: () => {},
+    },
+    dispose: () => {},
+  } as unknown as HostAgentSession
+  return { session, exits }
+}
 
 describe('driver resolution', () => {
   const available = ['claude-pty', 'generic-pty', 'opencode-server'] as const
@@ -538,25 +620,22 @@ describe('the version gate, as the daemon reads it', () => {
     }
   })
 
-  it.each([
-    { label: 'directly', scoped: false },
-    { label: 'through systemd-run', scoped: true },
-  ])('spawns the resolved executable $label', async ({ scoped }) => {
+  it('spawns the resolved executable headless under the session label', async () => {
     const executable = '/home/rig/.opencode/bin/opencode'
-    const launched: Array<{ command: string; args: string[] }> = []
+    const launched: HeadlessSpawnOptions[] = []
     const stopped = new Error('stop after argv capture')
     const host = createOpencodeHost({
       resources: () => undefined,
       executablePath: executable,
       versionProbe: async () => ({ output: '1.18.16', ok: true }),
       freePort: async () => 41234,
-      canScope: async () => scoped,
-      runSystemctl: async () => {},
       journal: { read: () => undefined, write: () => {}, clear: () => {} },
-      spawnProcess: ((command: string, args: string[]) => {
-        launched.push({ command, args })
-        throw stopped
-      }) as never,
+      durable: fakeEngineDurable({
+        spawnHeadless: async (opts) => {
+          launched.push(opts)
+          throw stopped
+        },
+      }),
     })
 
     await expect(
@@ -568,34 +647,32 @@ describe('the version gate, as the daemon reads it', () => {
       }),
     ).rejects.toBe(stopped)
 
+    // ONE engine per session, headless under podium-host: the label names the
+    // session (so a restart re-adopts it), the argv is bare `serve`, and the
+    // systemd scope the old spawn wrapped here is the host's own discipline now.
     expect(launched).toHaveLength(1)
-    if (scoped) {
-      expect(launched[0]?.command).toBe('systemd-run')
-      const separator = launched[0]?.args.indexOf('--') ?? -1
-      expect(launched[0]?.args.slice(separator)).toEqual([
-        '--',
-        executable,
-        'serve',
-        '--port',
-        '41234',
-        '--hostname',
-        '127.0.0.1',
-      ])
-    } else {
-      expect(launched[0]).toMatchObject({
-        command: executable,
-        args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
-      })
-    }
+    expect(launched[0]).toMatchObject({
+      label: opencodeScopeLabel(SESSION),
+      cmd: executable,
+      args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
+      cwd: '/tmp',
+    })
+    // RULE 2, pinned: the secret rides the env, never argv — and provider keys
+    // are stripped by the host after the merge, exactly as the old delete loop.
+    expect(launched[0]?.env).toMatchObject({
+      OPENCODE_SERVER_USERNAME: 'podium',
+      OPENCODE_SERVER_PASSWORD: 'secret',
+    })
+    expect(JSON.stringify(launched[0]?.args)).not.toContain('secret')
+    expect(launched[0]?.stripEnv).toContain('ANTHROPIC_API_KEY')
   })
 
   it('passes the isolated database path to the OpenCode 2 server process', async () => {
     const stopped = new Error('stop after env capture')
-    let spawnedEnv: NodeJS.ProcessEnv | undefined
+    const launched: HeadlessSpawnOptions[] = []
     const host = createOpencodeHost({
       resources: () => undefined,
       freePort: async () => 41234,
-      canScope: async () => false,
       journal: { read: () => undefined, write: () => {}, clear: () => {} },
       variant: {
         driverId: 'opencode2-server',
@@ -610,10 +687,12 @@ describe('the version gate, as the daemon reads it', () => {
         },
         versionDiagnostic: async () => null,
       },
-      spawnProcess: ((_command: string, _args: string[], options: { env?: NodeJS.ProcessEnv }) => {
-        spawnedEnv = options.env
-        throw stopped
-      }) as never,
+      durable: fakeEngineDurable({
+        spawnHeadless: async (opts) => {
+          launched.push(opts)
+          throw stopped
+        },
+      }),
     })
 
     await expect(
@@ -625,7 +704,13 @@ describe('the version gate, as the daemon reads it', () => {
       }),
     ).rejects.toBe(stopped)
     expect(host.driverId).toBe('opencode2-server')
-    expect(spawnedEnv).toMatchObject({
+    expect(launched).toHaveLength(1)
+    expect(launched[0]).toMatchObject({
+      label: 'podium-oc2-11111111-1111-4111-8111-111111111111',
+      cmd: 'opencode2',
+      args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
+    })
+    expect(launched[0]?.env).toMatchObject({
       OPENCODE_DB: '/instance/state/opencode2.db',
       OPENCODE_DISABLE_AUTOUPDATE: '1',
     })
@@ -642,6 +727,156 @@ describe('the version gate, as the daemon reads it', () => {
     ])
     expect(opencodeServeArgv('/usr/bin/opencode', 41234)[0]).toBe('/usr/bin/opencode')
     expect(opencodeServeArgv('opencode', 41234)[0]).toBe('opencode')
+  })
+
+  describe('headless adopt (POD-4433)', () => {
+    const journalled = {
+      sessionId: SESSION,
+      opencodeSessionId: 'ses_adoptme',
+      baseUrl: 'http://127.0.0.1:41234',
+      username: 'podium',
+      secret: 'journalled-secret',
+      workdir: '/tmp',
+      process: { key: opencodeScopeLabel(SESSION), pid: 4242 },
+      seq: 7,
+      turnEpoch: 2,
+      bindingVersion: 1,
+    }
+    const binding = {
+      sessionId: SESSION,
+      driver: 'opencode-server',
+      family: 'server',
+      harness: 'opencode',
+      workdir: '/tmp',
+      resume: null,
+      process: { key: opencodeScopeLabel(SESSION) },
+      bindingVersion: 1,
+    } as never
+
+    function adoptHost(hooks: {
+      attachHeadless?: (opts: HeadlessAttachOptions) => Promise<HostAgentSession>
+    }) {
+      return createOpencodeHost({
+        resources: () => undefined,
+        journal: {
+          read: () => journalled,
+          write: () => {},
+          clear: () => {},
+        },
+        durable: fakeEngineDurable(hooks),
+      })
+    }
+
+    it('adopts a surviving server in place: same port and secret, no second spawn', async () => {
+      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+      const spawned: HeadlessSpawnOptions[] = []
+      const { session } = fakeEngineSession({ childPid: 4242 })
+      const host = createOpencodeHost({
+        resources: () => undefined,
+        versionProbe: async () => ({ output: '1.18.16', ok: true }),
+        freePort: async () => 49999,
+        journal: {
+          read: () => journalled,
+          write: () => {},
+          clear: () => {},
+        },
+        durable: fakeEngineDurable({
+          spawnHeadless: async (opts) => {
+            spawned.push(opts)
+            throw new Error('a live server must be adopted, never re-spawned')
+          },
+          attachHeadless: async () => session,
+        }),
+      })
+      try {
+        const endpoint = await host.launch({
+          sessionId: SESSION,
+          workdir: '/tmp',
+          secret: 'fresh-secret',
+          username: 'podium',
+        })
+        expect(endpoint.baseUrl).toBe(journalled.baseUrl)
+        expect(endpoint.password).toBe(journalled.secret)
+        expect(spawned).toHaveLength(0)
+      } finally {
+        fetch.mockRestore()
+      }
+    })
+
+    it('host.adopt rebinds the survivor for the driver', async () => {
+      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+      const { session } = fakeEngineSession({ childPid: 4242 })
+      const host = adoptHost({ attachHeadless: async () => session })
+      try {
+        const endpoint = await host.adopt(binding)
+        expect(endpoint?.baseUrl).toBe(journalled.baseUrl)
+        expect(endpoint?.password).toBe(journalled.secret)
+        expect(endpoint?.process.key).toBe(opencodeScopeLabel(SESSION))
+      } finally {
+        fetch.mockRestore()
+      }
+    })
+
+    it('a writer lease held elsewhere refuses loudly instead of spawning beside it', async () => {
+      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+      const spawned: HeadlessSpawnOptions[] = []
+      const { session } = fakeEngineSession({ childPid: 4242, lease: false })
+      const host = createOpencodeHost({
+        resources: () => undefined,
+        versionProbe: async () => ({ output: '1.18.16', ok: true }),
+        freePort: async () => 49999,
+        journal: {
+          read: () => journalled,
+          write: () => {},
+          clear: () => {},
+        },
+        durable: fakeEngineDurable({
+          spawnHeadless: async (opts) => {
+            spawned.push(opts)
+            throw new Error('must not spawn beside a leased engine')
+          },
+          attachHeadless: async () => session,
+        }),
+      })
+      try {
+        await expect(
+          host.launch({
+            sessionId: SESSION,
+            workdir: '/tmp',
+            secret: 'fresh-secret',
+            username: 'podium',
+          }),
+        ).rejects.toBeInstanceOf(OpencodeEngineLeaseRefused)
+        expect(spawned).toHaveLength(0)
+      } finally {
+        fetch.mockRestore()
+      }
+    })
+
+    it('the host EXITED frame records the real status for the daemon', async () => {
+      const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
+      const { session, exits } = fakeEngineSession({ childPid: 4242 })
+      const host = createOpencodeHost({
+        resources: () => undefined,
+        versionProbe: async () => ({ output: '1.18.16', ok: true }),
+        freePort: async () => 41234,
+        journal: { read: () => undefined, write: () => {}, clear: () => {} },
+        durable: fakeEngineDurable({ spawnHeadless: async () => session }),
+      })
+      try {
+        const endpoint = await host.launch({
+          sessionId: SESSION,
+          workdir: '/tmp',
+          secret: 'secret',
+          username: 'podium',
+        })
+        expect(endpoint.engineExit?.()).toBeUndefined()
+        for (const fire of exits) fire(3, 0)
+        expect(endpoint.engineExit?.()).toEqual({ code: 3, signal: 0 })
+      } finally {
+        fetch.mockRestore()
+      }
+    })
   })
 
   it('admits recorded and newer versions', async () => {

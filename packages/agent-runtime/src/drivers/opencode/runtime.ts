@@ -150,6 +150,12 @@ export interface OpencodeServerEndpoint {
   /** Resource truth for this session's scope — memory, tasks, and the kernel's
    *  own OOM-kill counter. `undefined` where there is no cgroup to read. */
   resources(): ScopeResources | undefined
+  /**
+   * The engine's own exit status, when the host has reported it (POD-4433).
+   * The host's EXITED frame, never inferred from a dead pipe — `undefined`
+   * while the engine is alive or when no host holds it.
+   */
+  engineExit?(): { code: number; signal: number } | undefined
 }
 
 /** What the driver needs from whoever owns processes and disks. */

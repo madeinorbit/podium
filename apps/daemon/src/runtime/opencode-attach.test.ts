@@ -1773,6 +1773,12 @@ describe('under backend=host the client terminal lives in the host, not abduco (
         calls.push(`spawn:host:${o.label}`)
         return client
       },
+      spawnHeadless: async () => {
+        throw new Error('engines are not under test')
+      },
+      attachHeadless: async () => {
+        throw new Error('engines are not under test')
+      },
       attach: async () => {
         throw new Error('not used')
       },
@@ -1794,6 +1800,8 @@ describe('under backend=host the client terminal lives in the host, not abduco (
       primary: hostAdapter,
       all: [hostAdapter],
       spawn: hostAdapter.spawn,
+      spawnHeadless: hostAdapter.spawnHeadless,
+      attachHeadless: hostAdapter.attachHeadless,
       locate: async () => undefined,
       has: hostAdapter.has,
       kill: hostAdapter.kill,
