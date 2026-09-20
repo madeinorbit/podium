@@ -296,7 +296,7 @@ export class SessionDaemonLifecycle {
   private runtimeOwnsState(session: Session): boolean {
     // Negotiated authority is independent of durable checkpoint readiness.
     // Do not populate the gate's persisted-head set at bind time (POD-3791).
-    return session.runtimeContract || this.ports.runtimeEvents?.ready(session.sessionId) === true
+    return session.hasBoundDriver || this.ports.runtimeEvents?.ready(session.sessionId) === true
   }
 
   /**
@@ -357,14 +357,14 @@ export class SessionDaemonLifecycle {
     switch (msg.type) {
       case 'sessionOpenUrl': {
         const session = this.sessions.get(msg.sessionId)
-        // Contract-owned sessions route browser opens through the runtime
+        // Driver-bound sessions route browser opens through the runtime
         // open-url port, not this legacy frame. The daemon's shim still mints
         // the request (capture) and still owns the callback execution — only
         // the serverward offer moves. Ignoring the legacy here keeps the
         // gateway single-writer while plain shell/login sessions keep theirs.
         // Callback/dismiss/result frames below are the callback protocol
         // itself and are never suppressed.
-        if (session?.runtimeContract) break
+        if (session?.hasBoundDriver) break
         // A daemon may only originate intents for sessions it owns. The bus is
         // the typed notification seam from capture to client routing. [spec:SP-a43e]
         if (session?.machineId === machineId) this.bus.emit('session.openUrl', msg)
@@ -425,13 +425,13 @@ export class SessionDaemonLifecycle {
           // Whether the daemon runs the composer engine for this session (POD-859)
           // — surfaced in meta so a client retires its own sampler/flush.
           s.draftSyncEngine = msg.draftSyncEngine ?? false
-          // Whether the daemon drives this session through the agent-runtime
-          // contract (POD-1761 W4) — the fact W4's migrated senders branch on.
+          // Whether the daemon bound a driver for this session (POD-1761 W4,
+          // renamed POD-4440) — the bound fact W4's migrated senders branch on.
           // Read off `driverId`, the live handle's binding: the daemon binds a
           // driver for every profiled agent unconditionally (POD-4426) and
           // shells carry no driver, so presence IS the driven signal. The old
           // `runtimeContract` bind field is gone from the wire.
-          s.runtimeContract = msg.driverId !== undefined
+          s.hasBoundDriver = msg.driverId !== undefined
           // A BIND IS ALSO A REATTACH (POD-2745). Whatever level the previous
           // daemon was told died with it — its watch registry is per-process —
           // so anything this session's viewers still need has to be asked for

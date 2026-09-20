@@ -69,7 +69,7 @@ export interface SessionStatePrincipal {
 export type SessionStateRecord = Pick<
   Session,
   'sessionId' | 'machineId' | 'lastActiveAt' | 'draftUpdatedAt' | 'archived' | 'workState'
-> & { runtimeContract?: boolean }
+> & { hasBoundDriver?: boolean }
 
 /**
  * The only DURABLE fields this module may WRITE [POD-3330], as they appear on a
@@ -820,11 +820,11 @@ export class SessionStateService {
     }
   }
 
-  /** Seed a rebound contract session once; subsequent changes arrive as events. */
+  /** Seed a rebound driver-bound session once; subsequent changes arrive as events. */
   async initializeRuntimeDraft(sessionId: SessionId, machineId: MachineId): Promise<void> {
     if (!this.draftSyncEnabled_) return
     const session = this.ports.getSession(sessionId)
-    if (!session?.runtimeContract) {
+    if (!session?.hasBoundDriver) {
       this.maybeCatchupInject(sessionId, machineId)
       return
     }
@@ -848,7 +848,7 @@ export class SessionStateService {
   }
 
   private sendDraftTarget(sessionId: SessionId, machineId: MachineId, text: string): void {
-    if (!this.ports.getSession(sessionId)?.runtimeContract) {
+    if (!this.ports.getSession(sessionId)?.hasBoundDriver) {
       this.ports.toMachine(machineId, { type: 'draftTarget', sessionId, text })
       return
     }

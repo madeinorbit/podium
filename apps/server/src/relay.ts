@@ -2010,7 +2010,7 @@ export class SessionRegistry {
       events: this.store.events,
       issues,
       sessions: sessionsSvc,
-      runtimeContractActive: (sessionId) => sessionsSvc.receiptSender.onContract(sessionId),
+      isAgentDriven: (sessionId) => sessionsSvc.receiptSender.onContract(sessionId),
       mirrorIssueMail: async (row) => await funnel.run({ write: async () => await this.store.issues.addIssueMessage(row) }),
       mirrorMarkIssueMailRead: async (issueId, ids) =>
         await funnel.run({
@@ -3143,12 +3143,12 @@ export class SessionRegistry {
        */
       contractRouted: async (sessionId) => {
         // THE INTERNAL LIVE SESSION, not `sessionById`. The public projection
-        // deliberately omits `runtimeContract` (POD-3739), so the predicate read
+        // deliberately omits `hasBoundDriver` (POD-3739), so the predicate read
         // through it would be permanently false and this port would never route
         // anything — a silent no-op the type checker caught and the focused
         // tests could not, because they stub this port.
         const session = sessionsSvc.sessions.get(sessionId)
-        return session?.runtimeContract === true
+        return session?.hasBoundDriver === true
       },
       deliverStructured: async (input) =>
         await sessionsSvc.inbox.deliverInteractionAnswer(input, () => sessionsSvc.runtimeGateway.answer({

@@ -176,7 +176,10 @@ export interface SessionCommandDeps {
     sessionId: SessionId
     source: { bytes: Uint8Array; filename: string; mediaType: string }
   }): Promise<RuntimeAttachmentRef | Refusal>
-  runtimeContractActive(sessionId: SessionId): Promise<boolean>
+  /** True for agent sessions (agentKind !== 'shell'), which take the driver
+   *  path; shells keep the raw transport. Taxonomy, not a flag — renamed
+   *  POD-4440 from `runtimeContractActive`, which read as the deleted switch. */
+  isAgentDriven(sessionId: SessionId): Promise<boolean>
   /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
@@ -781,7 +784,7 @@ export const SESSION_COMMAND_HANDLERS = {
     const row = await ctx.sessions.sessionById(input.sessionId)
     const machineId = row?.machineId ?? input.machineId
     if (machineId !== undefined) ctx.assertMachineUse(machineId)
-    if (await ctx.deps.runtimeContractActive(input.sessionId)) {
+    if (await ctx.deps.isAgentDriven(input.sessionId)) {
       const staged = await ctx.deps.stageAttachment({
         sessionId: input.sessionId,
         source: {

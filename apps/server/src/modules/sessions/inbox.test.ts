@@ -58,7 +58,7 @@ function harness(
     transcriptAvailable?: boolean
     stateObservedAt?: string
     /** Exact live runtime binding facts reported by the daemon bind. */
-    runtimeContract?: boolean
+    hasBoundDriver?: boolean
     driverId?: string
     /** Whether a native terminal view currently owns the controller lease. */
     nativeView?: boolean
@@ -141,7 +141,7 @@ function harness(
     status: options.status ?? 'live',
     agentKind: options.agentKind ?? 'codex',
     resume: options.resumable === false ? undefined : { kind: 'codex', value: 'resume-1' },
-    runtimeContract: options.runtimeContract ?? false,
+    hasBoundDriver: options.hasBoundDriver ?? false,
     driverId: options.driverId,
     queuedMessageCount: 0,
     transcriptAvailable: options.transcriptAvailable ?? false,
@@ -905,7 +905,7 @@ describe('SessionInbox authorization and identity', () => {
     try {
       const h = harness({
         agentKind: 'grok',
-        runtimeContract: true,
+        hasBoundDriver: true,
         driverId: 'grok-acp',
       })
       const principal = agentPrincipal()
@@ -934,7 +934,7 @@ describe('SessionInbox authorization and identity', () => {
     const exactGrok = () =>
       harness({
         agentKind: 'grok',
-        runtimeContract: true,
+        hasBoundDriver: true,
         driverId: 'grok-acp',
       })
 
@@ -963,20 +963,20 @@ describe('SessionInbox authorization and identity', () => {
   it.each([
     [
       'terminal Grok',
-      { agentKind: 'grok' as const, runtimeContract: false, driverId: 'generic-pty' },
+      { agentKind: 'grok' as const, hasBoundDriver: false, driverId: 'generic-pty' },
     ],
     [
       'fallback Grok',
-      { agentKind: 'grok' as const, runtimeContract: true, driverId: 'generic-pty' },
+      { agentKind: 'grok' as const, hasBoundDriver: true, driverId: 'generic-pty' },
     ],
-    ['Codex', { agentKind: 'codex' as const, runtimeContract: true, driverId: 'codex-app-server' }],
+    ['Codex', { agentKind: 'codex' as const, hasBoundDriver: true, driverId: 'codex-app-server' }],
     [
       'OpenCode',
-      { agentKind: 'opencode' as const, runtimeContract: true, driverId: 'opencode-server' },
+      { agentKind: 'opencode' as const, hasBoundDriver: true, driverId: 'opencode-server' },
     ],
     [
       'shell',
-      { agentKind: 'shell' as const, runtimeContract: false, driverId: 'generic-pty' },
+      { agentKind: 'shell' as const, hasBoundDriver: false, driverId: 'generic-pty' },
     ],
   ])('does not auto-spawn %s after exit', async (_label, identity) => {
     vi.useFakeTimers()
@@ -2027,7 +2027,7 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     vi.useFakeTimers()
     const h = harness({
       agentKind: 'grok',
-      runtimeContract: true,
+      hasBoundDriver: true,
       driverId: 'grok-acp',
       contractPending: true,
     })
@@ -2599,7 +2599,7 @@ describe('async ownership at attention delivery', () => {
 describe('agent drain via the runtime contract', () => {
   it.each([true, false])('retracts revoked persisted custody only when cancellation succeeds: %s', async (cancelled) => {
     vi.useFakeTimers()
-    const h = harness({ runtimeContract: true, driverId: 'generic-pty',
+    const h = harness({ hasBoundDriver: true, driverId: 'generic-pty',
       authorizeAtDrain: async () => ({ ok: false, reason: 'revoked' }), contractReceipts: [] })
     h.rows.push({ id: 'revoked', sessionId: SID, queuedAt: 1, text: 'prior custody', attempts: 1,
       deliveryOwner: 'daemon', inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: 'receipt' })
@@ -2617,7 +2617,7 @@ describe('agent drain via the runtime contract', () => {
   // id). Nothing is ever typed for agents.
   it('recovers persisted daemon custody after restart', async () => {
     vi.useFakeTimers()
-    const h = harness({ agentKind: 'codex', transcriptAvailable: true, runtimeContract: true,
+    const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true,
       driverId: 'generic-pty', contractReceipts: [] })
     // Fresh inbox instance, only durable state survived the server.
     h.rows.push({ id: 'persisted', sessionId: SID, queuedAt: 1, text: 'already admitted', attempts: 1,
@@ -2637,7 +2637,7 @@ describe('agent drain via the runtime contract', () => {
 
   it('imports legacy attempts after restart without re-entering the typing loop', async () => {
     vi.useFakeTimers()
-    const h = harness({ runtimeContract: true, driverId: 'generic-pty', contractReceipts: [] })
+    const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractReceipts: [] })
     h.rows.push({ id: 'legacy', sessionId: SID, queuedAt: 1, text: 'already typed', attempts: 2,
       inputOrigin: 'human', principal: agentPrincipal(), sourceMessageId: null })
     await h.inbox.drain(SID)
@@ -2649,7 +2649,7 @@ describe('agent drain via the runtime contract', () => {
 
   it('persists custody before the RPC and carries creation-prompt identity', async () => {
     vi.useFakeTimers()
-    const h = harness({ runtimeContract: true, driverId: 'generic-pty', contractPending: true })
+    const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractPending: true })
     await h.inbox.queueInitialPrompt({ sessionId: SID, text: 'create once' })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.rows[0]).toMatchObject({ attempts: 1, deliveryOwner: 'daemon' })
@@ -2706,7 +2706,7 @@ describe('agent drain via the runtime contract', () => {
   // still needs a successful driver cancel, and later sends still forward.
   it('releases daemon custody only after driver cancellation succeeds', async () => {
     vi.useFakeTimers()
-    const h = harness({ agentKind: 'codex', transcriptAvailable: true, runtimeContract: true, driverId: 'generic-pty',
+    const h = harness({ agentKind: 'codex', transcriptAvailable: true, hasBoundDriver: true, driverId: 'generic-pty',
       contractReceipts: [] })
     await h.inbox.queueText({ sessionId: SID, text: 'cancel me', mutationId: asMutationId('cancel-owned'),
       sourceMessageId: 'mail-cancel' })
@@ -2752,7 +2752,7 @@ describe('agent drain via the runtime contract', () => {
   // the never-types guard in inbox-gateway-delivery.test.ts pins this boundary
   // through the inbox delivery itself, including the unbound case.
   it('sends headed interrupts through the contract', async () => {
-    const h = harness({ agentKind: 'codex', phase: 'working', runtimeContract: true, driverId: 'generic-pty',
+    const h = harness({ agentKind: 'codex', phase: 'working', hasBoundDriver: true, driverId: 'generic-pty',
       contractInterrupt: { ok: true } })
     expect(await h.inbox.interruptTurn({ sessionId: SID })).toEqual({ ok: true, requested: 'protocol' })
     expect(h.contractInterrupts).toEqual([SID])

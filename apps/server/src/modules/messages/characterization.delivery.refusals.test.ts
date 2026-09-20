@@ -72,7 +72,7 @@ describe('contract-backed blocking sends return receipt refusals (POD-3044)', ()
     let h!: Awaited<ReturnType<typeof mailHarness>>
     h = await mailHarness({
       receipts: { defer: true, answer: () => refused('not_running') },
-      runtimeContractActive: () => true,
+      isAgentDriven: () => true,
       awaitPollMs: 1,
       onPoll: async (poll) => {
         if (poll === 1) await h.settleReceipts()

@@ -70,7 +70,7 @@ describe('draft replay ordering', () => {
 
 function runtimeDraftWorld() {
   const sessionId = asSessionId('runtime-draft')
-  const session = { sessionId, machineId: 'machine', lastActiveAt: '9999-01-01T00:00:00.000Z', runtimeContract: true }
+  const session = { sessionId, machineId: 'machine', lastActiveAt: '9999-01-01T00:00:00.000Z', hasBoundDriver: true }
   const runtimeDraft = vi.fn(async () => ({ result: { text: 'from get' } }))
   const runtimeSnapshot = vi.fn(async () => ({ result: { snapshot: { draft: 'from snapshot' } } }))
   const toMachine = vi.fn()
