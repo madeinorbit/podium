@@ -40,6 +40,7 @@ import type { Arm, ArmHandle } from '../../../shared/src/arm'
 import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import { snapshotFromStore } from '../oracle/index'
+import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
 import { LegacyControlList, type ControlSliceDef } from './list'
 // LAZY on purpose (not a bundle nicety): `./native` imports `react-native`,
 // whose Flow-typed source the root node/unit lanes cannot parse. A static
@@ -119,7 +120,17 @@ export function legacyControlArmFor(engine: LegacyControlEngine): Arm {
           webRoot?.unmount()
           const root = createRoot(el)
           webRoot = root
-          root.render(createElement(LegacyControlList, { engine, sliceDef: counted }))
+          // Propagate the harness log across this root (Arm contract): the
+          // harness sets the ambient log around the mount call; capture it
+          // now so every later commit records, long after the mount scope.
+          const log = currentCommitLog()
+          root.render(
+            createElement(
+              CommitLogContext.Provider,
+              { value: log },
+              createElement(LegacyControlList, { engine, sliceDef: counted }),
+            ),
+          )
           return () => {
             root.unmount()
             if (webRoot === root) webRoot = null

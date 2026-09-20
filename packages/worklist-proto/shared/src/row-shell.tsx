@@ -76,6 +76,26 @@ export function withCommitLog<T>(log: CommitLog | null, fn: () => T): T {
 }
 
 /**
+ * The log in scope at `mountWeb` time. An arm's `mountWeb` renders through
+ * its own root, which cannot inherit the harness provider's context — so it
+ * MUST capture this at mount and re-provide it explicitly:
+ *
+ *   mountWeb(el) {
+ *     const log = currentCommitLog()
+ *     root.render(
+ *       <CommitLogContext.Provider value={log}>...</CommitLogContext.Provider>,
+ *     )
+ *   }
+ *
+ * (`value={null}` outside the harness is a pass-through.) Relying on the
+ * ambient fallback at commit time instead is wrong: React may commit after
+ * the counting scope has closed, and concurrent mounts would share one log.
+ */
+export function currentCommitLog(): CommitLog | null {
+  return ambientLog
+}
+
+/**
  * REQUIRED wrapper around every arm row component (methodology §6.1 shape
  * review: "Row isolation — one subscription key per row"; this shell is how
  * the harness verifies it). `id` is the slice row id.

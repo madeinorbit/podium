@@ -37,6 +37,12 @@ export interface ArmHandle {
    * `RowShell` (`shared/src/row-shell.tsx`) keyed by its slice row id —
    * that shell is how the G4 count harness observes per-row commits.
    * Outside the harness the shell is a pass-through.
+   *
+   * Because `mountWeb` renders through its own root, it MUST propagate the
+   * harness log explicitly: capture `currentCommitLog()` at mount and wrap
+   * the tree in `<CommitLogContext.Provider value={log}>`. Context does not
+   * cross the root boundary on its own, and the ambient fallback is only for
+   * the mount instant — never for commits.
    */
   mountWeb(el: Element): () => void
   /** The arm's own native list element (React Native unit renderer). */

@@ -66,11 +66,11 @@ describe('legacy control (armed)', () => {
       // The can-say-NO guard: the heartbeat must have committed rows. A zero
       // here means the detector is blind (stale publisher, lost subscription),
       // not that the control is isolated.
-      expect(result.rowsCommitted).toBeGreaterThan(0)
       console.info(
         `[control] heartbeat committed ${result.rowsCommitted}/${result.visibleRows} visible rows; ` +
-          `stats=${JSON.stringify(result.stats)}`,
+          `stats=${JSON.stringify(result.stats)} parity=${result.parity}`,
       )
+      expect(result.rowsCommitted).toBeGreaterThan(0)
 
       // THE ARMED ASSERTION: the control FAILS the #1 budget (0 rows).
       expect(() => assertIsolation(result, { rowsCommitted: 0 })).toThrow(

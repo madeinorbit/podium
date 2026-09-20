@@ -15,7 +15,7 @@
  */
 
 import { asIssueId } from '@podium/model'
-import { startScenarioEngine } from '../../../shared/src/scenarios'
+import { startScenarioEngine } from '../../shared/src/scenarios'
 
 export type ScenarioEngine = Awaited<ReturnType<typeof startScenarioEngine>>
 
