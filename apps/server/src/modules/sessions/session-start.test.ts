@@ -36,7 +36,16 @@ async function makeRegistry(store?: SessionStore): Promise<{ reg: SessionRegistr
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+    daemon.push(m)
+    // POD-4302: hibernate parks on confirmed process retirement. The fixture
+    // daemon answers the lifecycle request with a measured confirmation so the
+    // driver-selection tests pin revival without waiting out the 10s RPC timeout.
+    if (m.type === 'runtimeLifecycleRequest') void reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeLifecycleResult', requestId: m.requestId, sessionId: m.sessionId,
+      result: { ok: true, retirement: 'confirmed' },
+    })
+  })
   return { reg, daemon }
 }
 
@@ -222,9 +231,15 @@ describe('Claude SDK continuity projection', () => {
     const reloaded = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reloaded)
     daemon.length = 0
-    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) =>
-      daemon.push(message),
-    )
+    await reloaded.gateway.attachDaemon(reloaded.sessionStore.hostMachineId, (message) => {
+      daemon.push(message)
+      // Same confirmed-retirement fixture as makeRegistry: hibernate below must
+      // not wait out the 10s lifecycle timeout on the reloaded registry.
+      if (message.type === 'runtimeLifecycleRequest') void reloaded.gateway.routeDaemonFrame(reloaded.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult', requestId: message.requestId, sessionId: message.sessionId,
+        result: { ok: true, retirement: 'confirmed' },
+      })
+    })
     const reattach = daemon.find(
       (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
         message.type === 'reattach' && message.sessionId === sessionId,
