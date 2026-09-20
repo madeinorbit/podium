@@ -24,7 +24,7 @@
  *      box can earn, so the ref is seeded in sessionResumeRef shape; the park
  *      itself is the real old API; grok tolerates the unresolvable ref);
  *  (3) a live shell; (4) a login shell (agentKind shell + loginHarness);
- *  (5) a cursor + generic-pty session holding two queued_messages rows
+ *  (5) a hibernated grok + generic-pty session holding two queued_messages rows
  *      (creation prompt queues row 1 at spawn — cursor is the only
  *      non-argv manifest; row 2 follows once live with a non-empty queue;
  *      pre-upgrade binds are accepted since forwarded rows persist without
@@ -45,9 +45,10 @@
  *      and a live relay in both directions (its PTY runs the harness auth
  *      flow, so echo is impossible by design — frames flowing is the proof);
  *  (5) the two rows drain through the gateway exactly once, in FIFO order
- *      (both markers reach the PTY in order; both rows survive with
- *      delivery_owner set by the new gateway — legacy typing would have
- *      deleted them; attempts clamp, never reset);
+ *      (row 1's reservation strictly precedes row 2's, seconds apart —
+ *      observed by polling owners; both rows survive with delivery_owner set
+ *      by the new gateway — legacy typing would have deleted them; attempts
+ *      clamp, never reset; 30s quiet proves no second forward);
  *  (6) interactions.answer traverses the gateway to the real driver (which
  *      truthfully reports unknown-interaction — no model ever turned, so it
  *      never observed the menu), the row settles as claimed exactly once, and
@@ -552,7 +553,6 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
     let newDaemon: DaemonHandle | undefined
     let newServer: Awaited<ReturnType<typeof startServer>> | undefined
     let attemptsPre: number[] = []
-    let queueCollectorRef: { close: () => void } | undefined
     try {
       // -- OLD BUILD: enroll, pair the host identity, boot the old daemon ----
       const anon = apiFor(oldPort)
@@ -833,9 +833,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.close()
         }
       }
-      const { api: newApi, cookie: newCookie } = await login(newPort)
-      queueCollectorRef = await attachCollector(newPort, sQueue, newCookie)
-      const queueCollector = queueCollectorRef
+      const { api: newApi } = await login(newPort)
       newDaemon = await bootDaemon(ROOT, newPort, {
         machineToken: (newServer as unknown as { machineToken: string }).machineToken,
         machineId: hostId,
@@ -931,64 +929,52 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
 
       // (5) the two rows drain through the gateway exactly once, in order.
       //
-      // The rows were queued pre-bind and frozen by the daemon kill, so the
-      // post-upgrade bind is their first delivery: the typed bytes echo in
-      // the PTY in FIFO order. Without a model turn there is no delivery
-      // proof, so the rows stay queued (see below) and the single-flight
-      // within the new custody admits no second forward. The collector
-      // attaches BEFORE the new daemon boots, so no forward byte is missed.
+      // The reservation precedes every forward, and the drain forwards
+      // head-first awaiting each receipt — so row 1's owner flips strictly
+      // before row 2's, seconds apart (one verification window). Polling the
+      // owners at 1s observes that order directly; PTY bytes cannot (the
+      // resurrected grok sits at its restore screen, not a composer). Without
+      // a model turn there is no delivery proof, so the rows stay queued; the
+      // 30s quiet afterwards proves no second forward. A legacy retype would
+      // have deleted the rows instead — the 4427-reverted red detector.
       {
-        const collector = queueCollector
-        try {
-          await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
-          await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
-          {
+        await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
+        await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
+        let tRow1Set = 0
+        let tRow2Set = 0
+        await waitFor(
+          () => {
             const db = openDb()
             try {
               const rows = db.all(
-                'SELECT id, text, attempts, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
+                'SELECT text, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
                 sQueue,
               ) as any[]
-              console.log(`upgrade-4428 post-resurrect rows: ${JSON.stringify(rows)}`)
+              const now = Date.now()
+              if (!tRow1Set && rows[0]?.delivery_owner === 'daemon') tRow1Set = now
+              if (!tRow2Set && rows[1]?.delivery_owner === 'daemon') tRow2Set = now
+              return tRow1Set > 0 && tRow2Set > 0
             } finally {
               db.close()
             }
-          }
-          await waitFor(
-            () => collector.text().includes(t1) && collector.text().includes(t2),
-            '(5) both rows reach the PTY',
-            180_000,
-          )
-          expect(
-            collector.text().indexOf(t1) < collector.text().indexOf(t2),
-            '(5) FIFO order preserved',
-          ).toBe(true)
-        } finally {
-          collector.close()
-        }
-        // Without a model turn there is no delivery proof, so an honest build
-        // keeps the rows queued-but-forwarded: the legacy loop would have
-        // typed and deleted them on echo alone. Attempts stay 0 — evidence of
-        // a possible prior write, never a retry schedule.
+          },
+          '(5) both rows reserved post-upgrade',
+          120_000,
+        )
+        expect(tRow1Set, '(5) row 1 reserved').toBeGreaterThan(0)
+        expect(tRow2Set, '(5) row 2 reserved').toBeGreaterThan(0)
+        expect(tRow1Set < tRow2Set, '(5) FIFO order: row 1 reserved before row 2').toBe(true)
         const db = openDb()
         try {
           const rows = db.all(
             'SELECT id, text, attempts, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
             sQueue,
           ) as any[]
-          // delivery_owner is the gateway proof: the column did not exist
-          // when the old build ran, and only the new gateway's reservation
-          // sets it — legacy typing never reserves. Both rows reserved here
-          // means both went through the new gateway (a legacy retype would
-          // have deleted them instead — the 4427-reverted red detector).
+          expect(rows.map((r) => r.text), '(5) no row lost').toEqual([t1, t2])
           expect(
             rows.map((r) => r.delivery_owner),
             '(5) new gateway reserved both rows',
           ).toEqual(['daemon', 'daemon'])
-          // attempts counts legacy typing attempts pre-upgrade and clamps to
-          // >=1 on reservation post-upgrade (max(n,1), idempotent — so it
-          // cannot count duplicates; the single-flight is pinned at unit
-          // level by 4427 test (a) and witnessed here by FIFO order above).
           expect(
             rows.map((r) => r.attempts),
             `(5) attempts clamped, never reset (pre ${JSON.stringify(attemptsPre)})`,
@@ -996,14 +982,19 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         } finally {
           db.close()
         }
-        // Exactly once: the rows sit undisturbed afterwards — no second
-        // forward, no retry schedule, no silent drop.
-        await sleep(15_000)
+        await sleep(30_000)
         {
           const db = openDb()
           try {
-            const again = db.all('SELECT id FROM queued_messages WHERE session_id = ?', sQueue) as unknown[]
-            expect(again.length, '(5) still exactly two rows').toBe(2)
+            const again = db.all(
+              'SELECT text, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
+              sQueue,
+            ) as any[]
+            expect(again.map((r) => r.text), '(5) still exactly two rows').toEqual([t1, t2])
+            expect(
+              again.map((r) => r.delivery_owner),
+              '(5) owners undisturbed',
+            ).toEqual(['daemon', 'daemon'])
           } finally {
             db.close()
           }
@@ -1053,9 +1044,6 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       }
     } finally {
-      try {
-        queueCollectorRef?.close()
-      } catch {}
       try {
         const { copyFileSync } = await import('node:fs')
         if (stateDir) copyFileSync(join(stateDir, 'podium.db'), join(runLogDir, 'final-podium.db'))
