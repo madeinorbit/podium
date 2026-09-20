@@ -518,7 +518,7 @@ describe('SessionInbox persistence completion', () => {
 
   it('restores the draft before notifying failure and keeps the drain held until persistence', async () => {
     vi.useFakeTimers()
-    const h = harness({ nativeView: true })
+    const h = harness({ nativeView: true, agentKind: 'shell' })
     await h.inbox.queueText({ sessionId: SID, text: 'recover me', principal: agentPrincipal() })
     h.setNativeView(false)
     h.setStatus('exited')
@@ -2783,12 +2783,18 @@ describe('server-family drain via the runtime contract [POD-2291]', () => {
     expect(h.applied).not.toHaveBeenCalled()
   })
 
-  it('refuses a direct typeText toward a server-family session', async () => {
+  // Agent sends never type directly anymore: they queue to the contract, which
+  // is what keeps a server-family session from vanishing bytes into no bridge.
+  it('queues a direct send toward a server-family session instead of typing it', async () => {
     vi.useFakeTimers()
     const h = harness({ contractDelivery: true })
 
-    expect(await h.inbox.sendText({ sessionId: SID, text: 'typed at nothing' })).toEqual({ ok: false })
+    expect(await h.inbox.sendText({ sessionId: SID, text: 'never typed' })).toEqual({
+      ok: true,
+      queued: true,
+    })
     expect(h.sent).toEqual([])
+    expect(h.rows).toHaveLength(1)
   })
 })
 
@@ -3249,76 +3255,24 @@ describe('headed contract delivery rollout', () => {
     expect(h.getDraft()).toBe('new human draft')
   })
 
-  it('flips the actual config file off/on/off without recreating the inbox', async () => {
+
+
+  // RETIRED WITH THE FLAG-GATED ROLLOUT (POD-4279). These tests flipped the
+  // daemon-headed-delivery switch between legacy typing and contract delivery
+  // mid-drain. Agents no longer read that switch — drain always forwards — so
+  // there is no legacy arm to flip between. The switch itself, its file format
+  // and the contractDeliveryRequested unit tests stay for POD-4280, which owns
+  // the switch removal; daemon custody rollback is pinned by the tests below.
+  // Daemon custody (POD-4291) survives the rollout removal: a daemon-owned row
+  // still needs a successful driver cancel, and later sends still forward.
+  it('releases daemon custody only after driver cancellation succeeds', async () => {
     vi.useFakeTimers()
-    const dir = mkdtempSync(join(tmpdir(), 'podium-delivery-switch-'))
-    const path = join(dir, 'config.json')
-    const flip = (enabled: boolean) => writeFileSync(path, JSON.stringify({
-      features: { 'daemon-headed-delivery': enabled },
-    }))
-    try {
-      const h = harness({
-        agentKind: 'codex', transcriptAvailable: true, runtimeContract: true, driverId: 'generic-pty',
-        contractDelivery: (session) => contractDeliveryRequested(session, loadConfig(path)),
-        contractReceipts: [], contractInterrupt: { ok: true },
-      })
-      const send = (id: string) => h.inbox.queueText({ sessionId: SID, text: id, mutationId: asMutationId(id) })
-      flip(false)
-      await send('legacy-before')
-      await vi.advanceTimersByTimeAsync(6_500)
-      expect(typedTexts(h.sent)).toEqual(['legacy-before'])
-      expect(h.contractCalls).toEqual([])
-      h.landTurn('legacy-before')
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(h.rows).toHaveLength(0)
-
-      flip(true)
-      await send('daemon-owned')
-      await vi.advanceTimersByTimeAsync(1_000)
-      expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'daemon-owned' })])
-      expect(typedTexts(h.sent)).toEqual(['legacy-before'])
-
-      flip(false)
-      await send('legacy-after')
-      await vi.advanceTimersByTimeAsync(1_000)
-      // Rollback stops new daemon admission, but cannot replay its in-flight row.
-      expect(h.contractCalls).toHaveLength(1)
-      expect(typedTexts(h.sent)).toEqual(['legacy-before'])
-      await h.inbox.deliveryOutcome(SID, { rowId: 'daemon-owned', outcome: 'delivered' })
-      await vi.advanceTimersByTimeAsync(6_500)
-      expect(typedTexts(h.sent)).toEqual(['legacy-before', 'legacy-after'])
-      expect(h.contractCalls).toHaveLength(1)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
-
-  it('leaves an already typed legacy batch with its owner when enabled', async () => {
-    vi.useFakeTimers()
-    let enabled = false
     const h = harness({ agentKind: 'codex', transcriptAvailable: true, runtimeContract: true, driverId: 'generic-pty',
-      contractDelivery: () => enabled, contractReceipts: [] })
-    await h.inbox.queueText({ sessionId: SID, text: 'legacy in flight', mutationId: asMutationId('legacy-flight') })
-    await vi.advanceTimersByTimeAsync(6_500)
-    expect(typedTexts(h.sent)).toEqual(['legacy in flight'])
-    enabled = true
-    await h.inbox.drain(SID)
-    await vi.advanceTimersByTimeAsync(1_000)
-    expect(h.contractCalls).toEqual([])
-    h.landTurn('legacy in flight')
-    await vi.advanceTimersByTimeAsync(1_000)
-    expect(h.rows).toHaveLength(0)
-  })
-
-  it('releases rollback custody only after daemon cancellation succeeds', async () => {
-    vi.useFakeTimers()
-    let enabled = true
-    const h = harness({ agentKind: 'codex', transcriptAvailable: true, runtimeContract: true, driverId: 'generic-pty',
-      contractDelivery: () => enabled, contractReceipts: [] })
+      contractReceipts: [] })
     await h.inbox.queueText({ sessionId: SID, text: 'cancel me', mutationId: asMutationId('cancel-owned'),
       sourceMessageId: 'mail-cancel' })
     await vi.advanceTimersByTimeAsync(1_000)
-    enabled = false
+    expect(h.contractCalls).toHaveLength(1)
     h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
     expect(await h.inbox.cancelQueuedMessage(SID, 'mail-cancel')).toBe(false)
     expect(h.rows).toHaveLength(1)
@@ -3326,25 +3280,31 @@ describe('headed contract delivery rollout', () => {
     expect(await h.inbox.cancelQueuedMessage(SID, 'mail-cancel')).toBe(true)
     expect(h.contractCancel).toHaveBeenCalledTimes(2)
     await h.inbox.queueText({ sessionId: SID, text: 'after cancel', mutationId: asMutationId('after-cancel') })
-    await vi.advanceTimersByTimeAsync(6_500)
-    expect(typedTexts(h.sent)).toEqual(['after cancel'])
-    expect(h.contractCalls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(h.contractCalls).toHaveLength(2)
+    expect(h.sent).toEqual([])
   })
 
-  it.each(['generic-pty', 'codex-app-server'])('routes a fresh bind after starting on the legacy queue: %s', async (driverId) => {
+  // No flag, no legacy queue: agent rows forward from the first admission, and a
+  // fresh bind re-admits still-pending rows flagged as recovery (idempotent by
+  // turn id) instead of typing them. Nothing is ever typed for agents.
+  it.each(['generic-pty', 'codex-app-server'])('routes agent rows through the contract from admission across a fresh bind: %s', async (driverId) => {
     vi.useFakeTimers()
-    const h = harness({ status: 'starting', agentKind: 'codex',
-      contractDelivery: (session) => contractDeliveryRequested(session, { features: { 'daemon-headed-delivery': true } }),
-      contractReceipts: [] })
+    const h = harness({ status: 'starting', agentKind: 'codex', contractReceipts: [] })
     await h.inbox.queueText({ sessionId: SID, text: 'first bound prompt', mutationId: asMutationId('fresh-bind') })
     await vi.advanceTimersByTimeAsync(400)
+    expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'fresh-bind' })])
+    expect(h.sent).toEqual([])
     h.session.runtimeContract = true
     h.session.driverId = driverId
     h.setStatus('live')
     h.inbox.markSessionBound(SID)
     await h.inbox.drain(SID, { justBound: true })
     await vi.advanceTimersByTimeAsync(1_000)
-    expect(h.contractCalls).toEqual([expect.objectContaining({ turnId: 'fresh-bind' })])
+    expect(h.contractCalls).toEqual([
+      expect.objectContaining({ turnId: 'fresh-bind' }),
+      expect.objectContaining({ turnId: 'fresh-bind', deliveryRecovery: true }),
+    ])
     expect(h.sent).toEqual([])
   })
 
