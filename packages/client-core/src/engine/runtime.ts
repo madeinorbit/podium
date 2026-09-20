@@ -91,15 +91,10 @@ import {
 import { createEngineActions, type EngineActions, type EngineActionRuntime } from './actions'
 import { planNavigation, type NavigationIntent } from './navigation'
 import { BootFetches } from './boot'
-import { dedupeSessions, OptimismLedger, type OptimisticPublicationMeasurement } from './optimism'
-import { createEffectiveChanges, type EffectiveAddress, type EffectiveChanges, type EffectiveLocalKey } from './effective-changes'
-import { effectiveView } from './effective-view'
-import { createPresentationModel, type PresentationModel } from '../presentation/model'
-import type { ReplicaKind } from '../replica/contract'
+import { dedupeSessions, OptimismLedger } from './optimism'
 import { Reactions } from './reactions'
 import {
   createReplicaBinding,
-  REPLICA_BINDING_KINDS,
   type ReplicaBinding,
   type ReplicaPublication,
 } from './replica-binding'
@@ -216,13 +211,6 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   draftSendDebounceMs?: number
   /** Test seam: overrides DRAFT_PERSIST_DEBOUNCE_MS (POD-2045). */
   draftPersistDebounceMs?: number
-  /** Internal effective-state pilot; no production consumer enables this. */
-  effectiveChanges?: boolean
-  /** Disabled by default. Plain keyed presentation cells; implies effectiveChanges. */
-  presentationModel?: boolean
-  measureOptimisticPublication?: (measurement: OptimisticPublicationMeasurement) => void
-  /** Lazy effective-view indexing is O(collection), separately from address work. */
-  measureEffectiveIndex?: (kind: ReplicaKind, rows: number) => void
 }
 
 /**
@@ -323,17 +311,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private batchDepth = 0
   private pendingChanges = new Set<keyof EngineState>()
   private pendingReactions = new Set<keyof EngineState>()
-  readonly presentation?: PresentationModel
-  private presentationAdapter?: ReturnType<typeof createPresentationModel>
-  private publishingPresentation = false
-  private presentationPublications: Array<() => void> = []
-  private offEffectiveDelivery?: () => void
-  readonly effectiveChanges?: EffectiveChanges
-  private effectivePublisher?: ReturnType<typeof createEffectiveChanges>
-  private effectiveRows: EffectiveAddress[] = []
-  private effectiveReplacement?: 'bootstrap' | 'rescope'
-  private effectiveDelivery?: () => void
-  private readonly measureEffectiveIndex?: ClientRuntimeInit<TApi>['measureEffectiveIndex']
   /** True when this runtime runs on the wire-v2 feed (POD-1223). */
   private readonly onFeed: boolean
   // ---- offline-first composer drafts (POD-2045) ----
@@ -350,7 +327,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private booted = false
 
   constructor(init: ClientRuntimeInit<TApi>) {
-    this.measureEffectiveIndex = init.measureEffectiveIndex
     this.principal = init.principal
     this.api = init.api
     this.notices = init.notices ?? NOOP_NOTICES
@@ -421,15 +397,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         issueProjections: this.baseIssueProjections,
       }),
       paintedIssues: () => this.state.issues,
-      publish: (patch, rows) => {
-        if (!(init.effectiveChanges || init.presentationModel)) { this.apply(patch); return }
-        this.batch(() => {
-          this.queueEffectiveRows(rows ?? [])
-          this.apply(patch)
-        })
-      },
-      effectiveChanges: init.effectiveChanges || init.presentationModel,
-      measureEffectiveChanges: init.measureOptimisticPublication,
+      publish: (patch) => this.apply(patch),
       batch: (fn) => this.batch(fn),
       ...(init.spawnConfirmGraceMs !== undefined
         ? { spawnConfirmGraceMs: init.spawnConfirmGraceMs }
@@ -547,33 +515,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.state.drafts = this.hydrateDrafts()
     this.statics = this.buildStatics(actions)
     this.subStore = createSubscriptionStore<Store<TApi>>(this.buildSnapshot(), undefined, this)
-    if (init.effectiveChanges || init.presentationModel) {
-      this.effectivePublisher = createEffectiveChanges(effectiveView(
-        this.getSnapshot(), this.replicaBinding.snapshot(), this.measureEffectiveIndex,
-      ))
-      this.effectiveChanges = {
-        subscribe: (listener) => {
-          // Public seed callbacks can issue commands too. Preserve synchronous
-          // seeding inside a publication, and hold nested commits until a seed
-          // outside one has finished installing all of its observers.
-          if (this.publishingPresentation) return this.effectivePublisher!.subscribe(listener)
-          let unsubscribe = () => {}
-          this.publishPresentation(() => { unsubscribe = this.effectivePublisher!.subscribe(listener) })
-          return unsubscribe
-        },
-      }
-      // First observer: the Store has installed its snapshot, but no external
-      // listener can write a nested commit before its effective view is captured.
-      this.offEffectiveDelivery = this.subStore.subscribe(() => {
-        const deliver = this.effectiveDelivery
-        this.effectiveDelivery = undefined
-        deliver?.()
-      })
-      if (init.presentationModel) {
-        this.presentationAdapter = createPresentationModel(this.effectiveChanges)
-        this.presentation = this.presentationAdapter.model
-      }
-    }
   }
 
   /** Read this device's persisted drafts into the ledger, and return the map the
@@ -615,14 +556,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   start(): void {
     if (this.started || this.destroyed) return
     this.started = true
-    try {
-      if (this.presentationAdapter) this.publishPresentation(() => this.presentationAdapter?.start())
-    } catch (error) {
-      this.started = false
-      throw error
-    }
-    // A reseed observer can synchronously stop or destroy this principal.
-    if (!this.started || this.destroyed) return
     const offs = this.offs
 
     // Router changes fan in through one subscription; RouterUiState owns every
@@ -878,7 +811,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    *  (React StrictMode's dev double-mount). This is NOT the principal boundary
    *  — see {@link destroy}. */
   dispose(): void {
-    this.presentationAdapter?.stop()
     this.lastMachinesMaterial = undefined
     this.started = false
     bindSwitchTraceUi(null)
@@ -931,13 +863,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     }
     this.dispose()
     this.destroyed = true
-    this.presentationAdapter?.destroy()
-    this.offEffectiveDelivery?.()
-    this.offEffectiveDelivery = undefined
-    this.presentationPublications.length = 0
-    this.effectivePublisher?.destroy()
-    this.effectiveRows = []
-    this.effectiveDelivery = undefined
     this.hostMetricsStore.destroy()
   }
 
@@ -1007,66 +932,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
           const changed = this.pendingChanges
           this.pendingChanges = new Set()
           // Clear bookkeeping before notifying: listeners may write again.
-          if (!this.effectivePublisher) {
-            if (changed.size > 0 && !this.destroyed)
-              this.subStore.publish(this.buildSnapshot(), changed)
-          } else if (!this.destroyed) {
-            const rows = this.effectiveRows
-            const reason = this.effectiveReplacement
-            this.effectiveRows = []
-            this.effectiveReplacement = undefined
-            const snapshot = this.buildSnapshot()
-            const replica = this.replicaBinding.snapshot()
-            const local = [...changed].filter((key) =>
-              !(REPLICA_BINDING_KINDS as readonly string[]).includes(key)) as EffectiveLocalKey[]
-            // Serialize the WHOLE dual publication, including subscriber writes.
-            // A nested command can update internal state, but neither public
-            // snapshot advances until every observer of this commit has run.
-            this.publishPresentation(() => {
-              let deliver: (() => void) | undefined
-              if (changed.size > 0 || rows.length > 0 || reason) {
-                deliver = () => {
-                  const view = effectiveView(this.getSnapshot(), replica, this.measureEffectiveIndex)
-                  this.effectivePublisher!.publish(reason
-                    ? { type: 'replace', reason, view }
-                    : { type: 'update', view, rows, local })
-                }
-                this.effectiveDelivery = deliver
-              }
-              if (changed.size > 0) this.subStore.publish(snapshot, changed)
-              // Address invalidations survive no-op legacy array publications.
-              if (deliver && this.effectiveDelivery === deliver) {
-                this.effectiveDelivery = undefined
-                deliver()
-              }
-            })
-          }
+          if (changed.size > 0 && !this.destroyed)
+            this.subStore.publish(this.buildSnapshot(), changed)
         }
       }
     }
-  }
-
-  private publishPresentation(deliver: () => void): void {
-    if (this.destroyed) return
-    this.presentationPublications.push(deliver)
-    if (this.publishingPresentation) return
-    this.publishingPresentation = true
-    const errors: unknown[] = []
-    try {
-      while (!this.destroyed && this.presentationPublications.length > 0) {
-        try { this.presentationPublications.shift()!() } catch (error) { errors.push(error) }
-      }
-    } finally { this.publishingPresentation = false }
-    if (errors.length) throw new AggregateError(errors, 'Presentation publication failed')
-  }
-
-  /** Shared D3/D4 accumulator. Call inside the owning settled runtime batch. */
-  private queueEffectiveRows(rows: readonly EffectiveAddress[]): void {
-    if (this.effectivePublisher) this.effectiveRows.push(...rows)
-  }
-
-  private queueEffectiveReplacement(reason: 'bootstrap' | 'rescope'): void {
-    if (this.effectivePublisher) this.effectiveReplacement = reason
   }
 
   /** Effect → reaction table (#262): each old provider useEffect either lives
@@ -1270,13 +1140,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // ONE delta, ONE snapshot — see batch(). Without this the three recomputes
     // below publish separately and every snapshot-keyed slice derives 3×.
     this.batch(() => {
-      // Preserve kernel addresses (including absent-row exit changes) before
-      // optimism folds. D4 settles both sources against the completed Store view.
-      if (publication.addressed?.type === 'replace') {
-        this.queueEffectiveReplacement(publication.addressed.reason)
-      } else if (publication.addressed?.type === 'update') {
-        this.queueEffectiveRows(publication.addressed.rows)
-      }
       if (changed.has('sessions')) {
         this.baseSessions = dedupeSessions(snapshot.sessions)
         this.optimism.recomputeSessions()
