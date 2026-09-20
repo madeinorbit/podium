@@ -436,11 +436,15 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
 
   /**
    * Tap a host attachment: the merged stdout/stderr ring feeds the launch
-   * banner, and the host's EXITED frame records the real status. The tap stays
-   * registered for the attachment's life; `engines.delete` before signalling
-   * is what keeps an EXPECTED ending (stop/kill) from logging as a crash.
+   * banner, and the host's EXITED frame records the real status. A previous
+   * attachment for the session is released first — one holder per engine, so a
+   * re-attach never strands a lease. The tap stays registered for the
+   * attachment's life; `engines.delete` before signalling is what keeps an
+   * EXPECTED ending (stop/kill) from logging as a crash.
    */
   function tapEngine(sessionId: SessionId, session: HostAgentSession): HeldEngine {
+    const prev = engines.get(sessionId)
+    if (prev && prev.session !== session) prev.session.dispose()
     const held: HeldEngine = { session, childPid: undefined, exit: undefined, banner: '' }
     engines.set(sessionId, held)
     session.connection.onData((_seq, data) => {
@@ -473,17 +477,31 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       log.warn('could not re-attach to the codex engine host', { err, sessionId, label })
       return undefined
     }
-    const held = tapEngine(sessionId, session)
+    return claimEngine(sessionId, label, session)
+  }
+
+  /**
+   * Take ownership of a host attachment: confirm the writer lease, then tap.
+   * A lease held elsewhere is a stale daemon still driving this engine — loud
+   * refusal, never silent read-along. A welcome that never arrives degrades to
+   * `undefined` for adopt paths; launch turns it into a throw. A fresh spawn
+   * passes through here too: adopting a live host whose lease is held is the
+   * two-daemons case even on the launch path.
+   */
+  async function claimEngine(
+    sessionId: SessionId,
+    label: string,
+    session: HostAgentSession,
+  ): Promise<HeldEngine | undefined> {
     let welcome
     try {
       welcome = await session.ready
     } catch (err) {
-      log.warn('codex engine host never welcomed its re-attach', { err, sessionId, label })
+      log.warn('codex engine host never welcomed its attach', { err, sessionId, label })
       session.dispose()
       engines.delete(sessionId)
       return undefined
     }
-    held.childPid = welcome.childPid
     if (!welcome.lease) {
       session.dispose()
       engines.delete(sessionId)
@@ -493,6 +511,8 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
       })
       throw new CodexEngineLeaseRefused(sessionId, label)
     }
+    const held = tapEngine(sessionId, session)
+    held.childPid = welcome.childPid
     return held
   }
 
@@ -682,10 +702,11 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
        * still rides WebSocket text frames over the Unix listener; the merged
        * stdout/stderr ring feeds the startup banner below.
        */
-      let held: HeldEngine
+      let held: HeldEngine | undefined
       try {
-        held = tapEngine(
+        held = await claimEngine(
           input.sessionId,
+          label,
           await adapter.spawnHeadless({
             label,
             cmd: command ?? 'codex',
@@ -695,10 +716,13 @@ export function createCodexHost(deps: CodexHostDeps): CodexRuntimeHost {
             stripEnv: STRIPPED_CODEX_CREDENTIALS,
           }),
         )
-        held.childPid = (await held.session.ready).childPid
       } catch (err) {
         engines.delete(input.sessionId)
         throw err
+      }
+      if (!held) {
+        engines.delete(input.sessionId)
+        throw new Error(`codex engine host for ${input.sessionId} never welcomed its spawn`)
       }
       const banner = (): string => held.banner
       const liveness = livenessFor(held)
