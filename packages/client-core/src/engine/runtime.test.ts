@@ -4305,3 +4305,55 @@ describe('D6 differential lifecycle gate', () => {
     })
   })
 })
+
+// S5 measurement probe (temporary): full row-click gesture without an outer
+// batch — navigateWorkspace + markIssueRead as use-unified-work issues them
+// today. Reports synchronous pubs per click; not a budget assertion.
+describe('S5 click measurement probe', () => {
+  it('reports pubs for navigate + optimistic mark-read without outer batch', async () => {
+    const { engine, hub } = makeEngine({ url: '/workspace' })
+    engine.start()
+    await settle()
+    const issueA = { id: asIssueId('s5-a'), title: 'A', stage: 'in_progress',
+      readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+      archived: false, worktreePath: '/tmp/known-repo' } as IssueWire
+    const issueB = { id: asIssueId('s5-b'), title: 'B', stage: 'in_progress',
+      readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+      archived: false, worktreePath: '/tmp/known-repo' } as IssueWire
+    const sessionA = { ...session('s5-session-a', '/tmp/known-repo'), issueId: issueA.id } as SessionMeta
+    const sessionB = { ...session('s5-session-b', '/tmp/known-repo'), issueId: issueB.id } as SessionMeta
+    engine.replica.applyChanges('issues', [issueA, issueB], [])
+    engine.replica.applyChanges('sessions', [sessionA, sessionB], [])
+    await settle()
+    engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueA.id,
+      selectedWorktree: '/tmp/known-repo', tabId: sessionA.sessionId, firstPane: true })
+    await settle()
+    // Drain the first mark so the measured click starts from a clean queue.
+    await engine.getSnapshot().markIssueRead(issueA.id)
+    await settle()
+    await engine.outbox.drain()
+    await settle()
+    const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
+    const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
+    storeStats.reset()
+    storeStats.enable()
+    const window = storeStats.begin('gesture')
+    engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueB.id,
+      selectedWorktree: '/tmp/known-repo', tabId: sessionB.sessionId, firstPane: true })
+    const command = engine.getSnapshot().markIssueRead(issueB.id)
+    // Synchronous paint window: navigation + optimistic paint have run; the
+    // durable outbox handoff has not yet resolved.
+    const syncPubs = readStoreStats().publishes.map((p) => [...p.changedKeys].sort())
+    const syncCount = readStoreStats().publishes.length
+    await command
+    await settle()
+    storeStats.end(window)
+    const total = readStoreStats().publishes.map((p) => [...p.changedKeys].sort())
+    const final = engine.getSnapshot()
+    process.stdout.write(`S5 probe sync=${syncCount} total=${total.length} syncKeys=${JSON.stringify(syncPubs)} totalKeys=${JSON.stringify(total)} selected=${final.selectedIssueId} baseline=${final.issueVisitBaseline?.issueId} readAt=${final.issues.find((i) => i.id === issueB.id)?.readAt} outbox=${final.outboxSize} queue=${engine.outbox.pending().length}\n`)
+    off()
+    storeStats.enable(false)
+    storeStats.reset()
+    engine.destroy()
+  })
+})
