@@ -12,10 +12,13 @@ import { addSink, type LogRecord } from '@podium/logger'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
   type CodexVersionProbe,
+  checkPodiumHookTrust,
   detectCodexVersion,
   ensurePodiumCodexHooks,
+  parseCodexHookTrustState,
   PODIUM_CODEX_HOOK_COMMAND,
   parseCodexVersion,
+  podiumHookPositions,
   supportsCodexHooks,
 } from './codex-hooks.js'
 
@@ -54,7 +57,8 @@ describe('ensurePodiumCodexHooks', () => {
 
   it('creates hook definitions without writing private trust state', async () => {
     const dir = await home()
-    const res = await ensureHooks({ homeDir: dir })
+    const onDegraded = vi.fn()
+    const res = await ensureHooks({ homeDir: dir, onDegraded })
     expect(res).toMatchObject({ installed: true, changed: true })
 
     const doc = JSON.parse(await readFile(join(dir, '.codex', 'hooks.json'), 'utf8'))
@@ -70,6 +74,27 @@ describe('ensurePodiumCodexHooks', () => {
       expect(doc.hooks[event]?.[0]?.hooks?.[0]?.timeout).toBe(5)
     }
     expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
+    // POD-4076 first-run shape: a fresh home has the file but no trust, so
+    // Codex will silently run none of it. The installer must say so rather
+    // than report success, and must still not write trust on our behalf.
+    expect(res).toMatchObject({ trusted: false, degraded: true })
+    expect(res.untrustedEvents).toEqual(
+      expect.arrayContaining([
+        'SessionStart',
+        'UserPromptSubmit',
+        'PreToolUse',
+        'PermissionRequest',
+        'PostToolUse',
+        'Stop',
+      ]),
+    )
+    expect(onDegraded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'codex-hooks-untrusted',
+        title: 'Codex hooks need review',
+      }),
+    )
+    expect(String(onDegraded.mock.calls[0]?.[0]?.body)).toContain('/hooks')
   })
 
   // PARITY RECORD (this issue): Codex subscribes SessionStart and
@@ -139,13 +164,17 @@ describe('ensurePodiumCodexHooks', () => {
       '',
     ].join('\n')
     await writeFile(join(dir, '.codex', 'config.toml'), config)
-    await ensureHooks({ homeDir: dir })
+    // The foreign entry trusts stop:0:0, but Podium lands at stop:1:0 here —
+    // so the install must still report untrusted while leaving the file alone.
+    const res = await ensureHooks({ homeDir: dir })
 
     const doc = JSON.parse(await readFile(join(dir, '.codex', 'hooks.json'), 'utf8'))
     expect(doc.hooks.Stop[0].hooks[0].command).toBe(foreignCommand)
     expect(doc.hooks.Stop[1].hooks[0].command).toBe(PODIUM_CODEX_HOOK_COMMAND)
 
     expect(await readFile(join(dir, '.codex', 'config.toml'), 'utf8')).toBe(config)
+    expect(res).toMatchObject({ installed: true, trusted: false })
+    expect(res.untrustedEvents).toContain('Stop')
   })
 
   it('accepts a Codex newer than the last exercised version (ceilings never block)', async () => {
@@ -195,6 +224,133 @@ describe('ensurePodiumCodexHooks', () => {
       }),
     )
     dispose()
+  })
+})
+
+describe('codex hook trust detection (POD-4076)', () => {
+  const events = [
+    'SessionStart',
+    'UserPromptSubmit',
+    'PreToolUse',
+    'PermissionRequest',
+    'PostToolUse',
+    'Stop',
+  ] as const
+  const snake: Record<string, string> = {
+    SessionStart: 'session_start',
+    UserPromptSubmit: 'user_prompt_submit',
+    PreToolUse: 'pre_tool_use',
+    PermissionRequest: 'permission_request',
+    PostToolUse: 'post_tool_use',
+    Stop: 'stop',
+  }
+
+  function trustConfig(hooksJsonPath: string, opts?: { enabled?: boolean; omitHash?: boolean }): string {
+    const lines = ['model = "gpt-5.5"', '']
+    for (const event of events) {
+      lines.push(`[hooks.state."${hooksJsonPath}:${snake[event]}:0:0"]`)
+      if (!opts?.omitHash) lines.push('trusted_hash = "sha256:aaaa"')
+      if (opts?.enabled !== undefined) lines.push(`enabled = ${opts.enabled ? 'true' : 'false'}`)
+      lines.push('')
+    }
+    return lines.join('\n')
+  }
+
+  it('reports trusted only when every Podium handler has a trust entry', async () => {
+    const dir = await home()
+    await ensureHooks({ homeDir: dir })
+    const hooksJsonPath = join(dir, '.codex', 'hooks.json')
+    await writeFile(join(dir, '.codex', 'config.toml'), trustConfig(hooksJsonPath))
+
+    const res = await ensureHooks({ homeDir: dir })
+    expect(res).toMatchObject({ installed: true, trusted: true, untrustedEvents: [] })
+    expect(res.degraded).toBeUndefined()
+  })
+
+  it('treats a missing enabled line as trusted (pre-field entries carry only the hash)', async () => {
+    const dir = await home()
+    await ensureHooks({ homeDir: dir })
+    const hooksJsonPath = join(dir, '.codex', 'hooks.json')
+    // No `enabled` lines at all — the shape observed on live hosts.
+    await writeFile(join(dir, '.codex', 'config.toml'), trustConfig(hooksJsonPath))
+
+    const doc = JSON.parse(await readFile(hooksJsonPath, 'utf8'))
+    const { trusted } = checkPodiumHookTrust({
+      hooksJsonPath,
+      doc,
+      configText: trustConfig(hooksJsonPath),
+    })
+    expect(trusted).toBe(true)
+  })
+
+  it('reports untrusted when config.toml is absent and names the /hooks remedy', async () => {
+    const dir = await home()
+    await ensureHooks({ homeDir: dir })
+    const onDegraded = vi.fn()
+    const res = await ensureHooks({ homeDir: dir, onDegraded })
+
+    expect(res.trusted).toBe(false)
+    expect(res.untrustedEvents).toEqual(expect.arrayContaining([...events]))
+    expect(onDegraded).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'codex-hooks-untrusted' }),
+    )
+    expect(String(onDegraded.mock.calls[0]?.[0]?.body)).toContain('/hooks')
+    // Reading to diagnose never writes trust on the user's behalf.
+    expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
+  })
+
+  it('reports untrusted when an entry is explicitly disabled', async () => {
+    const dir = await home()
+    await ensureHooks({ homeDir: dir })
+    const hooksJsonPath = join(dir, '.codex', 'hooks.json')
+    const config = trustConfig(hooksJsonPath).replace(
+      `[hooks.state."${hooksJsonPath}:stop:0:0"]\ntrusted_hash = "sha256:aaaa"`,
+      `[hooks.state."${hooksJsonPath}:stop:0:0"]\ntrusted_hash = "sha256:aaaa"\nenabled = false`,
+    )
+    await writeFile(join(dir, '.codex', 'config.toml'), config)
+
+    const res = await ensureHooks({ homeDir: dir })
+    expect(res.trusted).toBe(false)
+    expect(res.untrustedEvents).toEqual(['Stop'])
+  })
+
+  it('parses trust entries without a TOML dependency and ignores unparseable bodies', () => {
+    const entries = parseCodexHookTrustState(
+      [
+        '[hooks.state."/h/hooks.json:stop:0:0"]',
+        'trusted_hash = "sha256:aaaa"',
+        '',
+        '[hooks.state."/h/hooks.json:pre_tool_use:0:0"]',
+        'trusted_hash = "sha256:bbbb"',
+        'enabled = false',
+        '',
+        '[hooks.state."/h/hooks.json:broken:0:0"]',
+        'not toml at all :::',
+        '',
+      ].join('\n'),
+    )
+    expect(entries.get('/h/hooks.json:stop:0:0')).toMatchObject({
+      trustedHash: 'sha256:aaaa',
+    })
+    expect(entries.get('/h/hooks.json:pre_tool_use:0:0')).toMatchObject({
+      trustedHash: 'sha256:bbbb',
+      enabled: false,
+    })
+    expect(entries.get('/h/hooks.json:broken:0:0')).toEqual({})
+  })
+
+  it('locates Podium handlers at their shifted indices beside foreign hooks', () => {
+    const doc = {
+      hooks: {
+        Stop: [
+          { hooks: [{ type: 'command', command: 'foreign' }] },
+          { hooks: [{ type: 'command', command: PODIUM_CODEX_HOOK_COMMAND, timeout: 5 }] },
+        ],
+      },
+    }
+    expect(podiumHookPositions(doc)).toEqual([
+      { event: 'Stop', snake: 'stop', group: 1, handler: 0 },
+    ])
   })
 })
 
@@ -410,66 +566,84 @@ describe('codex hooks real-binary smoke', () => {
       await writeFile(join(dir, '.codex', 'config.toml'), '[features]\nhooks = true\n')
       await ensurePodiumCodexHooks({ homeDir: dir })
 
-      const received: string[] = []
-      const server = createServer((req, res) => {
-        const chunks: Buffer[] = []
-        req.on('data', (c: Buffer) => chunks.push(c))
-        req.on('end', () => {
-          try {
-            const p = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
-              hook_event_name?: string
+      // SALVAGED FROM POD-4070 (commit 71dd868f6): the two-arm proof. The
+      // isolated CODEX_HOME holds only Podium's hook and no persisted trust,
+      // so the bypass arm cannot run any user/project hook. Production never
+      // sets the flag — it is the UNTRUSTED arm's shape.
+      async function runCodex(trust: 'bypassed' | 'unpersisted'): Promise<string[]> {
+        const received: string[] = []
+        const server = createServer((req, res) => {
+          const chunks: Buffer[] = []
+          req.on('data', (c: Buffer) => chunks.push(c))
+          req.on('end', () => {
+            try {
+              const p = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+                hook_event_name?: string
+              }
+              if (p.hook_event_name) received.push(p.hook_event_name)
+            } catch {
+              // ignore
             }
-            if (p.hook_event_name) received.push(p.hook_event_name)
-          } catch {
-            // ignore
-          }
-          res.writeHead(200)
-          res.end('{}')
+            res.writeHead(200)
+            res.end('{}')
+          })
         })
-      })
-      await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
-      const addr = server.address()
-      const port = typeof addr === 'object' && addr ? addr.port : 0
-      try {
-        // stdio.stdin MUST be closed ('ignore') — `codex exec` appends stdin to
-        // the prompt and blocks until EOF on an open pipe.
-        await new Promise<void>((resolve, reject) => {
-          const child = spawn(
-            'codex',
-            [
-              '--dangerously-bypass-hook-trust',
-              'exec',
-              '--skip-git-repo-check',
-              'Reply with exactly: done',
-            ],
-            {
-              stdio: ['ignore', 'ignore', 'ignore'],
-              cwd: dir,
-              env: {
-                ...process.env,
-                CODEX_HOME: join(dir, '.codex'),
-                PODIUM_CODEX_HOOK_URL: `http://127.0.0.1:${port}/hooks/test`,
+        await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+        const addr = server.address()
+        const port = typeof addr === 'object' && addr ? addr.port : 0
+        try {
+          // stdio.stdin MUST be closed ('ignore') — `codex exec` appends stdin to
+          // the prompt and blocks until EOF on an open pipe.
+          await new Promise<void>((resolve, reject) => {
+            const child = spawn(
+              'codex',
+              [
+                ...(trust === 'bypassed' ? ['--dangerously-bypass-hook-trust'] : []),
+                'exec',
+                '--skip-git-repo-check',
+                'Reply with exactly: done',
+              ],
+              {
+                stdio: ['ignore', 'ignore', 'ignore'],
+                cwd: dir,
+                env: {
+                  ...process.env,
+                  CODEX_HOME: join(dir, '.codex'),
+                  PODIUM_CODEX_HOOK_URL: `http://127.0.0.1:${port}/hooks/test`,
+                },
               },
-            },
-          )
-          const timer = setTimeout(() => {
-            child.kill('SIGKILL')
-            reject(new Error('codex exec timed out'))
-          }, 120_000)
-          child.on('exit', () => {
-            clearTimeout(timer)
-            resolve()
+            )
+            const timer = setTimeout(() => {
+              child.kill('SIGKILL')
+              reject(new Error('codex exec timed out'))
+            }, 120_000)
+            child.on('exit', () => {
+              clearTimeout(timer)
+              resolve()
+            })
+            child.on('error', (err) => {
+              clearTimeout(timer)
+              reject(err)
+            })
           })
-          child.on('error', (err) => {
-            clearTimeout(timer)
-            reject(err)
-          })
-        })
-      } finally {
-        server.close()
+        } finally {
+          server.close()
+        }
+        return received
       }
+
+      const received = await runCodex('bypassed')
       expect(received).toContain('UserPromptSubmit')
       expect(received).toContain('Stop')
+
+      // The trust precondition: this CODEX_HOME has no persisted trust for
+      // Podium's handlers, and Podium never writes Codex's trust state or
+      // passes the bypass flag at launch. Without trust Codex runs none of
+      // the hooks and says nothing about it — the hermetic trust-detection
+      // tests above are what production relies on to say so instead.
+      // Labelled as the UNTRUSTED world, not production's: on a host where
+      // the operator approved via /hooks, production's hooks do fire.
+      expect(await runCodex('unpersisted')).toEqual([])
     },
     180_000,
   )
