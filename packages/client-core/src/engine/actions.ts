@@ -99,6 +99,13 @@ export const UI_LOCAL_ACTIONS = [
   'resizeWorkspaceSplit',
   'navigateToSession',
   'navigateWorkspace',
+  // S5 (this issue): the gesture batch. Device-local, no outbox write of its
+  // own — it only coalesces the synchronous paints of the calls run inside it
+  // (navigation + optimistic mark-read/defer) into one store publication.
+  // Listed here for the POD-403 routing record; the Store interface addition
+  // is pending with the coordinator (POD-4286), so EngineActions carries it
+  // via intersection below until that lands. Revert path: batch boundaries only.
+  'batchGesture',
   'focusIssueSession',
   'setDockShell',
   'setDockVisibleSession',
@@ -197,9 +204,14 @@ type ActionState = {
 }
 
 type ActionName = (typeof UI_LOCAL_ACTIONS)[number] | (typeof COMMAND_ACTIONS)[number]
+// S5: batchGesture is UI-local but its Store interface addition is pending
+// with the coordinator (POD-4286). Exclude it from the Pick so this file
+// compiles without that outside change; the intersection below carries the
+// same signature, so adding it to Store later stays compatible.
+type StoreActionName = Exclude<ActionName, 'batchGesture'>
 export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick<
   Store<TApi>,
-  | ActionName
+  | StoreActionName
   | 'readFileScoped'
   | 'listDir'
   | 'gitStatus'
@@ -207,7 +219,16 @@ export type EngineActions<TApi extends PodiumClientApi = PodiumClientApi> = Pick
   | 'gitDiffFile'
   | 'gitCommitFiles'
   | 'gitCommitDiffFile'
-> & { readonly replicatedLayout: ReplicatedLayoutController }
+> & {
+  readonly replicatedLayout: ReplicatedLayoutController
+  /**
+   * S5 gesture batch: run navigation + its optimistic paints synchronously
+   * inside one store publication. No write of its own; revert = remove the
+   * wrapper. Pending Store addition (POD-4286); kept here so the gesture can
+   * ship without touching types.ts.
+   */
+  readonly batchGesture: (fn: () => void) => void
+}
 
 export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly api: TApi
@@ -223,6 +244,13 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
   navigate(intent: NavigationIntent): boolean
+  /**
+   * S5: the runtime's snapshot batch, exposed so one gesture's synchronous
+   * paints (navigation + optimistic overlays + their outbox-size handoff when
+   * it fires synchronously) publish once. No semantic change: commands still
+   * enqueue, echoes still apply, rollbacks still repaint.
+   */
+  batch(fn: () => void): void
   /**
    * Every published snapshot, for the actions that must WAIT for replicated
    * state rather than read it once. The runtime publishes on any state change,
@@ -492,6 +520,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       }
     },
     navigateWorkspace: (intent) => rt.navigate({ ...intent, view: 'workspace' }),
+    batchGesture: (fn) => rt.batch(fn),
     setView: (view) => {
       if (rt.router.current().view !== view) rt.navigate({ view })
     },

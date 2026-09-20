@@ -129,6 +129,8 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
       publish()
       return true
     },
+    // S5 gesture batch in miniature: run synchronously, like runtime.batch.
+    batch: (fn: () => void) => fn(),
     apply: (patch: Partial<typeof state>) => {
       state = { ...state, ...patch }
       publish()
@@ -698,5 +700,20 @@ describe('navigation read command coalescing', () => {
     await Promise.all([first, session])
     await h.actions.markIssueRead(issueId)
     expect(h.queued).toHaveLength(3)
+  })
+})
+
+describe('S5 gesture batch', () => {
+  it('is device-local and runs navigation plus reads in one caller batch', () => {
+    const h = harness()
+    expect(UI_LOCAL_ACTIONS).toContain('batchGesture')
+    expect(COMMAND_ACTIONS).not.toContain('batchGesture')
+    const order: string[] = []
+    h.actions.batchGesture(() => {
+      order.push('inside')
+      h.actions.navigateWorkspace({ selectedIssueId: asIssueId('issue-1') })
+    })
+    expect(order).toEqual(['inside'])
+    expect(h.navigated).toHaveLength(1)
   })
 })
