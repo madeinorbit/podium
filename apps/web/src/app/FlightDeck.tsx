@@ -2375,6 +2375,47 @@ interface BriefCutoffLayout {
 const clampBriefRatio = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value))
 
+/**
+ * The four numbers the cutoff layout derives from, read in one batch before the
+ * (async-state) write — there is no read-after-write here, so batching the reads
+ * differently buys nothing. The cost driver was invocation frequency (POD-4439),
+ * which is why the callers below measure once per content and watch two boxes.
+ * Null when the deck has no box yet.
+ */
+function readBriefMetrics(
+  el: HTMLElement | null,
+  end: HTMLElement | null,
+): BriefMetrics | null {
+  const deck = el?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
+  if (!el || !end || !deck) return null
+  const deckRect = deck.getBoundingClientRect()
+  if (deckRect.height <= 0) return null
+  const briefRect = el.getBoundingClientRect()
+  const endRect = end.getBoundingClientRect()
+  return {
+    deckHeight: deckRect.height,
+    briefTop: briefRect.top - deckRect.top,
+    endGap: Math.max(0, endRect.top - briefRect.bottom),
+    contentHeight: el.scrollHeight,
+  }
+}
+
+/** Store a reading unless every number matches, so a settling watcher cannot loop the render. */
+function publishBriefMetrics(
+  setMetrics: (update: (current: BriefMetrics | null) => BriefMetrics | null) => void,
+  next: BriefMetrics,
+): void {
+  setMetrics((current) =>
+    current &&
+    current.deckHeight === next.deckHeight &&
+    current.briefTop === next.briefTop &&
+    current.endGap === next.endGap &&
+    current.contentHeight === next.contentHeight
+      ? current
+      : next,
+  )
+}
+
 /** A missing or corrupt value means "keep adapting automatically". */
 export function readBriefCutoff(raw: string | null): number | null {
   if (raw === null || raw.trim() === '') return null
@@ -2436,45 +2477,44 @@ function MissionBrief({ html, standing }: { html: string; standing?: boolean }):
   // trigger, not a value the effect reads.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
   useEffect(() => setOpen(false), [html])
-  // `html` is not READ in the effect below, it is the reason to run again: a new
-  // brief in the same box is new content to measure, and the element identity
-  // does not change to say so.
+  // THE BRIEF IS MEASURED ONCE PER CONTENT, NOT ONCE PER SETTLE (POD-4439).
+  //
+  // `html` is not READ below, it is the reason to run again: a new brief in the
+  // same box is new content to measure, and the element identity does not change
+  // to say so. The watcher underneath is mounted once, because re-observing the
+  // same nodes on every content change buys a second delivery from the
+  // ResizeObserver — an initial report of sizes the direct measure just read —
+  // and with it a second synchronous layout read per switch for values that
+  // cannot have moved yet.
+  //
+  // The watcher also leaves the brief body itself alone. The body's height is an
+  // OUTPUT of this measurement — the cutoff writes `max-height` straight onto
+  // it — so observing it turns every cutoff update into another
+  // measure-and-compare that always compares equal. The inputs live elsewhere:
+  // the deck's height (window resizes) and the body's top (header wrapping, the
+  // cost chip arriving late), and those are the two boxes watched.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the dependency is the trigger, not a value the effect reads
   useLayoutEffect(() => {
+    const next = readBriefMetrics(ref.current, endRef.current)
+    if (next) publishBriefMetrics(setMetrics, next)
+  }, [html])
+  useLayoutEffect(() => {
     const el = ref.current
-    const end = endRef.current
     const deck = el?.closest<HTMLElement>('[data-testid="flight-deck-scroller"]')
     const header = el?.closest<HTMLElement>('.deck-header')
-    if (!el || !end || !deck || !header) return
-    const measure = (): void => {
-      const deckRect = deck.getBoundingClientRect()
-      if (deckRect.height <= 0) return
-      const briefRect = el.getBoundingClientRect()
-      const endRect = end.getBoundingClientRect()
-      const next = {
-        deckHeight: deckRect.height,
-        briefTop: briefRect.top - deckRect.top,
-        endGap: Math.max(0, endRect.top - briefRect.bottom),
-        contentHeight: el.scrollHeight,
-      }
-      setMetrics((current) =>
-        current &&
-        current.deckHeight === next.deckHeight &&
-        current.briefTop === next.briefTop &&
-        current.endGap === next.endGap &&
-        current.contentHeight === next.contentHeight
-          ? current
-          : next,
-      )
-    }
-    measure()
+    if (!el || !deck || !header) return
+    // Ancestors, not content: this component never changes identity without
+    // remounting, so one watcher per mount stays pointed at the right nodes
+    // across content changes.
     if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
+    const observer = new ResizeObserver(() => {
+      const next = readBriefMetrics(ref.current, endRef.current)
+      if (next) publishBriefMetrics(setMetrics, next)
+    })
     observer.observe(header)
     observer.observe(deck)
     return () => observer.disconnect()
-  }, [html])
+  }, [])
 
   const onRulePointerDown = (event: ReactPointerEvent<HTMLSpanElement>): void => {
     if (

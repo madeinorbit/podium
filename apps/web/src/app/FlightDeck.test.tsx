@@ -522,6 +522,197 @@ describe('mission brief cutoff interaction', () => {
   })
 })
 
+describe('mission brief measure frequency (POD-4439)', () => {
+  /* One measure is three layout reads (deck, body, end) plus a scrollHeight
+     that costs nothing. The legacy wiring spent three measures per issue
+     switch — a direct measure, the observer's initial delivery after
+     re-observing the same nodes on [html], and the body's own resize once the
+     cutoff's max-height landed on it — for values the first measure already
+     held. These tests pin the fixed wiring at one measure per switch with the
+     same limits, and fail against the legacy wiring. */
+
+  /** Browser-faithful observer plus layout that answers like one: an initial
+   *  delivery per newly observed target, then one callback per flush whose
+   *  observed targets the test names as changed — the browser never reports an
+   *  unchanged box. Unlike measuredBrief above this helper does not render;
+   *  the test sets its missions first so the switch under test is real. */
+  function countedBrief(): {
+    readonly observed: Set<Element>
+    readonly setContentHeight: (height: number) => void
+    readonly setDeckHeight: (height: number) => void
+    readonly briefRectReads: () => number
+    readonly flushResizes: (changed?: Element[]) => number
+  } {
+    let contentHeight = 600
+    let deckHeight = 400
+    const briefTop = 80
+    const endGap = 10
+    let rectReads = 0
+    let resize: ResizeObserverCallback | null = null
+    const observed = new Set<Element>()
+    let initial = new Set<Element>()
+
+    class CountingResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback
+      }
+      observe(target: Element): void {
+        if (!observed.has(target)) initial.add(target)
+        observed.add(target)
+      }
+      unobserve(target: Element): void {
+        observed.delete(target)
+        initial.delete(target)
+      }
+      disconnect(): void {
+        observed.clear()
+        initial.clear()
+      }
+    }
+
+    const appliedMax = (el: HTMLElement): number => {
+      const value = el.style.maxHeight ? Number.parseFloat(el.style.maxHeight) : Number.NaN
+      return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY
+    }
+    /** The clamped body the browser lays out: content up to the cutoff. */
+    const bodyHeight = (): number => {
+      const el = document.querySelector<HTMLElement>('[data-testid="deck-brief"]')
+      return Math.min(contentHeight, el ? appliedMax(el) : Number.POSITIVE_INFINITY)
+    }
+
+    vi.stubGlobal('ResizeObserver', CountingResizeObserver)
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.dataset.testid === 'deck-brief' ? contentHeight : 0
+      },
+    })
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element,
+    ): DOMRect {
+      const element = this as HTMLElement
+      // Only the three boxes the brief measure reads are counted; every other
+      // element answers zero without touching the counter.
+      if (element.dataset.testid === 'flight-deck-scroller') {
+        rectReads += 1
+        return briefRect(0, deckHeight)
+      }
+      if (element.dataset.testid === 'deck-brief') {
+        rectReads += 1
+        return briefRect(briefTop, bodyHeight())
+      }
+      if (element.classList.contains('deck-brief-end')) {
+        rectReads += 1
+        return briefRect(briefTop + bodyHeight() + endGap, 1)
+      }
+      return briefRect(0, 0)
+    })
+
+    return {
+      observed,
+      setContentHeight(height: number): void {
+        contentHeight = height
+      },
+      setDeckHeight(height: number): void {
+        deckHeight = height
+      },
+      briefRectReads(): number {
+        return rectReads
+      },
+      flushResizes(changed: Element[] = []): number {
+        const callback = resize
+        if (!callback) throw new Error('brief ResizeObserver was not installed')
+        const targets = new Set<Element>([
+          ...initial,
+          ...changed.filter((target) => observed.has(target)),
+        ])
+        initial = new Set<Element>()
+        if (targets.size === 0) return 0
+        act(() =>
+          callback(
+            [...targets].map((target) => ({ target }) as ResizeObserverEntry),
+            {} as ResizeObserver,
+          ),
+        )
+        return 1
+      },
+    }
+  }
+
+  const twoMissions = (): void => {
+    harness.issues = [
+      issue('m1', { title: 'Alpha', description: `Alpha brief. ${'Long enough to bind the cap. '.repeat(20)}` }),
+      issue('m2', { title: 'Beta', description: 'Beta brief.' }),
+    ]
+    harness.sessions = []
+  }
+
+  it('measures once per issue switch and lands on the same limit', () => {
+    twoMissions()
+    harness.selectedIssueId = 'm1'
+    const gauges = countedBrief()
+    const view = deck()
+    // Settle the mount the way the browser would: the initial observer
+    // delivery, then the body's own resize once the cutoff clamps it.
+    gauges.flushResizes()
+    gauges.flushResizes([screen.getByTestId('deck-brief')])
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+
+    const before = gauges.briefRectReads()
+    // The next mission's brief is short and unclamped, so the body's own box
+    // moves while neither watched ancestor does.
+    gauges.setContentHeight(50)
+    harness.selectedIssueId = 'm2'
+    view.rerender(<DeckHarness />)
+    // The browser delivers what changed: initial reports for re-observed
+    // boxes, then the body's own resize. Name exactly those.
+    gauges.flushResizes()
+    gauges.flushResizes([screen.getByTestId('deck-brief')])
+    const switchReads = gauges.briefRectReads() - before
+
+    // CONTROL first: the same content measures the same limit in both arms.
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+    // Then the cost: one measure, three rects. The legacy wiring (observer
+    // re-created on [html] over three targets, body included) spends three
+    // measures — nine rects — on the same switch and fails here.
+    expect(switchReads).toBe(3)
+  })
+
+  it('watches the deck and the header, not the brief body it sizes', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    const gauges = countedBrief()
+    deck()
+    gauges.flushResizes()
+
+    const brief = screen.getByTestId('deck-brief')
+    const header = document.querySelector('.deck-header')
+    const scroller = screen.getByTestId('flight-deck-scroller')
+    expect(header).toBeTruthy()
+    expect(gauges.observed.has(header as Element)).toBe(true)
+    expect(gauges.observed.has(scroller)).toBe(true)
+    // The body's own height is the cutoff's output (max-height); watching it
+    // turns every cutoff update into another measure that compares equal.
+    // The legacy wiring observes it and fails here.
+    expect(gauges.observed.has(brief)).toBe(false)
+  })
+
+  it('recomputes the limit when the deck itself resizes', () => {
+    harness.issues = [issue('root', { title: 'Mission', description: 'Ship the footer.' })]
+    harness.sessions = []
+    const gauges = countedBrief()
+    deck()
+    gauges.flushResizes()
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+
+    gauges.setDeckHeight(500)
+    gauges.flushResizes([screen.getByTestId('flight-deck-scroller')])
+    // 0.4 * 500 - 80 - 10: a taller deck moves the divider, and the watcher
+    // must still be there to say so.
+    expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('110px')
+  })
+})
+
 describe('the cold deck (POD-1112)', () => {
   /** The composer's placeholder: a draft issue minted so a session has somewhere
    *  to live. After a reload the selection can still point at one whose session
