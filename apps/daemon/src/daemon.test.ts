@@ -1224,6 +1224,24 @@ function defaultServerSpawnContext(
     harnessLoginState: () => 'in',
     agentRuntime: createDaemonMachineRuntime({
       terminal: terminalRuntimeFixture(),
+      // REQUIRED by the composition root (POD-4426 fix): capabilities lookup
+      // walks every source's driverFor, and a missing Claude runtime turns
+      // every resolution into a TypeError instead of an answer. Unavailable
+      // here — these fixtures never select the embedded SDK.
+      claude: {
+        driver: {
+          id: 'claude-sdk',
+          harness: 'claude-code',
+          family: 'embedded',
+          capabilities: () => ({ placement: 'dedicated' }),
+        },
+        handleFor: () => undefined,
+        bindings: () => [],
+        launch: async () => {
+          throw new Error("driver 'claude-sdk' is not wired")
+        },
+        dispose: vi.fn(),
+      } as never,
       opencode: unavailableServerRuntime('opencode-server', 'opencode'),
       opencode2: unavailableServerRuntime('opencode2-server', 'opencode'),
       codex: runtimes.codexRuntime ?? unavailableServerRuntime('codex-app-server', 'codex'),
