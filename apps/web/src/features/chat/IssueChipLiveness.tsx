@@ -1,12 +1,8 @@
 import type { JSX } from 'react'
 import { useLayoutEffect, useRef } from 'react'
 import { useReplicaIssues } from '@/app/store'
-import {
-  decorateIssueRefAnchors,
-  type IssueReferenceLookup,
-  issueReferenceLookup,
-  issueReferenceSignature,
-} from '@/lib/issue-chip-liveness'
+import { decorateIssueRefAnchors } from '@/lib/issue-chip-liveness'
+import { createIssueChipRefsSelector } from './issue-chip-refs'
 
 /**
  * Live issue decoration is deliberately a leaf subscription outside the feed.
@@ -22,13 +18,13 @@ export function IssueChipLiveness({ root }: { root: HTMLElement | null }): JSX.E
   // rebuilds that array on session traffic too, so keying on it would re-arm the
   // observer and re-sweep the whole transcript, before paint, on every agent's
   // every phase flip — the per-delta cost this architecture exists to avoid.
-  // A ref rather than useMemo: the cache must survive renders useMemo may drop.
-  const signature = issueReferenceSignature(issues)
-  const cache = useRef<{ signature: string; refs: IssueReferenceLookup } | null>(null)
-  if (cache.current === null || cache.current.signature !== signature) {
-    cache.current = { signature, refs: issueReferenceLookup(issues) }
-  }
-  const refs = cache.current.refs
+  // A ref rather than useMemo: the selector must survive renders useMemo may drop.
+  // The selector itself memoizes the signature string and the lookup behind a
+  // material compare over the seven fields the signature can see, so an
+  // immaterial publication costs a field scan with no string or model work.
+  const selector = useRef<ReturnType<typeof createIssueChipRefsSelector> | null>(null)
+  if (selector.current === null) selector.current = createIssueChipRefsSelector()
+  const { refs } = selector.current.select(issues)
 
   useLayoutEffect(() => {
     if (!root) return
