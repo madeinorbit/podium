@@ -1,11 +1,8 @@
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  harnessComposerReadiness,
   harnessDisplayName,
   harnessInterrupt,
-  harnessNeedsSubmitVerification,
-  harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
 import { SessionInbox } from './inbox'
 
@@ -31,8 +28,6 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
       queue: {
         enqueue: async () => true,
         list: async () => [],
-        bumpAttempts: async () => {},
-        resetAttempts: async () => {},
         delete: async () => {},
         sessionsWithPending: async () => {
           sessionsWithPendingCalls += 1
@@ -63,9 +58,6 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
       draft: (session) => ({ ...session }) as never,
       persistDraft: vi.fn(async () => {}),
       broadcast: vi.fn(),
-      needsSubmitVerification: harnessNeedsSubmitVerification,
-      usesRawFirstTurn: harnessUsesRawFirstTurn,
-      composerReadiness: harnessComposerReadiness,
       harnessInterrupt,
       harnessName: harnessDisplayName,
       prepareSend: vi.fn(),
