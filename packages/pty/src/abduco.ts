@@ -874,8 +874,20 @@ export interface AbducoSpawnOptions {
   cmd: string
   args?: string[]
   cwd?: string
-  cols: number
-  rows: number
+  /**
+   * The pty size, for terminal sessions. Absent only beside `noPty`: a pty
+   * forked at a junk size is how a session starts disagreeing with its first
+   * viewer, so a pty spawn without geometry is refused rather than defaulted.
+   */
+  cols?: number
+  rows?: number
+  /**
+   * Headless engines (codex app-server, opencode serve, grok stdio) run under
+   * podium-host with pipes instead of a pty. abduco HAS no pipe mode, so a
+   * spawn carrying this is refused loudly at the adapter — never silently
+   * forked into a pty the engine did not ask for.
+   */
+  noPty?: boolean
   env?: Record<string, string>
   /**
    * Variables to REMOVE from the environment the session app inherits.
@@ -999,6 +1011,18 @@ export function withComposedSocketPath(
  * SIGWINCHes the app group on attach).
  */
 export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentSession> {
+  if (opts.noPty) {
+    throw new Error(
+      `abduco has no pty-less mode: headless engine '${opts.label}' requires the podium-host backend`,
+    )
+  }
+  if (opts.cols === undefined || opts.rows === undefined) {
+    throw new Error(
+      `abduco spawn of '${opts.label}' needs --cols/--rows (or --no-pty for a headless engine, which abduco cannot host)`,
+    )
+  }
+  const cols = opts.cols
+  const rows = opts.rows
   const bin = resolveAbducoBin()
   if (!bin) throw new Error('abduco unavailable: not installed and the vendored build failed')
   const createArgs = abducoCreateArgv(opts.label, opts.cmd, opts.args ?? [])
@@ -1031,8 +1055,8 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     attachAbducoAgent({
       ...attachCommon,
       socketPath: await waitForAbducoSocket(opts.label, childEnv),
-      cols: opts.cols,
-      rows: opts.rows,
+      cols,
+      rows,
     })
   /**
    * A durable label is a constant of its session, so a respawn (every Resume) can
@@ -1056,7 +1080,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
         ...attachCommon,
         socketPath,
         sizeNeutral: true,
-        fallbackGeometry: { cols: opts.cols, rows: opts.rows },
+        fallbackGeometry: { cols, rows },
       }),
       adopted: true,
     }
