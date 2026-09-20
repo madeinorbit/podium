@@ -104,6 +104,17 @@ function rowKey(row: UnifiedWorkRow): string {
  * fold. Unwindowed — pre-Stage-0 rendered every visible row — and every
  * callback below is a fresh closure, so no memo boundary could hold even if
  * one were added.
+ *
+ * LEGACY NESTING NOTE. The slice (`SliceSnapshot`) is flat: every visible
+ * issue is a top-level row. Legacy RENDERING nests formal children inside
+ * their parent's row, and this control renders the legacy lanes, not the
+ * flat slice — so formal children (e.g. SMALL's i4/i9/i24/i29) have no
+ * top-level row here and commit WITH their parent. That is the current
+ * store's shape, deliberately: parity is checked on the snapshot (which
+ * flattens), isolation on commits (which nest). An arm rendering flat will
+ * commit those rows separately; the control committing fewer top-level rows
+ * but MORE commits than snapshot rows (39 vs 37 at SMALL) is the shape
+ * difference made visible.
  */
 export function LegacyControlList({ engine, sliceDef }: LegacyControlListProps): ReactElement {
   const publisher = useMemo(() => createSlicePublisher(() => engine.getSnapshot()), [engine])
