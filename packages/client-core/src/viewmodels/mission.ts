@@ -390,7 +390,11 @@ export function missionRootFor(
   selectedIssueId: IssueId | null,
 ): IssueNavigationModel | undefined {
   if (!selectedIssueId) return undefined
-  const byId = new Map<string, IssueNavigationModel>(issues.map((issue) => [issue.id, issue]))
+  // Shared per-snapshot index (POD-4419 S1): the per-call
+  // `new Map(issues.map(...))` rebuilt the whole corpus on every call, and this
+  // is called from nine places including per-render paths. The walk below is
+  // O(depth) map lookups; the O(corpus) build happens once per snapshot.
+  const { byId } = missionIssueIndex(issues)
   let current = byId.get(selectedIssueId)
   if (!current) return undefined
   const seen = new Set<string>()
@@ -848,7 +852,7 @@ interface MissionIssueIndex {
 let missionIndexBuilds = 0
 
 /**
- * One index per issue slice, KEYED ON THE ARRAY'S IDENTITY.
+ * One index per issue slice, KEYED ON WHAT THE COMPUTATION SEES (POD-4419 S1).
  *
  * `missionIssueIds` rebuilt the whole `children` map on every call. That is
  * fine when the mission is asked for once per render and ruinous when it is
@@ -858,21 +862,42 @@ let missionIndexBuilds = 0
  * per inbound feed frame — 21% of all busy CPU in this function alone, at 4-10
  * fps.
  *
- * The identity key is sound because the replica already promises it: the kernel
- * facade documents that "a kind whose CONTENTS did not change keeps the
- * identical `rows` reference … identity stability is part of the contract, not
- * an optimisation", and its incremental reconcile builds a NEW array for any
- * change rather than mutating in place (replica/kernel/facade.ts). The
- * optimistic ledger's `foldOverlays` preserves the array identity only when it
- * folded nothing. So a changed slice is always a different array — which is the
- * one property this memo needs, and the same one every `useMemo([issues])` in
- * the web app and the worklist slice's `sourceEqual` already rest on. A stale
- * index here would mean wrong mission membership, i.e. wrong tabs, so the memo
- * deliberately adds no assumption of its own.
+ * `missionRootFor` was the same shape at nine call sites: a per-call
+ * `new Map(issues.map(...))` over the whole corpus, then an O(depth) walk.
+ * It now shares this index's `byId`, so one snapshot builds once however many
+ * surfaces ask.
  *
- * A `WeakMap`, so a superseded slice's index dies with the array that named it.
+ * ARRAY IDENTITY ALONE IS NOT THE KEY — that trap is why this is not just a
+ * `WeakMap` (see `repository-usage.ts` / `host-session-aggregates.ts`, the two
+ * fixes on this epic that got it right). A new array holding the SAME row
+ * objects means nothing the computation can see moved: the replica leaves
+ * untouched rows untouched, the optimistic ledger's `foldOverlays` preserves
+ * row identity for unpatched rows, and the issue view-model cache reuses
+ * previous models when nothing visible moved. So after the `WeakMap` fast
+ * path, a new array whose rows are all `===` the previous build's rows — same
+ * objects, same order — reuses that build instead of rescanning. Order is
+ * part of the key deliberately: `startedCandidates` and `byId` iteration order
+ * are the provenance walk order, so a reorder is a different index.
+ *
+ * Anything else rebuilds: a changed, added, removed or reordered row mints a
+ * new object (or a new order), and the walk must see it. In particular a
+ * parent change, an archive/delete flip, or a `startedBySession`/stage/deps
+ * move always presents as a new row object or a new array order, so the memo
+ * cannot outlive the corpus change. No bounded cache: the table is an
+ * unbounded `WeakMap` plus one last-build fallback, so a second identical
+ * pass can never evict its own entries (the 128-entry self-eviction this epic
+ * already paid for).
+ *
+ * EVICT/RESCOPE SAFETY. Reuse is decided from objects the CURRENT pass is
+ * holding, and the pass iterates the CURRENT array. A row that left the
+ * principal's slice is not in that iteration, so remembering cannot put it
+ * back. The `WeakMap` entries die with their arrays; the one strong last-build
+ * reference is replaced on the next miss and never returned for a corpus it
+ * was not compared against.
  */
 const missionIndexes = new WeakMap<readonly IssueNavigationModel[], MissionIssueIndex>()
+let lastMissionIndexIssues: readonly IssueNavigationModel[] | undefined
+let lastMissionIndex: MissionIssueIndex | undefined
 
 /** Formal-tree eligibility, shared with the incremental relationship index. */
 export function missionParentId(issue: { parentId?: string | null; archived?: boolean; deletedAt?: string | null }): string | null {
@@ -882,6 +907,28 @@ export function missionParentId(issue: { parentId?: string | null; archived?: bo
 function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssueIndex {
   const cached = missionIndexes.get(issues)
   if (cached) return cached
+  // Same rows, new array: `[...issues]`, a fresh fold, a fresh view-model `all`
+  // array around reused models. Nothing the index is built from moved, so hand
+  // back the previous build rather than rescanning the corpus. Element-wise
+  // `===` is exactly "what the computation can see": unchanged rows keep their
+  // object identity through the replica, the overlay fold and the view cache,
+  // and any content change presents as a new object.
+  const previous = lastMissionIndexIssues
+  const prior = lastMissionIndex
+  if (previous !== undefined && prior !== undefined && previous.length === issues.length) {
+    let same = true
+    for (let i = 0; i < issues.length; i += 1) {
+      if (issues[i] !== previous[i]) {
+        same = false
+        break
+      }
+    }
+    if (same) {
+      missionIndexes.set(issues, prior)
+      lastMissionIndexIssues = issues
+      return prior
+    }
+  }
   missionIndexBuilds += 1
   const children = new Map<string, IssueNavigationModel[]>()
   const parents = new Map<string, string>()
@@ -901,6 +948,8 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
   }
   const index: MissionIssueIndex = { children, parents, byId, startedCandidates }
   missionIndexes.set(issues, index)
+  lastMissionIndexIssues = issues
+  lastMissionIndex = index
   return index
 }
 

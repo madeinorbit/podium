@@ -221,6 +221,139 @@ describe('missionRootFor', () => {
     ]
     expect(['a', 'b', 'c']).toContain(missionRootFor(issues, asIssueId('a'))?.id)
   })
+
+  // -------------------------------------------------------------------------
+  // POD-4419 S1: one by-id index per snapshot, shared by every caller.
+  // `missionRootFor` built `new Map(issues.map(...))` on EVERY call, and it is
+  // called from nine places including per-render paths. These cases pin both
+  // halves: that repeated calls do no rebuilding, and that a changed corpus
+  // really does rebuild so roots can never go stale.
+  // -------------------------------------------------------------------------
+
+  it('builds the by-id index once per snapshot, not once per call', () => {
+    const { issues, sessions } = mission()
+    // Prime: the slice may already be indexed from an earlier case.
+    missionRootFor(issues, asIssueId('g2'))
+    const before = missionIndexStats().builds
+    for (let i = 0; i < 50; i += 1) {
+      missionRootFor(issues, asIssueId('g2'))
+      missionRootFor(issues, asIssueId('c1'))
+      missionRootFor(issues, asIssueId('root'))
+    }
+    // `missionIssueIds` reads the SAME index: sharing it here is the point,
+    // so asking for membership over the same slice must not build either.
+    for (let i = 0; i < 10; i += 1) missionIssueIds(issues, 'root', sessions)
+    expect(missionIndexStats().builds - before).toBe(0)
+    // Control: the shared index answers exactly what the walk always did.
+    expect(missionRootFor(issues, asIssueId('g2'))?.id).toBe('root')
+  })
+
+  it('reuses the build for a new array holding the same rows', () => {
+    // Array identity alone is not the key: a fresh fold or view-model `all`
+    // array around the SAME row objects means nothing the walk can see moved.
+    // A bounded cache smaller than the corpus self-evicts here; this one must
+    // do no work on the second identical pass.
+    const { issues } = mission()
+    missionRootFor(issues, asIssueId('g2'))
+    const before = missionIndexStats().builds
+    const reshaped = [...issues]
+    for (let i = 0; i < 50; i += 1) {
+      expect(missionRootFor(reshaped, asIssueId('g2'))?.id).toBe('root')
+      expect(missionRootFor(reshaped, asIssueId('c1'))?.id).toBe('root')
+    }
+    expect(missionIndexStats().builds - before).toBe(0)
+  })
+
+  it('fails on the legacy per-call map while the shared index holds (A/B)', () => {
+    // The legacy arm: exactly what `missionRootFor` did before S1 — a fresh
+    // Map over the whole corpus on every call. It must FAIL the zero-build
+    // assertion the fixed code passes, with the control (same roots) equal in
+    // both arms so the win cannot come from computing less.
+    const { issues } = mission()
+    let legacyBuilds = 0
+    const legacyMissionRootFor = (
+      rows: readonly IssueNavigationModel[],
+      selectedIssueId: ReturnType<typeof asIssueId> | null,
+    ): IssueNavigationModel | undefined => {
+      if (!selectedIssueId) return undefined
+      legacyBuilds += 1
+      const byId = new Map<string, IssueNavigationModel>(rows.map((row) => [row.id, row]))
+      let current = byId.get(selectedIssueId)
+      if (!current) return undefined
+      const seen = new Set<string>()
+      while (current.parentId && !seen.has(current.id)) {
+        seen.add(current.id)
+        const parent = byId.get(current.parentId)
+        if (!parent || parent.archived || parent.deletedAt) break
+        current = parent
+      }
+      return current
+    }
+    missionRootFor(issues, asIssueId('g2'))
+    const before = missionIndexStats().builds
+    const legacyBefore = legacyBuilds
+    for (let i = 0; i < 10; i += 1) {
+      legacyMissionRootFor(issues, asIssueId('g2'))
+      missionRootFor(issues, asIssueId('g2'))
+    }
+    // Legacy rebuilt on every one of the ten calls; the shared index on none.
+    expect(legacyBuilds - legacyBefore).toBe(10)
+    expect(missionIndexStats().builds - before).toBe(0)
+    // Control dimension, asserted equal: both arms resolve the same roots.
+    for (const id of ['g2', 'c1', 'root'] as const) {
+      expect(missionRootFor(issues, asIssueId(id))?.id).toBe(
+        legacyMissionRootFor(issues, asIssueId(id))?.id,
+      )
+    }
+  })
+
+  it('rebuilds when a parent edge moves, so the new root wins', () => {
+    const { issues } = mission()
+    expect(missionRootFor(issues, asIssueId('g2'))?.id).toBe('root')
+    const builds = missionIndexStats().builds
+    // Re-home g2 under a new top-level task: a new row object, so the memo
+    // must miss and the walk must follow the new edge.
+    const moved = issues.map((row) =>
+      row.id === 'g2' ? issue('g2', { parentId: 'elsewhere', seq: 2 }) : row,
+    )
+    const withNewRoot = [...moved, issue('elsewhere')]
+    expect(missionRootFor(withNewRoot, asIssueId('g2'))?.id).toBe('elsewhere')
+    expect(missionIndexStats().builds - builds).toBe(1)
+  })
+
+  it('rebuilds on archive/delete flips and still stops below them', () => {
+    const { issues } = mission()
+    missionRootFor(issues, asIssueId('g2'))
+    const builds = missionIndexStats().builds
+    // Archiving c1 (g2's parent) must surface g2 itself, not the archived root
+    // path — and the flip must be visible, i.e. a rebuild.
+    const archived = issues.map((row) =>
+      row.id === 'c1' ? { ...row, archived: true } : row,
+    )
+    expect(missionRootFor(archived, asIssueId('g2'))?.id).toBe('g2')
+    expect(missionIndexStats().builds - builds).toBe(1)
+    const builds2 = missionIndexStats().builds
+    const deleted = issues.map((row) =>
+      row.id === 'c1' ? { ...row, deletedAt: '2026-07-02T00:00:00.000Z' } : row,
+    )
+    expect(missionRootFor(deleted, asIssueId('g2'))?.id).toBe('g2')
+    expect(missionIndexStats().builds - builds2).toBe(1)
+  })
+
+  it('still terminates on cycles through the shared index', () => {
+    const issues = [
+      issue('a', { parentId: 'c' }),
+      issue('b', { parentId: 'a' }),
+      issue('c', { parentId: 'b' }),
+    ]
+    missionRootFor(issues, asIssueId('a'))
+    const before = missionIndexStats().builds
+    // Same array: the cycle walk must terminate AND do no rebuilding.
+    for (let i = 0; i < 20; i += 1) {
+      expect(['a', 'b', 'c']).toContain(missionRootFor(issues, asIssueId('a'))?.id)
+    }
+    expect(missionIndexStats().builds - before).toBe(0)
+  })
 })
 
 // ---------------------------------------------------------------------------
