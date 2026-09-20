@@ -31,6 +31,7 @@ import {
   CommitLogContext,
   createCommitLog,
   withCommitLog,
+  withCommitLogAsync,
   type CommitLog,
 } from '../../shared/src/row-shell'
 import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
@@ -91,8 +92,10 @@ export function mountElementForCounts(
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
-  act(() => {
-    withCommitLog(log, () => {
+  // Ambient OUTSIDE act: `mountWeb` runs in effects flushed by act, after a
+  // scope placed inside act would already have closed.
+  withCommitLog(log, () => {
+    act(() => {
       root.render(<CommitLogContext.Provider value={log}>{element}</CommitLogContext.Provider>)
     })
   })
@@ -254,8 +257,8 @@ export async function runCountScenario(
 ): Promise<CountResult> {
   mounted.handle.stats.reset()
   mounted.log.reset()
-  await act(async () => {
-    await withCommitLog(mounted.log, async () => {
+  await withCommitLogAsync(mounted.log, async () => {
+    await act(async () => {
       await input.apply()
       // Flush coalesced microtask publications (the row source drains on a
       // microtask; arm subscriptions may chain one more) before reading.

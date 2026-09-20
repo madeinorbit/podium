@@ -96,6 +96,25 @@ export function currentCommitLog(): CommitLog | null {
 }
 
 /**
+ * Async variant: holds the ambient log until the returned promise settles,
+ * so `mountWeb` captures made in effects flushed by an async `act` still see
+ * it. The sync `withCommitLog` restores when its function returns — too early
+ * when the function is async — so async harnesses must use this one.
+ */
+export async function withCommitLogAsync<T>(
+  log: CommitLog | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = ambientLog
+  ambientLog = log
+  try {
+    return await fn()
+  } finally {
+    ambientLog = previous
+  }
+}
+
+/**
  * REQUIRED wrapper around every arm row component (methodology §6.1 shape
  * review: "Row isolation — one subscription key per row"; this shell is how
  * the harness verifies it). `id` is the slice row id.
