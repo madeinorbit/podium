@@ -43,6 +43,7 @@
  *
  * Platform-neutral: mobile reads the same two definitions.
  */
+import type { IssueId } from '@podium/model'
 import type { PodiumClientApi } from '../../../api'
 import type { Store } from '../../../engine/types'
 import { allIssueViewModels } from '../../../replica/issue-view-cache'
@@ -91,15 +92,19 @@ export interface WorklistSlice {
    * POD-331's brief. It used to be a `useMemo` inside `WorkSections`, which meant
    * the rail, the command palette and mobile either re-derived it or did without.
    *
-   * ONE CAVEAT, AND IT IS DELIBERATE. `groupUnifiedWorkRows` takes a second
-   * selection argument — whether the SELECTED closed row was folded at the moment
-   * it was clicked — which keeps a row in the lane it was clicked in. That latch
-   * is a transient property of one interaction on one screen, not of the world,
-   * so it is not store state and cannot be derived here. This slice therefore
-   * publishes the grouping for the unlatched case, which is the state the app is
-   * in except during the brief window after clicking a settled closed row; the
-   * one consumer holding such a latch re-groups for exactly that window and says
-   * so at the call site.
+   * ONE CAVEAT, AND IT IS DELIBERATE. `groupUnifiedWorkRows` takes a selection
+   * argument — which closed row is selected and whether it was folded at the
+   * moment it was clicked — which keeps a row in the lane it was clicked in.
+   * That latch is a transient property of one interaction on one screen, not
+   * of the world, so it is not a derive input and cannot re-derive here (POD-4420
+   * S2: `sourceEqual` below ignores `selectedIssueId`). This slice therefore
+   * publishes the grouping for the unselected case, and selection placement is
+   * the memoized {@link placeWorklistSelection} post-pass over this output —
+   * same lanes as grouping with the selection, none of the derivation. The
+   * latched consumer (`WorkSections`, and any reader holding a folded click)
+   * applies the post-pass with its latch instead of re-grouping by hand; a
+   * latched re-grouping with `selectedIssueWasFolded: true` is lane-identical
+   * to this baseline, so that path returns this value untouched.
    */
   groups: UnifiedWorkGroup[]
   /** The clock this slice was derived against. Consumers that need `now` for
@@ -173,11 +178,17 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
   // Guard the inputs, never the derived rows. Membership/order changes always
   // miss; unrelated terminal and machine reporting frames keep all readers at
   // the same published value. The coarse clock still owns snooze/decay lapses.
+  //
+  // POD-4420 S2: selection is NOT a derive input — it only ever moved one
+  // settled row between lanes (see `placeWorklistSelection` below), so every
+  // click re-derived the whole worklist for a regroup. REVERT PATH: restore
+  // the `selectedIssueId` comparison as one guard line here (and the
+  // `store.selectedIssueId` argument in `derive`) to go back to per-click
+  // derivation.
   sourceEqual: (previous, next) => {
     if (previous === next) return true
     if (
       previous.coarseNow !== next.coarseNow ||
-      previous.selectedIssueId !== next.selectedIssueId ||
       !worklistReposEqual(previous.repos, next.repos) ||
       !worklistMachinesEqual(previous.machines, next.machines) ||
       !worklistSessionsEqual(previous.sessions, next.sessions) ||
@@ -188,6 +199,20 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
     // old fallback skipped replica-only changes when no earlier model was read.
     return worklistIssuesEqual(issuesOf(previous), issuesOf(next))
   },
+  // An identical output keeps the previous identity, so a derivation that
+  // changed nothing observable does not wake readers. Deliberately
+  // reference-based: a value comparison would re-litigate `sourceEqual` on
+  // every derive and risk holding stale rows. Selection wake-prevention lives
+  // one layer down — `placeWorklistSelection` returns the base identity when
+  // placement is unchanged, which is the ordinary click.
+  isEqual: (a, b) =>
+    a === b ||
+    (a.now === b.now &&
+      a.sections === b.sections &&
+      a.allWorktreePaths === b.allWorktreePaths &&
+      a.work === b.work &&
+      a.pinned === b.pinned &&
+      a.groups === b.groups),
   derive: (store) => {
     const issues = issuesOf(store)
     // The repo/project tree is bounded by machine SEE before it is built (POD-407):
@@ -213,14 +238,99 @@ export const worklistSlice = defineSlice<Store<PodiumClientApi>, WorklistSlice>(
     )
     // Placement, once, for every reader. `splitPinnedWork` first: pinned rows
     // leave their project group entirely, so grouping must see the remainder.
+    // POD-4420 S2: the baseline is UNSELECTED — selection never re-derives,
+    // it is placed by `placeWorklistSelection` over this output.
     const { pinned, rest } = splitPinnedWork(work)
     return {
       sections,
       allWorktreePaths,
       work,
       pinned,
-      groups: groupUnifiedWorkRows(rest, store.selectedIssueId, false, store.coarseNow),
+      groups: groupUnifiedWorkRows(rest, null, false, store.coarseNow),
       now: store.coarseNow,
     }
   },
 })
+
+/**
+ * SELECTION PLACEMENT AS A CHEAP POST-PASS (POD-4420 S2).
+ *
+ * What `selectedIssueId` ever did to this slice: `closedFoldEligible` in
+ * `folds.ts` keeps exactly one row out of the closed fold — the selected
+ * settled-but-unremarked closure, which stays in the lane it was clicked in
+ * until focus moves. Every other row's lane, every group key/label/order and
+ * the pinned split are selection-independent, so a selection change re-places
+ * at most that one row and rebuilds at most its owning group. This runs that
+ * regroup over the already-derived rows — no sections, no row construction —
+ * memoized on (derived output, selection), and returns the BASE identity when
+ * placement is unchanged, which is the ordinary click on live work.
+ *
+ * TWO FAST PATHS, both proven equal rather than assumed:
+ * - nothing selected: grouping with `null` IS this baseline.
+ * - `selectedIssueWasFolded: true`: `closedFoldEligible(id, X, true)` is
+ *   `(id !== X || true)`, i.e. true for every row, exactly like the baseline's
+ *   `(id !== null)` — so the latched re-grouping the sidebar used to run by
+ *   hand is lane-identical to this value. That call site can pass its latch
+ *   here instead of calling `groupUnifiedWorkRows` itself.
+ *
+ * The clock is the base's clock (`base.now`), never `Date.now()`: time stays
+ * an explicit input, so a quiet snooze still lapses only from a real tick.
+ */
+export interface WorklistSelection {
+  selectedIssueId: IssueId | null
+  selectedIssueWasFolded?: boolean
+}
+
+const placedByBase = new WeakMap<WorklistSlice, Map<string, WorklistSlice>>()
+
+function placedKey(selection: Required<WorklistSelection>): string {
+  return `${selection.selectedIssueId ?? ''}|${selection.selectedIssueWasFolded ? '1' : '0'}`
+}
+
+function sameLaneRows(a: readonly UnifiedWorkRow[], b: readonly UnifiedWorkRow[]): boolean {
+  if (a.length !== b.length) return false
+  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return false
+  return true
+}
+
+export function placeWorklistSelection(
+  base: WorklistSlice,
+  selection: WorklistSelection = { selectedIssueId: null },
+): WorklistSlice {
+  const selectedIssueId = selection.selectedIssueId ?? null
+  const selectedIssueWasFolded = selection.selectedIssueWasFolded ?? false
+  if (selectedIssueId === null || selectedIssueWasFolded) return base
+  let bySelection = placedByBase.get(base)
+  if (!bySelection) {
+    bySelection = new Map()
+    placedByBase.set(base, bySelection)
+  }
+  const key = placedKey({ selectedIssueId, selectedIssueWasFolded })
+  const hit = bySelection.get(key)
+  if (hit !== undefined) return hit
+  // The exact legacy grouping for this selection, over the derived rows.
+  // Untouched groups keep their identity, so readers holding them stay cold;
+  // when every lane matches this returns the base identity itself.
+  const { rest } = splitPinnedWork(base.work)
+  const regrouped = groupUnifiedWorkRows(rest, selectedIssueId, false, base.now)
+  let unchanged =
+    regrouped.length === base.groups.length &&
+    regrouped.every((group, index) => base.groups[index]?.key === group.key)
+  const groups = regrouped.map((group, index) => {
+    const previous = base.groups[index]
+    if (
+      previous !== undefined &&
+      previous.key === group.key &&
+      previous.label === group.label &&
+      sameLaneRows(previous.rows, group.rows) &&
+      sameLaneRows(previous.snoozedRows, group.snoozedRows) &&
+      sameLaneRows(previous.closedRows, group.closedRows)
+    )
+      return previous
+    unchanged = false
+    return group
+  })
+  const placed = unchanged ? base : { ...base, groups }
+  bySelection.set(key, placed)
+  return placed
+}
