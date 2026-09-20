@@ -670,12 +670,12 @@ describe('mission brief measure frequency (POD-4439)', () => {
     gauges.flushResizes([screen.getByTestId('deck-brief')])
     const switchReads = gauges.briefRectReads() - before
 
-    // One measure: three rects. The legacy wiring (observer re-created on
-    // [html] over three targets, body included) spends three measures — nine
-    // rects — on the same switch and fails here.
-    expect(switchReads).toBe(3)
-    // CONTROL: the same content measures the same limit in both arms.
+    // CONTROL first: the same content measures the same limit in both arms.
     expect(screen.getByTestId('deck-brief').style.maxHeight).toBe('70px')
+    // Then the cost: one measure, three rects. The legacy wiring (observer
+    // re-created on [html] over three targets, body included) spends three
+    // measures — nine rects — on the same switch and fails here.
+    expect(switchReads).toBe(3)
   })
 
   it('watches the deck and the header, not the brief body it sizes', () => {
