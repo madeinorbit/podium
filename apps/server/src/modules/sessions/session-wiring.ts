@@ -26,11 +26,8 @@ import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import {
   driverFamilyForId,
-  harnessComposerReadiness,
   harnessDisplayName,
   harnessInterrupt,
-  harnessNeedsSubmitVerification,
-  harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
@@ -405,9 +402,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           sourceMessageId: row.sourceMessageId,
         }))
       },
-      bumpAttempts: (id) => store.sync.bumpQueuedAttempts(id),
       reserveDelivery: (id) => store.sync.reserveQueuedDelivery(id),
-      resetAttempts: (id) => store.sync.resetQueuedAttempts(id),
       delete: (id) => store.sync.deleteQueuedMessage(id),
       // The same per-session tally that seeds Session.queuedMessageCount at
       // boot, read as a work list for the queue sweep (POD-1703).
@@ -501,9 +496,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     draft: (session) => life.repository.draft(session),
     persistDraft: (session, draft) => life.repository.persistDraft(session, draft),
     broadcast: () => bag.broadcastSessions(),
-    needsSubmitVerification: harnessNeedsSubmitVerification,
-    usesRawFirstTurn: harnessUsesRawFirstTurn,
-    composerReadiness: harnessComposerReadiness,
     harnessInterrupt,
     harnessName: harnessDisplayName,
     prepareSend: (sessionId, attribution, kind, origin) =>
@@ -517,10 +509,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // Take-control / hold-control re-auth at every apply (POD-1081).
     authorizeDrive: (principal, sessionId) => ownership.authorizeClientDrive(principal, sessionId),
     nativeViewActive,
-    // The bind frame owns runtimeContract: true means the daemon built a driver
-    // handle for this session, and that handle is the only delivery. Shells and
-    // unbound sessions keep the server path. No rollout flag remains (POD-4280).
-    contractDelivery: (session) => session.runtimeContract === true,
+    // There is one route (POD-4427): agents go through the runtime gateway and
+    // only plain-terminal shells keep the server's raw transport. The
+    // contractDelivery predicate this replaced is deleted with the routing gate.
     contractAnswer: (input) => bag.interactionAnswer?.(input) ?? Promise.resolve({ ok: false, reason: 'unknown-interaction' }),
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after
@@ -914,10 +905,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     legacy: inbox,
     contract: { send: (input) => bag.runtimeGateway.send(input) },
     queue: durableQueue,
-    // Immediate and durable sends share rollout and active-custody routing.
+    // Immediate and durable sends share active-custody routing. Agents are
+    // always on the contract (POD-4427); only shells keep the raw transport.
     onContract: (sessionId: SessionId) => {
       const session = bag.sessions.get(sessionId)
-      return session ? bag.inbox.routesThroughContract(session) : false
+      return session !== undefined && session.agentKind !== 'shell'
     },
     liveWithEmptyQueue: (sessionId: SessionId) => {
       const s = bag.sessions.get(sessionId)

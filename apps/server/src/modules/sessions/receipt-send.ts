@@ -1,6 +1,6 @@
 /**
- * THE SERVER'S SEND SEAM, AND THE ONE PLACE THE FLAG IS READ (POD-1761 W4;
- * spec §9 phase 2, server half).
+ * THE SERVER'S SEND SEAM, AND THE ONE PLACE THE ROUTE IS READ (POD-1761 W4;
+ * spec §9 phase 2, server half; one route since POD-4427).
  *
  * ---------------------------------------------------------------------------
  * ADMISSION COMPLETION AND LATER RECEIPTS
@@ -13,18 +13,20 @@
  * actionable card after input has already gone out.
  *
  * ---------------------------------------------------------------------------
- * WHAT ACTUALLY FLIPS
+ * WHAT ACTUALLY FLIPPED (POD-4427: the branch below is agent-vs-shell now,
+ * not a rollout flag)
  * ---------------------------------------------------------------------------
  *
  * Not WHEN a caller hears something — WHERE THE OUTCOME COMES FROM.
  *
- * Flag off, an outcome is inferred: the server peeks at queue depth and session
- * status, predicts whether the PTY is ready, and reports its own prediction.
- * Flag on, the server states the delivery mode it wants and the driver reports
- * what actually happened, including a `deliveredAs` downgrade it would otherwise
- * have had to guess at. The urgency x lifecycle table above this seam keeps
- * reading phase to CHOOSE the mode — that is product policy and it is unchanged.
- * Phase stops being consulted for the RESULT.
+ * On the contract path the server states the delivery mode it wants and the
+ * driver reports what actually happened, including a `deliveredAs` downgrade
+ * it would otherwise have had to guess at. The urgency x lifecycle table above
+ * this seam keeps reading phase to CHOOSE the mode — that is product policy
+ * and it is unchanged. Phase stops being consulted for the RESULT.
+ *
+ * Shells keep the legacy verbs: they have no driver, so the inbox's raw
+ * transport is their only delivery.
  *
  * ---------------------------------------------------------------------------
  * WHY `queue` NEVER CROSSES THE WIRE
@@ -282,11 +284,10 @@ export class ReceiptSender {
       return this.enqueue(via, input, onReceipt)
     }
 
-    // WHEN-READY IS THE HEART OF THE MIGRATION. Flag off, the server predicts
-    // whether the PTY can take bytes right now (queue depth, `starting`, raw
-    // first turn) and queues on its own guess. Flag on it says "when ready" and
-    // the driver's injection state machine answers with what it did — including
-    // `deliveredAs: 'queue'`, the downgrade the server used to have to infer.
+    // WHEN-READY IS THE HEART OF THE CONTRACT PATH. The server says "when
+    // ready" and the driver's injection state machine answers with what it
+    // did — including `deliveredAs: 'queue'`, the downgrade the server used
+    // to have to infer.
     const delivery = via === 'interrupt' ? ('interrupt' as const) : ('when-ready' as const)
     await this.ports.prepareSend(input)
     const settled = this.ports.contract.send({

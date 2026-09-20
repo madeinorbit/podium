@@ -29,7 +29,6 @@ import {
   actorUser,
   asAgentIdentityId,
   asMutationId,
-  asSessionId,
   asUserId,
   isAgentComputing,
 } from '@podium/model'
@@ -40,7 +39,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
-import { type HarnessComposerReadiness, type HarnessInterrupt } from '../../harness-manifest'
+import { type HarnessInterrupt } from '../../harness-manifest'
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session, SessionDurableState } from './session'
@@ -69,49 +68,6 @@ export type InterruptOutcome =
 
 const log = createLogger('server:session-inbox')
 
-const SUBMIT_CR_DELAY_MS = 90
-const SUBMIT_VERIFY_DELAY_MS = 1_600
-const SUBMIT_MAX_RETRIES = 2
-const READY_FLOOR_MS = 800
-const READY_QUIET_MS = 600
-const READY_MAX_MS = 6_000
-const READY_POLL_MS = 200
-const QUEUE_DRAIN_DEADLINE_MS = 25_000
-const QUEUE_MESSAGE_SPACING_MS = 400
-/**
- * A WOKEN session's readiness budget (POD-1100). A state report is not a
- * readiness witness: the PTY can report a fresh runtime state while the CLI is
- * still painting its composer. Keep the conservative quiet/ceiling heuristic;
- * never shorten it because a harness state stamp changed.
- */
-/** Liveness budget for a wake. A cold resume of a large session routinely
- *  outran the 25s a live session gets, and gave up before the PTY had bound. */
-const WOKEN_DRAIN_DEADLINE_MS = 60_000
-/** How long a typed prompt has to show up as a turn before we call it lost.
- *  Only counted while the agent is FREE to take it — see {@link SessionInbox.drain}. */
-const CONFIRM_TIMEOUT_MS = 5_000
-/** A creation prompt gets one longer confirmation window before it is failed
- * visibly; ordinary queued sends retain the shorter retry cadence. */
-const INITIAL_PROMPT_CONFIRM_TIMEOUT_MS = 30_000
-const CONFIRM_POLL_MS = 250
-/** Poll cadence while the CLI is holding our prompt behind a running turn. The
- *  wait is measured in minutes, so it is not worth a 250ms tick; a second still
- *  settles the row promptly once the turn boundary takes it. */
-const HELD_POLL_MS = 1_000
-/**
- * The outer bound on waiting for a turn that never comes (POD-1242).
- *
- * A held prompt is not a lost one, so the confirmation clock does not run while
- * the harness says it is computing — but "computing" is a REPORT, and a wedged
- * daemon that stops updating it would otherwise hold the row forever. Generous
- * enough that a genuinely long turn is waited out rather than retyped over.
- */
-const HELD_CONFIRM_CEILING_MS = 30 * 60_000
-/** Type attempts for one queued row, counted ACROSS drain passes (POD-1242) —
- *  the row carries the count, so a re-armed pass resumes rather than restarts. */
-const MAX_DELIVERY_ATTEMPTS = 5
-/** Backoff before re-typing an unconfirmed row; scaled by attempt number. */
-const RETRY_BACKOFF_MS = 2_000
 /**
  * Cadence of the queued-input sweep — see {@link SessionInbox.sweepQueuedInputs}
  * (POD-1703).
@@ -218,12 +174,7 @@ export interface InboxQueuePort {
   }): Promise<boolean>
   list(sessionId: SessionId): Promise<QueuedInboxMessage[]>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
-  bumpAttempts(id: string): Promise<void>
   reserveDelivery?(id: string): Promise<void>
-  /** A FRESH PROCESS HAS NEVER BEEN TYPED INTO (POD-1242). Attempts bound how
-   *  many copies of a row one CLI may receive; the count dies with that CLI.
-   *  UNBRANDED BY DECISION: queue primary key, as above. */
-  resetAttempts?(id: string): Promise<void>
   /** UNBRANDED BY DECISION: queue primary key; may be a mutation id or a generated UUID. */
   delete(id: string): Promise<void>
   /** Every session holding at least one pending row — the work list for
@@ -305,13 +256,8 @@ export interface SessionInboxDeps {
   draft(session: Session): SessionDurableState
   persistDraft(session: Session, draft: SessionDurableState): Promise<void>
   broadcast(): void
-  needsSubmitVerification(agentKind: AgentKind): boolean
-  usesRawFirstTurn(agentKind: AgentKind): boolean
-  /** When this harness's composer is known to accept typed input after a bind —
-   *  see {@link SessionInbox.needsInputReadiness}. */
-  composerReadiness(agentKind: AgentKind): HarnessComposerReadiness
   /** Which key aborts this harness's running turn, and whether it is safe to
-   *  press outside one — see {@link SessionInbox.abortKeyFor}. */
+  *  press outside one — see {@link SessionInbox.abortKeyFor}. */
   harnessInterrupt(agentKind: AgentKind): HarnessInterrupt
   /** The harness's human-facing name, for a refusal an operator will read. */
   harnessName(agentKind: AgentKind): string
@@ -354,9 +300,8 @@ export interface SessionInboxDeps {
   nativeViewActive?(sessionId: SessionId): boolean
 
   /** Bind-reported contract delivery: true means the daemon built a driver handle
-   * for this session and the contract is its only delivery. Shells and unbound
-   * sessions keep the server path. Optional only as a fixture affordance. */
-  contractDelivery?(session: Session): boolean
+  * for this session and the contract is its only delivery. Shells and unbound
+  * sessions keep the server path. Optional only as a fixture affordance. */
   contractAnswer?(input: {
     sessionId: SessionId; interactionId?: string; choices?: AnswerChoice[]; skip?: boolean
     principal: InboxPrincipalReference
@@ -374,9 +319,9 @@ export interface SessionInboxDeps {
     principal: InboxPrincipalReference
   }): Promise<TurnReceipt>
   /**
-   * REQUEST an interrupt through the runtime contract, for sessions
-   * {@link contractDelivery} routes through the daemon.
-   *
+  * REQUEST an interrupt through the runtime contract — the only delivery an
+  * agent session has.
+  *
    * The answer is the DRIVER's, and it says the request was accepted or names
    * the reason it was not — it never says the turn stopped. The fence is a
    * provider-confirmed terminal turn event on the causal stream, and this reply
@@ -531,12 +476,6 @@ export function terminalSessionSendFailureReason(
   return formatAgentError(state.error) + '. ' + agentErrorRecoveryInstruction(state.error)
 }
 
-/** Has this session ever carried a user turn? The transcript is the only record
- *  that survives a rebind, which is what makes it the start-up window's edge. */
-function hasSeenUserTurn(session: Session): boolean {
-  return session.terminal.transcriptItems().some((item) => item.role === 'user')
-}
-
 /** Refuse archive unconditionally; only provider failure is overridable. */
 function sessionSendRefusalReason(
   session: Pick<Session, 'agentState' | 'archived'>,
@@ -552,34 +491,14 @@ export class SessionInbox {
   private readonly activeDrains = new Set<SessionId>()
   /** True while a queued-input sweep is running — see {@link sweepQueuedInputs}. */
   private sweepingQueuedInputs = false
-  /** Generation fence for timers and contract receipts that outlive a bind. */
+  /** Generation fence for binds racing a shell drain. */
   private readonly drainGenerations = new Map<SessionId, number>()
   /** Recovery answers may queue while a failed session is being woken. */
   private readonly recoveryDrains = new Set<SessionId>()
-  /**
-   * A PTY bind makes a session live before its harness composer is ready. Keep
-   * this marker on the session object rather than retaining session ids here.
-   */
-  private readonly inputReadySessions = new WeakSet<Session>()
-  /**
-   * WHEN THIS SESSION'S PTY LAST BOUND — the composer-readiness clock's zero
-   * (POD-2836). Held here, beside the readiness marker the same bind clears,
-   * because the bind is already announced to this object and nothing else
-   * records the moment; a durable field would be a second, weaker copy of a
-   * fact that only matters while the process it describes is still running.
-   *
-   * Session-keyed for the same reason {@link inputReadySessions} is: the entry
-   * dies with the row rather than being reaped by id.
-   */
-  private readonly boundAtMs = new WeakMap<Session, number>()
   /** One durable attention event per queued row and failure episode. */
   private readonly reportedPromptFailures = new Set<string>()
   /** Set by {@link dispose}; read at every drain re-entry point. */
   private disposed = false
-  /** One generation owns every delayed submit key for a session. Deleting it
-   *  is the cancellation token used by both chat stop and native CLI interrupts. */
-  private readonly submitVerificationGeneration = new Map<SessionId, number>()
-  private nextSubmitVerificationGeneration = 0
 
   constructor(private readonly deps: SessionInboxDeps) {}
 
@@ -589,29 +508,18 @@ export class SessionInbox {
   }
 
   /**
-   * THE DRAIN IS A LOOP, AND A LOOP OUTLIVES THE REGISTRY THAT STARTED IT
-   * (POD-2842).
-   *
-   * `drain` re-arms itself on a timer — `READY_POLL_MS` while it waits for the
-   * composer, `CONFIRM_POLL_MS` while it waits for the transcript turn that
-   * proves the row landed — and every one of those wake-ups reads
-   * `deps.queue.list(...)`, which is a read against the SQLite handle.
-   * `server.ts` closes that handle one step after `registry.dispose()`, for the
-   * reason its own shutdown comment gives: "a late write against a closed DB
-   * would throw". Nothing was stopping this loop, so a shutdown taken while a
-   * row was in flight woke into a closed store and threw
-   * `RangeError: Cannot use a closed database` out of a detached timer.
-   *
-   * IT BECAME REACHABLE WHEN THE QUEUE BECAME THE CONTRACT. A claude-code row
-   * is held after it is typed until a transcript user turn confirms it
-   * (POD-2116), so the window in which a drain is still polling is now the
-   * ordinary case rather than a rare one — `relay.outbox.test.ts`'s restart
-   * check reproduces it verbatim, disposing one registry and closing its store
-   * while the row it queued is still waiting.
-   *
-   * A stopped drain loses nothing: the row is durable, and the next bind,
-   * reconnect or enqueue re-arms a fresh pass over it.
-   */
+  * A SHELL DRAIN OUTLIVES THE REGISTRY THAT STARTED IT (POD-2842).
+  *
+  * `forwardShellRows` awaits the store between rows, and `forwardContractRows`
+  * awaits the daemon — either can be in flight when `server.ts` closes the
+  * SQLite handle one step after `registry.dispose()` ("a late write against a
+  * closed DB would throw"). Both check `disposed` at every re-entry, so a
+  * shutdown taken while a row is in flight stands down instead of waking into
+  * a closed store.
+  *
+  * A stopped drain loses nothing: the row is durable, and the next bind,
+  * reconnect or enqueue re-arms a fresh pass over it.
+  */
   dispose(): void {
     this.disposed = true
     this.activeDrains.clear()
@@ -663,18 +571,12 @@ export class SessionInbox {
     return true
   }
 
-  /** A new bind starts a fresh harness-readiness window — and STAMPS it, so the
-   *  drain can tell a composer that has had an hour to mount from one that has
-   *  had a second (POD-2836). */
+  /** A new bind fence off any shell drain the previous bind armed, and drops
+  *  daemon custody claimed under the old machine binding. */
   markSessionBound(sessionId: SessionId): void {
     this.forwardedRows.delete(sessionId)
     this.forwarding.delete(sessionId)
     this.invalidateDrain(sessionId)
-    const session = this.deps.getSession(sessionId)
-    if (!session) return
-    this.legacyDeliveryBatches.delete(session)
-    this.inputReadySessions.delete(session)
-    this.boundAtMs.set(session, this.deps.now())
   }
 
   /**
@@ -693,52 +595,6 @@ export class SessionInbox {
     })
   }
 
-  /**
-   * A BIND MAKES A SESSION LIVE BEFORE ITS COMPOSER IS UP, and for some
-   * harnesses nothing says when that changed (POD-2823).
-   *
-   * This asked `session.agentKind === 'claude-code'` first. The literal was not
-   * standing in for "this is Claude": it was NARROWING the capability on the
-   * line below it, because `submitVerification` is true for grok as well, and
-   * reading that field alone would have put every post-first-turn grok send
-   * behind a readiness proof grok does not need. Two harnesses share the
-   * verification property and do not share this one — which is exactly why the
-   * name looked load-bearing.
-   *
-   * `composerReadiness` is the property the literal actually meant, so the
-   * `needsSubmitVerification` conjunct goes with it: it was the nearest existing
-   * capability, not the right one, and it is not load-bearing here. A readiness
-   * proof drives its own `confirm()` in the drain loop (`needsReadinessProof`
-   * below), independently of whether a submit is separately verified.
-   *
-   * `!isRawFirstTurn` STAYS, and now guards something statable rather than
-   * something incidental: a harness that needs a confirmed turn AND injects its
-   * first turn raw would have that turn queued twice over, once by `sendText`'s
-   * settle wait and once here. No harness declares both today.
-   */
-  private needsInputReadiness(session: Session): boolean {
-    return (
-      this.deps.composerReadiness(session.agentKind) === 'confirmed-turn' &&
-      !this.isRawFirstTurn(session) &&
-      !this.inputReadySessions.has(session)
-    )
-  }
-
-  /**
-   * The refusals `typeText` would give this send, asked BEFORE the readiness
-   * queue can turn them into an acceptance. Deliberately only the ones that are
-   * about the session being un-typeable right now, and deliberately NOT the
-   * server-family case: a server-driven session has no PTY, and queueing is how
-   * its row is delivered rather than a way of losing it — the drain's contract
-   * branch is the path that carries it (POD-2291).
-   */
-  private readinessQueueRefusal(session: Session): { ok: false } | undefined {
-    if (this.routesThroughContract(session) === true) return undefined
-    if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
-    if (session.agentState?.phase === 'needs_user') return { ok: false }
-    return undefined
-  }
-
   async sendText(input: InboxSendInput): Promise<{
     ok: boolean
     queued?: boolean
@@ -749,65 +605,26 @@ export class SessionInbox {
       ? sessionSendRefusalReason(session, input.allowErrored === true)
       : undefined
     if (blockedReason) return { ok: false, reason: blockedReason }
-    // Agents always queue (POD-4279): the durable queue down the drain's
-    // contract branch is the only delivery. A non-running agent has no turn to
-    // join, so it is refused rather than queued into a wake it did not ask for
-    // — queueText stays the explicit wake path (resumeAndSend). Plain-terminal
-    // shells (POD-4278) keep direct typing below — they have no driver.
-    if (session && session.agentKind !== 'shell') {
-      if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
-      return await this.queueText(input)
-    }
-    if (
-      session &&
-      (isAgentComputing(session) ||
-        session.queuedMessageCount > 0 ||
-        this.isDraining(input.sessionId))
-    ) {
-      return await this.queueText(input)
-    }
-    if (session && this.needsInputReadiness(session)) {
-      // THE READINESS QUEUE MUST NOT SWALLOW A REFUSAL (POD-2828).
-      //
-      // Diverting to the queue moved this send PAST the guards `typeText`
-      // applies, so a send that had to be REFUSED came back `{ok: true,
-      // queued: true}` instead. The queue is a place to wait for a composer
-      // that is coming, not a place to put a send that must not happen — and
-      // "not yet" and "no" are not the same answer to give a caller.
-      //
-      // #473 IS WHY THIS IS A SAFETY FIX AND NOT A SHAPE ONE. A submitting CR
-      // typed at a live AskUserQuestion menu ANSWERS THE HIGHLIGHTED DEFAULT:
-      // it picks an option on the human's behalf. `typeText` refuses that, and
-      // the design is that the human resends once the menu resolves. Queued,
-      // the same send is accepted, held, and then typed when the menu clears —
-      // a message the caller was told was fine, delivered into a conversation
-      // that has since moved on.
-      const refusal = this.readinessQueueRefusal(session)
-      if (refusal) return refusal
-      return await this.queueText(input)
-    }
-    // THE SAME QUESTION AS `needsInputReadiness`, ASKED OF A HARNESS THAT CAN
-    // ANSWER IT FROM STATUS (POD-2823). A process that has bound but not
-    // finished its TUI still reports `starting`; typing into that PTY is the
-    // POD-549 no-op, so wait for settle. This used to read the raw-first-turn
-    // flag, which conflated two facts that only happen to coincide in grok —
-    // how a first turn is INJECTED, and how the composer's start-up window is
-    // OBSERVED. The injection meaning stays on `rawFirstTurn`; this one is the
-    // readiness declaration.
-    if (
-      session?.status === 'starting' &&
-      this.deps.composerReadiness(session.agentKind) === 'process-settle' &&
-      !hasSeenUserTurn(session)
-    ) {
-      return await this.queueText(input)
-    }
-    if (
-      !session ||
-      (session.status !== 'live' && session.status !== 'starting') ||
-      this.routesThroughContract(session) === true ||
-      session.agentState?.phase === 'needs_user'
-    )
+    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
+    }
+    // Agents always queue (POD-4279): the durable queue down the drain's
+    // contract branch is the only delivery. queueText stays the explicit wake
+    // path (resumeAndSend). Plain-terminal shells (POD-4278) have no driver, so
+    // they keep the raw transport below: bytes onto the PTY the operator is
+    // watching, exactly as a controller keystroke would land.
+    if (session.agentKind !== 'shell') {
+      return await this.queueText(input)
+    }
+    // A live menu is holding the shell (`needs_user`). Typing a prompt into it
+    // would answer the wrong question (#473): refuse rather than queue, because
+    // "not yet" and "no" are not the same answer to give a caller.
+    if (session.agentState?.phase === 'needs_user') return { ok: false }
+    // Ordering, not readiness: a live send past a non-empty durable queue would
+    // land ahead of older rows still waiting to drain.
+    if (session.queuedMessageCount > 0 || this.isDraining(input.sessionId)) {
+      return await this.queueText(input)
+    }
     // Complete metadata admission before entering the synchronous byte path.
     await this.deps.prepareSend(
       input.sessionId,
@@ -815,7 +632,15 @@ export class SessionInbox {
       'text',
       input.inputOrigin ?? 'controller',
     )
-    return this.typeText(input)
+    if (
+      this.deps.getSession(input.sessionId) !== session ||
+      (session.status !== 'live' && session.status !== 'starting')
+    )
+      return { ok: false, reason: 'session changed during admission' }
+    const currentRefusal = sessionSendRefusalReason(session, input.allowErrored === true)
+    if (currentRefusal) return { ok: false, reason: currentRefusal }
+    this.sendShellText(session, input)
+    return { ok: true }
   }
 
   async resumeAndSend(input: InboxSendInput & { mutationId?: MutationId }): Promise<{
@@ -881,7 +706,7 @@ export class SessionInbox {
     if (abort) {
       this.sendInput(session, abort, input.inputOrigin ?? 'controller', principal.attribution)
     }
-    setTimeout(() => this.typeText({ ...input, principal }, true), SUBMIT_CR_DELAY_MS).unref?.()
+    this.sendShellText(session, { ...input, principal })
     return { ok: true }
   }
 
@@ -1069,9 +894,8 @@ export class SessionInbox {
     includeUnattempted = false,
     sourceMessageId?: string,
   ): Promise<boolean> {
-    const verification = this.submitVerificationGeneration.delete(sessionId)
     const session = this.deps.getSession(sessionId)
-    if (!session) return verification
+    if (!session) return false
     // Only the head can have crossed into the CLI. Rows behind it have not been
     // part of the interrupted interaction and remain individually retractable.
     const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
@@ -1087,7 +911,7 @@ export class SessionInbox {
         })
         await retraction
       }
-      return verification
+      return false
     }
     // Agents cancel through the driver (POD-4279). A daemon-owned row needs a
     // successful driver cancel — retracting it locally would desync a delivery
@@ -1140,10 +964,6 @@ export class SessionInbox {
   }> {
     const session = this.deps.getSession(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
-    // A completed legacy batch does not pin the next enqueue to its old route.
-    if (session.queuedMessageCount === 0 && !this.activeDrains.has(session.sessionId)) {
-      this.legacyDeliveryBatches.delete(session)
-    }
     const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
     if (blockedReason) return { ok: false, reason: blockedReason }
     const parked = session.status === 'hibernated' || session.status === 'exited'
@@ -1316,48 +1136,18 @@ export class SessionInbox {
   }
 
   /**
-   * Deliver this session's queued rows, oldest first.
-   *
-   * A ROW LEAVES THE QUEUE ONLY WHEN THE AGENT TOOK IT (POD-1100). It used to
-   * leave when the bytes reached the daemon, which is not the same claim: a
-   * session woken by an offer click binds its PTY within a second or two and
-   * then spends much longer rehydrating its transcript before the composer
-   * exists, so a paste typed in that window went nowhere — and the row, the
-   * queue badge and the ledger's `applied` receipt all said it had landed. The
-   * message was gone from a queue that had never delivered it.
-   *
-   * So: type, then watch the transcript for the turn. Confirmed → remove.
-   * Unconfirmed → the row stays durable and queued, and ordinary rows retry with
-   * backoff. When the transcript cannot witness a send at all, leave the row and
-   * surface a recoverable failure; never settle it or arm later sends from a
-   * harness state report.
-   */
+  * Deliver this session's queued rows, oldest first, through the runtime
+  * contract (POD-4427).
+  *
+  * THE ONLY DELIVERY AN AGENT HAS. A row leaves the queue only when the driver
+  * settles it: `deliveryOutcome` folds the driver's `delivery` events into
+  * settle-or-keep decisions, and a row the daemon never acknowledged stays
+  * durable and queued with a visible failure. The server never types at, polls
+  * or retries a harness — readiness and retry are the driver's own
+  * delivery-queue, one hop down.
+  */
   private readonly forwardedRows = new Map<SessionId, { session: Session; machineId: string; ids: Set<string> }>()
   private readonly forwarding = new Map<SessionId, Promise<void>>()
-
-  private readonly legacyDeliveryBatches = new WeakSet<Session>()
-
-  /** Switching cannot transfer a row already typed or admitted by the other owner.
-   * Legacy batches finish unchanged. On rollback, daemon rows settle (or the
-   * operator cancels them) before newly queued input can use the legacy loop.
-   *
-   * A bound session (runtimeContract true) is always behind the contract now
-   * (POD-4280): headed and headless alike. The family check is gone with the
-   * daemon-headed-delivery switch; shells and unbound sessions keep the server
-   * path below.
-   */
-  routesThroughContract(session: Session): boolean {
-    if (session.runtimeContract === true) {
-      return true
-    }
-    if (this.legacyDeliveryBatches.has(session)) {
-      if (session.queuedMessageCount > 0 || this.activeDrains.has(session.sessionId)) return false
-      this.legacyDeliveryBatches.delete(session)
-    }
-    const custody = this.forwardedRows.get(session.sessionId)
-    if (custody?.session === session && custody.machineId === session.machineId && custody.ids.size) return true
-    return this.deps.contractDelivery?.(session) === true
-  }
 
   /** Admission only: no readiness, confirmation, retry clocks or delivery polling. */
   private async forwardContractRows(session: Session, justBound: boolean): Promise<void> {
@@ -1384,9 +1174,8 @@ export class SessionInbox {
         // witness check below is reliable. New sessions (no transcript) still
         // forward from admission.
         (session.status === 'live' || (session.status === 'starting' && !session.transcriptAvailable)) &&
-        // No rollout gate (POD-4279): drain only calls this for agents, and the
-        // contract is their only delivery. The contractDelivery switch itself
-        // survives for POD-4280 to remove.
+        // Drain only calls this for agents, and the contract is their only
+        // delivery (POD-4427): there is no rollout gate and no second route.
         this.deps.nativeViewActive?.(sessionId) !== true &&
         !sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
       const rows = await this.deps.queue.list(sessionId)
@@ -1532,725 +1321,131 @@ export class SessionInbox {
   }
 
   async drain(sessionId: SessionId, opts?: { justBound?: boolean }): Promise<void> {
-    const contractSession = this.deps.getSession(sessionId)
-    const admissionGeneration = this.drainGenerations.get(sessionId)
-    if (!contractSession || this.disposed) return
-    if (this.disposed || this.deps.getSession(sessionId) !== contractSession ||
-      this.drainGenerations.get(sessionId) !== admissionGeneration) return
-    // Agents always forward (POD-4279): the driver contract is the only
-    // delivery, regardless of the headed rollout flag — that switch is
-    // POD-4280's to remove. Plain-terminal shells (POD-4278) keep the legacy
-    // typing loop below: they have no driver, and chat-to-shell types into
-    // the PTY the operator is watching.
-    if (contractSession && contractSession.agentKind !== 'shell') {
+    const session = this.deps.getSession(sessionId)
+    if (!session || this.disposed) return
+    // Agents always forward (POD-4427): the driver contract is the only
+    // delivery. Plain-terminal shells (POD-4278) keep the raw transport below:
+    // they have no driver, and chat-to-shell types into the PTY the operator
+    // is watching.
+    if (session.agentKind !== 'shell') {
       if (this.deps.nativeViewActive?.(sessionId) === true) return
-      void this.forwardContractRows(contractSession, opts?.justBound === true).catch((error) => {
+      void this.forwardContractRows(session, opts?.justBound === true).catch((error) => {
         log.warn('contract admission failed', { sessionId, err: error })
       })
       return
     }
     if (this.deps.nativeViewActive?.(sessionId) === true) return
-    if (this.activeDrains.has(sessionId)) return
-    const session = this.deps.getSession(sessionId)
-    if (!session) return
-    // The durable FIFO is authoritative: concurrent session drafts can carry
-    // an older projected count while accepted rows still need delivery.
-    const queued = await this.deps.queue.list(sessionId)
-    if (queued.length === 0 || this.activeDrains.has(sessionId)) return
-    if (this.deps.getSession(sessionId) !== session || this.disposed) return
-    const drainGeneration = (this.drainGenerations.get(sessionId) ?? 0) + 1
-    this.drainGenerations.set(sessionId, drainGeneration)
-    this.legacyDeliveryBatches.add(session)
-    this.activeDrains.add(sessionId)
-    const isCurrent = (): boolean =>
-      this.drainGenerations.get(sessionId) === drainGeneration && this.activeDrains.has(sessionId)
-    // A PTY we are watching come up — parked as this pass begins, or bound so
-    // recently that the caller is telling us so. Its CLI has proven nothing yet,
-    // and it is the only case whose readiness the quiet heuristic gets wrong.
-    // The status alone cannot see it: the bind that wakes this pass has already
-    // flipped the session to 'live' by the time we are called.
-    const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-    const firstQueuedRow = (await queuedRows)[0]
-    const woken =
-      session.status !== 'live' ||
-      opts?.justBound === true ||
-      this.needsInputReadiness(session) ||
-      (firstQueuedRow !== undefined && isInitialPromptRow(sessionId, firstQueuedRow))
-    // The CLI that was typed into is gone; whatever it was holding went with it.
-    // Give this process the full attempt budget rather than the exhausted one the
-    // dead process left behind (POD-1242).
-    // THE SAME CLASS THE DRAIN EXEMPTS FROM RETYPING (POD-2828). A row typed
-    // blind — into a session with no transcript to witness it — is at-most-once
-    // for the reason the creation prompt is: the composer may be holding the
-    // bytes with nothing able to say so, and the durable attempt count is the
-    // only fence against a second copy. Resetting it on a bind hands that fence
-    // back to whichever event re-armed the drain.
-    const attemptsAreTheFence = this.needsInputReadiness(session) && !session.transcriptAvailable
-    const resetAttempts = this.deps.queue.resetAttempts?.bind(this.deps.queue)
-    if (woken && resetAttempts && !attemptsAreTheFence) {
-      const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-      for (const row of await queuedRows) {
-        // A creation prompt may already have been typed by the old process. Its
-        // durable attempt count is the duplicate-prevention fence; resetting it
-        // on bind would put the concatenation bug back after a restart.
-        if (!isInitialPromptRow(sessionId, row)) {
-          const reset: Promise<void> = resetAttempts(row.id)
-          await reset
-        }
-      }
-    }
-    const deadline = this.deps.now() + (woken ? WOKEN_DRAIN_DEADLINE_MS : QUEUE_DRAIN_DEADLINE_MS)
-    let liveAtMs = 0
-    let baseOutputMs = 0
-    const stop = (): void => {
-      if (this.drainGenerations.get(sessionId) === drainGeneration) {
-        this.activeDrains.delete(sessionId)
-      }
-    }
-    const removeHead = async (current: Session, id: string): Promise<void> => {
-      if (!isCurrent()) return
-      const completion: Promise<void> = this.deps.queue.delete(asSessionId(id))
-      await completion
-      const remaining = await this.deps.queue.list(sessionId)
-      const persistence: Promise<void> = this.deps.write(current, (draft) => {
-        draft.queuedMessageCount = remaining.length
-        if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
-      })
-      await persistence
-      this.deps.broadcast()
-    }
-    /** The head is done with — settle its ledger receipt and move on. */
-    const clearQueuedDraft = async (head: QueuedInboxMessage): Promise<void> => {
-      if (!this.deps.setSessionDraft) return
-      const draft = this.deps.draftText?.(sessionId)
-      if (draft === head.text) {
-        const draftWrite: Promise<void> = this.deps.setSessionDraft({ sessionId, text: '' })
-        await draftWrite
-      }
-    }
-    const settleHead = async (
-      current: Session,
-      head: QueuedInboxMessage,
-      transcriptConfirmed = false,
-    ): Promise<void> => {
-      if (!isCurrent()) return
-      if (transcriptConfirmed && this.needsInputReadiness(current)) {
-        this.inputReadySessions.add(current)
-      }
-      if (transcriptConfirmed) {
-        const draftClear: Promise<void> = clearQueuedDraft(head)
-        await draftClear
-      }
-      if (transcriptConfirmed) this.reportedPromptFailures.delete(head.id)
-      if (head.sourceMessageId) {
-        const completion: Promise<void> = this.deps.authorization.applied({
-          sourceMessageId: head.sourceMessageId, sessionId,
-        })
-        await completion
-      }
-      await removeHead(current, head.id)
-      await afterHead()
-    }
-    const afterHead = async (): Promise<void> => {
-      const remaining = await this.deps.queue.list(sessionId)
-      if (!isCurrent()) return
-      if (remaining.length > 0) {
-        setTimeout(deliverNext, QUEUE_MESSAGE_SPACING_MS).unref?.()
-      } else stop()
-    }
-    const reportPromptFailure = async (
-      current: Session | undefined,
-      head: QueuedInboxMessage,
-      reason: string,
-    ): Promise<void> => {
-      if (!isCurrent()) return
-      if (!this.reportedPromptFailures.has(head.id)) {
-        this.reportedPromptFailures.add(head.id)
-        const initialPrompt = isInitialPromptRow(sessionId, head)
-        if (this.deps.setSessionDraft) {
-          const draft = this.deps.draftText?.(sessionId)
-          // A missing/blank draft is recoverable state to restore. A
-          // non-matching draft belongs to a human and must never be overwritten.
-          if (draft === undefined || draft === '' || draft === head.text) {
-            const draftWrite: Promise<void> = this.deps.setSessionDraft({ sessionId, text: head.text })
-            await draftWrite
-          }
-        }
-        const ownerUserId = await this.deps.ownerOf(sessionId)
-        await this.deps.attention.promptFailed({
-          ...(ownerUserId ? { ownerUserId } : {}),
-          sessionId,
-          text: head.text,
-          reason,
-          initialPrompt,
-        })
-      }
-      // Keep the durable row. It is the retry/cancel handle and the queue badge
-      // is the visible proof that no agent turn was confirmed. Later queued rows
-      // stay behind it so another prompt cannot glue onto an unsubmitted native
-      // composer buffer.
-      if (current) {
-        const persistence: Promise<void> = this.deps.persist(current)
-        await persistence
-      }
-      stop()
-    }
-    /**
-     * Poll for our own prompt arriving as the transcript's last user turn. Not
-     * finding it is not proof of loss — a slow harness may simply not have
-     * written the record yet — so an ordinary row retries rather than
-     * dead-letters. A creation row has a bounded confirmation window and emits
-     * a visible failure if it never becomes a witnessed turn.
-     *
-     * A BUSY AGENT IS NOT A LOST PROMPT (POD-1242). The CLI parks typed input in
-     * its own composer queue and does not write the user turn until the running
-     * turn ends, which is minutes away and routinely much more. The five-second
-     * clock therefore only runs while the harness is FREE to take the prompt:
-     * while it reports computing we simply wait, and the clock restarts whole
-     * when it stops — otherwise the very first poll after a long turn would find
-     * an expired deadline and retype into the boundary it was waiting for. The
-     * old behaviour typed the same message up to five times in forty seconds
-     * (observed: eight copies of one offer click), and the CLI showed each copy
-     * to the running turn as a queued command, so the agent acted on the request
-     * several times over.
-     */
-    const confirm = (head: QueuedInboxMessage, needle: string, attempt: number): void => {
-      const initialPrompt = isInitialPromptRow(sessionId, head)
-      let until =
-        this.deps.now() + (initialPrompt ? INITIAL_PROMPT_CONFIRM_TIMEOUT_MS : CONFIRM_TIMEOUT_MS)
-      const heldUntil = this.deps.now() + HELD_CONFIRM_CEILING_MS
-      const poll = async (): Promise<void> => {
-        if (!isCurrent()) return
-        // A disposed registry has no store to read (see `dispose`): stand down.
-        if (this.disposed) return
-        if (this.deps.nativeViewActive?.(sessionId) === true) {
-          stop()
-          return
-        }
-
-        const current = this.deps.getSession(sessionId)
-        if (!current || (current.status !== 'live' && current.status !== 'starting')) {
-          await reportPromptFailure(
-            current,
-            head,
-            initialPrompt
-              ? 'the session stopped before the creation prompt was confirmed'
-              : 'the session stopped before this input was confirmed',
-          )
-          stop()
-          return
-        }
-        const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
-        if (blockedReason) {
-          await reportPromptFailure(current, head, blockedReason)
-          stop()
-          return
-        }
-        const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-        if (!(await queuedRows).some((row) => row.id === head.id)) {
-          await afterHead()
-          return
-        }
-        // A fresh session may create its first transcript record only after this
-        // write. While the transcript is unavailable, hold the confirmation
-        // poll rather than settling, retrying, or treating state as evidence.
-        // The outer drain deadline makes the wait visible and bounded.
-        if (!current.transcriptAvailable && this.needsInputReadiness(current)) {
-          const now = this.deps.now()
-          if (now >= deadline) {
-            await reportPromptFailure(
-              current,
-              head,
-              `the agent transcript is not available to confirm this ${this.deps.harnessName(current.agentKind)} input`,
-            )
-            return
-          }
-          setTimeout(poll, HELD_POLL_MS).unref?.()
-          return
-        }
-        if (tailUserTurnMatches(current, needle, isInitialPromptRow(sessionId, head))) {
-          await settleHead(current, head, true)
-          return
-        }
-        const now = this.deps.now()
-        if (isAgentComputing(current)) {
-          // Held, not lost. Give up only at the ceiling, and leave the row
-          // exactly where a later re-arm finds it — with its attempts intact.
-          if (now >= heldUntil) {
-            await reportPromptFailure(
-              current,
-              head,
-              initialPrompt
-                ? 'the agent stayed busy without confirming the creation prompt'
-                : 'the agent stayed busy without confirming this input',
-            )
-            return
-          }
-          until = now + CONFIRM_TIMEOUT_MS
-          setTimeout(poll, HELD_POLL_MS).unref?.()
-          return
-        }
-        if (now < until) {
-          setTimeout(poll, CONFIRM_POLL_MS).unref?.()
-          return
-        }
-        // Unconfirmed. The row is still queued and still durable; the operator
-        // keeps seeing it, and an ordinary row gets a later retry. A creation
-        // prompt is never retyped after an unconfirmed attempt: the original
-        // bytes may still be sitting in the native composer.
-        if (initialPrompt) {
-          await reportPromptFailure(
-            current,
-            head,
-            'the agent transcript did not confirm the creation prompt before the deadline',
-          )
-          return
-        }
-        if (attempt >= MAX_DELIVERY_ATTEMPTS) {
-          await reportPromptFailure(
-            current,
-            head,
-            'the agent transcript did not confirm this input after the retry budget was exhausted',
-          )
-          return
-        }
-        // NOT awaited: a drain re-arm is the timer's, not this pass's (rule 57).
-        setTimeout(() => void attemptDelivery(head, attempt + 1), RETRY_BACKOFF_MS * attempt).unref?.()
-      }
-      setTimeout(poll, CONFIRM_POLL_MS).unref?.()
-    }
-    const attemptDelivery = async (head: QueuedInboxMessage, attempt: number): Promise<void> => {
-      if (!isCurrent()) return
-      // A disposed registry has no store to read (see `dispose`): stand down.
-      if (this.disposed) return
-      if (this.deps.nativeViewActive?.(sessionId) === true) {
-        stop()
-        return
-      }
-
-      const firstPromptNeedsProof = isInitialPromptRow(sessionId, head)
-      const current = this.deps.getSession(sessionId)
-      if (!current || (current.status !== 'live' && current.status !== 'starting')) {
-        await reportPromptFailure(
-          current,
-          head,
-          firstPromptNeedsProof
-            ? 'the session stopped before the creation prompt was confirmed'
-            : 'the session stopped before this input was confirmed',
-        )
-        stop()
-        return
-      }
-      const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
-      if (blockedReason) {
-        await reportPromptFailure(current, head, blockedReason)
-        stop()
-        return
-      }
-      const needsReadinessProof = this.needsInputReadiness(current)
-      /**
-       * THE WRITE THAT MAY CREATE THE TRANSCRIPT (POD-2828).
-       *
-       * A harness whose composer is proven from a CONFIRMED TURN has a
-       * bootstrap problem, and the creation prompt is not the only row that
-       * hits it. `transcriptAvailable` is a one-way latch: false means this
-       * server has never seen a transcript ITEM for the session, and for
-       * claude-code a session that has not taken a turn yet has none —
-       * `claudeRecordToItems` drops the `isMeta` records SessionStart writes,
-       * so the JSONL exists and maps to nothing. So the very first chat send
-       * to a Claude session started WITHOUT a creation prompt is in exactly
-       * the position the creation prompt is in: the transcript that would
-       * witness it is the one it is about to create.
-       *
-       * Refusing that write is not caution, it is a state with no exit — the
-       * only thing that can produce the missing evidence is the write being
-       * refused. The generalization is the one POD-2116 already wrote for the
-       * creation row, applied to the class rather than to the instance it
-       * happened to have: type ONCE, then watch for the turn. Nothing here
-       * claims delivery — `confirm` below holds the row while the transcript
-       * is unavailable and dead-letters it at the deadline, so an unwitnessed
-       * write is still visibly the operator's.
-       */
-      const transcriptCreatingWrite =
-        firstPromptNeedsProof || (needsReadinessProof && !current.transcriptAvailable)
-      /**
-       * A SEND THAT MUST BE WITNESSED IS MATCHED EXACTLY (POD-2828).
-       *
-       * The 12-character floor exists because a short needle used with
-       * `includes` matches too much of a transcript to be evidence of
-       * anything. `tailUserTurnMatches(…, exact)` does not use `includes` — it
-       * compares the WHOLE normalized tail user turn against the WHOLE
-       * normalized text, which is unambiguous at any length. So the floor is a
-       * property of the PREFIX form, not of witnessing, and applying it to a
-       * row that is going to be confirmed anyway refused short sends for a
-       * weakness the exact comparison does not have: "quick one" is nine
-       * characters, and a first chat send of "quick one" was dead-lettered as
-       * "too short to witness in the transcript" rather than delivered.
-       *
-       * This is the same class the transcript-creating exemption named, at its
-       * actual boundary rather than stretched past it: every row here is one
-       * whose delivery is proven from the transcript, and exact matching only
-       * ever ADDS to what such a row can prove.
-       */
-      const exactNeedle = firstPromptNeedsProof || needsReadinessProof
-      const needle = confirmationNeedle(head.text, exactNeedle)
-      const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-      if (!(await queuedRows).some((row) => row.id === head.id)) {
-        await afterHead()
-        return
-      }
-      // Re-authorize immediately before EVERY physical attempt. Confirmation
-      // can span an agent turn; during that gap an ack, echo, or cancellation
-      // can settle the source ledger row and make a retry invalid.
-      const authorization: Promise<InboxAuthorizationDecision> = this.deps.authorization.authorizeAtDrain({
-        sessionId,
-        principal: head.principal,
-        sourceMessageId: head.sourceMessageId,
-      })
-      const authorized = await authorization
-      if (!authorized.ok) {
-        await removeHead(current, head.id)
-        const completion: Promise<void> = this.deps.authorization.rejected({
-          queueId: head.id,
-          sourceMessageId: head.sourceMessageId,
-          principal: head.principal,
-          reason: authorized.reason,
-        })
-        await completion
-        await afterHead()
-        return
-      }
-      // A retry exists ONLY because the last attempt went unwitnessed. If the
-      // turn has appeared since, it landed late — settle it rather than send the
-      // same prompt twice. This check is what makes retrying safe at all.
-      if (
-        needle !== null &&
-        tailUserTurnMatches(current, needle, exactNeedle) &&
-        (attempt > 1 || transcriptCreatingWrite)
-      ) {
-        await settleHead(current, head, true)
-        return
-      }
-      // A transcript-creating write is at-most-once across process restarts. Its
-      // attempt count is durable because the old native composer may still hold
-      // the bytes even when the server never saw a transcript turn — retyping
-      // would turn one uncertain prompt into two in the composer.
-      if (transcriptCreatingWrite && head.attempts > 0) {
-        await reportPromptFailure(
-          current,
-          head,
-          firstPromptNeedsProof
-            ? 'the creation prompt was already typed but has not appeared in the transcript'
-            : 'this input was already typed but has not appeared in the transcript',
-        )
-        return
-      }
-      // A RE-ARMED PASS OVER AN ALREADY-TYPED ROW (POD-1242). This row has been
-      // typed before and the harness is computing; the copy it is holding IS the
-      // delivery. Rejoin the wait rather than type a second one — `attempt - 1`
-      // because nothing is typed here, so the last typed attempt still stands.
-      if (attempt > 1 && needle !== null && current.transcriptAvailable) {
-        if (isAgentComputing(current)) {
-          confirm(head, needle, attempt - 1)
-          return
-        }
-      }
-      // A needle short enough to match half the transcript is evidence of
-      // nothing. A transcript-creating write is exempt: `confirmationNeedle`
-      // gives it the WHOLE normalized text and `tailUserTurnMatches` compares
-      // it exactly, so "ok" is still witnessable without a prefix.
-      if (needsReadinessProof && needle === null) {
-        await reportPromptFailure(
-          current,
-          head,
-          `this ${this.deps.harnessName(current.agentKind)} input is too short to witness in the transcript`,
-        )
-        return
-      }
-      const completion: Promise<void> = this.deps.queue.bumpAttempts(head.id)
-      await completion
-      // Baseline: if OUR text is already the last user turn we cannot tell a
-      // fresh arrival from the one that is there, so there is nothing to witness.
-      const witnessable =
-        needle !== null &&
-        current.transcriptAvailable &&
-        !tailUserTurnMatches(current, needle, exactNeedle)
-      const sent = this.typeText({
-        sessionId,
-        text: head.text,
-        inputOrigin: head.inputOrigin,
-        principal: head.principal,
-        allowErrored: this.recoveryDrains.has(sessionId),
-        ...(head.sourceMessageId ? { sourceMessageId: head.sourceMessageId } : {}),
-      })
-      if (!sent.ok) {
-        // A live menu is holding the CLI (`needs_user`). Typing a prompt into it
-        // would answer the wrong question. Keep the row and report the blocked
-        // delivery so the operator has a visible recovery handle.
-        await reportPromptFailure(
-          current,
-          head,
-          current.agentState?.phase === 'needs_user'
-            ? 'the agent is waiting for an answer before this input can be sent'
-            : 'the queued input could not be sent to the session',
-        )
-        stop()
-        return
-      }
-      // The bytes are in the CLI now, whatever the agent does with them next
-      // (POD-1242). Said out loud so the ledger — and the operator's own bubble —
-      // can stop calling a message that has been handed over "pending". It is not
-      // delivery: `applied` below still waits for the turn.
-      if (head.sourceMessageId) {
-        const completion: Promise<void> | undefined = this.deps.authorization.injected?.({
-          sourceMessageId: head.sourceMessageId, sessionId,
-        })
-        await completion
-      }
-      if (needle !== null && (witnessable || transcriptCreatingWrite || needsReadinessProof)) {
-        confirm(head, needle, attempt)
-      } else if (needsReadinessProof) {
-        await reportPromptFailure(
-          current,
-          head,
-          `the agent transcript did not confirm this ${this.deps.harnessName(current.agentKind)} input`,
-        )
-      } else await settleHead(current, head)
-    }
-    const deliverNext = async (): Promise<void> => {
-      if (!isCurrent()) return
-      // A disposed registry has no store to read (see `dispose`): stand down.
-      if (this.disposed) return
-      if (this.deps.nativeViewActive?.(sessionId) === true) {
-        stop()
-        return
-      }
-
-      const current = this.deps.getSession(sessionId)
-      const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-      const head = (await queuedRows)[0]
-      if (!current || (current.status !== 'live' && current.status !== 'starting')) {
-        if (head) {
-          await reportPromptFailure(
-            current,
-            head,
-            isInitialPromptRow(sessionId, head)
-              ? 'the session stopped before the creation prompt was confirmed'
-              : 'the session stopped before this input was confirmed',
-          )
-        }
-        stop()
-        return
-      }
-      const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
-      if (blockedReason) {
-        if (head) await reportPromptFailure(current, head, blockedReason)
-        stop()
-        return
-      }
-      if (!head) {
-        stop()
-        return
-      }
-      // The security boundary is HERE, immediately before the daemon gateway.
-      // Nothing accepted at enqueue is trusted now.
-      const authorization: Promise<InboxAuthorizationDecision> = this.deps.authorization.authorizeAtDrain({
-        sessionId,
-        principal: head.principal,
-        sourceMessageId: head.sourceMessageId,
-      })
-      const authorized = await authorization
-      if (!authorized.ok) {
-        await removeHead(current, head.id)
-        const completion: Promise<void> = this.deps.authorization.rejected({
-          queueId: head.id,
-          sourceMessageId: head.sourceMessageId,
-          principal: head.principal,
-          reason: authorized.reason,
-        })
-        await completion
-        await afterHead()
-        return
-      }
-      if (this.routesThroughContract(current)) {
-        stop()
-        await this.forwardContractRows(current, false)
-        return
-      }
-      // ATTEMPTS ARE THE ROW'S, NOT THE PASS'S (POD-1242). The cap used to reset
-      // every time a bind, an idle edge or a reconnect re-armed the drain, so a
-      // row that could not be confirmed was retyped five times per pass, forever.
-      // Contract delivery above has its own typed receipts; this budget applies
-      // only to the terminal path.
-      if (head.attempts >= MAX_DELIVERY_ATTEMPTS) {
-        await reportPromptFailure(
-          current,
-          head,
-          isInitialPromptRow(sessionId, head)
-            ? 'the creation prompt was already typed but has not appeared in the transcript'
-            : 'the agent transcript did not confirm this input after the retry budget was exhausted',
-        )
-        return
-      }
-      await attemptDelivery(head, head.attempts + 1)
-    }
-    /**
-     * Ready to be typed into. A harness state report is deliberately absent from
-     * this predicate: a PTY bind and a runtime-state stamp are lifecycle facts,
-     * not proof that the composer can receive a turn.
-     *
-     * `liveAtMs` is the BIND, not this pass — see the tick below. Both terms
-     * measure the same thing they always did, "how long has this CLI had to put
-     * a composer up"; asking it of the bind is what lets the ceiling expire.
-     */
-    const readyForInput = (current: Session, now: number): boolean => {
-      if (now - liveAtMs < READY_FLOOR_MS) return false
-      const settled =
-        current.terminal.lastOutputAtMs > baseOutputMs &&
-        now - current.terminal.lastOutputAtMs >= READY_QUIET_MS
-      return settled || now - liveAtMs >= READY_MAX_MS
-    }
-    const tick = async (): Promise<void> => {
-      if (!isCurrent()) return
-      // A disposed registry has no store to read (see `dispose`): stand down.
-      if (this.disposed) return
-      if (this.deps.nativeViewActive?.(sessionId) === true) {
-        stop()
-        return
-      }
-
-      const current = this.deps.getSession(sessionId)
-      const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-      const head = (await queuedRows)[0]
-      if (!current || current.status === 'exited' || current.status === 'hibernated') {
-        if (head) {
-          await reportPromptFailure(
-            current,
-            head,
-            isInitialPromptRow(sessionId, head)
-              ? 'the session stopped before the creation prompt was confirmed'
-              : 'the session stopped before this input was confirmed',
-          )
-        }
-        stop()
-        return
-      }
-      const now = this.deps.now()
-      const blockedReason = sessionSendRefusalReason(current, this.recoveryDrains.has(sessionId))
-      if (blockedReason) {
-        if (head) await reportPromptFailure(current, head, blockedReason)
-        else stop()
-        return
-      }
-      const serverDriven = this.routesThroughContract(current) === true
-      if (current.status === 'live') {
-        if (serverDriven) {
-          stop()
-          await this.forwardContractRows(current, false)
-          return
-        }
-        // Keep ownership of chat messages while the harness is working. Once a
-        // prompt has been submitted into a CLI's own queue, an interrupt may
-        // deliberately promote it into the next turn; holding it here is what
-        // lets either native Escape or chat Stop retract it reliably.
-        if (isAgentComputing(current)) {
-          setTimeout(tick, HELD_POLL_MS).unref?.()
-          return
-        }
-        if (!liveAtMs) {
-          /**
-           * THE READINESS CLOCK STARTS AT THE BIND, NOT AT THE SEND (POD-2836).
-           *
-           * This used to stamp `now`, which made the window below unexpirable:
-           * every measurement of "has the composer had time to mount" began at
-           * the moment someone asked for a message to be typed, so a session
-           * that bound an hour ago paid the same 6s ceiling as one that bound a
-           * second ago — 6.3s on EVERY first chat send after a bind. The window
-           * is right and is deliberately unchanged; only its zero moves.
-           *
-           * A bind we did not see (a live row rehydrated at server boot, before
-           * the daemon reattaches) leaves the clock where it was: unknown means
-           * unproven, and unproven waits the full window.
-           */
-          const boundAt = this.boundAtMs.get(current)
-          liveAtMs = boundAt !== undefined && boundAt < now ? boundAt : now
-          baseOutputMs = current.terminal.lastOutputAtMs
-        }
-        if (readyForInput(current, now) || now >= deadline) {
-          await deliverNext()
-          return
-        }
-      } else if (now >= deadline) {
-        if (head) {
-          await reportPromptFailure(
-            current,
-            head,
-            isInitialPromptRow(sessionId, head)
-              ? 'the session did not become live before the creation prompt deadline'
-              : 'the session did not become live before this input deadline',
-          )
-        } else stop()
-        return
-      }
-      setTimeout(tick, READY_POLL_MS).unref?.()
-    }
-    setTimeout(tick, READY_POLL_MS).unref?.()
+    await this.forwardShellRows(session)
   }
 
   /**
-   * Type an answer into the live native AskUserQuestion menu.
-   *
-   * The script below is not a guess: it was read out of the shipped Claude Code
-   * bundle (2.1.226, then 2.1.228) and verified by driving a real session in a
-   * PTY — docs/agent-harness-reference/claude.md §6 carries the contract, and
-   * the screens are in docs/agents/evidence/pod-609-ask-menu-drive.md and
-   * docs/agents/evidence/pod-770-preview-layout.md. Three facts
-   * shape it, and each one is a way a payload can silently do NOTHING:
-   *
-   *  - ONE KEYSTROKE PER WRITE. The CLI's key parser folds a multi-character
-   *    chunk into a SINGLE key event whose name is the whole string, so `"12"`
-   *    arrives as the key "12", matches no digit, and the menu does not move at
-   *    all. Every keystroke therefore leaves on its own timer (POD-609).
-   *  - A MULTI-SELECT QUESTION DOES NOT ADVANCE. Its digits only toggle boxes;
-   *    Tab moves to the next question's tab, and past the last question that
-   *    tab IS the review step.
-   *  - ONLY A LONE SINGLE-SELECT QUESTION SUBMITS ON THE DIGIT. Every other
-   *    shape — several questions, or a multi-select — ends on "Ready to submit
-   *    your answers?" with "Submit answers" focused, so one closing CR commits
-   *    the set. Without it the agent stays blocked on a dialog nobody presses.
-   *
-   * That last asymmetry is why the CR is conditional: on the lone single-select
-   * path the dialog is already gone, and a blind CR would land in the composer.
-   *
-   * THE DIALOG HAS TWO LAYOUTS, and the script differs in both routes (POD-770).
-   * A single-select question whose options carry `preview` text is not a list at
-   * all: options in a narrow left column, the focused option's preview on the
-   * right, a "Notes" field under it, and NO Other row. There, a digit only MOVES
-   * the highlight, a digit past the last option is dropped on the floor, Enter
-   * selects the highlighted row, and `n` opens the Notes field. Driving it with
-   * the classic script is how a typed answer became option 1 with the text lost:
-   * `3` fell off the end, the text was one dead key event, and the CR committed
-   * whatever was highlighted. `previewLayout` therefore rides with the answer,
-   * exactly as `multiSelect` does.
-   *
-   * The answer routes, per layout:
-   *  - Options, classic: the digit(s), one keystroke each — a single-select
-   *    commits and advances on the digit.
-   *  - Options, preview: the digit MOVES, so a CR must follow to select.
-   *  - Free text, classic: the menu appends an Other entry after the agent
-   *    options. Digit `otherIndex` focuses its field, the text follows, and a CR
-   *    commits it as the custom answer — free text must never land as a raw chat
-   *    send on top of an open menu.
-   *  - Free text, preview: `n` focuses Notes, the text follows, and a CR commits
-   *    it with no option selected.
-   *  - Skip: Esc cancels the whole dialog ("User declined to answer questions"),
-   *    so it takes no confirm.
-   *
-   * NOTHING IS TYPED UNTIL EVERY CHOICE IS DELIVERABLE. A choice this method
-   * cannot express is a refusal, never a partial script: the questions it could
-   * not answer stay on their first row, and the closing CR would commit those
-   * rows as if the operator had picked them. The caller surfaces the reason.
-   */
+  * The shell's drain: FIFO rows onto the raw transport, settled on send.
+  *
+  * Shells have no driver and no transcript witness — bytes onto the PTY the
+  * operator is watching ARE the delivery, exactly as a controller keystroke.
+  * No readiness wait, no confirmation poll, no retry: a row its owner may no
+  * longer accept is removed with a refusal, everything else is sent once and
+  * settled. Single-flight per session so concurrent re-arms cannot double-send.
+  */
+  private async forwardShellRows(session: Session): Promise<void> {
+    const sessionId = session.sessionId
+    if (this.activeDrains.has(sessionId)) return
+    const generation = (this.drainGenerations.get(sessionId) ?? 0) + 1
+    this.drainGenerations.set(sessionId, generation)
+    this.activeDrains.add(sessionId)
+    const isCurrent = (): boolean =>
+      !this.disposed &&
+      this.drainGenerations.get(sessionId) === generation &&
+      this.activeDrains.has(sessionId) &&
+      this.deps.getSession(sessionId) === session
+    try {
+      for (;;) {
+        if (!isCurrent()) return
+        if (session.status !== 'live' && session.status !== 'starting') return
+        const blockedReason = sessionSendRefusalReason(session, this.recoveryDrains.has(sessionId))
+        const rows = await this.deps.queue.list(sessionId)
+        const head = rows[0]
+        if (!head) return
+        if (blockedReason) {
+          await this.reportShellBlocked(session, head, blockedReason)
+          return
+        }
+        // The security boundary is HERE, immediately before the daemon gateway.
+        // Nothing accepted at enqueue is trusted now.
+        const authorized = await this.deps.authorization.authorizeAtDrain({
+          sessionId,
+          principal: head.principal,
+          sourceMessageId: head.sourceMessageId,
+        })
+        if (!isCurrent()) return
+        // A cancel can race asynchronous admission. The durable row remains the authority.
+        if (!(await this.deps.queue.list(sessionId)).some((row) => row.id === head.id)) continue
+        if (!authorized.ok) {
+          await this.deps.queue.delete(head.id)
+          await this.deps.authorization.rejected({
+            queueId: head.id,
+            sourceMessageId: head.sourceMessageId,
+            principal: head.principal,
+            reason: authorized.reason,
+          })
+          continue
+        }
+        this.sendShellText(session, {
+          sessionId,
+          text: head.text,
+          inputOrigin: head.inputOrigin,
+          principal: head.principal,
+          ...(head.sourceMessageId ? { sourceMessageId: head.sourceMessageId } : {}),
+        })
+        await this.settleDelivered(session, head)
+        if (!isCurrent()) return
+        const remaining = await this.deps.queue.list(sessionId)
+        await this.deps.write(session, (draft) => {
+          draft.queuedMessageCount = remaining.length
+          if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(session.sessionId)
+        })
+        this.deps.broadcast()
+      }
+    } finally {
+      if (this.drainGenerations.get(sessionId) === generation) {
+        this.activeDrains.delete(sessionId)
+      }
+    }
+  }
+
+  /** A shell row that met a session it must not be typed into. The row stays
+  *  durable and visible; the failure is reported once per row. */
+  private async reportShellBlocked(
+    session: Session,
+    head: QueuedInboxMessage,
+    reason: string,
+  ): Promise<void> {
+    if (this.reportedPromptFailures.has(head.id)) return
+    if (!(await this.deps.queue.list(session.sessionId)).some((row) => row.id === head.id)) return
+    this.reportedPromptFailures.add(head.id)
+    const draft = this.deps.draftText?.(session.sessionId)
+    if (draft === undefined || draft === '' || draft === head.text) {
+      await this.deps.setSessionDraft?.({ sessionId: session.sessionId, text: head.text })
+    }
+    const ownerUserId = await this.deps.ownerOf(session.sessionId)
+    await this.deps.attention.promptFailed({
+      ...(ownerUserId ? { ownerUserId } : {}),
+      sessionId: session.sessionId,
+      text: head.text,
+      reason,
+      initialPrompt: isInitialPromptRow(session.sessionId, head),
+    })
+  }
+
+  /**
+  * Answer an interaction through the caller's delivery — in production the
+  * runtime gateway's `answer`, which reaches the driver that owns the menu
+  * (POD-4427). The keystroke script this method used to type lives in the
+  * terminal driver now (`menuScriptFor`); the server never types menu keys.
+  *
+  * Admission (owner resolution, liveness, prepareSend) stays here: it is the
+  * transport's gate, not the driver's.
+  */
   async deliverInteractionAnswer(
     input: { sessionId: SessionId; principal: InboxPrincipalReference },
     deliver: () => Promise<import('@podium/protocol').InteractionAnswerOutcome>,
@@ -2313,14 +1508,13 @@ export class SessionInbox {
     next: AgentRuntimeState
     observation?: AgentObservation
   }): Promise<void> {
-    // A CLEARED MENU IS A RE-ARM (POD-1703). `typeText` refuses while the phase
-    // is `needs_user` — correctly, since a prompt typed into an AskUserQuestion
-    // menu answers the wrong question — and the drain then stops and waits for
-    // "the next re-arm". That used to mean a daemon bind, which on a healthy
-    // long-lived session may never come, so an offer clicked while the agent sat
-    // on a permission prompt hung indefinitely. The moment the menu clears is
-    // the exact edge that unblocks it, and it costs nothing on a session with an
-    // empty queue (`drain` returns on queuedMessageCount === 0).
+    // A CLEARED MENU IS A RE-ARM (POD-1703). A send never types into an
+    // AskUserQuestion menu — it would answer the wrong question — and the
+    // drain then waits for "the next re-arm". That used to mean a daemon bind,
+    // which on a healthy long-lived session may never come, so an offer clicked
+    // while the agent sat on a permission prompt hung indefinitely. The moment
+    // the menu clears is the exact edge that unblocks it, and it costs nothing
+    // on a session with an empty queue (a drain over no rows is a no-op).
     if (input.prev?.phase === 'needs_user' && input.next.phase !== 'needs_user') {
       // NOT awaited: this is a re-arm on a state edge, and a drain pass that
       // fails loses nothing — the row is durable and the next bind, reconnect,
@@ -2363,16 +1557,15 @@ export class SessionInbox {
     }
     if (this.deps.getSession(sessionId) !== session) return
     // The native terminal sees the operator's abort key before the transcript
-    // can report its result. Cancel a chat-owned delayed Enter at this boundary,
-    // or the 90ms submit timer can win and start the prompt after Codex has
-    // already printed "Conversation interrupted" (POD-1733). Compared as bytes:
-    // this path no longer carries the base64 the check was first written for.
+    // can report its result. Retract a chat-owned queued row at this boundary,
+    // or a row admitted just ahead of the interrupt waits out a drain instead
+    // of being pulled back (POD-1733). Compared as bytes: this path no longer
+    // carries the base64 the check was first written for.
     const abort = this.abortKeyFor(session)
     if (session.terminal.controllerId === client.id && abort && Buffer.from(abort).equals(bytes)) {
       // Spec rule 57 (POD-3528): the callee went async and this frame handler cannot
       // yield. Left non-blocking, which is exactly today's behaviour — the
-      // submitVerificationGeneration delete that must beat the 90ms delayed
-      // Enter (POD-1733) runs before the callee's first await.
+      // retraction above runs before the callee's first await.
       // Report a failed retraction without delaying the terminal input frame.
       void this.cancelInterruptedDelivery(sessionId, true).catch((error) => {
         log.warn('native interrupt retraction failed', { err: error, sessionId })
@@ -2470,100 +1663,34 @@ export class SessionInbox {
     this.deps.getSession(sessionId)?.terminal.reconcileGeometry(client.id)
   }
 
-  /** Bytes for an already-admitted turn; drain retries must not retire a newer offer. */
-  private typeText(input: InboxSendInput, afterEsc = false): { ok: boolean } {
-    const session = this.deps.getSession(input.sessionId)
-    if (!session || (session.status !== 'live' && session.status !== 'starting')) {
-      return { ok: false }
-    }
-    const blockedReason = sessionSendRefusalReason(session, input.allowErrored === true)
-    if (blockedReason) return { ok: false }
-    // A server-family session has no PTY bridge: the daemon discards "typed"
-    // bytes without an error, so an ok here would be the exact lie POD-2291
-    // closes. Refusing keeps the caller's row queued and visible; the drain's
-    // contract branch is the path that actually delivers.
-    if (this.routesThroughContract(session) === true) return { ok: false }
-    if (!afterEsc && session.agentState?.phase === 'needs_user') return { ok: false }
+  /**
+  * Raw bytes for a shell turn: the bracketed paste plus its submit, with no
+  * timers behind them (POD-4427).
+  *
+  * This is transport, not delivery: the same bytes a controller keystroke
+  * would put on the wire, and the reason shells are exempt from the
+  * never-types rule — there is no harness here to type AT, only a PTY the
+  * operator is watching. One submit, sent with the paste: the delayed-CR
+  * verify loop that used to follow is gone with the agent typing path whose
+  * doubled characters it produced.
+  *
+  * THE TRUST BOUNDARY, AND IT IS CROSSED EXACTLY HERE (POD-2708).
+  *
+  * `injectionPayload` is the only thing on this side that puts caller text
+  * inside a bracketed paste, and it cannot do so without first removing every
+  * byte a shell's line discipline would read as control — so no text arriving
+  * at this line can close the envelope it is about to be wrapped in, whoever
+  * sent it.
+  */
+  private sendShellText(session: Session, input: InboxSendInput): void {
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    const baseline = session.terminal
-      .transcriptItems()
-      .filter((item) => item.role === 'user').length
-    // THE TRUST BOUNDARY, AND IT IS CROSSED EXACTLY HERE (POD-2708).
-    //
-    // `injectionPayload` is the only thing on this side that puts caller text
-    // inside a bracketed paste, and it cannot do so without first removing every
-    // byte a CLI's key parser would read as control — so no text arriving at this
-    // line can close the envelope it is about to be wrapped in, whoever sent it.
-    // It used to be true only of text that had passed through the message
-    // RENDERER's `sanitizeBody`, which the steward's nudges and the automations
-    // drain never touch. Grok's fresh TUI ignores bracketed paste until a native
-    // first turn (POD-549), so its first prompt goes as raw keystrokes (POD-901) —
-    // guarded identically, because a raw ESC there is simply an interrupt.
-    const payload = injectionPayload(input.text, { rawFirstTurn: this.isRawFirstTurn(session) })
-    this.sendInput(session, payload, input.inputOrigin ?? 'controller', principal.attribution)
-    const generation = ++this.nextSubmitVerificationGeneration
-    this.submitVerificationGeneration.set(input.sessionId, generation)
-    setTimeout(() => {
-      if (this.submitVerificationGeneration.get(input.sessionId) !== generation) return
-      const current = this.deps.getSession(input.sessionId)
-      if (!current || (current.status !== 'live' && current.status !== 'starting')) {
-        this.submitVerificationGeneration.delete(input.sessionId)
-        return
-      }
-      this.sendInput(current, '\r', input.inputOrigin ?? 'controller', principal.attribution)
-      if (this.deps.needsSubmitVerification(current.agentKind)) {
-        this.scheduleSubmitVerify(input.sessionId, baseline, principal.attribution, 1, generation)
-      } else {
-        this.submitVerificationGeneration.delete(input.sessionId)
-      }
-    }, SUBMIT_CR_DELAY_MS).unref?.()
-    return { ok: true }
-  }
-
-  private scheduleSubmitVerify(
-    sessionId: SessionId,
-    baselineUserTurns: number,
-    attribution: Attribution,
-    attempt: number,
-    generation: number,
-  ): void {
-    setTimeout(() => {
-      if (this.submitVerificationGeneration.get(sessionId) !== generation) return
-      const session = this.deps.getSession(sessionId)
-      if (!session || (session.status !== 'live' && session.status !== 'starting')) {
-        this.submitVerificationGeneration.delete(sessionId)
-        return
-      }
-      const phase = session.agentState?.phase
-      if (phase !== undefined && phase !== 'idle') {
-        this.submitVerificationGeneration.delete(sessionId)
-        return
-      }
-      if (
-        session.terminal.transcriptItems().filter((item) => item.role === 'user').length >
-        baselineUserTurns
-      ) {
-        this.submitVerificationGeneration.delete(sessionId)
-        return
-      }
-      this.sendInput(session, '\r', 'controller', attribution)
-      if (attempt < SUBMIT_MAX_RETRIES) {
-        this.scheduleSubmitVerify(
-          sessionId,
-          baselineUserTurns,
-          attribution,
-          attempt + 1,
-          generation,
-        )
-      } else {
-        this.submitVerificationGeneration.delete(sessionId)
-      }
-    }, SUBMIT_VERIFY_DELAY_MS).unref?.()
-  }
-
-  private isRawFirstTurn(session: Session): boolean {
-    if (!this.deps.usesRawFirstTurn(session.agentKind)) return false
-    return !hasSeenUserTurn(session)
+    this.sendInput(
+      session,
+      injectionPayload(input.text, { rawFirstTurn: false }),
+      input.inputOrigin ?? 'controller',
+      principal.attribution,
+    )
+    this.sendInput(session, '\r', input.inputOrigin ?? 'controller', principal.attribution)
   }
 
   private sendInput(
