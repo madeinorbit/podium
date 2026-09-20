@@ -243,8 +243,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const runtimeDriversEnabled = useFeature('runtime-drivers')
-  const HEADED_DRIVER_CONTRACT = 'headed-contract'
-  const [driverChoice, setDriverChoice] = useState(HEADED_DRIVER_CONTRACT)
+  const HEADED_DRIVER = 'headed'
+  const [driverChoice, setDriverChoice] = useState(HEADED_DRIVER)
   // Durable launch failures belong to the draft, not component lifetime. The
   // recovery composer can mount one microtask before the outcome writes its
   // error; reading the subscribed draft lets that late value appear. Local
@@ -409,18 +409,22 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       agentLoginCondition(selectedMachine, driver.harness) !== 'logged-out',
   )
   const selectedHeadlessDriver =
-    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER_CONTRACT
+    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER
       ? availableHeadlessDrivers.find((driver) => driver.id === driverChoice)
       : undefined
   const driverUnavailable =
     runtimeDriversEnabled &&
-    driverChoice !== HEADED_DRIVER_CONTRACT &&
+    driverChoice !== HEADED_DRIVER &&
     selectedHeadlessDriver === undefined
-  const runtimeContract =
-    runtimeDriversEnabled
-      ? driverChoice === HEADED_DRIVER_CONTRACT
-        ? availableHeadedDriver?.id
-        : selectedHeadlessDriver?.id
+  // An explicit headless pick rides `requestedDriverId`; the headed choice
+  // sends NOTHING — omission already means the manifest's terminal driver,
+  // which the daemon binds unconditionally (the NewPanelMenu sibling got
+  // this right). The deleted wire field must stay deleted: a spread of a
+  // conditional object is not excess-property-checked, so a wrong name here
+  // compiles while `createDraftAgent` silently drops it.
+  const requestedDriverId =
+    runtimeDriversEnabled && driverChoice !== HEADED_DRIVER
+      ? selectedHeadlessDriver?.id
       : undefined
   /**
    * THE SAME REFUSAL VOCABULARY AS EVERY OTHER SPAWN MENU (POD-1201).
@@ -667,7 +671,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       agentKind: agent,
       ...(draft.model !== AUTO ? { model: draft.model } : {}),
       ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
-      ...(runtimeContract !== undefined ? { runtimeContract } : {}),
+      ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
     })
     // The prompt was never written, so nothing is left to restore — but the
     // instruments were chosen and stay chosen for the next one.
@@ -844,7 +848,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
         agentKind: agent,
         ...(draft.model !== AUTO ? { model: draft.model } : {}),
         ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
-        ...(runtimeContract !== undefined ? { runtimeContract } : {}),
+        ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
       })
       // Keep prompt, attachments and ids until the authority has accepted the
       // draft vessel and its first session. The mutation and client-minted ids
@@ -1131,7 +1135,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   selectedValue={agent}
                   onSelect={(nextAgent) => {
                     const kind = issueAgentKind(nextAgent) ?? agent
-                    if (kind !== agent) setDriverChoice(HEADED_DRIVER_CONTRACT)
+                    if (kind !== agent) setDriverChoice(HEADED_DRIVER)
                     setDraft(
                       withoutCreateReservation({
                         ...draft,
@@ -1198,15 +1202,15 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                       aria-label="Driver"
                       className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
                     >
-                      {driverChoice === HEADED_DRIVER_CONTRACT
-                        ? 'Headed (driver contract)'
+                      {driverChoice === HEADED_DRIVER
+                        ? 'Headed'
                         : runtimeDriverLabel(driverChoice)}
                       <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
                     </button>
                   }
                   options={[
                     ...(availableHeadedDriver
-                      ? [{ value: HEADED_DRIVER_CONTRACT, label: 'Headed (driver contract)' }]
+                      ? [{ value: HEADED_DRIVER, label: 'Headed' }]
                       : []),
                     ...availableHeadlessDrivers.map((driver) => ({
                       value: driver.id,
