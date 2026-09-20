@@ -135,7 +135,7 @@ export function HibernationSection({
       </Row>
       <Row
         label="Idle shell minutes"
-        description="Park live shells after this many minutes with no input or output. The default is 1 minute; empty turns shell reaping off."
+        description="Park live shells after this many minutes with no input or output. The default is 60 minutes; empty turns shell reaping off."
       >
         <Input
           aria-label="Idle shell minutes"
@@ -143,14 +143,14 @@ export function HibernationSection({
           type="number"
           min={1}
           max={43200}
-          placeholder="1"
+          placeholder="60"
           value={settings.hibernation.idleShellMinutes ?? ''}
           onChange={(e) =>
             patch({
               hibernation: {
                 ...settings.hibernation,
                 idleShellMinutes:
-                  e.target.value === '' ? null : clampInt(e.target.value, 1, 43200, 1),
+                  e.target.value === '' ? null : clampInt(e.target.value, 1, 43200, 60),
               },
             })
           }

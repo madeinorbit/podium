@@ -248,7 +248,10 @@ export const HibernationPolicy = z.object({
     .default(30),
   /**
    * Park live shell sessions after this many minutes of quiet (no input, no
-   * output). Null explicitly turns shell reaping off; the default is one minute.
+   * output). Null explicitly turns shell reaping off; the default is sixty
+   * minutes (POD-4429: one minute parked an open dock shell sitting at its
+   * prompt one minute after the last keystroke, and the dock then replaced it
+   * with an empty one — a parked shell is resumed in place, not replaced).
    *
    * Shells have no harness observer, so their phase stays unknown and the
    * agent hibernation path cannot park them (no resume ref, no terminal
@@ -262,7 +265,7 @@ export const HibernationPolicy = z.object({
     .min(1)
     .max(30 * 24 * 60)
     .nullable()
-    .default(1),
+    .default(60),
   /** Last-resort quiet bound. This may bypass terminal proof, but never an
    * explicit future automation wakeup. */
   backstopMinutes: z
