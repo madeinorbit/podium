@@ -1,0 +1,7 @@
+{
+  "extends": "../../tooling/tsconfig/react.json",
+  "include": ["src", "shared/src", "arms/*/src", "harness/src"],
+  "compilerOptions": {
+    "types": ["node"]
+  }
+}
