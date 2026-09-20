@@ -302,7 +302,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       bulkIdx.push(i)
   })
   for (const i of bulkIdx) {
-    if (rng() >= 0.389) continue
+    if (rng() >= 0.435) continue
     const m = mints[i]!
     const agent = m.audience === 'agent'
     for (let attempt = 0; attempt < 12; attempt++) {
@@ -402,7 +402,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   const originOf = new Map<number, number>()
   mints.forEach((m, i) => {
     if (m.archived || m.deleted) return
-    if (rng() >= 0.05) return
+    if (rng() >= 0.057) return
     // Origins always have open sessions, so they never read as vacated and
     // their continuation stays null.
     const origin = pick(sessionBacked)
