@@ -112,7 +112,7 @@ async function harness() {
       })
       return
     }
-    if (m.type === 'reattach' && m.runtimeContract === 'headless') {
+    if (m.type === 'reattach' && m.requestedDriverId === 'headless') {
       bindReqs.push({
         ...m,
         resumeValue: m.resume?.value,
@@ -832,7 +832,7 @@ describe('sendTurn (headless harness turns)', () => {
     expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global' })
     expect(meta?.agentKind).toBeTruthy()
     expect(h.spawns).toHaveLength(1)
-    expect(h.spawns[0]).toMatchObject({ sessionId: ack.podiumSessionId, agentKind: meta?.agentKind, runtimeContract: 'headless' })
+    expect(h.spawns[0]).toMatchObject({ sessionId: ack.podiumSessionId, agentKind: meta?.agentKind, requestedDriverId: 'headless' })
     // The agent is frozen onto the thread row.
     expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind).toBe(
       meta?.agentKind,
@@ -1557,7 +1557,7 @@ describe('boot reconciliation for headless sessions', () => {
     const binds: BindReq[] = []
     const reattaches: string[] = []
     await reborn.gateway.attachDaemon(reborn.sessionStore.hostMachineId, (m) => {
-      if (m.type === 'reattach' && m.runtimeContract === 'headless') {
+      if (m.type === 'reattach' && m.requestedDriverId === 'headless') {
         binds.push({ ...m, resumeValue: m.resume?.value } as BindReq)
         return
       }

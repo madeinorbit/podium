@@ -73,7 +73,7 @@ async function bindContract(registry: SessionRegistry, store: SessionStore) {
   const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'codex', cwd: '/project' })
   await registry.gateway.routeDaemonFrame(store.hostMachineId, {
     type: 'bind', sessionId, cmd: 'codex app-server', cwd: '/project', agentKind: 'codex',
-    geometry: { cols: 80, rows: 24 }, runtimeContract: true, driverId: 'codex-app-server',
+    geometry: { cols: 80, rows: 24 }, driverId: 'codex-app-server',
   })
   return sessionId
 }

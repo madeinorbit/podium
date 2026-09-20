@@ -124,7 +124,7 @@ describe('SessionStart: creation-owned first prompt', () => {
 })
 
 describe('resolved runtime driver projection', () => {
-  it('publishes the actual driver, echoes degradation on reattach, and clears a stale request', async () => {
+  it('publishes the actual driver, sends the selected driver on reattach, and clears a stale request', async () => {
     const { reg, daemon } = await makeRegistry()
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
@@ -138,7 +138,6 @@ describe('resolved runtime driver projection', () => {
       cwd: '/proj',
       agentKind: 'codex',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'codex-app-server',
       requestedDriverId: 'opencode-server',
     })
@@ -160,8 +159,7 @@ describe('resolved runtime driver projection', () => {
       (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
         message.type === 'reattach' && message.sessionId === sessionId,
     )
-    expect(reattach?.requestedDriverId).toBe('opencode-server')
-    expect(reattach?.runtimeContract).toBe('codex-app-server')
+    expect(reattach?.requestedDriverId).toBe('codex-app-server')
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -170,7 +168,6 @@ describe('resolved runtime driver projection', () => {
       cwd: '/proj',
       agentKind: 'codex',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'codex-app-server',
     })
 
@@ -192,9 +189,9 @@ describe('Claude SDK continuity projection', () => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/proj',
-      runtimeContract: 'claude-sdk',
+      requestedDriverId: 'claude-sdk',
     })
-    expect(spawns(daemon).at(-1)).toMatchObject({ sessionId, runtimeContract: 'claude-sdk' })
+    expect(spawns(daemon).at(-1)).toMatchObject({ sessionId, requestedDriverId: 'claude-sdk' })
 
     const resume = { kind: 'claude-session', value: 'claude-sdk-resume' } as const
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -204,7 +201,6 @@ describe('Claude SDK continuity projection', () => {
       cwd: '/proj',
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'claude-sdk',
       requestedDriverId: 'claude-pty',
     })
@@ -244,8 +240,7 @@ describe('Claude SDK continuity projection', () => {
       (message): message is Extract<ControlMessage, { type: 'reattach' }> =>
         message.type === 'reattach' && message.sessionId === sessionId,
     )
-    expect(reattach).toMatchObject({ sessionId, resume, runtimeContract: 'claude-sdk' })
-    expect(reattach).toMatchObject({ requestedDriverId: 'claude-sdk' })
+    expect(reattach).toMatchObject({ sessionId, resume, requestedDriverId: 'claude-sdk' })
 
     daemon.length = 0
     expect(await reloaded.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
@@ -258,7 +253,7 @@ describe('Claude SDK continuity projection', () => {
     expect(spawns(daemon).at(-1)).toMatchObject({
       sessionId,
       resume,
-      runtimeContract: 'claude-sdk',
+      requestedDriverId: 'claude-sdk',
     })
   })
 })
@@ -290,7 +285,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     )
     expect(
       daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId),
-    ).toMatchObject({ runtimeContract: 'opencode-server' })
+    ).toMatchObject({ requestedDriverId: 'opencode-server' })
   })
 
   it('revives a reloaded legacy headless row with its selected concrete driver', async () => {
@@ -307,7 +302,6 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       cwd: '/proj',
       agentKind: 'opencode',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'opencode-server',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -331,7 +325,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     })
     expect(spawns(daemon).at(-1)).toMatchObject({
       sessionId,
-      runtimeContract: 'opencode-server',
+      requestedDriverId: 'opencode-server',
     })
   })
 
@@ -341,7 +335,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'opencode',
       cwd: '/proj',
-      runtimeContract: 'opencode-server',
+      requestedDriverId: 'opencode-server',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -350,7 +344,6 @@ describe('legacy selected-driver lifecycle compatibility', () => {
       cwd: '/proj',
       agentKind: 'opencode',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'generic-pty',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -373,7 +366,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     })
     expect(spawns(daemon).at(-1)).toMatchObject({
       sessionId,
-      runtimeContract: 'opencode-server',
+      requestedDriverId: 'opencode-server',
     })
   })
 
@@ -400,7 +393,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     )
     expect(
       daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId),
-    ).not.toHaveProperty('runtimeContract')
+    ).not.toHaveProperty('requestedDriverId')
   })
 })
 
@@ -488,7 +481,7 @@ describe('non-picker driver requests', () => {
     })
     const { data: { sessionId } } = JSON.parse(output)
     const frame = spawns(daemon).find((m) => m.sessionId === sessionId)
-    expect(frame).toMatchObject({ agentKind: 'codex', runtimeContract: 'codex-pty' })
+    expect(frame).toMatchObject({ agentKind: 'codex', requestedDriverId: 'codex-pty' })
     const row = await reg.sessionStore.sessions.getSession(sessionId)
     expect(row?.requestedDriverId).toBe('codex-pty')
   })
@@ -505,13 +498,13 @@ describe('non-picker driver requests', () => {
     const { reg, daemon } = await makeRegistry()
     await reg.modules.sessions.createSession({
       cwd: '/proj', agentKind: 'codex', requestTerminalDriver: true,
-      runtimeContract: 'codex-app-server',
+      requestedDriverId: 'codex-app-server',
     })
-    expect(spawns(daemon).at(-1)?.runtimeContract).toBe('codex-app-server')
+    expect(spawns(daemon).at(-1)?.requestedDriverId).toBe('codex-app-server')
     await reg.modules.sessions.createSession({
       cwd: '/proj', agentKind: 'shell', requestTerminalDriver: true,
     })
-    expect(spawns(daemon).at(-1)).not.toHaveProperty('runtimeContract')
+    expect(spawns(daemon).at(-1)).not.toHaveProperty('requestedDriverId')
   })
 })
 
@@ -547,10 +540,13 @@ describe('driver admission recovery diagnosis', () => {
       await reloaded.gateway.attachDaemon(store.hostMachineId, (message) => daemon.push(message))
       const reattach = daemon.find((message) => message.type === 'reattach' && message.sessionId === sessionId)
       if (requestedDriverId) {
-        expect(reattach).toMatchObject({ runtimeContract: selectedDriverId, requestedDriverId })
+        // One field: a degraded row sends the terminal SELECTED id, not the
+        // server preference — otherwise the daemon's no-journal refusal fires.
+        expect(reattach).toMatchObject({ requestedDriverId: selectedDriverId })
       } else {
-        expect(reattach).not.toHaveProperty('runtimeContract')
+        expect(reattach).not.toHaveProperty('requestedDriverId')
       }
+      expect(reattach).not.toHaveProperty('runtimeContract')
       const reason = 'terminal driver could not establish a handle; retry this session'
       await reloaded.gateway.routeDaemonFrame(store.hostMachineId, {
         type: 'reattachFailed', sessionId, reason,

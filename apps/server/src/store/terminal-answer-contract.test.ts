@@ -47,7 +47,7 @@ describe('production terminal answer identity', () => {
       const profile = terminalProfileFor('claude-code')!
       await registry.gateway.routeDaemonFrame(store.hostMachineId, { type: 'bind', sessionId,
         cmd: 'claude', cwd: '/project', agentKind: 'claude-code', geometry: { cols: 80, rows: 24 },
-        runtimeContract: true, driverId: profile.driverId })
+        driverId: profile.driverId })
       const handle = runtime.register({ sessionId, agentKind: 'claude-code', cwd: '/project', resume: null }, profile)
       const observation = (transitionId: string, preview = true): AgentObservation => ({
         podiumSessionId: sessionId, provider: 'claude-code', providerSessionId: 'native',

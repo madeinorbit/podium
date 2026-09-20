@@ -2699,7 +2699,7 @@ describe('agent drain via the runtime contract', () => {
 
 
   // RETIRED WITH THE FLAG-GATED ROLLOUT (POD-4279, switch removed POD-4280).
-  // These tests flipped the daemon-headed-delivery switch between legacy
+  // These tests flipped the hot delivery switch between legacy
   // typing and contract delivery mid-drain. Agents no longer read any switch —
   // drain always forwards — so there is no legacy arm to flip between.
   // Daemon custody (POD-4291) survives the rollout removal: a daemon-owned row

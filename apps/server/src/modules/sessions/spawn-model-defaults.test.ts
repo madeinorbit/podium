@@ -132,9 +132,9 @@ it.each([
     agentKind: 'opencode',
     cwd: '/proj',
     accountId: asAccountId(accountId),
-    runtimeContract: 'opencode-server',
+    requestedDriverId: 'opencode-server',
   })
-  expect(latestSpawn(daemon)).toMatchObject({ runtimeContract: 'opencode-server' })
+  expect(latestSpawn(daemon)).toMatchObject({ requestedDriverId: 'opencode-server' })
   expect((await registry.sessionStore.sessions.getSession(sessionId))?.accountId).toBe(accountId)
 })
 

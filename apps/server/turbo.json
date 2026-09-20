@@ -646,6 +646,7 @@
         "src/modules/sessions/handoff/refusal.test.ts",
         "src/modules/sessions/handoff/refusal.ts",
         "src/modules/sessions/handoff/transfer.ts",
+        "src/modules/sessions/inbox-gateway-delivery.test.ts",
         "src/modules/sessions/inbox.single-flight.test.ts",
         "src/modules/sessions/inbox.test.ts",
         "src/modules/sessions/inbox.ts",
