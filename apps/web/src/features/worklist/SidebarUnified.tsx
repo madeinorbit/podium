@@ -634,7 +634,7 @@ export function WorkSections({
   // reference while those issues are unchanged.
   const worktreeIssuesCacheRef = useRef(new Map<string, IssueNavigationModel[]>())
   const filteredIssuesForWorktree = useCallback(
-    (path: string, sessionIssueIds: readonly (string | null | undefined)): IssueNavigationModel[] => {
+    (path: string, sessionIssueIds: readonly (string | null | undefined)[]): IssueNavigationModel[] => {
       const needed = new Set(sessionIssueIds.filter((id): id is string => !!id))
       const filtered = menuIssuesRef.current.filter((i) => needed.has(i.id))
       const prev = worktreeIssuesCacheRef.current.get(path)
