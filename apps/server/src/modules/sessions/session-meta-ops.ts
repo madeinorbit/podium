@@ -30,7 +30,6 @@ import type { SessionStateService } from './session-state/service'
 import type { SessionDeletePlan, SessionRestorePlan } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
 import type { SessionStateRegistry } from './session-state/registry'
-import { contractDeliveryRequested } from './contract-delivery'
 
 export interface SessionMetaOpsPorts {
   broadcastSessions(): void
@@ -326,11 +325,12 @@ export class SessionMetaOps {
     // vanish into a dead PTY yet still report ok. Only a running session can retry.
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
-    // A server-family session has no PTY bridge: the daemon discards typed
-    // bytes without an error, so the 'continue\r' below would be bytes into
-    // nothing answered ok:true. Route the continue through the contract port
-    // instead, exactly as interruptText does for its stop.
-    if (contractDeliveryRequested(session)) {
+    // Contract-only continue for agents (POD-4279): the follow-up text rides
+    // the same receipt seam as every other send. A raw 'continue\r' typed at a
+    // session with no PTY bridge is bytes into nothing answered ok:true.
+    // Plain-terminal shells (POD-4278) keep the raw keystroke — they have no
+    // driver to call.
+    if (session.agentKind !== 'shell') {
       session.terminal.recordInputActivity(this.ports.now(), 'auto_continue')
       const send = this.ports.sendContinueViaContract
       if (!send) return { ok: false }

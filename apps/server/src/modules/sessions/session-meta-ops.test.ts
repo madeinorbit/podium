@@ -71,6 +71,7 @@ async function fixture(file = ':memory:') {
       setWorkState: vi.fn(), setArchived: vi.fn(), clearAllSnoozes: vi.fn(), suppressNativeDraft: vi.fn(),
     },
     toPtyInput: vi.fn(),
+    sendContinueViaContract: vi.fn(async () => ({ ok: true as const })),
     view: { buildProjectionPass: async () => ({} as never), principalForTrustedUser: vi.fn(), prepareRefAllocation: vi.fn(), overlay: vi.fn(), wire: vi.fn((s: Session) => s.toMeta({ readAt: null, snoozedUntil: null })) },
   }
   return { store, session, sessions, repository, ports, ops: new SessionMetaOps(ports) }
@@ -231,5 +232,42 @@ describe('continueSession contract routing', () => {
     sessions.set(sessionId, session)
     await ops.continueSession({ sessionId })
     expect(ports.toPtyInput).not.toHaveBeenCalled()
+  })
+
+  // Arms the shell carve-out: agents continue through the driver contract even
+  // when no rollout flag says so (POD-4279). Flip the site back to the flag and
+  // a terminal agent types a raw 'continue\r' again.
+  it('routes a terminal agent continue through the contract with no raw bytes', async () => {
+    const { ops, ports, sessions, session } = await fixture()
+    session.status = 'live'
+    session.agentState = {
+      phase: 'errored',
+      since: stamp,
+      nativeSubagentCount: 0,
+      error: { class: 'server_error', retryable: true },
+    }
+    sessions.set(sessionId, session)
+    expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
+    expect(ports.sendContinueViaContract).toHaveBeenCalledWith(sessionId)
+    expect(ports.toPtyInput).not.toHaveBeenCalled()
+  })
+
+  it('types a raw continue for a shell, which has no driver to call', async () => {
+    const { ops, ports, sessions, session, store } = await fixture()
+    session.status = 'live'
+    ;(session as unknown as { agentKind: string }).agentKind = 'shell'
+    session.agentState = {
+      phase: 'errored',
+      since: stamp,
+      nativeSubagentCount: 0,
+      error: { class: 'server_error', retryable: true },
+    }
+    sessions.set(sessionId, session)
+    expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
+    expect(ports.sendContinueViaContract).not.toHaveBeenCalled()
+    expect(ports.toPtyInput).toHaveBeenCalledWith(store.hostMachineId, expect.objectContaining({
+      sessionId,
+      inputOrigin: 'auto_continue',
+    }))
   })
 })
