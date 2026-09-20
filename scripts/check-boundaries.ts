@@ -161,6 +161,13 @@ import {
   workspaceOf,
 } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
+import {
+  HARNESS_BASELINE_LEAK_COUNT,
+  HARNESS_BASELINE_POLICY_COUNT,
+  HARNESS_BASELINE_TOTAL,
+  HARNESS_BOUNDARY_ALLOWLIST,
+  type HarnessBoundaryAllowlistEntry,
+} from './harness-boundary-allowlist'
 
 // The import-scanning primitives and the Violation shape live in
 // ./architecture-manifest — both rule families need them, and the dependency
@@ -480,6 +487,220 @@ export function checkPrincipalFree(file: string, source: string): Violation[] {
     })
   }
   return violations
+}
+
+// ---------------------------------------------------------------------------
+// Harness vendor boundary (POD-4467, epic POD-4414 §5).
+//
+// Rule: no vendor-specific operational behaviour outside
+// `packages/harness/src/adapters/` and `packages/harness/src/driver/families/`.
+// The mechanical gate is the identifier lint: a harness literal (the closed
+// set from packages/model/src/entities/agent.ts BuiltinHarnessKind, plus
+// display names) as a quoted string literal outside the two homes is a
+// violation. Comments, test files, fixtures, e2e and historical migrations
+// are excluded. The authoritative definition itself is excluded.
+//
+// Follows POD-2019's shape (checkPrincipalFree): a pure per-file check plus a
+// seeded allow-list with a shrink-only ratchet (see
+// scripts/harness-boundary-allowlist.ts). Do NOT move code here — the lint is
+// the fence; the moves are later phases.
+// ---------------------------------------------------------------------------
+
+/** The two homes vendor behaviour may live in (POD-4414 §5). Neither exists
+ *  yet — adapters/ arrives with the per-harness directories, driver/families/
+ *  with phase 1.5 — so today every literal outside them is a seeded violation.
+ *  That is the point: the fence is up before the moves. */
+export const HARNESS_VENDOR_HOMES: readonly string[] = [
+  'packages/harness/src/adapters/',
+  'packages/harness/src/driver/families/',
+]
+
+/** The ONE definition site — excluded, it IS the definition, not a leak. */
+export const HARNESS_VENDOR_DEFINITION = 'packages/model/src/entities/agent.ts'
+
+export const HARNESS_VENDOR_RULE = 'harness-vendor-boundary'
+
+/**
+ * Display names, alongside the closed kind set. Manifests declare
+ * `displayName` per harness (`Claude`, `Codex`, `Grok`, `opencode`, `Cursor`,
+ * `Pi`); the phone and web pickers label them (`Claude Code`, `Codex`,
+ * `Grok`, `OpenCode`, `Cursor`, `Pi`). A file that hardcodes only a label
+ * and no kind is still vendor behaviour (it must come from the served
+ * descriptor in phase 4.1), so both spellings are gated. Case-sensitive:
+ * `opencode` (kind, manifest) and `OpenCode` (picker label) are distinct.
+ */
+export const HARNESS_DISPLAY_NAMES: readonly string[] = [
+  'Claude Code',
+  'Claude',
+  'Codex',
+  'Grok',
+  'OpenCode',
+  'Cursor',
+  'Pi',
+]
+
+/** The full gated set: kinds (live) + display names. */
+export function harnessVendorLiterals(kinds: readonly string[]): readonly string[] {
+  const seen = new Set<string>(kinds)
+  for (const display of HARNESS_DISPLAY_NAMES) seen.add(display)
+  return [...seen]
+}
+
+export function loadHarnessVendorLiterals(repoRoot: string): readonly string[] {
+  return harnessVendorLiterals(loadHarnessLiterals(repoRoot))
+}
+
+function isHarnessVendorExcluded(file: string): boolean {
+  if (HARNESS_VENDOR_HOMES.some((home) => file.startsWith(home))) return true
+  if (file === HARNESS_VENDOR_DEFINITION) return true
+  // The gate itself must name the literals to enforce them — documenting the
+  // prohibition must not trip it, same shape as the sync kernel's comment
+  // exclusion (and the harness-branching note about prose quoting a comparison).
+  if (file === 'scripts/check-boundaries.ts') return true
+  if (file === 'scripts/harness-boundary-allowlist.ts') return true
+  if (file === 'scripts/architecture-manifest.ts') return true
+  if (isTestFile(file)) return true
+  if (file.includes('/migrations/')) return true
+  if (file.includes('__fixtures__') || file.endsWith('.fixtures.ts')) return true
+  if (file.includes('/e2e/') || file.includes('.e2e.')) return true
+  return false
+}
+
+/**
+ * Flag harness literals as quoted string literals outside the two homes.
+ *
+ * Matched as `'<literal>'` (single, double or backtick, same quote both
+ * sides), NOT as substrings — `pi` collides with ordinary words, so only an
+ * exact quoted `'pi'` counts, never `api`, `pip` or `pixel`. Comments are
+ * blanked first (stripComments preserves line numbers), so documenting the
+ * prohibition cannot trip it. One violation per occurrence, so the allow-list
+ * counts occurrences and a new literal in an already-listed file still fails.
+ */
+export function checkHarnessVendorLiterals(
+  file: string,
+  source: string,
+  literals: readonly string[],
+): Violation[] {
+  if (literals.length === 0) return []
+  if (isHarnessVendorExcluded(file)) return []
+  // Only product source the walker yields; docs never reach here, but a
+  // direct call with a docs path stays quiet rather than noisy.
+  if (!file.startsWith('apps/') && !file.startsWith('packages/') && !file.startsWith('scripts/')) {
+    return []
+  }
+  const stripped = stripComments(source)
+  const alternation = [...literals]
+    .sort((a, b) => b.length - a.length)
+    .map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')
+  const re = new RegExp(`(['"\`])(${alternation})\\1`, 'g')
+  const violations: Violation[] = []
+  for (const m of stripped.matchAll(re)) {
+    const quote = m[1] ?? ''
+    const literal = m[2] ?? ''
+    if (!literal) continue
+    void quote
+    const line = stripped.slice(0, m.index).split('\n').length
+    violations.push({
+      file,
+      specifier: literal,
+      rule: HARNESS_VENDOR_RULE,
+      message: `${file}:${line}: harness literal '${literal}' outside ${HARNESS_VENDOR_HOMES.join(' and ')} — vendor behaviour stays behind the boundary (POD-4414 §5); the identifier may flow as a value, but operational behaviour keyed on it belongs in an adapter or driver family. See scripts/harness-boundary-allowlist.ts.`,
+    })
+  }
+  return violations
+}
+
+/**
+ * The ratchet for the seeded allow-list. Known literals warn; anything NEW
+ * (file not listed, or over its count), any SLACK (fewer than listed, or
+ * zero — stale entry that must be removed/lowered) fails. Same shape as
+ * applyAllowlist, but over literal occurrences grouped by file, and scoped to
+ * this rule so the two families never declare each other's entries dead.
+ */
+export function applyHarnessBoundaryAllowlist(
+  violations: readonly Violation[],
+  allowlist: readonly HarnessBoundaryAllowlistEntry[] = HARNESS_BOUNDARY_ALLOWLIST,
+): { warnings: Violation[]; errors: Violation[]; stale: string[] } {
+  const allowed = new Map(allowlist.map((e) => [e.file, e]))
+  const seen = new Map<string, Violation[]>()
+  for (const v of violations) {
+    if (v.rule !== HARNESS_VENDOR_RULE) continue
+    seen.set(v.file, [...(seen.get(v.file) ?? []), v])
+  }
+  const warnings: Violation[] = []
+  const errors: Violation[] = []
+  for (const [file, group] of seen) {
+    const entry = allowed.get(file)
+    if (!entry) {
+      errors.push(...group)
+      continue
+    }
+    warnings.push(...group.slice(0, entry.count))
+    errors.push(...group.slice(entry.count))
+  }
+  const stale: string[] = []
+  for (const entry of allowlist) {
+    const actual = seen.get(entry.file)?.length ?? 0
+    if (actual === 0) {
+      stale.push(
+        `allowlist entry [${HARNESS_VENDOR_RULE}] ${entry.file} is dead (0 literals) — remove it from scripts/harness-boundary-allowlist.ts`,
+      )
+    } else if (actual < entry.count) {
+      stale.push(
+        `allowlist entry [${HARNESS_VENDOR_RULE}] ${entry.file} allows ${entry.count} but only ${actual} remain — lower the count to ${actual} to hold the ground you gained`,
+      )
+    }
+  }
+  return { warnings, errors, stale }
+}
+
+/**
+ * The shrink-only guard on the allow-list itself. Per-file counts already stop
+ * new literals from passing quietly, but bumping the allow-list in the same
+ * commit would admit them — so the seeded totals are baselines the file may
+ * only go down from. A `leak` total that grew fails, as does a policy or
+ * combined total that grew. The list can only shrink.
+ */
+export function checkHarnessAllowlistTotals(
+  allowlist: readonly HarnessBoundaryAllowlistEntry[] = HARNESS_BOUNDARY_ALLOWLIST,
+  baselineLeak: number = HARNESS_BASELINE_LEAK_COUNT,
+  baselinePolicy: number = HARNESS_BASELINE_POLICY_COUNT,
+  baselineTotal: number = HARNESS_BASELINE_TOTAL,
+): string[] {
+  const leak = allowlist.filter((e) => e.category === 'leak').reduce((n, e) => n + e.count, 0)
+  const policy = allowlist.filter((e) => e.category === 'policy').reduce((n, e) => n + e.count, 0)
+  const total = leak + policy
+  const problems: string[] = []
+  if (leak > baselineLeak) {
+    problems.push(
+      `harness allow-list leak total grew: ${leak} > baseline ${baselineLeak} — leaks may only shrink (remove entries or lower counts as code moves into adapters/families)`,
+    )
+  }
+  if (policy > baselinePolicy) {
+    problems.push(
+      `harness allow-list policy total grew: ${policy} > baseline ${baselinePolicy} — policy entries stay; new vendor behaviour belongs in adapters/families, not in policy`,
+    )
+  }
+  if (total > baselineTotal) {
+    problems.push(
+      `harness allow-list total grew: ${total} > baseline ${baselineTotal} — the list can only shrink`,
+    )
+  }
+  // Every entry must carry its category's pointer: leaks name the removing
+  // issue/lane, policy points at the policy module. Unsure = leak.
+  for (const entry of allowlist) {
+    if (!entry.reason || entry.reason.trim().length === 0) {
+      problems.push(`allowlist entry ${entry.file} has no reason — every entry needs a one-line reason (unsure = leak)`)
+    }
+    if (entry.category === 'leak' && (!entry.issue || entry.issue.trim().length === 0)) {
+      problems.push(`allowlist entry ${entry.file} is leak but names no removing issue — leaks must name the issue/lane that removes them`)
+    }
+    if (entry.category === 'policy' && (!entry.policy || entry.policy.trim().length === 0)) {
+      problems.push(`allowlist entry ${entry.file} is policy but points at no policy module — policy must point at the module that owns the preference`)
+    }
+  }
+  return problems
 }
 
 /** Workspace a specifier points at, or null for external/std imports. */
@@ -3033,6 +3254,7 @@ export function runCheck(repoRoot: string): {
   const workspaces = new Set<string>()
   const modelExportNames = loadModelExportNames(repoRoot)
   const harnessLiterals = loadHarnessLiterals(repoRoot)
+  const vendorLiterals = harnessVendorLiterals(harnessLiterals)
   for (const rootDir of ['apps', 'packages', 'scripts']) {
     for (const abs of walk(join(repoRoot, rootDir))) {
       const file = relative(repoRoot, abs).split(sep).join('/')
@@ -3040,6 +3262,7 @@ export function runCheck(repoRoot: string): {
       workspaces.add(workspaceOf(file))
       violations.push(...checkFile(file, source))
       violations.push(...checkPrincipalFree(file, source))
+      violations.push(...checkHarnessVendorLiterals(file, source, vendorLiterals))
       manifest.push(...checkManifestFile(file, source, harnessLiterals, modelExportNames))
     }
   }
@@ -3189,13 +3412,22 @@ function main(): void {
   // so a shared pass would have each family declaring the other's entries dead.
   const [manifestAllowed, legacyAllowed] = partitionAllowlist(BOUNDARY_ALLOWLIST)
   const { warnings, errors, stale } = applyManifestPolicy(manifest, manifestAllowed)
+  // The harness vendor boundary (POD-4467) runs through its OWN seeded
+  // allow-list, not the shared one: the shared manifest allow-list is EMPTY by
+  // defence (POD-335) and would forbid every entry, while the legacy one owns
+  // a different family. Splitting vendor violations out first keeps each
+  // family declaring only its own entries dead.
+  const vendorViolations = violations.filter((v) => v.rule === HARNESS_VENDOR_RULE)
+  const nonVendorViolations = violations.filter((v) => v.rule !== HARNESS_VENDOR_RULE)
+  const harness = applyHarnessBoundaryAllowlist(vendorViolations, HARNESS_BOUNDARY_ALLOWLIST)
+  const harnessTotals = checkHarnessAllowlistTotals(HARNESS_BOUNDARY_ALLOWLIST)
   // The legacy rules run through the SAME ratchet (POD-740): their two known
   // violations are grandfathered in the one phase-mapped allowlist, so
   // lint:boundaries is green while a NEW legacy violation still fails. Before
   // this, any legacy violation failed outright — which is why the check had been
   // red on every branch since accounts.ts/relay.ts grew those imports, and a
   // guardrail everyone has learned to ignore is not a guardrail.
-  const legacy = applyAllowlist(violations, legacyAllowed)
+  const legacy = applyAllowlist(nonVendorViolations, legacyAllowed)
   const ms = Math.round(performance.now() - start)
 
   // Architecture manifest — WARN mode (POD-296). Allowlisted violations are
@@ -3237,11 +3469,38 @@ function main(): void {
       for (const v of legacy.errors) console.error(`  [${v.rule}] ${v.message}`)
       console.error('\nSee ARCHITECTURE.md "Dependency direction" for the rules.')
     }
+    // Harness vendor boundary (POD-4467, epic POD-4414 §5). Seeded violations
+    // warn; anything new, over count, slack, or a grown leak/policy total
+    // fails. Runs in the full `lint:boundaries` gate (the BLOCKING CI step),
+    // not in `--manifest-only`.
+    if (harness.warnings.length > 0) {
+      console.warn(
+        `\nharness vendor boundary — ${harness.warnings.length} allowlisted literal(s) (warn, see scripts/harness-boundary-allowlist.ts):`,
+      )
+      const byFile = new Map<string, number>()
+      for (const v of harness.warnings) byFile.set(v.file, (byFile.get(v.file) ?? 0) + 1)
+      for (const [file, n] of [...byFile.entries()].sort()) console.warn(`  [${HARNESS_VENDOR_RULE}] ${file} (${n})`)
+    }
+    for (const s of harness.stale) console.error(`  ${s}`)
+    for (const t of harnessTotals) console.error(`  ${t}`)
+    if (harness.errors.length > 0) {
+      console.error(`\nNEW harness-vendor-boundary violations (${harness.errors.length}):\n`)
+      for (const v of harness.errors.slice(0, 30)) console.error(`  [${v.rule}] ${v.message}`)
+      if (harness.errors.length > 30) {
+        console.error(`  … and ${harness.errors.length - 30} more`)
+      }
+      console.error('\nThese are not in scripts/harness-boundary-allowlist.ts (or exceed the declared count).')
+      console.error('Vendor behaviour belongs in packages/harness/src/adapters/ or packages/harness/src/driver/families/ — the allow-list is a ratchet, it only goes down.')
+    }
   }
 
   const legacyFailed = !manifestOnly && (legacy.errors.length > 0 || legacy.stale.length > 0)
-  if (errors.length > 0 || stale.length > 0 || legacyFailed) process.exit(1)
-  const allowlisted = warnings.length + (manifestOnly ? 0 : legacy.warnings.length)
+  const harnessFailed =
+    !manifestOnly &&
+    (harness.errors.length > 0 || harness.stale.length > 0 || harnessTotals.length > 0)
+  if (errors.length > 0 || stale.length > 0 || legacyFailed || harnessFailed) process.exit(1)
+  const allowlisted =
+    warnings.length + (manifestOnly ? 0 : legacy.warnings.length + harness.warnings.length)
   console.log(
     manifestOnly
       ? `architecture manifest OK (${ms}ms) — ${warnings.length} allowlisted, 0 new`
