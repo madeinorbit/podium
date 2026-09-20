@@ -635,7 +635,7 @@ export const DRIVER_IDS = [
    *  binding's `family` is `server` (protocol/event-stream driven, exact resume
    *  identity, no PTY) and no manifest `select()` ever returns this id — heads
    *  never spawn it by policy, executors address it directly via an explicit
-   *  `headless` preference (`spawn`/`reattach` with `runtimeContract:
+   *  `headless` preference (`spawn`/`reattach` with `requestedDriverId:
    *  'headless'`, or `runtime.create` with `selection.preference: 'headless'`). */
   'headless',
 ] as const

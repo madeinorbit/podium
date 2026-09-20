@@ -10,7 +10,7 @@ import { hasFileItems } from './transfer-items'
  *
  * One part owning every destination a file can take. Picked from the file
  * dialog, dropped on the composer or pasted from the clipboard, read as base64,
- * and then one of three things: staged through the live runtime contract and
+ * and then one of three things: staged through the live driver and
  * sent as an out-of-band reference; uploaded to the session's workspace, whose
  * path prefixes the prose for cold-start and pre-contract sessions; or, for the
  * home composer, kept as browser bytes so draft creation can store them on the
