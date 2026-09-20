@@ -264,6 +264,42 @@ describe('missionRootFor', () => {
     expect(missionIndexStats().builds - before).toBe(0)
   })
 
+  it('takes the WeakMap fast path on the same array: zero comparisons (POD-4432)', () => {
+    // The S1 index has TWO mechanisms: a `WeakMap` keyed on the issues array,
+    // and a fallback that reuses the previous build when a NEW array holds the
+    // same row objects in the same order. Killing only the `WeakMap` lookup
+    // leaves every build-count assertion green, because the fallback absorbs
+    // it — at the cost of an element-wise scan over the whole corpus per call.
+    // So this case counts comparisons, not builds: a same-ARRAY call must take
+    // the fast path and compare nothing, while a same-rows-new-array call
+    // walks the fallback and compares exactly N.
+    const { issues } = mission()
+    // Prime: a fresh slice, so neither the `WeakMap` nor the last-build
+    // fallback can already know it.
+    missionRootFor(issues, asIssueId('g2'))
+    const fastBefore = missionIndexStats()
+    for (let i = 0; i < 10; i += 1) {
+      expect(missionRootFor(issues, asIssueId('g2'))?.id).toBe('root')
+    }
+    // Same array: fast-path hit — no rebuild AND no element comparisons.
+    expect(missionIndexStats().builds - fastBefore.builds).toBe(0)
+    expect(missionIndexStats().comparisons - fastBefore.comparisons).toBe(0)
+    // Same rows, new array: the fallback walks all N rows, then reuses the
+    // build rather than rescanning the corpus.
+    const reshaped = [...issues]
+    const slowBefore = missionIndexStats()
+    expect(missionRootFor(reshaped, asIssueId('g2'))?.id).toBe('root')
+    expect(missionIndexStats().builds - slowBefore.builds).toBe(0)
+    expect(missionIndexStats().comparisons - slowBefore.comparisons).toBe(issues.length)
+    // Control dimension, asserted equal: both shapes resolve the same roots,
+    // so the comparison delta cannot come from computing less.
+    for (const id of ['g2', 'c1', 'root'] as const) {
+      expect(missionRootFor(reshaped, asIssueId(id))?.id).toBe(
+        missionRootFor(issues, asIssueId(id))?.id,
+      )
+    }
+  })
+
   it('fails on the legacy per-call map while the shared index holds (A/B)', () => {
     // The legacy arm: exactly what `missionRootFor` did before S1 — a fresh
     // Map over the whole corpus on every call. It must FAIL the zero-build

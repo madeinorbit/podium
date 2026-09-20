@@ -850,6 +850,8 @@ interface MissionIssueIndex {
 }
 
 let missionIndexBuilds = 0
+/** Element-wise `===` comparisons the same-rows fallback performed (POD-4432). */
+let missionIndexComparisons = 0
 
 /**
  * One index per issue slice, KEYED ON WHAT THE COMPUTATION SEES (POD-4419 S1).
@@ -918,6 +920,7 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
   if (previous !== undefined && prior !== undefined && previous.length === issues.length) {
     let same = true
     for (let i = 0; i < issues.length; i += 1) {
+      missionIndexComparisons += 1
       if (issues[i] !== previous[i]) {
         same = false
         break
@@ -958,6 +961,8 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
  * `issueViewModelProjectionStats`.
  *
  * - `builds`          shared ISSUE index builds — once per issue slice.
+ * - `comparisons`     element-wise row-identity comparisons the same-rows
+ *                     fallback performed — zero on a `WeakMap` fast-path hit.
  * - `sessionBuilds`   shared SESSION index builds — once per session slice.
  * - `memberComputes`  {@link missionIssueIds} bodies run — once per
  *                     (issue slice, session slice, root), however many surfaces ask.
@@ -967,6 +972,7 @@ function missionIssueIndex(issues: readonly IssueNavigationModel[]): MissionIssu
  */
 export function missionIndexStats(): {
   builds: number
+  comparisons: number
   sessionBuilds: number
   memberComputes: number
   progressComputes: number
@@ -974,6 +980,7 @@ export function missionIndexStats(): {
 } {
   return {
     builds: missionIndexBuilds,
+    comparisons: missionIndexComparisons,
     sessionBuilds: sessionIndexBuilds,
     memberComputes: missionMemberComputes,
     progressComputes: missionProgressComputes,
