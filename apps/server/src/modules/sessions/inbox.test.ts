@@ -1411,6 +1411,31 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.answered).toEqual([])
   })
 
+  // Arms exemption site 1 (interruptText): a working shell's interrupt-urgency
+  // send types Ctrl-C and then the follow-up. Flip the site to always-contract
+  // and this answers {ok:false} from the unwired driver port with nothing typed.
+  it('interrupt-urgency text to a working shell types Ctrl-C then the follow-up', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness({ agentKind: 'shell', phase: 'working' })
+
+      expect(
+        await h.inbox.interruptText({
+          sessionId: SID,
+          text: 'do this now',
+          principal: agentPrincipal(),
+        }),
+      ).toEqual({ ok: true })
+      await vi.advanceTimersByTimeAsync(500)
+
+      const decoded = h.sent.map((m) => Buffer.from((m as { bytes: Uint8Array }).bytes).toString())
+      expect(decoded.some((d) => d.includes('\x03'))).toBe(true)
+      expect(decoded.some((d) => d.includes('do this now'))).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each(['claude-code', 'grok', 'codex'] as const)(
     'interrupt routes a working %s stop through the driver contract, typing nothing',
     async (agentKind) => {
@@ -1507,6 +1532,37 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toEqual([])
     expect(h.interrupted).toHaveBeenCalledWith({
       sourceMessageId: 'message-cancel',
+      sessionId: SID,
+    })
+  })
+
+  // Arms exemption site 3 (cancelInterruptedDelivery): a shell retracts even a
+  // daemon-custodied row locally when the driver cancel refuses — it has no
+  // driver whose custody could desync. Flip the site to always require the
+  // cancel and the row survives the stop.
+  it('a shell retracts a daemon-custodied row locally when the driver cancel refuses', async () => {
+    const h = harness({ agentKind: 'shell', phase: 'working' })
+    h.rows.push({
+      id: 'shell-row',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'shell send',
+      attempts: 1,
+      deliveryOwner: 'daemon',
+      inputOrigin: 'controller',
+      principal: agentPrincipal(),
+      sourceMessageId: 'm-shell',
+    })
+    h.contractCancel.mockResolvedValueOnce({ reason: 'busy' } as never)
+
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: true,
+      requested: 'keystroke',
+    })
+    expect(h.rows).toEqual([])
+    expect(h.sent).toHaveLength(1)
+    expect(h.interrupted).toHaveBeenCalledWith({
+      sourceMessageId: 'm-shell',
       sessionId: SID,
     })
   })
@@ -1817,6 +1873,40 @@ describe('SessionInbox authorization and identity', () => {
 })
 
 describe('SessionInbox durable wake reconciliation', () => {
+  // Arms exemption site 4 (queueText): a parked shell has no resume ref and
+  // never will — refusing it 'no resume ref' would strand shell input that has
+  // nowhere else to go. Flip the site and this answers {ok:false}.
+  it('queues input for a parked shell with no resume ref instead of refusing it', async () => {
+    const h = harness({ agentKind: 'shell', status: 'hibernated', resumable: false })
+
+    expect(
+      await h.inbox.queueText({ sessionId: SID, text: 'shell wake msg', principal: agentPrincipal() }),
+    ).toEqual({ ok: true, queued: true })
+    expect(h.rows).toHaveLength(1)
+  })
+
+  // Arms exemption site 5 (reconcileQueuedWake): the same no-resume shell must
+  // still reconstruct its wake. Flip the site and no wake is requested.
+  it('reconstructs a wake for a parked shell with queued work and no resume ref', async () => {
+    const h = harness({ agentKind: 'shell', status: 'exited', resumable: false })
+    h.rows.push({
+      id: 'shell-wake',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'shell parked work',
+      attempts: 0,
+      deliveryOwner: null,
+      inputOrigin: 'controller',
+      principal: agentPrincipal(),
+      sourceMessageId: null,
+    })
+
+    await h.inbox.reconcileQueuedWake(SID)
+
+    expect(h.resurrect).toHaveBeenCalledTimes(1)
+    expect(h.resurrect).toHaveBeenCalledWith(SID, agentPrincipal())
+  })
+
   it.each(['exited', 'hibernated'])('reconstructs one wake for queued %s work', async (status) => {
     const h = harness({ status })
     await h.inbox.queueText({
