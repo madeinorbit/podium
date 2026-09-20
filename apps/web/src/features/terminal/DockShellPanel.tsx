@@ -10,8 +10,9 @@ import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
 import { TERMINAL_DEFAULTS } from './appearance'
-import { dockShellIsDead } from './dock-shell-lifecycle'
+import { dockShellIsDead, dockShellIsParked } from './dock-shell-lifecycle'
 import { prettyCwd } from './pretty-cwd'
+import { HibernatedPane } from './SessionLifecyclePanes'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 /**
@@ -19,7 +20,8 @@ import { useTerminalAppearance } from './use-terminal-appearance'
  * worktree, living IN the dock — not in the workspace tab strip (the strip
  * filters ids in `dockShells`). The mapping is persisted, so a reload (or
  * closing and reopening the panel) reattaches the same shell with its
- * scrollback; a dead shell is archived and replaced with a fresh one.
+ * scrollback; a dead shell is archived and replaced with a fresh one, while a
+ * parked (hibernated) shell is resumed in place under the SAME id (POD-4429).
  */
 export function DockShellPanel({
   cwd,
@@ -56,8 +58,12 @@ export function DockShellPanel({
   // Dead = unrevivable in place. 'starting' and 'reconnecting' are HEALTHY
   // transients — treating them as dead made this effect archive a spawning
   // shell and replace it, looping until the panel closed.
+  // Parked (hibernated) is NOT dead (POD-4429): the same session id resumes
+  // in place via HibernatedPane, so it is excluded from both `dead` and
+  // `alive` and never enters the create effect below.
   const dead = !!session && dockShellIsDead(session)
-  const alive = !!session && !dead
+  const parked = !!session && !!mapped && dockShellIsParked(session)
+  const alive = !!session && !dead && !parked
 
   // The id we created and whose broadcast hasn't landed yet. While set, NEVER
   // create again — the first version of this effect looped on exactly that gap
@@ -73,8 +79,13 @@ export function DockShellPanel({
   //  - mapped but absent from a NON-EMPTY synced session list → gone, replace.
   // A mapped id with no session rows at all means the boot sync hasn't landed —
   // render the connecting state and wait, don't spawn a duplicate.
+  // A parked shell never creates (POD-4429): it resumes the same id in place.
   const needsCreate =
-    !alive && reposLoaded && pendingId.current === null && (!mapped || dead || sessions.length > 0)
+    !alive &&
+    !parked &&
+    reposLoaded &&
+    pendingId.current === null &&
+    (!mapped || dead || sessions.length > 0)
 
   const creating = useRef(false)
   useEffect(() => {
@@ -141,6 +152,13 @@ export function DockShellPanel({
         // 'starting' holds the mount: the PTY may not exist server-side yet, and
         // the terminal's one-shot attach would be dropped and never retried.
         <DockShellTerminal key={mapped} sessionId={mapped} hub={hub} session={session} />
+      ) : parked && mapped ? (
+        // Parked, not dead (POD-4429): the pane offers resume of the SAME
+        // session id in place — never archive, never spawn a replacement.
+        // A shell has no transcript, so this is the recovery pane (the same
+        // HibernatedPane the workspace tabs show for a transcript-less
+        // session), not a banner over one.
+        <HibernatedPane sessionId={mapped} />
       ) : (
         <div className="p-3 text-xs text-muted-foreground/70">Starting shell…</div>
       )}
