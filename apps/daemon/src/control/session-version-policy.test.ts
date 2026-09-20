@@ -103,7 +103,7 @@ describe.each(cases)('$harness floor-only session admission', (row) => {
           agentKind: row.harness,
           cwd: '/tmp',
           geometry: { cols: 80, rows: 24 },
-          runtimeContract: row.driver,
+          requestedDriverId: row.driver,
         } as never,
         probe,
       )
@@ -140,7 +140,7 @@ describe.each(cases)('$harness floor-only session admission', (row) => {
         agentKind: row.harness,
         cwd: '/tmp',
         geometry: { cols: 80, rows: 24 },
-        runtimeContract: row.driver,
+        requestedDriverId: row.driver,
       } as never,
       () => row.probe(() => ({ output: row.old, ok: true })),
     )

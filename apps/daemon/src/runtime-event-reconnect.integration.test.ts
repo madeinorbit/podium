@@ -155,7 +155,6 @@ describe('coarse runtime events across a daemon disconnect', () => {
           cwd: '/repo',
           agentKind: 'codex',
           geometry: { cols: 80, rows: 24 },
-          runtimeContract: true,
           driverId: 'codex-app-server',
         }),
       )

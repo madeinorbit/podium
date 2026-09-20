@@ -2424,11 +2424,11 @@ export function createTerminalRuntime(
     const recovery = (async () => {
       await previous?.catch(() => undefined)
       if (
-        typeof msg.runtimeContract === 'string' &&
-        canonicalDriverId(msg.runtimeContract) !== profile.driverId
+        typeof msg.requestedDriverId === 'string' &&
+        canonicalDriverId(msg.requestedDriverId) !== profile.driverId
       ) {
         throw new TerminalRecoveryRefusal(
-          `runtime driver '${msg.runtimeContract}' cannot recover as '${profile.driverId}'`,
+          `runtime driver '${msg.requestedDriverId}' cannot recover as '${profile.driverId}'`,
         )
       }
       const current = sessions.get(msg.sessionId)
@@ -2946,7 +2946,6 @@ function spawnControlFor(
     agentKind,
     cwd: spec.workdir,
     geometry: { cols: 120, rows: 40 },
-    runtimeContract: true,
     ...(spec.model.model ? { model: spec.model.model } : {}),
     ...(spec.model.effort ? { effort: spec.model.effort } : {}),
     ...(spec.initialPrompt ? { initialPrompt: spec.initialPrompt } : {}),

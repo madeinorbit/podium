@@ -62,7 +62,6 @@ export async function emitClaudeBinding(
       cmd: 'Claude Agent SDK (embedded)',
       cwd: input.cwd,
       agentKind: input.agentKind,
-      runtimeContract: true,
       driverId: handle.binding.driver,
       // POD-3087: what this driver's configure() can change, read off its own
       // declaration so no consumer has to keep a second copy of it.

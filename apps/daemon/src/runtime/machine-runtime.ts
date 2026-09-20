@@ -19,7 +19,6 @@ import {
 } from '@podium/agent-runtime'
 import type { AcceptedDriverId } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
-import type { RuntimeContractRequest } from '@podium/protocol'
 import type { DaemonMessage, RuntimeWatchLevel } from '@podium/protocol/daemon'
 import type { DaemonClaudeSdkRuntime } from './claude-sdk-driver'
 import type { DaemonCodexRuntime } from './codex-driver'
@@ -81,8 +80,7 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
   reportOomKill(sessionId: SessionId, scopeUnit?: string): void
   resolveDriver(input: {
     agentKind: AgentKind
-    requested: RuntimeContractRequest | undefined
-    machineDefault: string | undefined
+    requested: string | undefined
     available: readonly AcceptedDriverId[]
     platform: NodeJS.Platform
     auth?: Parameters<typeof resolveRuntimeDriver>[0]['auth']
@@ -217,7 +215,7 @@ export function createDaemonMachineRuntime(input: {
    * never spawn it by policy — but an explicit `selection.preference:
    * 'headless'` bypasses the policy in `runtime.create`/`resume` (and
    * `resolveRuntimeDriver` for the spawn path), so `spawn`/`reattach` carrying
-   * `runtimeContract: 'headless'` establishes these sessions over the existing
+   * `requestedDriverId: 'headless'` establishes these sessions over the existing
    * WS relay with no dedicated create/resume/adopt verb. Once established the
    * handle answers every relay verb (`handleFor`), capabilities resolve
    * (`driverFor`), and a surviving binding re-adopts (`adopt`). Legacy

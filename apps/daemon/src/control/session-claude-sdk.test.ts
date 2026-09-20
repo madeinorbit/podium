@@ -38,7 +38,7 @@ function reattachMessage(sessionId: SessionId, resume: ResumeRef): never {
     cwd: '/project',
     lastKnownGeometry: { cols: 80, rows: 24 },
     resume,
-    runtimeContract: 'claude-sdk',
+    requestedDriverId: 'claude-sdk',
     binding: {
       transitionId: `reattach:${sessionId}`,
       machineAccess: 'allowed',
@@ -95,7 +95,6 @@ describe('Claude SDK reattach control', () => {
       expect.objectContaining({
         type: 'bind',
         sessionId: SESSION_ID,
-        runtimeContract: true,
         driverId: 'claude-sdk',
       }),
     )
@@ -146,7 +145,6 @@ describe('Claude SDK reattach control', () => {
       // puts nothing at a size, so the bind reports none — and because this
       // assertion is exact, a geometry reappearing here fails the test rather
       // than passing unnoticed.
-      runtimeContract: true,
       driverId: 'claude-sdk',
       // POD-3087: what this driver can change on a running session, read off its
       // own capabilities. Spelled out rather than matched loosely because this
@@ -228,7 +226,7 @@ describe('Claude SDK subscription spawn selection', () => {
       agentKind: 'claude-code',
       cwd: '/project',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: 'claude-sdk',
+      requestedDriverId: 'claude-sdk',
     } as never
 
     await expect(
@@ -299,7 +297,7 @@ describe('Claude SDK spawn resume control', () => {
       cwd: '/project',
       geometry: { cols: 80, rows: 24 },
       resume: RESUME,
-      runtimeContract: 'claude-sdk',
+      requestedDriverId: 'claude-sdk',
     } as never
 
     await expect(

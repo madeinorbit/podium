@@ -10,10 +10,9 @@
  *   1. WHICH DRIVER a harness gets — read straight off `AgentManifest.runtime`,
  *      never invented here. Server-capable harnesses default to their own
  *      admitted server driver; terminal remains their total fallback.
- *   2. WHETHER a TERMINAL fallback uses the receipt contract path — the flag,
- *      and nothing else. Server-family sessions necessarily bind through the
- *      contract; a no-preference fallback with the flag off stays on the legacy
- *      PTY path.
+ *   2. WHETHER a session binds a driver at all — every profile-bearing kind
+ *      does, unconditionally since POD-4426. Shells have no manifest profile,
+ *      so there is nothing to bind; that is structure, not a switch.
  *
  * `resolveRuntimeDriver` is the one policy call site, so the server planning a
  * spawn and the machine performing one cannot disagree.
@@ -33,17 +32,16 @@ import {
   type SelectionContext,
 } from '@podium/harness'
 import type { AgentKind } from '@podium/model'
-import type { RuntimeContractRequest } from '@podium/protocol'
-import { runtimeDriverFor } from './flag'
 import type { TerminalHarnessProfile } from './terminal-driver'
 
 /**
  * The per-harness facts the terminal driver needs, resolved from the manifest.
  *
  * Returns undefined for a kind with no manifest — a shell, or a harness this
- * build does not know. That is a real answer, not a failure: a shell has no
- * turns, no transcript and no state channel, so there is nothing for a driver to
- * be honest ABOUT, and the flag simply does not reach it.
+ * build does not know. The CALLER splits those two: a shell (or login pane,
+ * filed as agentKind 'shell') is the permanent no-driver exemption, while an
+ * unknown non-shell harness refuses loudly at spawn rather than opening a
+ * session nothing can drive.
  */
 export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile | undefined {
   const manifest = manifestFor(agentKind)
@@ -216,7 +214,7 @@ export function selectionAuthForLogin(
  * declares it (either terminal id is accepted as the same PTY-family opt-out).
  * An unavailable server therefore resolves to the harness's ranked fallback;
  * the caller then refuses a per-spawn server id or visibly degrades a
- * machine/policy preference.
+ * manifest-default preference.
  *
  * The one thing decided outside the policy is an UNKNOWN id, because `select()`
  * cannot distinguish "this build does not ship that driver" from "this machine
@@ -225,10 +223,8 @@ export function selectionAuthForLogin(
  */
 export function resolveRuntimeDriver(input: {
   agentKind: AgentKind
-  /** The per-spawn field, widened by W5 to carry a driver id. */
-  requested: RuntimeContractRequest | undefined
-  /** `PODIUM_RUNTIME_DRIVER`, the machine-wide default. */
-  machineDefault: string | undefined
+  /** The explicit per-spawn driver id, or undefined for the manifest default. */
+  requested: string | undefined
   available: readonly AcceptedDriverId[]
   platform: NodeJS.Platform
   auth?: SelectionContext['auth']
@@ -238,8 +234,8 @@ export function resolveRuntimeDriver(input: {
   if (input.requested === undefined) {
     return { ok: true, driverId: manifest.runtime.terminal.driverId }
   }
-  const preference = runtimeDriverFor(input.machineDefault, input.requested)
-  if (preference !== undefined && !IMPLEMENTED.has(canonicalDriverId(preference))) {
+  const preference = input.requested
+  if (!IMPLEMENTED.has(canonicalDriverId(preference))) {
     return { ok: false, reason: `unknown runtime driver '${preference}'` }
   }
   // The headless driver is never returned by a manifest `select()` — heads
@@ -247,7 +243,7 @@ export function resolveRuntimeDriver(input: {
   // here exactly as `runtime.create` does in `@podium/agent-runtime`. The
   // harness must still declare the headless axis; otherwise the create below
   // would mint a session that can never turn.
-  if (preference !== undefined && canonicalDriverId(preference) === 'headless') {
+  if (canonicalDriverId(preference) === 'headless') {
     if (!declaredValue(manifest.headless)) {
       return {
         ok: false,
@@ -256,9 +252,9 @@ export function resolveRuntimeDriver(input: {
     }
     return { ok: true, driverId: 'headless' }
   }
-  // The embedded SDK is an operator experiment, never a policy/default choice.
-  // Requiring the per-spawn spelling here prevents a machine-wide env default
-  // from silently moving every Claude session off the interactive PTY path.
+  // The embedded SDK is an operator experiment, never a policy/default choice:
+  // only the explicit per-spawn spelling selects it, so no default can silently
+  // move Claude sessions off the interactive PTY path.
   if (input.requested === 'claude-sdk') {
     const embedded = declaredValue(manifest.runtime.embedded)
     if (!embedded || embedded.driverId !== 'claude-sdk') {
@@ -269,33 +265,25 @@ export function resolveRuntimeDriver(input: {
     }
     return { ok: true, driverId: 'claude-sdk' }
   }
-  // A machine-wide SDK preference is deliberately ignored for Claude. The
-  // embedded driver is an explicit per-spawn experiment; the manifest still
-  // honors a `claude-sdk` preference on the concrete spawn spec, while this
-  // resolver keeps the machine default on the PTY path.
-  const policyPreference =
-    preference === 'claude-sdk' && input.requested !== 'claude-sdk' ? undefined : preference
   const ctx: SelectionContext = {
     auth: input.auth ?? 'unknown',
     platform: input.platform,
     available: input.available,
-    ...(policyPreference ? { preference: policyPreference as AcceptedDriverId } : {}),
+    preference: preference as AcceptedDriverId,
   }
   return { ok: true, driverId: manifest.runtime.select(ctx) }
 }
 /**
  * The preference whose probe a spawn must consult. An absent per-spawn choice
- * is the product's headed default and skips every headless probe, regardless of
- * machine-wide policy. Explicit true retains API compatibility by consulting
- * the manifest default; an explicit id probes that concrete driver.
+ * is the product's headed default and skips every headless probe. An explicit
+ * id probes that concrete driver.
  */
 export function runtimeDriverIntentForSpawn(input: {
   agentKind: AgentKind
-  perSpawn: RuntimeContractRequest | undefined
-  machineDefault: string | undefined
+  perSpawn: string | undefined
 }): { requested: string | undefined; preferred: string | undefined } {
   if (input.perSpawn === undefined) return { requested: undefined, preferred: undefined }
-  const requested = runtimeDriverFor(input.machineDefault, input.perSpawn)
+  const requested = input.perSpawn
   const manifest = manifestFor(input.agentKind)
   const declaredServer = manifest ? declaredValue(manifest.runtime.server) : undefined
   return { requested, preferred: requested ?? declaredServer?.driverId }
@@ -374,24 +362,18 @@ export function harnessOwningServerDriver(driverId: string): AgentKind | undefin
  * Did THIS SPAWN name a server driver at all? The id if so, undefined otherwise
  * (POD-2113).
  *
- * THE ONE PLACE THE REFUSE/DEGRADE RULE IS WRITTEN DOWN, and it exists because
- * having it written twice is how the spawn path drifted. `launchServerDriverSession`
- * refuses in two places — before resolution when a probe could not answer, and
- * after it when the driver was not the one picked — and the second keyed on the
- * per-spawn field while the FIRST keyed on `requested`, the env-folded value.
- * That gap turned one stale `PODIUM_RUNTIME_DRIVER` on a box whose binary is off
- * the daemon's PATH into a permanent refusal of every spawn of every harness:
- * ENOENT reads as `unprobeable`, and an unprobeable verdict is deliberately not
- * memoized, so it re-failed per spawn forever. Both refusals ask this function
- * now, so the rule cannot be half-applied again.
+ * THE ONE PLACE THE REFUSE RULE IS WRITTEN DOWN, and it exists because having
+ * it written twice is how the spawn path drifted. There is no machine-wide
+ * default any more (POD-4426 deleted the env source): the only preference that
+ * reaches resolution is the per-spawn field, so every refusal keys on it.
  *
  * SERVER FAMILY ONLY, and asked of the manifests rather than by matching a
  * substring, so a second server driver (W6's codex) is covered the day it is
  * declared rather than the day someone remembers this line.
  */
 export function spawnNamedServerDriver(
-  /** The per-spawn field ONLY. Folding the env default in defeats the point. */
-  perSpawn: RuntimeContractRequest | undefined,
+  /** The per-spawn field ONLY — the single preference left. */
+  perSpawn: string | undefined,
 ): string | undefined {
   if (typeof perSpawn !== 'string') return undefined
   return isServerDriverId(perSpawn) ? perSpawn : undefined
@@ -402,13 +384,13 @@ export function spawnNamedServerDriver(
  * the id it named, for the refusal message; undefined when there is nothing to
  * refuse (POD-2113).
  *
- * WHY THIS IS NOT INSIDE `resolveRuntimeDriver`. That function is handed a
- * preference with the machine-wide default already folded in, and the whole
- * decision here turns on which of the two the id came from:
+ * WHY THIS IS NOT INSIDE `resolveRuntimeDriver`. Resolution answers "what can
+ * run here", a fact about the machine; this answers "may I quietly substitute
+ * it", a fact about who asked:
  *
- *   - A MACHINE-WIDE `PODIUM_RUNTIME_DRIVER` degrades. It is a setting, it can
- *     go stale under a machine whose opencode moved out of range, and refusing
- *     on it would break every spawn on that box at once.
+ *   - A MANIFEST-DEFAULT SERVER PREFERENCE DEGRADES. It is selected by policy,
+ *     it can go stale under a machine whose binary moved out of range, and
+ *     refusing on it would break every spawn on that box at once.
  *   - A PER-SPAWN ID REFUSES. Nobody puts a driver id on one spawn frame by
  *     accident; it is the operator testing whether that driver works, and the
  *     honest answer to "it cannot run here" is to say so. Answering with a
@@ -421,9 +403,8 @@ export function spawnNamedServerDriver(
  * observable way, and refusing there would be pedantry about a label.
  */
 export function unhonouredSpawnDriver(input: {
-  /** The per-spawn field ONLY. Folding the env default in here defeats the
-   *  point — see above. */
-  perSpawn: RuntimeContractRequest | undefined
+  /** The per-spawn field ONLY — the single preference left. */
+  perSpawn: string | undefined
   resolved: AcceptedDriverId
 }): string | undefined {
   return droppedDriverPreference({
@@ -433,12 +414,12 @@ export function unhonouredSpawnDriver(input: {
 }
 
 /**
- * A SERVER-FAMILY PREFERENCE THAT RESOLUTION DID NOT HONOUR, whoever expressed
- * it. The id, or undefined when nothing was dropped (POD-2113).
+ * A SERVER-FAMILY PREFERENCE THAT RESOLUTION DID NOT HONOUR. The id, or
+ * undefined when nothing was dropped (POD-2113).
  *
  * SEPARATE FROM WHO ASKED, on purpose. {@link unhonouredSpawnDriver} feeds this
  * the PER-SPAWN id only and refuses on the answer; the degrade path feeds it the
- * env-folded `requested` and merely LOGS the answer. Same question, two
+ * manifest-default preference and merely LOGS the answer. Same question, two
  * consequences — which is the whole shape of this feature, and the reason it is
  * one function rather than two similar conditions that can drift.
  *

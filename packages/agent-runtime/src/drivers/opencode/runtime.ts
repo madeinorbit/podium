@@ -388,7 +388,7 @@ export interface OpencodeRuntime {
    * existing here rather than being kept by a caller. A parallel liveness set is
    * a second source of truth for one fact, and the two drift in exactly one
    * direction: the set keeps saying `true` after the handle is gone. The daemon
-   * reports this as `bind.runtimeContract`, so a stale `true` makes the server
+   * reports this as `bind.driverId`, so a stale answer makes the server
    * route a parked session's sends onto a contract path where `handleFor`
    * answers `undefined` and every verb replies `not_running`.
    */

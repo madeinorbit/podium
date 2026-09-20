@@ -91,12 +91,11 @@ function parseEvents(raw: string, path: string): DurableRuntimeEvent[] {
  * pending set — pretty-printed — then writeFileSync + fsync + rename + a second
  * fsync on the directory, on EVERY enqueue AND every acknowledge.
  *
- * That assumption held exactly as long as the events stayed low-cadence. Turning
- * PODIUM_RUNTIME_CONTRACT on machine-wide breaks it: an unflagged session emits
- * no runtime frames at all, while a flagged one mirrors every observation,
- * transcript delta, exit, cwd, draft and context into a durable event. On a box
- * with ~134 live sessions that converts the daemon's whole frame volume into
- * whole-file fsyncs on the main thread.
+ * That assumption held exactly as long as the events stayed low-cadence. Every
+ * driven session mirrors every observation, transcript delta, exit, cwd, draft
+ * and context into a durable event. On a box with ~134 live sessions that
+ * converts the daemon's whole frame volume into whole-file fsyncs on the main
+ * thread.
  *
  * And it did not merely get slow, it spiralled, because entries are retired only
  * on acknowledge: the main thread blocks in fsync, the WS link cannot be

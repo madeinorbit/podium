@@ -32,9 +32,9 @@ function headlessHandle(sessionId: SessionId, resume: ResumeRef | null): AgentSe
 
 function reattachMessage(
   sessionId: SessionId,
-  input: { resume?: ResumeRef; runtimeContract?: string } = {},
+  input: { resume?: ResumeRef; requestedDriverId?: string } = {},
 ): never {
-  const { resume, runtimeContract = 'headless' } = input
+  const { resume, requestedDriverId = 'headless' } = input
   return {
     type: 'reattach',
     sessionId,
@@ -43,7 +43,7 @@ function reattachMessage(
     cwd: '/project',
     lastKnownGeometry: { cols: 80, rows: 24 },
     ...(resume ? { resume } : {}),
-    ...(runtimeContract === undefined ? {} : { runtimeContract }),
+    ...(requestedDriverId === undefined ? {} : { requestedDriverId }),
     binding: {
       transitionId: `reattach:${sessionId}`,
       machineAccess: 'allowed',
@@ -122,7 +122,6 @@ describe('Headless reattach control', () => {
       expect.objectContaining({
         type: 'bind',
         sessionId: SESSION_ID,
-        runtimeContract: true,
         driverId: 'headless',
       }),
     )
@@ -153,7 +152,6 @@ describe('Headless reattach control', () => {
       expect.objectContaining({
         type: 'bind',
         sessionId: SESSION_ID,
-        runtimeContract: true,
         driverId: 'headless',
       }),
     )
@@ -195,7 +193,7 @@ describe('Headless reattach control', () => {
       },
     })
 
-    sessionHandlers.reattach(w.ctx, reattachMessage(SESSION_ID, { runtimeContract: undefined }))
+    sessionHandlers.reattach(w.ctx, reattachMessage(SESSION_ID, { requestedDriverId: undefined }))
     await vi.waitFor(() => expect(w.adopt).toHaveBeenCalledTimes(1))
 
     expect(w.adopt).toHaveBeenCalledWith(surviving.binding)
@@ -205,7 +203,6 @@ describe('Headless reattach control', () => {
       expect.objectContaining({
         type: 'bind',
         sessionId: SESSION_ID,
-        runtimeContract: true,
         driverId: 'headless',
       }),
     )

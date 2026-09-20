@@ -142,7 +142,8 @@ describe('a server-family bind reports a grid only when the daemon applied one',
     expect(bind).not.toHaveProperty('geometry')
     // …and the frame is otherwise the one this family always sent, so the
     // assertion above is about the grid and not about a bind that failed.
-    expect(bind).toMatchObject({ sessionId: SESSION, cwd: '/w', runtimeContract: true })
+    expect(bind).toMatchObject({ sessionId: SESSION, cwd: '/w', driverId: expect.any(String) })
+    expect(bind).not.toHaveProperty('runtimeContract')
   })
 
   it.each(

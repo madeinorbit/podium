@@ -257,7 +257,7 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
      * It tracked launches and was cleared only on a `process: exited` event, so
      * `hibernate`/`stop`/`kill` — which all drop the handle — left it saying
      * `true` for a session with nobody home. The daemon reports that as
-     * `bind.runtimeContract`, so a reattached parked session would have been
+     * `bind.driverId`, so a reattached parked session would have been
      * routed onto a contract path where every verb answers `not_running`: the
      * same shape as the bind-fact bug one layer up, which is what made it worth
      * deleting the Set rather than fixing its bookkeeping.
@@ -343,17 +343,16 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
           /**
            * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023).
            *
-           * The server records this on the row and W4's migrated senders branch on
-           * it to decide between the contract and the legacy PTY path. A terminal
-           * session that got this wrong would take a slower route to the same
-           * place; a SERVER session that got it wrong would be handed to a path
-           * that types at a PTY this session does not have — the write would go
-           * nowhere and report success.
+           * The server records `driverId` on the row and keys its senders on
+           * its presence to decide the contract path. A terminal session that
+           * omitted it would take a slower route to the same place; a SERVER
+           * session that omitted it would be handed to a path that types at a
+           * PTY this session does not have — the write would go nowhere and
+           * report success.
            *
-           * Hardcoded `true` rather than probed, because reaching this line IS the
-           * proof: the handle above was constructed and registered.
+           * Stated outright rather than probed, because reaching this line IS
+           * the proof: the handle above was constructed and registered.
            */
-          runtimeContract: true,
           driverId: handle.binding.driver,
           // POD-3087: what this driver's configure() can change, read off its own
           // declaration so no consumer has to keep a second copy of it.
