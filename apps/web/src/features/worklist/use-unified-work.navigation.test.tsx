@@ -24,6 +24,8 @@ beforeEach(() => {
   fixture.store = { repos: [], sessions: [], pins: {}, selectedIssueId: null,
     selectedWorktree: null, paneA: null, fileTabs: [],
     navigateWorkspace: vi.fn().mockReturnValueOnce(true).mockReturnValue(false),
+    // S5: the gesture batch runs synchronously in the mock, like runtime.batch.
+    batchGesture: vi.fn((fn: () => void) => fn()),
     setSelectedIssueId: vi.fn(), markIssueRead: vi.fn(async () => {}),
     markSessionRead: vi.fn(async () => {}), deferIssue: vi.fn(async () => {}) }
 })
@@ -43,6 +45,8 @@ describe('issue navigation gesture', () => {
     }, { wrapper: Wrapper })
     commits.mockClear()
     act(() => result.current.work.selectPanelForIssue(child, asSessionId('member')))
+    // S5: one gesture batch per click — navigation + optimistic paints share it.
+    expect(fixture.store.batchGesture).toHaveBeenCalledTimes(1)
     expect(fixture.store.navigateWorkspace).toHaveBeenCalledExactlyOnceWith({
       selectedIssueId: root.id, selectedWorktree: '/repo', tabId: 'member', firstPane: true,
     })

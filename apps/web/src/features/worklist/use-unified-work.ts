@@ -79,6 +79,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     fileTabs,
     setView,
     navigateWorkspace,
+    batchGesture,
     markIssueRead,
     markSessionRead,
     setIssueTucked,
@@ -101,6 +102,10 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
       fileTabs: s.fileTabs,
       setView: s.setView,
       navigateWorkspace: s.navigateWorkspace,
+      // S5: Store interface addition pending with the coordinator (POD-4286);
+      // read through a cast so this file compiles without touching types.ts.
+      // At runtime the store carries it (actions.ts provides it).
+      batchGesture: (s as unknown as { batchGesture: (fn: () => void) => void }).batchGesture,
       markIssueRead: s.markIssueRead,
       markSessionRead: s.markSessionRead,
       setIssueTucked: s.setIssueTucked,
@@ -211,50 +216,66 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     // opens and the pane is only set once.
     const target = paneSession ?? pickPaneSession(members, paneA, rowFileIds)
     traceSwitchTo(target, issue.id)
+    // S5 (this issue): ONE publication per click. The navigation plan already
+    // carries the visit baseline; the optimistic mark-read/defer paints join
+    // the same batch, so navigation + baseline + optimistic paint publish once.
+    // What stays separate by construction (and is labelled in the S5 test):
+    // the async outbox-size handoff after durable enqueue, the drain echo when
+    // the queue resolves, the server replica echo, and background broadcasts
+    // (machines). Commands are still sent; rollback/dead-letter unchanged.
     // Sessionless task focus follows the inspector while the current chat stays
     // put. Selecting work must never manufacture or require a session.
-    const changed = navigateWorkspace({
-      selectedIssueId: root?.id ?? issue.id,
-      ...(issue.worktreePath ? { selectedWorktree: issue.worktreePath } : {}),
-      tabId: target,
-      firstPane: true,
+    batchGesture(() => {
+      const changed = navigateWorkspace({
+        selectedIssueId: root?.id ?? issue.id,
+        ...(issue.worktreePath ? { selectedWorktree: issue.worktreePath } : {}),
+        tabId: target,
+        firstPane: true,
+      })
+      const commandKey = JSON.stringify([issue.id, paneSession, issue.updatedAt])
+      if (!changed && lastIssueNavigation.current === commandKey) return
+      lastIssueNavigation.current = commandKey
+      // Inside the gesture batch: optimistic paints, not separate publications.
+      // The durable handoff + network echo publish after the batch closes.
+      void markIssueRead(issue.id)
+      if (issueReturnedFromDefer(issue, now)) void deferIssue(issue.id, null)
+      if (paneSession) void markSessionRead(paneSession)
     })
     setFocusedIssueId(issue.id)
-    const commandKey = JSON.stringify([issue.id, paneSession, issue.updatedAt])
-    if (!changed && lastIssueNavigation.current === commandKey) return
-    lastIssueNavigation.current = commandKey
-    // Commands follow a fully validated navigation. Their optimistic and
-    // network publications are separate from the one navigation publication.
-    void markIssueRead(issue.id)
-    if (issueReturnedFromDefer(issue, now)) void deferIssue(issue.id, null)
-    if (paneSession) void markSessionRead(paneSession)
   }
   const selectPanelForIssue = (issue: IssueNavigationModel, sessionId: SessionId) => {
     selectIssue(issue, sessionId)
   }
 
   const selectWorktree = (path: string) => {
-    setSelectedIssueId(null)
-    setSelectedWorktree(path)
-    // Same pane-opening rule as selectIssue, keyed by the worktree's sessions.
-    const members = sessionsForWorktree(sessions, path, allWorktreePaths)
-    const rowFileIds = fileTabs.filter((f) => f.worktreePath === path).map((f) => f.id)
-    const opened = pickPaneSession(members, paneA, rowFileIds)
-    traceSwitchTo(opened, null)
-    setPane('A', opened)
-    // A worktree has no unread flag of its own — opening it opens one session, so
-    // mark THAT session read (#126). Other unread sessions keep the row emphasized.
-    if (opened && members.some((s) => s.sessionId === opened)) void markSessionRead(opened)
-    setView('workspace')
+    // S5: same gesture batch as selectIssue — selection + pane + session-read
+    // paint publish once; the outbox handoff stays separate (async).
+    batchGesture(() => {
+      setSelectedIssueId(null)
+      setSelectedWorktree(path)
+      // Same pane-opening rule as selectIssue, keyed by the worktree's sessions.
+      const members = sessionsForWorktree(sessions, path, allWorktreePaths)
+      const rowFileIds = fileTabs.filter((f) => f.worktreePath === path).map((f) => f.id)
+      const opened = pickPaneSession(members, paneA, rowFileIds)
+      traceSwitchTo(opened, null)
+      setPane('A', opened)
+      // A worktree has no unread flag of its own — opening it opens one session, so
+      // mark THAT session read (#126). Other unread sessions keep the row emphasized.
+      if (opened && members.some((s) => s.sessionId === opened)) void markSessionRead(opened)
+      setView('workspace')
+    })
   }
   const selectPanel = (worktreePath: string, sessionId: SessionId) => {
-    traceSwitchTo(sessionId, null)
-    setSelectedIssueId(null)
-    setSelectedWorktree(worktreePath)
-    setPane('A', sessionId)
-    // Opening a session marks it read (#126).
-    void markSessionRead(sessionId)
-    setView('workspace')
+    // S5: same gesture batch — selection + pane + session-read paint once.
+    batchGesture(() => {
+      traceSwitchTo(sessionId, null)
+      setSelectedIssueId(null)
+      setSelectedWorktree(worktreePath)
+      setPane('A', sessionId)
+      // Opening a session marks it read (#126).
+      void markSessionRead(sessionId)
+      setView('workspace')
+    })
   }
   // Open the issue PAGE (the right-click "Open" action), leaving the workspace.
   const openIssuePage = (id: IssueId) => {

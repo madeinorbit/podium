@@ -4306,51 +4306,177 @@ describe('D6 differential lifecycle gate', () => {
   })
 })
 
-// S5 measurement probe (temporary): full row-click gesture without an outer
-// batch — navigateWorkspace + markIssueRead as use-unified-work issues them
-// today. Reports synchronous pubs per click; not a budget assertion.
-describe('S5 click measurement probe', () => {
-  it('reports pubs for navigate + optimistic mark-read without outer batch', async () => {
-    const { engine, hub } = makeEngine({ url: '/workspace' })
+// S5 (this issue): one synchronous publication per row click.
+//
+// The gesture is navigateWorkspace + optimistic markIssueRead as
+// use-unified-work issues them. Before: three synchronous pubs (navigation
+// incl. visit baseline, optimistic issues paint, outbox-size handoff). After:
+// one, via the gesture batch. The async drain echo, the server replica echo
+// and background broadcasts (machines) stay separate by construction and are
+// labelled below — they describe distinct state changes, not the gesture.
+//
+// Controls asserted equal in both arms: visible selection/pane/baseline,
+// optimistic readAt paint, the queued command sent, and the echo applied.
+// Legacy arm must FAIL the one-publication budget; fixed arm passes.
+describe('S5 one publication per click', () => {
+  it('A/B: batched gesture publishes once with identical state, command and echo', async () => {
+    const results: Array<{
+      sync: number
+      syncKeys: string[][]
+      selected: unknown
+      pane: unknown
+      baseline: unknown
+      readAt: unknown
+      queued: Array<{ kind: string; input: unknown }>
+      echoReadAt: unknown
+      echoAwaiting: number
+      drainPubs: number
+    }> = []
+    for (const batched of [false, true]) {
+      const api = makeApi()
+      const { engine } = makeEngine({ api, url: '/workspace' })
+      engine.start()
+      await settle()
+      const issueA = { id: asIssueId('s5-a'), title: 'A', stage: 'in_progress',
+        readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+        archived: false, worktreePath: '/tmp/known-repo' } as IssueWire
+      const issueB = { id: asIssueId('s5-b'), title: 'B', stage: 'in_progress',
+        readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
+        archived: false, worktreePath: '/tmp/known-repo' } as IssueWire
+      const sessionA = { ...session('s5-session-a', '/tmp/known-repo'), issueId: issueA.id } as SessionMeta
+      const sessionB = { ...session('s5-session-b', '/tmp/known-repo'), issueId: issueB.id } as SessionMeta
+      engine.replica.applyChanges('issues', [issueA, issueB], [])
+      engine.replica.applyChanges('sessions', [sessionA, sessionB], [])
+      await settle()
+      engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueA.id,
+        selectedWorktree: '/tmp/known-repo', tabId: sessionA.sessionId, firstPane: true })
+      await settle()
+      await engine.getSnapshot().markIssueRead(issueA.id)
+      await settle()
+      await engine.outbox.drain()
+      await settle()
+      const seam = engine as unknown as { batch(fn: () => void): void }
+      const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
+      const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
+      storeStats.reset()
+      storeStats.enable()
+      const window = storeStats.begin('gesture')
+      let command: Promise<void> | undefined
+      if (batched) {
+        seam.batch(() => {
+          engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueB.id,
+            selectedWorktree: '/tmp/known-repo', tabId: sessionB.sessionId, firstPane: true })
+          command = engine.getSnapshot().markIssueRead(issueB.id)
+        })
+      } else {
+        engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueB.id,
+          selectedWorktree: '/tmp/known-repo', tabId: sessionB.sessionId, firstPane: true })
+        command = engine.getSnapshot().markIssueRead(issueB.id)
+      }
+      const syncPubs = readStoreStats().publishes.map((p) => [...p.changedKeys].sort())
+      const sync = readStoreStats().publishes.length
+      expect(seen.length).toBe(sync)
+      await command!
+      await settle()
+      storeStats.end(window)
+      const st = engine.getSnapshot()
+      const queued = engine.outbox.pending().map(({ kind, input }) => ({ kind, input }))
+      // Control: the read command was sent in both arms.
+      expect(queued).toHaveLength(1)
+      expect(queued[0]).toMatchObject({ kind: 'issueMarkRead', input: { id: issueB.id } })
+      expect((api.issues.markRead.mutate as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1)
+      // Control: same visible gesture state + optimistic paint.
+      expect(st.selectedIssueId).toBe(issueB.id)
+      expect(st.paneA).toBe(sessionB.sessionId)
+      expect(st.issueVisitBaseline?.issueId).toBe(issueB.id)
+      const readAt = st.issues.find((i) => i.id === issueB.id)?.readAt
+      expect(readAt).not.toBeNull()
+      // The batched gesture publishes once; its one publication carries the
+      // navigation keys, the baseline, the optimistic paint and the sync
+      // outbox-size handoff together.
+      if (batched) {
+        expect(sync).toBe(1)
+        expect(seen).toHaveLength(1)
+        const keys = syncPubs[0]!
+        for (const key of ['selectedIssueId', 'paneA', 'issueVisitBaseline', 'issues', 'outboxSize'] as const)
+          expect(keys, `batched pub carries ${key}`).toContain(key)
+      } else {
+        expect(sync).toBeGreaterThan(1)
+      }
+      // Async drain echo stays separate by construction (labelled, not folded):
+      // resolving the queue publishes again, outside the gesture window.
+      storeStats.reset()
+      const drainWindow = storeStats.begin('feed')
+      await engine.outbox.drain()
+      await settle()
+      storeStats.end(drainWindow)
+      const drainPubs = readStoreStats().publishes.length
+      expect(engine.outbox.pending()).toHaveLength(0)
+      // Network echo stays separate too: server truth arrives later and retires
+      // the awaiting overlay without changing the gesture's publication count.
+      engine.replica.applyChanges('issues', [{ ...issueB, readAt: '2099-01-01T00:00:00.000Z' }], [])
+      await settle()
+      const echo = engine.getSnapshot()
+      const echoReadAt = echo.issues.find((i) => i.id === issueB.id)?.readAt
+      expect(echoReadAt).toBe('2099-01-01T00:00:00.000Z')
+      results.push({ sync, syncKeys: syncPubs, selected: st.selectedIssueId, pane: st.paneA,
+        baseline: st.issueVisitBaseline?.issueId, readAt, queued,
+        echoReadAt, echoAwaiting: engine.outbox.awaiting().length, drainPubs })
+      off()
+      storeStats.enable(false)
+      storeStats.reset()
+      engine.destroy()
+    }
+    // Legacy arm fails the new budget; controls are equal across arms.
+    expect(results[0]!.sync).toBeGreaterThan(1)
+    expect(results[1]!.sync).toBe(1)
+    const controls = ({ selected, pane, baseline, queued, echoReadAt }: typeof results[number]) =>
+      ({ selected, pane, baseline, queued, echoReadAt })
+    expect(controls(results[1]!)).toEqual(controls(results[0]!))
+    // Rollback semantics unchanged (B11 owns the failure matrix); the gesture
+    // batch only moves the publication boundary. Drain echo published
+    // separately in both arms.
+    expect(results[0]!.drainPubs).toBeGreaterThanOrEqual(1)
+    expect(results[1]!.drainPubs).toBeGreaterThanOrEqual(1)
+    process.stdout.write(`S5 click A/B sync ${results[0]!.sync} -> ${results[1]!.sync} keys=${JSON.stringify(results[1]!.syncKeys)}\n`)
+    storeStats.reset()
+  })
+
+  it('batchGesture runs navigation and optimistic paints in one publication', async () => {
+    const { engine } = makeEngine({ url: '/workspace' })
     engine.start()
     await settle()
-    const issueA = { id: asIssueId('s5-a'), title: 'A', stage: 'in_progress',
+    const issue = { id: asIssueId('s5-gesture'), title: 'G', stage: 'in_progress',
       readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
       archived: false, worktreePath: '/tmp/known-repo' } as IssueWire
-    const issueB = { id: asIssueId('s5-b'), title: 'B', stage: 'in_progress',
-      readAt: null, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z',
-      archived: false, worktreePath: '/tmp/known-repo' } as IssueWire
-    const sessionA = { ...session('s5-session-a', '/tmp/known-repo'), issueId: issueA.id } as SessionMeta
-    const sessionB = { ...session('s5-session-b', '/tmp/known-repo'), issueId: issueB.id } as SessionMeta
-    engine.replica.applyChanges('issues', [issueA, issueB], [])
-    engine.replica.applyChanges('sessions', [sessionA, sessionB], [])
-    await settle()
-    engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueA.id,
-      selectedWorktree: '/tmp/known-repo', tabId: sessionA.sessionId, firstPane: true })
-    await settle()
-    // Drain the first mark so the measured click starts from a clean queue.
-    await engine.getSnapshot().markIssueRead(issueA.id)
-    await settle()
-    await engine.outbox.drain()
+    const row = { ...session('s5-gesture-session', '/tmp/known-repo'), issueId: issue.id } as SessionMeta
+    engine.replica.applyChanges('issues', [issue], [])
+    engine.replica.applyChanges('sessions', [row], [])
     await settle()
     const seen: Array<ReturnType<typeof engine.getSnapshot>> = []
     const off = engine.subscribe(() => seen.push(engine.getSnapshot()))
     storeStats.reset()
     storeStats.enable()
     const window = storeStats.begin('gesture')
-    engine.getSnapshot().navigateWorkspace({ selectedIssueId: issueB.id,
-      selectedWorktree: '/tmp/known-repo', tabId: sessionB.sessionId, firstPane: true })
-    const command = engine.getSnapshot().markIssueRead(issueB.id)
-    // Synchronous paint window: navigation + optimistic paint have run; the
-    // durable outbox handoff has not yet resolved.
-    const syncPubs = readStoreStats().publishes.map((p) => [...p.changedKeys].sort())
-    const syncCount = readStoreStats().publishes.length
-    await command
+    const snapshot = engine.getSnapshot()
+    // Production path: the store's batchGesture (actions.ts) wraps the calls
+    // use-unified-work issues. Here through the same public surface.
+    const batchGesture = (snapshot as unknown as { batchGesture: (fn: () => void) => void }).batchGesture
+    expect(typeof batchGesture).toBe('function')
+    let command: Promise<void> | undefined
+    batchGesture(() => {
+      snapshot.navigateWorkspace({ selectedIssueId: issue.id,
+        selectedWorktree: row.cwd, tabId: row.sessionId, firstPane: true })
+      command = snapshot.markIssueRead(issue.id)
+    })
+    const sync = readStoreStats().publishes.length
+    await command!
     await settle()
     storeStats.end(window)
-    const total = readStoreStats().publishes.map((p) => [...p.changedKeys].sort())
-    const final = engine.getSnapshot()
-    process.stdout.write(`S5 probe sync=${syncCount} total=${total.length} syncKeys=${JSON.stringify(syncPubs)} totalKeys=${JSON.stringify(total)} selected=${final.selectedIssueId} baseline=${final.issueVisitBaseline?.issueId} readAt=${final.issues.find((i) => i.id === issueB.id)?.readAt} outbox=${final.outboxSize} queue=${engine.outbox.pending().length}\n`)
+    expect(sync).toBe(1)
+    expect(seen).toHaveLength(1)
+    expect(engine.getSnapshot().selectedIssueId).toBe(issue.id)
+    expect(engine.getSnapshot().issues[0]?.readAt).not.toBeNull()
     off()
     storeStats.enable(false)
     storeStats.reset()

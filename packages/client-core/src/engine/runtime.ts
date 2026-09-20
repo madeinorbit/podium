@@ -1471,6 +1471,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       state: () => this.state,
       apply: (patch) => this.apply(patch),
       navigate: (intent) => this.navigate(intent),
+      // S5: one publication per click. The gesture's synchronous paints share
+      // this batch; the async outbox drain echo and background broadcasts stay
+      // separate by construction (they fire after the batch closed).
+      batch: (fn) => this.batch(fn),
       subscribe: (listener) => this.subscribe(listener),
       enqueueOverlayed: <K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]) =>
         this.optimism.enqueueOverlayed(kind, input),
