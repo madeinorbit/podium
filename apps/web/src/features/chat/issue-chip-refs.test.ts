@@ -82,17 +82,20 @@ describe('issue chip refs selector', () => {
     expect(after.refs.get('POD-13')?.title).toBe('Renamed')
   })
 
-  it('notices an in-place mutation of a retained element, like the raw signature does', () => {
+  it('a same-array render costs the identity fast path, with no material scan', () => {
+    // The replica hands out immutable snapshots: same array identity means
+    // nothing changed, exactly the assumption host-session-aggregates and
+    // repository-usage make. This is the brief's "costs a map lookup" render.
     const selector = createIssueChipRefsSelector()
     const issues = [issue()]
-    const before = selector.select(issues)
+    const first = selector.select(issues)
 
-    issues[0].title = 'Mutated'
-    const after = selector.select(issues)
+    const second = selector.select(issues)
 
-    expect(selector.stats.signatureBuilds).toBe(2)
-    expect(after.signature).not.toBe(before.signature)
-    expect(after.refs.get('POD-13')?.title).toBe('Mutated')
+    expect(second).toBe(first)
+    expect(selector.stats.materialScans).toBe(1)
+    expect(selector.stats.signatureBuilds).toBe(1)
+    expect(selector.stats.lookupBuilds).toBe(1)
   })
 
   it('legacy arm: recomputing the signature per render builds every time, over identical results', () => {

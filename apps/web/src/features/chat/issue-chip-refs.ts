@@ -11,10 +11,13 @@ import {
  * `issueKey` is a pure function of `prefix`/`seq`/`displayRef` (with a prefix
  * it keys `prefix-seq`, without one it keys the parsed `displayRef ?? #seq`),
  * and the signature additionally reads `displayRef`, `stage`, `archived`,
- * `deletedAt` and `title`. Comparing these seven fields is exactly as
- * sensitive as recomputing the signature string — including an in-place
- * mutation of a retained element — without joining ~4,900 rows into a string
- * or projecting every row through `issueReferenceModel` on every render.
+ * `deletedAt` and `title`. For a replaced array, comparing these seven fields
+ * is exactly as sensitive as recomputing the signature string — any change
+ * the string could see flips a field first — without joining ~4,900 rows
+ * into a string or projecting every row through `issueReferenceModel` on
+ * every render. A same-identity array reuses the cache unscanned, on the
+ * replica's immutable-snapshot contract (the same assumption the
+ * host-session-aggregates and repository-usage selectors make).
  */
 interface IssueChipMaterial {
   readonly prefix: string | undefined
