@@ -780,23 +780,20 @@ export class SessionInbox {
       return { ok: false, reason: 'session not running' }
     }
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
-    // A server-family session has no PTY bridge: the daemon discards typed
-    // bytes without an error, so the abort key below would be bytes into
-    // nothing answered ok:true. Route the stop through the contract port
-    // instead, exactly as interruptTurn does.
-    if (this.routesThroughContract(session) === true) {
+    // Contract-only stops for agents (POD-4279). The driver owns the abort key
+    // behind its manifest idle guard; the server never types it. Plain-terminal
+    // shells (POD-4278) keep the raw path below — they have no driver to call.
+    if (session.agentKind !== 'shell') {
       await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
       // An idle agent has no turn to cut into, so the interrupt is SKIPPED
       // rather than refused — the message still lands, which is the point of
-      // this path. The terminal-path analog is the abort-key skip below.
+      // this path.
       if (session.agentState?.phase === 'working') {
         const interruption = await this.contractInterrupt(session, input)
         if (!interruption.ok) return { ok: false, reason: interruption.reason }
       }
       // The follow-up text rides the durable queue down the drain's contract
-      // branch: typeText refuses contract sessions, and that refusal used to
-      // be scheduled and discarded here. The queue result is the caller's
-      // answer, not a silent ok:true.
+      // branch. The queue result is the caller's answer, not a silent ok:true.
       return await this.queueText({ ...input, principal })
     }
     // An idle agent has no turn to cut into, so the abort key is skipped rather
@@ -854,7 +851,9 @@ export class SessionInbox {
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'session not running' }
     }
-    if (this.routesThroughContract(session) === true) {
+    // Contract-only stops for agents (POD-4279). Plain-terminal shells
+    // (POD-4278) keep the raw abort path below — they have no driver to call.
+    if (session.agentKind !== 'shell') {
       const cancelled = await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
       if (cancelled && session.agentState?.phase !== 'working') return { ok: true, requested: 'retraction' }
       if (session.agentState?.phase !== 'working') {
@@ -1026,9 +1025,14 @@ export class SessionInbox {
       }
       return verification
     }
-    if (this.routesThroughContract(session)) {
+    // Agents cancel through the driver (POD-4279). A daemon-owned row needs a
+    // successful driver cancel — retracting it locally would desync a delivery
+    // the daemon still holds. A server-held row the daemon never admitted
+    // retracts locally, so an idle stop still pulls back a queued send. Shells
+    // keep the local-only path — they have no driver to call.
+    if (session.agentKind !== 'shell') {
       const result = await this.deps.contractCancel?.(sessionId, head.id)
-      if (!result || !('ok' in result)) return false
+      if ((!result || !('ok' in result)) && head.deliveryOwner === 'daemon') return false
     }
     const deletion: Promise<void> = this.deps.queue.delete(head.id)
     await deletion

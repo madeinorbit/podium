@@ -1388,19 +1388,13 @@ describe('SessionInbox authorization and identity', () => {
     ])
   })
 
+  // Agent stops go through the driver contract (POD-4279); only plain-terminal
+  // shells keep the raw abort key (POD-4278) — they have no driver to call.
   // ONE keystroke, and WHICH keystroke is the harness's fact, not a constant
   // (POD-1214). Codex moved from Ctrl-C in 0.147.0 to Esc in 0.150.1; keeping
   // this table manifest-backed makes that provider change explicit.
-  it.each([
-    { agentKind: 'claude-code' as const, key: '\x1b' },
-    { agentKind: 'grok' as const, key: '\x1b' },
-    { agentKind: 'codex' as const, key: '\x1b' },
-    { agentKind: 'shell' as const, key: '\x03' },
-  ])('interrupt sends $agentKind its own abort key with the authenticated principal attribution', async ({
-    agentKind,
-    key,
-  }) => {
-    const h = harness({ agentKind, phase: 'working' })
+  it('interrupt sends a shell its own abort key with the authenticated principal attribution', async () => {
+    const h = harness({ agentKind: 'shell', phase: 'working' })
     const principal = agentPrincipal()
 
     expect(await h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({
@@ -1410,25 +1404,60 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(h.sent).toEqual([
       expect.objectContaining({
-        bytes: Buffer.from(key),
+        bytes: Buffer.from('\x03'),
         attribution: principal.attribution,
       }),
     ])
     expect(h.answered).toEqual([])
   })
 
-  it('uses the safe Escape interrupt at an idle Codex prompt', async () => {
-    const h = harness({ agentKind: 'codex', phase: 'idle' })
+  it.each(['claude-code', 'grok', 'codex'] as const)(
+    'interrupt routes a working %s stop through the driver contract, typing nothing',
+    async (agentKind) => {
+      const h = harness({ agentKind, phase: 'working', contractInterrupt: { ok: true } })
+      const principal = agentPrincipal()
 
-    // AWAITED because the verb now answers either way: the terminal path is
-    // still synchronous, the contract path is not, and a caller reads one shape.
+      expect(await h.inbox.interruptTurn({ sessionId: SID, principal })).toEqual({
+        ok: true,
+        requested: 'protocol',
+      })
+
+      expect(h.contractInterrupts).toEqual([SID])
+      expect(h.sent).toEqual([])
+      expect(h.answered).toEqual([])
+    },
+  )
+
+  it('refuses a working agent stop it has no runtime connection to deliver', async () => {
+    // The port ABSENT — an agent session on a server that cannot reach the
+    // daemon. Typing an abort key here used to answer ok:true; failing closed
+    // names the stop that did not happen.
+    const h = harness({ agentKind: 'codex', phase: 'working' })
+
     const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
 
-    expect(result).toEqual({ ok: true, requested: 'keystroke' })
-    expect(h.sent).toHaveLength(1)
+    expect(result.ok).toBe(false)
+    expect(h.sent).toEqual([])
+    expect(h.contractInterrupts).toEqual([])
   })
 
-  it('lets stop cancel a queued prompt even when idle codex has no turn to abort', async () => {
+  it('refuses an idle agent stop instead of typing an abort key into its prompt', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'idle' })
+
+    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
+
+    // Esc is inert at an idle prompt and Ctrl-C-class keys exit one: typing
+    // either is how an interrupt-urgency message became the thing that killed
+    // the session. The driver owns the idle guard now.
+    expect(result).toEqual({
+      ok: false,
+      reason: 'Codex only takes an interrupt while it is working, and it is not working right now',
+    })
+    expect(h.sent).toEqual([])
+    expect(h.contractInterrupts).toEqual([])
+  })
+
+  it('lets stop retract a queued prompt even when idle codex has no turn to abort', async () => {
     const h = harness({ agentKind: 'codex', phase: 'idle' })
     await h.inbox.queueText({
       sessionId: SID,
@@ -1439,9 +1468,9 @@ describe('SessionInbox authorization and identity', () => {
 
     expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
-      requested: 'keystroke',
+      requested: 'retraction',
     })
-    expect(h.sent).toHaveLength(1)
+    expect(h.sent).toEqual([])
     expect(h.rows).toEqual([])
     expect(h.interrupted).toHaveBeenCalledWith({
       sourceMessageId: 'message-not-yet-injected',
@@ -1449,8 +1478,8 @@ describe('SessionInbox authorization and identity', () => {
     })
   })
 
-  it('cancels the named queued prompt without removing an earlier one', async () => {
-    const h = harness({ agentKind: 'codex', phase: 'working' })
+  it('cancels the named queued prompt through the driver without removing an earlier one', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'working', contractInterrupt: { ok: true } })
     await h.inbox.queueText({
       sessionId: SID,
       text: 'keep first',
@@ -1470,28 +1499,32 @@ describe('SessionInbox authorization and identity', () => {
         sourceMessageId: 'message-cancel',
         principal: agentPrincipal(),
       }),
-    ).toEqual({ ok: true, requested: 'keystroke' })
+    ).toEqual({ ok: true, requested: 'protocol' })
 
     expect(h.rows.map((row) => row.sourceMessageId)).toEqual(['message-keep'])
+    expect(h.contractCancel).toHaveBeenCalledWith(SID, expect.any(String))
+    expect(h.contractInterrupts).toEqual([SID])
+    expect(h.sent).toEqual([])
     expect(h.interrupted).toHaveBeenCalledWith({
       sourceMessageId: 'message-cancel',
       sessionId: SID,
     })
   })
 
-  // Esc is inert at an idle prompt, so it needs no guard — and gating it would
-  // reintroduce the stale-phase hole the client just stopped relying on.
-  it('interrupts an idle Esc harness anyway', async () => {
+  // An idle agent has no turn to cut into, so the stop is a refusal, never a
+  // keystroke: Esc is inert at an idle prompt and needs no guard dance here —
+  // the driver owns the idle guard.
+  it('refuses an idle Esc-harness stop instead of interrupting anyway', async () => {
     const h = harness({ agentKind: 'claude-code', phase: 'idle' })
 
     expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
-      ok: true,
-      requested: 'keystroke',
+      ok: false,
+      reason: 'Claude only takes an interrupt while it is working, and it is not working right now',
     })
-    expect(h.sent).toHaveLength(1)
+    expect(h.sent).toEqual([])
   })
 
-  it('stops submit verification after the chat stop control interrupts the prompt', async () => {
+  it('stops submit verification after the chat stop control retracts the prompt', async () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'claude-code', phase: 'idle' })
 
@@ -1503,9 +1536,11 @@ describe('SessionInbox authorization and identity', () => {
         .filter((text) => text === '\r'),
     ).toHaveLength(1)
 
+    // Idle with a queued row: the stop retracts the queued send (no turn to
+    // cut into), which deletes the submit generation along with the row.
     expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
-      requested: 'keystroke',
+      requested: 'retraction',
     })
     await vi.advanceTimersByTimeAsync(5_000)
 
@@ -1516,42 +1551,41 @@ describe('SessionInbox authorization and identity', () => {
     ).toHaveLength(1)
   })
 
-  it('cancels the first delayed submit when stop wins the paste-to-Enter race', async () => {
+  it('a stop before the paste-to-Enter race retracts the queued send with nothing typed', async () => {
     vi.useFakeTimers()
     const h = harness({ agentKind: 'claude-code', phase: 'idle' })
 
     await h.inbox.sendText({ sessionId: SID, text: 'cancel immediately', principal: agentPrincipal() })
     expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
       ok: true,
-      requested: 'keystroke',
+      requested: 'retraction',
     })
     await vi.advanceTimersByTimeAsync(5_000)
 
-    const decoded = h.sent.map((message) =>
-      Buffer.from((message as { bytes: Uint8Array }).bytes).toString(),
-    )
-    expect(decoded).toContain('\x1b')
-    expect(decoded).not.toContain('\r')
+    // Nothing was ever typed: the retraction pulled the row before the drain's
+    // readiness wait elapsed, so neither the paste nor a submit CR exists.
+    expect(h.sent).toEqual([])
+    expect(h.rows).toEqual([])
   })
 
-  it('uses the current safe Escape before interrupt-urgency text at idle Codex', async () => {
+  it('interrupt-urgency text at idle Codex queues without typing an abort key', async () => {
     vi.useFakeTimers()
     try {
       const h = harness({ agentKind: 'codex', phase: 'idle' })
 
+      // Idle means no turn to cut into: no abort key is typed (an Esc here
+      // would land in the idle prompt), and the message queues as usual.
       expect(
         await h.inbox.interruptText({
           sessionId: SID,
           text: 'stop and read this',
           principal: agentPrincipal(),
         }),
-      ).toEqual({ ok: true })
+      ).toEqual({ ok: true, queued: true })
       await vi.advanceTimersByTimeAsync(500)
 
-      const decoded = h.sent.map((m) => Buffer.from((m as { bytes: Uint8Array }).bytes).toString())
-      expect(decoded).toContain('\x1b')
-      expect(decoded.some((d) => d.includes('\x03'))).toBe(false)
-      expect(decoded.some((d) => d.includes('stop and read this'))).toBe(true)
+      expect(h.sent).toEqual([])
+      expect(h.rows).toHaveLength(1)
     } finally {
       vi.useRealTimers()
     }
@@ -3269,7 +3303,7 @@ describe('offer retirement before inbox admission', () => {
     expect(h.answered).toEqual([])
     release()
     expect((await pending).ok).toBe(true)
-    if (mode === 'queue') expect(h.rows).toHaveLength(1)
+    if (mode === 'queue' || mode === 'interrupt') expect(h.rows).toHaveLength(1)
     else if (mode === 'answer') expect(h.contractCalls).toHaveLength(1)
     else {
       await vi.advanceTimersByTimeAsync(500)
