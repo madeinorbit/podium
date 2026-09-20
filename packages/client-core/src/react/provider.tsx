@@ -102,20 +102,17 @@ import type { ClientPrincipal } from '../principal'
 import { samePrincipal } from '../principal'
 import type { FeedSinkPort } from '../socket-transport'
 import type { RouterWindow } from '../ui-state'
-import type { PresentationModel, ReadCell } from '../presentation/model'
 
 // Shared runtime seams (#262): types live with the runtime; re-exported here so
 // the react entrypoint's public surface is unchanged.
 export type { Store, StoreNotices, StoreServerConfig, UserFocus } from '../engine/types'
 export type { ClientPrincipal } from '../principal'
-export type { PresentationModel, ReadCell } from '../presentation/model'
 // The main-view union lives with the router (URL ↔ view mapping).
 export type { MainView } from '../ui-state'
 export type { FileTab } from '../viewmodels'
 
 /** The read seam the hooks consume — the runtime, structurally. */
 interface StoreHandle<TApi extends PodiumClientApi> {
-  readonly presentation?: PresentationModel
   readonly hostMetrics: {
     subscribe(listener: () => void): () => void
     getSnapshot(): HostMetricsWire[]
@@ -182,8 +179,6 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
    *  revalidated. The runtime opens the replica but starts no socket, boot read,
    *  or outbox drain until its replacement provider enables networking. */
   networkEnabled?: boolean
-  /** Opt-in read-model pilot. Off creates neither model nor its subscription. */
-  presentationModel?: boolean
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Test seam: runtime timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
@@ -211,7 +206,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   heartbeatIntervalMs,
   onServerRelocation,
   networkEnabled,
-  presentationModel = false,
   routerWindow,
   engineOverrides,
   unauthenticated = null,
@@ -238,7 +232,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     config: StoreServerConfig
     api: TApi
     networkEnabled: boolean
-    presentationModel: boolean
     runtime: ClientRuntime<TApi>
   } | null>(null)
   const held = runtimeRef.current
@@ -248,8 +241,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       !samePrincipal(held.principal, principal) ||
       held.config !== config ||
       held.api !== api ||
-      held.networkEnabled !== (networkEnabled ?? true) ||
-      held.presentationModel !== presentationModel)
+      held.networkEnabled !== (networkEnabled ?? true))
   ) {
     // Teardown happens BEFORE the successor is constructed, so there is never a
     // moment when two runtimes for two principals are both live over the same
@@ -264,7 +256,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       config,
       api,
       networkEnabled: networkEnabled ?? true,
-      presentationModel,
       runtime: createClientRuntime<TApi>({
         principal,
         config,
@@ -284,7 +275,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         heartbeatIntervalMs,
         onServerRelocation,
         networkEnabled,
-        presentationModel,        routerWindow,
+        routerWindow,
         ...engineOverrides,
       }),
     }
@@ -419,13 +410,4 @@ export function useStoreSelector<T, TApi extends PodiumClientApi = PodiumClientA
 export function useHostMetrics(): HostMetricsWire[] {
   const { hostMetrics } = useStoreHandle()
   return useSyncExternalStore(hostMetrics.subscribe, hostMetrics.getSnapshot)
-}
-
-/** Read-only pilot surface. Commands continue to use the existing Store. */
-export function usePresentationModel(): PresentationModel | undefined {
-  return useStoreHandle().presentation
-}
-
-export function usePresentationCell<T>(cell: ReadCell<T>): T {
-  return useSyncExternalStore(cell.subscribe, cell.getSnapshot, cell.getSnapshot)
 }
