@@ -304,7 +304,6 @@ describe('oracle: sessions.uploadImage', () => {
       cwd: '/p',
       agentKind: 'codex',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'codex-app-server',
     })
     const requests: Extract<ControlMessage, { type: 'runtimeStageAttachmentRequest' }>[] = []
@@ -677,7 +676,6 @@ describe('oracle: sessions.uploadImage', () => {
       cwd: '/p',
       agentKind: 'codex',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'codex-app-server',
     })
     o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {

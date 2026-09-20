@@ -31,7 +31,6 @@ async function seedContractSession() {
     cwd: '/p',
     agentKind: 'claude-code',
     geometry: G,
-    runtimeContract: true,
     driverId: 'claude-sdk',
   })
   return { reg, sessionId }

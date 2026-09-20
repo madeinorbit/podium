@@ -284,7 +284,6 @@ describe('oracle: resurrect', () => {
       cwd: '/p',
       agentKind: 'grok',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'grok-acp',
     })
     await o.reg.gateway.routeDaemonFrame(machineId, {
@@ -358,7 +357,6 @@ describe('oracle: resurrect', () => {
       cwd: '/p',
       agentKind: 'grok',
       geometry: { cols: 80, rows: 24 },
-      runtimeContract: true,
       driverId: 'grok-acp',
     })
     expect(await o.meta(sessionId)).toMatchObject({

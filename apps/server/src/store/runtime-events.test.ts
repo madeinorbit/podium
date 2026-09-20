@@ -88,7 +88,7 @@ function terminalItemEvent(input: {
   }
 }
 
-async function bindContract(registry: SessionRegistry, store: SessionStore, runtimeContract = true, onCommand: (message: ControlMessage) => void = () => {}) {
+async function bindContract(registry: SessionRegistry, store: SessionStore, onCommand: (message: ControlMessage) => void = () => {}, driverId: string | undefined = 'codex-app-server') {
   await store.machines.upsertMachine({
     id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
     ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
@@ -105,8 +105,7 @@ async function bindContract(registry: SessionRegistry, store: SessionStore, runt
     cwd: '/project',
     agentKind: 'codex',
     geometry: { cols: 80, rows: 24 },
-    runtimeContract,
-    driverId: 'codex-app-server',
+    ...(driverId ? { driverId } : {}),
   })
   await bindCompletion
   return sessionId
@@ -213,7 +212,7 @@ describe('durable runtime observation gate', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
-      const sessionId = await bindContract(registry, store, false)
+      const sessionId = await bindContract(registry, store, () => {}, undefined)
       const initial = await registry.modules.sessions.sessionById(sessionId)
       const at = new Date(Date.parse(initial?.lastActiveAt ?? '') + 1_000).toISOString()
       const effects: string[] = []
@@ -1534,7 +1533,7 @@ it('restores metadata through the actual bind snapshot RPC on reconnect without 
   const at = '2025-01-01T00:00:00.000Z'
   const replies: Promise<void>[] = []
   try {
-    const sessionId = await bindContract(registry, store, true, (message) => {
+    const sessionId = await bindContract(registry, store, (message) => {
       if (message.type !== 'runtimeSnapshotRequest') return
       const event = { t: 'metadata' as const, change: { kind: 'context' as const, source: 'transcript' as const, percent },
         at, provenance: 'live' as const, observerGeneration: 1, turnEpoch: 0,
@@ -1555,7 +1554,7 @@ it('restores metadata through the actual bind snapshot RPC on reconnect without 
     seq = 2
     await registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'bind', sessionId, cmd: 'codex', cwd: '/project', agentKind: 'codex',
-      geometry: { cols: 80, rows: 24 }, runtimeContract: true, driverId: 'generic-pty',
+      geometry: { cols: 80, rows: 24 }, driverId: 'generic-pty',
     })
     await vi.waitFor(async () => expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 0, lastActiveAt: before }))
   } finally {
@@ -1569,7 +1568,7 @@ describe('durable transcript replacement windows', () => {
     const store = await openTestStore(':memory:')
     let registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
-      const sessionId = await bindContract(registry, store, false)
+      const sessionId = await bindContract(registry, store, () => {}, undefined)
       const at = '2026-08-23T00:00:00.000Z'
       const old = { id: 'old', cursor: 'old-native', role: 'assistant' as const, text: 'removed', ts: at }
       const kept = { id: 'kept', cursor: 'rotated-native', role: 'assistant' as const, text: 'kept', ts: at }
