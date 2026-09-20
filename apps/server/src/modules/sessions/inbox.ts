@@ -70,12 +70,6 @@ export type InterruptOutcome =
 const log = createLogger('server:session-inbox')
 
 const SUBMIT_CR_DELAY_MS = 90
-/** Gap between two keystrokes typed into a native menu — see
- *  {@link SessionInbox.answerAskUserQuestion}. Comfortably above the CLI key
- *  parser's own 50ms byte-run window, so no two keys share a read. */
-const MENU_KEY_DELAY_MS = 120
-/** Extra settle before the keystroke that COMMITS the answer set. */
-const MENU_CONFIRM_DELAY_MS = 240
 const SUBMIT_VERIFY_DELAY_MS = 1_600
 const SUBMIT_MAX_RETRIES = 2
 const READY_FLOOR_MS = 800
@@ -416,67 +410,6 @@ export type AnswerChoice = { multiSelect?: boolean; previewLayout?: boolean } & 
   | { optionIndices: number[] }
   | { freeText: string; otherIndex: number }
 )
-
-/** Several picks can only have come from a multi-select, so a client that
- *  cannot say so is still read correctly. */
-const isMultiSelect = (choice: AnswerChoice): boolean =>
-  choice.multiSelect ?? ('optionIndices' in choice && choice.optionIndices.length > 1)
-
-/** The side-by-side preview dialog. It is single-select BY CONSTRUCTION (the CLI
- *  only reaches for it when `!multiSelect`), so a choice claiming both is a
- *  client bug and must not be typed at all. */
-const isPreviewLayout = (choice: AnswerChoice): boolean =>
-  choice.previewLayout === true && !isMultiSelect(choice)
-
-/** The ONE shape the native menu commits by itself, so the ONE shape that must
- *  not be given a closing CR. Kept next to the choice type because both sides
- *  of the asymmetry have to read the same way. Holds in the preview layout too:
- *  a lone question auto-submits the moment the CR selects a row. */
-const isLoneSingleSelect = (choices: AnswerChoice[]): boolean => {
-  const only = choices.length === 1 ? choices[0] : undefined
-  return only !== undefined && !isMultiSelect(only)
-}
-
-/** One typed digit. Anything else cannot be a menu keystroke. */
-const isMenuDigit = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 9
-
-/**
- * Why this answer cannot be typed into the native menu, or null when it can.
- *
- * Checked for EVERY choice before a single byte moves. The old code skipped an
- * undeliverable choice and kept going, which is how POD-770 stayed silent: the
- * skipped question was left highlighted on its first row and the closing CR
- * committed that row as though the operator had chosen it.
- */
-const undeliverable = (choice: AnswerChoice, at: number): string | null => {
-  const where = `question ${at + 1}`
-  const digits = 'optionIndices' in choice ? choice.optionIndices.filter(isMenuDigit) : []
-  // The preview dialog is single-select by construction and its Enter selects
-  // exactly the one highlighted row, so both ways of asking it for several
-  // answers are contradictions rather than something to type half of. Checked
-  // before `isMultiSelect`, whose several-picks inference would misdescribe the
-  // second one as a multi-select question.
-  if (choice.previewLayout === true) {
-    if (choice.multiSelect === true) return `${where}: a preview question cannot be multi-select`
-    if (digits.length > 1) {
-      return `${where}: a preview question takes one option, got ${digits.join(',')}`
-    }
-  }
-  if ('freeText' in choice) {
-    if (choice.freeText.trim() === '') return `${where}: empty free text`
-    // The Other row only exists in the classic list layout; the preview layout
-    // reaches its Notes field with `n` and needs no index.
-    if (!isPreviewLayout(choice) && !isMenuDigit(choice.otherIndex)) {
-      return `${where}: Other is at ${choice.otherIndex}, outside the menu's 1-9 digits`
-    }
-    return null
-  }
-  if (digits.length === 0) {
-    const got = choice.optionIndices.join(',') || 'nothing'
-    return `${where}: no option in the menu's 1-9 digits (got ${got})`
-  }
-  return null
-}
 
 export interface InboxSendInput {
   sessionId: SessionId
@@ -2249,19 +2182,13 @@ export class SessionInbox {
     if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false }
     }
-    if (input.interactionId || session.runtimeContract === true) {
-      if (!input.interactionId || !this.deps.contractAnswer) return { ok: false, reason: 'unknown-interaction' }
-      return await this.deps.contractAnswer(input)
-    }
-    const choices = input.skip ? [] : (input.choices ?? [])
-    if (!input.skip && choices.length === 0) return { ok: false, reason: 'no choices to type' }
-    for (let i = 0; i < choices.length; i++) {
-      const choice = choices[i]
-      const why = choice ? undeliverable(choice, i) : `question ${i + 1}: missing`
-      if (why) return { ok: false, reason: why }
-    }
+    // Contract-only answers (POD-4279). The driver owns the menu script behind
+    // its interaction identity; the server never types menu keys. Transcript-
+    // derived choices without an authoritative interaction id fail closed
+    // rather than typing blind — see POD-4292 and the terminal-answer-contract
+    // test for the exercised replacement. Offer retirement still gates
+    // admission, exactly as it did for typed answers.
     const attribution = input.principal.attribution
-    // Retire the offer before the first answer keystroke is scheduled.
     const answerState = session.agentState
     await this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
     if (
@@ -2271,66 +2198,8 @@ export class SessionInbox {
       (session.status !== 'live' && session.status !== 'starting')
     )
       return { ok: false, reason: 'session changed during answer admission' }
-    let delayMs = 0
-    let typed = false
-    const key = (data: string, gapBefore = MENU_KEY_DELAY_MS): void => {
-      if (typed) delayMs += gapBefore
-      this.scheduleInput(input.sessionId, data, 'human', attribution, delayMs)
-      typed = true
-    }
-    if (input.skip) {
-      key('\x1b')
-    } else {
-      for (const choice of choices) {
-        const preview = isPreviewLayout(choice)
-        if ('freeText' in choice) {
-          // Ink needs a frame to move focus into the field before characters
-          // land as the custom answer rather than as menu keys.
-          key(preview ? 'n' : String(choice.otherIndex))
-          key(choice.freeText)
-          key('\r')
-        } else {
-          const digits = choice.optionIndices.filter(isMenuDigit)
-          if (preview) {
-            // The digit only moves the cursor here; the CR is what selects.
-            key(String(digits[0]))
-            key('\r')
-          } else {
-            for (const digit of digits) key(String(digit))
-          }
-        }
-        if (isMultiSelect(choice)) key('\t')
-      }
-      if (typed && !isLoneSingleSelect(choices)) key('\r', MENU_CONFIRM_DELAY_MS)
-    }
-    await this.deps.attention.answered({
-      ownerUserId,
-      sessionId: input.sessionId,
-      attribution,
-    })
-    return { ok: true }
-  }
-
-  /** Send now, or after `delayMs`. The session is re-read at send time: a menu
-   *  dies with its process, and a late keystroke must not land in whatever
-   *  replaced it. Unref'd so a pending keystroke cannot hold the process up. */
-  private scheduleInput(
-    sessionId: SessionId,
-    data: string,
-    inputOrigin: ObservationInputOrigin,
-    attribution: Attribution,
-    delayMs: number,
-  ): void {
-    const send = (): void => {
-      const session = this.deps.getSession(sessionId)
-      if (!session || (session.status !== 'live' && session.status !== 'starting')) return
-      this.sendInput(session, data, inputOrigin, attribution)
-    }
-    if (delayMs <= 0) {
-      send()
-      return
-    }
-    setTimeout(send, delayMs).unref?.()
+    if (!input.interactionId || !this.deps.contractAnswer) return { ok: false, reason: 'unknown-interaction' }
+    return await this.deps.contractAnswer(input)
   }
 
   async stateChanged(input: {

@@ -77,6 +77,9 @@ function harness(
      *  port is ABSENT — the bare-fixture shape, and the case a server-family
      *  session must refuse rather than confirm (POD-2792). */
     contractInterrupt?: { ok: true } | { reason: string; detail?: string }
+    /** What the fake driver-answer port answers. Omitted means ABSENT, and an
+     *  answer without an authoritative interaction id fails closed (POD-4279). */
+    contractAnswer?: { ok: true } | { ok: false; reason?: string }
     contractConfigure?:
       | { ok: true; effective: 'immediate' | 'next-turn' }
       | { reason: string; detail?: string }
@@ -279,6 +282,25 @@ function harness(
           contractInterrupt: (sessionId: SessionId) => {
             contractInterrupts.push(sessionId)
             return Promise.resolve(options.contractInterrupt as never)
+          },
+        }
+      : {}),
+    ...(options.contractAnswer
+      ? {
+          contractAnswer: (input: {
+            sessionId: SessionId
+            interactionId?: string
+            choices?: unknown
+            skip?: boolean
+            principal: InboxPrincipalReference
+          }) => {
+            contractCalls.push(input)
+            answered.push({
+              ownerUserId: ALICE,
+              sessionId: input.sessionId,
+              attribution: input.principal.attribution,
+            })
+            return Promise.resolve(options.contractAnswer as never)
           },
         }
       : {}),
@@ -1274,20 +1296,24 @@ describe('SessionInbox authorization and identity', () => {
   })
 
   it('attributes an answer as actor plus on-behalf-of and routes it to the owner', async () => {
-    const h = harness()
+    const h = harness({ contractAnswer: { ok: true } })
     const principal = agentPrincipal()
 
     expect(
       await h.inbox.answerAskUserQuestion({
         sessionId: SID,
+        interactionId: 'ixn_test',
         choices: [{ optionIndices: [2] }],
         principal,
       }),
     ).toEqual({ ok: true })
 
-    expect(h.sent).toEqual([
+    // No PTY bytes: the driver owns the menu script behind its interaction id.
+    expect(h.sent).toEqual([])
+    expect(h.contractCalls).toEqual([
       expect.objectContaining({
-        attribution: principal.attribution satisfies Attribution,
+        sessionId: SID,
+        interactionId: 'ixn_test',
       }),
     ])
     expect(h.answered).toEqual([
@@ -1299,8 +1325,25 @@ describe('SessionInbox authorization and identity', () => {
     ])
   })
 
-  it('skip sends Esc and still records which human answered', async () => {
-    const h = harness()
+  it('fails a transcript-derived answer without an interaction id instead of typing it', async () => {
+    const h = harness({ contractAnswer: { ok: true } })
+    const principal = agentPrincipal()
+
+    expect(
+      await h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        choices: [{ optionIndices: [2] }],
+        principal,
+      }),
+    ).toEqual({ ok: false, reason: 'unknown-interaction' })
+
+    expect(h.sent).toEqual([])
+    expect(h.contractCalls).toEqual([])
+    expect(h.answered).toEqual([])
+  })
+
+  it('skip without an interaction id fails closed instead of sending Esc', async () => {
+    const h = harness({ contractAnswer: { ok: true } })
     const principal = agentPrincipal()
 
     expect(
@@ -1309,12 +1352,31 @@ describe('SessionInbox authorization and identity', () => {
         skip: true,
         principal,
       }),
+    ).toEqual({ ok: false, reason: 'unknown-interaction' })
+
+    expect(h.sent).toEqual([])
+    expect(h.answered).toEqual([])
+  })
+
+  it('skip with an interaction id routes through the driver', async () => {
+    const h = harness({ contractAnswer: { ok: true } })
+    const principal = agentPrincipal()
+
+    expect(
+      await h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        interactionId: 'ixn_test',
+        skip: true,
+        principal,
+      }),
     ).toEqual({ ok: true })
 
-    expect(h.sent).toEqual([
+    expect(h.sent).toEqual([])
+    expect(h.contractCalls).toEqual([
       expect.objectContaining({
-        bytes: Buffer.from('\x1b'),
-        attribution: principal.attribution,
+        sessionId: SID,
+        interactionId: 'ixn_test',
+        skip: true,
       }),
     ])
     expect(h.answered).toEqual([
@@ -1636,65 +1698,40 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.session.agentState?.phase).toBe('working')
   })
 
-  it('free-text via Other schedules digit, then text, then CR', async () => {
-    vi.useFakeTimers()
-    try {
-      const h = harness()
-      const principal = agentPrincipal()
+  it('free-text via Other routes through the driver instead of scheduling keystrokes', async () => {
+    const h = harness({ contractAnswer: { ok: true } })
+    const principal = agentPrincipal()
 
-      expect(
-        await h.inbox.answerAskUserQuestion({
-          sessionId: SID,
-          choices: [{ freeText: 'custom', otherIndex: 3 }],
-          principal,
-        }),
-      ).toEqual({ ok: true })
+    expect(
+      await h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        interactionId: 'ixn_test',
+        choices: [{ freeText: 'custom', otherIndex: 3 }],
+        principal,
+      }),
+    ).toEqual({ ok: true })
 
-      const decoded = () =>
-        h.sent.map((m) => Buffer.from((m as { bytes: Uint8Array }).bytes).toString())
-
-      expect(decoded()).toEqual(['3'])
-      await vi.advanceTimersByTimeAsync(120)
-      expect(decoded()).toEqual(['3', 'custom'])
-      await vi.advanceTimersByTimeAsync(120)
-      // A LONE single-select question auto-submits on that CR, so the script
-      // stops there — no closing confirm (POD-609).
-      expect(decoded()).toEqual(['3', 'custom', '\r'])
-      expect(h.answered).toHaveLength(1)
-    } finally {
-      vi.useRealTimers()
-    }
+    // No scheduled keystrokes: the driver owns the script.
+    expect(h.sent).toEqual([])
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.answered).toHaveLength(1)
   })
 
-  // POD-770 — an answer the script cannot express is a REFUSAL, never a partial
-  // script. The keystrokes for the preview layout are pinned in the command
-  // oracle; these pin the half that decides whether anything is typed at all,
-  // because a partial script is exactly how the bug stayed silent: the questions
-  // it skipped stayed on their first row and the closing CR committed them.
+  // POD-770 — an answer the script cannot express was a REFUSAL under typing.
+  // Under the contract the driver validates the choice shape; the server's
+  // half is failing closed without an authoritative interaction id, and never
+  // typing a partial script.
   describe.each([
-    [
-      'free text whose Other row is off the digit range',
-      { freeText: 'custom', otherIndex: 12 },
-      "question 1: Other is at 12, outside the menu's 1-9 digits",
-    ],
-    [
-      'an option index no digit can reach',
-      { optionIndices: [11] },
-      "question 1: no option in the menu's 1-9 digits (got 11)",
-    ],
-    [
-      'a preview question claiming to be multi-select',
-      { optionIndices: [1], previewLayout: true, multiSelect: true },
-      'question 1: a preview question cannot be multi-select',
-    ],
+    ['free text whose Other row is off the digit range', { freeText: 'custom', otherIndex: 12 }],
+    ['an option index no digit can reach', { optionIndices: [11] }],
+    ['a preview question claiming to be multi-select', { optionIndices: [1], previewLayout: true, multiSelect: true }],
     [
       'several options on a preview question, which selects exactly one',
       { optionIndices: [1, 2], previewLayout: true },
-      'question 1: a preview question takes one option, got 1,2',
     ],
-  ])('an undeliverable answer (%s)', (_name, choice, reason) => {
-    it('is refused with the reason and types nothing', async () => {
-      const h = harness()
+  ])('an undeliverable answer (%s)', (_name, choice) => {
+    it('fails closed without an interaction id and types nothing', async () => {
+      const h = harness({ contractAnswer: { ok: true } })
 
       expect(
         await h.inbox.answerAskUserQuestion({
@@ -1702,48 +1739,46 @@ describe('SessionInbox authorization and identity', () => {
           choices: [choice],
           principal: agentPrincipal(),
         }),
-      ).toEqual({ ok: false, reason })
+      ).toEqual({ ok: false, reason: 'unknown-interaction' })
       expect(h.sent).toEqual([])
+      expect(h.contractCalls).toEqual([])
       // Nothing was delivered, so the question is still the operator's to answer.
       expect(h.answered).toEqual([])
     })
   })
 
-  it('refuses one undeliverable question without typing the answerable ones before it', async () => {
-    const h = harness()
+  it('routes answerable choices through the driver when the interaction id is present', async () => {
+    const h = harness({ contractAnswer: { ok: true } })
 
     expect(
       await h.inbox.answerAskUserQuestion({
         sessionId: SID,
-        choices: [{ optionIndices: [1] }, { optionIndices: [] }],
-        principal: agentPrincipal(),
-      }),
-    ).toEqual({ ok: false, reason: "question 2: no option in the menu's 1-9 digits (got nothing)" })
-    expect(h.sent).toEqual([])
-  })
-
-  // The keystroke SEQUENCES are pinned in oracle-commands.test.ts; what this
-  // covers is the half only the inbox can see — the script outlives the call,
-  // so every later keystroke has to re-ask whether there is still a menu.
-  it('drops the rest of the answer script when the session leaves before it is typed', async () => {
-    vi.useFakeTimers()
-    const h = harness()
-
-    expect(
-      await h.inbox.answerAskUserQuestion({
-        sessionId: SID,
-        choices: [{ optionIndices: [1, 3], multiSelect: true }],
+        interactionId: 'ixn_test',
+        choices: [{ optionIndices: [1] }, { optionIndices: [2] }],
         principal: agentPrincipal(),
       }),
     ).toEqual({ ok: true })
-    // The first digit leaves immediately; the Tab and the confirm CR are still
-    // on their timers when the process goes.
-    expect(h.sent).toHaveLength(1)
+    expect(h.sent).toEqual([])
+    expect(h.contractCalls).toHaveLength(1)
+  })
 
+  // Delayed keystrokes no longer exist: with no timers, there is no late script
+  // to drop. What this pins instead is that a session that left before admission
+  // answers expired, with nothing typed and nothing routed.
+  it('answers expired when the session leaves before admission', async () => {
+    const h = harness({ contractAnswer: { ok: true } })
     Object.assign(h.session, { status: 'exited' })
-    await vi.advanceTimersByTimeAsync(5_000)
 
-    expect(h.sent).toHaveLength(1)
+    expect(
+      await h.inbox.answerAskUserQuestion({
+        sessionId: SID,
+        interactionId: 'ixn_test',
+        choices: [{ optionIndices: [1, 3], multiSelect: true }],
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: false })
+    expect(h.sent).toEqual([])
+    expect(h.contractCalls).toEqual([])
   })
 })
 
@@ -3174,6 +3209,7 @@ describe('offer retirement before inbox admission', () => {
     if (mode === 'answer')
       return h.inbox.answerAskUserQuestion({
         sessionId: SID,
+        interactionId: 'ixn_test',
         choices: [{ optionIndices: [1] }],
         principal: agentPrincipal(),
       })
@@ -3189,13 +3225,15 @@ describe('offer retirement before inbox admission', () => {
     const ownerOf = vi.fn(async () => ALICE)
     const h = harness({
       ownerOf,
+      contractAnswer: { ok: true },
       prepareSend: async () => {
         ownerOf.mockResolvedValue(ALICE)
       },
     })
     expect(await begin(h, 'answer')).toEqual({ ok: true })
     await vi.advanceTimersByTimeAsync(500)
-    expect(h.sent.length).toBeGreaterThan(0)
+    expect(h.contractCalls).toHaveLength(1)
+    expect(h.sent).toEqual([])
     expect(h.answered).toHaveLength(1)
     expect(ownerOf).toHaveBeenCalledTimes(2)
   })
@@ -3223,7 +3261,7 @@ describe('offer retirement before inbox admission', () => {
     const retirement = new Promise<void>((resolve) => {
       release = resolve
     })
-    const h = harness({ prepareSend: () => retirement })
+    const h = harness({ prepareSend: () => retirement, contractAnswer: { ok: true } })
     const pending = begin(h, mode)
     await vi.advanceTimersByTimeAsync(500)
     expect(h.rows).toEqual([])
@@ -3232,6 +3270,7 @@ describe('offer retirement before inbox admission', () => {
     release()
     expect((await pending).ok).toBe(true)
     if (mode === 'queue') expect(h.rows).toHaveLength(1)
+    else if (mode === 'answer') expect(h.contractCalls).toHaveLength(1)
     else {
       await vi.advanceTimersByTimeAsync(500)
       expect(h.sent.length).toBeGreaterThan(0)
