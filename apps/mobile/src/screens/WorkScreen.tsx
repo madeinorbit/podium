@@ -169,7 +169,7 @@ export function WorkScreen() {
     const stableFlat = reuseUnifiedWorkRows(stableAllRef.current, nextFlat)
     stableAllRef.current = stableFlat
     const byKey = new Map(stableFlat.map((r) => [workRowId(r), r]))
-    const pick = (r: UnifiedWorkRow): UnifiedWorkRow => byKey.get(workRowId(r)) ?? r
+    const pick = <T extends UnifiedWorkRow>(r: T): T => (byKey.get(workRowId(r)) ?? r) as T
     return {
       stablePinned: pinned.map(pick),
       stableGroups: groups.map((g) => ({
