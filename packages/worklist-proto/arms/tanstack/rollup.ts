@@ -143,6 +143,10 @@ export class RollupSync {
   private readonly written = new Map<string, string>()
   private readonly bandById = new Map<string, 0 | 1 | 2>()
   private readonly repoKeyById = new Map<string, string>()
+  /** Seats dropped in this flush (retraction half of a del+ins pair nets
+   *  zero against its re-add — indexUpdates counts net membership moves,
+   *  the hand arm's seat semantics). */
+  private readonly droppedSeats = new Set<string>()
   private batch: {
     openExplicit: Set<string>
     lastActive: Map<string, string>
@@ -770,6 +774,8 @@ export class RollupSync {
       if (c.type === 'delete' || v === undefined) {
         // Deletes are silent upstream (verified) — this branch is
         // defensive; removals arrive via dropSession / ingestIssue.
+        // Retraction halves of del+ins pairs land here: record now, count
+        // at flush only if no re-add nets it to zero.
         const sid = v?.sid ?? String(c.key)
         const owners = this.sidOwner.get(sid)
         if (owners !== undefined) {
@@ -779,7 +785,7 @@ export class RollupSync {
             if (seats !== undefined) {
               seats.delete(sid)
               if (seats.size === 0) this.memberSeats.delete(owner)
-              this.countIndex()
+              this.droppedSeats.add(`${owner}:${sid}`)
             }
             this.dirtyChains.add(owner)
           }
@@ -798,7 +804,7 @@ export class RollupSync {
           if (seats !== undefined) {
             seats.delete(sid)
             if (seats.size === 0) this.memberSeats.delete(owner)
-            this.countIndex()
+            this.droppedSeats.add(`${owner}:${sid}`)
           }
           owners.delete(owner)
           this.dirtyChains.add(owner)
@@ -810,9 +816,18 @@ export class RollupSync {
         this.memberSeats.set(v.owner, seats)
       }
       const had = seats.get(sid)
-      if (had === undefined || JSON.stringify(had) !== JSON.stringify(v)) {
+      const dropKey = `${v.owner}:${sid}`
+      if (had === undefined) {
+        // Fresh seat: nets zero against a same-flush retraction, else a
+        // genuine membership move.
         seats.set(sid, v)
-        this.countIndex()
+        if (this.droppedSeats.delete(dropKey)) {
+          // Retraction + assertion: net membership unchanged.
+        } else {
+          this.countIndex()
+        }
+      } else if (JSON.stringify(had) !== JSON.stringify(v)) {
+        seats.set(sid, v)
       }
       owners.add(v.owner)
       this.dirtyChains.add(v.owner)
@@ -961,12 +976,13 @@ export class RollupSync {
   }
 
   /** Drop one session's seats under every owner (explicit removal
-   *  driving — verdict deletes are silent). No-ops without seats. */
+   *  driving — verdict deletes are silent). No-ops without seats. The
+   *  resolveKey stays: it tracks the last-seen join key, not seat presence
+   *  (clearing it would make the next resolveQ update look like a move). */
   dropSession(sid: string): void {
     const owners = this.sidOwner.get(sid)
     if (owners === undefined) return
     this.sidOwner.delete(sid)
-    this.resolveKey.delete(sid)
     for (const owner of owners) {
       const seats = this.memberSeats.get(owner)
       if (seats !== undefined) {
@@ -1043,6 +1059,11 @@ export class RollupSync {
         }
       }
       this.fullChains.clear()
+      // True seat removals (no same-flush re-add) count here.
+      if (this.droppedSeats.size > 0) {
+        for (let i = 0; i < this.droppedSeats.size; i += 1) this.countIndex()
+        this.droppedSeats.clear()
+      }
       if (this.pendingWrites.length > 0) {
         this.sync.write(this.pendingWrites.splice(0))
       }
@@ -1090,6 +1111,7 @@ export class RollupSync {
     this.repoKeyById.clear()
     this.dirtyChains.clear()
     this.fullChains.clear()
+    this.droppedSeats.clear()
     this.pendingWrites.splice(0)
     this.batching = true
     try {
@@ -1110,6 +1132,9 @@ export class RollupSync {
           this.sidOwner.set(v.sid, owners)
         }
         owners.add(v.owner)
+      }
+      for (const r of this.inputs.resolveQ.toArray as Array<{ sid: string; joinKey: string | null }>) {
+        this.resolveKey.set(r.sid, r.joinKey ?? null)
       }
       for (const id of inputs.flatIds) this.flat.add(id)
       // Humans first; agents host monotonically; rescue in two rounds.

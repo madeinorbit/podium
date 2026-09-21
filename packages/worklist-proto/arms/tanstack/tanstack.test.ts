@@ -238,6 +238,9 @@ describe('tanstack arm: worked example (spec §3.9)', () => {
       title: 'Alpha',
       ref: 'POD-10',
     })
+    // R3: the unbound s3 resolves through A's worktree into A's seats.
+    const seats = world.store.base.verdictR.toArray as Array<{ sid: string; owner: string }>
+    expect(seats.filter((v) => v.sid === 's3').map((v) => v.owner)).toEqual(['A'])
     world.store.dispose()
   })
 })
@@ -501,6 +504,28 @@ describe('tanstack arm: lifecycle', () => {
     expect(world.store.snapshot().rowsById['snz']).toMatchObject({ band: 0 })
     // The band flip recommits the row (band is a snapshot field).
     expect(world.store.stats.rowsDerived).toBe(1)
+    world.store.dispose()
+  })
+
+  it('mark-read input evaluations prove nothing changed', () => {
+    const world = testWorld(workedExample())
+    world.store.stats.reset()
+    world.store.runs.reset()
+    const a = world.store.entities.issues.collection.get('A') as SliceIssue
+    // Eager mark-read: readAt set, unread cleared — no derived value moves.
+    world.push({
+      type: 'update',
+      rows: [row('issue', 'A', { ...a, readAt: iso(NOW), unread: false })],
+    })
+    const snap = world.store.snapshot()
+    expect(snap.rowsById['A']).toMatchObject({ phase: 'waiting', asking: true })
+    expect(world.store.stats.rowsDerived).toBe(0)
+    // Whole-row replacement re-runs the input checks (del+ins per query);
+    // values settle equal, so nothing commits. Same class as MobX's 3.
+    console.info(
+      `[tanstack-unit] mark-read rollups=${world.store.stats.rollupsDerived} ` +
+        `runs=${JSON.stringify(world.store.runs)}`,
+    )
     world.store.dispose()
   })
 })
