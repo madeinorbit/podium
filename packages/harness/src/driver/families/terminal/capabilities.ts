@@ -15,7 +15,7 @@
  * a second list would drift the first time a harness grew a hook channel.
  */
 
-import { type HarnessComposerReadiness } from '../../../registry.js'
+import type { HarnessCapabilities } from '../../../manifest.js'
 import { supported, unsupported } from '../../../manifest.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 import type { DriverId } from '../../families.js'
@@ -27,7 +27,7 @@ export const RAW_FIRST_TURN_ATTACHMENT_REFUSAL =
 
 export interface TerminalCapabilityInput {
   /** From the harness manifest, independent of send proof and driver id. */
-  composerReadiness: HarnessComposerReadiness
+  composerReadiness: HarnessCapabilities['composerReadiness']
   instrumentationRequired: boolean
   driverId: DriverId
   /** The harness's declared proof order, from `runtime.terminal.sendProof`. */

@@ -25,6 +25,7 @@ import {
 } from '@podium/harness/driver/host'
 import {
   agentLaunchCommand,
+  type AgentManifest,
   buildMachineInventory,
   buildResolvedInventory,
   declaredValue,
@@ -1137,13 +1138,23 @@ export async function createDaemonHostRuntime(args: {
   const contractHost = { ...daemonRuntimeHost(ctx, send, stageAttachment), boundaryContext: mailContext.pendingContext }
   terminalRuntime = createTerminalRuntime(contractHost, primeSource)
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
-  // Engine-family facts: every harness-shaped value below (argv stems, scope
-  // tokens, strip lists, journal namespaces) is read off the adapters through
-  // these, never restated here — this file stays wiring-only (1.5).
-  const codexFacts = codexEngineFacts()
-  const grokFacts = grokEngineFacts()
-  const ocFacts = opencodeFlavor()
-  const oc2Facts = opencode2Flavor()
+  // Engine-family facts (POD-4494, spec §4.1/§5): this composition root reads
+  // the registry ONCE per harness and hands each family exactly the sections
+  // it owns — the families never fetch an adapter by name. Every
+  // harness-shaped value below (argv stems, scope tokens, strip lists,
+  // journal namespaces) is read off the adapters through these, never
+  // restated here — this file stays wiring-only (1.5).
+  const engineSections = (
+    kind: 'codex' | 'grok' | 'opencode',
+  ): Pick<AgentManifest, 'kind' | 'runtime' | 'inventory'> => {
+    const manifest = manifestFor(kind)
+    if (!manifest) throw new Error(`no harness adapter for '${kind}'`)
+    return { kind: manifest.kind, runtime: manifest.runtime, inventory: manifest.inventory }
+  }
+  const codexFacts = codexEngineFacts(engineSections('codex'))
+  const grokFacts = grokEngineFacts(engineSections('grok'))
+  const ocFacts = opencodeFlavor(engineSections('opencode'))
+  const oc2Facts = opencode2Flavor(engineSections('opencode'))
   // The engine's durable owner (POD-4433): podium-host under the hood. One
   // supervision implementation drives every engine family.
   const engineSupervision = supervisionFor(engineDurable)

@@ -121,7 +121,6 @@ export {
   type DaemonCodexRuntime,
 } from './session.js'
 export {
-  STRIPPED_CODEX_CREDENTIALS,
   type CodexVersion,
   type CodexVersionDiagnostic,
   gateCodexVersion,

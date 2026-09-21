@@ -1,12 +1,12 @@
 // packages/harness/src/driver/families/grok-acp/engine-facts.ts
 //
-// THE GROK ENGINE'S FACTS (1.5, spec §5). Same shape and same rule as
-// ../codex/engine-facts.ts: read off the grok adapter's sections, never
-// restated. A second ACP speaker reuses the engine host with different facts.
+// THE GROK ENGINE'S FACTS (1.5, spec §5; handed sections per POD-4494). Same
+// shape and same rule as ../codex/engine-facts.ts: read off the HANDED
+// adapter sections, never restated, never fetched from the registry by name.
+// A second ACP speaker reuses the engine host with different facts.
 
 import type { HarnessAgent } from '@podium/model'
-import { declaredValue } from '../../../manifest.js'
-import { manifestFor } from '../../../registry.js'
+import { declaredValue, type AgentManifest } from '../../../manifest.js'
 
 /** The grok engine's per-harness facts, read off its adapter sections. */
 export interface GrokEngineFacts {
@@ -33,25 +33,25 @@ function required<T>(value: T | undefined, what: string): T {
   return value
 }
 
-/** Read the grok engine facts off the grok adapter. Throws honestly when the
- *  adapter stops declaring what the engine host needs. */
-export function grokEngineFacts(): GrokEngineFacts {
-  const manifest = manifestFor('grok')
-  if (!manifest) throw new Error("no harness adapter for 'grok'")
-  const server = required(declaredValue(manifest.runtime.server), 'runtime.server')
+/** Read the grok engine facts off the HANDED adapter sections. Throws honestly
+ *  when the sections stop declaring what the engine host needs. */
+export function grokEngineFacts(
+  sections: Pick<AgentManifest, 'kind' | 'runtime' | 'inventory'>,
+): GrokEngineFacts {
+  const server = required(declaredValue(sections.runtime.server), 'runtime.server')
   const [command, ...serverArgs] = server.spawn
   const executableName =
-    manifest.inventory.executable.names[0] ?? required(command, 'runtime.server.spawn[0]')
+    sections.inventory.executable.names[0] ?? required(command, 'runtime.server.spawn[0]')
   const clientTerminal = required(
     declaredValue(server.clientTerminal),
     'runtime.server.clientTerminal',
   )
   return {
-    harnessKind: manifest.kind,
+    harnessKind: sections.kind,
     command: required(command, 'runtime.server.spawn[0]'),
     serverArgs,
     executableName,
-    stripEnv: manifest.inventory.foreignCredentialEnv,
+    stripEnv: sections.inventory.foreignCredentialEnv,
     scopeToken: clientTerminal.labelToken,
     journalNamespace: 'grok-acp-servers',
     attachKind: 'grok',
