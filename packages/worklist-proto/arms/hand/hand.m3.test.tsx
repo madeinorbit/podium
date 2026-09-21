@@ -210,9 +210,12 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       })
       await fireRescope()
       const grownVisible = Object.keys(mounted.handle.snapshot().rowsById).length
+      const issuesGrown = store.issues.rows.size
+      const sessionsGrown = store.sessions.rows.size
       expect(mounted.handle.snapshot()).toEqual(
         snapshotFromStore(ctx.engine.getSnapshot(), locals),
       )
+      checkOracle(mounted)
       ctx.replica.batch(() => {
         for (let n = 0; n < 10; n += 1) {
           ctx.cache.drop('issue', `i-grow-${n}`)
@@ -247,9 +250,15 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
         visibleGrown: grownVisible,
         visibleBack: Object.keys(after.rowsById).length,
         issuesBefore,
+        issuesGrown,
         issuesAfter: store.issues.rows.size,
         sessionsBefore,
+        sessionsGrown,
         sessionsAfter: store.sessions.rows.size,
+        // The ten grown rows carry no audience/sessions, so the flat rule
+        // keeps them out of the visible set in arm and oracle alike (parity
+        // holds at the grown state too); the install is proved by the table
+        // sizes, the no-leak by the return to baseline.
         parity: true,
       }
       const resultsDir = resultsDirOf()
