@@ -447,12 +447,6 @@ function makeWorld(options: WorldOptions): {
       )
     },
     readHistory: async (session, range) => pageHistory(transcriptFor(session.sessionId), session.sessionId, range),
-    readTranscript: async (session, range) =>
-      // The harness's own file, read back — the one THIS process opened, not the
-      // one the driver says it is on; see `transcriptFor`. Anchors are not
-      // modelled: no corpus property pages this, and inventing an anchor scheme
-      // here would be fixture behaviour nothing verifies against the real reader.
-      transcriptFor(session.sessionId).slice(-range.limit),
     archiveTranscript: async ({ resumeValue }) => {
       // A HARNESS WITH NO LOCATOR CANNOT BE ASKED, and the driver is required to
       // stop at its own capability check before it gets here — this throw is the

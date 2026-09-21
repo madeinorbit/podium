@@ -31,7 +31,7 @@ import { appendFile, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { Database } from 'bun:sqlite'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { opencodeDbSource } from '../adapters/opencode/transcript.js'
 import { claudeRecordToItems } from '../adapters/claude-code/transcript.js'
 import { codexRecordToItems } from '../adapters/codex/transcript.js'
@@ -303,7 +303,7 @@ describe('transcript identity goldens (POD-4471)', () => {
   describe('opencode (sqlite)', () => {
     const sessionId = 'gold-opencode-session'
     const buildDb = (path: string, parts: { partId: string; role: string; text: string; created: number }[]): void => {
-      const db = new Database(path, { create: true })
+      const db = openDatabase(path)
       try {
         db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_updated INTEGER)')
         db.exec(
@@ -345,7 +345,7 @@ describe('transcript identity goldens (POD-4471)', () => {
       const source = () => opencodeDbSource({ sessionId, databasePath: path })
       const first = await source().readSlice({ direction: 'before', limit: 100 })
       expect(first.items.length).toBeGreaterThan(0)
-      const db = new Database(path)
+      const db = openDatabase(path)
       try {
         db.prepare('INSERT INTO message (id, session_id, data, time_updated) VALUES (?, ?, ?, ?)').run(
           'msg-prt-2',

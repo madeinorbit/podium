@@ -1,83 +1,28 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { TranscriptItem } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { type ChainEntry, decodeCursor, fileChainSource, fileIdFor, stampOpencodeItems } from './store/index.js'
 import { afterEach, describe, expect, it } from 'vitest'
-import { opencodeDbSource } from './adapters/opencode/index.js'
-import { transcriptSourceFor } from './transcript-source.js'
+import { declaredValue, type TranscriptSourceInput } from '../../manifest.js'
+import { manifestFor } from '../../registry.js'
+import { decodeCursor, fileChainSource } from '../../store/index.js'
+import { transcriptSourceFromGrammar } from '../../store/store.js'
+import { opencodeDbSource, stampOpencodeItems } from './transcript.js'
 
-// ---------------------------------------------------------------------------
-// File-chain source fixtures (mirrors slice.test.ts twoFiles()).
-// ---------------------------------------------------------------------------
+/**
+ * opencode sqlite source tests (POD-4471): the DB source and the row stamper
+ * live in the opencode adapter transcript module; the live observer stamps
+ * rows with the EXACT SAME cursors the on-demand read produces.
+ */
 
-const rec = (uuid: string, type: string, text: string) =>
-  JSON.stringify({
-    uuid,
-    type,
-    message: { role: type, content: [{ type: 'text', text }] },
-    timestamp: '2026-06-22T00:00:00Z',
-  })
-
-interface TestRecord {
-  uuid: string
-  type: string
-  message: { content: { text: string }[] }
+/** Route an agentKind to its Store source through the adapter registry — the
+ *  same dispatch the daemon's sourceForRead performs. */
+async function sourceForKind(agentKind: string, input: TranscriptSourceInput) {
+  const transcript = manifestFor(agentKind)?.transcript
+  const grammar = transcript ? declaredValue(transcript) : undefined
+  if (!grammar) return fileChainSource([], () => [])
+  return transcriptSourceFromGrammar(grammar, input)
 }
-
-const idxToItems = (r: unknown): TranscriptItem[] => {
-  const t = r as TestRecord
-  return [
-    { id: t.uuid, role: t.type, text: t.message.content[0]?.text },
-  ] as unknown as TranscriptItem[]
-}
-
-/** Two chained JSONL files: f1 holds items 0..4, f2 holds items 5..9. */
-async function twoFiles(): Promise<{ chain: ChainEntry[]; toItems: typeof idxToItems }> {
-  const dir = await mkdtemp(join(tmpdir(), 'src-chain-'))
-  const f1 = join(dir, 'a.jsonl')
-  const f2 = join(dir, 'b.jsonl')
-  const lines1 = [0, 1, 2, 3, 4].map((i) => rec(`u${i}`, 'user', String(i)))
-  const lines2 = [5, 6, 7, 8, 9].map((i) => rec(`u${i}`, 'user', String(i)))
-  await writeFile(f1, `${lines1.join('\n')}\n`)
-  await writeFile(f2, `${lines2.join('\n')}\n`)
-  const chain: ChainEntry[] = [
-    { path: f1, fileId: fileIdFor(f1) },
-    { path: f2, fileId: fileIdFor(f2) },
-  ]
-  return { chain, toItems: idxToItems }
-}
-
-describe('fileChainSource', () => {
-  it('delegates a no-anchor before read to the chain reader (newest limit + hasMore)', async () => {
-    const { chain, toItems } = await twoFiles()
-    const src = fileChainSource(chain, toItems)
-    const r = await src.readSlice({ direction: 'before', limit: 3 })
-    expect(r.items.map((i) => i.text)).toEqual(['7', '8', '9'])
-    expect(r.hasMore).toBe(true)
-    expect(r.head).toBe(r.items[0]?.cursor)
-    expect(r.tail).toBe(r.items.at(-1)?.cursor)
-  })
-
-  it('pages before an anchor across the file boundary (same as readTranscriptSlice)', async () => {
-    const { chain, toItems } = await twoFiles()
-    const src = fileChainSource(chain, toItems)
-    const first = await src.readSlice({ direction: 'before', limit: 3 }) // 7,8,9
-    const older = await src.readSlice({ anchor: first.head, direction: 'before', limit: 3 })
-    expect(older.items.map((i) => i.text)).toEqual(['4', '5', '6'])
-    expect(older.hasMore).toBe(true)
-  })
-
-  it('empty chain → empty result', async () => {
-    const src = fileChainSource([], idxToItems)
-    const r = await src.readSlice({ direction: 'before', limit: 5 })
-    expect(r.items).toEqual([])
-    expect(r.hasMore).toBe(false)
-    expect(r.head).toBeUndefined()
-    expect(r.tail).toBeUndefined()
-  })
-})
 
 // ---------------------------------------------------------------------------
 // opencode DB source fixtures.
@@ -371,7 +316,7 @@ describe('stampOpencodeItems (shared by live observer + DB read)', () => {
       textPart(`prt-${i}`, `msg-${i}`, i % 2 === 0 ? 'user' : 'assistant', `m${i}`, 500 + i),
     )
     const { homeDir } = await seedOpencode(sid, parts)
-    const { openOpencodeDb, loadOpencodeTranscriptTail } = await import('./opencode/db.js')
+    const { openOpencodeDb, loadOpencodeTranscriptTail } = await import('../../opencode/db.js')
     const db = openOpencodeDb(homeDir)
     if (!db) throw new Error('db open failed')
     const rows = loadOpencodeTranscriptTail(db, sid)
@@ -422,7 +367,7 @@ describe('stampOpencodeItems (shared by live observer + DB read)', () => {
   })
 })
 
-describe('transcriptSourceFor', () => {
+describe('Store routing by agentKind', () => {
   afterEach(() => {
     delete process.env.HOME
   })
@@ -431,8 +376,7 @@ describe('transcriptSourceFor', () => {
     const sid = 'ses_route'
     const parts = [textPart('prt-r', 'msg-r', 'user', 'routed', 400)]
     const { homeDir } = await seedOpencode(sid, parts)
-    const src = await transcriptSourceFor({
-      agentKind: 'opencode',
+    const src = await sourceForKind('opencode', {
       cwd: '/repo/oc',
       resumeValue: sid,
       homeDir,
@@ -443,42 +387,9 @@ describe('transcriptSourceFor', () => {
   })
 
   it('opencode with no resumeValue yields an empty source', async () => {
-    const src = await transcriptSourceFor({ agentKind: 'opencode', cwd: '/repo/oc' })
+    const src = await sourceForKind('opencode', { cwd: '/repo/oc' })
     const r = await src.readSlice({ direction: 'before', limit: 5 })
     expect(r.items).toEqual([])
     expect(r.hasMore).toBe(false)
-  })
-
-  it('routes a file-based harness (claude-code) to a file-chain source', async () => {
-    const { chain } = await twoFiles()
-    // Point a claude bucket at our two files by resolving through a temp home.
-    // Simpler: assert routing by reading a grok one-file chain we control via home.
-    const home = await mkdtemp(join(tmpdir(), 'src-route-claude-'))
-    const bucketDir = join(
-      home,
-      '.claude',
-      'projects',
-      // claudeProjectSlug('/repo/x') — replicate the slug shape: leading dash, slashes→dashes.
-      '-repo-x',
-    )
-    await mkdir(bucketDir, { recursive: true })
-    // Reuse the same JSONL content as twoFiles' second file.
-    await writeFile(
-      join(bucketDir, 'conv.jsonl'),
-      `${[5, 6, 7, 8, 9].map((i) => rec(`u${i}`, 'user', String(i))).join('\n')}\n`,
-    )
-    const src = await transcriptSourceFor({
-      agentKind: 'claude-code',
-      cwd: '/repo/x',
-      resumeValue: 'conv', // resolves <bucket>/conv.jsonl (claude resolves by resume value, not bucket-glob)
-      homeDir: home,
-    })
-    const r = await src.readSlice({ direction: 'before', limit: 3 })
-    // claudeRecordToItems maps these synthetic records; assert it is NOT the opencode
-    // source by checking the cursor fileId is the file-hash id, not 'opencode:...'.
-    expect(r.items.length).toBeGreaterThan(0)
-    const fid = decodeCursor(r.items[0]?.cursor ?? '')?.fileId
-    expect(fid).not.toMatch(/^opencode:/)
-    void chain
   })
 })

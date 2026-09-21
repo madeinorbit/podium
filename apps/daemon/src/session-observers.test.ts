@@ -3316,7 +3316,10 @@ describe('Grok causal hook ingest', () => {
 })
 
 it('tail binding uses native session cursors and rebinds the same path to a new identity', async () => {
-  const { claudeRecordToItems, fileIdFor, readFileItems } = await import('@podium/harness/store')
+  const { fileIdFor, readFileItems } = await import('@podium/harness/store')
+  const { transcriptRecordMapperFor } = await import('@podium/harness')
+  const claudeRecordToItems = transcriptRecordMapperFor('claude-code')
+  if (!claudeRecordToItems) throw new Error('claude-code grammar missing')
   const dir = await mkdtemp(join(tmpdir(), 'observer-namespace-'))
   const path = join(dir, 'transcript.jsonl')
   await writeFile(

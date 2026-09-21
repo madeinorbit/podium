@@ -43,7 +43,7 @@ import {
   type RuntimeEvent,
 } from '@podium/harness/driver/host'
 import { addSink, type LogRecord } from '@podium/logger'
-import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -192,7 +192,7 @@ interface World {
 }
 
 function makeWorld(
-  options: { readTranscript?: TerminalRuntimeHost['readTranscript']; primeSource?: Parameters<typeof createTerminalRuntime>[1] } = {},
+  options: { readItems?: (session: { sessionId: SessionId; agentKind: AgentKind; cwd: string; resume?: ResumeRef }, range: { limit: number }) => Promise<readonly TranscriptItem[]>; primeSource?: Parameters<typeof createTerminalRuntime>[1] } = {},
 ): World {
   let clock = Date.UTC(2026, 7, 14)
   let timers: VirtualTimer[] = []
@@ -335,13 +335,13 @@ function makeWorld(
       }
       if (bindOnLaunch) bindFrame(msg.sessionId)
     },
-    readTranscript: options.readTranscript ?? (async () => []),
     readHistory: async (session, range) =>
       pageHistory(
-        await (options.readTranscript ?? (async () => []))(session, { limit: 10000 }),
+        await (options.readItems ?? (async () => []))(session, { limit: 10000 }),
         session.sessionId,
         range,
       ),
+
     archiveTranscript: async () => ({ path: '/tmp/session.jsonl' }),
     readFileBytes: async () => new TextEncoder().encode('{"role":"user"}'),
     resources: () => ({ memoryBytes: 1024, oomKills: 0 }),
@@ -2554,7 +2554,7 @@ describe('observation translation', () => {
       role: 'assistant',
       text: 'IDLE-L9L1Z8',
     }
-    const world = makeWorld({ readTranscript: async () => [user, assistant] })
+    const world = makeWorld({ readItems: async () => [user, assistant] })
     const session = await world.runtime.driverFor('grok', GROK).create({
       ...SPEC,
       harness: 'grok',
@@ -2613,7 +2613,7 @@ describe('observation translation', () => {
     const read = new Promise<readonly TranscriptItem[]>((resolve) => {
       resolveRead = resolve
     })
-    const world = makeWorld({ readTranscript: async () => await read })
+    const world = makeWorld({ readItems: async () => await read })
     const session = await world.runtime.driverFor('grok', GROK).create({
       ...SPEC,
       harness: 'grok',
@@ -2664,7 +2664,7 @@ describe('observation translation', () => {
     const read = new Promise<readonly TranscriptItem[]>((resolve) => {
       resolveRead = resolve
     })
-    const world = makeWorld({ readTranscript: async () => await read })
+    const world = makeWorld({ readItems: async () => await read })
     const session = await world.runtime.driverFor('grok', GROK).create({
       ...SPEC,
       harness: 'grok',
@@ -2718,7 +2718,7 @@ describe('observation translation', () => {
     const read = new Promise<readonly TranscriptItem[]>((resolve) => {
       resolveRead = resolve
     })
-    const world = makeWorld({ readTranscript: async () => await read })
+    const world = makeWorld({ readItems: async () => await read })
     const session = await world.runtime.driverFor('grok', GROK).create({
       ...SPEC,
       harness: 'grok',
@@ -2766,7 +2766,7 @@ describe('observation translation', () => {
     const read = new Promise<readonly TranscriptItem[]>((resolve) => {
       resolveRead = resolve
     })
-    const world = makeWorld({ readTranscript: async () => await read })
+    const world = makeWorld({ readItems: async () => await read })
     const session = await world.runtime.driverFor('grok', GROK).create({
       ...SPEC,
       harness: 'grok',
