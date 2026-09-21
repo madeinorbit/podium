@@ -1,4 +1,5 @@
 import type { AgentSessionHandle, DriverId, RuntimeDriver } from '@podium/harness/driver/host'
+import { EngineBindUnrecoverable } from '@podium/harness/driver/host'
 import type { Inventory, SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createDaemonMachineRuntime } from './machine-runtime'
@@ -317,5 +318,73 @@ describe('daemon machine runtime adoption failures', () => {
       workdir: '/tmp/grok',
       reason: expect.stringContaining('session/load failed'),
     })
+  })
+
+  it('carries the typed §4.8 bind failure beside the reason, so the lifecycle owner can keep the engine', async () => {
+    // §4.8: the family kept a live-but-undriveable engine. The reason stays
+    // the human sentence every existing reader uses; `bindFailure` carries
+    // the typed signal (address, credential, phase) the lifecycle owner reads
+    // to invalidate pending turns and record the survivor (POD-4490) instead
+    // of reaping it as a failed adoption.
+    const sessionId = 'machine-bind-failure' as SessionId
+    const typed = new EngineBindUnrecoverable(
+      sessionId,
+      'launch',
+      'http://127.0.0.1:41234',
+      new Error('serve did not answer'),
+      's3cret',
+    )
+    const grok = {
+      driver: {
+        id: 'grok-acp',
+        harness: 'grok',
+        family: 'server',
+        capabilities: () => ({ placement: 'dedicated' as const }),
+      },
+      handleFor: () => undefined,
+      bindings: () => [],
+      describe: 'grok agent stdio',
+      journalEntry: () => ({
+        workdir: '/tmp/grok',
+        process: { key: 'grok:machine-bind-failure' },
+        bindingVersion: 1,
+      }),
+      clearJournal: () => {},
+      launch: async () => {},
+      adoptFromJournal: async () => {
+        throw typed
+      },
+      reportOomKill: () => {},
+      dispose: () => {},
+    }
+    const terminal = {
+      driverFor: vi.fn(),
+      handleFor: () => undefined,
+      bindings: () => [],
+      observe: vi.fn(),
+      onHookPayload: vi.fn(),
+      register: vi.fn(),
+      clear: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const runtime = createDaemonMachineRuntime({
+      terminal,
+      claude: claude(),
+      servers: [grok],
+      headless: {
+        driverFor: () => undefined,
+        handleFor: () => undefined,
+        bindings: () => [],
+      },
+      inventory: async () => INVENTORY,
+    } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
+    const adoption = await runtime.adoptJournalled(sessionId)
+    expect(adoption).toMatchObject({
+      found: true,
+      what: 'grok agent stdio',
+      workdir: '/tmp/grok',
+      reason: expect.stringContaining('did not bind during launch'),
+    })
+    expect(adoption.found && adoption.bindFailure).toBe(typed)
   })
 })

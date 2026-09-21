@@ -4,7 +4,11 @@ import { dispatchInputBytes } from './legacy-terminal-input'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { RefusalReason, SessionSpec } from '@podium/harness/driver/host'
-import { attachKindsForDriver, configureFieldsForDriver } from '@podium/harness/driver/host'
+import {
+  attachKindsForDriver,
+  configureFieldsForDriver,
+  EngineBindUnrecoverable,
+} from '@podium/harness/driver/host'
 import {
   agentStateProviderFor,
   bindHarnessLaunch,
@@ -1264,6 +1268,26 @@ async function adoptServerDriverSession(
     return true
   }
   if (!adoption.found) return false
+  /**
+   * THE §4.8 KEPT ENGINE (POD-4490): the adopt reached a live engine whose
+   * protocol would not bind. The family kept the process and left the journal
+   * untouched, so this is NOT a failed adoption to reap — reaping here would
+   * kill the survivor the spec keeps for an operator decision (and the
+   * journal still names the older incarnation, so a reap would not even hit
+   * the survivor). DaemonSession invalidates pending turns, records the kept
+   * engine from the error identity, and surfaces the reattach failure.
+   */
+  if (adoption.bindFailure) {
+    ctx.sessions
+      .ensure(msg.sessionId)
+      // No `abandoned` entries: a prior driver's queue is the driver's to
+      // report (its teardown/displacement reports through the same port), and
+      // a restart has no queue at all. This daemon never took custody, so it
+      // reports none — manufacturing ids would correct rows the server still
+      // legitimately owns.
+      .bindFailed(adoption.bindFailure, { family: msg.agentKind }, { send: ctx.send })
+    return true
+  }
   const { handle, what, workdir } = adoption
   if (!handle) {
     /**
@@ -1492,6 +1516,23 @@ async function resumeJournalledServerSession(
     return true
   }
   if (!adoption.found) return false
+  /**
+   * THE §4.8 KEPT ENGINE ON THE RESUME PATH (POD-4490): same survivor as the
+   * reattach arm above — kept process, untouched journal — reached through a
+   * `spawn` frame carrying the row's resume ref. DaemonSession owns the same
+   * three duties; the surfaced frame is the spawn one because this path
+   * answers a spawn. Never a fall-through to the PTY path (see the note on
+   * the failed adoption below).
+   */
+  if (adoption.bindFailure) {
+    ctx.sessions
+      .ensure(msg.sessionId)
+      // No `abandoned` entries, for the same custody reason as the reattach
+      // arm above: whatever queue existed belongs to a driver, not to this
+      // daemon, and only the driver may report it.
+      .bindFailed(adoption.bindFailure, { family: msg.agentKind }, { send: ctx.send })
+    return true
+  }
   const { handle, what, workdir, reason } = adoption
   if (!handle) {
     ctx.send({
@@ -2031,12 +2072,28 @@ export async function launchServerDriverSession(
     // A server that would not start is a SPAWN ERROR, reported on the frame the
     // UI already renders. The alternative — falling back to a PTY — would hide
     // exactly the failure the operator is trying to see.
-    ctx.send({
-      type: 'spawnError',
-      sessionId: msg.sessionId,
-      message: err instanceof Error ? err.message : String(err),
-    })
-    driverTiming.sessionFailed(msg.sessionId, err instanceof Error ? err.message : String(err))
+    //
+    // A §4.8 bind failure (engine up, protocol dead) is NOT an unstarted
+    // server: the family kept the process, so DaemonSession owns the failure —
+    // pending turns invalidated, kept engine recorded, spawnError surfaced
+    // (POD-4490) — rather than this generic arm.
+    if (err instanceof EngineBindUnrecoverable) {
+      ctx.sessions.ensure(msg.sessionId)
+        // COLD LAUNCH: no driver ever existed in this daemon's life, so no
+        // queue exists to drain. An unbound send is refused, never queued, so
+        // this daemon took custody of nothing and reports no abandonment —
+        // spawnError alone. Saying so here so the next reader does not "fix"
+        // the missing frame by manufacturing turn ids.
+        .bindFailed(err, { family: msg.agentKind }, { send: ctx.send })
+      driverTiming.sessionFailed(msg.sessionId, err.message)
+    } else {
+      ctx.send({
+        type: 'spawnError',
+        sessionId: msg.sessionId,
+        message: err instanceof Error ? err.message : String(err),
+      })
+      driverTiming.sessionFailed(msg.sessionId, err instanceof Error ? err.message : String(err))
+    }
   }
   return { handled: true }
 }

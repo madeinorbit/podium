@@ -23,9 +23,15 @@
  *   TerminalScreen, and no second emulator is created anywhere.
  */
 
+import { randomUUID } from 'node:crypto'
+import type { AbandonedQueuedTurn, EngineBindUnrecoverable } from '@podium/harness/driver/host'
+import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
+import type { DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { TerminalScreen } from '@podium/process/screen'
 import type { Terminal } from '../terminal/terminal.js'
+
+const log = createLogger('daemon:session')
 
 /** The size a screen is born at when nothing applied one yet. */
 const DEFAULT_MODEL_SIZE = { cols: 80, rows: 24 } as const
@@ -61,6 +67,68 @@ export interface ClientTerminalPolicy {
   replayRequired?: boolean
   /** The next client continues the same surface: no scrollback-clear anchor. */
   preserveReplayOnRelaunch?: boolean
+}
+
+/**
+ * THE ENGINE §4.8 KEPT ALIVE (POD-4490): a driver family reported
+ * `EngineBindUnrecoverable` — the engine process is up, its protocol channel
+ * is dead, and the family deliberately kept the process (never silently
+ * orphaned, never quietly reaped) with the journal untouched.
+ *
+ * What is recorded here is the ERROR'S IDENTITY — the session, the address the
+ * engine answers on, and the loopback credential where the transport has one —
+ * so a later adopt-or-reap pass can find the survivor without guessing. The
+ * secret rides the record, never the message and never the log: the surfaced
+ * failure names the address, the credential stays in this field.
+ */
+export interface KeptEngineRecord {
+  /** Where the live-but-undriveable engine answers (the error's address). */
+  readonly address: string
+  /** Fresh bind or adopt rebind: which surface went out with this record. */
+  readonly during: 'launch' | 'adopt'
+  /** Loopback credential, when the transport has one. Never logged. */
+  readonly secret?: string
+  /** When the lifecycle owner recorded it. */
+  readonly at: string
+}
+
+/** What `DaemonSession.bindFailed` needs beyond the error itself. */
+export interface BindFailureInput {
+  /**
+   * A PRIOR DRIVER'S queue, when one exists to drain — the `OnQueueAbandoned`
+   * input minus the session id, reported through the same durable frame the
+   * families' own `reportQueueAbandonment` emits.
+   *
+   * ABSENT IS THE COMMON CASE, and absent is correct, not a gap. Custody of a
+   * turn lives exactly one place at a time: an unbound send is REFUSED, never
+   * queued (`runtimeHandlers.runtimeSendRequest` answers `not_running` with no
+   * handle), so a session no driver ever held has nothing to invalidate — and
+   * reporting abandonment there would manufacture dead-letter rows for turns
+   * the server still legitimately owns and may still deliver. Where a prior
+   * driver holds queued turns its own teardown/displacement reports them
+   * through the same port; this daemon never takes custody by inventing ids.
+   */
+  readonly abandoned?: {
+    readonly turns: readonly AbandonedQueuedTurn[]
+    readonly reason: QueueDrainAbandonedReason
+  }
+  /** Harness name for the abandonment log line (the `family` queue-report.ts logs). */
+  readonly family: string
+}
+
+/** The wire the bind-failure report leaves on. */
+export interface BindFailurePorts {
+  send(msg: DaemonMessage): void
+}
+
+/** What `DaemonSession.bindFailed` did, stated so callers skip their own fallbacks. */
+export interface BindFailureReport {
+  /** `spawnError` (fresh) or `reattachFailed` (adopt) went out. Always true. */
+  readonly surfaced: true
+  /** A `runtimeQueueDrainAbandoned` frame went out: false when no turn id existed. */
+  readonly abandonmentReported: boolean
+  /** The kept engine was recorded from the error identity: false with no address. */
+  readonly engineRecorded: boolean
 }
 
 export class DaemonSession {
@@ -99,6 +167,14 @@ export class DaemonSession {
    * under pressure.
    */
   watched = false
+  /**
+   * The §4.8 survivor, when a bind failure kept one: the error's identity
+   * (address, credential, phase), recorded so a later adopt-or-reap pass can
+   * find the engine the family deliberately left running. Set only by
+   * {@link DaemonSession.bindFailed}; `undefined` is the common case (bound
+   * sessions, and failures that name no address, record nothing).
+   */
+  keptEngine: KeptEngineRecord | undefined = undefined
 
   /** The client-terminal policy, while a native client is attached, parked
    *  warm, or starting. Undefined otherwise; the relay disarms its timer first. */
@@ -172,5 +248,93 @@ export class DaemonSession {
     this.seqReader = undefined
     this.clientLabel = undefined
     this.client = undefined
+    this.keptEngine = undefined
+  }
+
+  /**
+   * THE §4.8 BIND-FAILURE ARM (POD-4490, spec §4.8 step 4): a driver family
+   * reported `EngineBindUnrecoverable` — engine up, protocol dead, process
+   * KEPT with the journal untouched. The lifecycle owner does three things:
+   *
+   * (a) INVALIDATE PENDING TURNS, when a prior driver's queue exists to
+   * drain. The entries go out as a `runtimeQueueDrainAbandoned` frame — the
+   * same durable, at-least-once receipt correction the families' own
+   * `reportQueueAbandonment` emits, through the same `send` (the daemon's
+   * outbox fsyncs it before it returns), with the same rules: turns with no
+   * caller-supplied id are logged but not framed (a report naming nothing
+   * corrects nothing; a synthetic id would correct a row that does not
+   * exist), and no entries means no frame at all. See `BindFailureInput`
+   * for why absent is correct rather than a gap.
+   *
+   * (b) RECORD THE KEPT ENGINE from the error identity (address, credential,
+   * phase) on {@link DaemonSession.keptEngine}, so a later in-daemon pass
+   * can adopt-or-reap the survivor instead of rediscovering it. Failures that
+   * name no address record nothing: there is no survivor to find. Survives
+   * the daemon's life, not a restart — cross-restart adoption still relies on
+   * whatever the family journalled at launch.
+   *
+   * (c) SURFACE THE FAILURE on the frame the UI already renders: `spawnError`
+   * for a fresh bind, `reattachFailed` for an adopt rebind (the fresh/adopt
+   * split `engine-supervision.ts` documents). The message is the error's own —
+   * it names the session, the phase and the address, and never the secret.
+   *
+   * THE LOG COMES FIRST, AND THAT ORDER IS LOAD-BEARING (the rule
+   * `queue-report.ts` pins): `send` can throw (ENOSPC, a reportId collision),
+   * and the only thing that makes a lost report recoverable is that the
+   * abandonment was already said out loud. Do not move it below `send`.
+   */
+  bindFailed(
+    error: EngineBindUnrecoverable,
+    input: BindFailureInput,
+    ports: BindFailurePorts,
+  ): BindFailureReport {
+    const turns = input.abandoned ? [...input.abandoned.turns] : []
+    const turnIds = turns.flatMap((turn) => (turn.input.id ? [turn.input.id] : []))
+    if (input.abandoned) {
+      log.warn('queued turns were never delivered', {
+        family: input.family,
+        sessionId: this.sessionId,
+        reason: input.abandoned.reason,
+        turns: turns.length,
+        turnIds,
+        ...(turnIds.length === turns.length
+          ? {}
+          : { unattributed: turns.length - turnIds.length }),
+      })
+    } else {
+      log.warn('engine is up but its protocol did not bind; keeping the engine', {
+        sessionId: this.sessionId,
+        family: input.family,
+        during: error.during,
+        ...(error.address ? { address: error.address } : {}),
+      })
+    }
+    let abandonmentReported = false
+    if (input.abandoned && turnIds.length > 0) {
+      ports.send({
+        type: 'runtimeQueueDrainAbandoned',
+        reportId: randomUUID(),
+        sessionId: this.sessionId,
+        turnIds,
+        reason: input.abandoned.reason,
+      })
+      abandonmentReported = true
+    }
+    let engineRecorded = false
+    if (error.address) {
+      this.keptEngine = {
+        address: error.address,
+        during: error.during,
+        ...(error.secret !== undefined ? { secret: error.secret } : {}),
+        at: new Date().toISOString(),
+      }
+      engineRecorded = true
+    }
+    if (error.during === 'adopt') {
+      ports.send({ type: 'reattachFailed', sessionId: this.sessionId, reason: error.message })
+    } else {
+      ports.send({ type: 'spawnError', sessionId: this.sessionId, message: error.message })
+    }
+    return { surfaced: true, abandonmentReported, engineRecorded }
   }
 }
