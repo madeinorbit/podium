@@ -11,7 +11,10 @@
  * `<bun> --conditions=@podium/source <this file>` with GEN1_* env set.
  */
 import {
+  claudeEngineFacts,
   codexEngineFacts,
+  createClaudeEngineHost,
+  createClaudeSdkSessionRuntime,
   createCodexEngineHost,
   createCodexRuntime,
   createGrokAcpRuntime,
@@ -20,12 +23,14 @@ import {
   createOpencodeRuntime,
   grokEngineFacts,
   opencodeFlavor,
+  type ClaudeEngineJournalEntry,
   type CodexJournalEntry,
   type GrokAcpJournalEntry,
   type OpencodeJournalEntry,
 } from '@podium/harness/driver/host'
 import { createDurableProcess } from '@podium/process/durable'
 import { manifestFor } from '@podium/harness'
+import type { SessionId } from '@podium/model'
 import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
 import {
   composeEngineEnv,
@@ -52,6 +57,7 @@ const ready = (engine: string, binding: unknown): void => {
 
 const codexFacts = codexEngineFacts(manifestFor('codex')!)
 const grokFacts = grokEngineFacts(manifestFor('grok')!)
+const claudeFacts = claudeEngineFacts(manifestFor('claude-code')!)
 const flavor = opencodeFlavor(manifestFor('opencode')!)
 
 const codexHost = createCodexEngineHost({
@@ -136,6 +142,45 @@ const grokHandle = await grokRuntime.driver.create({
   mcpServers: { supported: false, reason: 'survival probe' },
 })
 ready('grok', grokHandle.binding)
+
+// CLAUDE: one stream engine under the host, holding an OPEN turn until
+// generation 2 drops the COMPLETE file. The launch returns once the turn is
+// accepted; the journal entry (engine bound, pid known) is what READY waits
+// for, so generation 2 never adopts a label with nothing behind it.
+const claudeEngine = createClaudeEngineHost({
+  facts: claudeFacts,
+  supervision: supervisionFor(durable),
+  journal: createEngineJournal<ClaudeEngineJournalEntry>({ namespace: claudeFacts.journalNamespace }),
+  buildEnv: composeEngineEnv,
+  gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+})
+const claudeRuntime = createClaudeSdkSessionRuntime({
+  send: () => {},
+  emitBind: () => {},
+  sessionReady: () => {},
+  traceRuntimeEvent: () => {},
+  startMailContinuation: () => () => {},
+  facts: claudeFacts,
+  engine: claudeEngine,
+  transcript: {
+    readHistory: async () => ({ items: [], hasMore: false }),
+    archiveTranscript: async () => {
+      throw new Error('no archive in the survival probe')
+    },
+    readFileBytes: async () => new Uint8Array(),
+  },
+})
+const claudeHandle = await claudeRuntime.launch({
+  sessionId: 'claude-surv-1' as SessionId,
+  cwd: workdir,
+  initialPrompt: 'survive this',
+})
+const claudeReadySince = Date.now()
+while (!claudeEngine.journal.read('claude-surv-1' as SessionId)) {
+  if (Date.now() - claudeReadySince > 60_000) throw new Error('claude engine never bound')
+  await new Promise<void>((resolve) => setTimeout(resolve, 100))
+}
+ready('claude', claudeHandle.binding)
 
 // Idle until the test kills us. The engines belong to podium-host, not to us.
 await new Promise(() => {})
