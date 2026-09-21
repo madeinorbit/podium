@@ -54,6 +54,7 @@ interface StepRecord {
   commitsByRow: Record<string, number>
   visibleRows: number
   stats: CountResult['stats']
+  scans: Record<string, number>
   parity: boolean
   parityDiff: string | null
   oracle: boolean
@@ -121,13 +122,15 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
       const changed = changedRows(before, snapshotFromStore(ctx.engine.getSnapshot(), expectedLocals))
       const committed = Object.keys(result.commitsByRow).sort()
       const over = committed.filter((id) => !changed.includes(id))
+      const scans = store.scanCounts()
       console.info(
         `[hand-m2] ${methodology} ${scenario}: visible=${result.visibleRows} ` +
           `committed=${result.rowsCommitted} [${committed.slice(0, 8).join(',')}${committed.length > 8 ? '…' : ''}] ` +
           `oracleChanged=${changed.length} overCommit=[${over.join(',')}] ` +
-          `stats=${JSON.stringify(result.stats)} parity=${result.parity} oracle=${oracle}`,
+          `stats=${JSON.stringify(result.stats)} scans=${JSON.stringify(scans)} ` +
+          `parity=${result.parity} oracle=${oracle}`,
       )
-      records.push({ ...result, scenario, methodology, oracle })
+      records.push({ ...result, scenario, methodology, scans, oracle })
       expect(result.parity, `${scenario}: parity ${result.parityDiff ?? ''}`).toBe(true)
       expect(oracle, `${scenario}: rebuild oracle`).toBe(true)
       expect(over, `${scenario}: every committed row must be oracle-changed`).toEqual([])
@@ -186,6 +189,23 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
           `echoKept=${echoObj !== undefined} final===echo ${finalObj === echoObj}`,
       )
 
+      // #9 supplement (not a G3 scenario): the same optimistic press on a
+      // VISIBLE row. readAt moves no derived value, so the committed object
+      // must survive press + confirm with identity intact — the non-vacuous
+      // half of the #9 identity gate (i6 above is invisible in the seed
+      // corpus, so its identity holds trivially).
+      const visibleTarget = 'i0'
+      const visibleBefore = store.rows.rows.get(visibleTarget)
+      expect(visibleBefore, 'supplement needs a visible row').toBeDefined()
+      const pressVisible = await step('optimisticPressVisible', '#9 suppl.', () =>
+        writeOptimisticPress(ctx, visibleTarget),
+      )
+      const visibleAfter = store.rows.rows.get(visibleTarget)
+      console.info(
+        `[hand-m2] #9 suppl. identity: kept=${visibleAfter === visibleBefore} ` +
+          `committed=${pressVisible.rowsCommitted} evals=${pressVisible.stats.rollupsDerived}`,
+      )
+
       const burst = await step('burst50', '#10', () => writeBurst50(ctx, SPEC))
 
       if (STRICT) {
@@ -195,40 +215,63 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
         expect(rename.rowsCommitted).toBe(1)
         expect(rename.stats.rowsDerived).toBe(1)
         expect(rename.stats.rollupsDerived).toBe(3)
-        // #5: the moved row plus its chain (its child loses a subtree
-        // member); order and group deltas, no other row values move.
-        expect(stageMove.rowsCommitted).toBeLessThanOrEqual(3)
+        expect(rename.stats.notifications).toBe(1)
+        // #5: the moved row only (its child's aggregate reads its own
+        // subtree, never the parent) + order/group deltas, one pass.
+        expect(stageMove.rowsCommitted).toBe(1)
+        expect(stageMove.stats.rowsDerived).toBe(1)
         expect(stageMove.stats.notifications).toBe(1)
-        // #6: order + the arriving/leaving row, one notification each.
-        for (const [name, r] of [
-          ['newIssue', newIssue],
-          ['archiveIssue', archive],
-          ['evictWithoutRevision', evict],
-        ] as const) {
-          expect(r.stats.notifications, name).toBe(1)
-          expect(r.rowsCommitted, name).toBeLessThanOrEqual(3)
-        }
+        // #6a: the arriving row mounts (mount-phase renders are excluded by
+        // the RowShell by design, so commits stay 0) — the work is order +
+        // one row derivation, one pass.
+        expect(newIssue.stats.rowsDerived).toBe(1)
+        expect(newIssue.rowsCommitted).toBe(0)
+        expect(newIssue.stats.notifications).toBe(1)
+        // #6b: the leaving row unmounts (likewise uncounted); its parent's
+        // chain commits. #6c: the evicted row unmounts with no chain effect.
+        expect(archive.stats.rowsDerived).toBe(2)
+        expect(archive.rowsCommitted).toBe(1)
+        expect(archive.stats.notifications).toBe(1)
+        expect(evict.stats.rowsDerived).toBe(1)
+        expect(evict.rowsCommitted).toBe(0)
+        expect(evict.stats.notifications).toBe(1)
         // #7: both chains (old parent, new parent); the moved row itself is
-        // value-stable.
-        expect(reparent.rowsCommitted).toBeLessThanOrEqual(4)
+        // value-stable (its subtree did not change).
+        expect(reparent.rowsCommitted).toBe(2)
+        expect(reparent.stats.rowsDerived).toBe(2)
+        expect(reparent.stats.rollupsDerived).toBe(5)
         expect(reparent.stats.notifications).toBe(1)
-        // #8: only rows whose band moved commit.
+        // #8: no band boundary crosses on +60s at 1x, so nothing commits —
+        // and the over-commit check above already proves every commit would
+        // have to be oracle-changed.
+        expect(tick.rowsCommitted).toBe(0)
         expect(tick.stats.notifications).toBe(1)
         // #9: every step bounded like a phase change; the rollback restores
-        // the echo step's object identity; never a full rebuild.
+        // the echo step's object identity; never a full rebuild. i6 is
+        // invisible in the seed corpus, so its steps touch summary +
+        // visibility only (the rollup skips invisible rows); the visible
+        // supplement touches all three bodies.
         for (const [name, r] of [
           ['press1', press1],
           ['echo', echo],
-          ['press2', press2],
-          ['rollback', rejected],
         ] as const) {
-          expect(r.rowsCommitted, name).toBeLessThanOrEqual(2)
+          expect(r.rowsCommitted, name).toBe(0)
+          expect(r.stats.rollupsDerived, name).toBe(2)
           expect(r.visibleRows, `${name} never a full rebuild`).toBeGreaterThan(10)
         }
+        expect(press2.rowsCommitted, 'press2').toBe(0)
+        expect(press2.stats.rollupsDerived, 'press2').toBe(4)
+        expect(press2.stats.notifications, 'press2 optimistic + rollback').toBe(2)
+        expect(rejected.rowsCommitted, 'rollback').toBe(0)
+        expect(rejected.stats.notifications, 'rollback quiet').toBe(0)
         expect(finalObj, 'rollback restores the echo row object').toBe(echoObj)
+        expect(pressVisible.rowsCommitted, 'visible press').toBe(0)
+        expect(pressVisible.stats.rollupsDerived, 'visible press').toBe(3)
+        expect(visibleAfter, 'visible press keeps row identity').toBe(visibleBefore)
         // #10: one event, work bounded by the burst size plus chains.
         expect(burst.stats.notifications).toBe(1)
-        expect(burst.rowsCommitted).toBeLessThanOrEqual(100)
+        expect(burst.rowsCommitted).toBeLessThanOrEqual(64)
+        expect(burst.stats.rowsDerived).toBeLessThanOrEqual(64)
       }
 
       const elapsedMs = performance.now() - started

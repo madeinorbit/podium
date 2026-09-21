@@ -45,9 +45,7 @@ export class GroupsModule {
     private readonly getSelection: () => SelectionState,
     private readonly getNow: () => number,
     private readonly stats: DerivationStats = nullStats,
-  ) {
-    void this.stats
-  }
+  ) {}
 
   /** Closed-fold membership for one row (baseline or latched selection). */
   closedOf(issueId: string): boolean {
@@ -118,7 +116,7 @@ export class GroupsModule {
     const touched = new Set<string>()
     for (const id of dirty) {
       const prev = this.placement.get(id)
-      if (!this.order.ordered.includes(id)) {
+      if (!this.order.has(id)) {
         if (prev !== undefined) {
           this.placement.delete(id)
           if (prev.lane !== 'pinned') touched.add(prev.groupKey)
@@ -144,8 +142,11 @@ export class GroupsModule {
 
   /**
    * Rebuild group sequence (first appearance over the order array) and the
-   * touched groups' lanes. One O(visible) key scan per affecting batch;
-   * contents are replaced only for touched groups.
+   * touched groups' lanes. One O(visible) pass per affecting batch; contents
+   * are replaced only for touched groups. The pass is counted
+   * (`groups-rebuild`): placing groups in rank order needs the global
+   * sequence, so the scan is inherent to this design — the slope record says
+   * how much it costs per event (M2 note).
    */
   private rebuild(touched: Set<string>, out: Delta[]): void {
     const issues = this.tables.issues.rows
@@ -167,6 +168,7 @@ export class GroupsModule {
       if (place.lane === 'closed') bucket.closed.push(id)
       else bucket.open.push(id)
     }
+    this.stats.scan('groups-rebuild', this.order.ordered.length)
     // Closed fold sorts newest-tucked-first (folds.ts:214-220), stable.
     for (const bucket of buckets.values()) {
       bucket.closed.sort((a, b) => {

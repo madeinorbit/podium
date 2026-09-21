@@ -73,8 +73,10 @@ export class RollupModule {
     if (this.cache !== null) return this.cache
     const openExplicit = new Set<string>()
     const lastActive = new Map<string, string>()
+    let visits = 0
     for (const [issueId, bucket] of this.indexes.explicitByIssue) {
       for (const sid of bucket) {
+        visits += 1
         const s = this.tables.sessions.rows.get(sid)
         if (s === undefined || s.archived) continue
         const seen = lastActive.get(issueId)
@@ -85,15 +87,21 @@ export class RollupModule {
     const staffed = new Set<string>()
     for (const [issueId, bucket] of this.indexes.explicitByIssue) {
       for (const sid of bucket) {
+        visits += 1
         const s = this.tables.sessions.rows.get(sid)
         if (s === undefined || s.issueId == null || !openSession(s)) continue
         let id: string | undefined = s.issueId
         while (id !== undefined && !staffed.has(id)) {
+          visits += 1
           staffed.add(id)
           id = this.indexes.parentOf.get(id)
         }
       }
     }
+    // One build per dispatch (H4 slope material): every session seat plus
+    // every staffed ancestor step, counted so the M2 note can price the
+    // batch cache against incremental seats.
+    this.stats.scan('rollup-batch', visits)
     this.cache = { openExplicit, staffed, lastActive }
     return this.cache
   }
@@ -105,9 +113,11 @@ export class RollupModule {
     const out: SliceIssue[] = []
     const seen = new Set<string>()
     const stack = [originId]
+    let visits = 0
     while (stack.length > 0) {
       const id = stack.pop() as string
       for (const childId of this.indexes.spinOffChildren.get(id) ?? []) {
+        visits += 1
         if (seen.has(childId)) continue
         seen.add(childId)
         const child = issues.get(childId)
@@ -116,6 +126,7 @@ export class RollupModule {
         stack.push(childId)
       }
     }
+    this.stats.scan('rollup-walk', visits)
     return out
   }
 
@@ -184,14 +195,17 @@ export class RollupModule {
   private formalMembers(rootId: string): Set<string> {
     const ids = new Set<string>([rootId])
     const stack = [rootId]
+    let visits = 0
     while (stack.length > 0) {
       const id = stack.pop() as string
       for (const child of this.indexes.childrenByParent.get(id) ?? []) {
+        visits += 1
         if (ids.has(child)) continue
         ids.add(child)
         stack.push(child)
       }
     }
+    this.stats.scan('rollup-walk', visits)
     return ids
   }
 
@@ -250,15 +264,18 @@ export class RollupModule {
     const out: string[] = [rootId]
     const seen = new Set<string>([rootId])
     const stack = [rootId]
+    let visits = 0
     while (stack.length > 0) {
       const id = stack.pop() as string
       for (const child of this.indexes.childrenByParent.get(id) ?? []) {
+        visits += 1
         if (seen.has(child) || !this.visible.isVisible(child)) continue
         seen.add(child)
         out.push(child)
         stack.push(child)
       }
     }
+    this.stats.scan('rollup-walk', visits)
     return out
   }
 

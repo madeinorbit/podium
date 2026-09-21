@@ -12,7 +12,7 @@ import type { SliceLocals, SliceOrder, SliceRow, SliceSnapshot } from '../../sha
 import type { ArmStats, RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import { createElement, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
-import { assertNever, type Delta, type DerivationStats } from './deltas'
+import { assertNever, type Delta, type DerivationStats, type ScanName } from './deltas'
 import { GroupsModule } from './groups'
 import { IndexSet } from './indexes'
 import { OrderModule } from './order'
@@ -43,6 +43,8 @@ export class HandStore {
   private off: (() => void) | null = null
   private orderCache: SliceOrder | null = null
   private webRoot: { unmount(): void } | null = null
+  /** Cumulative multi-row walk visits (H4 slope material), beside ArmStats. */
+  private readonly scanTotals = new Map<ScanName, number>()
 
   constructor(
     private readonly source: RowSource,
@@ -59,6 +61,7 @@ export class HandStore {
         stats.rollupsDerived = 0
         stats.indexUpdates = 0
         stats.notifications = 0
+        this.scanTotals.clear()
       },
     }
     this.stats = stats
@@ -77,6 +80,9 @@ export class HandStore {
       },
       rows: (n: number) => {
         stats.rowsDerived += n
+      },
+      scan: (name: ScanName, visits: number) => {
+        this.scanTotals.set(name, (this.scanTotals.get(name) ?? 0) + visits)
       },
     }
     const tables = { issues: this.issues, sessions: this.sessions, worktrees: this.worktrees }
@@ -118,7 +124,16 @@ export class HandStore {
         return this.sessions.apply(record)
       case 'worktree':
         return this.worktrees.apply(record)
+      default:
+        return assertNever(record.kind)
     }
+  }
+
+  /** Cumulative scan visits since the last `stats.reset()` (M2 slope record). */
+  scanCounts(): Record<string, number> {
+    const out: Record<string, number> = {}
+    for (const [name, visits] of this.scanTotals) out[name] = visits
+    return out
   }
 
   private bootstrap(): void {
@@ -275,6 +290,7 @@ export class HandStore {
   get(key: string): unknown {
     if (key === 'order') {
       if (this.orderCache === null) {
+        let visits = 0
         this.orderCache = {
           pinnedIds: [...this.groups.pinnedIds],
           groups: this.groups.groups.map((g) => ({
@@ -284,6 +300,9 @@ export class HandStore {
             closedIds: [...g.closedIds],
           })),
         }
+        visits += this.groups.pinnedIds.length
+        for (const g of this.groups.groups) visits += g.rowIds.length + g.closedIds.length
+        this.scanTotals.set('order-snapshot', (this.scanTotals.get('order-snapshot') ?? 0) + visits)
       }
       return this.orderCache
     }

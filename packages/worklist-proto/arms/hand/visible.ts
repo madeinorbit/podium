@@ -184,12 +184,15 @@ export class VisibleModule {
     this.keptBy.delete(issueId)
     this.chains.delete(issueId)
     this.dropped.delete(issueId)
+    let visits = 0
     for (const [ancestor, keepers] of [...this.keptBy]) {
+      visits += 1
       if (keepers.delete(issueId)) {
         if (keepers.size === 0) this.keptBy.delete(ancestor)
         this.reconcile(ancestor, out)
       }
     }
+    this.stats.scan('visible-walk', visits)
   }
 
   /**
@@ -231,15 +234,18 @@ export class VisibleModule {
     const out: string[] = []
     const stack = [childId]
     const seen = new Set<string>([childId])
+    let visits = 0
     while (stack.length > 0) {
       const id = stack.pop() as string
       if (this.visible.has(id)) out.push(id)
       for (const child of this.indexes.childrenByParent.get(id) ?? []) {
+        visits += 1
         if (seen.has(child)) continue
         seen.add(child)
         stack.push(child)
       }
     }
+    this.stats.scan('visible-walk', visits)
     return out
   }
 
@@ -248,15 +254,18 @@ export class VisibleModule {
     const out: string[] = []
     const stack = [childId]
     const seen = new Set<string>([childId])
+    let visits = 0
     while (stack.length > 0) {
       const id = stack.pop() as string
       out.push(id)
       for (const child of this.indexes.childrenByParent.get(id) ?? []) {
+        visits += 1
         if (seen.has(child)) continue
         seen.add(child)
         stack.push(child)
       }
     }
+    this.stats.scan('visible-walk', visits)
     return out
   }
 

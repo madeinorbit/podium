@@ -403,8 +403,85 @@ describe('hand-rolled arm: visible, order, groups', () => {
   })
 })
 
-describe('hand-rolled arm: locals + lifecycle', () => {
-  it('selection notifies exactly two keys with zero derivations', () => {
+describe('hand-rolled arm: clock sensitivity sets', () => {
+  it('timeSensitive: a deferUntil carrier flips band across the tick', () => {
+    const world = testWorld([
+      rec(
+        'issue',
+        'snz',
+        issue({ id: 'snz', audience: 'human', deferUntil: iso(NOW + 30000) }),
+      ),
+      rec('session', 's1', session({ sessionId: 's1', issueId: 'snz', agentState: workingState })),
+      rec('worktree', '/wt', LANE),
+    ])
+    expect(world.store.snapshot().rowsById['snz']).toMatchObject({ band: 2 })
+    // No incremental refresh between boot and tick: the bootstrap
+    // (rebuildAll) must have populated timeSensitive, or the band goes
+    // stale here (M2 gap: it did not).
+    expect(world.store.summary.timeSensitive.has('snz')).toBe(true)
+    world.store.stats.reset()
+    world.store.setCoarseNow(NOW + 60000)
+    expect(world.store.snapshot().rowsById['snz']).toMatchObject({ band: 0 })
+    expect(world.store.stats.rowsDerived).toBe(1)
+    world.oracle()
+  })
+
+  it('decaySensitive: a sessionless finished row leaves past its window', () => {
+    const finishedAt = iso(NOW - 23 * 3600000)
+    const world = testWorld([
+      rec(
+        'issue',
+        'old',
+        issue({
+          id: 'old',
+          audience: 'human',
+          stage: 'done',
+          closedReason: null,
+          closedAt: finishedAt,
+          updatedAt: finishedAt,
+          readAt: finishedAt,
+        }),
+      ),
+      rec('worktree', '/wt', LANE),
+    ])
+    expect(world.store.snapshot().rowsById['old']).toBeDefined()
+    expect(world.store.visible.decaySensitive.has('old')).toBe(true)
+    world.store.stats.reset()
+    world.store.setCoarseNow(NOW + 2 * 3600000)
+    expect(world.store.snapshot().rowsById['old']).toBeUndefined()
+    expect(world.store.stats.rowsDerived).toBe(1)
+    world.oracle()
+  })
+
+  it('graceSensitive: a settled row folds past the grace window', () => {
+    const finishedAt = iso(NOW - 23 * 3600000)
+    const world = testWorld([
+      rec(
+        'issue',
+        'set',
+        issue({
+          id: 'set',
+          audience: 'human',
+          stage: 'done',
+          closedReason: 'done',
+          closedAt: finishedAt,
+          updatedAt: finishedAt,
+          readAt: finishedAt,
+        }),
+      ),
+      rec('worktree', '/wt', LANE),
+    ])
+    expect(world.store.snapshot().rowsById['set']?.closed).toBe(false)
+    expect(world.store.groups.graceSensitive.has('set')).toBe(true)
+    world.store.stats.reset()
+    world.store.setCoarseNow(NOW + 2 * 3600000)
+    expect(world.store.snapshot().rowsById['set']?.closed).toBe(true)
+    expect(world.store.stats.rowsDerived).toBe(1)
+    world.oracle()
+  })
+})
+
+describe('hand-rolled arm: locals + lifecycle', () => {  it('selection notifies exactly two keys with zero derivations', () => {
     const world = exampleWorld()
     world.store.setSelection('A')
     const seen: string[] = []

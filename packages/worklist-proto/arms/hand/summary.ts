@@ -153,7 +153,13 @@ export class SummaryModule {
   /** Full derive for replace/bootstrap (no deltas; store derives after). */
   rebuildAll(): void {
     this.summaries.clear()
+    this.timeSensitive.clear()
     for (const id of this.tables.issues.rows.keys()) {
+      // Mirror refresh's sensitivity bookkeeping: a bootstrap that leaves
+      // timeSensitive empty blinds every later tick to deferUntil carriers
+      // (M2: bands went stale after boot + tick until the first incremental
+      // refresh touched the row).
+      if (this.tables.issues.rows.get(id)?.deferUntil != null) this.timeSensitive.add(id)
       const next = this.compute(id)
       if (next !== null) this.summaries.set(id, next)
     }

@@ -54,6 +54,13 @@ export function assertNever(delta: never): never {
  * own-summary, subtree-aggregate and visibility-predicate executions land in
  * `rollupsDerived`; committed row changes in `rowsDerived`; bucket writes in
  * `indexUpdates`. An undercount fails shape review, so when in doubt count.
+ *
+ * Element-visits over more than one row (order membership probes, group
+ * rebuild scans, batch-cache builds, subtree walks) land in `scan`: they are
+ * the growth-slope material (H4 residuals R-H1/R-M1/R-T1), counted separately
+ * so the per-event derivation budgets stay comparable cross-arm. The store
+ * surfaces cumulative scan totals beside `ArmStats` (which keeps its four
+ * shared fields); the M2 count run reports them per scenario.
  */
 export interface DerivationStats {
   /** Own-summary body executions. */
@@ -66,7 +73,30 @@ export interface DerivationStats {
   index(): void
   /** Rows whose committed value changed. */
   rows(n: number): void
+  /** Element-visits in an O(visible)-or-worse walk (slope material). */
+  scan(name: ScanName, visits: number): void
 }
+
+/** Named multi-row walks. Each is bounded by the structure named, never by
+ *  an ad-hoc collection: that bound is what the M2 note judges inherent or
+ *  removable per walk. */
+export type ScanName =
+  /** Order-array position probes while re-ranking moved rows. */
+  | 'order-index'
+  /** Order-array visits rebuilding group sequence and touched lanes. */
+  | 'groups-rebuild'
+  /** Session/bucket visits (re)building the rollup batch cache. */
+  | 'rollup-batch'
+  /** Issue visits walking formal/spin-off subtrees inside a compute. */
+  | 'rollup-walk'
+  /** Issue visits re-syncing rescue chains and agent hosting. */
+  | 'visible-walk'
+  /** Root/session visits resolving worktree-prefix ownership. */
+  | 'index-resolve'
+  /** Group-member visits refreshing rows after a lane change. */
+  | 'rows-group'
+  /** Order/group visits assembling a snapshot read. */
+  | 'order-snapshot'
 
 export const nullStats: DerivationStats = {
   summaries: () => {},
@@ -74,4 +104,5 @@ export const nullStats: DerivationStats = {
   visibility: () => {},
   index: () => {},
   rows: () => {},
+  scan: () => {},
 }

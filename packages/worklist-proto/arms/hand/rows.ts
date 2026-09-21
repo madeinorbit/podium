@@ -84,11 +84,13 @@ export class RowsModule {
           if (delta.kind === 'GroupChanged') {
             if (delta.key === '') {
               for (const id of this.groups.pinnedIds) dirty.add(id)
+              this.stats.scan('rows-group', this.groups.pinnedIds.length)
             } else {
               const group = this.groups.groups.find((g) => g.key === delta.key)
               if (group !== undefined) {
                 for (const id of group.rowIds) dirty.add(id)
                 for (const id of group.closedIds) dirty.add(id)
+                this.stats.scan('rows-group', group.rowIds.length + group.closedIds.length)
               }
             }
           } else {

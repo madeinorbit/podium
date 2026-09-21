@@ -57,8 +57,7 @@ export class IndexSet {
   /** Cached session home for diffing: explicit issue + resolved worktree. */
   private readonly sessionHome = new Map<string, { explicit: string | null; resolved: string | null }>()
   /** R3 targets: live issues with a worktreePath, by path. */
-  private readonly issuesByWorktree = new Map<string, Set<string>>()
-  /** R3 roots: lane paths + issue worktree paths. */
+  private readonly issuesByWorktree = new Map<string, Set<string>>()  /** R3 roots: lane paths + issue worktree paths. */
   private roots = new Set<string>()
   /** R4: origin issue id per issue. */
   readonly originOf = new Map<string, string>()
@@ -72,6 +71,9 @@ export class IndexSet {
   readonly prefixByRepoId = new Map<string, string | null>()
   /** Issues per repo id (prefix-change fan-out). */
   private readonly issuesByRepo = new Map<string, Set<string>>()
+  /** Cached issue seats for diffing: worktree-path + repo (the sessionHome
+   *  precedent — moving a seat never scans the map for the old bucket). */
+  private readonly issueSeats = new Map<string, { worktree: string | null; repo: string | null }>()
   /** Lane paths (worktree row ids) for R3 roots. */
   private readonly lanePaths = new Set<string>()
 
@@ -101,14 +103,27 @@ export class IndexSet {
       else this.parentOf.set(id, nextEdge)
       out.push({ kind: 'ChildrenChanged', childId: id, from: prevEdge, to: nextEdge })
     }
-    // R3 target seat.
-    const seatChanged = this.moveSeat(this.issuesByWorktree, id, issue !== undefined && isLiveIssue(issue) && issue.worktreePath != null ? issue.worktreePath : null)
-    if (seatChanged) {
+    // R3 target seat (prev-seat diff, never a map scan for the old
+    // bucket — H4 R-H1 class: the old moveSeat walked every bucket).
+    const seats = this.issueSeats.get(id)
+    const nextWorktree =
+      issue !== undefined && isLiveIssue(issue) && issue.worktreePath != null
+        ? issue.worktreePath
+        : null
+    if ((seats?.worktree ?? null) !== nextWorktree) {
+      if (seats?.worktree != null) this.dropSeat(this.issuesByWorktree, seats.worktree, id)
+      if (nextWorktree !== null) this.takeSeat(this.issuesByWorktree, nextWorktree, id)
       this.rebuildRoots()
       out.push(...this.resolveAllUnbound((sid) => this.tables.sessions.rows.get(sid)))
     }
-    // Repo seat (prefix fan-out).
-    this.moveSeat(this.issuesByRepo, id, issue?.repoId ?? null)
+    // Repo seat (prefix fan-out), same prev-seat diff.
+    const nextRepo = issue?.repoId ?? null
+    if ((seats?.repo ?? null) !== nextRepo) {
+      if (seats?.repo != null) this.dropSeat(this.issuesByRepo, seats.repo, id)
+      if (nextRepo !== null) this.takeSeat(this.issuesByRepo, nextRepo, id)
+    }
+    if (issue === undefined) this.issueSeats.delete(id)
+    else this.issueSeats.set(id, { worktree: nextWorktree, repo: nextRepo })
     // R4 edge (kept at any liveness) + adjacency seat (live issues only,
     // like spinOffChildren in mission.ts).
     const nextOrigin = issue === undefined ? null : originEdgeOf(issue)
@@ -189,29 +204,6 @@ export class IndexSet {
       }
     }
     return out
-  }
-
-  private moveSeat(map: Map<string, Set<string>>, id: string, seat: string | null): boolean {
-    let changed = false
-    for (const [key, bucket] of map) {
-      if (key !== seat && bucket.delete(id)) {
-        changed = true
-        if (bucket.size === 0) map.delete(key)
-      }
-    }
-    if (seat !== null) {
-      let bucket = map.get(seat)
-      if (bucket === undefined) {
-        bucket = new Set()
-        map.set(seat, bucket)
-      }
-      if (!bucket.has(id)) {
-        bucket.add(id)
-        changed = true
-      }
-    }
-    if (changed) this.stats.index()
-    return changed
   }
 
   // ------------------------------------------------------------ R2 + R3
@@ -296,7 +288,9 @@ export class IndexSet {
   /** Re-resolve every unbound session (lane / worktree-path change). */
   resolveAllUnbound(getSession: (id: string) => SliceSession | undefined): Delta[] {
     const out: Delta[] = []
+    let visits = 0
     for (const [id, home] of this.sessionHome) {
+      visits += 1
       if (home.explicit !== null) continue
       const session = getSession(id)
       const resolved =
@@ -320,6 +314,7 @@ export class IndexSet {
       }
       this.sessionHome.set(id, { explicit: home.explicit, resolved })
     }
+    this.stats.scan('index-resolve', visits)
     return out
   }
 
@@ -352,11 +347,14 @@ export class IndexSet {
   private resolveCwd(cwd: string): string | null {
     const probe = normalizeRoot(cwd)
     let best: string | null = null
+    let visits = 0
     for (const root of this.roots) {
+      visits += 1
       if (probe === root || probe.startsWith(`${root}/`)) {
         if (best === null || root.length > best.length) best = root
       }
     }
+    this.stats.scan('index-resolve', visits)
     return best
   }
 
@@ -401,10 +399,6 @@ export class IndexSet {
     this.roots = roots
   }
 
-  rebuildRootsAfterIssue(): void {
-    this.rebuildRoots()
-  }
-
   /** Bulk build for replace: no deltas, the store derives everything after. */
   rebuildAll(
     issues: Iterable<[string, SliceIssue]>,
@@ -425,6 +419,7 @@ export class IndexSet {
     this.outgoingDeps.clear()
     this.prefixByRepoId.clear()
     this.issuesByRepo.clear()
+    this.issueSeats.clear()
     this.lanePaths.clear()
     for (const path of lanes) {
       this.lanePaths.add(path)
@@ -458,6 +453,10 @@ export class IndexSet {
         }
         bucket.add(id)
       }
+      this.issueSeats.set(id, {
+        worktree: isLiveIssue(issue) && issue.worktreePath != null ? issue.worktreePath : null,
+        repo: issue.repoId ?? null,
+      })
       const origin = originEdgeOf(issue)
       if (origin !== null) this.originOf.set(id, origin)
       if (origin !== null && isLiveIssue(issue)) {

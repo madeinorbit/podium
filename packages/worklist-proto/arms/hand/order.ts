@@ -22,6 +22,9 @@ interface RankKey {
 export class OrderModule {
   /** Visible ids in R-ORDER (closed-fold rows included, in position). */
   readonly ordered: string[] = []
+  /** Membership mirror of `ordered` (H4 R-H1: `includes` per dirty row was an
+   *  O(visible) scan hiding inside group placement). */
+  private readonly members = new Set<string>()
 
   constructor(
     private readonly tables: { issues: IssueTable },
@@ -32,7 +35,11 @@ export class OrderModule {
     private readonly stats: DerivationStats = nullStats,
   ) {
     void this.indexes
-    void this.stats
+  }
+
+  /** O(1) membership for placement checks (replaces the order-array scan). */
+  has(id: string): boolean {
+    return this.members.has(id)
   }
 
   private rankOf(id: string): RankKey | null {
@@ -65,14 +72,29 @@ export class OrderModule {
     if (key === null) return false
     const at = this.locate(key)
     this.ordered.splice(at, 0, id)
+    this.members.add(id)
     return true
   }
 
   private remove(id: string): boolean {
-    const at = this.ordered.indexOf(id)
+    const at = this.indexOf(id)
     if (at < 0) return false
     this.ordered.splice(at, 1)
+    this.members.delete(id)
     return true
+  }
+
+  /** Position lookup with honest probe counting (H4 R-H1 slope material:
+   *  re-ranking a moved row walks the array; the count says how far). */
+  private indexOf(id: string): number {
+    for (let i = 0; i < this.ordered.length; i += 1) {
+      if (this.ordered[i] === id) {
+        this.stats.scan('order-index', i + 1)
+        return i
+      }
+    }
+    this.stats.scan('order-index', this.ordered.length)
+    return -1
   }
 
   apply(batch: Delta[]): Delta[] {
@@ -89,15 +111,14 @@ export class OrderModule {
         case 'IssueChanged':
           // Rank reads band (summary) + pinned/sortKey (issue). Re-rank when
           // visible; the locate-compare makes a no-move free of deltas.
+          // No ClockChanged arm here on purpose: summary runs before order in
+          // topology order, and every band flip it finds arrives as
+          // SummaryChanged (M2: the old timeSensitive sweep re-ranked ~540
+          // carriers per tick at 1x, each paying an O(visible) indexOf, even
+          // when no rank moved).
           if (this.visible.isVisible(delta.id)) moves.add(delta.id)
           break
         case 'ClockChanged':
-          // Bands of deferUntil carriers may have flipped (summary level
-          // already recomputed them); re-rank the time-sensitive rows.
-          for (const id of this.summary.timeSensitive) {
-            if (this.visible.isVisible(id)) moves.add(id)
-          }
-          break
         case 'MembershipChanged':
         case 'SessionChanged':
         case 'SessionRemoved':
@@ -117,7 +138,7 @@ export class OrderModule {
       }
     }
     for (const id of moves) {
-      const at = this.ordered.indexOf(id)
+      const at = this.indexOf(id)
       if (at < 0) {
         changed = this.insert(id) || changed
         continue
@@ -136,6 +157,7 @@ export class OrderModule {
   /** Full derive for replace/bootstrap (no deltas; store derives after). */
   rebuildAll(): void {
     this.ordered.length = 0
+    this.members.clear()
     const keys = new Map<string, RankKey>()
     for (const id of this.visible.orderedIds()) {
       const key = this.rankOf(id)
@@ -145,5 +167,6 @@ export class OrderModule {
       compareRank(keys.get(a) as RankKey, keys.get(b) as RankKey),
     )
     this.ordered.push(...sorted)
+    for (const id of sorted) this.members.add(id)
   }
 }
