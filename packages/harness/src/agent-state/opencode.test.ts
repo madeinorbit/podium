@@ -3,12 +3,14 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { opencodeFileId } from '../adapters/opencode/transcript.js'
 import {
   loadOpencodeMessageParts,
   loadOpencodeTranscriptTail,
   opencodeSessionDbPath,
 } from '../opencode/db.js'
 import { agentStateProviderFor } from '../registry.js'
+import { encodeCursor } from '../store/cursor-codec.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
 import { initialAgentState, reduceAgentState } from '../observer.js'
 import type { AgentStateEvent } from './types.js'
@@ -732,7 +734,14 @@ describe('observeOpencodeState interrupted verdict', () => {
       expect(state).toMatchObject({ phase: 'idle', idle: { kind: 'interrupted' } })
 
       expect(transcriptItems.filter((item) => item.event === 'interrupt')).toEqual([
-        expect.objectContaining({ id: 'opencode-interrupt-msg-abort' }),
+        expect.objectContaining({
+          id: encodeCursor({
+            fileId: opencodeFileId('ses_interrupt'),
+            offset: 0,
+            uuid: 'interrupt:msg-abort',
+            sub: 0,
+          }),
+        }),
       ])
       expect(
         transcriptItems.filter(
@@ -767,7 +776,14 @@ describe('observeOpencodeState interrupted verdict', () => {
       try {
         await waitFor(() => reloadItems.some((item) => item.event === 'interrupt'))
         expect(reloadItems.filter((item) => item.event === 'interrupt')).toEqual([
-          expect.objectContaining({ id: 'opencode-interrupt-msg-abort' }),
+          expect.objectContaining({
+            id: encodeCursor({
+              fileId: opencodeFileId('ses_interrupt'),
+              offset: 0,
+              uuid: 'interrupt:msg-abort',
+              sub: 0,
+            }),
+          }),
         ])
       } finally {
         reloaded.stop()
