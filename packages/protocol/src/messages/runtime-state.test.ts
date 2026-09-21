@@ -5,6 +5,7 @@ import {
   ACCEPTED_TRANSITION_ID_WINDOW_SIZE,
   AgentObservationRebindAckMessage,
   AgentObservationRebindMessage,
+  ObservationProvider,
   SessionObservationCheckpointV1,
 } from './runtime-state.js'
 
@@ -112,5 +113,17 @@ describe('causal observation wire compatibility', () => {
       checkpoint: null,
     })
     expect(parseControlMessage(JSON.stringify(ack))).toEqual(ack)
+  })
+})
+
+describe('ObservationProvider derivation (4.2)', () => {
+  it('accepts exactly the three observed harnesses, on the same wire', () => {
+    expect([...ObservationProvider.options]).toEqual(['claude-code', 'codex', 'grok'])
+    for (const kind of ['claude-code', 'codex', 'grok'] as const) {
+      expect(ObservationProvider.safeParse(kind).success).toBe(true)
+    }
+    for (const kind of ['opencode', 'cursor', 'pi', 'shell', '']) {
+      expect(ObservationProvider.safeParse(kind).success).toBe(false)
+    }
   })
 })
