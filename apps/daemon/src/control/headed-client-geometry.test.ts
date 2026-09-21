@@ -26,9 +26,9 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import { createOpencodeClientTerminals } from '../runtime/opencode-attach'
+import type { ClientProcessOwner } from '../session/clients.js'
 import { appliedGeometryFor } from './applied-geometry'
 import type { DaemonContext } from './context'
-import { createDurable } from '@podium/process/durable'
 import { reconcileNativeClientTerminal, sessionHandlers } from './session'
 import { testSessions } from '../session/testing.js'
 
@@ -114,12 +114,20 @@ function harness(
     },
   } as unknown as DaemonContext
 
-  // The real client-terminal host: only the process ports are injected, and it
-  // is wired to the daemon exactly as `host-runtime.ts` wires it.
+  // The real client-terminal host: only the session-owned process port is
+  // injected, and it is wired to the daemon exactly as `host-runtime.ts`
+  // wires it.
   const clientTerminals = createOpencodeClientTerminals({
-    // The `spawn` seam below overrides this entirely; it states the backend
-    // this test means now that the port is required (POD-3917).
-    durable: createDurable('abduco', { host: false, abduco: true }),
+    clients: {
+      spawnClient: async (o) => {
+        born.push([o.cols ?? 0, o.rows ?? 0])
+        const client = fakeClient(over.ackSize)
+        clients.push(client)
+        return client as unknown as Awaited<ReturnType<ClientProcessOwner['spawnClient']>>
+      },
+      reclaimClient: async () => {},
+      hasClientMaster: () => false,
+    },
     appliedGeometry: appliedGeometryFor(ctx),
     // Without the birth port the terminal opens at the harness default, so the
     // held request is still outstanding when the reconcile runs and takes the
@@ -133,16 +141,6 @@ function harness(
     frames: () => {},
     releaseStream: () => {},
     sessions: ctx.sessions,
-    spawn: async (o) => {
-      born.push([o.cols ?? 0, o.rows ?? 0])
-      const client = fakeClient(over.ackSize)
-      clients.push(client)
-      return client as unknown as Awaited<
-        ReturnType<NonNullable<Parameters<typeof createOpencodeClientTerminals>[0]['spawn']>>
-      >
-    },
-    reclaim: async () => {},
-    hasMaster: () => false,
     setTimer: () => 0,
     clearTimer: () => {},
   })
