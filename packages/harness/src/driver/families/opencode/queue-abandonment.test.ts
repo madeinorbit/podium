@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SessionSpec } from '../../index.js'
+import type { SessionSpec } from '../../host.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import { createOpencodeRuntime } from './runtime.js'
 import { makeOpencodeTestHost } from './test-support/host.js'

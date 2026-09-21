@@ -2,7 +2,7 @@
  * `drivers/terminal` — the APP-INDEPENDENT half of the terminal driver
  * (POD-1761 W3).
  *
- * THE SPLIT, AND WHY IT IS WHERE IT IS. `packages/agent-runtime` may not import
+ * THE SPLIT, AND WHY IT IS WHERE IT IS. `packages/harness/src/driver` may not import
  * daemon app code (nothing at L2 may import an app), and the terminal driver's
  * concrete implementation is composed almost entirely of daemon internals —
  * `control/session.ts`'s spawn path, `session-observers.ts`'s fan-out,
@@ -69,3 +69,21 @@ export {
   TERMINAL_EXEMPTION_NAMES,
   TERMINAL_PERMITTED_FAILURES,
 } from './permitted-failures.js'
+// The pure composer interface (POD-4469: dissolved from `@podium/composer`).
+// No IO: screen lines in, bytes out — shared by the daemon draft-sync engine
+// and (through `@podium/harness/browser`) the web fallback.
+export {
+  type ComposerDriver,
+  composerDriverFor,
+  claudeComposerDriver,
+  codexComposerDriver,
+  CTRL_C,
+  CTRL_U,
+  PASTE_END,
+  PASTE_START,
+} from './composer-sync.js'
+export {
+  extractClaudePromptDraft,
+  extractCodexPromptDraft,
+  type ScreenLines,
+} from './prompt-extract.js'

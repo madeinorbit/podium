@@ -1,11 +1,4 @@
-import {
-  gateHarnessVersion,
-  type HarnessVersion,
-  type HarnessVersionDiagnostic,
-  harnessVersionDiagnostic,
-  OPENCODE_VERSION_POLICY,
-  parseHarnessVersion,
-} from '@podium/harness'
+import { gateHarnessVersion, type HarnessVersion, type HarnessVersionDiagnostic, harnessVersionDiagnostic, OPENCODE_VERSION_POLICY, parseHarnessVersion } from '../../../version-policy.js'
 
 export type OpencodeVersion = HarnessVersion
 export type OpencodeVersionDiagnostic = HarnessVersionDiagnostic
@@ -29,4 +22,4 @@ export function gateOpencodeVersion(output: string): OpencodeVersionDiagnostic |
     : null
 }
 
-export { AGENT_VERSION_PROBE_TIMEOUT_MS as OPENCODE_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
+export { AGENT_VERSION_PROBE_TIMEOUT_MS as OPENCODE_VERSION_PROBE_TIMEOUT_MS } from '../../../version-probe.js'

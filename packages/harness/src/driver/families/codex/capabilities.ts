@@ -24,7 +24,7 @@
  * corpus in both directions.
  */
 
-import { supported, unsupported } from '@podium/harness'
+import { supported, unsupported } from '../../../manifest.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 
 export function codexAppServerCapabilities(): DriverCapabilities {

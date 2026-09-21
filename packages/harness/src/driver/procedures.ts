@@ -2,7 +2,7 @@
 // the surface's five governing rules and ./driver.ts for the procedures layer.
 
 import type { TranscriptItem } from '@podium/model'
-import { supported } from '@podium/harness'
+import { supported } from '../manifest.js'
 import type { RuntimeHistoryRange } from '@podium/protocol/daemon'
 import type {
   AgentSessionHandle,

@@ -1,14 +1,8 @@
-// Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
+// Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import {
-  type AcceptedDriverId,
-  canonicalDriverId,
-  type Declared,
-  type DriverId,
-  manifestFor,
-  unsupported,
-} from '@podium/harness'
+import { type AcceptedDriverId, canonicalDriverId, type Declared, type DriverId, unsupported } from '../manifest.js'
+import { manifestFor } from '../registry.js'
 import type { AgentKind, Inventory, ResumeRef, SessionId } from '@podium/model'
 import type { SessionArchive, SessionBinding } from './binding.js'
 import type { DriverCapabilities } from './capabilities.js'

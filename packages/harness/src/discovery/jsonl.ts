@@ -1,9 +1,9 @@
 import { open } from 'node:fs/promises'
-import { stringField } from '@podium/transcript'
+import { stringField } from '../store/index.js'
 
 // Moved to @podium/transcript (the parsers there need them); re-exported for
 // this package's discovery providers, which imported them from here.
-export { contentToText, isRecord, stringField } from '@podium/transcript'
+export { contentToText, isRecord, stringField } from '../store/index.js'
 
 import type { AgentConversationDiagnostic, AgentConversationRole } from './types.js'
 

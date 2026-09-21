@@ -27,7 +27,7 @@ import { pageHistory } from '../history'
  * strong one would prove nothing about the hardest driver.
  */
 
-import { supported, unsupported } from '@podium/harness'
+import { supported, unsupported } from '../../manifest.js'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
 import { decideConfigure, noWhitespaceCheck } from '../configure.js'
@@ -69,7 +69,7 @@ import type {
   TurnReceipt,
   UsageSnapshot,
   WatchLevel,
-} from '../index.js'
+} from '../host.js'
 import { createRuntimeEventStream } from '../events.js'
 
 // ---------------------------------------------------------------------------

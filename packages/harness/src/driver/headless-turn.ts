@@ -1,4 +1,4 @@
-// Part of the Agent Runtime contract (POD-4386). See ./index.ts for the
+// Part of the Agent Runtime contract (POD-4386). See ./host.js for the
 // surface's five governing rules and ./procedures.ts for the generic compositions.
 
 import type { TranscriptItem } from '@podium/model'

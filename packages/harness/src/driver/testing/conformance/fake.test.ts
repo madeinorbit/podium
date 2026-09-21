@@ -10,16 +10,16 @@
  * `describeDriverConformance({...})` call and this file does not change.
  */
 
-import { unsupported } from '@podium/harness'
+import { unsupported } from '../../../manifest.js'
 import { describe, expect, it } from 'vitest'
-import type { SessionSpec } from '../../index.js'
+import type { SessionSpec } from '../../host.js'
 import {
   NO_NATIVE_STEER_DRIVERS,
   PERMITTED_FAILURES,
   permits,
   permitsNoNativeSteer,
   RUNTIME_PRIMITIVE_TIER,
-} from '../../index.js'
+} from '../../host.js'
 import {
   createFakeServerDriver,
   createFakeTerminalDriver,

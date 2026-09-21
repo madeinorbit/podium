@@ -1,6 +1,7 @@
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { withDeliveryQueue } from '../../delivery-queue.js'
-import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
+import { type AgentStateEvent } from '../../../agent-state/types.js'
+import { reduceAgentState } from '../../../agent-state/reducer.js'
 import {
   type AgentRuntimeState,
   formatAgentError,
@@ -11,7 +12,7 @@ import {
 import type { ProviderCursor } from '@podium/protocol'
 import { PermissionAnswer } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
-import { claudeToolCallItem, claudeToolResultItem } from '@podium/transcript'
+import { claudeToolCallItem, claudeToolResultItem } from '../../../store/index.js'
 import { DriverRefusalError } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
 import { headlessInterruptMark } from '../../headless-interrupt.js'
@@ -40,7 +41,7 @@ import type {
   TurnInput,
   TurnReceipt,
   WatchLevel,
-} from '../../index.js'
+} from '../../host.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import {
   type ConfigureValueChecks,

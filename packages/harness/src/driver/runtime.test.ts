@@ -1,4 +1,4 @@
-import { unsupported } from '@podium/harness'
+import { unsupported } from '../manifest.js'
 import type { Inventory, ResumeRef, SessionId } from '@podium/model'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionHandle, RuntimeDriver } from './driver.js'

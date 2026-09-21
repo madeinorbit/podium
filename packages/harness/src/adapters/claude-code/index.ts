@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { claudeRecordToItems, claudeRuntime } from '@podium/transcript'
+import { claudeRecordToItems, claudeRuntime } from '../../store/index.js'
 import {
   claudeCodeStateProvider,
   configureClaudeTranscriptClassifier,

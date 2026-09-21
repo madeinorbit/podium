@@ -10,7 +10,7 @@
  * path, and overrides win over generics.
  */
 
-import { unsupported } from '@podium/harness'
+import { unsupported } from '../manifest.js'
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle, RuntimeDriver } from './driver.js'

@@ -1,11 +1,6 @@
 import { homedir } from 'node:os'
 import type { SessionId } from '@podium/model'
-import {
-  type ChainEntry,
-  fileChainSource,
-  fileIdFor,
-  type TranscriptSource,
-} from '@podium/transcript'
+import { type ChainEntry, fileChainSource, fileIdFor, type TranscriptSource } from './store/index.js'
 import { declaredValue } from './manifest.js'
 import { manifestFor } from './registry.js'
 

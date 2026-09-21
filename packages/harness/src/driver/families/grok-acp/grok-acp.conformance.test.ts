@@ -1,4 +1,4 @@
-import { compareProviderCursor } from '@podium/harness/metadata'
+import { compareProviderCursor } from '../../../metadata.js'
 import type { SessionId } from '@podium/model'
 import { isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'

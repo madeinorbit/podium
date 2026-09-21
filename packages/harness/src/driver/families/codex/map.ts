@@ -40,9 +40,9 @@
  * opinions. The rollout path is untouched and still serves the terminal driver.
  */
 
-import type { AgentStateEvent } from '@podium/harness'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { TranscriptItem } from '@podium/model'
-import type { InteractionAnswer, PendingInteraction, Refusal } from '../../index.js'
+import type { InteractionAnswer, PendingInteraction, Refusal } from '../../host.js'
 import {
   type CodexApprovalDecision,
   type CodexCommandApprovalParams,

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { codexRecordToItems, codexRuntime } from '@podium/transcript'
+import { codexRecordToItems, codexRuntime } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import {
   codexStateProvider,
@@ -227,7 +227,7 @@ export const codexManifest: AgentManifest = {
     // Codex's own precedence, in order: OPENAI_API_KEY, CODEX_API_KEY,
     // CODEX_ACCESS_TOKEN — each ahead of the ChatGPT login in `auth.json`.
     // The app-server host strips a WIDER set (`STRIPPED_CODEX_CREDENTIALS`,
-    // `@podium/agent-runtime`), reaching org and base-url as well; those redirect
+    // `@podium/harness/driver/host`), reaching org and base-url as well; those redirect
     // a session rather than re-authenticate it, and this field is only about
     // which account answers.
     /**

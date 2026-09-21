@@ -10,14 +10,7 @@ import type {
   ProviderCursor,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import {
-  fileChainSource,
-  fileIdFor,
-  type StatTick,
-  type TranscriptRecordMapper,
-  type TranscriptRuntimeReader,
-  type TranscriptSource,
-} from '@podium/transcript'
+import { fileChainSource, fileIdFor, type StatTick, type TranscriptRecordMapper, type TranscriptRuntimeReader, type TranscriptSource } from './store/index.js'
 import type {
   AgentStateEventSource,
   AgentStateProvider,
@@ -588,16 +581,16 @@ export interface AgentRuntimeAxis {
 }
 
 /**
- * THE DRIVER TAXONOMY IS DEFINED HERE, and `@podium/agent-runtime` re-exports it.
+ * THE DRIVER TAXONOMY IS DEFINED HERE, and `@podium/harness/driver` re-exports it.
  *
- * The direction is forced: agent-runtime imports this package, never the
+ * The direction is forced: the driver tree imports these modules, never the
  * reverse, and a cycle would be rejected by turbo, `declared-deps` and the layer
  * manifest alike. So the names the MANIFEST needs — the families, the driver
  * ids, the three `*RuntimeSpec` shapes and the selection context — live beside
- * the manifest that declares them, and the runtime package aliases them rather
+ * the manifest that declares them, and the driver tree aliases them rather
  * than keeping a second copy reconciled by a test.
  *
- * CLOSED on purpose: a driver lands as code in `packages/agent-runtime`, so a
+ * CLOSED on purpose: a driver lands as code in `driver/families/`, so a
  * new id is a deliberate edit here rather than a string that typos silently.
  */
 /**

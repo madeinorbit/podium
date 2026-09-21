@@ -39,7 +39,8 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * That refusal is a conformance property, not a comment.
  */
 
-import { type AgentStateEvent, reduceAgentState } from '@podium/harness'
+import { type AgentStateEvent } from '../../../agent-state/types.js'
+import { reduceAgentState } from '../../../agent-state/reducer.js'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'

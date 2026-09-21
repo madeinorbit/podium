@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
-import { type StatTick, scheduleStatPoll } from '@podium/transcript'
+import { type StatTick, scheduleStatPoll } from '../store/index.js'
 import { withEventTime } from './reducer.js'
 import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 

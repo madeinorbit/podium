@@ -8,13 +8,9 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * The daemon owns process launch and native-file export through the host port;
  * this package owns protocol, receipts, permissions, observation and resume.
  */
-import {
-  type AgentStateEvent,
-  classifyGrokProviderFailure,
-  initialAgentState,
-  reduceAgentState,
-  translateGrokUpdatePayload,
-} from '@podium/harness'
+import { type AgentStateEvent } from '../../../agent-state/types.js'
+import { classifyGrokProviderFailure, translateGrokUpdatePayload } from '../../../agent-state/grok.js'
+import { initialAgentState, reduceAgentState } from '../../../agent-state/reducer.js'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'

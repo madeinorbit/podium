@@ -1,7 +1,8 @@
-// Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
+// Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { Declared, HarnessComposerReadiness } from '@podium/harness'
+import type { Declared } from '../manifest.js'
+import type { HarnessComposerReadiness } from '../registry.js'
 import type { AttachEndpoint } from './attach.js'
 import type { WatchLevel } from './events.js'
 import type {

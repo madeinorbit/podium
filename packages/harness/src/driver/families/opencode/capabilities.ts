@@ -17,7 +17,7 @@
  * CAN PROVE, never what it hopes.
  */
 
-import { supported, unsupported } from '@podium/harness'
+import { supported, unsupported } from '../../../manifest.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 
 export function opencodeServerCapabilities(): DriverCapabilities {

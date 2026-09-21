@@ -30,7 +30,7 @@ import type {
   ProcessEvent,
   RuntimeDriver,
   SessionSpec,
-} from '../../index.js'
+} from '../../host.js'
 
 /** The out-of-band nudges the corpus needs. Structurally satisfied by the
  *  fake's `control`; real drivers implement it against their own harness. */

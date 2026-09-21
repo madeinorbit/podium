@@ -5,7 +5,7 @@ import {
   isBuiltinHarnessKind,
   type ObservationProvider,
 } from '@podium/protocol'
-import type { TranscriptRecordMapper, TranscriptRuntimeReader } from '@podium/transcript'
+import type { TranscriptRecordMapper, TranscriptRuntimeReader } from './store/index.js'
 import type { AgentStateProvider } from './agent-state/types.js'
 import {
   type AgentManifest,

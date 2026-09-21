@@ -11,7 +11,7 @@
  * the deadline survives a restart.
  */
 
-import { unsupported } from '@podium/harness'
+import { unsupported } from '../manifest.js'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {

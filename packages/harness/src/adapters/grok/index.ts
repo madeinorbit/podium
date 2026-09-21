@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { grokRecordToItems, grokRuntime } from '@podium/transcript'
+import { grokRecordToItems, grokRuntime } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
 import { locateGrokChatHistory } from '../agent-state/grok-locate.js'

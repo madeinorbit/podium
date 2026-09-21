@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileIdFor } from '@podium/transcript'
+import { fileIdFor } from './store/index.js'
 import { describe, expect, it } from 'vitest'
 import { resolveFileChain } from './transcript-source.js'
 

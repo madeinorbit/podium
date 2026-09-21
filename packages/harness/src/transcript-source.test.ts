@@ -3,13 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
-import {
-  type ChainEntry,
-  decodeCursor,
-  fileChainSource,
-  fileIdFor,
-  stampOpencodeItems,
-} from '@podium/transcript'
+import { type ChainEntry, decodeCursor, fileChainSource, fileIdFor, stampOpencodeItems } from './store/index.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { opencodeDbSource } from './manifests/opencode.js'
 import { transcriptSourceFor } from './transcript-source.js'

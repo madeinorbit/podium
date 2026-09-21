@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { piRecordToItems, piRuntime } from '@podium/transcript'
+import { piRecordToItems, piRuntime } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { observePiState, piStateProvider } from '../agent-state/pi.js'
 import { withStateChannel } from '../agent-state/types.js'

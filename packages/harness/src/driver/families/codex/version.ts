@@ -1,12 +1,5 @@
-import {
-  AGENT_MANIFESTS,
-  CODEX_VERSION_POLICY,
-  gateHarnessVersion,
-  type HarnessVersion,
-  type HarnessVersionDiagnostic,
-  harnessVersionDiagnostic,
-  parseHarnessVersion,
-} from '@podium/harness'
+import { AGENT_MANIFESTS } from '../../../registry.js'
+import { CODEX_VERSION_POLICY, gateHarnessVersion, type HarnessVersion, type HarnessVersionDiagnostic, harnessVersionDiagnostic, parseHarnessVersion } from '../../../version-policy.js'
 
 export type CodexVersion = HarnessVersion
 export type CodexVersionDiagnostic = HarnessVersionDiagnostic
