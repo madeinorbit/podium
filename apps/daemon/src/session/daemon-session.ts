@@ -11,9 +11,10 @@
  * upgrade or native attach.
  *
  * SCOPE NOTES, stated so the next lane does not re-litigate them:
- * - The Driver handle registry stays in the machine runtime for now: handles
- *   are still keyed per session and never shared, which is the ownership fact
- *   that matters; moving the map is a separate mechanical step.
+ * - The Driver handle lives ON the entry (`driver` below): handles are still
+ *   keyed per session and never shared, which is the ownership fact that
+ *   matters; the terminal driver's per-session index is moving onto this slot
+ *   as the mechanical follow-up (POD-4512).
  * - The applied-size RECORD (`AppliedGeometryRecord`) stays daemon-wide: the
  *   bind builder reads it, and the Terminal mirrors the same fact in
  *   `terminal.applied`. One fact, two readers, written at the same apply sites.
@@ -26,6 +27,7 @@
 import { randomUUID } from 'node:crypto'
 import type {
   AbandonedQueuedTurn,
+  AgentSessionHandle,
   EngineAttachment,
   EngineBindUnrecoverable,
   EngineSpawnRequest,
@@ -193,6 +195,16 @@ export class DaemonSession {
   nativeRetryCount: number | undefined = undefined
 
   /**
+   * THE SESSION'S DRIVER (POD-4512, layers §1b / spec §4.6): the ONE live
+   * driver handle for this session, replacing the machine runtime's
+   * per-session handle index. Set when the session binds (terminal register,
+   * server create/resume/adopt); undefined while unbound or after teardown.
+   * Never shared between two entries — one handle, one slot — which is the
+   * ownership fact the keyed map used to carry.
+   */
+  driver: AgentSessionHandle | undefined = undefined
+
+  /**
    * THE §4.8 ENGINE HOLD (this issue): the session layer's verbs over the
    * daemon's engine durable, bound by the composition root through the
    * registry. The driver families never call `DurableProcess` themselves —
@@ -274,6 +286,11 @@ export class DaemonSession {
     this.keptEngine = undefined
     this.nativeRequested = false
     this.nativeRetryCount = undefined
+    // LAST, in the §4.8 step 6 order: the handle's own teardown runs against a
+    // caller-held reference (stopSessionProcessOnce reads it before parking),
+    // so forgetting the slot here cannot strand a teardown — it only stops a
+    // later lookup from reaching a dead handle.
+    this.driver = undefined
   }
 
   /**
