@@ -64,6 +64,7 @@ import {
   engineSocketRoot,
   supervisionFor,
 } from './host'
+import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import {
   codexAppServerVersionProbe,
@@ -510,13 +511,17 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       // Generation 2: new objects, same dirs, same journals on disk.
       const durable = createDurableProcess('host', { host: true, abduco: false })
       const noResources = () => undefined
+      // The session layer's engine hold over the new generation's durable;
+      // the claude family below stays on the legacy supervision port.
+      const sessionEngines = createSessionEngineScope(durable)
 
       // CODEX: the driver rebinds to the survivor — same pid — and the
       // in-flight turn completes on the adopted handle.
       const codexHost = createCodexEngineHost({
         facts: codexFacts,
-        supervision: supervisionFor(durable),
-        journal: createEngineJournal<CodexJournalEntry>({ namespace: codexFacts.journalNamespace }),
+        engines: sessionEngines,
+        supervision: sessionEngines,
+        journal: sessionEngines.journalFor<CodexJournalEntry>(codexFacts.journalNamespace),
         stageAttachment: stageRuntimeAttachment,
         resources: noResources,
         buildEnv: composeEngineEnv,
@@ -564,8 +569,9 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       // OPENCODE: same server, same port and secret, same pid.
       const opencodeHost = createOpencodeEngineHost({
         flavor,
-        supervision: supervisionFor(durable),
-        journal: createEngineJournal<OpencodeJournalEntry>({ namespace: flavor.journalNamespace }),
+        engines: sessionEngines,
+        supervision: sessionEngines,
+        journal: sessionEngines.journalFor<OpencodeJournalEntry>(flavor.journalNamespace),
         stageAttachment: stageRuntimeAttachment,
         resources: noResources,
         buildEnv: composeEngineEnv,
@@ -584,8 +590,9 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       // answers over the new pipes.
       const grokHost = createGrokEngineHost({
         facts: grokFacts,
-        supervision: supervisionFor(durable),
-        journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: grokFacts.journalNamespace }),
+        engines: sessionEngines,
+        supervision: sessionEngines,
+        journal: sessionEngines.journalFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
         resources: noResources,
         buildEnv: composeEngineEnv,
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,

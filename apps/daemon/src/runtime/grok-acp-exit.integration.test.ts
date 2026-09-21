@@ -24,7 +24,8 @@ vi.mock('@podium/process/durable', async () => {
 import { createGrokEngineHost, grokEngineFacts } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './version-probe'
-import { composeEngineEnv, createEngineJournal, supervisionFor } from './host'
+import { composeEngineEnv } from './host'
+import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createDurableProcess } from '@podium/process/durable'
 import { createGrokSessionRuntime } from '@podium/harness/driver/host'
@@ -134,10 +135,12 @@ describe('Grok ACP real scoped child boundary', () => {
       const sent: DaemonMessage[] = []
       const facts = grokEngineFacts(manifestFor('grok')!)
       const durable = createDurableProcess('host', { host: true, abduco: false })
+      const engines = createSessionEngineScope(durable)
       const host = createGrokEngineHost({
         facts,
-        supervision: supervisionFor(durable),
-        journal: createEngineJournal({ namespace: facts.journalNamespace }),
+        engines,
+        supervision: engines,
+        journal: engines.journalFor(facts.journalNamespace),
         resources: () => undefined,
         buildEnv: composeEngineEnv,
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,

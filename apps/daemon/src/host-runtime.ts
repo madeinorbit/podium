@@ -45,6 +45,7 @@ import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type AgentKind, type MachineId, type SessionId } from '@podium/model'
 import { createDurableProcess, durableProcessFor, sweepStaleDurableBindTemps } from '@podium/process/durable'
 import { SessionRegistry } from './session/registry.js'
+import { createSessionEngineScope } from './session/engines.js'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import {
@@ -1165,9 +1166,19 @@ export async function createDaemonHostRuntime(args: {
   const claudeFacts = claudeEngineFacts(engineSections(claudeSdkHarnessKind))
   const ocFacts = opencodeFlavor(engineSections(opencodeHarnessKind))
   const oc2Facts = opencode2Flavor(engineSections(opencodeHarnessKind))
-  // The engine's durable owner (POD-4433): podium-host under the hood. One
-  // supervision implementation drives every engine family.
+  // The engine's durable owner (POD-4433): podium-host under the hood. The
+  // claude family still drives the legacy supervision port; the codex,
+  // opencode and grok families drive the session layer's engine hold.
   const engineSupervision = supervisionFor(engineDurable)
+  /**
+   * THE SESSION LAYER'S ENGINE HOLD (this issue, spec §4.8 steps 2–6): the
+   * `EngineProcessOwner` the migrated families consume, plus the journal
+   * store. Bound onto the session registry so every `DaemonSession` delegate
+   * routes through it. (For POD-4506: this edit touches nothing near the
+   * native-client maps at ~1003-1005; their construction is unchanged.)
+   */
+  const sessionEngines = createSessionEngineScope(engineDurable)
+  sessions.bindEngines(sessionEngines)
   const opencode2Executable = generationInventory?.commandEnvironment.resolve(oc2Facts.executableName)
   // Session-frame ports shared by the four headless families: the frame sink,
   // the one bind builder, timing stages and the mail continuation. The
@@ -1240,8 +1251,9 @@ export async function createDaemonHostRuntime(args: {
    */
   const opencodeEngine = createOpencodeEngineHost({
     flavor: ocFacts,
-    supervision: engineSupervision,
-    journal: createEngineJournal<OpencodeJournalEntry>({ namespace: ocFacts.journalNamespace }),
+    engines: sessionEngines,
+    supervision: sessionEngines,
+    journal: sessionEngines.journalFor<OpencodeJournalEntry>(ocFacts.journalNamespace),
     resources: (subject) => scopeMonitor.resources(subject),
     stageAttachment,
     buildEnv: composeEngineEnv,
@@ -1276,8 +1288,9 @@ export async function createDaemonHostRuntime(args: {
   })
   const opencodeEngine2 = createOpencodeEngineHost({
     flavor: oc2Facts,
-    supervision: engineSupervision,
-    journal: createEngineJournal<OpencodeJournalEntry>({ namespace: oc2Facts.journalNamespace }),
+    engines: sessionEngines,
+    supervision: sessionEngines,
+    journal: sessionEngines.journalFor<OpencodeJournalEntry>(oc2Facts.journalNamespace),
     resources: (subject) => scopeMonitor.resources(subject),
     // Absent on a backend=none daemon (POD-3917): no terminal host, so the
     // opencode host refuses a Native attach with its per-machine wording.
@@ -1312,8 +1325,9 @@ export async function createDaemonHostRuntime(args: {
    */
   const codexEngine = createCodexEngineHost({
     facts: codexFacts,
-    supervision: engineSupervision,
-    journal: createEngineJournal<CodexJournalEntry>({ namespace: codexFacts.journalNamespace }),
+    engines: sessionEngines,
+    supervision: sessionEngines,
+    journal: sessionEngines.journalFor<CodexJournalEntry>(codexFacts.journalNamespace),
     resources: (subject) => scopeMonitor.resources(subject),
     stageAttachment,
     buildEnv: composeEngineEnv,
@@ -1361,8 +1375,9 @@ export async function createDaemonHostRuntime(args: {
   })
   const grokEngine = createGrokEngineHost({
     facts: grokFacts,
-    supervision: engineSupervision,
-    journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: grokFacts.journalNamespace }),
+    engines: sessionEngines,
+    supervision: sessionEngines,
+    journal: sessionEngines.journalFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
     resources: (subject) => scopeMonitor.resources(subject),
     buildEnv: composeEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
