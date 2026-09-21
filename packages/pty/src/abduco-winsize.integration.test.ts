@@ -24,7 +24,7 @@ import {
 } from './abduco.js'
 import { buildVendoredAbduco } from './abduco-bin.js'
 import { bunTerminalBackend } from './backends/bun-terminal-backend.js'
-import type { AgentSession } from './session.js'
+import type { DurableAttachment } from './session.js'
 import { spawnAgent } from './session.js'
 
 const FIXTURE = fileURLToPath(new URL('../test/fixtures/winsize-log.mjs', import.meta.url))
@@ -65,7 +65,7 @@ afterAll(async () => {
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-function reader(session: AgentSession): { text: () => string } {
+function reader(session: DurableAttachment): { text: () => string } {
   let buf = ''
   session.onFrame((f) => {
     buf += Buffer.from(f.data).toString('utf8')

@@ -22,7 +22,7 @@ export {
   type DurableBackend,
   type DurableKind,
   type DurableAttachOptions,
-  type DurableAttachment,
+  type DurableReattach,
   type DurableAdapter,
   type DurableProcess,
   type HeadlessSpawnOptions,
@@ -36,6 +36,10 @@ export {
   durableProcessFor,
   durableFor,
 } from './durable-process.js'
+// The attachment handle both adapters implement, re-exported so the durable
+// door names the ONE interface (POD-4434). Type-only: it widens no runtime
+// capability, and the P2b value door above is unchanged.
+export type { DurableAttachment } from './session.js'
 
 export {
   abducoAttachArgv,
@@ -109,7 +113,7 @@ export {
   listLiveHostLabels,
   killHostSession,
   type HostAttachOptions,
-  type HostAgentSession,
+  type HostDurableAttachment,
   attachHostAgent,
   spawnHostAgent,
 } from './host.js'

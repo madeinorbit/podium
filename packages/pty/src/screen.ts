@@ -1,7 +1,7 @@
 /**
  * @podium/process/screen — terminal-screen concerns (P2a door, P2c filled).
  *
- * What a process is showing: the `AgentSession` wrapper (framing, redraw,
+ * What a process is showing: the `DurableAttachment` wrapper (framing, redraw,
  * OSC title scan, geometry tracking), the title scanner itself, the cgroup
  * resource helpers the scope monitor reads, POSIX shell quoting for `sh -c`
  * attach paths, the alt-screen stripper, the headless screen model, the 1049
@@ -14,7 +14,7 @@
 export {
   type SpawnOptions,
   type AgentFrame,
-  type AgentSession,
+  type DurableAttachment,
   withHardRepaint,
   spawnAgent,
   wrapPty,

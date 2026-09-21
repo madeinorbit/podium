@@ -9,7 +9,7 @@
  * (a headless VT emulator fed at the produced size), the 1049 screen mode,
  * and the repaint-versus-replay policy.
  *
- * WHAT IT IS NOT: an attachment. An `AgentSession` is created per attachment —
+ * WHAT IT IS NOT: an attachment. An `DurableAttachment` is created per attachment —
  * attach and you get one, detach and it is gone. A screen belongs to the
  * session; the attachment is merely the current way of reaching it. Feed this
  * object from each attachment in turn via {@link TerminalScreen.attach} (or

@@ -30,8 +30,8 @@ export interface AgentFrame {
 /**
  * THE ATTACHMENT HANDLE (POD-4434): one live connection to a durable process.
  *
- * Formerly `AgentSession`; renamed because it never was a session — it is the
- * one attachment a {@link Terminal} owns over the process its Session owns.
+ * Renamed in POD-4434 because it never was a session — it is the one live
+ * connection a {@link Terminal} owns over the process its Session owns.
  * The host and abduco adapters both implement it (via {@link wrapPty}); the
  * daemon's Terminal is the only thing that holds one.
  */

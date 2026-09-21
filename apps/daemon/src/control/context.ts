@@ -2,7 +2,7 @@ import type { agentLaunchCommand, HarnessLogin } from '@podium/harness'
 import type { AgentKind, MachineId, SessionId, UsageBucketWire } from '@podium/model'
 import type { ServerTransferServingProof } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import type { AgentSession } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import type { DurableBackend, DurableProcess } from '@podium/process/durable'
 import type { ProvisionedAccountHome } from '../account-home'
 import type { ConversationDeltaWire } from '../active-refresh'
@@ -82,7 +82,7 @@ export interface DaemonContext {
 
   // -- per-session runtime state ---------------------------------------------
   /** Live PTY bridges by Podium session id. */
-  bridges: Map<SessionId, AgentSession>
+  bridges: Map<SessionId, DurableAttachment>
   /**
    * Geometry a client asked for while this session had no bridge to apply it to.
    * Spawn is async (fork+exec, abduco socket handshake) and the server publishes

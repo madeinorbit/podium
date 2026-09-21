@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
-import type { AgentSession } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import { OutputScheduler } from '../output-scheduler'
 import type { DaemonContext } from './context'
@@ -21,7 +21,7 @@ import { sessionHandlers, wireBridge } from './session'
 
 const SESSION = asSessionId('s-sizing')
 
-function fakeSession(): AgentSession & { resizes: Array<[number, number]>; redraws: number } {
+function fakeSession(): DurableAttachment & { resizes: Array<[number, number]>; redraws: number } {
   const resizes: Array<[number, number]> = []
   const self = {
     resizes,
@@ -41,14 +41,14 @@ function fakeSession(): AgentSession & { resizes: Array<[number, number]>; redra
     geometry: () => ({ cols: 80, rows: 24 }),
     dispose: () => {},
   }
-  return self as unknown as AgentSession & { resizes: Array<[number, number]>; redraws: number }
+  return self as unknown as DurableAttachment & { resizes: Array<[number, number]>; redraws: number }
 }
 
 function daemonContext(over: Partial<DaemonContext> = {}): DaemonContext {
   return {
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-sizing-claims'),
-    bridges: new Map<SessionId, AgentSession>(),
+    bridges: new Map<SessionId, DurableAttachment>(),
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     durableLabels: new Map<SessionId, string>(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },

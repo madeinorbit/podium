@@ -1,4 +1,4 @@
-import type { AgentSession } from '../src/index'
+import type { DurableAttachment } from '../src/index'
 
 export interface Collector {
   readonly text: string
@@ -6,7 +6,7 @@ export interface Collector {
   maxPaint(): number
 }
 
-export function collect(session: AgentSession): Collector {
+export function collect(session: DurableAttachment): Collector {
   let buffer = ''
   const seqs: number[] = []
   session.onFrame((f) => {

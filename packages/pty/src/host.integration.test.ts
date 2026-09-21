@@ -21,7 +21,7 @@ import {
   encodeHello,
   encodeHostFrame,
   HOST_TAIL,
-  type HostAgentSession,
+  type HostDurableAttachment,
   HostErr,
   HostFrame,
   hostHasSession,
@@ -31,7 +31,7 @@ import {
   listLiveHostLabels,
   spawnHostAgent,
 } from './host.js'
-import type { AgentSession } from './session.js'
+import type { DurableAttachment } from './session.js'
 import { createDurableProcess } from './durable-process.js'
 
 const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
@@ -57,7 +57,7 @@ let bin = ''
 let countingFixture = ''
 const saved: Record<string, string | undefined> = {}
 const labels: string[] = []
-const sessions: AgentSession[] = []
+const sessions: DurableAttachment[] = []
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Promise<void> {
@@ -67,7 +67,7 @@ async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Pro
     await wait(20)
   }
 }
-function reader(session: AgentSession): { text: () => string } {
+function reader(session: DurableAttachment): { text: () => string } {
   let buf = ''
   session.onFrame((f) => {
     buf += Buffer.from(f.data).toString('utf8')
@@ -87,7 +87,7 @@ function label(tag: string): string {
   return l
 }
 
-async function spawn(tag: string, cmd: string, args: string[], cols = 80, rows = 24): Promise<HostAgentSession> {
+async function spawn(tag: string, cmd: string, args: string[], cols = 80, rows = 24): Promise<HostDurableAttachment> {
   const s = await spawnHostAgent({ label: label(tag), cmd, args, cols, rows })
   sessions.push(s)
   return s
@@ -179,7 +179,7 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
     await wait(500)
     expect(winches(t.text())).toHaveLength(1) // zero new signals
 
-    // Through the AgentSession: resize() sets appliedGeometry from RESIZED.
+    // Through the DurableAttachment: resize() sets appliedGeometry from RESIZED.
     s.resize(90, 30)
     await waitFor(() => s.appliedGeometry?.cols === 90, 'appliedGeometry to follow RESIZED')
     expect(s.appliedGeometry).toEqual({ cols: 90, rows: 30 })

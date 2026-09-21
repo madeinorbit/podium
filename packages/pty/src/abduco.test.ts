@@ -603,7 +603,7 @@ describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {
   async function received(via: 'abduco' | 'direct', hex: string): Promise<string> {
     const bytes = Buffer.from(hex, 'hex')
     let out = ''
-    let session: import('./session').AgentSession
+    let session: import('./session').DurableAttachment
     let label = ''
     if (via === 'abduco') {
       label = `podium-abfid-${process.pid}-${hex}`

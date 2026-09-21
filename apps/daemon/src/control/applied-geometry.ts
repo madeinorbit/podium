@@ -120,7 +120,7 @@ export interface AppliedGeometryPorts {
  *   - `wireBridge`, for the size a bridge is stood up at and for a resize it was
  *     holding and dispatches at bind
  *   - the reattach that DOWNGRADED to an abduco without `-N` and announced a
- *     size after all (`AgentSession.appliedGeometry`)
+ *     size after all (`DurableAttachment.appliedGeometry`)
  *   - the native-client reconcile, dispatching a resize held for a session that
  *     had no terminal when the viewer asked
  *   - `clientTerminals`, where the daemon opens a harness client at a size

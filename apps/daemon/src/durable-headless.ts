@@ -25,7 +25,7 @@ import {
 } from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import {
-  type AgentSession,
+  type DurableAttachment,
   shellQuote,
 } from '@podium/process/screen'
 import { stateDir } from '@podium/runtime/config'
@@ -605,7 +605,7 @@ export function runDurableHeadlessTurn(
     // home even against everything above it.
     ...harnessInstanceEnv(spec.agent, spec.env?.HOME),
   }
-  let attachment: AgentSession | undefined
+  let attachment: DurableAttachment | undefined
   let settled = false
   let disposed = false
   let poll: ReturnType<typeof setInterval> | undefined

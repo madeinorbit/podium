@@ -24,7 +24,7 @@ import {
 } from './abduco.js'
 import type { PtyProcess } from './backends/types.js'
 import { resolveHostBin } from './host-bin.js'
-import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
+import { type DurableAttachment, withHardRepaint, wrapPty } from './session.js'
 
 const log = createLogger('pty:host')
 
@@ -601,7 +601,7 @@ async function reclaimStaleHostScope(
   }
 }
 
-// ---- AgentSession over a host connection ------------------------------------
+// ---- DurableAttachment over a host connection ------------------------------------
 
 const CTRL_L = Uint8Array.of(0x0c)
 
@@ -621,11 +621,11 @@ export interface HostAttachOptions {
 }
 
 /**
- * An {@link AgentSession} over the host, plus what only this backend can say:
+ * An {@link DurableAttachment} over the host, plus what only this backend can say:
  * `ready` resolves with the WELCOME (child pid, kernel size, seq range, lease),
  * `connection` is the wire for callers that need STATUS or the resume seq.
  */
-export interface HostAgentSession extends AgentSession {
+export interface HostDurableAttachment extends DurableAttachment {
   readonly ready: Promise<HostWelcome>
   readonly connection: HostConnection
   /** Kernel-reported size after the last RESIZED (or WELCOME); undefined until then. */
@@ -648,7 +648,7 @@ export interface HostAgentSession extends AgentSession {
  * the child's; `onExit` carries the real status; DATA arrives with sequence
  * numbers so a reconnect replays what was missed instead of asking for a repaint.
  */
-export function attachHostAgent(opts: HostAttachOptions): HostAgentSession {
+export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment {
   const env = { ...process.env, ...opts.env } as NodeJS.ProcessEnv
   const socketPath = opts.socketPath ?? hostSocketPath(opts.label, env)
   const from = opts.fromSeq === undefined || opts.fromSeq === 'tail' ? HOST_TAIL : opts.fromSeq
@@ -681,7 +681,7 @@ export function attachHostAgent(opts: HostAttachOptions): HostAgentSession {
    * THE ACKNOWLEDGED RESIZE (POD-3919 audit item 4). The host answers every
    * resize with a RESIZED frame carrying what the kernel now reports, so the
    * acknowledgement is known — it just never left this module, because
-   * `AgentSession.resize` returns void. This resolves with it; `undefined`
+   * `DurableAttachment.resize` returns void. This resolves with it; `undefined`
    * when the resize never reached the host.
    */
   const resizeAcknowledged = (cols: number, rows: number): Promise<Geometry | undefined> =>
@@ -824,7 +824,7 @@ export function hostCreateArgs(opts: HostCreateCommand): string[] {
  * label/scope/journal discipline is identical — that sameness is what lets a
  * daemon restart re-adopt a headless engine (POD-4433).
  */
-export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostAgentSession> {
+export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostDurableAttachment> {
   const bin = resolveHostBin()
   if (!bin) throw new Error('podium-host unavailable: no managed build could be made')
   const childEnv: Record<string, string> = {
@@ -839,7 +839,7 @@ export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostAgen
   assertLinuxUnixSocketPath(socketPath, resolveInstanceId(childEnv), 'a podium-host session socket')
   mkdirSync(dir, { recursive: true, mode: 0o700 })
 
-  const adopt = async (path: string): Promise<HostAgentSession> => {
+  const adopt = async (path: string): Promise<HostDurableAttachment> => {
     log.info('durable label already owned by a live host — adopting it', { label: opts.label, path })
     const s = attachHostAgent({ label: opts.label, socketPath: path, fromSeq: 'tail', ...(opts.env ? { env: opts.env } : {}) })
     await s.ready
@@ -858,14 +858,14 @@ export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostAgen
     ...(opts.noPty ? { noPty: true as const } : {}),
   })
   const execOpts = { cwd: opts.cwd ?? process.cwd(), env: childEnv } as const
-  const attachCreated = async (): Promise<HostAgentSession> => {
+  const attachCreated = async (): Promise<HostDurableAttachment> => {
     const path = await waitForHostSocket(opts.label, childEnv)
     // From seq 0: the child's first bytes are in the ring already; nothing is missed.
     const s = attachHostAgent({ label: opts.label, socketPath: path, fromSeq: 0n, ...(opts.env ? { env: opts.env } : {}) })
     await s.ready
     return s
   }
-  const adoptRaceWinner = async (): Promise<HostAgentSession | undefined> => {
+  const adoptRaceWinner = async (): Promise<HostDurableAttachment | undefined> => {
     const raced = await liveHostSocket(opts.label, childEnv)
     return raced ? adopt(raced) : undefined
   }

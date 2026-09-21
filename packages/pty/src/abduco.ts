@@ -33,7 +33,7 @@ import {
 import { ABDUCO_FEATURES, resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
-import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
+import { type DurableAttachment, withHardRepaint, wrapPty } from './session.js'
 import { shellQuote } from './shell-quote.js'
 // Canonical home is `./alt-screen-stripper.js` (P2c: output interpretation
 // belongs in the screen door); re-exported here so the move changes no importer.
@@ -1010,7 +1010,7 @@ export function withComposedSocketPath(
  * the attach client immediately resizes to cols×rows (abduco sends the size and
  * SIGWINCHes the app group on attach).
  */
-export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentSession> {
+export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<DurableAttachment> {
   if (opts.noPty) {
     throw new Error(
       `abduco has no pty-less mode: headless engine '${opts.label}' requires the podium-host backend`,
@@ -1051,7 +1051,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     ...(opts.env ? { env: opts.env } : {}),
     ...(opts.backend ? { backend: opts.backend } : {}),
   }
-  const attachCreated = async (): Promise<AgentSession> =>
+  const attachCreated = async (): Promise<DurableAttachment> =>
     attachAbducoAgent({
       ...attachCommon,
       socketPath: await waitForAbducoSocket(opts.label, childEnv),
@@ -1066,7 +1066,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
    * resumed again — while its agent is still running in its own scope (POD-1945).
    * A live master IS the session, so adopt it; the caller reports a reattach.
    */
-  const adopt = (socketPath: string): AgentSession => {
+  const adopt = (socketPath: string): DurableAttachment => {
     log.info('durable label already owned by a live master — adopting it', {
       label: opts.label,
       socketPath,
@@ -1091,7 +1091,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   // index skips those; abduco's create does not). Clear it, or the create below dies.
   await reclaimTerminatedSession(opts.label, childEnv)
   /** Adopt when a create lost a race to a concurrent spawn of the same label. */
-  const adoptRaceWinner = (): AgentSession | undefined => {
+  const adoptRaceWinner = (): DurableAttachment | undefined => {
     const raced = abducoSocketPath(opts.label, childEnv)
     return raced ? adopt(raced) : undefined
   }
@@ -1251,7 +1251,7 @@ export type AbducoAttachOptions =
       rows?: never
     })
 
-export function attachAbducoAgent(opts: AbducoAttachOptions): AgentSession {
+export function attachAbducoAgent(opts: AbducoAttachOptions): DurableAttachment {
   const attach = resolveAttachBin(opts.sizeNeutral === true)
   const [cmd, ...args] = abducoAttachArgv(opts.socketPath ?? opts.label, attach.bin, {
     sizeNeutral: attach.sizeNeutral,
@@ -1271,7 +1271,7 @@ export function attachAbducoAgent(opts: AbducoAttachOptions): AgentSession {
   })
   let ready = false
   let repaintPending = false
-  let session: AgentSession
+  let session: DurableAttachment
   let repaintTimer: ReturnType<typeof setTimeout> | undefined
   const flushRepaint = (): void => {
     if (repaintTimer) clearTimeout(repaintTimer)
