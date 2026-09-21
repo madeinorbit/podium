@@ -38,6 +38,8 @@ import {
 } from '@tanstack/db'
 import { GC_TIME_MS, type EntityCollections, type LocalsRow, type PrefixIndex } from './collections'
 import {
+  SIDEBAR_FINISHED_GRACE_MS,
+  SIDEBAR_FINISHED_UNREAD_WINDOW_MS,
   bandOf,
   derivedUnreadFromMax,
   displayRefOf,
@@ -65,8 +67,8 @@ import type { RollupRow } from './rollup'
  *  maintenance (groupBy/orderBy/where/select) is IVM-internal and reported
  *  as change events on the collections, never invented here. */
 export interface GraphRuns {
-  memberNarrow: number
-  memberOwner: number
+  narrow: number
+  resolve: number
   verdict: number
   issuesNarrow: number
   child: number
@@ -79,8 +81,8 @@ export interface GraphRuns {
 
 export function createGraphRuns(): GraphRuns {
   const runs: GraphRuns = {
-    memberNarrow: 0,
-    memberOwner: 0,
+    narrow: 0,
+    resolve: 0,
     verdict: 0,
     issuesNarrow: 0,
     child: 0,
@@ -89,8 +91,8 @@ export function createGraphRuns(): GraphRuns {
     rows: 0,
     changes: {},
     reset() {
-      runs.memberNarrow = 0
-      runs.memberOwner = 0
+      runs.narrow = 0
+      runs.resolve = 0
       runs.verdict = 0
       runs.issuesNarrow = 0
       runs.child = 0
@@ -130,6 +132,32 @@ export interface MemberRow {
 export interface NarrowRow extends Omit<MemberRow, 'owner'> {
   owner: null
   explicitId: string | null
+}
+
+/**
+ * resolveQ output: the join key is an issue id for explicit members and a
+ * worktree path for R3 members; the verdict queries' joins partition on it
+ * (ids never equal paths). One row per session — the 1:N fan-out to issues
+ * sharing a worktree happens in verdictR's join, because fn.select is 1:1.
+ */
+export interface ResolveRow {
+  sid: string
+  joinKey: string | null
+  isExplicit: boolean
+  marker: 1
+  phase: string | null | undefined
+  idleKind: string | undefined
+  hasOffer: boolean
+  status: string | null | undefined
+  agentKind: string | null | undefined
+  busy: boolean
+  archived: boolean
+  activeAt: string
+  stoppedAt: string | null | undefined
+  readAt: string | null | undefined
+  unread: boolean
+  endedSince: string | null | undefined
+  agentName: string | null | undefined
 }
 
 export interface VerdictRow {
@@ -179,6 +207,7 @@ export interface IssuesNRow {
   tuckedAt: string | null | undefined
   repoId: string | null | undefined
   repoPath: string
+  worktreePath: string | null | undefined
   needsHuman: boolean | undefined
   blocked: boolean | undefined
   readAt: string | null | undefined
@@ -267,11 +296,99 @@ function maxMs(value: string | null | number | undefined): number {
   return Number.isFinite(ms) ? ms : 0
 }
 
+/** Min over two nullable pick composites (one side may have no members). */
+function minPick(a: string | null, b: string | null): string | null {
+  if (a === null) return b
+  if (b === null) return a
+  return a < b ? a : b
+}
+
+/** Shared per-session verdict fold (spec R-VIS/R-SUM): root-independent
+ *  parts precomputed here; the finished override applies per root downstream
+ *  (motionPhaseFromParts). `owner` is the explicit issue (verdictQ) or the
+ *  resolved issue (verdictR). */
+export interface FoldOwner {
+  stage: string
+  closedReason: string | null | undefined
+  closedAt: string | null | undefined
+  updatedAt: string
+}
+function foldVerdict(
+  m: ResolveRow,
+  owner: FoldOwner,
+  ownerId: string,
+  explicit: boolean,
+  now: number,
+): VerdictRow {
+  const phase = m.phase
+  const idleNeeds =
+    m.idleKind === 'question' || m.idleKind === 'approval' || m.idleKind === 'interrupted'
+  const idleDone = m.idleKind === 'done' || m.idleKind === 'open_todos'
+  const needsYouNoOffer =
+    phase === 'needs_user' || phase === 'errored' || (phase === 'idle' && idleNeeds)
+  const needsYou = m.hasOffer || needsYouNoOffer
+  const offerOnly = m.hasOffer && !needsYouNoOffer
+  const endedDone = phase === 'ended' || (phase === 'idle' && idleDone)
+  const workingNow =
+    (phase === 'working' || phase === 'compacting') &&
+    m.status !== 'exited' &&
+    m.status !== 'starting' &&
+    m.status !== 'reconnecting' &&
+    m.status !== 'hibernated'
+  // sessionRetains / sessionLive vs the owner issue (spec R-VIS).
+  const finished = owner.stage === 'done' || owner.closedReason != null
+  let retaining: boolean
+  let live: boolean
+  if (m.archived) {
+    retaining = false
+    live = false
+  } else {
+    const finishedAt =
+      m.stoppedAt ??
+      (phase === 'ended'
+        ? m.endedSince
+        : idleDone && finished
+          ? (owner.closedAt ?? owner.updatedAt ?? m.endedSince)
+          : undefined)
+    if (finishedAt == null) {
+      retaining = true
+    } else {
+      const ms = parseMs(finishedAt) ?? 0
+      if (m.unread || m.readAt == null) {
+        retaining = now - ms <= SIDEBAR_FINISHED_UNREAD_WINDOW_MS
+      } else {
+        retaining = now - Math.max(ms, parseMs(m.readAt) ?? 0) <= SIDEBAR_FINISHED_GRACE_MS
+      }
+    }
+    live = m.status !== 'exited' && retaining
+  }
+  return {
+    sid: m.sid,
+    owner: ownerId,
+    marker: 1,
+    explicit,
+    retaining,
+    live,
+    needsYou,
+    offerOnly,
+    endedDone,
+    workingNow,
+    activeAt: m.activeAt,
+    retainedActive: retaining ? m.activeAt : null,
+    pick: firstPickOf(m.sid, m.agentKind ?? null, m.agentName ?? null),
+    archived: m.archived,
+    status: m.status,
+  }
+}
+
+
 export interface BaseQueries {
   narrowQ: LiveQuery
-  memberQ: LiveQuery
+  resolveQ: LiveQuery
   verdictQ: LiveQuery
+  verdictR: LiveQuery
   aggQ: LiveQuery
+  aggR: LiveQuery
   issuesN: LiveQuery
   childQ: LiveQuery
   summaryQ: LiveQuery
@@ -293,13 +410,13 @@ export function createBaseQueries(
   const narrowQ = createLiveQueryCollection({
     id: 'tanstack-arm.narrow',
     gcTime: GC_TIME_MS,
-    getKey: (item) => (item as unknown as MemberRow).sid,
+    getKey: (item) => (item as unknown as NarrowRow).sid,
     query: (q) =>
       q
         .from({ s: sessions.collection })
         .fn.where((row) => row.s.headless !== true && row.s.agentKind !== 'shell')
         .fn.select((row) => {
-          runs.memberNarrow += 1
+          runs.narrow += 1
           const s = row.s
           const out: NarrowRow = {
             sid: s.sessionId,
@@ -326,10 +443,13 @@ export function createBaseQueries(
         }),
   })
 
-  const memberQ = createLiveQueryCollection({
-    id: 'tanstack-arm.member',
+  // Resolution hop: joinKey is the explicit issueId, else the resolved
+  // worktree path (or null for orphans). Tracked by the locals join, so
+  // prefix moves re-resolve every unbound session.
+  const resolveQ = createLiveQueryCollection({
+    id: 'tanstack-arm.resolve',
     gcTime: GC_TIME_MS,
-    getKey: (item) => (item as unknown as MemberRow).sid,
+    getKey: (item) => (item as unknown as ResolveRow).sid,
     query: (q) =>
       q
         .from({ s: asSource<NarrowRow>(narrowQ) })
@@ -339,14 +459,13 @@ export function createBaseQueries(
           'inner',
         )
         .fn.select((row) => {
-          runs.memberOwner += 1
+          runs.resolve += 1
           const m = row.s as unknown as NarrowRow
-          const owner = m.explicitId ?? prefix.resolveCwd(m.cwd) ?? null
-          const out: MemberRow = {
+          const out: ResolveRow = {
             sid: m.sid,
-            owner,
+            joinKey: m.explicitId ?? prefix.resolveCwd(m.cwd) ?? null,
+            isExplicit: m.explicit,
             marker: 1,
-            explicit: m.explicit,
             phase: m.phase,
             idleKind: m.idleKind,
             hasOffer: m.hasOffer,
@@ -360,7 +479,6 @@ export function createBaseQueries(
             unread: m.unread,
             endedSince: m.endedSince,
             agentName: m.agentName,
-            cwd: m.cwd,
           }
           return out
         }),
@@ -372,94 +490,16 @@ export function createBaseQueries(
     getKey: (item) => (item as unknown as VerdictRow).sid,
     query: (q) =>
       q
-        .from({ m: asSource<MemberRow>(memberQ) })
-        .join({ i: issues.collection }, ({ m, i }) => eq(m.owner, i.id), 'inner')
+        .from({ m: asSource<ResolveRow>(resolveQ) })
+        .join({ i: issues.collection }, ({ m, i }) => eq(m.joinKey, i.id), 'inner')
         .join({ l: locals.collection }, ({ m, l }) => eq((m as unknown as { marker: 1 }).marker, l.marker), 'inner')
         .fn.select((row) => {
           runs.verdict += 1
-          const m = row.m as unknown as MemberRow
+          const m = row.m as unknown as ResolveRow
           const owner = row.i
           const now = (row.l as unknown as LocalsRow).now
-          const phase = m.phase
-          const idleNeeds =
-            m.idleKind === 'question' || m.idleKind === 'approval' || m.idleKind === 'interrupted'
-          const idleDone = m.idleKind === 'done' || m.idleKind === 'open_todos'
-          const needsYouNoOffer =
-            phase === 'needs_user' ||
-            phase === 'errored' ||
-            (phase === 'idle' && idleNeeds)
-          const needsYou = m.hasOffer || needsYouNoOffer
-          const offerOnly = m.hasOffer && !needsYouNoOffer
-          const endedDone = phase === 'ended' || (phase === 'idle' && idleDone)
-          const workingNow =
-            (phase === 'working' || phase === 'compacting') &&
-            m.status !== 'exited' &&
-            m.status !== 'starting' &&
-            m.status !== 'reconnecting' &&
-            m.status !== 'hibernated'
-          // sessionRetains / sessionLive vs the owner issue (spec R-VIS).
-          const finished = issueFinished(owner)
-          let retaining: boolean
-          let live: boolean
-          if (m.archived) {
-            retaining = false
-            live = false
-          } else {
-            const finishedAt =
-              m.stoppedAt ??
-              (phase === 'ended'
-                ? m.endedSince
-                : idleDone && finished
-                  ? (owner.closedAt ?? owner.updatedAt ?? m.endedSince)
-                  : undefined)
-            if (finishedAt == null) {
-              retaining = true
-            } else {
-              const ms = parseMs(finishedAt) ?? 0
-              if (m.unread || m.readAt == null) {
-                retaining = now - ms <= 7 * 24 * 60 * 60 * 1000
-              } else {
-                retaining = now - Math.max(ms, parseMs(m.readAt) ?? 0) <= 24 * 60 * 60 * 1000
-              }
-            }
-            live = m.status !== 'exited' && retaining
-          }
-          const out: VerdictRow = {
-            sid: m.sid,
-            owner: m.owner as string,
-            marker: 1,
-            explicit: m.explicit,
-            retaining,
-            live,
-            needsYou,
-            offerOnly,
-            endedDone,
-            workingNow,
-            activeAt: m.activeAt,
-            retainedActive: retaining ? m.activeAt : null,
-            pick: firstPickOf(m.sid, m.agentKind ?? null, m.agentName ?? null),
-            archived: m.archived,
-            status: m.status,
-          }
-          return out
+          return foldVerdict(m, owner as unknown as FoldOwner, owner.id, true, now)
         }),
-  })
-
-  const aggQ = createLiveQueryCollection({
-    id: 'tanstack-arm.agg',
-    gcTime: GC_TIME_MS,
-    getKey: (item) => (item as unknown as AggRow).owner,
-    query: (q) =>
-      q
-        .from({ v: asSource<VerdictRow>(verdictQ) })
-        .groupBy(({ v }) => v.owner)
-        .select(({ v }) => ({
-          owner: v.owner,
-          retained: sum(caseWhen(eq(v.retaining, true), 1, 0)),
-          explicitMax: max(caseWhen(eq(v.explicit, true), v.activeAt, null)),
-          retainedLatest: max(caseWhen(eq(v.retaining, true), v.activeAt, null)),
-          firstPick: min(v.pick),
-        })),
   })
 
   const issuesN = createLiveQueryCollection({
@@ -489,6 +529,7 @@ export function createBaseQueries(
           tuckedAt: i.tuckedAt,
           repoId: i.repoId,
           repoPath: i.repoPath,
+          worktreePath: i.worktreePath,
           needsHuman: i.needsHuman,
           blocked: i.blocked,
           readAt: i.readAt,
@@ -497,6 +538,62 @@ export function createBaseQueries(
         }
         return out
       }),
+  })
+
+  // R3 fan-out: one row per (unbound session, issue at the resolved path).
+  // Paths never equal issue ids, so this join partitions cleanly against
+  // verdictQ's — explicit members match there, resolved members here.
+  const verdictR = createLiveQueryCollection({
+    id: 'tanstack-arm.verdictR',
+    gcTime: GC_TIME_MS,
+    getKey: (item) =>
+      `${(item as unknown as VerdictRow).owner}:${(item as unknown as VerdictRow).sid}`,
+    query: (q) =>
+      q
+        .from({ m: asSource<ResolveRow>(resolveQ) })
+        .join({ n: asSource<IssuesNRow>(issuesN) }, ({ m, n }) => eq(m.joinKey, n.worktreePath), 'inner')
+        .join({ l: locals.collection }, ({ m, l }) => eq((m as unknown as { marker: 1 }).marker, l.marker), 'inner')
+        .fn.select((row) => {
+          runs.verdict += 1
+          const m = row.m as unknown as ResolveRow
+          const owner = row.n as unknown as IssuesNRow
+          const now = (row.l as unknown as LocalsRow).now
+          return foldVerdict(m, owner as unknown as FoldOwner, owner.id, false, now)
+        }),
+  })
+
+  const aggQ = createLiveQueryCollection({
+    id: 'tanstack-arm.agg',
+    gcTime: GC_TIME_MS,
+    getKey: (item) => (item as unknown as AggRow).owner,
+    query: (q) =>
+      q
+        .from({ v: asSource<VerdictRow>(verdictQ) })
+        .groupBy(({ v }) => v.owner)
+        .select(({ v }) => ({
+          owner: v.owner,
+          retained: sum(caseWhen(eq(v.retaining, true), 1, 0)),
+          explicitMax: max(caseWhen(eq(v.explicit, true), v.activeAt, null)),
+          retainedLatest: max(caseWhen(eq(v.retaining, true), v.activeAt, null)),
+          firstPick: min(v.pick),
+        })),
+  })
+
+  const aggR = createLiveQueryCollection({
+    id: 'tanstack-arm.aggR',
+    gcTime: GC_TIME_MS,
+    getKey: (item) => (item as unknown as AggRow).owner,
+    query: (q) =>
+      q
+        .from({ v: asSource<VerdictRow>(verdictR) })
+        .groupBy(({ v }) => v.owner)
+        .select(({ v }) => ({
+          owner: v.owner,
+          retained: sum(caseWhen(eq(v.retaining, true), 1, 0)),
+          explicitMax: max(caseWhen(eq(v.explicit, true), v.activeAt, null)),
+          retainedLatest: max(caseWhen(eq(v.retaining, true), v.activeAt, null)),
+          firstPick: min(v.pick),
+        })),
   })
 
   const childQ = createLiveQueryCollection({
@@ -522,10 +619,12 @@ export function createBaseQueries(
       q
         .from({ n: asSource<IssuesNRow>(issuesN) })
         .join({ a: asSource<AggRow>(aggQ) }, ({ n, a }) => eq(n.id, a.owner), 'left')
+        .join({ g: asSource<AggRow>(aggR) }, ({ n, g }) => eq(n.id, g.owner), 'left')
         .join({ l: locals.collection }, ({ n, l }) => eq((n as unknown as { marker: 1 }).marker, l.marker), 'inner')
         .fn.select((row) => {
           const n = row.n as unknown as IssuesNRow
           const agg = row.a as unknown as AggRow | undefined
+          const aggr = row.g as unknown as AggRow | undefined
           const now = (row.l as unknown as LocalsRow).now
           const sentinel = (): SummaryRow => ({
             id: n.id,
@@ -550,11 +649,11 @@ export function createBaseQueries(
             Parameters<typeof displayTitleOf>[0] &
             Parameters<typeof bandOf>[0] &
             Parameters<typeof groupKeyOf>[0]
-          const retained = agg?.retained ?? 0
+          const retained = (agg?.retained ?? 0) + (aggr?.retained ?? 0)
           const unread = derivedUnreadFromMax(issue, maxMs(agg?.explicitMax))
           const flat = retained > 0 || sessionlessKept(issue, now, unread)
-          const peak = maxMs(agg?.retainedLatest)
-          const first = parseFirstPick(agg?.firstPick ?? null)
+          const peak = Math.max(maxMs(agg?.retainedLatest), maxMs(aggr?.retainedLatest))
+          const first = parseFirstPick(minPick(agg?.firstPick ?? null, aggr?.firstPick ?? null))
           const out: SummaryRow = {
             id: n.id,
             excluded: false,
@@ -585,9 +684,13 @@ export function createBaseQueries(
   // the keys later queries join or group on. Without these the compiler
   // falls back to scanning local data (a startup warning, then O(N²)).
   aggQ.createIndex((row) => (row as unknown as AggRow).owner, { indexType: BasicIndex })
+  aggR.createIndex((row) => (row as unknown as AggRow).owner, { indexType: BasicIndex })
   summaryQ.createIndex((row) => (row as unknown as SummaryRow).id, { indexType: BasicIndex })
+  issuesN.createIndex((row) => (row as unknown as IssuesNRow).worktreePath ?? '\0', {
+    indexType: BasicIndex,
+  })
 
-  return { narrowQ, memberQ, verdictQ, aggQ, issuesN, childQ, summaryQ, visibleQ }
+  return { narrowQ, resolveQ, verdictQ, verdictR, aggQ, aggR, issuesN, childQ, summaryQ, visibleQ }
 }
 
 export interface TopQueries {

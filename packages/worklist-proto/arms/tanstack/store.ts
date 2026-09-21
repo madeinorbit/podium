@@ -129,9 +129,11 @@ export class TanStackStore {
     this.base = createBaseQueries(this.entities, this.prefix, this.runs)
     const baseSubs: Array<[string, LiveQuery]> = [
       ['narrow', this.base.narrowQ],
-      ['member', this.base.memberQ],
+      ['resolve', this.base.resolveQ],
       ['verdict', this.base.verdictQ],
+      ['verdictR', this.base.verdictR],
       ['agg', this.base.aggQ],
+      ['aggR', this.base.aggR],
       ['issuesN', this.base.issuesN],
       ['child', this.base.childQ],
       ['summary', this.base.summaryQ],
@@ -152,8 +154,9 @@ export class TanStackStore {
           keys: () => this.entities.issues.keys(),
         },
         issuesEvents: this.entities.issues.collection,
-        memberQ: this.base.memberQ,
+        resolveQ: this.base.resolveQ,
         childQ: this.base.childQ,
+        verdictR: this.base.verdictR,
         verdictQ: this.base.verdictQ,
         visibleQ: this.base.visibleQ,
         summaryQ: this.base.summaryQ,
@@ -165,7 +168,10 @@ export class TanStackStore {
     this.rollup.subscribe()
     this.rollup.rebuildAll({
       children: this.base.childQ.toArray as unknown as ChildRow[],
-      verdicts: this.base.verdictQ.toArray as unknown as VerdictRow[],
+      verdicts: [
+        ...(this.base.verdictQ.toArray as unknown as VerdictRow[]),
+        ...(this.base.verdictR.toArray as unknown as VerdictRow[]),
+      ],
       flatIds: (this.base.visibleQ.toArray as Array<{ id: string }>).map((row) => row.id),
       issues: this.entities.issues.keys(),
     })
@@ -253,7 +259,10 @@ export class TanStackStore {
     this.bumpWtVersion()
     this.rollup.rebuildAll({
       children: this.base.childQ.toArray as unknown as ChildRow[],
-      verdicts: this.base.verdictQ.toArray as unknown as VerdictRow[],
+      verdicts: [
+        ...(this.base.verdictQ.toArray as unknown as VerdictRow[]),
+        ...(this.base.verdictR.toArray as unknown as VerdictRow[]),
+      ],
       flatIds: (this.base.visibleQ.toArray as Array<{ id: string }>).map((row) => row.id),
       issues: this.entities.issues.keys(),
     })
@@ -568,8 +577,10 @@ export class TanStackStore {
       this.base.childQ,
       this.base.issuesN,
       this.base.aggQ,
+      this.base.aggR,
       this.base.verdictQ,
-      this.base.memberQ,
+      this.base.verdictR,
+      this.base.resolveQ,
       this.base.narrowQ,
       this.entities.locals.collection,
       this.entities.worktrees.collection,

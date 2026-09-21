@@ -29,7 +29,7 @@ import type { Collection } from '@tanstack/db'
 import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
 import { EntitySync, type PrefixIndex } from './collections'
 import type { ChildRow, LiveQuery, QueryChange, SummaryRow, VerdictRow } from './queries'
-import type { MemberRow } from './queries'
+import type { ResolveRow } from './queries'
 import {
   closedFoldAt,
   displayRefOf,
@@ -110,9 +110,10 @@ interface Change<T> {
 export interface RollupInputs {
   issues: IssueRead
   issuesEvents: LiveQuery
-  memberQ: LiveQuery
+  resolveQ: LiveQuery
   childQ: LiveQuery
   verdictQ: LiveQuery
+  verdictR: LiveQuery
   visibleQ: LiveQuery
   summaryQ: LiveQuery
   prefix: PrefixIndex
@@ -126,7 +127,8 @@ export class RollupSync {
   private readonly childrenByParent = new Map<string, Set<string>>()
   private readonly parentOf = new Map<string, string>()
   private readonly memberSeats = new Map<string, Map<string, VerdictRow>>()
-  private readonly sidOwner = new Map<string, string>()
+  private readonly sidOwner = new Map<string, Set<string>>()
+  private readonly resolveKey = new Map<string, string | null>()
   private readonly originOf = new Map<string, string>()
   private readonly spinOffChildren = new Map<string, Set<string>>()
   private readonly dependentsOf = new Map<string, Array<{ id: string; type: string }>>()
@@ -172,25 +174,29 @@ export class RollupSync {
           this.ingestIssue(id, c.type === 'delete' ? undefined : irow)
         }
       }),
-      // Owner moves arrive here first (memberQ is upstream of verdictQ):
-      // drop the stale seat when the verdict row's owner no longer matches.
-      // Value-only member changes share the verdict owner and are ignored.
-      // Deletes are silent upstream — session removals arrive explicitly via
-      // dropSession, issue removals via ingestIssue.
-      this.inputs.memberQ.subscribeChanges((changes) => {
+      // Join-key moves arrive here first (resolveQ is upstream of the
+      // verdicts): drop the session's seats when its key moved — the verdict
+      // insert/update re-seats under the new owner. Value-only changes share
+      // the key and are ignored. Deletes are silent upstream — session
+      // removals arrive explicitly via dropSession, issue removals via
+      // ingestIssue.
+      this.inputs.resolveQ.subscribeChanges((changes) => {
         for (const c of changes) {
           if (c.type === 'delete') continue
-          const v = c.value as MemberRow | undefined
+          const v = c.value as ResolveRow | undefined
           if (v === undefined) continue
-          // New sessions have no seat yet (the verdict insert seats them);
-          // owner moves drop the stale seat (the verdict update re-seats).
-          if (this.sidOwner.has(v.sid) && this.sidOwner.get(v.sid) !== v.owner) {
-            this.dropSession(v.sid)
+          // Join-key moves (explicit reassign, R3 re-resolution) drop the
+          // session's seats; the verdict insert/update re-seats. Value-only
+          // changes share the key and stop here — no churn.
+          if (this.resolveKey.get(v.sid) !== (v.joinKey ?? null)) {
+            this.resolveKey.set(v.sid, v.joinKey ?? null)
+            if (this.sidOwner.has(v.sid)) this.dropSession(v.sid)
           }
         }
       }),
       this.inputs.childQ.subscribeChanges((changes) => this.ingestChild(changes)),
       this.inputs.verdictQ.subscribeChanges((changes) => this.ingestVerdict(changes)),
+      this.inputs.verdictR.subscribeChanges((changes) => this.ingestVerdict(changes)),
       this.inputs.visibleQ.subscribeChanges((changes) => this.ingestVisible(changes)),
       this.inputs.summaryQ.subscribeChanges((changes) => this.ingestSummary(changes)),
     ]
@@ -760,31 +766,43 @@ export class RollupSync {
 
   private ingestVerdict(changes: QueryChange[]): void {
     for (const c of changes) {
-      const sid = String(c.key)
-      if (c.type === 'delete' || c.value === undefined) {
-        const owner = this.sidOwner.get(sid)
-        if (owner !== undefined) {
+      const v = c.value as VerdictRow | undefined
+      if (c.type === 'delete' || v === undefined) {
+        // Deletes are silent upstream (verified) — this branch is
+        // defensive; removals arrive via dropSession / ingestIssue.
+        const sid = v?.sid ?? String(c.key)
+        const owners = this.sidOwner.get(sid)
+        if (owners !== undefined) {
           this.sidOwner.delete(sid)
+          for (const owner of owners) {
+            const seats = this.memberSeats.get(owner)
+            if (seats !== undefined) {
+              seats.delete(sid)
+              if (seats.size === 0) this.memberSeats.delete(owner)
+              this.countIndex()
+            }
+            this.dirtyChains.add(owner)
+          }
+        }
+        continue
+      }
+      const sid = v.sid
+      let owners = this.sidOwner.get(sid)
+      if (owners === undefined) {
+        owners = new Set()
+        this.sidOwner.set(sid, owners)
+      }
+      for (const owner of [...owners]) {
+        if (owner !== v.owner) {
           const seats = this.memberSeats.get(owner)
           if (seats !== undefined) {
             seats.delete(sid)
             if (seats.size === 0) this.memberSeats.delete(owner)
             this.countIndex()
           }
+          owners.delete(owner)
           this.dirtyChains.add(owner)
         }
-        continue
-      }
-      const v = c.value as VerdictRow
-      const prev = this.sidOwner.get(sid)
-      if (prev !== undefined && prev !== v.owner) {
-        const seats = this.memberSeats.get(prev)
-        if (seats !== undefined) {
-          seats.delete(sid)
-          if (seats.size === 0) this.memberSeats.delete(prev)
-          this.countIndex()
-        }
-        this.dirtyChains.add(prev)
       }
       let seats = this.memberSeats.get(v.owner)
       if (seats === undefined) {
@@ -796,7 +814,7 @@ export class RollupSync {
         seats.set(sid, v)
         this.countIndex()
       }
-      this.sidOwner.set(sid, v.owner)
+      owners.add(v.owner)
       this.dirtyChains.add(v.owner)
     }
     this.flushBatch()
@@ -942,19 +960,22 @@ export class RollupSync {
     this.flushBatch()
   }
 
-  /** Drop one session's seat (explicit removal driving — verdict deletes
-   *  are silent). No-ops when the session holds no seat. */
+  /** Drop one session's seats under every owner (explicit removal
+   *  driving — verdict deletes are silent). No-ops without seats. */
   dropSession(sid: string): void {
-    const owner = this.sidOwner.get(sid)
-    if (owner === undefined) return
+    const owners = this.sidOwner.get(sid)
+    if (owners === undefined) return
     this.sidOwner.delete(sid)
-    const seats = this.memberSeats.get(owner)
-    if (seats !== undefined) {
-      seats.delete(sid)
-      if (seats.size === 0) this.memberSeats.delete(owner)
-      this.countIndex()
+    this.resolveKey.delete(sid)
+    for (const owner of owners) {
+      const seats = this.memberSeats.get(owner)
+      if (seats !== undefined) {
+        seats.delete(sid)
+        if (seats.size === 0) this.memberSeats.delete(owner)
+        this.countIndex()
+      }
+      this.dirtyChains.add(owner)
     }
-    this.dirtyChains.add(owner)
     this.flushBatch()
   }
 
@@ -962,7 +983,16 @@ export class RollupSync {
   private dropOwnerSeats(owner: string): void {
     const seats = this.memberSeats.get(owner)
     if (seats === undefined) return
-    for (const sid of seats.keys()) this.sidOwner.delete(sid)
+    for (const sid of seats.keys()) {
+      const owners = this.sidOwner.get(sid)
+      if (owners !== undefined) {
+        owners.delete(owner)
+        if (owners.size === 0) {
+          this.sidOwner.delete(sid)
+          this.resolveKey.delete(sid)
+        }
+      }
+    }
     this.memberSeats.delete(owner)
     this.countIndex()
     this.dirtyChains.add(owner)
@@ -1042,6 +1072,7 @@ export class RollupSync {
     this.parentOf.clear()
     this.memberSeats.clear()
     this.sidOwner.clear()
+    this.resolveKey.clear()
     this.originOf.clear()
     this.spinOffChildren.clear()
     this.dependentsOf.clear()
@@ -1073,7 +1104,12 @@ export class RollupSync {
           this.memberSeats.set(v.owner, seats)
         }
         seats.set(v.sid, v)
-        this.sidOwner.set(v.sid, v.owner)
+        let owners = this.sidOwner.get(v.sid)
+        if (owners === undefined) {
+          owners = new Set()
+          this.sidOwner.set(v.sid, owners)
+        }
+        owners.add(v.owner)
       }
       for (const id of inputs.flatIds) this.flat.add(id)
       // Humans first; agents host monotonically; rescue in two rounds.
