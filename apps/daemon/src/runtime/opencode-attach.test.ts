@@ -20,7 +20,7 @@ import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifest
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { AgentFrame, AgentSession } from '@podium/process/screen'
+import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
 import { createDurable, scopeUnitName } from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppliedGeometryRecord } from '../control/applied-geometry'
@@ -74,7 +74,7 @@ function fakeClient(
   redrawFrame?: string,
   subscribeFrame?: string,
   attachReady = true,
-): AgentSession & {
+): DurableAttachment & {
   emit(data: string): void
   disposed: boolean
   writes: string[]
@@ -160,7 +160,7 @@ interface HarnessOptions {
   connectionSeq?: { lastSeq: bigint }
   /** Where the daemon keeps the resume point — wired to the real
    *  `rememberDurableSeq` exactly as `host-runtime.ts` wires it. */
-  rememberDurableSeq?: (sessionId: SessionId, session: AgentSession) => void
+  rememberDurableSeq?: (sessionId: SessionId, session: DurableAttachment) => void
   redrawFrame?: string
   subscribeFrame?: string
   /** Browser/replay history already owned by a master that survived the daemon. */
@@ -372,7 +372,7 @@ describe('the client terminal a server-family attach produces', () => {
 
   it('clears buffered input when client launch fails', async () => {
     let failSpawn: ((error: Error) => void) | undefined
-    const spawned = new Promise<AgentSession>((_resolve, reject) => {
+    const spawned = new Promise<DurableAttachment>((_resolve, reject) => {
       failSpawn = reject
     })
     const terminals = createOpencodeClientTerminals({
@@ -634,8 +634,8 @@ describe('the client terminal a server-family attach produces', () => {
   })
 
   it('preserves first input that arrives while the visible client is still attaching', async () => {
-    let finishSpawn: ((client: AgentSession) => void) | undefined
-    const spawned = new Promise<AgentSession>((resolve) => {
+    let finishSpawn: ((client: DurableAttachment) => void) | undefined
+    const spawned = new Promise<DurableAttachment>((resolve) => {
       finishSpawn = resolve
     })
     const client = fakeClient()
@@ -663,8 +663,8 @@ describe('the client terminal a server-family attach produces', () => {
   })
 
   it('drains multiple attaching chunks once in exact order', async () => {
-    let finishSpawn: ((client: AgentSession) => void) | undefined
-    const spawned = new Promise<AgentSession>((resolve) => {
+    let finishSpawn: ((client: DurableAttachment) => void) | undefined
+    const spawned = new Promise<DurableAttachment>((resolve) => {
       finishSpawn = resolve
     })
     const client = fakeClient()
@@ -689,8 +689,8 @@ describe('the client terminal a server-family attach produces', () => {
   })
 
   it('refuses attaching input atomically at the byte bound', async () => {
-    let finishSpawn: ((client: AgentSession) => void) | undefined
-    const spawned = new Promise<AgentSession>((resolve) => {
+    let finishSpawn: ((client: DurableAttachment) => void) | undefined
+    const spawned = new Promise<DurableAttachment>((resolve) => {
       finishSpawn = resolve
     })
     const client = fakeClient()
@@ -716,8 +716,8 @@ describe('the client terminal a server-family attach produces', () => {
   })
 
   it('refuses attaching input atomically at the message bound', async () => {
-    let finishSpawn: ((client: AgentSession) => void) | undefined
-    const spawned = new Promise<AgentSession>((resolve) => {
+    let finishSpawn: ((client: DurableAttachment) => void) | undefined
+    const spawned = new Promise<DurableAttachment>((resolve) => {
       finishSpawn = resolve
     })
     const client = fakeClient()
@@ -945,13 +945,13 @@ describe('warm-parking', () => {
   })
 
   it('never drains a stale completion into a replacement generation', async () => {
-    const resolvers: Array<(client: AgentSession) => void> = []
+    const resolvers: Array<(client: DurableAttachment) => void> = []
     const clients = [fakeClient(), fakeClient()]
     const terminals = createOpencodeClientTerminals({
       durable: abducoOnly,
       frames: () => {},
       spawn: async () =>
-        new Promise<AgentSession>((resolve) => {
+        new Promise<DurableAttachment>((resolve) => {
           resolvers.push(resolve)
         }),
       reclaim: async () => {},
@@ -968,9 +968,9 @@ describe('warm-parking', () => {
     const currentAttach = terminals.attach({ sessionId: SESSION, target })
     await vi.waitFor(() => expect(resolvers).toHaveLength(2))
     expect(terminals.input(SESSION, Buffer.from('current'))).toBe(true)
-    resolvers[0]?.(clients[0] as AgentSession)
+    resolvers[0]?.(clients[0] as DurableAttachment)
     await expect(staleAttach).rejects.toThrow(/closed while it was starting/)
-    resolvers[1]?.(clients[1] as AgentSession)
+    resolvers[1]?.(clients[1] as DurableAttachment)
     await currentAttach
 
     expect(clients[0]?.writes).toEqual([])

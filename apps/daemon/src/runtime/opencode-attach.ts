@@ -117,7 +117,7 @@ import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { AbducoSpawnOptions, DurableProcess } from '@podium/process/durable'
-import type { AgentSession } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import type { AppliedGeometryRecord } from '../control/applied-geometry'
 import {
   harnessChildStripEnv,
@@ -364,7 +364,7 @@ export interface OpencodeClientTerminalPorts {
    */
   durable: DurableProcess
   /** Injection seams over `durable`. */
-  spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
+  spawn?(opts: AbducoSpawnOptions): Promise<DurableAttachment>
   reclaim?(label: string): Promise<void>
   /**
    * Is a durable master still holding this label? A socket-dir read, not an
@@ -415,7 +415,7 @@ export interface OpencodeClientTerminalPorts {
    * in-memory and cannot survive the restart it was written for until it is
    * persisted with the host.
    */
-  rememberDurableSeq?: (sessionId: SessionId, session: AgentSession) => void
+  rememberDurableSeq?: (sessionId: SessionId, session: DurableAttachment) => void
   warmTtlMs?: number
   setTimer?(fn: () => void, ms: number): unknown
   clearTimer?(handle: unknown): void
@@ -436,9 +436,9 @@ interface Attachment {
   kind: ClientTerminalKind
   /** The client PTY. Absent between the master being adopted and a viewer's
    *  first attach — and after the client exits while the master lives on. */
-  session?: AgentSession
+  session?: DurableAttachment
   /** In-flight start, so two concurrent attaches produce ONE client. */
-  starting?: Promise<AgentSession>
+  starting?: Promise<DurableAttachment>
   /** The one Native generation allowed to accept input. Replaced on every start. */
   generation?: ClientTerminalGeneration
   /**
@@ -584,7 +584,7 @@ export function createOpencodeClientTerminals(
     }, warmTtlMs)
   }
 
-  async function start(record: Attachment, target: ClientTerminalTarget): Promise<AgentSession> {
+  async function start(record: Attachment, target: ClientTerminalTarget): Promise<DurableAttachment> {
     const kind = target.kind
     /**
      * THE HARNESS SAYS WHAT TO RUN; THIS FUNCTION NEVER LEARNS ITS NAME
@@ -708,7 +708,7 @@ export function createOpencodeClientTerminals(
      * then painted a whole fresh interface below the old one with no anchor —
      * the original symptom this issue exists to fix.
      *
-     * `AgentSession.adopted` is the same fact established at the only moment it
+     * `DurableAttachment.adopted` is the same fact established at the only moment it
      * is knowable. Spawn sets it when it found a live master owning the label
      * and attached to that instead of creating one, resolved with the child's
      * own environment and AFTER the create race it just ran.
@@ -792,7 +792,7 @@ export function createOpencodeClientTerminals(
      * clears and repaints only the current viewport, destroying older Native
      * content while the provider conversation and Chat transcript survive.
      *
-     * `AgentSession.adopted` is exact process truth established by the spawn
+     * `DurableAttachment.adopted` is exact process truth established by the spawn
      * port after the master create race, so both sides of this RuntimeDriver
      * attach seam agree on whether this is continuity or a new client.
      */
@@ -971,7 +971,7 @@ export function createOpencodeClientTerminals(
           record.starting = pending
         }
         if (!generation) throw new Error('client terminal start lost its generation')
-        let started: AgentSession
+        let started: DurableAttachment
         try {
           started = await pending
         } catch (err) {

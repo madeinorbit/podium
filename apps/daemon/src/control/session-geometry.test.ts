@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
-import type { AgentSession } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import type { DaemonContext } from './context'
 import { harnessCompatEnv, sessionHandlers, wireBridge } from './session'
@@ -17,7 +17,7 @@ import { harnessCompatEnv, sessionHandlers, wireBridge } from './session'
  * every Codex repaint wrapped against the wrong width.
  */
 
-function fakeSession(): AgentSession & { resizes: Array<[number, number]> } {
+function fakeSession(): DurableAttachment & { resizes: Array<[number, number]> } {
   const resizes: Array<[number, number]> = []
   return {
     resizes,
@@ -42,7 +42,7 @@ function daemonContext(): DaemonContext {
   return {
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-session-geometry-test'),
-    bridges: new Map<SessionId, AgentSession>(),
+    bridges: new Map<SessionId, DurableAttachment>(),
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     durableLabels: new Map<SessionId, string>(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },

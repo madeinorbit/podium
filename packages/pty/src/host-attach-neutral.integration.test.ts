@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { attachHostAgent, connectHost, hostSocketPath, killHostSession, spawnHostAgent } from './host.js'
 import { resolveHostBin } from './host-bin.js'
-import type { AgentSession } from './session.js'
+import type { DurableAttachment } from './session.js'
 
 const hasCompiler = ['cc', 'gcc', 'clang'].some((c) => {
   try {
@@ -51,7 +51,7 @@ let fixture = ''
 let chattyFixture = ''
 const saved: Record<string, string | undefined> = {}
 const labels: string[] = []
-const sessions: AgentSession[] = []
+const sessions: DurableAttachment[] = []
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Promise<void> {
@@ -70,7 +70,7 @@ function label(tag: string): string {
   labels.push(l)
   return l
 }
-function reader(s: AgentSession): { text: () => string } {
+function reader(s: DurableAttachment): { text: () => string } {
   let buf = ''
   s.onFrame((f) => {
     buf += Buffer.from(f.data).toString('utf8')

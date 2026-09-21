@@ -30,7 +30,7 @@ import {
   scopeUnitName,
   type DurableAdapter,
   type DurableProcess,
-  type HostAgentSession,
+  type HostDurableAttachment,
 } from '@podium/process/durable'
 import { instanceRuntimeSocketRoot } from '@podium/runtime/abduco-socket'
 import { resolveInstanceId } from '@podium/runtime/instance'
@@ -189,7 +189,7 @@ function engineAdapter(
   return found
 }
 
-function attachEngineAttachment(session: HostAgentSession): EngineAttachment {
+function attachEngineAttachment(session: HostDurableAttachment): EngineAttachment {
   return {
     ready: session.ready.then((welcome) => ({
       lease: welcome.lease,

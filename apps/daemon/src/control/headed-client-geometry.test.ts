@@ -23,7 +23,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { AgentFrame, AgentSession } from '@podium/process/screen'
+import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import { createOpencodeClientTerminals } from '../runtime/opencode-attach'
 import { appliedGeometryFor } from './applied-geometry'
@@ -44,7 +44,7 @@ const target = {
   workdir: '/home/agent/work',
 } as const
 
-function fakeClient(ack?: { cols: number; rows: number }): AgentSession & { sizes: Array<[number, number]> } {
+function fakeClient(ack?: { cols: number; rows: number }): DurableAttachment & { sizes: Array<[number, number]> } {
   const sizes: Array<[number, number]> = []
   return {
     sizes,
@@ -73,7 +73,7 @@ function fakeClient(ack?: { cols: number; rows: number }): AgentSession & { size
     redrawWhenReady: () => {},
     geometry: () => ({ cols: 0, rows: 0 }),
     dispose: () => {},
-  } as unknown as AgentSession & { sizes: Array<[number, number]> }
+  } as unknown as DurableAttachment & { sizes: Array<[number, number]> }
 }
 
 interface Harness {
@@ -98,7 +98,7 @@ function harness(
   const ctx = {
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-headed-client-geometry'),
-    bridges: new Map<SessionId, AgentSession>(),
+    bridges: new Map<SessionId, DurableAttachment>(),
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     durableLabels: new Map<SessionId, string>(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },

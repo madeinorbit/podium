@@ -29,7 +29,7 @@ import {
   type DurableProcess,
   durableProcessFor,
 } from '@podium/process/durable'
-import { type AgentSession, spawnAgent } from '@podium/process/screen'
+import { type DurableAttachment, spawnAgent } from '@podium/process/screen'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
@@ -535,7 +535,7 @@ const HOST_REPLAY_TAIL_BYTES = 256 * 1024
 export function rememberDurableSeq(
   ctx: DaemonContext,
   sessionId: SessionId,
-  session: AgentSession,
+  session: DurableAttachment,
 ): void {
   const conn = (session as { connection?: { lastSeq?: bigint } }).connection
   if (conn) ctx.durableSeqs?.set(sessionId, () => conn.lastSeq)
@@ -544,7 +544,7 @@ export function rememberDurableSeq(
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
-  session: AgentSession,
+  session: DurableAttachment,
   agentKind: AgentKind,
   durableLabel: string,
   reported: Geometry,
@@ -552,7 +552,7 @@ export function wireBridge(
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
-  session: AgentSession,
+  session: DurableAttachment,
   agentKind: AgentKind,
   durableLabel: string,
   reported: Geometry | undefined,
@@ -560,7 +560,7 @@ export function wireBridge(
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
-  session: AgentSession,
+  session: DurableAttachment,
   agentKind: AgentKind,
   durableLabel: string,
   reported: Geometry | undefined,
@@ -2490,7 +2490,7 @@ export async function recoverTerminalHost(
     // agent's missing screen through the existing bounded replay port after
     // wiring all consumers; waiting for a viewer resize leaves idle survivors
     // blank. Plain terminals retain their viewer-driven replay path.
-    const replay = (found.session as AgentSession & { replay?: (bytes: number) => Promise<void> }).replay
+    const replay = (found.session as DurableAttachment & { replay?: (bytes: number) => Promise<void> }).replay
     if (ready && replay) await replay.call(found.session, HOST_REPLAY_TAIL_BYTES)
     ready?.()
     const recoveryProfile = terminalProfileFor(msg.agentKind)

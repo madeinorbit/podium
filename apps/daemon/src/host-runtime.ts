@@ -41,7 +41,7 @@ import {
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type AgentKind, type MachineId, type SessionId } from '@podium/model'
 import { createDurableProcess, durableProcessFor, sweepStaleDurableBindTemps } from '@podium/process/durable'
-import type { AgentSession } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import {
@@ -440,7 +440,7 @@ export async function createDaemonHostRuntime(args: {
     return replayed
   }
 
-  const bridges = new Map<SessionId, AgentSession>()
+  const bridges = new Map<SessionId, DurableAttachment>()
   const composerEngine = new ComposerSyncEngine(
     (sessionId, text) => {
       if (terminalRuntime?.has(sessionId)) terminalRuntime.observeDraft(sessionId, text)

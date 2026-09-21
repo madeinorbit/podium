@@ -27,7 +27,7 @@ import {
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
-import type { AgentSession, ScreenReader } from '@podium/process/screen'
+import type { DurableAttachment, ScreenReader } from '@podium/process/screen'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
@@ -1376,7 +1376,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // redeploy. 'shell' (and unknown kinds) have no adapter → no observation.
   const initSessionObservers = (
     msg: SpawnControl | ReattachControl,
-    session: AgentSession,
+    session: DurableAttachment,
     provider: AgentStateProvider | undefined,
     init: SessionObserverInit,
   ): void => {

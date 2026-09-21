@@ -2,7 +2,7 @@
  * TerminalScreen survives detach and reattach (P2c DONE WHEN 3).
  *
  * A screen belongs to the SESSION; the attachment is merely the current way
- * of reaching it. Attach and you get an AgentSession-like frame source;
+ * of reaching it. Attach and you get an DurableAttachment-like frame source;
  * detach and it is gone — but the screen (model, mode, applied size, byte
  * log, title) stays, and the next attachment resumes feeding the SAME screen.
  * No SessionId, no daemon, no protocol anywhere in this file.

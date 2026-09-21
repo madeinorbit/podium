@@ -13,7 +13,7 @@ import {
   waitForAbducoSocket,
 } from './abduco.js'
 import {
-  type HostAgentSession,
+  type HostDurableAttachment,
   attachHostAgent,
   hostHasSession,
   hostSocketPath,
@@ -89,21 +89,21 @@ export interface DurableReattach {
 /** One adapter per host implementation. */
 export interface DurableAdapter {
   readonly kind: DurableKind
-  spawn(opts: AbducoSpawnOptions): Promise<AgentSession>
+  spawn(opts: AbducoSpawnOptions): Promise<DurableAttachment>
   /**
    * Spawn a HEADLESS engine (POD-4433): no pty, pipes instead, stdout+stderr
    * merged into the host's sequence-numbered ring. Same label/scope discipline
    * as `spawn` — the label is what a restarted daemon re-adopts. Only the host
    * backend implements it; abduco refuses loudly.
    */
-  spawnHeadless(opts: HeadlessSpawnOptions): Promise<HostAgentSession>
+  spawnHeadless(opts: HeadlessSpawnOptions): Promise<HostDurableAttachment>
   /**
    * Re-attach to a headless engine after a daemon restart, as the writer. The
    * caller checks the lease on `ready`: a stale daemon still holding it means
    * this generation must refuse loudly, not read along silently.
    */
-  attachHeadless(opts: HeadlessAttachOptions): Promise<HostAgentSession>
-  attach(opts: DurableAttachOptions): Promise<DurableAttachment>
+  attachHeadless(opts: HeadlessAttachOptions): Promise<HostDurableAttachment>
+  attach(opts: DurableAttachOptions): Promise<DurableReattach>
   /** A live host owns the label AND its program is still running. */
   has(label: string): Promise<boolean>
   kill(label: string): Promise<void>
@@ -144,9 +144,9 @@ export interface DurableProcess {
   readonly primary: DurableAdapter
   /** Host first, then abduco — the order a reattach probes. */
   readonly all: readonly DurableAdapter[]
-  spawn(opts: AbducoSpawnOptions): Promise<AgentSession>
-  spawnHeadless(opts: HeadlessSpawnOptions): Promise<HostAgentSession>
-  attachHeadless(opts: HeadlessAttachOptions): Promise<HostAgentSession>
+  spawn(opts: AbducoSpawnOptions): Promise<DurableAttachment>
+  spawnHeadless(opts: HeadlessSpawnOptions): Promise<HostDurableAttachment>
+  attachHeadless(opts: HeadlessAttachOptions): Promise<HostDurableAttachment>
   /** The adapter and socket that currently hold `label`, probing host then abduco. */
   locate(
     label: string,
@@ -178,7 +178,7 @@ export function abducoDurableAdapter(): DurableAdapter {
       // restart it can be stale. A reattach is not a viewer asking for a size,
       // so it neither resizes nor signals the agent; the first viewport request
       // after reconnect is what moves it [spec:SP-6144].
-      const session = attachAbducoAgent({
+      const attachment = attachAbducoAgent({
         label: opts.label,
         socketPath: opts.socketPath,
         hardRepaint: opts.hardRepaint,
@@ -190,7 +190,7 @@ export function abducoDurableAdapter(): DurableAdapter {
         fallbackGeometry: opts.lastKnownGeometry,
       })
       return {
-        session,
+        attachment,
         cmd: `abduco -a ${opts.socketPath}`,
         redrawOnReattach: true,
         readGeometry: undefined,
@@ -223,15 +223,15 @@ export function hostDurableAdapter(): DurableAdapter {
         }),
       ),
     async attach(opts) {
-      const session: HostAgentSession = attachHostAgent({
+      const attachment: HostDurableAttachment = attachHostAgent({
         label: opts.label,
         socketPath: opts.socketPath,
         hardRepaint: opts.hardRepaint,
         fromSeq: opts.lastSeq ?? 'tail',
       })
-      const welcome = await session.ready
+      const welcome = await attachment.ready
       return {
-        session,
+        attachment,
         cmd: `podium-host attach ${opts.socketPath}`,
         redrawOnReattach: false,
         readGeometry: welcome.hasPty ? { cols: welcome.cols, rows: welcome.rows } : undefined,

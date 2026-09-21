@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { createDurableProcess, killHostSession, resolveHostBin, spawnHostAgent } from '@podium/process/durable'
-import type { AgentSession } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { expect, it } from 'vitest'
 import { daemonRuntimeHost } from '../runtime/host'
@@ -22,7 +22,7 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
   const sessionId = asSessionId(`recovery-${process.pid}`)
   const label = `podium-${sessionId}`
   const painted = `RECOVERY SCREEN ${'x'.repeat(80)}`
-  let born: AgentSession | undefined
+  let born: DurableAttachment | undefined
   let ctx: DaemonContext | undefined
   try {
     const fixture = join(root, 'screen.mjs')

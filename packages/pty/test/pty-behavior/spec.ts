@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import type { PtyBackend } from '../../src/backends/index'
-import { type AgentSession, spawnAgent } from '../../src/session'
+import { type DurableAttachment, spawnAgent } from '../../src/session'
 
 const FIX = (name: string): string => fileURLToPath(new URL(`../fixtures/${name}`, import.meta.url))
 const KEYECHO_DIR = fileURLToPath(new URL('../../../../tests/keyecho', import.meta.url))
@@ -15,14 +15,14 @@ export interface TestPrimitives {
   expect: (actual: unknown) => any
 }
 
-function textOf(s: AgentSession): { raw: () => string; stripped: () => string } {
+function textOf(s: DurableAttachment): { raw: () => string; stripped: () => string } {
   let buf = ''
   s.onFrame((f) => {
     buf += Buffer.from(f.data).toString('utf8')
   })
   return { raw: () => buf, stripped: () => buf.replace(ANSI, '') }
 }
-function bytesOf(s: AgentSession): () => Buffer {
+function bytesOf(s: DurableAttachment): () => Buffer {
   const chunks: Buffer[] = []
   s.onFrame((f) => {
     chunks.push(Buffer.from(f.data))
@@ -43,7 +43,7 @@ const paints = (t: string): number[] =>
 
 export function ptyBehaviorSpec(t: TestPrimitives, makeBackend: () => PtyBackend): void {
   const { describe, it, expect } = t
-  const spawn = (cmd: string, args: string[], cols = 80, rows = 24): AgentSession =>
+  const spawn = (cmd: string, args: string[], cols = 80, rows = 24): DurableAttachment =>
     spawnAgent({ cmd, args, cols, rows }, makeBackend())
 
   describe(`pty behavior [${makeBackend().name}]`, () => {

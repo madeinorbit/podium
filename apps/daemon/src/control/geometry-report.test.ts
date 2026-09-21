@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { AgentSession } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import { OutputScheduler } from '../output-scheduler'
 import { appliedGeometryFor } from './applied-geometry'
@@ -29,7 +29,7 @@ import { sessionHandlers } from './session'
 
 const SESSION = asSessionId('s-report')
 
-function fakeSession(): AgentSession & { resizes: Array<[number, number]> } {
+function fakeSession(): DurableAttachment & { resizes: Array<[number, number]> } {
   const resizes: Array<[number, number]> = []
   return {
     resizes,
@@ -45,7 +45,7 @@ function fakeSession(): AgentSession & { resizes: Array<[number, number]> } {
     redraw: () => {},
     geometry: () => ({ cols: 80, rows: 24 }),
     dispose: () => {},
-  } as unknown as AgentSession & { resizes: Array<[number, number]> }
+  } as unknown as DurableAttachment & { resizes: Array<[number, number]> }
 }
 
 /**
@@ -73,7 +73,7 @@ function harness(over: Partial<DaemonContext> = {}): {
   const ctx = {
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-geometry-report'),
-    bridges: new Map<SessionId, AgentSession>(),
+    bridges: new Map<SessionId, DurableAttachment>(),
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     durableLabels: new Map<SessionId, string>(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },

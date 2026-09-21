@@ -25,7 +25,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
-import type { AgentSession } from '@podium/process/screen'
+import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
 
@@ -157,7 +157,7 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
   const ctx = {
     backend: 'abduco',
     settingsDir: join(tmpdir(), 'podium-sizing-claims-reattach'),
-    bridges: new Map<SessionId, AgentSession>(),
+    bridges: new Map<SessionId, DurableAttachment>(),
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     durableLabels: new Map<SessionId, string>(),
     durableLabelFor: (id: SessionId) => `podium-${id}`,
@@ -300,7 +300,7 @@ describe('terminal recovery ownership', () => {
     reset()
     const sent: Array<{ type: string; resizesBefore: number }> = []
     const ctx = ctxFor(sent)
-    ctx.bridges.set(SESSION, stub.session as unknown as AgentSession)
+    ctx.bridges.set(SESSION, stub.session as unknown as DurableAttachment)
     ctx.durableLabels.set(SESSION, 'podium-s-sizing-reattach')
     const init = vi.spyOn(ctx.observers, 'initSessionObservers')
     const msg = {
