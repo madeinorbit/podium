@@ -1,40 +1,75 @@
-// apps/daemon/src/claude-sdk-protocol.ts
+// packages/harness/src/driver/families/claude-sdk/host-protocol.ts
 //
-// The wire between the daemon and the Claude Agent SDK host child, and the single
-// source of truth for how that child is launched. Deliberately SDK-FREE: this
-// module is imported by the daemon's own process, so anything it reaches is
-// loaded into the process that supervises every session on the machine. The SDK
-// itself is reached only by claude-sdk-host.ts, which never runs here.
+// THE WIRE BETWEEN THE DAEMON AND THE CLAUDE AGENT SDK HOST CHILD (moved from
+// apps/daemon/src/claude-sdk-protocol.ts in 1.5: the daemon stops knowing this
+// headless harness's protocol), and the single source of truth for how that
+// child is launched. Deliberately SDK-FREE: the parent process imports this
+// module, so anything it reaches is loaded into the process that supervises
+// every session on the machine. The SDK itself is reached only by
+// ./claude-sdk-host.js, which never runs in the parent.
 //
-// WHY A CHILD PROCESS AND NOT A WORKER THREAD. The discovery worker next door is
-// a `node:worker_threads` Worker, and that is the right shape for it: its jobs
-// are pure and bounded. This one is not. `@anthropic-ai/claude-agent-sdk` is
-// third-party code driving a long-running agent, and its failure modes are
-// unbounded memory and hard crashes — this epic watched one unbounded search
-// reach 3.9GB. A worker thread shares the process's address space and its RSS
-// ceiling, so an OOM there still kills the daemon and with it every session on
-// the box. Only a separate process gives the daemon something it can lose.
+// WHY A CHILD PROCESS AND NOT A WORKER THREAD. `@anthropic-ai/claude-agent-sdk`
+// is third-party code driving a long-running agent, and its failure modes are
+// unbounded memory and hard crashes. A worker thread shares the process's
+// address space and its RSS ceiling, so an OOM there still kills the supervisor
+// and with it every session on the box. Only a separate process gives the
+// supervisor something it can lose.
 
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { HeadlessTurnEvent } from '@podium/protocol'
-import type { HeadlessTurnSpec } from './headless-drivers.js'
 
 /** Set on the child's environment so a re-exec of the compiled binary boots the
  *  SDK host instead of the CLI. See scripts/cli-compiled.ts. */
 export const CLAUDE_SDK_HOST_ENV = 'PODIUM_CLAUDE_SDK_HOST'
 
 /** Repo-relative path of the child entry, spawned directly when running from source. */
-export const CLAUDE_SDK_HOST_ENTRY = 'apps/daemon/src/claude-sdk-host.ts'
+export const CLAUDE_SDK_HOST_ENTRY = 'packages/harness/src/driver/families/claude-sdk/claude-sdk-host.ts'
 
-/** daemon -> host, one JSON object per line on the child's stdin. */
+/**
+ * THE TURN THE SDK HOST RUNS — the typed subset of the daemon's headless turn
+ * the family actually reads (spec §5: a mechanism receives a typed SUBSET,
+ * never the whole turn). The daemon passes its fuller turn object; anything
+ * beyond these fields crosses the wire untouched and unread.
+ */
+export interface ClaudeSdkHostTurnSpec {
+  prompt: string
+  cwd: string
+  model?: string
+  effort?: string
+  systemPrompt?: string
+  contextPrompt?: string
+  /** Path to a written MCP config JSON (Claude `--mcp-config`). */
+  mcpConfigPath?: string
+  /** The raw MCP config JSON ({ mcpServers: { name: { url, headers } } }). */
+  mcpConfig?: string
+  /** Tools pre-approved so they run headlessly without a permission prompt. */
+  allowedTools?: string[]
+  permissionMode?: string
+  /** Fail-closed capability request. `none` means the adapter must remove every tool. */
+  toolPolicy?: 'none'
+  /** Harness session id to resume; absent = first turn. */
+  resumeValue?: string
+  /** Mint the first-turn session with this UUID. */
+  sessionUuid?: string
+  /** Route SDK tool authorization through structured driver interactions. */
+  structuredPermissions?: true
+  /** Absolute executable captured from the current generation. */
+  executablePath?: string
+  /** Instance-owned child environment (HOME + CLI/session routing), pre-composed
+   *  by the supervisor: the host merges it over its own (already composed)
+   *  process environment rather than recomposing it. */
+  env?: Record<string, string>
+}
+
+/** supervisor -> host, one JSON object per line on the child's stdin. */
 export type ClaudeSdkHostCommand =
-  | { t: 'turn'; spec: HeadlessTurnSpec }
+  | { t: 'turn'; spec: ClaudeSdkHostTurnSpec }
   /**
    * Ask the SDK to wind the turn down gracefully (timeout, or a user interrupt).
    *
    * `requestId` is what makes the answer attributable. Without it an interrupt
-   * was a write with no read: the daemon learned nothing about whether the
+   * was a write with no read: the supervisor learned nothing about whether the
    * provider had accepted, refused, or never been asked, and every one of those
    * reached the operator as the same silent success.
    */
@@ -46,7 +81,7 @@ export type ClaudeSdkHostCommand =
       feedback?: string
     }
 
-/** host -> daemon, one JSON object per line on the child's stdout. */
+/** host -> supervisor, one JSON object per line on the child's stdout. */
 export type ClaudeSdkHostFrame =
   | { t: 'event'; event: HeadlessTurnEvent }
   /**
@@ -76,22 +111,22 @@ export type ClaudeSdkHostFrame =
    * turn that ignored them.
    *
    * Absence of this frame is itself meaningful and is NOT the same as
-   * `accepted: false`: a host killed mid-wind-down never answers, and the daemon
-   * records that as unconfirmed rather than manufacturing either verdict.
+   * `accepted: false`: a host killed mid-wind-down never answers, and the
+   * supervisor records that as unconfirmed rather than manufacturing either verdict.
    */
   | { t: 'interrupt-ack'; requestId?: string; accepted: boolean; detail?: string }
   /**
    * ONE TOOL CALL, AND LATER ITS RESULT — the pair that makes a headless turn
    * readable after the fact (POD-3050).
    *
-   * `status: 'tool'` already told the daemon a tool was running, but a status is
+   * `status: 'tool'` already told the supervisor a tool was running, but a status is
    * a badge: it names no call, carries no input, has no identity, and is gone the
    * moment the next one arrives. A transcript needs the call itself, so these two
    * frames carry what the durable record is made of — the provider's own
    * `tool_use.id`, which is what pairs them, and nothing invented here.
    *
    * They are separate frames rather than `HeadlessTurnEvent` variants on purpose:
-   * this is the daemon's private line to its own child, and the durable path they
+   * this is the supervisor's private line to its own child, and the durable path they
    * feed is `transcriptDelta`, which already carries transcript items. Widening
    * the public activity union would have changed the wire for every consumer to
    * say something none of them read.
@@ -131,7 +166,7 @@ export interface ClaudeSdkHostLaunch {
 }
 
 /**
- * How to launch the SDK host from whatever runtime the daemon is itself running
+ * How to launch the SDK host from whatever runtime the supervisor is itself running
  * under. Two cases, and neither guesses:
  *
  *  - COMPILED (`bun build --compile`): one binary ships and it has no .ts on disk
@@ -145,7 +180,7 @@ export interface ClaudeSdkHostLaunch {
  *    its preflight/loader/conditions flags, so replaying execArgv is exactly the
  *    set that makes a sibling TypeScript module resolve the same way this one
  *    did. Reconstructing that argument list by hand would be a guess that breaks
- *    the day the daemon's launch command changes.
+ *    the day the supervisor's launch command changes.
  */
 export function claudeSdkHostLaunch(
   moduleUrl: string = import.meta.url,
@@ -166,7 +201,7 @@ export function claudeSdkHostLaunch(
 }
 
 /** Whether THIS process could import the host's TypeScript if asked. Bun always
- *  can; Node only with a loader attached, which is how the daemon is launched. */
+ *  can; Node only with a loader attached, which is how the supervisor is launched. */
 function runtimeLoadsTypeScript(): boolean {
   return Boolean(process.versions.bun) || process.execArgv.some((a) => a.includes('tsx'))
 }
@@ -175,7 +210,7 @@ function runtimeLoadsTypeScript(): boolean {
  * DEV AND TEST ONLY, and worth stating why it exists rather than leaving it to
  * look like production plumbing.
  *
- * Every way the daemon really ships already loads TypeScript: compiled, under
+ * Every way the supervisor really ships already loads TypeScript: compiled, under
  * bun, or under tsx. The one caller that does not is a VITEST WORKER — its
  * `execArgv` is the worker's own, carrying no loader, so replaying it produced a
  * child that resolved `claude-sdk-host.ts` and then died on the first `./x.js`
@@ -193,7 +228,7 @@ function typeScriptLoaderArgs(): string[] {
   } catch {
     throw new Error(
       'cannot launch the Claude SDK host: this Node process has no TypeScript loader ' +
-        'and tsx is not installed. Run the daemon under bun, under tsx, or from the ' +
+        'and tsx is not installed. Run the supervisor under bun, under tsx, or from the ' +
         'compiled binary.',
     )
   }

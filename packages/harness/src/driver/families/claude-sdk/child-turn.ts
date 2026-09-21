@@ -1,34 +1,35 @@
-// apps/daemon/src/claude-sdk-client.ts
+// packages/harness/src/driver/families/claude-sdk/child-turn.ts
 //
-// The daemon's half of the Claude SDK split. Spawns claude-sdk-host.ts as a child
-// process, translates its line protocol back into the same `HeadlessTurnHandle`
-// the in-process driver used to return, and — the part that matters — treats the
-// child's death as a NORMAL, REPORTABLE OUTCOME rather than as an event that can
-// take anything else down with it.
+// THE SUPERVISOR'S HALF OF THE CLAUDE SDK SPLIT (moved from
+// apps/daemon/src/claude-sdk-client.ts in 1.5: the daemon stops knowing this
+// headless harness's child). Spawns ./claude-sdk-host.js as a child process,
+// translates its line protocol back into a turn handle, and — the part that
+// matters — treats the child's death as a NORMAL, REPORTABLE OUTCOME rather
+// than as an event that can take anything else down with it.
 //
 // SDK-free by construction. Nothing reachable from this file loads
 // `@anthropic-ai/claude-agent-sdk`; claude-sdk-isolation.test.ts proves that by
 // walking the import graph rather than by trusting this sentence.
+//
+// WHAT THE SUPERVISOR OWNS HERE: the child's environment (`childEnv`,
+// fully composed — the stored-login precedence merge lives with the supervisor
+// that owns every other child's env) and the spawn itself. This module never
+// reads the ambient `process.env` for the child: what it runs under is handed
+// in, exactly as the engine address is handed to every other family.
 
 import { type ChildProcess, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { createLogger } from '@podium/logger'
+import type { HeadlessTurnEvent } from '@podium/protocol'
 import {
   type ClaudeSdkHostCommand,
   type ClaudeSdkHostFrame,
   claudeSdkHostLaunch,
-} from './claude-sdk-protocol.js'
-import {
-  type HeadlessEmit,
-  HeadlessTurnError,
-  type HeadlessTurnHandle,
-  type HeadlessTurnOutcome,
-  type HeadlessTurnSpec,
-  headlessChildEnv,
-} from './headless-drivers.js'
+  type ClaudeSdkHostTurnSpec,
+} from './host-protocol.js'
 
-const log = createLogger('daemon:claude-sdk')
+const log = createLogger('harness:claude-sdk-turn')
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
 /** How long a politely-interrupted host gets to wind down before it is killed. */
@@ -44,6 +45,55 @@ const INTERRUPT_GRACE_MS = 15_000
 const INTERRUPT_ACK_MS = 5_000
 
 /**
+ * A TURN THAT FAILED AFTER THE HARNESS MINTED ITS SESSION.
+ *
+ * The conversation exists on disk, so the caller must still learn its id —
+ * otherwise one interrupted/errored turn orphans the whole thread: no resume
+ * ref, no transcript binding, and the next turn silently starts a new
+ * conversation.
+ *
+ * This is the BASE the supervisor's own turn error extends: daemon callers
+ * matching on their subclass keep working, and callers matching on this base
+ * see family-thrown failures too (a subclass check alone would miss a turn the
+ * family failed but the supervisor did not).
+ */
+export class HeadlessTurnFailure extends Error {
+  constructor(
+    message: string,
+    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
+    readonly harnessSessionId?: string,
+  ) {
+    super(message)
+    this.name = 'HeadlessTurnError'
+  }
+}
+
+export interface ClaudeSdkTurnOutcome {
+  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
+  harnessSessionId: string
+  output: string
+  observedModel?: string
+  observedEffort?: string
+}
+
+export type ClaudeSdkTurnEmit = (event: HeadlessTurnEvent) => void
+
+export interface ClaudeSdkTurnHandle {
+  done: Promise<ClaudeSdkTurnOutcome>
+  interrupt(): void
+  /** Detach local resources without killing the child. */
+  dispose?(): Promise<void> | void
+  /** Answer the exact canUseTool callback that opened this ask. */
+  answerPermission?(
+    interactionId: string,
+    answer: {
+      decision: 'allow-once' | 'allow-always' | 'deny'
+      feedback?: string
+    },
+  ): void
+}
+
+/**
  * What the provider did with one interrupt request.
  *
  * THE THIRD ARM IS THE POINT. `accepted` and `rejected` are the provider's own
@@ -57,10 +107,10 @@ export type ClaudeSdkInterruptAck =
   | { outcome: 'rejected'; detail: string }
   | { outcome: 'unconfirmed'; detail: string }
 
-/** The child handle, plus the acknowledged interrupt the generic headless shape
+/** The child handle, plus the acknowledged interrupt the generic turn shape
  *  has no room for. `interrupt()` stays exactly as it was for teardown callers
  *  that neither want nor wait for an answer. */
-export interface ClaudeSdkChildHandle extends HeadlessTurnHandle {
+export interface ClaudeSdkChildHandle extends ClaudeSdkTurnHandle {
   /** Request an interrupt and resolve with what the provider said about it. */
   requestInterrupt(): Promise<ClaudeSdkInterruptAck>
 }
@@ -68,6 +118,13 @@ export interface ClaudeSdkChildHandle extends HeadlessTurnHandle {
 export interface ClaudeSdkChildOptions {
   /** Injected in tests so the framing can be exercised without a real SDK. */
   spawnHost?: () => ChildProcess
+  /**
+   * THE COMPOSED ENVIRONMENT THE HOST CHILD RUNS UNDER — the supervisor's
+   * stored-login precedence merge, handed in rather than recomposed here, so
+   * the child and every sibling read the same account (POD-3057 pins the spawn
+   * site, not a helper).
+   */
+  childEnv: Record<string, string>
   onPermission?: (request: {
     id: string
     toolName: string
@@ -80,22 +137,27 @@ export interface ClaudeSdkChildOptions {
   onToolResult?: (result: { toolUseId: string; output: string; isError?: boolean }) => void
 }
 
+/** The turn, as this family reads it: the host wire spec plus the two
+ *  supervisor-side facts (where to run it, how long to wait for it). */
+export interface ClaudeSdkChildTurnInput extends ClaudeSdkHostTurnSpec {
+  timeoutMs?: number
+}
+
 /**
  * One Claude turn, run in a child process.
  *
  * The contract is deliberately identical to the in-process driver it replaces —
- * same events, same outcome, same `HeadlessTurnError` carrying the harness
- * session id out of a failure — with one addition the old shape could not offer:
- * if the host process dies without answering, the turn FAILS with a true
- * statement about what happened instead of hanging. A hang was the old worst
- * case that could not arise, because a crash there took the daemon with it.
+ * same events, same outcome, same failure carrying the harness session id out
+ * of a failure — with one addition the old shape could not offer: if the host
+ * process dies without answering, the turn FAILS with a true statement about
+ * what happened instead of hanging.
  */
 export function runClaudeSdkChildTurn(
-  spec: HeadlessTurnSpec,
-  emit: HeadlessEmit,
-  opts: ClaudeSdkChildOptions = {},
+  spec: ClaudeSdkChildTurnInput,
+  emit: ClaudeSdkTurnEmit,
+  opts: ClaudeSdkChildOptions,
 ): ClaudeSdkChildHandle {
-  const child = opts.spawnHost ? opts.spawnHost() : spawnDefaultHost(spec)
+  const child = opts.spawnHost ? opts.spawnHost() : spawnDefaultHost(spec, opts.childEnv)
   let closed = false
   let resolveClosed!: () => void
   const childClosed = new Promise<void>((resolve) => { resolveClosed = resolve })
@@ -106,13 +168,13 @@ export function runClaudeSdkChildTurn(
   let timedOut = false
   let settled = false
 
-  let resolve!: (v: HeadlessTurnOutcome) => void
+  let resolve!: (v: ClaudeSdkTurnOutcome) => void
   let reject!: (e: Error) => void
-  const done = new Promise<HeadlessTurnOutcome>((res, rej) => {
+  const done = new Promise<ClaudeSdkTurnOutcome>((res, rej) => {
     resolve = res
     reject = rej
   })
-  const succeed = (outcome: HeadlessTurnOutcome): void => {
+  const succeed = (outcome: ClaudeSdkTurnOutcome): void => {
     if (settled) return
     settled = true
     resolve(outcome)
@@ -120,7 +182,7 @@ export function runClaudeSdkChildTurn(
   const fail = (message: string): void => {
     if (settled) return
     settled = true
-    reject(new HeadlessTurnError(message, harnessSessionId || undefined))
+    reject(new HeadlessTurnFailure(message, harnessSessionId || undefined))
   }
 
   const send = (cmd: ClaudeSdkHostCommand): void => {
@@ -228,9 +290,7 @@ export function runClaudeSdkChildTurn(
         // `interrupt` asks the SDK to wind down, and a wound-down stream reports
         // `done` with whatever text it had — so without this branch a turn cut
         // off at its deadline arrived as the assistant's complete reply, and the
-        // human read half a sentence as the whole answer. The in-process driver
-        // this replaced ended with `if (interrupted) fail('turn timed out')`
-        // for exactly this reason; losing it was a regression, not a redesign.
+        // human read half a sentence as the whole answer.
         if (timedOut) fail('turn timed out')
         else
           succeed({
@@ -338,27 +398,11 @@ export function runClaudeSdkChildTurn(
   }
 }
 
-/**
- * The environment the host child inherits.
- *
- * The host builds the CLI's own environment from `spec` itself, exactly as the
- * in-process driver did. What it inherits here is the daemon's environment plus
- * the same per-turn overrides, so `process.env` reads inside the host see what
- * they saw when the SDK ran in the daemon.
- *
- * Exported so a test can spawn a real process with it and read back the `HOME`
- * that process actually ran under — the fact POD-3057 turns on — rather than
- * re-asserting this merge expression against itself.
- */
-export function claudeSdkHostEnv(spec: HeadlessTurnSpec): Record<string, string> {
-  return headlessChildEnv(spec.agent, spec.env)
-}
-
-function spawnDefaultHost(spec: HeadlessTurnSpec): ChildProcess {
+function spawnDefaultHost(spec: ClaudeSdkChildTurnInput, childEnv: Record<string, string>): ChildProcess {
   const launch = claudeSdkHostLaunch()
   return spawn(launch.cmd, launch.args, {
     cwd: spec.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...claudeSdkHostEnv(spec), ...launch.env },
+    env: { ...childEnv, ...launch.env },
   })
 }

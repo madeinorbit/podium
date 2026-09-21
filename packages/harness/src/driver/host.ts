@@ -42,3 +42,7 @@ export * from './families/opencode2/index.js'
  *  `apps/daemon/src/runtime`, because it is composed of daemon internals this
  *  layer may not import. */
 export * from './families/terminal/index.js'
+/** Pi's `--mode json` turn-output fold (moved from the daemon in 1.5: pi has no
+ *  driver family, so its turn grammar lives with its adapter; re-exported here
+ *  for the supervisor's headless machinery, which stays daemon-owned). */
+export * from '../adapters/pi/stream.js'

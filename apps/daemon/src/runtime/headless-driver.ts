@@ -135,9 +135,9 @@ import {
   type HeadlessEmit,
   type HeadlessTurnHandle,
   type HeadlessTurnSpec,
-  HeadlessTurnError,
   runHeadlessTurn,
 } from '../headless-drivers.js'
+import { HeadlessTurnFailure } from '@podium/harness/driver/host'
 import {
   acknowledgeDurableHeadlessTurn,
   runDurableHeadlessTurn,
@@ -1072,7 +1072,7 @@ export function createHeadlessRuntime(
       (outcome) => finishLiveTurn(session, next, outcome),
       (error: unknown) => {
         const harnessSessionId =
-          error instanceof HeadlessTurnError ? error.harnessSessionId : undefined
+          error instanceof HeadlessTurnFailure ? error.harnessSessionId : undefined
         finishLiveTurn(session, next, {
           ...(harnessSessionId !== undefined ? { harnessSessionId } : {}),
           error: error instanceof Error ? error.message : String(error),

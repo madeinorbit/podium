@@ -11,11 +11,11 @@ import {
   type ResolvedHarnessInventory,
   resolvedHarnessPath,
 } from '@podium/harness'
+import { HeadlessTurnFailure, runClaudeSdkChildTurn } from '@podium/harness/driver/host'
+import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
-import { runClaudeSdkChildTurn } from './claude-sdk-client.js'
-import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
-import { createPiStreamReducer, type PiStreamEffect } from './pi-stream.js'
+import { createPiStreamReducer, type PiStreamEffect } from '@podium/harness/driver/host'
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
 
@@ -63,13 +63,13 @@ export interface HeadlessTurnOutcome {
  * interrupted/errored turn orphans the whole thread: no resume ref, no
  * transcript binding, and the next turn silently starts a new conversation.
  */
-export class HeadlessTurnError extends Error {
+export class HeadlessTurnError extends HeadlessTurnFailure {
   constructor(
     message: string,
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    readonly harnessSessionId?: string,
+    harnessSessionId?: string,
   ) {
-    super(message)
+    super(message, harnessSessionId)
     this.name = 'HeadlessTurnError'
   }
 }
@@ -547,6 +547,7 @@ const DRIVER_IMPLS: Record<HarnessHeadless['driver'], HeadlessDriver> = {
     runClaudeSdkChildTurn(
       { ...spec, executablePath: resolvedHarnessPath(snapshot, 'claude-code') },
       emit,
+      { childEnv: headlessChildEnv(spec.agent, spec.env) },
     ),
   'codex-json': (spec, emit, snapshot) => runCodexTurn(spec, emit, snapshot),
   'resume-exec': resumeExecDriver,
@@ -582,6 +583,7 @@ export function runHeadlessTurn(
       { ...spec, executablePath: resolvedHarnessPath(snapshot, 'claude-code') },
       emit,
       {
+        childEnv: headlessChildEnv(spec.agent, spec.env),
         ...(hooks?.onPermission ? { onPermission: hooks.onPermission } : {}),
         ...(hooks?.onToolCall ? { onToolCall: hooks.onToolCall } : {}),
         ...(hooks?.onToolResult ? { onToolResult: hooks.onToolResult } : {}),

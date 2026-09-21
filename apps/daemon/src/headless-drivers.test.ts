@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { asAccountId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
-import { buildClaudeSdkOptions } from './claude-sdk-host.js'
 import {
   buildHeadlessExec,
   HeadlessTurnError,
@@ -25,79 +24,7 @@ afterEach(() => {
 })
 
 describe('buildHeadlessExec argv shapes', () => {
-  it('reapplies the current system prompt when resuming a Claude SDK thread', () => {
-    const options = buildClaudeSdkOptions({
-      agent: 'claude-code',
-      ...identity,
-      cwd: '/repo',
-      prompt: 'Why?',
-      systemPrompt: 'NORMAL: HARD LIMIT 80 words total',
-      contextPrompt: 'current context',
-      resumeValue: 'claude-thread-1',
-    })
-
-    expect(options.resume).toBe('claude-thread-1')
-    expect(options).not.toHaveProperty('sessionId')
-    expect(options.systemPrompt).toEqual({
-      type: 'preset',
-      preset: 'claude_code',
-      append: 'NORMAL: HARD LIMIT 80 words total\n\ncurrent context',
-    })
-  })
-
-  it('makes structured permission prompts authoritative without overriding explicit policy', () => {
-    const canUseTool = vi.fn()
-    const structured = buildClaudeSdkOptions(
-      {
-        agent: 'claude-code',
-        ...identity,
-        cwd: '/repo',
-        prompt: 'change a guarded file',
-        structuredPermissions: true,
-      },
-      canUseTool,
-    )
-
-    expect(structured.permissionMode).toBe('default')
-    expect(structured.canUseTool).toBe(canUseTool)
-    expect(structured).not.toHaveProperty('allowDangerouslySkipPermissions')
-
-    const explicitlyAuthorized = buildClaudeSdkOptions(
-      {
-        agent: 'claude-code',
-        ...identity,
-        cwd: '/repo',
-        prompt: 'change a guarded file',
-        structuredPermissions: true,
-        permissionMode: 'auto',
-      },
-      canUseTool,
-    )
-    expect(explicitlyAuthorized.permissionMode).toBe('auto')
-
-    const legacyUnstructured = buildClaudeSdkOptions({
-      agent: 'claude-code',
-      ...identity,
-      cwd: '/repo',
-      prompt: 'change a guarded file',
-    })
-    expect(legacyUnstructured.permissionMode).toBe('auto')
-  })
-
-  it('enforces a native no-tools posture and refuses unsupported adapters', () => {
-    const options = buildClaudeSdkOptions({
-      agent: 'claude-code',
-      ...identity,
-      cwd: '/repo',
-      prompt: 'repair',
-      toolPolicy: 'none',
-      mcpConfig: JSON.stringify({ mcpServers: { podium: { url: 'http://podium.invalid' } } }),
-    })
-    expect(options.tools).toEqual([])
-    expect(options.allowedTools).toEqual([])
-    expect(options.settingSources).toEqual([])
-    expect(options).not.toHaveProperty('mcpServers')
-
+  it('refuses a no-tools turn for adapters without a native all-tools-off mechanism', () => {
     expect(() =>
       runHeadlessTurn(
         { agent: 'codex', ...identity, cwd: '/repo', prompt: 'repair', toolPolicy: 'none' },
@@ -105,44 +32,6 @@ describe('buildHeadlessExec argv shapes', () => {
         snapshot,
       ),
     ).toThrow(/cannot enforce a no-tools headless turn/)
-  })
-
-  it('removes inherited account overrides while preserving a managed credential', () => {
-    vi.stubEnv('ANTHROPIC_API_KEY', 'inherited-daemon-key')
-    vi.stubEnv('OPENAI_API_KEY', 'inherited-openai-key')
-
-    const claude = buildClaudeSdkOptions({
-      agent: 'claude-code',
-      ...identity,
-      cwd: '/repo',
-      prompt: 'repair',
-      toolPolicy: 'none',
-      env: { HOME: '/accounts/claude' },
-    })
-    expect(claude.env).not.toHaveProperty('ANTHROPIC_API_KEY')
-    expect(claude.env).toMatchObject({ HOME: '/accounts/claude' })
-
-    const codex = headlessChildEnv('codex', { HOME: '/accounts/codex' })
-    expect(codex).not.toHaveProperty('OPENAI_API_KEY')
-
-    const managed = headlessChildEnv('claude-code', {
-      HOME: '/accounts/managed',
-      ANTHROPIC_API_KEY: 'server-selected-key',
-    })
-    expect(managed).toMatchObject({
-      HOME: '/accounts/managed',
-      ANTHROPIC_API_KEY: 'server-selected-key',
-    })
-
-    const subscription = headlessChildEnv('claude-code', {
-      HOME: '/accounts/claude-oauth',
-      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1',
-    })
-    expect(subscription).toMatchObject({
-      HOME: '/accounts/claude-oauth',
-      CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1',
-    })
-    expect(subscription).not.toHaveProperty('ANTHROPIC_API_KEY')
   })
   it('codex first turn: exec --json with positional prompt, no resume subcommand', () => {
     const { cmd, args } = buildHeadlessExec('codex', { prompt: 'hi there' }, snapshot)

@@ -1,20 +1,16 @@
-// apps/daemon/src/claude-sdk-spawn-site.test.ts
+// packages/harness/src/driver/families/claude-sdk/spawn-site.test.ts
 //
 // THE SPAWN SITE ITSELF, and it has its own file because of how POD-3057 was
-// missed the first time.
-//
-// A test asserting "the claude child runs under the instance-owned HOME" already
-// existed and PASSED while the product was broken (durable-headless.test.ts:292).
-// It was right about the spawn it pinned — the durable headless one — and that
-// spawn is not the one an embedded `claude-sdk` session uses. The SDK host has
-// its own `spawn()` call, and nothing tied any assertion to it, so the child
-// there kept the daemon's `HOME` with a green suite either side of it.
+// missed the first time. (Moved from apps/daemon/src/claude-sdk-spawn-site.test.ts
+// in 1.5 with the code it pins.)
 //
 // So this pins the call, not a helper the call happens to use today: the real
 // `runClaudeSdkChildTurn` with no injected host, `node:child_process.spawn`
 // intercepted, and the assertion made on the options that spawn ACTUALLY
-// received. A refactor that stops routing the child env through the composition
-// — the exact way the defect arrived — turns this red.
+// received. The env is handed in composed (the supervisor owns the
+// stored-login precedence merge); the pin is that the spawn uses it exactly —
+// a refactor that recomputes the child env from `process.env` inside the
+// family, the exact way the defect arrived, turns this red.
 import type { ChildProcess } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -36,8 +32,8 @@ vi.mock('node:child_process', async (importOriginal) => {
   }
 })
 
-const { runClaudeSdkChildTurn } = await import('./claude-sdk-client.js')
-const { HeadlessTurnError } = await import('./headless-drivers.js')
+const { runClaudeSdkChildTurn } = await import('./child-turn.js')
+const { HeadlessTurnFailure } = await import('./child-turn.js')
 type Spec = Parameters<typeof runClaudeSdkChildTurn>[0]
 
 afterEach(() => {
@@ -48,18 +44,17 @@ describe('the SDK host spawn site', () => {
   it('spawns the host with the HOME the turn spec carries (POD-3057)', async () => {
     const home = '/state/p3057/agent-home'
     const spec = {
-      agent: 'claude-code',
-      accountId: 'native:claude-code:test',
-      requestDigest: 'a'.repeat(64),
       cwd: process.cwd(),
       prompt: 'hello',
       env: { HOME: home, CLAUDE_CONFIG_DIR: `${home}/.claude` },
     } as unknown as Spec
 
-    const child = runClaudeSdkChildTurn(spec, () => {})
+    const child = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: { HOME: home, CLAUDE_CONFIG_DIR: `${home}/.claude` },
+    })
     await child.done.catch((error: unknown) => {
       // The stub host dies without answering, which this turn reports honestly.
-      expect(error).toBeInstanceOf(HeadlessTurnError)
+      expect(error).toBeInstanceOf(HeadlessTurnFailure)
     })
 
     expect(spawns).toHaveLength(1)
@@ -68,19 +63,33 @@ describe('the SDK host spawn site', () => {
     expect(spawns[0]?.cwd).toBe(process.cwd())
   })
 
+  it('hands spawn exactly the composed env, reintroducing no ambient key', async () => {
+    // The supervisor strips inherited credential overrides when it composes
+    // the child env (stored-login precedence); the family must not undo that
+    // by merging the ambient environment back in at the spawn.
+    process.env.PODIUM_155_AMBIENT_PROBE = 'ambient'
+    try {
+      const spec = { cwd: process.cwd(), prompt: 'hello' } as unknown as Spec
+      const child = runClaudeSdkChildTurn(spec, () => {}, { childEnv: { HOME: '/handed' } })
+      await child.done.catch(() => {})
+      expect(spawns).toHaveLength(1)
+      expect(spawns[0]?.env?.HOME).toBe('/handed')
+      expect(spawns[0]?.env?.PODIUM_155_AMBIENT_PROBE).toBeUndefined()
+    } finally {
+      delete process.env.PODIUM_155_AMBIENT_PROBE
+    }
+  })
+
   /** No home on the spec — the default instance — must not acquire one here.
    *  The daemon's own environment is the right answer there, and inventing a
    *  different one would split the reader and the child the other way. */
   it('leaves the daemon HOME alone when the spec names none', async () => {
     const spec = {
-      agent: 'claude-code',
-      accountId: 'native:claude-code:test',
-      requestDigest: 'a'.repeat(64),
       cwd: process.cwd(),
       prompt: 'hello',
     } as unknown as Spec
 
-    const child = runClaudeSdkChildTurn(spec, () => {})
+    const child = runClaudeSdkChildTurn(spec, () => {}, { childEnv: { ...process.env } })
     await child.done.catch(() => {})
 
     expect(spawns).toHaveLength(1)

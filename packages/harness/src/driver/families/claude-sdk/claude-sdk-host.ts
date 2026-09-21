@@ -1,12 +1,14 @@
-// apps/daemon/src/claude-sdk-host.ts
+// packages/harness/src/driver/families/claude-sdk/claude-sdk-host.ts
 //
-// THE ONLY MODULE IN THIS REPO THAT LOADS `@anthropic-ai/claude-agent-sdk`, and it
-// never runs in the daemon's process. The daemon spawns it as a child (see
-// claude-sdk-client.ts), speaks the line protocol in claude-sdk-protocol.ts to it,
-// and can lose it at any moment: an SDK crash, an unbounded allocation, an OOM
-// kill. Losing it degrades the one session whose turn it was running. That is the
-// entire point — before this split the same event took down the process that
-// supervises every session on the machine.
+// THE ONLY MODULE IN THIS PACKAGE THAT LOADS `@anthropic-ai/claude-agent-sdk`,
+// and it never runs in the supervisor's process. The supervisor spawns it as a
+// child (see ./child-turn.js), speaks the line protocol in ./host-protocol.js to
+// it, and can lose it at any moment: an SDK crash, an unbounded allocation, an
+// OOM kill. Losing it degrades the one session whose turn it was running. That
+// is the entire point — before this split the same event took down the process
+// that supervises every session on the machine. (Moved from
+// apps/daemon/src/claude-sdk-host.ts in 1.5: the daemon stops knowing this
+// headless harness's host.)
 //
 // The turn semantics below are a faithful move of what ran in-process before, not
 // a rewrite: same options, same event mapping, same "carry the session id out of
@@ -20,13 +22,13 @@ import {
   type PermissionMode,
   query,
 } from '@anthropic-ai/claude-agent-sdk'
-import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from '@podium/harness/driver/host'
+import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from './classify.js'
 import {
   CLAUDE_SDK_HOST_ENV,
   type ClaudeSdkHostCommand,
   type ClaudeSdkHostFrame,
-} from './claude-sdk-protocol.js'
-import { type HeadlessTurnSpec, headlessChildEnv } from './headless-drivers.js'
+  type ClaudeSdkHostTurnSpec,
+} from './host-protocol.js'
 
 /** How long the SDK gets to wind a turn down after the daemon disappears. */
 const ORPHAN_GRACE_MS = 5_000
@@ -111,7 +113,7 @@ function toolResultText(content: unknown): string {
  * a UUID) so the thread ↔ transcript binding is deterministic.
  */
 export function buildClaudeSdkOptions(
-  spec: HeadlessTurnSpec,
+  spec: ClaudeSdkHostTurnSpec,
   canUseTool?: NonNullable<Options['canUseTool']>,
 ): Options {
   const mode: PermissionMode =
@@ -128,8 +130,13 @@ export function buildClaudeSdkOptions(
     // The CLI refuses --dangerously-skip-permissions as root unless IS_SANDBOX=1;
     // without it every headless turn on a root-run daemon dies with exit code 1.
     // Options.env REPLACES the subprocess env, so process.env must be spread in.
+    // The supervisor composed this process's environment before spawning it
+    // (stored-login precedence, instance overlay) and hands the per-turn overlay
+    // in `spec.env`; merging the two here is the whole composition, never a
+    // recomputation of it.
     env: {
-      ...headlessChildEnv(spec.agent, spec.env),
+      ...process.env,
+      ...spec.env,
       ...(mode === 'bypassPermissions' && process.getuid?.() === 0 ? { IS_SANDBOX: '1' } : {}),
     } as Record<string, string>,
     ...(spec.model && spec.model !== 'auto' ? { model: spec.model } : {}),
@@ -183,7 +190,7 @@ export interface ClaudeSdkHostIo {
  * the process down, which is the case the daemon must survive.
  */
 export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
-  let spec: HeadlessTurnSpec | undefined
+  let spec: ClaudeSdkHostTurnSpec | undefined
   /** Resolves when the SDK has answered — see `answerInterrupt` below. */
   let interrupt: (() => Promise<void>) | undefined
   type CanUseTool = NonNullable<Options['canUseTool']>
@@ -352,7 +359,7 @@ export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
   function startTurn(): void {
     void (async () => {
       // `spec` is set by the only caller, immediately above.
-      const turnSpec = spec as HeadlessTurnSpec
+      const turnSpec = spec as ClaudeSdkHostTurnSpec
       let sessionId = turnSpec.resumeValue ?? turnSpec.sessionUuid ?? ''
       let output = ''
       let partial = ''

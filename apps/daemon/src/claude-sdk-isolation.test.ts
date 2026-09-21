@@ -67,7 +67,7 @@ const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const SDK = '@anthropic-ai/claude-agent-sdk'
 
 /** The one module allowed to load the SDK: the child-process host. */
-const HOST = 'apps/daemon/src/claude-sdk-host.ts'
+const HOST = 'packages/harness/src/driver/families/claude-sdk/claude-sdk-host.ts'
 /** The compiled binary's entry, which dispatches to the host on a sentinel. */
 const COMPILED_ENTRY = 'scripts/cli-compiled.ts'
 
@@ -164,7 +164,7 @@ const REQUIRER_ALLOWANCE: Record<string, readonly string[]> = {
   'packages/runtime/src/sqlite/bun.ts': ['bun:sqlite'],
   // Resolves the TypeScript loader for the SDK host CHILD. `.resolve()` returns a
   // path and loads nothing into this process.
-  'apps/daemon/src/claude-sdk-protocol.ts': ['tsx'],
+  'packages/harness/src/driver/families/claude-sdk/host-protocol.ts': ['tsx'],
 }
 
 /** Every specifier this file loads through a requirer, plus unresolvable ones. */
@@ -269,7 +269,7 @@ function requirerViolations(file: string, source: string): string[] {
     ) {
       out.push(
         `${file} names '${spec}' as a string literal. Nothing in the daemon's graph ` +
-          `should need to: it is loaded only by apps/daemon/src/claude-sdk-host.ts, ` +
+          `should need to: it is loaded only by packages/harness/src/driver/families/claude-sdk/claude-sdk-host.ts, ` +
           `in a child process. A literal here is how a borrowed or re-parked module ` +
           `loader gets told what to fetch.`,
       )
@@ -515,7 +515,7 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
             `is third-party code driving a long-running agent: in-process, its crashes are ` +
             `the daemon's crashes and its memory is the daemon's memory, so one bad turn ` +
             `takes down every session on the machine. It belongs in the child process ` +
-            `behind apps/daemon/src/claude-sdk-client.ts.`
+            `behind packages/harness/src/driver/families/claude-sdk/child-turn.ts.`
         : '',
     ).toBeUndefined()
   })
@@ -658,7 +658,7 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
   // lend its requirer to a borrower that never names the token, and createRequire
   // is not the only door. These are those shapes, evaluated in an ALLOWED file —
   // the configuration where the earlier layers are by design silent.
-  const ALLOWED_FILE = 'apps/daemon/src/claude-sdk-protocol.ts'
+  const ALLOWED_FILE = 'packages/harness/src/driver/families/claude-sdk/host-protocol.ts'
   const ROUND4: readonly { id: string; what: string; code: string }[] = [
     {
       id: 'G1',
@@ -766,8 +766,8 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
   // on purpose and confirmed to go red.
 
   it('walks far enough for the absence above to mean anything', () => {
-    expect(graph.files.has('apps/daemon/src/claude-sdk-client.ts')).toBe(true)
-    expect(graph.files.has('apps/daemon/src/claude-sdk-protocol.ts')).toBe(true)
+    expect(graph.files.has('packages/harness/src/driver/families/claude-sdk/child-turn.ts')).toBe(true)
+    expect(graph.files.has('packages/harness/src/driver/families/claude-sdk/host-protocol.ts')).toBe(true)
     expect(graph.files.has('apps/daemon/src/discovery-jobs.ts')).toBe(true)
     expect([...graph.files].some((f) => f.startsWith('packages/harness/src/'))).toBe(true)
     expect(graph.files.size).toBeGreaterThan(100)

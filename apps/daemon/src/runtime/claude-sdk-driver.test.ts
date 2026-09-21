@@ -2,14 +2,14 @@ import { pageHistory } from '@podium/harness/driver/host'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import type { ClaudeSdkChildHandle } from '../claude-sdk-client'
-import { runClaudeSdkChildTurn } from '../claude-sdk-client'
-import type { HeadlessTurnSpec } from '../headless-drivers'
+import type { ClaudeSdkChildHandle, ClaudeSdkChildTurnInput } from '@podium/harness/driver/host'
+import { runClaudeSdkChildTurn } from '@podium/harness/driver/host'
 import { createDaemonClaudeSdkRuntime } from './claude-sdk-driver'
 import { createDaemonMachineRuntime } from './machine-runtime'
 import type { TerminalRuntimeHost } from './terminal-driver'
 
-vi.mock('../claude-sdk-client', () => ({
+vi.mock('@podium/harness/driver/host', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@podium/harness/driver/host')>()),
   runClaudeSdkChildTurn: vi.fn(),
 }))
 
@@ -61,7 +61,7 @@ describe('Claude SDK daemon host adapter', () => {
   it('resumes under the exact Podium id and reads the same conversation witness', async () => {
     const sent: DaemonMessage[] = []
     const reads: Array<{ resumeValue: string; limit: number }> = []
-    const childSpecs: HeadlessTurnSpec[] = []
+    const childSpecs: ClaudeSdkChildTurnInput[] = []
     vi.mocked(runClaudeSdkChildTurn).mockImplementation((spec) => {
       childSpecs.push(spec)
       return {
@@ -373,7 +373,7 @@ describe('Claude SDK daemon host adapter', () => {
    * becomes its environment — including against a spawn frame that names one.
    */
   it('runs the SDK child under the instance agent home, over the spawn frame env', async () => {
-    const childSpecs: HeadlessTurnSpec[] = []
+    const childSpecs: ClaudeSdkChildTurnInput[] = []
     vi.mocked(runClaudeSdkChildTurn).mockImplementation((spec) => {
       childSpecs.push(spec)
       return {
@@ -412,7 +412,7 @@ describe('Claude SDK daemon host adapter', () => {
   /** The default instance has no agent home of its own: reader and child both
    *  use the ambient one, and the daemon must not invent a different answer. */
   it('leaves the child on the daemon home when the instance has none', async () => {
-    const childSpecs: HeadlessTurnSpec[] = []
+    const childSpecs: ClaudeSdkChildTurnInput[] = []
     vi.mocked(runClaudeSdkChildTurn).mockImplementation((spec) => {
       childSpecs.push(spec)
       return {

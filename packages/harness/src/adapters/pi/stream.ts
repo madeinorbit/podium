@@ -3,6 +3,9 @@
  * shared by the in-process driver and both durable paths so the three never
  * disagree about what a turn produced.
  *
+ * (Moved from apps/daemon/src/pi-stream.ts in 1.5: pi's turn-output grammar
+ * lives with pi's adapter, behind the vendor boundary.)
+ *
  * Verified shapes:
  *   {type:'session', id}                                   — always the first line
  *   {type:'message_start', message:{role, responseId?}}
