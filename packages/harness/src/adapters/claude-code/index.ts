@@ -5,13 +5,13 @@ import { claudeRecordToItems, claudeRuntime } from '../../store/index.js'
 import {
   claudeCodeStateProvider,
   configureClaudeTranscriptClassifier,
-} from '../agent-state/claude-code.js'
-import { claudeProjectSlug, locateClaudeSessionFile } from '../agent-state/claude-locate.js'
-import { createTranscriptClassifier } from '../agent-state/transcript-classifier.js'
-import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
-import { compareClaudeCredentialFreshness } from '../credential-freshness.js'
-import { createClaudeCodeConversationProvider } from '../discovery/providers/claude-code.js'
-import { composeAgentInstructions } from '../instructions.js'
+} from '../../agent-state/claude-code.js'
+import { claudeProjectSlug, locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
+import { createTranscriptClassifier } from '../../agent-state/transcript-classifier.js'
+import { fingerprintForLoginIdentity } from '../../codex-auth-identity.js'
+import { compareClaudeCredentialFreshness } from '../../credential-freshness.js'
+import { createClaudeCodeConversationProvider } from '../../discovery/providers/claude-code.js'
+import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   type DriverId,
@@ -24,10 +24,10 @@ import {
   supported,
   type TranscriptSourceInput,
   unsupported,
-} from '../manifest.js'
-import { claudeHookAcceptCorrelation, transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
-import { claudeTranscriptClassifierRules } from './claude-code-classifier.js'
-import { classifyClaudeLoginStatus } from './claude-login-status.js'
+} from '../../manifest.js'
+import { claudeHookAcceptCorrelation, transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
+import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
 
 configureClaudeTranscriptClassifier(createTranscriptClassifier(claudeTranscriptClassifierRules))
 

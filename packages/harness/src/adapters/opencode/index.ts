@@ -1,10 +1,10 @@
 import { join } from 'node:path'
 import { type OpencodeMessagePartRow, sliceItemsByAnchor, stampOpencodeItems, type TranscriptSource } from '../../store/index.js'
-import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
-import { observeOpencodeState, opencodeStateProvider } from '../agent-state/opencode.js'
-import { withStateChannel } from '../agent-state/types.js'
-import { createOpencodeConversationProvider } from '../discovery/providers/opencode.js'
-import { composeAgentInstructions } from '../instructions.js'
+import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { observeOpencodeState, opencodeStateProvider } from '../../agent-state/opencode.js'
+import { withStateChannel } from '../../agent-state/types.js'
+import { createOpencodeConversationProvider } from '../../discovery/providers/opencode.js'
+import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   isSet,
@@ -12,15 +12,15 @@ import {
   selectRuntimeDriver,
   supported,
   unsupported,
-} from '../manifest.js'
-import { detectOpencodeLogin } from '../opencode/auth.js'
-import { resolveOpencode2Bin, resolveOpencodeBin } from '../opencode/cli.js'
+} from '../../manifest.js'
+import { detectOpencodeLogin } from '../../opencode/auth.js'
+import { resolveOpencode2Bin, resolveOpencodeBin } from '../../opencode/cli.js'
 import {
   loadOpencodeTranscriptTail,
   opencodeDbPathForSession,
   openOpencodeDb,
-} from '../opencode/db.js'
-import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../version-policy.js'
+} from '../../opencode/db.js'
+import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
 
 /**
  * Source for opencode. opencode stores transcript "parts" in SQLite ordered by

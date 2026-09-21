@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import type { AgentObservationRebindAckMessage } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { declaredValue } from '../manifest.js'
-import type { HarnessObservationLease, HarnessObserverHost } from '../manifest.js'
+import { declaredValue } from '../../manifest.js'
+import type { HarnessObservationLease, HarnessObserverHost } from '../../manifest.js'
 
 const mockedObserver = vi.hoisted(() => ({
   starts: [] as Array<{
@@ -17,8 +17,8 @@ const mockedObserver = vi.hoisted(() => ({
   }>,
 }))
 
-vi.mock('../agent-state/codex.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../agent-state/codex.js')>()
+vi.mock('../../agent-state/codex.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent-state/codex.js')>()
   return {
     ...actual,
     observeCodexState: vi.fn((opts) => {
@@ -33,7 +33,7 @@ vi.mock('../agent-state/codex.js', async (importOriginal) => {
   }
 })
 
-import { codexManifest } from './codex.js'
+import { codexManifest } from './index.js'
 
 function lease(providerSessionId: string | null): HarnessObservationLease {
   return {

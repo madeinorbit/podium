@@ -246,7 +246,10 @@ export function auditClosureAt(root: string, entry: string, file: string): Entry
   return findings
 }
 
-export function auditServerClosureAt(root: string, serverEntry: string): EntryFinding[] {
+export function auditServerClosureAt(
+  root: string,
+  serverEntry: string,
+): { visited: number; findings: EntryFinding[] } {
   const findings: EntryFinding[] = []
   const { visited } = walkClosure(root, serverEntry, (from, ref) => {
     if (ref.specifier.includes('driver/families')) {

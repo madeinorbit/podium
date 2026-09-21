@@ -1,8 +1,8 @@
 import { realpath as realpathFs, stat } from 'node:fs/promises'
 import { sep } from 'node:path'
 import { HARNESS_ADAPTERS } from '../registry.js'
-import type { ConversationDiscoveryCache } from './cache.js'
-import { canonicalPath, expandHome, isDirectory } from './paths.js'
+import type { ConversationDiscoveryCache } from '../discovery/cache.js'
+import { canonicalPath, expandHome, isDirectory } from '../discovery/paths.js'
 import {
   type AgentConversation,
   type AgentConversationDiagnostic,
@@ -14,7 +14,7 @@ import {
   type ScanAgentConversationsCachedResult,
   type ScanAgentConversationsOptions,
   type ScanAgentConversationsResult,
-} from './types.js'
+} from '../discovery/types.js'
 
 // The adapters own the provider instances (#158); scan priority keeps the
 // historical order (codex first, then claude-code, grok, opencode, cursor).

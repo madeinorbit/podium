@@ -325,7 +325,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
    * reading the conversation back saw the model assert a file's contents with no
    * record of it ever having read the file.
    *
-   * The item is built by `@podium/transcript`'s shared builder — the same
+   * The item is built by the store's shared builder (`@podium/harness/store`) — the same
    * function the JSONL parser uses — so the item published live and the item a
    * reload produces are the same item, by construction rather than by agreement.
    */

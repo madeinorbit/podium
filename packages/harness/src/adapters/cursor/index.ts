@@ -1,12 +1,12 @@
-import { resolveCursorBin } from '../cursor/cli.js'
+import { resolveCursorBin } from '../../cursor/cli.js'
 import { join } from 'node:path'
 import { cursorRecordToItems } from '../../store/index.js'
-import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
-import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
-import { withStateChannel } from '../agent-state/types.js'
-import { cursorSessionPaths } from '../cursor/paths.js'
-import { createCursorConversationProvider } from '../discovery/providers/cursor.js'
-import { composeAgentInstructions } from '../instructions.js'
+import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { cursorStateProvider, observeCursorState } from '../../agent-state/cursor.js'
+import { withStateChannel } from '../../agent-state/types.js'
+import { cursorSessionPaths } from '../../cursor/paths.js'
+import { createCursorConversationProvider } from '../../discovery/providers/cursor.js'
+import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   fileTranscript,
@@ -16,7 +16,7 @@ import {
   type TranscriptSourceInput,
   transcriptFileExists,
   unsupported,
-} from '../manifest.js'
+} from '../../manifest.js'
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []

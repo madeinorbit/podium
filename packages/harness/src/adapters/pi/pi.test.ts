@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { declaredValue } from '../manifest.js'
-import { piManifest } from './pi.js'
+import { declaredValue } from '../../manifest.js'
+import { piManifest } from './index.js'
 
 const headless = declaredValue(piManifest.headless)
 const buildExec = headless ? declaredValue(headless.buildExec) : undefined

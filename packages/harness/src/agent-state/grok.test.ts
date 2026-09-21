@@ -9,7 +9,7 @@ import type {
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentManifest, HarnessObserver, HarnessObserverHost } from '../manifest'
-import { grokManifest } from '../manifests/grok'
+import { grokManifest } from '../adapters/grok/index.js'
 
 /** grok declares `observer` supported; unwrap it once so the tests below read as
  *  observer behavior rather than as Declared plumbing. Throws (rather than
