@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
+    "@podium/harness": "workspace:*",
     "@podium/issue-client": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",

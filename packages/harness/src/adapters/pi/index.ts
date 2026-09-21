@@ -20,6 +20,7 @@ import {
 } from '../../manifest.js'
 import { locatePiSessionFile, piAgentDir } from '../../pi/paths.js'
 import { piCredentials } from './credentials.js'
+import { piInstall } from './install.js'
 import { piUsage } from './usage.js'
 
 /**
@@ -212,6 +213,7 @@ export const piManifest: AgentManifest = {
 
   credentials: piCredentials,
   usage: piUsage,
+  install: piInstall,
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

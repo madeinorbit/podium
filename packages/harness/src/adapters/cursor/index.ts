@@ -18,6 +18,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { cursorCredentials } from './credentials.js'
+import { cursorInstall } from './install.js'
 import { cursorUsage } from './usage.js'
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
@@ -84,6 +85,7 @@ export const cursorManifest: AgentManifest = {
 
   credentials: cursorCredentials,
   usage: cursorUsage,
+  install: cursorInstall,
 
   launch(opts) {
     const args = [

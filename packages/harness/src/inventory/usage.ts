@@ -17,7 +17,7 @@ import {
   type HarnessQuotaProbe,
   type HarnessUsageTranscripts,
 } from '../manifest.js'
-import { AGENT_MANIFESTS } from '../registry.js'
+import { AGENT_MANIFESTS, manifestFor } from '../registry.js'
 import {
   fileBuckets,
   mergeBuckets,
@@ -27,6 +27,18 @@ import {
 } from '../usage-records.js'
 
 export type QuotaFetcher = (deps: { homeDir?: string; now?: number }) => Promise<AgentQuotaWire>
+
+/**
+ * Presentational label for a quota agent, read off the manifest so the CLI
+ * never keeps a second label table that drifts from it (POD-4414 §4.4).
+ * Unknown ids — 'shell', or a harness a newer peer named that this build has
+ * never heard of — degrade to a capitalized id, never to another CLI's label.
+ */
+export function quotaAgentLabel(kind: string): string {
+  const display = manifestFor(kind)?.displayName
+  if (display) return display
+  return kind.length > 0 ? kind.charAt(0).toUpperCase() + kind.slice(1) : kind
+}
 
 function defaultQuotaFetchers(): { key: AgentKind; fetch: QuotaFetcher }[] {
   const fetchers: { key: AgentKind; fetch: QuotaFetcher }[] = []

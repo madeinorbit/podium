@@ -6,7 +6,8 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
-import type { AgentKind, AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
+import { quotaAgentLabel } from '@podium/harness/inventory'
+import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
 import { resolveAgentRelay } from '@podium/runtime/config'
 
 type QuotaProc = {
@@ -20,16 +21,6 @@ export interface QuotaClient {
 }
 
 export class QuotaCliError extends Error {}
-
-const AGENT_LABELS: Record<AgentKind, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  cursor: 'Cursor',
-  pi: 'Pi',
-  shell: 'Shell',
-}
 
 export function quotaHelpText(): string {
   return [
@@ -112,7 +103,9 @@ export function renderQuota(machines: MachineQuotaWire[], nowMs = Date.now()): s
         return lines.join('\n')
       }
       for (const agent of machine.agents) {
-        const label = AGENT_LABELS[agent.agent]
+        // The label is read off the harness manifest through Inventory — the
+        // CLI keeps no second label table to drift from it.
+        const label = quotaAgentLabel(agent.agent)
         const account = accountDescription(agent)
         if (agent.status !== 'ok' || agent.windows.length === 0) {
           lines.push(`  ${label}${account} — ${statusDescription(agent)}`)

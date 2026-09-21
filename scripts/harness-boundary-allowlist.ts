@@ -75,14 +75,14 @@ export interface HarnessBoundaryAllowlistEntry {
  * POD-4493 (1.6) lowered the baselines to match.
  * POD-4473 (3.3) deleted the eight daemon credential/quota/usage files and
  * un-named the harness in cost/service + login-propagation: leak 487 → 461.
+ * POD-4478 (4.4) moved the CLI install steps into adapter install sections
+ * and reads quota labels off the Inventory: leak 461 → 438.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 461
+export const HARNESS_BASELINE_LEAK_COUNT = 438
 export const HARNESS_BASELINE_POLICY_COUNT = 30
-export const HARNESS_BASELINE_TOTAL = 491
+export const HARNESS_BASELINE_TOTAL = 468
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
-  { file: 'apps/cli/src/install-agents.ts', count: 16, category: 'leak', reason: 'CLI/install names a harness; move into adapter install sections (4.4)', issue: 'POD-4414/4.4' },
-  { file: 'apps/cli/src/quota-cli.ts', count: 7, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/binding-store.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/codex-hooks.ts', count: 2, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
