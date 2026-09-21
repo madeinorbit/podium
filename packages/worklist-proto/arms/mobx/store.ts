@@ -127,7 +127,6 @@ export class MobXStore {
       stats: false,
       worklist: false,
       visibleGuard: false,
-      aggregateGuard: false,
       off: false,
       webRoot: false,
       issues: false,
