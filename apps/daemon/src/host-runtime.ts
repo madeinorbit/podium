@@ -150,6 +150,7 @@ import {
 import { createHeadlessRuntime, type HeadlessRuntime } from './runtime/headless-driver'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
+import { createSessionClientScope } from './session/clients.js'
 import type { DaemonOpencodeRuntime } from '@podium/harness/driver/host'
 import { createScopeMonitor } from './runtime/scope-monitor'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
@@ -1049,8 +1050,13 @@ export async function createDaemonHostRuntime(args: {
    * drivers refuse a Native attach with their per-machine wording, and the
    * metrics below report zero reclaimable attachments.
    */
-  const clientTerminals = createClientTerminalsFor(ctx.durable, {
-    sessions,
+  const clientTerminals = createClientTerminalsFor(
+    // THE SESSION LAYER'S CLIENT HOLD (spec §5): the relay summons nothing
+    // itself — it drives this scope, which owns the client durable. `undefined`
+    // (backend=none) means no terminals at all, never a substituted backend.
+    createSessionClientScope(ctx.durable, homeDir ? { homeDir } : undefined),
+    {
+      sessions,
     // The one applied-size record this daemon owns (POD-3290). Opening a client
     // terminal is a real apply, and this is the only wiring that lets that fact
     // reach the frames which report a grid.
@@ -1094,10 +1100,11 @@ export async function createDaemonHostRuntime(args: {
     ...(homeDir ? { homeDir } : {}),
     instanceUuid: instance.instanceUuid,
     // The client terminal is a durable session like any other: it lives under
-    // whichever host this daemon selected (SPEC-6) — the whole `ctx.durable`,
-    // handed to `createClientTerminalsFor` as one object, never rebuilt here
-    // per backend.
-  })
+    // whichever host this daemon selected (SPEC-6) — the session-owned scope
+    // above, handed to `createClientTerminalsFor` as one object, never rebuilt
+    // here per backend.
+    },
+  )
   // Set only when the daemon has a durable host to build one on (POD-3917).
   if (clientTerminals) ctx.clientTerminals = clientTerminals
 

@@ -40,6 +40,7 @@ import {
   WARM_TTL_MS,
 } from './opencode-attach'
 import { SessionRegistry } from '../session/registry.js'
+import { createSessionClientScope, type ClientProcessOwner } from '../session/clients.js'
 import { testSessions } from '../session/testing.js'
 import {
   createOpencodeEngineHost,
@@ -59,9 +60,9 @@ const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface
 const URL = 'http://127.0.0.1:41234'
 
 /**
- * The backend every spawn-injecting test below means: the `spawn` seam overrides
- * `durable.spawn` entirely, so this object is never called — it is here to state
- * the backend explicitly, now that the port is required (POD-3917).
+ * The backend the probe-subject tests below mean: the session-owned scope is
+ * built over this object, so its socket-dir read is the production path —
+ * spawns never reach it, because no test in this file summons through it.
  */
 const abducoOnly = createDurable('abduco', { host: false, abduco: true })
 
@@ -210,15 +211,12 @@ function harness(opts: HarnessOptions = {}) {
     cleared: 0,
     fire: () => {},
   }
-  const terminals = createOpencodeClientTerminals({
-    durable: abducoOnly,
-    sessions,
-    ...(opts.appliedGeometry ? { appliedGeometry: opts.appliedGeometry } : {}),
-    ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
-    ...(opts.rememberDurableSeq ? { rememberDurableSeq: opts.rememberDurableSeq } : {}),
-    frames: (streamId, data) => state.frames.push({ streamId, data }),
-    releaseStream: (streamId) => state.released.push(streamId),
-    spawn: async (o) => {
+  // THE SESSION SUMMONS, THE RELAY RENDERS: the only process path the relay
+  // may use is this session-owned port. Every spawn-injecting test below
+  // drives it, so the `durable` object is never passed — it is here only
+  // where a test states the backend explicitly (POD-3917).
+  const clients: ClientProcessOwner = {
+    spawnClient: async (o) => {
       state.spawns.push({
         label: o.label,
         cmd: o.cmd,
@@ -241,10 +239,19 @@ function harness(opts: HarnessOptions = {}) {
           }
         : { ...client, ...withConnection }
     },
-    reclaim: async (label) => {
+    reclaimClient: async (label) => {
       state.reclaimed.push(label)
     },
-    hasMaster: opts.hasMaster ?? (() => false),
+    hasClientMaster: opts.hasMaster ?? (() => false),
+  }
+  const terminals = createOpencodeClientTerminals({
+    sessions,
+    clients,
+    ...(opts.appliedGeometry ? { appliedGeometry: opts.appliedGeometry } : {}),
+    ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
+    ...(opts.rememberDurableSeq ? { rememberDurableSeq: opts.rememberDurableSeq } : {}),
+    frames: (streamId, data) => state.frames.push({ streamId, data }),
+    releaseStream: (streamId) => state.released.push(streamId),
     setTimer: (fn) => {
       state.armed += 1
       state.fire = fn
@@ -384,11 +391,12 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: () => {},
-      spawn: async () => spawned,
-      reclaim: async () => {},
-      hasMaster: () => false,
+      clients: {
+        spawnClient: async () => spawned,
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
+      },
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -649,11 +657,12 @@ describe('the client terminal a server-family attach produces', () => {
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: () => {},
-      spawn: async () => spawned,
-      reclaim: async () => {},
-      hasMaster: () => false,
+      clients: {
+        spawnClient: async () => spawned,
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
+      },
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -679,11 +688,12 @@ describe('the client terminal a server-family attach produces', () => {
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: () => {},
-      spawn: async () => spawned,
-      reclaim: async () => {},
-      hasMaster: () => false,
+      clients: {
+        spawnClient: async () => spawned,
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
+      },
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -706,11 +716,12 @@ describe('the client terminal a server-family attach produces', () => {
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: () => {},
-      spawn: async () => spawned,
-      reclaim: async () => {},
-      hasMaster: () => false,
+      clients: {
+        spawnClient: async () => spawned,
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
+      },
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -734,11 +745,12 @@ describe('the client terminal a server-family attach produces', () => {
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: () => {},
-      spawn: async () => spawned,
-      reclaim: async () => {},
-      hasMaster: () => false,
+      clients: {
+        spawnClient: async () => spawned,
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
+      },
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -931,18 +943,19 @@ describe('warm-parking', () => {
     const reclaimed: string[] = []
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: () => {},
-      spawn: async () => {
-        await started
-        const client = fakeClient()
-        clients.push(client)
-        return client
+      clients: {
+        spawnClient: async () => {
+          await started
+          const client = fakeClient()
+          clients.push(client)
+          return client
+        },
+        reclaimClient: async (label) => {
+          reclaimed.push(label)
+        },
+        hasClientMaster: () => true,
       },
-      reclaim: async (label) => {
-        reclaimed.push(label)
-      },
-      hasMaster: () => true,
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -962,14 +975,15 @@ describe('warm-parking', () => {
     const clients = [fakeClient(), fakeClient()]
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: () => {},
-      spawn: async () =>
-        new Promise<DurableAttachment>((resolve) => {
-          resolvers.push(resolve)
-        }),
-      reclaim: async () => {},
-      hasMaster: () => false,
+      clients: {
+        spawnClient: async () =>
+          new Promise<DurableAttachment>((resolve) => {
+            resolvers.push(resolve)
+          }),
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
+      },
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -1050,21 +1064,22 @@ describe('warm-parking', () => {
     const frames: { streamId: string; data: Uint8Array }[] = []
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: (streamId, data) => frames.push({ streamId, data }),
-      spawn: async (o) => {
-        spawns.push(o.label)
-        const client = fakeClient(
-          spawns.length === 1 ? undefined : '\x1b[2Jseed marker learned while parked',
-          undefined,
-          spawns.length === 1,
-        )
-        clients.push(client)
-        // A park leaves the master holding the label, so the NEXT spawn finds it.
-        return spawns.length === 1 ? client : { ...client, adopted: true }
+      clients: {
+        spawnClient: async (o) => {
+          spawns.push(o.label)
+          const client = fakeClient(
+            spawns.length === 1 ? undefined : '\x1b[2Jseed marker learned while parked',
+            undefined,
+            spawns.length === 1,
+          )
+          clients.push(client)
+          // A park leaves the master holding the label, so the NEXT spawn finds it.
+          return spawns.length === 1 ? client : { ...client, adopted: true }
+        },
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
       },
-      reclaim: async () => {},
-      hasMaster: () => false,
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -1125,16 +1140,17 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: () => {},
-      spawn: async () => {
-        await started
-        const client = fakeClient()
-        clients.push(client)
-        return client
+      clients: {
+        spawnClient: async () => {
+          await started
+          const client = fakeClient()
+          clients.push(client)
+          return client
+        },
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
       },
-      reclaim: async () => {},
-      hasMaster: () => false,
       setTimer: () => 1,
       clearTimer: () => {},
     })
@@ -1164,17 +1180,18 @@ describe('warm-parking', () => {
     let cleared = 0
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable: abducoOnly,
       frames: (streamId, data) => frames.push({ streamId, data }),
-      spawn: async () => {
-        spawnCount += 1
-        if (spawnCount === 1) return await firstStart
-        const client = fakeClient()
-        clients.push(client)
-        return client
+      clients: {
+        spawnClient: async () => {
+          spawnCount += 1
+          if (spawnCount === 1) return await firstStart
+          const client = fakeClient()
+          clients.push(client)
+          return client
+        },
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
       },
-      reclaim: async () => {},
-      hasMaster: () => false,
       setTimer: () => ++armed,
       clearTimer: () => {
         cleared += 1
@@ -1275,14 +1292,21 @@ describe('warm-parking', () => {
 
     function subject(homeDir?: string) {
       const reclaimed: string[] = []
-      const terminals = createOpencodeClientTerminals({
-        sessions: testSessions(),
-        durable: abducoOnly,
-        frames: () => {},
-        // `hasMaster` is DELIBERATELY not injected here: it is the subject.
-        reclaim: async (label) => {
+      // The probe is DELIBERATELY the real one: the session-owned scope over
+      // the abduco durable, so the socket-dir read under test is the
+      // production path, not an injection. Only the reclaim is recorded.
+      const scope = createSessionClientScope(abducoOnly, homeDir ? { homeDir } : undefined)!
+      const clients: ClientProcessOwner = {
+        spawnClient: (opts) => scope.spawnClient(opts),
+        reclaimClient: async (label) => {
           reclaimed.push(label)
         },
+        hasClientMaster: (label) => scope.hasClientMaster(label),
+      }
+      const terminals = createOpencodeClientTerminals({
+        sessions: testSessions(),
+        clients,
+        frames: () => {},
         setTimer: () => 1,
         clearTimer: () => {},
         ...(homeDir ? { homeDir } : {}),
@@ -1833,7 +1857,7 @@ describe('a client terminal populates its host resume point', () => {
 })
 
 describe('under backend=host the client terminal lives in the host, not abduco (SPEC-6)', () => {
-  it('spawn, the master probe and reclaim all go to the daemon durable object', async () => {
+  it('spawn, the master probe and reclaim all go through the session-owned scope', async () => {
     const calls: string[] = []
     const client = fakeClient()
     const hostAdapter = {
@@ -1882,7 +1906,9 @@ describe('under backend=host the client terminal lives in the host, not abduco (
     }
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
-      durable,
+      // The relay reaches the host only through the session-owned scope: the
+      // recording durable below is wrapped, never passed through.
+      clients: createSessionClientScope(durable)!,
       frames: () => {},
       setTimer: () => 1,
       clearTimer: () => {},
@@ -1895,8 +1921,8 @@ describe('under backend=host the client terminal lives in the host, not abduco (
   })
 })
 
-describe('without a durable host there are no client terminals (POD-3917)', () => {
-  it('refuses to be built without a durable host — there is no silent abduco fallback', () => {
+describe('without a session client scope there are no client terminals (POD-3917)', () => {
+  it('refuses to be built without a session owner — there is no silent abduco fallback', () => {
     // ARMED: before the fix the fallback built an abduco-only host here, so
     // this construction succeeded and the omission silently chose a backend.
     // Now the omission throws at the call site that made it.
@@ -1905,7 +1931,7 @@ describe('without a durable host there are no client terminals (POD-3917)', () =
         sessions: testSessions(),
         frames: () => {},
       } as unknown as Parameters<typeof createOpencodeClientTerminals>[0]),
-    ).toThrow(/requires ports\.durable/)
+    ).toThrow(/requires ports\.clients/)
   })
 
   it('a backend=none daemon gets no terminal host rather than a substituted one', () => {
@@ -1916,16 +1942,20 @@ describe('without a durable host there are no client terminals (POD-3917)', () =
     ).toBeUndefined()
   })
 
-  it('a daemon WITH a durable host gets its terminals built on that object', async () => {
-    const terminals = createClientTerminalsFor(abducoOnly, {
-      sessions: testSessions(),
-      frames: () => {},
-      spawn: async () => fakeClient(),
-      reclaim: async () => {},
-      hasMaster: () => false,
-      setTimer: () => 1,
-      clearTimer: () => {},
-    })
+  it('a daemon WITH a session scope gets its terminals built on that scope', async () => {
+    const terminals = createClientTerminalsFor(
+      {
+        spawnClient: async () => fakeClient(),
+        reclaimClient: async () => {},
+        hasClientMaster: () => false,
+      },
+      {
+        sessions: testSessions(),
+        frames: () => {},
+        setTimer: () => 1,
+        clearTimer: () => {},
+      },
+    )
     expect(terminals).toBeDefined()
     await terminals?.attach({ sessionId: SESSION, target })
     await terminals?.close(SESSION)
