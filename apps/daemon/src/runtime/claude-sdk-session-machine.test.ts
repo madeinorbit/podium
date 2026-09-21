@@ -10,16 +10,9 @@ import { pageHistory } from '@podium/harness/driver/host'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import type { ClaudeSdkChildHandle, ClaudeSdkChildTurnInput } from '@podium/harness/driver/host'
-import { runClaudeSdkChildTurn } from '@podium/harness/driver/host'
 import { createClaudeSdkSessionRuntime } from '@podium/harness/driver/host'
 import { createDaemonMachineRuntime } from './machine-runtime'
 import type { TerminalRuntimeHost } from './terminal-driver'
-
-vi.mock('@podium/harness/driver/host', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@podium/harness/driver/host')>()),
-  runClaudeSdkChildTurn: vi.fn(),
-}))
 
 const SESSION_ID = 'claude-adapter-session' as SessionId
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-native-thread' }
@@ -79,12 +72,27 @@ describe('Claude SDK sessions through the machine root', () => {
       sessionReady: () => {},
       traceRuntimeEvent: () => {},
       startMailContinuation: () => () => {},
+      facts: {
+        harnessKind: 'claude-code',
+        command: 'claude',
+        stripEnv: [],
+        scopeToken: 'cl',
+        journalNamespace: 'claude-engines',
+        attachKind: 'claude-code',
+      },
+      engine: {
+        journal: { read: () => undefined, write: () => {}, clear: () => {} },
+        startTurn: () => {
+          throw new Error('no engine turn in this test')
+        },
+        stopEngine: async () => {},
+        releaseEngines: () => {},
+      },
       transcript: {
         readHistory: host([]).readHistory,
         archiveTranscript: async () => ({ path: '/tmp/archive.jsonl' }),
         readFileBytes: async () => new Uint8Array(),
       },
-      composeChildEnv: (_agent, explicit) => ({ ...explicit }),
     })
     const terminal = {
       driverFor: vi.fn(),

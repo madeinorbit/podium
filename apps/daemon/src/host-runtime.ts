@@ -6,9 +6,12 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { createOpencode2Client, DriverRefusalError } from '@podium/harness/driver/host'
 import {
+  type ClaudeEngineJournalEntry,
   type CodexJournalEntry,
+  claudeEngineFacts,
   codexEngineFacts,
   codexHarnessKind,
+  createClaudeEngineHost,
   createCodexEngineHost,
   createCodexSessionRuntime,
   createGrokEngineHost,
@@ -124,7 +127,6 @@ import { makeQuotaFetcher } from '@podium/harness/inventory'
 import { createReattachGates } from './reattach-gates'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
 import { driverTiming } from './runtime/driver-timing'
-import { headlessChildEnv } from './headless-drivers'
 import { createMailContinuation } from './runtime/mail-boundary'
 import type { DaemonClaudeSdkRuntime } from '@podium/harness/driver/host'
 import type { DaemonCodexRuntime } from '@podium/harness/driver/host'
@@ -1160,6 +1162,7 @@ export async function createDaemonHostRuntime(args: {
   }
   const codexFacts = codexEngineFacts(engineSections(codexHarnessKind))
   const grokFacts = grokEngineFacts(engineSections(grokHarnessKind))
+  const claudeFacts = claudeEngineFacts(engineSections(claudeSdkHarnessKind))
   const ocFacts = opencodeFlavor(engineSections(opencodeHarnessKind))
   const oc2Facts = opencode2Flavor(engineSections(opencodeHarnessKind))
   // The engine's durable owner (POD-4433): podium-host under the hood. One
@@ -1190,22 +1193,40 @@ export async function createDaemonHostRuntime(args: {
         }),
     )
   const sessionFrames = { emitBind, sessionReady, traceRuntimeEvent, startMailContinuation }
+  /**
+   * THE CLAUDE STREAM ENGINE (POD-4499), composed like every other engine:
+   * one long-lived `claude` stream-json child per session under podium-host,
+   * owned by the same supervision. The session adapter translates the
+   * contract onto it; `machine-runtime` still routes claude sessions through
+   * the embedded source until POD-4497 moves the routing — the family already
+   * speaks the server-family shape (journal, adopt, describe) so that move
+   * is mechanical.
+   */
+  const claudeEngine = createClaudeEngineHost({
+    facts: claudeFacts,
+    supervision: engineSupervision,
+    journal: createEngineJournal<ClaudeEngineJournalEntry>({ namespace: claudeFacts.journalNamespace }),
+    buildEnv: composeEngineEnv,
+    gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+    // The instance agent home the transcript reader already resolves against
+    // (control/transcripts.ts sourceForRead), so the engine child writes its
+    // JSONL where sessions.read looks for it (POD-3057).
+    ...(homeDir ? { homeDir } : {}),
+    ...(generationInventory?.executables.has(claudeSdkHarnessKind)
+      ? { executablePath: resolvedHarnessPath(generationInventory, claudeSdkHarnessKind) }
+      : {}),
+    instanceUuid: instance.instanceUuid,
+  })
   claudeRuntime = createClaudeSdkSessionRuntime({
     send,
     ...sessionFrames,
+    facts: claudeFacts,
+    engine: claudeEngine,
     transcript: {
       readHistory: contractHost.readHistory,
       archiveTranscript: contractHost.archiveTranscript,
       readFileBytes: contractHost.readFileBytes,
     },
-    composeChildEnv: headlessChildEnv,
-    // The instance agent home the transcript reader already resolves against
-    // (control/transcripts.ts sourceForRead), so the SDK child writes its JSONL
-    // where sessions.read looks for it (POD-3057).
-    ...(homeDir ? { homeDir } : {}),
-    ...(generationInventory?.executables.has(claudeSdkHarnessKind)
-      ? { executablePath: resolvedHarnessPath(generationInventory, claudeSdkHarnessKind) }
-      : {}),
   })
   /**
    * THE SERVER-FAMILY RUNTIME (POD-1761 W5), built the same way and for the same

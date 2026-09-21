@@ -12,12 +12,15 @@ import {
   resolvedHarnessPath,
 } from '@podium/harness'
 import {
+  buildClaudeStreamInvocation,
+  claudeStreamEnvOverlay,
   claudeSdkExecutablePath,
   codexHarnessKind,
+  type ClaudeStreamTransport,
+  createClaudeStreamClient,
   cursorCreateChatInvocation,
   HeadlessTurnFailure,
   parseCursorChatId,
-  runClaudeSdkChildTurn,
   runCodexExecTurn,
 } from '@podium/harness/driver/host'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
@@ -170,6 +173,151 @@ export function headlessSpawnEnv(input: {
     ([key, value]) => input.commandEnv[key] !== value,
   )
   return { ...base, ...input.execEnv, ...Object.fromEntries(instanceOwned) }
+}
+
+/** How long a politely-interrupted one-shot gets to wind down before it is killed. */
+const CLAUDE_ONE_SHOT_INTERRUPT_GRACE_MS = 15_000
+
+/**
+ * The stream-json line channel over a directly-spawned one-shot child.
+ * Sessions run the same wire over a host-held engine (the family's
+ * engine-host); one-shot A2A turns are inherently per-turn work and keep the
+ * daemon-side spawn every other one-shot driver already has — including on
+ * backend=none daemons with no durable host. SDK-free: the family owns argv
+ * and the line protocol (see `createClaudeStreamClient`), this file owns the
+ * pipes.
+ */
+function claudePipeTransport(child: ChildProcess): ClaudeStreamTransport {
+  const decoder = new LineDecoder()
+  const lineCbs = new Set<(line: string) => void>()
+  const exitCbs = new Set<(code: number | null, signal: string | null) => void>()
+  child.stdout?.on('data', (d: Buffer) => {
+    for (const line of decoder.push(d)) for (const cb of [...lineCbs]) cb(line)
+  })
+  child.on('close', (code, signal) => {
+    const tail = decoder.flush()
+    if (tail?.trim()) for (const cb of [...lineCbs]) cb(tail)
+    for (const cb of [...exitCbs]) cb(code, signal ?? null)
+  })
+  return {
+    writeLine(line) {
+      try {
+        child.stdin?.write(`${line}\n`)
+      } catch {
+        // A dead child's stdin is not an error path of its own — the exit
+        // handler reports the death, once, with the real reason.
+      }
+    },
+    onLine(cb) {
+      lineCbs.add(cb)
+      return () => lineCbs.delete(cb)
+    },
+    onExit(cb) {
+      exitCbs.add(cb)
+      return () => exitCbs.delete(cb)
+    },
+    close() {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // Already gone; that is the state we wanted.
+      }
+    },
+  }
+}
+
+/**
+ * One Claude turn through a directly-spawned streaming `claude` child.
+ *
+ * The contract is the turn handle every other one-shot driver returns — same
+ * outcome (carrying the harness session id out of a failure), same
+ * permission/tool hooks, same interrupt-then-kill discipline — with the
+ * stream-json wire spoken directly instead of through the old SDK helper
+ * child. stderr is not protocol, but it IS the only explanation a crashed
+ * child gets to leave behind, so a bounded tail rides the death message.
+ */
+function runClaudeStreamOneShotTurn(
+  spec: HeadlessTurnSpec,
+  emit: HeadlessEmit,
+  snapshot: ResolvedHarnessInventory,
+  hooks?: HeadlessTurnHooks,
+): HeadlessTurnHandle {
+  const { cmd, args } = buildClaudeStreamInvocation(
+    { ...spec },
+    claudeSdkExecutablePath(snapshot),
+  )
+  const child = spawn(cmd, args, {
+    cwd: spec.cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: {
+      ...headlessChildEnv(spec.agent, spec.env),
+      ...claudeStreamEnvOverlay({
+        ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
+        isRoot: process.getuid?.() === 0,
+      }),
+    },
+  })
+  // stderr is not protocol, but it IS the only explanation a crashed child
+  // gets to leave behind, so keep a bounded tail for the death message.
+  let stderrTail = ''
+  child.stderr?.on('data', (d: Buffer) => {
+    stderrTail = (stderrTail + d.toString()).slice(-8192)
+  })
+  const client = createClaudeStreamClient(claudePipeTransport(child), {
+    ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
+    ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
+    ...(spec.timeoutMs ? { timeoutMs: spec.timeoutMs } : {}),
+  })
+  const turn = client.turn(
+    spec.prompt,
+    {
+      onPartialText: (text, itemHint) =>
+        emit({ kind: 'partial-text', text, ...(itemHint ? { itemHint } : {}) }),
+      onPermission: (request) => hooks?.onPermission?.(request),
+      onToolCall: (call) => hooks?.onToolCall?.(call),
+      onToolResult: (result) => hooks?.onToolResult?.(result),
+      emit,
+    },
+  )
+  let killTimer: ReturnType<typeof setTimeout> | undefined
+  const killAfterGrace = (): void => {
+    if (killTimer) return
+    killTimer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // Already gone.
+      }
+    }, CLAUDE_ONE_SHOT_INTERRUPT_GRACE_MS)
+    killTimer.unref?.()
+  }
+  const done: Promise<HeadlessTurnOutcome> = turn.done.catch((err: unknown) => {
+    const tail = stderrTail.trim().slice(-2000)
+    if (err instanceof HeadlessTurnFailure && tail) {
+      throw new HeadlessTurnFailure(`${err.message}: ${tail}`, err.harnessSessionId)
+    }
+    throw err
+  })
+  // An owner that only interrupts still needs the silence: the rejection is
+  // the turn's own, already observed above.
+  done.catch(() => {})
+  return {
+    done,
+    interrupt: () => {
+      turn.interrupt()
+      killAfterGrace()
+    },
+    answerPermission: (interactionId, answer) => client.answerPermission(interactionId, answer),
+    dispose: () => {
+      turn.interrupt()
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // Already gone.
+      }
+      client.close()
+    },
+  }
 }
 
 /** Pure argv builder for the child-process drivers (codex/grok/opencode/cursor)
@@ -517,17 +665,16 @@ const resumeExecDriver: HeadlessDriver = runResumeExecTurn
  *  registry, so a new agent picks its driver in its adapter file (and the
  *  registry's exhaustive Record still fails typecheck until it exists). */
 const DRIVER_IMPLS: Record<HarnessHeadless['driver'], HeadlessDriver> = {
-  // OUT OF PROCESS BY DESIGN. The Claude Agent SDK is third-party code driving a
-  // long-running agent, and it used to run right here — inside the process that
-  // supervises every session on this machine, where its crashes and its memory
-  // were the daemon's crashes and the daemon's memory. It now runs in a child
-  // (claude-sdk-host.ts) that the daemon can lose without losing anything else.
+  // SDK-FREE BY CONSTRUCTION (POD-4499). The Claude Agent SDK used to run
+  // right here — inside the process that supervises every session on this
+  // machine, where its crashes and its memory were the daemon's crashes and
+  // the daemon's memory — and then in a per-turn helper child the family
+  // spawned itself. One-shot turns now spawn the `claude` CLI directly (like
+  // every other one-shot driver) and speak its stream-json wire over the
+  // pipes; sessions run the same wire over a host-held engine. Nothing
+  // reachable from this file loads `@anthropic-ai/claude-agent-sdk`.
   'claude-sdk': (spec, emit, snapshot) =>
-    runClaudeSdkChildTurn(
-      { ...spec, executablePath: claudeSdkExecutablePath(snapshot) },
-      emit,
-      { childEnv: headlessChildEnv(spec.agent, spec.env) },
-    ),
+    runClaudeStreamOneShotTurn(spec, emit, snapshot),
   'codex-json': (spec, emit, snapshot) => runCodexTurn(spec, emit, snapshot),
   'resume-exec': resumeExecDriver,
 }
@@ -558,16 +705,7 @@ export function runHeadlessTurn(
     throw new Error(`harness ${spec.agent} cannot enforce a no-tools headless turn`)
   }
   if (headless.driver === 'claude-sdk') {
-    return runClaudeSdkChildTurn(
-      { ...spec, executablePath: claudeSdkExecutablePath(snapshot) },
-      emit,
-      {
-        childEnv: headlessChildEnv(spec.agent, spec.env),
-        ...(hooks?.onPermission ? { onPermission: hooks.onPermission } : {}),
-        ...(hooks?.onToolCall ? { onToolCall: hooks.onToolCall } : {}),
-        ...(hooks?.onToolResult ? { onToolResult: hooks.onToolResult } : {}),
-      },
-    )
+    return runClaudeStreamOneShotTurn(spec, emit, snapshot, hooks)
   }
   return DRIVER_IMPLS[headless.driver](spec, emit, snapshot)
 }
