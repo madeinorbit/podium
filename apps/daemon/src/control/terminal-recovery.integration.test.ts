@@ -79,7 +79,7 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
       send: (msg: DaemonMessage) => sent.push(msg),
     } as unknown as DaemonContext
     const host = daemonRuntimeHost(ctx, ctx.send)
-    const runtime = createTerminalRuntime(host)
+    const runtime = createTerminalRuntime(host, undefined, ctx.sessions)
     const send = ctx.send
     ctx.send = (msg) => {
       runtime.observe(msg)

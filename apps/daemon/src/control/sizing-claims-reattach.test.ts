@@ -180,7 +180,7 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
     send: (m: { type: string }) => sent.push({ ...m, resizesBefore: stub.state.resizes.length }),
   } as unknown as DaemonContext
   const send = ctx.send
-  const terminal = createTerminalRuntime(daemonRuntimeHost(ctx, send))
+  const terminal = createTerminalRuntime(daemonRuntimeHost(ctx, send), undefined, ctx.sessions)
   ctx.send = (msg) => {
     terminal.observe(msg)
     send(msg)
