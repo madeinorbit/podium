@@ -179,6 +179,17 @@ table + scan judgments in `docs/measurements/POD-4451-m2.md`.
 - **Line growth M1→M2: +65 non-test lines** (`store.ts` +59, `worklist.ts`
   +6) — all instrumentation + the two hardenings above; no derivation logic
   changed. The M1 size gap vs the hand arm survives (~2,420 vs 3,589).
+- **Clock finding F-clock with both halves measured** (`mobx.clock.test.tsx`
+  on the fixture corpus, the corpus the browser measures). +60s: 3,589
+  settled bodies (3,499 flat + 86 summary + 4 aggregate), 0 commits —
+  finished-member retention subscriptions stay live forever. +60d: exactly
+  the 14 band-movers commit, parity green — subscription completeness has
+  value (no stale rows by construction; contrast the hand arm's 3
+  hand-maintained sensitivity sets). Quantum fix deferred to J-phase; full
+  write-up in `docs/measurements/POD-4451-m2.md` §4.
+- **Seed observation for the coordinator.** Scenario-seed dep edges look
+  inert on the scenario path (`issueDep` vs the `issueDeps` address);
+  R4 coverage comes from the fixture + unit paths. No verdict impact.
 
 ## Open questions for H4
 

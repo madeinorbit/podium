@@ -117,3 +117,11 @@ identity there is meaningless). Second, locals dispatch no row-source
 event: `setCoarseNow` moves no notification counter (reactions commit, the
 dispatch counter does not), so the clock step asserts `notifications == 0`
 where the hand arm asserts 1 — same verdict, honest counter.
+
+Clock subscriptions are by-construction complete: any flat/summary whose
+row holds a finished member reads the clock through its retention check and
+stays subscribed, so a tick re-runs all of them (3,589 settled bodies on
+the fixture corpus, 0 commits) and a band-moving jump commits exactly the
+movers (`mobx.clock.test.tsx`; finding F-clock in
+`docs/measurements/POD-4451-m2.md` §4). There is no sensitivity list to
+remember — that is the point, and the per-tick price of it.
