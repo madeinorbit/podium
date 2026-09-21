@@ -57,7 +57,8 @@ export class IndexSet {
   /** Cached session home for diffing: explicit issue + resolved worktree. */
   private readonly sessionHome = new Map<string, { explicit: string | null; resolved: string | null }>()
   /** R3 targets: live issues with a worktreePath, by path. */
-  private readonly issuesByWorktree = new Map<string, Set<string>>()  /** R3 roots: lane paths + issue worktree paths. */
+  private readonly issuesByWorktree = new Map<string, Set<string>>()
+  /** R3 roots: lane paths + issue worktree paths. */
   private roots = new Set<string>()
   /** R4: origin issue id per issue. */
   readonly originOf = new Map<string, string>()
