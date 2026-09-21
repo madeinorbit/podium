@@ -1430,7 +1430,7 @@ function engineHost(
     ready: Promise.resolve({ lease: true, childPid: 4242 }),
     connection: {
       onData: () => () => {},
-      onExit: () => {},
+      onExit: () => () => {},
       signal: () => {},
     },
     dispose: () => {},

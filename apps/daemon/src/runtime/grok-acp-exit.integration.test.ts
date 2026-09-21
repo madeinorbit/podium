@@ -21,7 +21,10 @@ vi.mock('@podium/process/durable', async () => {
   }
 })
 
-import { createGrokAcpHost, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './grok-acp-server'
+import { createGrokEngineHost, grokEngineFacts } from '@podium/harness/driver/host'
+import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './version-probe'
+import { composeEngineEnv, createEngineJournal, supervisionFor } from './host'
+import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createDurableProcess } from '@podium/process/durable'
 import { createDaemonGrokRuntime } from './grok-driver'
 
@@ -128,9 +131,16 @@ describe('Grok ACP real scoped child boundary', () => {
 
       expect(await grokAcpVersionProbe()).toEqual({ drivable: true })
       const sent: DaemonMessage[] = []
-      const host = createGrokAcpHost({
+      const facts = grokEngineFacts()
+      const durable = createDurableProcess('host', { host: true, abduco: false })
+      const host = createGrokEngineHost({
+        facts,
+        supervision: supervisionFor(durable),
+        journal: createEngineJournal({ namespace: facts.journalNamespace }),
         resources: () => undefined,
-        durable: createDurableProcess('host', { host: true, abduco: false }),
+        buildEnv: composeEngineEnv,
+        gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+        checkVersion: () => grokAcpVersionProbe(),
       })
       runtime = createDaemonGrokRuntime({ send: (message) => sent.push(message), host })
       const sessionId = asSessionId('grok-real-scoped-exit')

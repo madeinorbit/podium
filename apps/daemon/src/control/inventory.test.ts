@@ -24,24 +24,21 @@ vi.mock('@podium/harness/driver/host', () => ({
     version === '1.2.3' ? null : { code: 'unsupported' },
   ),
 }))
-vi.mock('../runtime/codex-app-server', () => ({
+vi.mock('../runtime/version-probe', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../runtime/version-probe')>()),
   codexAppServerVersionProbe: vi.fn(() => new Promise(() => {})),
-}))
-vi.mock('../runtime/grok-acp-server', () => ({
   grokAcpVersionProbe: vi.fn(() => new Promise(() => {})),
-}))
-vi.mock('../runtime/opencode-server', () => ({
   opencodeVersionProbe: vi.fn(() => new Promise(() => {})),
   opencode2VersionProbeForExecutable: vi.fn(async () => ({ drivable: true })),
 }))
 
 import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/harness/driver/host'
-import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
-import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import {
+  codexAppServerVersionProbe,
+  grokAcpVersionProbe,
   opencode2VersionProbeForExecutable,
   opencodeVersionProbe,
-} from '../runtime/opencode-server'
+} from '../runtime/version-probe'
 
 import type { DaemonContext } from './context'
 import {

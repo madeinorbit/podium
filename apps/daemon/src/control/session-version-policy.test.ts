@@ -10,9 +10,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   codexAppServerVersionProbe,
   resetCodexAppServerVersionProbe,
-} from '../runtime/codex-app-server'
-import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from '../runtime/grok-acp-server'
-import { opencodeVersionProbe, resetOpencodeVersionProbe } from '../runtime/opencode-server'
+} from '../runtime/version-probe'
+import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from '../runtime/version-probe'
+import { opencodeVersionProbe, resetOpencodeVersionProbe } from '../runtime/version-probe'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, reportHarnessVersionDiagnostic } from './session'
 
