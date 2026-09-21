@@ -1,20 +1,8 @@
 export * from './capabilities.js'
-export {
-  type ClaudeSdkChildHandle,
-  type ClaudeSdkChildOptions,
-  type ClaudeSdkChildTurnInput,
-  type ClaudeSdkTurnEmit,
-  type ClaudeSdkTurnOutcome,
-  HeadlessTurnFailure,
-  runClaudeSdkChildTurn,
-} from './child-turn.js'
-// NOTE: ./child-turn.js also declares `ClaudeSdkInterruptAck` and
-// `ClaudeSdkTurnHandle` for the parent side of the child pipe, but those names
-// already mean the driver's turn types from ./runtime.js — re-exporting both
-// would silently drop one pair. The child's handle type above is the one
-// supervisors need; the driver's stays authoritative for its own level.
 export * from './classify.js'
-export * from './host-protocol.js'
+export * from './engine-facts.js'
+export * from './engine-host.js'
+export * from './protocol.js'
 export * from './runtime.js'
 export {
   buildClaudeDurableTurn,
@@ -30,8 +18,10 @@ export {
   emitClaudeBinding,
   ensureClaudeBindingPublished,
 } from './session.js'
-// NOTE: ./claude-sdk-host.js is intentionally NOT exported here. It loads
-// `@anthropic-ai/claude-agent-sdk` at module scope, and this barrel is
-// imported by the supervisor process — reaching the SDK from here would put
-// third-party agent code in the process that supervises every session.
-// The supervisor spawns the host as a child; tests import it by relative path.
+// NOTE: the process-per-turn SDK helper (child-turn.js), its wire
+// (host-protocol.js) and the SDK host child (claude-sdk-host.js) are gone
+// (POD-4499): one long-lived `claude` stream-json engine per session under
+// podium-host, spoken directly over the host attachment (see ./protocol.js
+// and ./engine-host.js). Nothing in this barrel loads
+// `@anthropic-ai/claude-agent-sdk` — the daemon never does either
+// (claude-sdk-isolation.test.ts).
