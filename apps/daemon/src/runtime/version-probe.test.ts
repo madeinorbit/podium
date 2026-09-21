@@ -1,7 +1,7 @@
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { reportHarnessProbe, withHarnessVersionReporting } from '../harness-version-reporting'
-import { createVersionProbeCache } from './version-probe'
+import { createVersionProbeCache, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './version-probe'
 
 type Verdict =
   | { drivable: true }
@@ -152,4 +152,37 @@ it('keeps asynchronous version observations scoped to their machine and never ga
       () => reportHarnessProbe('codex', '0.154.0'),
     ),
   ).not.toThrow()
+})
+
+describe('grok ACP version probe memoization', () => {
+  it('temporarily memoizes an unprobeable result', async () => {
+    resetGrokAcpVersionProbe()
+    let calls = 0
+    const first = await grokAcpVersionProbe(() => {
+      calls += 1
+      return { ok: false, output: 'timed out' }
+    })
+    const second = await grokAcpVersionProbe(() => {
+      calls += 1
+      return { ok: true, output: 'grok 0.2.118' }
+    })
+    expect(first).toMatchObject({ drivable: true, reason: 'unprobeable' })
+    expect(second).toMatchObject({ drivable: true, reason: 'unprobeable' })
+    expect(calls).toBe(1)
+  })
+
+  it('memoizes a definitive unsupported version', async () => {
+    resetGrokAcpVersionProbe()
+    let calls = 0
+    const probe = () => {
+      calls += 1
+      return { ok: true, output: 'grok 0.2.22' }
+    }
+    await expect(grokAcpVersionProbe(probe)).resolves.toMatchObject({
+      drivable: false,
+      reason: 'unsupported',
+    })
+    await expect(grokAcpVersionProbe(probe)).resolves.toMatchObject({ reason: 'unsupported' })
+    expect(calls).toBe(1)
+  })
 })
