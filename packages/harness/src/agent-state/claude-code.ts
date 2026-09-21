@@ -9,7 +9,7 @@ import type {
 } from '@podium/protocol'
 import { locateClaudeSessionFile } from './claude-locate.js'
 import { deterministicStateToEvents } from './deterministic.js'
-import { carryAcrossRebuild, reduceAgentState } from '../driver/families/terminal/observer.js'
+import { carryAcrossRebuild, reduceAgentState } from '../observer.js'
 import {
   type AgentInstrumentation,
   type AgentStateEvent,

@@ -11,7 +11,7 @@ import {
 } from '../cursor/paths.js'
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
-import { withEventTime } from '../driver/families/terminal/observer.js'
+import { withEventTime } from '../observer.js'
 import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 
 const POLL_MS = 700

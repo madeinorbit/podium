@@ -1,4 +1,4 @@
-export * from '../driver/families/terminal/observer.js'
+export * from '../observer.js'
 export * from './claude-code.js'
 export * from './claude-locate.js'
 export * from './codex.js'

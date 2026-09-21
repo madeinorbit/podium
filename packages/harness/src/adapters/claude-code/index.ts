@@ -6,7 +6,7 @@ import {
 } from '../../agent-state/claude-code.js'
 import { configureClaudeTranscriptClassifier } from './instrumentation.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
-import { createTranscriptClassifier } from '../../driver/families/terminal/observer.js'
+import { createTranscriptClassifier } from '../../observer.js'
 import { createClaudeCodeConversationProvider } from '../../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {

@@ -21,7 +21,7 @@ import {
 import { readCodexThreadMetadata } from '../discovery/providers/codex-state.js'
 import { LineDecoder } from '../jsonl-stream.js'
 import { fileMtimeIso } from './boot-time.js'
-import { initialAgentState, reduceAgentState } from '../driver/families/terminal/observer.js'
+import { initialAgentState, reduceAgentState } from '../observer.js'
 import {
   type AgentStateEvent,
   type AgentStateProvider,

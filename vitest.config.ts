@@ -128,15 +128,6 @@ export const sharedVitestConfig = {
         ),
       },
       {
-        find: /^@podium\/harness\/driver\/families\/terminal\/observer$/,
-        replacement: fileURLToPath(
-          new URL(
-            './packages/harness/src/driver/families/terminal/observer.ts',
-            import.meta.url,
-          ),
-        ),
-      },
-      {
         find: /^@podium\/harness\/adapters\/shared\/hook-fields$/,
         replacement: fileURLToPath(
           new URL('./packages/harness/src/adapters/shared/hook-fields.ts', import.meta.url),

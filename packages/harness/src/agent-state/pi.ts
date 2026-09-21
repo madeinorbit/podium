@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { type StatTick, scheduleStatPoll } from '../store/index.js'
 import { LineDecoder } from '../jsonl-stream.js'
 import { locatePiSessionFile, piSessionDir, piSessionIdFromPath } from '../pi/paths.js'
-import { withEventTime } from '../driver/families/terminal/observer.js'
+import { withEventTime } from '../observer.js'
 import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 
 const POLL_MS = 700

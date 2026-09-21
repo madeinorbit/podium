@@ -21,7 +21,7 @@ import {
 } from '../../manifest.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import type { AgentStateEvent, ProviderAgentStateEvent } from '../../agent-state/types.js'
-import { withEventTime } from '../../driver/families/terminal/observer.js'
+import { withEventTime } from '../../observer.js'
 import {
   type GrokPlanState,
   classifyGrokIdleTranscript,
