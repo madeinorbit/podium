@@ -130,3 +130,71 @@ describe('opencode daemon turn status', () => {
     expect(w.phases()).toEqual(['idle', 'working'])
   })
 })
+
+describe('§4.8 failure ownership — unrecoverable adopt is reported, not swallowed', () => {
+  it('a journalled session the driver cannot rebind rejects instead of vanishing', async () => {
+    // The journal names a server, but the driver cannot rebind it (its
+    // process is gone and nothing answers). That is unrecoverable, and the
+    // session adapter reports it — the reattach path turns the cause into
+    // an honest reattach failure with pending turns invalidated, rather
+    // than a generic "could not be rebound".
+    const sessionId = 'opencode-unrecoverable' as SessionId
+    const entry = {
+      sessionId,
+      opencodeSessionId: 'ses_dead',
+      baseUrl: 'http://127.0.0.1:41234',
+      username: 'podium',
+      secret: 'journalled-secret',
+      workdir: '/tmp',
+      process: { key: 'opencode-process-dead' },
+      seq: 0,
+      turnEpoch: 0,
+      bindingVersion: 1,
+    }
+    mocks.createOpencodeRuntime.mockReset()
+    mocks.createOpencodeRuntime.mockReturnValue({
+      driver: {
+        adopt: vi.fn(async () => {
+          throw new Error('server went away mid-adopt')
+        }),
+      },
+    })
+    const daemon = createOpencodeSessionRuntime({
+      flavor: opencodeFlavor(),
+      engine: {
+        journal: { read: () => entry, write: () => {}, clear: () => {} },
+      } as unknown as OpencodeRuntimeHost,
+      send: () => {},
+      emitBind: () => {},
+      sessionReady: () => {},
+      traceRuntimeEvent: () => {},
+      startMailContinuation: () => () => {},
+    })
+    await expect(daemon.adoptFromJournal(sessionId)).rejects.toThrow(
+      'server went away mid-adopt',
+    )
+  })
+
+  it('still answers undefined for a session it never journalled', async () => {
+    mocks.createOpencodeRuntime.mockReset()
+    mocks.createOpencodeRuntime.mockReturnValue({
+      driver: {
+        adopt: vi.fn(async () => {
+          throw new Error('must never be called without a journal entry')
+        }),
+      },
+    })
+    const daemon = createOpencodeSessionRuntime({
+      flavor: opencodeFlavor(),
+      engine: { journal: { read: () => undefined } } as unknown as OpencodeRuntimeHost,
+      send: () => {},
+      emitBind: () => {},
+      sessionReady: () => {},
+      traceRuntimeEvent: () => {},
+      startMailContinuation: () => () => {},
+    })
+    await expect(
+      daemon.adoptFromJournal('never-seen' as SessionId),
+    ).resolves.toBeUndefined()
+  })
+})

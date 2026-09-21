@@ -259,3 +259,63 @@ describe('daemon machine runtime composition', () => {
     }
   })
 })
+
+describe('daemon machine runtime adoption failures', () => {
+  it('reports an unrecoverable adopt as found-with-reason, never as silently missing', async () => {
+    // §4.8: the session adapter propagates a driver refusal (unrecoverable
+    // protocol state) instead of swallowing it. The machine root turns the
+    // cause into an honest reattach failure — the shape the lifecycle owner
+    // reads to invalidate pending turns — rather than "session not found".
+    const sessionId = 'machine-unrecoverable' as SessionId
+    const grok = {
+      driver: {
+        id: 'grok-acp',
+        harness: 'grok',
+        family: 'server',
+        capabilities: () => ({ placement: 'dedicated' as const }),
+      },
+      handleFor: () => undefined,
+      bindings: () => [],
+      describe: 'grok agent stdio',
+      journalEntry: () => ({
+        workdir: '/tmp/grok',
+        process: { key: 'grok:machine-unrecoverable' },
+        bindingVersion: 1,
+      }),
+      clearJournal: () => {},
+      launch: async () => {},
+      adoptFromJournal: async () => {
+        throw new Error('grok-acp cannot adopt machine-unrecoverable: session/load failed')
+      },
+      reportOomKill: () => {},
+      dispose: () => {},
+    }
+    const terminal = {
+      driverFor: vi.fn(),
+      handleFor: () => undefined,
+      bindings: () => [],
+      observe: vi.fn(),
+      onHookPayload: vi.fn(),
+      register: vi.fn(),
+      clear: vi.fn(),
+      dispose: vi.fn(),
+    }
+    const runtime = createDaemonMachineRuntime({
+      terminal,
+      claude: claude(),
+      servers: [grok],
+      headless: {
+        driverFor: () => undefined,
+        handleFor: () => undefined,
+        bindings: () => [],
+      },
+      inventory: async () => INVENTORY,
+    } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
+    await expect(runtime.adoptJournalled(sessionId)).resolves.toMatchObject({
+      found: true,
+      what: 'grok agent stdio',
+      workdir: '/tmp/grok',
+      reason: expect.stringContaining('session/load failed'),
+    })
+  })
+})

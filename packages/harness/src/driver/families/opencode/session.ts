@@ -284,25 +284,21 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
      */
     async adoptFromJournal(sessionId) {
       const entry = deps.engine.journal.read(sessionId)
+      // No entry is "not mine". A journalled entry whose driver then refuses
+      // is reported, not swallowed (§4.8): the cause tells the operator why
+      // and lets the lifecycle invalidate pending turns, rather than a
+      // generic "could not be rebound".
       if (!entry) return undefined
-      let handle: AgentSessionHandle
-      try {
-        handle = await runtime.driver.adopt({
-          sessionId: entry.sessionId,
-          driver: deps.flavor.driverId,
-          family: 'server',
-          harness: deps.flavor.harnessKind,
-          workdir: entry.workdir,
-          resume: { kind: 'opencode-session', value: entry.opencodeSessionId },
-          process: entry.process,
-          bindingVersion: entry.bindingVersion,
-        })
-      } catch {
-        // `adopt()` REJECTS for a process that did not survive — that is the
-        // contract's own wording and its exactness is the point. Here it simply
-        // means "gone", and the caller turns it into an honest reattach failure.
-        return undefined
-      }
+      const handle = await runtime.driver.adopt({
+        sessionId: entry.sessionId,
+        driver: deps.flavor.driverId,
+        family: 'server',
+        harness: deps.flavor.harnessKind,
+        workdir: entry.workdir,
+        resume: { kind: 'opencode-session', value: entry.opencodeSessionId },
+        process: entry.process,
+        bindingVersion: entry.bindingVersion,
+      })
       pump(sessionId)
       reportResumeRef(sessionId, handle)
       return handle

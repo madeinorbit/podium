@@ -416,3 +416,47 @@ describe('the abandonment is said out loud before it is made durable — POD-229
     }
   })
 })
+
+describe('§4.8 failure ownership — unrecoverable adopt is reported, not swallowed', () => {
+  it('a journalled thread the driver cannot resume rejects instead of vanishing', async () => {
+    // The journal names a thread from before durable engines (no listener
+    // address), and the fresh engine it would resume on never starts: the
+    // driver has neither a survivor nor a rollout to work from. That is
+    // unrecoverable, and the session adapter reports it — the reattach path
+    // turns the cause into an honest reattach failure with pending turns
+    // invalidated, rather than a generic "could not be rebound".
+    const sessionId = 'cx-unrecoverable' as SessionId
+    const w = world()
+    w.entries.set(sessionId, {
+      sessionId,
+      threadId: '019fff94-7326-7032-b90b-3cc7e1805199',
+      workdir: '/work/project',
+      process: { key: `podium-cx-${sessionId}` },
+      seq: 0,
+      turnEpoch: 0,
+      bindingVersion: 1,
+    })
+    const failing = createCodexSessionRuntime({
+      facts: FACTS,
+      engine: {
+        ...w.host,
+        launch: async () => {
+          throw new Error('fresh engine never started')
+        },
+      },
+      send: () => {},
+      emitBind: () => {},
+      sessionReady: () => {},
+      traceRuntimeEvent: () => {},
+      startMailContinuation: () => () => {},
+    })
+    await expect(failing.adoptFromJournal(sessionId)).rejects.toThrow(
+      'fresh engine never started',
+    )
+  })
+
+  it('still answers undefined for a session it never journalled', async () => {
+    const w = world()
+    await expect(w.runtime.adoptFromJournal('never-seen' as SessionId)).resolves.toBeUndefined()
+  })
+})

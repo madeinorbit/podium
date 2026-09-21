@@ -292,3 +292,38 @@ describe('Grok ACP daemon restart adoption', () => {
     world.runtime.dispose()
   })
 })
+
+describe('§4.8 failure ownership — unrecoverable adopt is reported, not swallowed', () => {
+  it('a journalled session the driver cannot load rejects instead of vanishing', async () => {
+    // The journal names a native session, but the engine it names never
+    // starts: the driver has no survivor and no store to load from. That is
+    // unrecoverable, and the session adapter reports it rather than a
+    // generic "could not be rebound".
+    const sessionId = 'grok-unrecoverable' as SessionId
+    const entry = journalEntry(sessionId)
+    const runtime = createGrokSessionRuntime({
+      facts: FACTS,
+      engine: {
+        journal: {
+          read: () => entry,
+          write: () => {},
+          clear: () => {},
+        },
+        launch: async () => {
+          throw new Error('engine never started')
+        },
+      } as unknown as GrokAcpRuntimeHost,
+      send: () => {},
+      emitBind: () => {},
+      sessionReady: () => {},
+      traceRuntimeEvent: () => {},
+      startMailContinuation: () => () => {},
+    })
+    await expect(runtime.adoptFromJournal(sessionId)).rejects.toThrow('engine never started')
+  })
+
+  it('still answers undefined for a session it never journalled', async () => {
+    const world = adoptionWorld()
+    await expect(world.runtime.adoptFromJournal('never-seen' as SessionId)).resolves.toBeUndefined()
+  })
+})
