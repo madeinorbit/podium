@@ -1,6 +1,6 @@
 import { planNavigation, type NavigationIntent } from './navigation'
 import type { EngineState } from './state'
-import type { IssueWire, LayoutSnapshot, SessionMeta } from '@podium/model'
+import type { IssueWire, LayoutSnapshot, SessionId, SessionMeta } from '@podium/model'
 import { asIssueId, asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -29,7 +29,10 @@ function nestedKeys(value: unknown): string[] {
   return Object.entries(value).flatMap(([key, nested]) => [key, ...nestedKeys(nested)])
 }
 
-function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] } = {}) {
+function harness(
+  layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] } = {},
+  hub?: { reportTabRelease: (sessionId: SessionId) => void },
+) {
   const queued: { kind: keyof OutboxKinds; input: unknown }[] = []
   const pending: OutboxEntry[] = []
   const awaiting: OutboxEntry[] = []
@@ -106,7 +109,7 @@ function harness(layout: { seed?: LayoutSnapshot; installed?: LayoutSnapshot[] }
         dismissOffer: { mutate: dismissOffer },
       },
     } as unknown as PodiumClientApi,
-    hub: {} as SocketHub,
+    hub: (hub ?? {}) as SocketHub,
     outbox: {
       enqueue,
       pending: () => pending,
@@ -501,6 +504,35 @@ describe('pane scalars follow the layout', () => {
     expect(st.split).toBe(false)
     expect(st.paneB).toBeNull()
     expect(st.fileTabs).toEqual([])
+  })
+
+  describe('tab release reports (POD-4435)', () => {
+    it('closing a session tab reports its release to the server', () => {
+      const reportTabRelease = vi.fn()
+      const h = harness({}, { reportTabRelease })
+      h.seed({
+        workspaces: { none: openTab(emptyWorkspace('none'), 's-a', { permanent: true }) },
+      })
+
+      h.actions.closeWorkspaceTab(asSessionId('s-a'))
+
+      expect(reportTabRelease).toHaveBeenCalledTimes(1)
+      expect(reportTabRelease).toHaveBeenCalledWith(asSessionId('s-a'))
+    })
+
+    it('closing a file tab reports nothing (it carries no session)', () => {
+      const reportTabRelease = vi.fn()
+      const h = harness({}, { reportTabRelease })
+      const fileId = 'file:s:s1:notes.md'
+      h.seed({
+        workspaces: { none: openTab(emptyWorkspace('none'), fileId, { permanent: true }) },
+        fileTabs: [{ id: fileId, scope: { kind: 'session', sessionId }, path: 'notes.md' }],
+      })
+
+      h.actions.closeWorkspaceTab(fileId as never)
+
+      expect(reportTabRelease).not.toHaveBeenCalled()
+    })
   })
 
   it('navigating to a session opens it in the FOCUSED pane, not on top of pane A', () => {

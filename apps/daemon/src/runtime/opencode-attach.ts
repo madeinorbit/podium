@@ -134,7 +134,14 @@ const log = createLogger('daemon:opencode-attach')
 
 /** §5's default idle window. Configurable through {@link OpencodeClientTerminalPorts}
  *  rather than an env knob: the only caller is the daemon's own wiring, and a
- *  setting nobody sets is a setting nobody maintains. */
+ *  setting nobody sets is a setting nobody maintains.
+ *
+ *  POD-4435: this TTL is the `warmTtlMs` input of the server's shell lifetime
+ *  table (`apps/server/src/modules/sessions/terminal-lifetime.ts`, attach-TUI
+ *  row: unwatched past TTL → park). The daemon keeps running the clock — the
+ *  table owns the decision, this constant feeds it. Warm-park reap itself
+ *  stays here; spawn/reclaim decisions elsewhere in this file belong to
+ *  POD-4515, not to that table. */
 export const WARM_TTL_MS = 30 * 60_000
 
 /**
@@ -461,6 +468,11 @@ export function createOpencodeClientTerminals(
    * the session open holds the window off entirely rather than extending it,
    * which is what makes this an idle TTL and not a lifetime — the alternative
    * kills a terminal out from under someone at the thirty-minute mark.
+   *
+   * POD-4435: this is the warm-TTL half of the shell lifetime table's
+   * attach-TUI row (unwatched past TTL → park). The `watched` gate below and
+   * this TTL are that row's two inputs, measured here; the table owns what
+   * they mean.
    */
   const arm = (sessionId: SessionId): void => {
     const owned = sessions.get(sessionId)

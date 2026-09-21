@@ -1840,6 +1840,34 @@ describe('view state', () => {
       focused: 's2',
     })
   })
+
+  it('reports a tab release when connected', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    hub.reportTabRelease(asSessionId('s1'))
+    expect(sock.parsed()).toContainEqual({ type: 'tabRelease', sessionId: 's1' })
+  })
+
+  it('drops a tab release while offline and never replays it on reconnect', () => {
+    // A release is an edge, not state: replaying it after a reconnect could
+    // kill a shell the operator reopened while offline (POD-4435).
+    vi.useFakeTimers()
+    const { sockets, hub } = multiSetup()
+    hub.reportTabRelease(asSessionId('s1')) // before connect
+    hub.connect()
+    sockets[0]?.open()
+    expect(sockets[0]?.parsed()).not.toContainEqual(
+      expect.objectContaining({ type: 'tabRelease' }),
+    )
+    sockets[0]?.close()
+    vi.advanceTimersByTime(30_000)
+    expect(sockets.length).toBe(2)
+    sockets[1]?.open()
+    expect(sockets[1]?.parsed()).not.toContainEqual(
+      expect.objectContaining({ type: 'tabRelease' }),
+    )
+  })
 })
 
 /** POD-2060: a fleet that lost the same server in the same second must not come
