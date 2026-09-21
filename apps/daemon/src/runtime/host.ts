@@ -65,11 +65,11 @@ export function daemonRuntimeHost(
   return {
     send,
     stageAttachment,
-    bridge: (sessionId) => ctx.bridges.get(sessionId),
+    bridge: (sessionId) => ctx.sessions.get(sessionId)?.terminal,
     trackedState: (sessionId) => ctx.observers.trackedState(sessionId),
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),
     setDraftTarget: (sessionId, text) => ctx.composerEngine.setTarget(sessionId, text),
-    durableLabel: (sessionId) => ctx.durableLabels.get(sessionId) ?? ctx.durableLabelFor(sessionId),
+    durableLabel: (sessionId) => ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId),
     // Absent on macOS, and honestly so: there is no transient scope there, and a
     // fabricated unit name would make `health()` report a cgroup nothing owns.
     scopeUnit: (label) => (process.platform === 'linux' ? scopeUnitName(label) : undefined),

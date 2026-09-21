@@ -31,11 +31,11 @@ export function dispatchInputBytes(
   // A contracted session speaks runtime verbs; an automation input frame for
   // one is either a stale peer or a bypass, and the bridge must not take it.
   if (sessionIsBehindContract(ctx, metadata.sessionId)) return
-  const bridge = ctx.bridges.get(metadata.sessionId)
+  const bridge = ctx.sessions.get(metadata.sessionId)?.terminal
   if (!bridge) return
   if (bytes.includes(0x0d) || bytes.includes(0x0a)) {
     ctx.observers.recordInputOrigin(metadata.sessionId, metadata.inputOrigin)
   }
-  bridge.writeBytes(bytes)
+  bridge.write(bytes)
   ctx.composerEngine.onInputByte(metadata.sessionId)
 }

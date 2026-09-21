@@ -27,9 +27,11 @@ import {
 import {
   type DurableAttachment,
   type DurableProcess,
+  type DurableReattach,
   durableProcessFor,
 } from '@podium/process/durable'
-import { type DurableAttachment, spawnAgent } from '@podium/process/screen'
+import { spawnAgent } from '@podium/process/screen'
+import { Terminal } from '../terminal/terminal.js'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
@@ -318,8 +320,9 @@ export function reconcileNativeClientTerminal(
         }
         // Attached: the request is honoured, so nothing is owed a retry.
         ctx.nativeClientRetries?.delete(sessionId)
-        const pending = ctx.pendingResizes.get(sessionId)
-        if (pending) {
+        const owned = ctx.sessions.get(sessionId)
+        const pending = owned?.pendingResize
+        if (pending && owned) {
           const record = appliedGeometryFor(ctx)
           const already = record.applied(sessionId)
           if (already?.cols === pending.cols && already.rows === pending.rows) {
@@ -328,7 +331,7 @@ export function reconcileNativeClientTerminal(
             // already reported. Re-dispatching the same winsize would cost a
             // SIGWINCH and a TUI repaint for no change; the request is simply
             // no longer held.
-            ctx.pendingResizes.delete(sessionId)
+            owned.pendingResize = undefined
           } else {
             // AN APPLY SITE (POD-3290), and one of the two that used to be
             // SILENT (POD-3809). The held request has just reached a real client
@@ -344,7 +347,7 @@ export function reconcileNativeClientTerminal(
             const acked = await dispatchClientResize(ctx, sessionId, pending.cols, pending.rows)
             if (acked) {
               record.apply(sessionId, acked.cols, acked.rows)
-              ctx.pendingResizes.delete(sessionId)
+              owned.pendingResize = undefined
             } else {
               // Held, as before — and flushed, as before: `record.apply` flushes
               // before it dispatches, so a request held for lack of a terminal
@@ -538,7 +541,7 @@ export function rememberDurableSeq(
   session: DurableAttachment,
 ): void {
   const conn = (session as { connection?: { lastSeq?: bigint } }).connection
-  if (conn) ctx.durableSeqs?.set(sessionId, () => conn.lastSeq)
+  if (conn) ctx.sessions.ensure(sessionId).seqReader = () => conn.lastSeq
 }
 
 export function wireBridge(
@@ -565,11 +568,14 @@ export function wireBridge(
   durableLabel: string,
   reported: Geometry | undefined,
 ): Geometry | undefined {
-  ctx.bridges.set(sessionId, session)
-  ctx.durableLabels.set(sessionId, durableLabel)
+  // THE ONE headed construction site (POD-4434): spawn and reattach both build
+  // their surface here. The Session owns the label, the held resize and the
+  // replay cursor; the Terminal is the surface over the attachment just opened.
+  const owned = ctx.sessions.ensure(sessionId)
+  owned.label = durableLabel
   const record = appliedGeometryFor(ctx)
-  const pending = ctx.pendingResizes.get(sessionId)
-  ctx.pendingResizes.delete(sessionId)
+  const pending = owned.pendingResize
+  owned.pendingResize = undefined
   if (pending) {
     // AN APPLY SITE (POD-3290): the held request is dispatched here, so here is
     // where it becomes an applied grid. Recorded BEFORE the bind that follows
@@ -592,75 +598,90 @@ export function wireBridge(
     record.apply(sessionId, reported.cols, reported.rows)
     trackSessionSize(ctx, sessionId, reported.cols, reported.rows)
   }
-  session.onFrame((frame) => {
-    driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
-      bytes: frame.data.byteLength,
-    })
-    countFrame(frame.data.byteLength)
-    // THE `frames` COST BUCKET (§6.1). This is the synchronous PTY-output
-    // handler, not the socket read: it runs once per frame the driver hands up,
-    // and on a busy session that is the daemon's hottest loop path. `countFrame`
-    // above has always counted the frames and their bytes — what nothing could
-    // say is how much LOOP TIME they cost, which is the number a stall needs.
-    measureTask('frames', () => {
-      ctx.observers.onFrame?.(sessionId, frame.data)
-      ctx.outputScheduler.enqueue(sessionId, frame.data)
-      // P1b (POD-3918): the headless model and the 1049 mode see every live
-      // byte, so a reopen reconstitutes from what the program drew.
-      trackSessionOutput(ctx, sessionId, frame.data)
-      // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
-      // running for this (flagged) session.
-      if (ctx.composerEngine.has(sessionId)) {
-        ctx.composerEngine.onData(sessionId, frame.data)
-      }
-    })
-  })
-  // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
-  // frame-rate), which would clobber the real title the codex observer derives
-  // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
-  // title, so forward it for them.
-  if (harnessCapabilitiesFor(agentKind)?.oscTitle ?? true) {
-    session.onTitle((title) => ctx.send({ type: 'title', sessionId, title, source: 'osc' }))
-  }
-  session.onExit((code) => {
-    ctx.bridges.delete(sessionId)
-    // THE PTY THAT WAS AT THAT SIZE IS GONE, so the daemon holds no applied
-    // grid for this session any more (POD-3290). Dropped here rather than left
-    // to be overwritten: a later bind must not report a size that belongs to a
-    // terminal that no longer exists.
-    record.forget(sessionId)
-    ctx.pendingResizes.delete(sessionId)
-    forgetSessionScreen(ctx, sessionId)
-    ctx.composerEngine.detach(sessionId)
-    ctx.durableLabels.delete(sessionId)
-    ctx.outputScheduler.remove(sessionId)
-    ctx.sessionCwdTracker.clear(sessionId)
-    ctx.primeInjector.reset(sessionId)
-    // The agent's gone (as far as this bridge knows) — stop its observers and
-    // its (now frozen) transcript tail.
-    ctx.observers.clearSession(sessionId)
-    // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
-    // daemon shutdown/redeploy SIGKILLs the client; a user detach or a client
-    // crash do the same. For a durable backend the master + agent live on in
-    // their own systemd scope (the whole point of abduco) — so reporting
-    // agentExit here would persist a live session as 'exited', and boot never
-    // reattaches an 'exited' row, orphaning a still-running agent. Only a
-    // vanished master is a real exit. (`abducoHasSession` runs `abduco`, which
-    // reaps the socket as it lists, so a just-exited master reads as gone.)
-    const label = durableLabel
-    void (async () => {
-      if (await durableProcessFor(ctx)?.has(label)) return
-      // The agent has truly exited (master is gone). Uploads are one-shot prompt
-      // inputs that were already consumed before the agent finished processing
-      // them, so it's safe to remove the per-session upload dir on any real exit
-      // (natural finish, hibernate, or kill). kill also calls removeSessionUploads
-      // directly, so the two are harmlessly idempotent (rmSync force:true is a no-op
-      // on a missing dir). The hourly TTL sweep remains a backstop for edge cases.
-      removeSessionUploads(sessionId, ctx.portableStateFence)
-      removeSessionInstructions(ctx, sessionId)
-      ctx.send({ type: 'agentExit', sessionId, code })
-    })()
-  })
+  // A reattached shell sits idle at its prompt and ignores the SIGWINCH repaint
+  // nudge — the shell hard-repaint rule, as a Terminal option rather than a
+  // second attach path (POD-4434). The screen is held (not fed) here — see the
+  // Terminal contract. Feeding stays in the fan-out below, unchanged.
+  const terminal = Terminal.attach(session, owned.screen(), {
+      onFrame: (data) => {
+        driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
+          bytes: data.byteLength,
+        })
+        countFrame(data.byteLength)
+        // THE `frames` COST BUCKET (§6.1). This is the synchronous PTY-output
+        // handler, not the socket read: it runs once per frame the driver hands up,
+        // and on a busy session that is the daemon's hottest loop path. `countFrame`
+        // above has always counted the frames and their bytes — what nothing could
+        // say is how much LOOP TIME they cost, which is the number a stall needs.
+        measureTask('frames', () => {
+          ctx.observers.onFrame?.(sessionId, data)
+          ctx.outputScheduler.enqueue(sessionId, data)
+          // P1b (POD-3918): the headless model and the 1049 mode see every live
+          // byte, so a reopen reconstitutes from what the program drew.
+          trackSessionOutput(ctx, sessionId, data)
+          // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
+          // running for this (flagged) session.
+          if (ctx.composerEngine.has(sessionId)) {
+            ctx.composerEngine.onData(sessionId, data)
+          }
+        })
+      },
+      // Codex sets its OSC title to the cwd basename (+ a spinner glyph that churns at
+      // frame-rate), which would clobber the real title the codex observer derives
+      // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
+      // title, so forward it for them.
+      ...(harnessCapabilitiesFor(agentKind)?.oscTitle ?? true
+        ? {
+            onTitle: (title: string) =>
+              ctx.send({ type: 'title', sessionId, title, source: 'osc' }),
+          }
+        : {}),
+      onExit: (code) => {
+        // Drop the surface only if it is still this one: a reattach that won
+        // the race already replaced it, and the old attachment's exit must not
+        // clear the new Terminal (the epoch on the session says the same).
+        if (owned.terminal === terminal) owned.terminal = undefined
+        // THE PTY THAT WAS AT THAT SIZE IS GONE, so the daemon holds no applied
+        // grid for this session any more (POD-3290). Dropped here rather than left
+        // to be overwritten: a later bind must not report a size that belongs to a
+        // terminal that no longer exists.
+        record.forget(sessionId)
+        forgetSessionScreen(ctx, sessionId)
+        ctx.composerEngine.detach(sessionId)
+        ctx.outputScheduler.remove(sessionId)
+        ctx.sessionCwdTracker.clear(sessionId)
+        ctx.primeInjector.reset(sessionId)
+        // The agent's gone (as far as this bridge knows) — stop its observers and
+        // its (now frozen) transcript tail.
+        ctx.observers.clearSession(sessionId)
+        // The attach CLIENT exiting is NOT the AGENT exiting. disposeAll() on a
+        // daemon shutdown/redeploy SIGKILLs the client; a user detach or a client
+        // crash do the same. For a durable backend the master + agent live on in
+        // their own systemd scope (the whole point of abduco) — so reporting
+        // agentExit here would persist a live session as 'exited', and boot never
+        // reattaches an 'exited' row, orphaning a still-running agent. Only a
+        // vanished master is a real exit. (`abducoHasSession` runs `abduco`, which
+        // reaps the socket as it lists, so a just-exited master reads as gone.)
+        const label = durableLabel
+        void (async () => {
+          if (await durableProcessFor(ctx)?.has(label)) return
+          // The agent has truly exited (master is gone). Uploads are one-shot prompt
+          // inputs that were already consumed before the agent finished processing
+          // them, so it's safe to remove the per-session upload dir on any real exit
+          // (natural finish, hibernate, or kill). kill also calls removeSessionUploads
+          // directly, so the two are harmlessly idempotent (rmSync force:true is a no-op
+          // on a missing dir). The hourly TTL sweep remains a backstop for edge cases.
+          removeSessionUploads(sessionId, ctx.portableStateFence)
+          removeSessionInstructions(ctx, sessionId)
+          ctx.send({ type: 'agentExit', sessionId, code })
+        })()
+      },
+    },
+    { hardRepaint: agentKind === 'shell' },
+  )
+  owned.terminal = terminal
+  if (pending) terminal.applied = { cols: pending.cols, rows: pending.rows }
+  else if (reported) terminal.applied = { cols: reported.cols, rows: reported.rows }
   return pending ? { cols: pending.cols, rows: pending.rows } : reported
 }
 
@@ -948,11 +969,11 @@ export async function launchSpawn(
   } catch (err) {
     // A process may already exist when handle construction fails. Use the shared
     // reaper before reporting failure; never acknowledge a driverless agent.
-    if (ctx.bridges.has(msg.sessionId)) stopSessionProcess(ctx, msg)
+    if (ctx.sessions.get(msg.sessionId)?.attached) stopSessionProcess(ctx, msg)
     removeSessionInstructions(ctx, msg.sessionId)
     // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
     // must not be applied to whatever is spawned for this id next.
-    ctx.pendingResizes.delete(msg.sessionId)
+    ctx.sessions.get(msg.sessionId)?.pendingResize = undefined
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -2282,11 +2303,11 @@ export async function recoverTerminalHost(
   msg: ReattachControl,
   ready?: () => void,
 ): Promise<void> {
-  const heldLabel = ctx.durableLabels.get(msg.sessionId)
+  const heldLabel = ctx.sessions.get(msg.sessionId)?.label
   if (heldLabel !== undefined && heldLabel !== msg.durableLabel) {
     throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
   }
-  const existing = ctx.bridges.get(msg.sessionId)
+  const existing = ctx.sessions.get(msg.sessionId)?.terminal
   if (existing) {
     // Capture legacy state before observer replacement. A freshly fenced
     // reattach lease is authoritative even when this daemon still holds the PTY:
@@ -2297,7 +2318,7 @@ export async function recoverTerminalHost(
     const hasAuthoritativeObservationLease =
       msg.observationGeneration !== undefined && msg.observationBindingVersion !== undefined
     if (hasAuthoritativeObservationLease) {
-      ctx.observers.initSessionObservers(msg, existing, agentStateProviderFor(msg.agentKind), {
+      ctx.observers.initSessionObservers(msg, existing.attachment, agentStateProviderFor(msg.agentKind), {
         seedOnFrame: false,
       })
     }
@@ -2381,7 +2402,7 @@ export async function recoverTerminalHost(
     return
   }
   await ctx.reattachGate(async () => {
-    if (ctx.bridges.has(msg.sessionId)) return // raced with another reattach for this id
+    if (ctx.sessions.get(msg.sessionId)?.attached) return // raced with another reattach for this id
     // Re-pin a survivor (POD-665). Pins live in daemon memory, so a daemon restart
     // would otherwise leave every reattached session unpinned and free to be dragged
     // out of its worktree by the next `cd`. `msg.cwd` is the row's persisted cwd —
@@ -2395,7 +2416,7 @@ export async function recoverTerminalHost(
     // on resize, so only shells take the hard path. The abduco attach below is
     // size-neutral, so it repaints nothing on its own — the first viewport
     // request does — but a shell still gets this Ctrl-L, as it does today.
-    let found: DurableAttachment | undefined
+    let found: DurableReattach | undefined
     const durable = durableProcessFor(ctx)
     if (durable) {
       const env = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
@@ -2404,14 +2425,12 @@ export async function recoverTerminalHost(
       const located = await durable.locate(msg.durableLabel, env, { waitMs: 1500 })
       if (located) {
         try {
+          const resumeFrom = ctx.sessions.get(msg.sessionId)?.seqReader?.()
           found = await located.adapter.attach({
             label: msg.durableLabel,
             socketPath: located.socketPath,
-            hardRepaint: msg.agentKind === 'shell',
             lastKnownGeometry: msg.lastKnownGeometry,
-            ...(ctx.durableSeqs?.get(msg.sessionId)?.() !== undefined
-              ? { lastSeq: ctx.durableSeqs?.get(msg.sessionId)?.() as bigint }
-              : {}),
+            ...(resumeFrom !== undefined ? { lastSeq: resumeFrom } : {}),
           })
         } catch (err) {
           log.warn('durable reattach failed', {
@@ -2432,7 +2451,7 @@ export async function recoverTerminalHost(
     const held = wireBridge(
       ctx,
       msg.sessionId,
-      found.session,
+      found.attachment,
       msg.agentKind,
       msg.durableLabel,
       undefined,
@@ -2447,7 +2466,7 @@ export async function recoverTerminalHost(
     // the kernel's TIOCGWINSZ for the running program — not a belief, the size it
     // IS at — so the bind after a restart reports it and the `unknown` window
     // closes at reattach. abduco's attach reports nothing here.
-    const downgraded = held ? undefined : (found.readGeometry ?? found.session.appliedGeometry)
+    const downgraded = held ? undefined : (found.readGeometry ?? found.attachment.appliedGeometry)
     // No dispatch: the attach itself announced and applied the size, so the
     // session is already at it and this call only records and reports it.
     if (downgraded) {
@@ -2457,7 +2476,7 @@ export async function recoverTerminalHost(
       if (ready) trackSessionSize(ctx, msg.sessionId, downgraded.cols, downgraded.rows)
     }
     const applied = held ?? downgraded
-    rememberDurableSeq(ctx, msg.sessionId, found.session)
+    rememberDurableSeq(ctx, msg.sessionId, found.attachment)
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -2465,7 +2484,7 @@ export async function recoverTerminalHost(
     // so seed immediately (an idle session would otherwise read 'unknown' →
     // 'working') and re-tail its transcript (else chat stays empty while the
     // native view still has scrollback).
-    ctx.observers.initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
+    ctx.observers.initSessionObservers(msg, found.attachment, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
     })
     // THE HEADLESS SCREENS, AT THE BEST HINT THERE IS. The screen observers and
@@ -2490,8 +2509,8 @@ export async function recoverTerminalHost(
     // agent's missing screen through the existing bounded replay port after
     // wiring all consumers; waiting for a viewer resize leaves idle survivors
     // blank. Plain terminals retain their viewer-driven replay path.
-    const replay = (found.session as DurableAttachment & { replay?: (bytes: number) => Promise<void> }).replay
-    if (ready && replay) await replay.call(found.session, HOST_REPLAY_TAIL_BYTES)
+    const terminal = ctx.sessions.get(msg.sessionId)?.terminal
+    if (ready && terminal) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
     ready?.()
     const recoveryProfile = terminalProfileFor(msg.agentKind)
     if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
@@ -2526,8 +2545,8 @@ export async function recoverTerminalHost(
     // (attachAbducoAgent nudged before the bridge was wired, and that paint can
     // be lost). The host replays its ring instead — nothing is owed when this
     // daemon knew where it left off; a fresh daemon still nudges (see
-    // DurableAttachment.redrawOnReattach).
-    if (found.redrawOnReattach) found.session.redraw()
+    // DurableReattach.redrawOnReattach).
+    if (found.redrawOnReattach) terminal?.redraw()
   })
 }
 
@@ -2574,19 +2593,21 @@ async function stopSessionProcessOnce(
 ): Promise<boolean> {
   const reaps: Promise<boolean>[] = []
   let measured = false
-  const session = ctx.bridges.get(msg.sessionId)
+  const owned = ctx.sessions.get(msg.sessionId)
   const runtimeHandle = ctx.agentRuntime?.handleFor(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
   ctx.agentRuntime?.clearTerminal(msg.sessionId)
-  ctx.pendingResizes.delete(msg.sessionId)
+  if (owned) owned.pendingResize = undefined
   ctx.nativeClientRequests?.delete(msg.sessionId)
   // The request is gone, so the retry it was owed is too — there is no session
   // left to become idle, and a stale entry would outlive the id.
   ctx.nativeClientRetries?.delete(msg.sessionId)
   void ctx.clientTerminals?.close(msg.sessionId)
-  if (session) {
-    session.dispose()
-    ctx.bridges.delete(msg.sessionId)
+  if (owned?.terminal) {
+    // CLOSE is park plus forgetting: the attachment detaches here and the
+    // durable master is reaped below. The session entry itself survives until
+    // the labels are retired at the end of this function.
+    owned.park()
     ctx.outputScheduler.remove(msg.sessionId)
   }
   // Embedded runtimes have no PTY bridge or durable-host identity for the
@@ -2620,13 +2641,16 @@ async function stopSessionProcessOnce(
   // separate server-authored binding transition.
   if (ctx.backend !== 'none') {
     const durableLabel =
-      msg.durableLabel ?? ctx.durableLabels.get(msg.sessionId) ?? ctx.durableLabelFor(msg.sessionId)
+      msg.durableLabel ?? owned?.label ?? ctx.durableLabelFor(msg.sessionId)
     reaps.push(reapDurableHost(ctx, msg.sessionId, durableLabel).then((retired) => {
       measured = true
       return retired
     }))
   }
-  ctx.durableLabels.delete(msg.sessionId)
+  if (owned) {
+    owned.clear()
+    ctx.sessions.delete(msg.sessionId)
+  }
   removeSessionUploads(msg.sessionId, ctx.portableStateFence)
   removeSessionInstructions(ctx, msg.sessionId)
   const results = await Promise.allSettled(reaps)
@@ -2725,7 +2749,7 @@ export const sessionHandlers: Pick<
     void handleReattach(ctx, msg).catch((error) => {
       // A refused lease belongs to another/newer owner. Only a composition
       // failure may reap an acquired bridge, as required by agent admission.
-      if (!(error instanceof TerminalRecoveryRefusal) && ctx.bridges.has(msg.sessionId)) {
+      if (!(error instanceof TerminalRecoveryRefusal) && ctx.sessions.get(msg.sessionId)?.attached) {
         stopSessionProcess(ctx, msg)
       }
       ctx.send({
@@ -2777,7 +2801,8 @@ export const sessionHandlers: Pick<
       Buffer.from(msg.data, 'base64'),
     ),
   resize: (ctx, msg) => {
-    const bridge = ctx.bridges.get(msg.sessionId)
+    const owned = ctx.sessions.ensure(msg.sessionId)
+    const bridge = owned.terminal
     // THE DAEMON APPLIES, THEN REPORTS (POD-3239 B7 / MODEL rule 5) — and since
     // POD-3809 those are ONE operation, `record.apply`, which flushes,
     // dispatches, records and reports in that order before it returns. This
@@ -2811,6 +2836,7 @@ export const sessionHandlers: Pick<
         bridge.resize(cols, rows)
         return true
       })
+      if (applied) bridge.applied = { cols: applied.cols, rows: applied.rows }
       if (!applied) {
         // Nothing to put at the size yet — no bridge and no client terminal, so the
         // spawn this resize belongs to is still in flight. Hold the request instead
@@ -2820,7 +2846,7 @@ export const sessionHandlers: Pick<
         // session has no screen to reflow, only a size to be BORN at, and being
         // born at it is now what happens (POD-3809): `wireBridge` dispatches it for
         // a pty session, and a client terminal is opened at it.
-        ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+        owned.pendingResize = { cols: msg.cols, rows: msg.rows }
       } else {
         // The program is at the asked size now, so the headless model follows it.
         trackSessionSize(ctx, msg.sessionId, applied.cols, applied.rows)
@@ -2856,13 +2882,13 @@ export const sessionHandlers: Pick<
       // at it. Flushed, as before: `record.apply` flushes before it dispatches,
       // so a held request still moves the bytes it was holding out first.
       ctx.outputScheduler?.flushNow?.(msg.sessionId)
-      ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+      owned.pendingResize = { cols: msg.cols, rows: msg.rows }
     } else if (isResizePromise(answer)) {
       void answer
         .then((acked) => {
           if (!acked) {
             ctx.outputScheduler?.flushNow?.(msg.sessionId)
-            ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+            ctx.sessions.ensure(msg.sessionId).pendingResize = { cols: msg.cols, rows: msg.rows }
             return
           }
           record.apply(msg.sessionId, acked.cols, acked.rows)
@@ -2891,20 +2917,18 @@ export const sessionHandlers: Pick<
     // WHAT they decide.
     const screen = sessionScreenFor(ctx, msg.sessionId)?.screen
     const record = appliedGeometryFor(ctx)
+    const owned = ctx.sessions.get(msg.sessionId)
     const viewer =
-      ctx.pendingResizes.get(msg.sessionId) ?? record.applied(msg.sessionId) ?? undefined
-    const bridge = ctx.bridges.get(msg.sessionId)
+      owned?.pendingResize ?? record.applied(msg.sessionId) ?? undefined
+    const bridge = owned?.terminal
     const decision = decideReopenScreen({
       mode: screen?.mode ?? 'normal',
       modelSize: screen?.modelSize ?? record.applied(msg.sessionId) ?? undefined,
       viewerSize: viewer ? { cols: viewer.cols, rows: viewer.rows } : undefined,
       modelAlive: screen?.alive ?? false,
-      ringReplayable:
-        typeof (bridge as { replay?: (tailBytes: number) => Promise<void> } | undefined)?.replay ===
-        'function',
+      ringReplayable: bridge?.replayable ?? false,
       replayRequired: msg.replayRequired === true,
     })
-    const replay = (bridge as { replay?: (tailBytes: number) => Promise<void> } | undefined)?.replay
     const enqueueSnapshot = (): void => {
       // The screen owns the serialisation now: one model, one snapshot.
       const snapshot = screen?.alive ? screen.snapshotFirstFrame() : undefined
@@ -2917,7 +2941,8 @@ export const sessionHandlers: Pick<
         return true
       })
       if (applied) {
-        ctx.pendingResizes.delete(msg.sessionId)
+        if (owned) owned.pendingResize = undefined
+        bridge.applied = { cols: applied.cols, rows: applied.rows }
         trackSessionSize(ctx, msg.sessionId, applied.cols, applied.rows)
       }
     }
@@ -2934,7 +2959,7 @@ export const sessionHandlers: Pick<
             if (!acked) return
             record.apply(msg.sessionId, acked.cols, acked.rows)
             trackSessionSize(ctx, msg.sessionId, acked.cols, acked.rows)
-            ctx.pendingResizes.delete(msg.sessionId)
+            ctx.sessions.get(msg.sessionId)?.pendingResize = undefined
           })
           .catch((err) =>
             log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }),
@@ -2943,7 +2968,7 @@ export const sessionHandlers: Pick<
       }
       record.apply(msg.sessionId, answer.cols, answer.rows)
       trackSessionSize(ctx, msg.sessionId, answer.cols, answer.rows)
-      ctx.pendingResizes.delete(msg.sessionId)
+      ctx.sessions.get(msg.sessionId)?.pendingResize = undefined
     }
     const terminals = ctx.clientTerminals
     if (terminals?.owns?.(msg.sessionId)) {
@@ -2978,8 +3003,8 @@ export const sessionHandlers: Pick<
         // screen, and the program is not touched at all. Approximate until
         // POD-3925: the ring carries no size history, so the tail is assumed
         // at one size.
-        if (replay) {
-          void replay.call(bridge, HOST_REPLAY_TAIL_BYTES).catch((err) => {
+        if (bridge.replayable) {
+          void bridge.replay(HOST_REPLAY_TAIL_BYTES).catch((err) => {
             log.warn('host replay failed; falling back to a repaint', {
               err,
               sessionId: msg.sessionId,

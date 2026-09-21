@@ -30,9 +30,9 @@ export function dispatchNativeInputBytes(
     return
   }
 
-  const bridge = ctx.bridges.get(metadata.sessionId)
+  const bridge = ctx.sessions.get(metadata.sessionId)?.terminal
   if (bridge) {
-    bridge.writeBytes(bytes)
+    bridge.write(bytes)
   } else if (
     !ctx.nativeClientRequests?.has(metadata.sessionId) ||
     !ctx.clientTerminals?.input(metadata.sessionId, bytes)

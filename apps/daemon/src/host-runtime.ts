@@ -41,7 +41,7 @@ import {
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type AgentKind, type MachineId, type SessionId } from '@podium/model'
 import { createDurableProcess, durableProcessFor, sweepStaleDurableBindTemps } from '@podium/process/durable'
-import type { DurableAttachment } from '@podium/process/screen'
+import { SessionRegistry } from './session/registry.js'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import {
@@ -440,7 +440,9 @@ export async function createDaemonHostRuntime(args: {
     return replayed
   }
 
-  const bridges = new Map<SessionId, DurableAttachment>()
+  const sessions = new SessionRegistry({
+    labelFor: (sessionId) => durableSessionLabel(sessionId, instance.instanceId),
+  })
   const composerEngine = new ComposerSyncEngine(
     (sessionId, text) => {
       if (terminalRuntime?.has(sessionId)) terminalRuntime.observeDraft(sessionId, text)
@@ -448,7 +450,7 @@ export async function createDaemonHostRuntime(args: {
     },
     {
       writePty: (sessionId, bytes) =>
-        bridges.get(sessionId)?.write(Buffer.from(bytes, 'utf8').toString('base64')),
+        sessions.get(sessionId)?.terminal?.writeBase64(Buffer.from(bytes, 'utf8').toString('base64')),
       onDemote: (sessionId) => log.warn('draft-sync self-demoted to read-only', { sessionId }),
     },
   )
@@ -982,11 +984,10 @@ export async function createDaemonHostRuntime(args: {
     logForwarding,
     machineId,
     instanceId: instance.instanceId,
-    durableLabels: new Map<SessionId, string>(),
     durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instance.instanceId),
+    sessions,
     backend,
     ...(durable ? { durable } : {}),
-    durableSeqs: new Map<SessionId, () => bigint | undefined>(),
     launch,
     ...(harnessRuntime ? { harnessRuntime } : {}),
     settingsDir: instance.settingsDir,
@@ -997,8 +998,6 @@ export async function createDaemonHostRuntime(args: {
     // server cache.
     ...daemonHarnessLoginContext(homeDir, credentialHome),
     instanceUuid: instance.instanceUuid,
-    bridges,
-    pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
     nativeClientRequests: new Set<SessionId>(),
     nativeClientTransitions: new Map<SessionId, Promise<void>>(),
     nativeClientRetries: new Map<SessionId, number>(),
@@ -1073,7 +1072,7 @@ export async function createDaemonHostRuntime(args: {
      * therefore still leaves the request for the next attempt.
      */
     birthGeometry: (sessionId) =>
-      ctx.pendingResizes.get(sessionId) ?? appliedGeometryFor(ctx).applied(sessionId),
+      ctx.sessions.get(sessionId)?.pendingResize ?? appliedGeometryFor(ctx).applied(sessionId),
     // One session-addressed relay for engine terminals and on-demand harness
     // client terminals. The latter intentionally returns the parent session id.
     frames: (streamId, frame) => {
@@ -1578,7 +1577,7 @@ export async function createDaemonHostRuntime(args: {
     try {
       await bindingStore.reapQuarantined(async (id) => {
         if (
-          bridges.has(id) ||
+          sessions.get(id)?.attached ||
           [...ctx.runningHeadlessTurns.values()].some(
             (turn) => !turn.identity || turn.identity.sessionId === id,
           )
@@ -1596,7 +1595,7 @@ export async function createDaemonHostRuntime(args: {
             if ((error as NodeJS.ErrnoException).code !== 'ESRCH') return true
           }
         }
-        return (await durable?.has(ctx.durableLabels.get(id) ?? ctx.durableLabelFor(id))) ?? false
+        return (await durable?.has(sessions.get(id)?.label ?? ctx.durableLabelFor(id))) ?? false
       }, instance.codexReceiptDir)
     } finally {
       reapingBindings = false
@@ -1714,15 +1713,14 @@ export async function createDaemonHostRuntime(args: {
     outputScheduler.stop()
     const durableReaps: Promise<unknown>[] = []
     const reapSessions = closeOpts?.reapSessions ?? false
-    for (const [sessionId, session] of ctx.bridges) {
-      session.dispose()
+    for (const [sessionId, owned] of ctx.sessions.entries()) {
+      const label = owned.label
+      owned.clear()
       if (reapSessions && durable) {
-        const label = ctx.durableLabels.get(sessionId) ?? ctx.durableLabelFor(sessionId)
         durableReaps.push(durable.kill(label))
       }
     }
-    ctx.bridges.clear()
-    ctx.durableLabels.clear()
+    ctx.sessions.clear()
     for (const turn of ctx.runningHeadlessTurns.values()) {
       if (reapSessions) turn.interrupt()
       else turn.dispose?.()

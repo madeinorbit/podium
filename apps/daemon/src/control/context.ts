@@ -2,8 +2,8 @@ import type { agentLaunchCommand, HarnessLogin } from '@podium/harness'
 import type { AgentKind, MachineId, SessionId, UsageBucketWire } from '@podium/model'
 import type { ServerTransferServingProof } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import type { DurableAttachment } from '@podium/process/screen'
 import type { DurableBackend, DurableProcess } from '@podium/process/durable'
+import type { SessionRegistry } from '../session/registry'
 import type { ProvisionedAccountHome } from '../account-home'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
@@ -23,7 +23,6 @@ import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
 import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
-import type { SessionScreenState } from '../session-screens'
 import type { AppliedGeometryRecord } from './applied-geometry'
 
 /** What holds the agent's PTY across daemon restarts: our own podium-host, abduco,
@@ -56,16 +55,12 @@ export interface DaemonContext {
   instanceId: string
   /** Immutable UUID stamped into every process owned by this daemon. */
   instanceUuid: string
-  durableLabels: Map<SessionId, string>
   durableLabelFor(sessionId: SessionId): string
   backend: DurableBackend
   /** The one object every durable-host call goes through (SPEC-6); absent when
    *  `backend` is `none`. Contexts built by hand may omit it and get one derived
    *  from `backend` (see `durableProcessFor`). */
   durable?: DurableProcess
-  /** The seq after the last output byte this daemon saw per session, for the host
-   *  backend's exact reattach replay. Read at reattach; `tail` when unknown. */
-  durableSeqs: Map<SessionId, () => bigint | undefined>
   /** Legacy pure argv builder retained as a test seam. Production launches through harnessRuntime. */
   launch: typeof agentLaunchCommand
   /** Generation-bound executable inventory and launch service. */
@@ -81,16 +76,15 @@ export interface DaemonContext {
   harnessLoginState(agentKind: AgentKind): HarnessLogin['state'] | undefined
 
   // -- per-session runtime state ---------------------------------------------
-  /** Live PTY bridges by Podium session id. */
-  bridges: Map<SessionId, DurableAttachment>
   /**
-   * Geometry a client asked for while this session had no bridge to apply it to.
-   * Spawn is async (fork+exec, abduco socket handshake) and the server publishes
-   * the session row the moment it dispatches `spawn`, so a browser that fits its
-   * pane in that window sends a resize the daemon cannot deliver yet. Held here
-   * and applied by wireBridge instead of being dropped (POD-628).
+   * ONE object per session (POD-4434): its durable label(s), its Terminal if
+   * any, its screen, its held resize and its replay cursor. Replaces the
+   * per-session maps this context used to carry (bridges, durableLabels,
+   * pendingResizes, the screen registry). The durable door (`durable` above)
+   * stays separate: it is the machine-wide way to REACH a process, while a
+   * Session is what OWNS one.
    */
-  pendingResizes: Map<SessionId, { cols: number; rows: number }>
+  sessions: SessionRegistry
   /**
    * THE ONE PLACE THIS DAEMON RECORDS WHAT SIZE IT ACTUALLY APPLIED (POD-3290).
    *
@@ -139,13 +133,6 @@ export interface DaemonContext {
   nativeClientRetries?: Map<SessionId, number>
   /** Agent-state trackers, transcript tails, per-harness observers. */
   observers: SessionObservers
-  /**
-   * Per-session headless screen state (POD-3918 P1b): the 1049 mode tracker
-   * and the VT model the reopen policy reconstitutes from. Fed by the output
-   * funnels and the apply sites; dropped when the session's terminal goes
-   * away. Optional so hand-built contexts keep working.
-   */
-  sessionScreens?: Map<SessionId, SessionScreenState>
   /** The one per-machine runtime. Family registries are private mechanisms
    * behind this root; handlers never walk them independently. Optional only
    * during bootstrap while the driver host ports close their wiring cycle. */

@@ -703,10 +703,9 @@ export function runDurableHeadlessTurn(
           await located.adapter.attach({
             label,
             socketPath: located.socketPath,
-            hardRepaint: false,
             lastKnownGeometry: HEADLESS_GEOMETRY,
           })
-        ).session
+        ).attachment
       } else if (existsSync(paths.running)) {
         // Close the race where the process writes its exit journal between the
         // first collect() and the socket check.

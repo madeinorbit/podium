@@ -47,8 +47,6 @@ export type DurableKind = Exclude<DurableBackend, 'none'>
 export interface DurableAttachOptions {
   label: string
   socketPath: string
-  /** Reattaching a shell: `redraw()` defaults to the hard Ctrl-L repaint. */
-  hardRepaint: boolean
   /** The server's last-known size — a belief, not an observation (abduco's downgrade fallback). */
   lastKnownGeometry: Geometry
   /**
@@ -178,10 +176,12 @@ export function abducoDurableAdapter(): DurableAdapter {
       // restart it can be stale. A reattach is not a viewer asking for a size,
       // so it neither resizes nor signals the agent; the first viewport request
       // after reconnect is what moves it [spec:SP-6144].
+      // Size-neutral: a reattach neither resizes nor signals the agent, and
+      // applies nothing — the shell hard-repaint rule lives on the daemon's
+      // Terminal now (POD-4434), not in the attach.
       const attachment = attachAbducoAgent({
         label: opts.label,
         socketPath: opts.socketPath,
-        hardRepaint: opts.hardRepaint,
         sizeNeutral: true,
         // Read ONLY if this machine has no `-N` abduco build and the attach
         // downgrades to one that does announce a size. Last-known is then the
@@ -226,7 +226,6 @@ export function hostDurableAdapter(): DurableAdapter {
       const attachment: HostDurableAttachment = attachHostAgent({
         label: opts.label,
         socketPath: opts.socketPath,
-        hardRepaint: opts.hardRepaint,
         fromSeq: opts.lastSeq ?? 'tail',
       })
       const welcome = await attachment.ready

@@ -287,11 +287,13 @@ async function memoryBreakdown(
   if (supported) {
     try {
       const result = (await ctx.workerClient.runJob('memoryBreakdown', {
-        sessions: [...ctx.bridges.entries()].map(([sessionId, session]) => ({
-          sessionId,
-          label: `podium-${sessionId}`,
-          pid: session.pid,
-        })),
+        sessions: [...ctx.sessions.entries()]
+          .filter(([, owned]) => owned.terminal !== undefined)
+          .map(([sessionId, owned]) => ({
+            sessionId,
+            label: `podium-${sessionId}`,
+            pid: owned.terminal?.pid ?? 0,
+          })),
         roots,
         selfPid: process.pid,
       })) as MemoryAttribution
