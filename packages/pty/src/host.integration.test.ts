@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { resolveHostBin } from './host-bin.js'
 import {
+  WriterLeaseRefusedError,
   attachHostAgent,
   connectHost,
   createHostFrameDecoder,
@@ -557,6 +558,63 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
       { encoding: 'utf8', timeout: 5000 },
     )
     expect(r.status).toBe(0) // connected, then closed by the host without an answer
+  }, 30_000)
+})
+
+describe.skipIf(!hasCompiler)('podium-host writer lease: refusal and deliberate steal (POD-4434)', () => {
+  it('refuses a second writer, refuses an adopting spawn, and hands the lease to a steal', async () => {
+    const l = label('lease')
+    // First daemon: spawns and holds the one writer lease.
+    const first = await spawnHostAgent({
+      label: l,
+      cmd: 'sleep',
+      args: ['30'],
+      cols: 80,
+      rows: 24,
+      requireLease: true,
+    })
+    sessions.push(first)
+    await expect(first.ready).resolves.toMatchObject({ lease: true })
+
+    // Second daemon after an update overlap: its SPAWN adopts the live master,
+    // but the lease is held — so it refuses loudly instead of reading silently.
+    await expect(
+      spawnHostAgent({ label: l, cmd: 'sleep', args: ['30'], cols: 80, rows: 24, requireLease: true }),
+    ).rejects.toThrow(WriterLeaseRefusedError)
+    // The refusal names the label (the daemon's reattachFailed/spawnError shows it).
+    const refused = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
+    await expect(refused.ready).rejects.toThrow(
+      new RegExp(`refused the writer lease for '${l}'.*another writer is attached`),
+    )
+    refused.dispose()
+
+    // Deliberate takeover: attach without the lease (stays connected), then steal.
+    const taker = attachHostAgent({ label: l, fromSeq: 'tail' })
+    sessions.push(taker)
+    await expect(taker.ready).resolves.toMatchObject({ lease: false })
+    let leaseLost = false
+    first.connection.onLeaseLost(() => {
+      leaseLost = true
+    })
+    await taker.connection.steal()
+    await waitFor(() => leaseLost, 'LEASE_LOST on the revoked holder')
+
+    // The loser can no longer write; the taker can. Order is deterministic:
+    // STOLEN is queued after the revocation, and these writes postdate it.
+    await expect(first.connection.write(Uint8Array.of(0x41))).rejects.toThrow(/not the writer/)
+    await expect(taker.connection.write(Uint8Array.of(0x42))).resolves.toBe(1)
+
+    // While the taker holds it, a fresh attach still refuses…
+    const late = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
+    await expect(late.ready).rejects.toThrow(WriterLeaseRefusedError)
+    late.dispose()
+
+    // …and once the taker detaches, the lease is free again.
+    taker.dispose()
+    sessions.splice(sessions.indexOf(taker), 1)
+    const after = attachHostAgent({ label: l, fromSeq: 'tail', requireLease: true })
+    sessions.push(after)
+    await expect(after.ready).resolves.toMatchObject({ lease: true })
   }, 30_000)
 })
 

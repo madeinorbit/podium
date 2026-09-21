@@ -5,7 +5,7 @@
  * the process it shows. The Session owns the process (its durable label, kept
  * alive on the host across daemon restarts); the Terminal owns the live
  * attachment over it — the connection object whose disposal DETACHES, never
- * kills. Parking drops the Terminal and keeps the process; resume rebuilds a
+ * reaps. Parking drops the Terminal and keeps the process; resume rebuilds a
  * Terminal over the same process from the host's replay cursor.
  *
  * THE ONLY implementation of opening, adopting, parking, reaping and closing
@@ -16,9 +16,9 @@
  * a time, because the terminal stream is keyed by session id.
  *
  * IMPORT DIRECTION (layers table): may import DurableAttachment, TerminalScreen
- * and protocol terminal frames. Must never import DurableProcess spawn/kill,
- * any driver, agent-runtime or harness manifests — a surface cannot open or
- * reap a process, and knows nothing about what the bytes mean.
+ * and protocol terminal frames. Must never import the durable door, any
+ * driver, agent-runtime or harness manifests — a surface cannot open or reap
+ * a process, and knows nothing about what the bytes mean.
  */
 
 import type { Geometry } from '@podium/model'
@@ -113,9 +113,9 @@ export class Terminal {
   }
 
   /**
-   * THE ONE function that constructs a Terminal (POD-4434): spawn and reattach
-   * (headed) and client open/re-adopt (native) all come through here. Takes the
-   * live attachment and the session's screen; spawns nothing, kills nothing.
+   * THE ONE function that constructs a Terminal (POD-4434): headed open and
+   * reattach and native client open/re-adopt all come through here. Takes the
+   * live attachment and the session's screen; opens nothing, reaps nothing.
    */
   static attach(
     attachment: DurableAttachment,

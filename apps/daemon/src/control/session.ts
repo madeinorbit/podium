@@ -2453,6 +2453,10 @@ export async function recoverTerminalHost(
             ...(resumeFrom !== undefined ? { lastSeq: resumeFrom } : {}),
           })
         } catch (err) {
+          // A refused lease is not a lookup failure: it must reach the
+          // handler as itself, so the frame names the session and the holder
+          // instead of reporting a generic 'session not found'.
+          if (err instanceof WriterLeaseRefusedError) throw err
           log.warn('durable reattach failed', {
             err,
             sessionId: msg.sessionId,
