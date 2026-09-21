@@ -25,6 +25,7 @@ import type { DaemonContext } from '../control/context'
 import { sessionHandlers, stopSessionProcess } from '../control/session'
 import { runtimeHandlers } from './handlers'
 import { beginServerDriverReap, type ServerReapIo } from './server-reap'
+import { testSessions } from '../session/testing.js'
 import {
   SERVER_GRACEFUL_EXIT_MS,
   SERVER_HANDLE_VERB_TIMEOUT_MS,
@@ -1132,7 +1133,7 @@ it('lifecycle stop reaps a journal after registry loss without adopting a new pr
   const adopt = vi.fn()
   Object.assign(ctx, {
     backend: 'none', settingsDir: '/nonexistent/podium-test-settings',
-    bridges: new Map(), pendingResizes: new Map(), durableLabels: new Map(),
+    sessions: testSessions(),
     durableLabelFor: () => 'orphan', observers: { clearSession() {} },
     outputScheduler: { remove() {} }, portableStateFence: { runSync: (fn: () => void) => fn() },
     serverReapIo: io,

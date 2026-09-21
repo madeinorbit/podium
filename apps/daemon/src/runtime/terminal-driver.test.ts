@@ -47,6 +47,9 @@ import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DurableAttachment } from '@podium/process/screen'
+import { TerminalScreen } from '@podium/process/screen'
+import { Terminal } from '../terminal/terminal.js'
 import { terminalProfileFor } from './registry'
 import {
   createTerminalRuntime,
@@ -70,6 +73,31 @@ function shippedProfile(harness: 'claude-code' | 'grok' | 'opencode'): TerminalH
 
 const CLAUDE = shippedProfile('claude-code')
 const GROK = shippedProfile('grok')
+
+/**
+ * A Terminal for `bridge()` stubs (POD-4434): the port returns the Terminal
+ * now, so tests hold a real one over a fake attachment. Base64 writes route
+ * to `onWrite`, exactly as the driver's `writeBase64` calls them.
+ */
+function fakeTerminal(onWrite?: (dataBase64: string) => void): Terminal {
+  const attachment = {
+    pid: 99,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: (dataBase64: string) => {
+      onWrite?.(dataBase64)
+    },
+    writeBytes: () => {},
+    resize: () => {},
+    redraw: () => {},
+    geometry: () => ({ cols: 80, rows: 24 }),
+    dispose: () => {},
+  } as unknown as DurableAttachment
+  return Terminal.attach(attachment, new TerminalScreen({ cols: 80, rows: 24 }), {
+    onFrame: () => {},
+  })
+}
 
 /** The bracketed-paste envelope, parsed without a regex: the escape bytes are
  *  literal control characters, which a `RegExp` literal cannot carry legibly. */
@@ -224,9 +252,12 @@ function makeWorld(
       if (!alive.get(`podium-${sessionId}`)) return undefined
       let bridge = bridges.get(sessionId)
       if (!bridge) {
-        bridge = {
+        const attachment = {
           pid: 99,
-          write: (dataBase64) => {
+          onFrame: () => () => {},
+          onTitle: () => () => {},
+          onExit: () => () => {},
+          write: (dataBase64: string) => {
             const text = Buffer.from(dataBase64, 'base64').toString('utf8')
             written.push(text)
             const paste = pastedText(text)
@@ -247,7 +278,15 @@ function makeWorld(
               },
             )
           },
-        }
+          writeBytes: () => {},
+          resize: () => {},
+          redraw: () => {},
+          geometry: () => ({ cols: 80, rows: 24 }),
+          dispose: () => {},
+        } as unknown as DurableAttachment
+        bridge = Terminal.attach(attachment, new TerminalScreen({ cols: 80, rows: 24 }), {
+          onFrame: () => {},
+        })
         bridges.set(sessionId, bridge)
       }
       return bridge
@@ -3046,7 +3085,7 @@ describe('answer script ownership', () => {
     world.observe(handle.binding.sessionId, { nextPhase: 'needs_user' })
     const id = (await handle.interactions())[0]!.id
     const replacementWrites: string[] = []
-    world.host.bridge = () => ({ pid: 99, write: (data) => replacementWrites.push(data) })
+    world.host.bridge = () => fakeTerminal((data) => void replacementWrites.push(data))
     expect(await handle.answer(id, { index: 0 })).toEqual({ ok: false, reason: 'expired' })
     expect(world.written).toEqual([])
     expect(replacementWrites).toEqual([])
@@ -3077,7 +3116,7 @@ describe('answer script ownership', () => {
         if (cause === 'replacement') ask('second')
         if (cause === 'human') world.observe(sessionId, { priorPhase: 'needs_user', nextPhase: 'working' })
         const replacementWrites: string[] = []
-        if (cause === 'bridge') world.host.bridge = () => ({ pid: 99, write: (data) => replacementWrites.push(data) })
+        if (cause === 'bridge') world.host.bridge = () => fakeTerminal((data) => void replacementWrites.push(data))
         if (cause === 'bridge-disposal') world.host.bridge = () => undefined
         if (cause === 'dispose') world.runtime.dispose()
         if (cause === 'clear') world.runtime.clear(sessionId)

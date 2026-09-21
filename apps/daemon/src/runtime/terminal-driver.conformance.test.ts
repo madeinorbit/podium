@@ -52,6 +52,9 @@ import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import type { DurableAttachment } from '@podium/process/screen'
+import { TerminalScreen } from '@podium/process/screen'
+import { Terminal } from '../terminal/terminal.js'
 import {
   createTerminalRuntime,
   type TerminalHarnessProfile,
@@ -123,7 +126,7 @@ function makeWorld(options: WorldOptions): {
   const submissionWaiters = new Set<() => void>()
   const turnEpochs = new Map<SessionId, number>()
   const completedEpochs = new Map<SessionId, number>()
-  const bridgeOf = new Map<SessionId, { write(dataBase64: string): void; pid: number }>()
+  const bridgeOf = new Map<SessionId, Terminal>()
   const pendingPaste = new Map<SessionId, string>()
   /** Deliveries of the caller's TEXT, counted at the PTY. A bracketed paste is
    *  one delivery; the CR and the bounded verification nudges that follow it are
@@ -392,9 +395,15 @@ function makeWorld(options: WorldOptions): {
         // is not going to be the author of.
         if (msg.resume) postResumeRef(msg.sessionId)
       })
-      bridgeOf.set(msg.sessionId, {
-        pid: 4242,
-        write: (dataBase64) => {
+      bridgeOf.set(
+        msg.sessionId,
+        Terminal.attach(
+          {
+            pid: 4242,
+            onFrame: () => () => {},
+            onTitle: () => () => {},
+            onExit: () => () => {},
+            write: (dataBase64: string) => {
           const text = Buffer.from(dataBase64, 'base64').toString('utf8')
           const paste = pastedText(text)
           if (paste !== undefined) {
@@ -425,8 +434,17 @@ function makeWorld(options: WorldOptions): {
           if (suppressEcho.delete(msg.sessionId)) return
           turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
           echoUserTurn(msg.sessionId, pasted)
-        },
-      })
+            },
+            writeBytes: () => {},
+            resize: () => {},
+            redraw: () => {},
+            geometry: () => ({ cols: 80, rows: 24 }),
+            dispose: () => {},
+          } as unknown as DurableAttachment,
+          new TerminalScreen({ cols: 80, rows: 24 }),
+          { onFrame: () => {} },
+        ),
+      )
     },
     readHistory: async (session, range) => pageHistory(transcriptFor(session.sessionId), session.sessionId, range),
     readTranscript: async (session, range) =>

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { configureFieldsForDriver } from '@podium/harness/driver/host'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './session'
+import { testSessions } from '../session/testing.js'
 
 const SESSION_ID = asSessionId('claude-reattach-session')
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-reattach-ref' }

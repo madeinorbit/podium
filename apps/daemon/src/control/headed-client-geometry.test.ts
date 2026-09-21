@@ -30,6 +30,7 @@ import { appliedGeometryFor } from './applied-geometry'
 import type { DaemonContext } from './context'
 import { createDurable } from '@podium/process/durable'
 import { reconcileNativeClientTerminal, sessionHandlers } from './session'
+import { testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
 
@@ -131,6 +132,7 @@ function harness(
         }),
     frames: () => {},
     releaseStream: () => {},
+    sessions: ctx.sessions,
     spawn: async (o) => {
       born.push([o.cols ?? 0, o.rows ?? 0])
       const client = fakeClient(over.ackSize)
@@ -225,7 +227,7 @@ describe('an ask that arrives before the terminal exists', () => {
     ])
 
     // The request is consumed, not left to fire on the next reconcile.
-    expect(h.(ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
+    expect(h.ctx.sessions.get(SESSION)?.pendingResize).toBeUndefined()
   })
 
   it('ARMED: with the report suppressed the daemon looks identical and the server hears nothing', async () => {
@@ -259,7 +261,7 @@ describe('a later ask, once the client terminal exists', () => {
     expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual({ cols: 96, rows: 27 })
     expect(reports(h.sent)).toEqual([ASKED, { cols: 96, rows: 27 }])
     // Nothing is held: it was applied, so it is not a pending request.
-    expect(h.(ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
+    expect(h.ctx.sessions.get(SESSION)?.pendingResize).toBeUndefined()
   })
 })
 
@@ -292,7 +294,7 @@ describe('audit item 4: the record holds the acknowledged size', () => {
     // told that size — never the requested one.
     expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ACKED)
     expect(reports(h.sent)).toEqual([{ cols: 120, rows: 40 }, ACKED])
-    expect(h.(ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
+    expect(h.ctx.sessions.get(SESSION)?.pendingResize).toBeUndefined()
   })
 
   it('a later ask records what the host acknowledged', async () => {
@@ -307,6 +309,6 @@ describe('audit item 4: the record holds the acknowledged size', () => {
     expect(h.clients[0]?.sizes).toEqual([[96, 27]])
     expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ACKED)
     expect(reports(h.sent)).toEqual([ASKED, ACKED])
-    expect(h.(ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
+    expect(h.ctx.sessions.get(SESSION)?.pendingResize).toBeUndefined()
   })
 })

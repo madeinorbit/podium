@@ -53,6 +53,7 @@ import {
   runtimeDriverInventory,
 } from './control/inventory.js'
 import { scanHostUsageSources, scanQuotaHistory } from '@podium/harness/inventory'
+import { testSessions } from './session/testing.js'
 
 describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
   describe('resolveManagementCredentialHome prefers the provisioned account home', () => {
@@ -460,7 +461,6 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         primeInjector: { reset: () => {} },
         hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
         agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
-        durableSeqs: new Map(),
       } as unknown as Parameters<typeof launchSpawn>[0]
       await launchSpawn(ctx, {
         type: 'spawn',
@@ -501,7 +501,6 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         primeInjector: { reset: () => {} },
         hookEndpointFor: () => '',
         agentRelayEndpointFor: () => '',
-        durableSeqs: new Map(),
       } as unknown as Parameters<typeof launchSpawn>[0]
       const sent: DaemonMessage[] = []
       ;(ctx as { send: (m: DaemonMessage) => void }).send = (m) => sent.push(m)

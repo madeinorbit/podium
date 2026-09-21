@@ -4,6 +4,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
+import { testSessions } from '../session/testing.js'
 
 const SESSION_ID = asSessionId('headless-reattach-session')
 const ADOPT_ERROR = 'headless: no exact surviving process'

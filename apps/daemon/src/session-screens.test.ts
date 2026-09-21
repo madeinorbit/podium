@@ -20,6 +20,7 @@ import {
 } from './session-screens'
 import { ComposerSyncEngine } from './composer-sync'
 import { createTerminalScreenObserver } from './terminal-screen-observer'
+import { testSessions } from './session/testing.js'
 
 const SESSION = asSessionId('33333333-3333-4333-8333-333333333333')
 const ENTER_ALT = '\x1b[?1049h'
