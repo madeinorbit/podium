@@ -159,6 +159,7 @@ export class RollupSync {
     private readonly inputs: RollupInputs,
     private readonly countRollup: () => void,
     private readonly countIndex: () => void,
+    private readonly countScan?: (name: string, visits: number) => void,
   ) {
     this.sync = new EntitySync<RollupRow>('tanstack-arm.rollup', [], (row) => row.id)
     this.collection = this.sync.collection as unknown as Collection<
@@ -931,6 +932,7 @@ export class RollupSync {
       this.dropChildEdge(id)
       this.originOf.delete(id)
       this.outgoingDeps.delete(id)
+      this.countScan?.('dependents-scan', this.dependentsOf.size)
       for (const [to, edges] of [...this.dependentsOf]) {
         const kept = edges.filter((entry) => entry.id !== id)
         if (kept.length === 0) this.dependentsOf.delete(to)

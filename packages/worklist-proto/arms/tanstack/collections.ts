@@ -171,7 +171,10 @@ export class PrefixIndex {
   readonly prefixByRepoId = new Map<string, string | null>()
   private roots = new Set<string>()
 
-  constructor(private readonly countIndex: () => void) {}
+  constructor(
+    private readonly countIndex: () => void,
+    private readonly countScan?: (name: string, visits: number) => void,
+  ) {}
 
   prefixForRepo(repoId: string | null | undefined): string | null {
     if (repoId == null) return null
@@ -181,6 +184,7 @@ export class PrefixIndex {
   /** Longest-prefix containment of a cwd against the roots. */
   resolveCwd(cwd: string): string | null {
     const probe = normalizeRoot(cwd)
+    this.countScan?.('prefix-probe', this.roots.size)
     let best: string | null = null
     for (const root of this.roots) {
       if (probe === root || probe.startsWith(`${root}/`)) {
@@ -198,6 +202,7 @@ export class PrefixIndex {
 
   private moveSeat(map: Map<string, Set<string>>, id: string, seat: string | null): boolean {
     let changed = false
+    this.countScan?.('move-seat-scan', map.size)
     for (const [key, bucket] of map) {
       if (key !== seat && bucket.delete(id)) {
         changed = true

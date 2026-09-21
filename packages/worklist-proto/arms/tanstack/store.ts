@@ -79,6 +79,13 @@ export class TanStackStore {
   private orderDirty = false
   private markSummary = 0
   private markRows = 0
+  /**
+   * Named multi-row walks (H4 residual R-T1 slope material). Same convention
+   * as the MobX arm: cumulative visits since the last `stats.reset()`, so
+   * each count-harness step reads its own delta. Recording a walk never
+   * changes derivation behavior.
+   */
+  private readonly scanTotals = new Map<string, number>()
 
   constructor(
     private readonly source: RowSource,
@@ -95,6 +102,7 @@ export class TanStackStore {
         stats.rollupsDerived = 0
         stats.indexUpdates = 0
         stats.notifications = 0
+        this.scanTotals.clear()
       },
     }
     this.stats = stats
@@ -105,7 +113,7 @@ export class TanStackStore {
     const countRollup = (): void => {
       stats.rollupsDerived += 1
     }
-    this.prefix = new PrefixIndex(countIndex)
+    this.prefix = new PrefixIndex(countIndex, (name, visits) => this.scan(name, visits))
 
     // Seed from the source snapshot (cold path is silent — arms snapshot).
     const seedOf = <T>(kind: 'issue' | 'session' | 'worktree'): T[] =>
@@ -164,6 +172,7 @@ export class TanStackStore {
       },
       countRollup,
       countIndex,
+      (name, visits) => this.scan(name, visits),
     )
     this.rollup.subscribe()
     this.rollup.rebuildAll({
@@ -390,7 +399,11 @@ export class TanStackStore {
   private rebuildOrder(): void {
     const pinnedIds: string[] = []
     const buckets = new Map<string, { label: string; open: string[]; closed: string[] }>()
-    for (const entry of this.top.orderQ.toArray as Array<{ id: string }>) {
+    const orderEntries = this.top.orderQ.toArray as Array<{ id: string }>
+    // H4 residual R-T1: the full order array is re-bucketed (plus a
+    // whole-order compare) on every call — counted here, gated in M2.
+    this.scan('order-rebuild', orderEntries.length)
+    for (const entry of orderEntries) {
       const id = entry.id
       const lane = this.top.laneQ.get(id) as LaneRow | undefined
       if (lane === undefined) continue
@@ -520,6 +533,18 @@ export class TanStackStore {
     const set = this.listeners.get(key)
     if (set === undefined) return
     for (const listener of [...set]) listener()
+  }
+
+  /** Record a multi-row walk (H4 slope material); cleared by `stats.reset()`. */
+  scan(name: string, visits: number): void {
+    this.scanTotals.set(name, (this.scanTotals.get(name) ?? 0) + visits)
+  }
+
+  /** Cumulative scan visits since the last `stats.reset()` (M2 slope record). */
+  scanCounts(): Record<string, number> {
+    const out: Record<string, number> = {}
+    for (const [name, visits] of this.scanTotals) out[name] = visits
+    return out
   }
 
   /** Test hook: outstanding subscription count (dispose leaves zero). */
