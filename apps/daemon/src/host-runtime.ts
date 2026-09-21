@@ -1492,7 +1492,7 @@ export async function createDaemonHostRuntime(args: {
       }),
     readFileBytes: async (path) => new Uint8Array(await readFile(path)),
     now: () => Date.now(),
-  })
+  }, undefined, ctx.sessions)
   agentRuntime = createDaemonMachineRuntime({
     terminal: terminalRuntime,
     claude: claudeRuntime,

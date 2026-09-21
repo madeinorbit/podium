@@ -33,6 +33,8 @@ import {
   type HeadlessDriverRunners,
   type HeadlessRuntime,
 } from './headless-driver.js'
+import { testSessions } from '../session/testing.js'
+import type { SessionRegistry } from '../session/registry.js'
 import type { HeadlessEmit, HeadlessTurnOutcome, HeadlessTurnSpec } from '../headless-drivers.js'
 import { testHarnessSnapshot } from '../test-support/harness-snapshot.js'
 
@@ -120,6 +122,8 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount' | 'useDur
   runtime: HeadlessRuntime
   host: FakeHost
   runners: HeadlessDriverRunners & { turns: FakeTurn[] }
+  /** The session entries the driver binds its handles onto (POD-4512). */
+  sessions: SessionRegistry
 } {
   const runners = makeRunners()
   const now = 1_000_000
@@ -157,8 +161,9 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount' | 'useDur
     readFileBytes: async () => new TextEncoder().encode('{"transcript":"bytes"}'),
     now: () => now,
   }
-  const runtime = createHeadlessRuntime(host, runners)
-  return { runtime, host, runners }
+  const sessions = testSessions()
+  const runtime = createHeadlessRuntime(host, runners, sessions)
+  return { runtime, host, runners, sessions }
 }
 
 function makeSpec(harness = 'claude-code', extra: Partial<SessionSpec> = {}): SessionSpec {
@@ -323,7 +328,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('headless driver identity', () => {
   it('creates a session behind a headless server-family binding', async () => {
-    const { runtime } = makeRuntime()
+    const { runtime, sessions } = makeRuntime()
     const { handle, sessionId } = await createHandle(runtime)
     try {
       expect(handle.binding).toMatchObject({
@@ -335,6 +340,10 @@ describe('headless driver identity', () => {
         resume: null,
       })
       expect(handle.binding.process.key).toBe(`podium-${sessionId}`)
+      // THE ENTRY OWNS THE HANDLE (POD-4512): what `register` indexed in its
+      // own map is the same object the session holds, and the same object the
+      // runtime answers for the session.
+      expect(sessions.get(sessionId)?.driver).toBe(handle)
       expect(runtime.handleFor(sessionId)).toBe(handle)
       expect(runtime.bindings()).toHaveLength(1)
     } finally {
@@ -505,7 +514,7 @@ describe('headless dispatch', () => {
       readFileBytes: async () => new TextEncoder().encode('{"transcript":"bytes"}'),
       now: () => now,
     }
-    const runtime = createHeadlessRuntime(host, failing)
+    const runtime = createHeadlessRuntime(host, failing, testSessions())
     try {
       const { handle, sessionId } = await createHandle(runtime)
       const refused = await handle.send(makeTurn(sessionId, { turnId: 'x1' }), {
