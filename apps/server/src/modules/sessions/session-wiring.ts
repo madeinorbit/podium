@@ -595,6 +595,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessionRoomLeave: bag.deps.sessionRoomLeave
       ? (client, sessionId) => bag.deps.sessionRoomLeave?.(client, sessionId)
       : undefined,
+    onTabRelease: (sessionId, reporterClientId) => bag.releaseShellTab(sessionId, reporterClientId),
   })
 
   bag.autoContinue = new AutoContinueController({

@@ -40,7 +40,7 @@ const log = createLogger('server:sessions')
 
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import { computePriorities } from '@podium/model'
+import { computePriorities, isIssueClosed } from '@podium/model'
 import type {
   DaemonPtyInputBatch,
   DaemonPtyOutputBatch,
@@ -144,6 +144,7 @@ import type { SessionRuntimeGateway } from './runtime-gateway'
 import type { TurnPreviewAccumulator } from './turn-preview'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
+import { decideShellLifetime, shellQuietMs } from './terminal-lifetime'
 
 export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 export type { SessionSpawnResult }
@@ -744,6 +745,54 @@ export class SessionLifecycle {
   /** Idle-shell policy park — process killed, row inspectable, no worktree free. */
   parkShellSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }> {
     return this.sessionTeardown.parkShellSession(input.sessionId)
+  }
+
+  /**
+   * THE TAB-RELEASE TRIGGER (POD-4435): a client closed its last tab for a
+   * shell. One call site of decideShellLifetime for this trigger; the reaper
+   * tick and the issue-close / worktree-free path own theirs.
+   *
+   * Only a kill verdict acts here — a release never parks. Anything else
+   * leaves the shell exactly as it was: a used shell stays with its issue and
+   * reopens with scrollback via host replay.
+   */
+  async releaseShellTab(sessionId: SessionId, reporterClientId: string): Promise<void> {
+    const session = this.sessions.get(sessionId)
+    if (!session || session.agentKind !== 'shell') return
+    if (
+      session.status !== 'live' &&
+      session.status !== 'starting' &&
+      session.status !== 'reconnecting'
+    ) {
+      return
+    }
+    const cfg = (await this.store.settings.getSettings()).hibernation
+    const issue = session.issueId ? await this.deps.issueAccess.getMeta(session.issueId) : undefined
+    const lastHeld = this.state.lastHeldAtMs(sessionId)
+    const decision = decideShellLifetime({
+      purpose: session.loginHarness !== undefined ? 'login' : 'shell',
+      hasInput: session.terminal.lastInputAtMs > 0,
+      heldByTab: this.state.isHeld(sessionId, reporterClientId),
+      watched: this.state.isWatched(sessionId, reporterClientId),
+      lastTabReleased: true,
+      issueClosed: issue ? isIssueClosed(issue) || issue.deletedAt != null : false,
+      worktreeFreed: false,
+      quietMs: shellQuietMs(this.now(), {
+        lastActiveAt: session.lastActiveAt,
+        lastResumedAtMs: session.terminal.lastResumedAtMs,
+        lastInputAtMs: session.terminal.lastInputAtMs,
+        lastOutputAtMs: session.terminal.lastOutputAtMs,
+      }),
+      unheldMs: lastHeld === undefined ? undefined : Math.max(0, this.now() - lastHeld),
+      unwatchedMs: 0,
+      warmTtlMs: 0,
+      backstopMs: cfg.backstopMinutes ?? undefined,
+      idleGraceMs: cfg.idleShellMinutes ?? undefined,
+      exited: false,
+    })
+    if (decision.verdict !== 'kill') return
+    log.info('tab release retired an untouched shell', { sessionId, reason: decision.reason })
+    await this.sessionKill.killSession({ sessionId })
   }
   /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */
   async handoffSession(

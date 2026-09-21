@@ -99,6 +99,25 @@ export interface ShellLifetimeDecision {
   reason: string
 }
 
+/**
+ * Ms since the shell's last activity, in the vocabulary every trigger shares:
+ * the max over event-time and terminal stamps. Malformed stamps read as zero
+ * (a shell that cannot prove quiet is not quiet) — protection by default.
+ */
+export function shellQuietMs(
+  nowMs: number,
+  stamps: { lastActiveAt: string; lastResumedAtMs: number; lastInputAtMs: number; lastOutputAtMs: number },
+): number {
+  const parsed = [
+    Date.parse(stamps.lastActiveAt),
+    stamps.lastResumedAtMs,
+    stamps.lastInputAtMs,
+    stamps.lastOutputAtMs,
+  ]
+  if (!parsed.every(Number.isFinite)) return 0
+  return Math.max(0, nowMs - Math.max(...parsed))
+}
+
 export function decideShellLifetime(input: ShellLifetimeInputs): ShellLifetimeDecision {
   // Row 1: nothing to decide for a shell with no process.
   if (input.exited) return { verdict: 'keep', reason: 'already-exited' }

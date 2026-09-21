@@ -32,6 +32,13 @@ function contractSession(sessionId: SessionId, overrides: Partial<HostSessionVie
     lastResumedAtMs: 0,
     lastInputAtMs: 0,
     lastOutputAtMs: 0,
+    // THE SHELL POLICY'S INPUTS (POD-4435): contract agents never reach the
+    // table — present only because the projection is total.
+    hasInput: false,
+    heldByTab: false,
+    watched: false,
+    purpose: 'shell',
+    lastHeldAtMs: undefined,
     ...overrides,
   }
 }
@@ -98,6 +105,9 @@ function harness(input: {
       return { ok: true }
     },
     parkShellSession: async () => ({ ok: false, reason: 'not a shell session' }),
+    killShellSession: async () => {
+      throw new Error('no shell should reach the kill verb in these tests')
+    },
     hasScheduledWakeup: async () => false,
     hasValidTerminalProof: async (sessionId) => input.proven?.has(sessionId) ?? false,
     terminalProofMissing: async (sessionId) => !(input.proven?.has(sessionId) ?? false),
