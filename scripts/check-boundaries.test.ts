@@ -1983,6 +1983,22 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     expect(checkHarnessAllowlistTotals(grown, 2, 0, 2).length).toBeGreaterThan(0)
   })
 
+  it('a stale baseline fails — constants above the seeded totals cannot hide slack (POD-4493)', () => {
+    const base = [
+      { file: 'apps/server/src/x.ts', count: 2, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
+    ]
+    // Equality is quiet.
+    expect(checkHarnessAllowlistTotals(base, 2, 0, 2)).toEqual([])
+    // A baseline raised by 1 fails through the lint itself (not only the
+    // seeded-sums test below), so CI's lint step catches the next drift.
+    const staleLeak = checkHarnessAllowlistTotals(base, 3, 0, 2)
+    expect(staleLeak.length).toBeGreaterThan(0)
+    expect(staleLeak.join('\n')).toContain('baseline constants exceed the seeded allow-list')
+    const staleTotal = checkHarnessAllowlistTotals(base, 2, 0, 3)
+    expect(staleTotal.length).toBeGreaterThan(0)
+    expect(staleTotal.join('\n')).toContain('baseline constants exceed the seeded allow-list')
+  })
+
   it('every seeded entry carries its category pointer — leaks name the remover, policy points at the module', () => {
     expect(HARNESS_BOUNDARY_ALLOWLIST.length).toBeGreaterThan(100)
     for (const entry of HARNESS_BOUNDARY_ALLOWLIST) {

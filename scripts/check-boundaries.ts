@@ -661,6 +661,12 @@ export function applyHarnessBoundaryAllowlist(
  * commit would admit them — so the seeded totals are baselines the file may
  * only go down from. A `leak` total that grew fails, as does a policy or
  * combined total that grew. The list can only shrink.
+ *
+ * The reverse drift fails too (POD-4493): a baseline that EXCEEDS the seeded
+ * total is 70 literals of slack a lane could refill before the lint objects,
+ * so `lint:boundaries` itself refuses it — constants must equal the seeded
+ * sums, not just bound them from above. Without this the vitest file is the
+ * only witness, and the lean gate never selects it for an allow-list edit.
  */
 export function checkHarnessAllowlistTotals(
   allowlist: readonly HarnessBoundaryAllowlistEntry[] = HARNESS_BOUNDARY_ALLOWLIST,
@@ -685,6 +691,21 @@ export function checkHarnessAllowlistTotals(
   if (total > baselineTotal) {
     problems.push(
       `harness allow-list total grew: ${total} > baseline ${baselineTotal} — the list can only shrink`,
+    )
+  }
+  if (baselineLeak > leak) {
+    problems.push(
+      `harness baseline constants exceed the seeded allow-list by ${baselineLeak - leak} (leak): baseline ${baselineLeak} > seeded ${leak} — lower HARNESS_BASELINE_LEAK_COUNT to ${leak}`,
+    )
+  }
+  if (baselinePolicy > policy) {
+    problems.push(
+      `harness baseline constants exceed the seeded allow-list by ${baselinePolicy - policy} (policy): baseline ${baselinePolicy} > seeded ${policy} — lower HARNESS_BASELINE_POLICY_COUNT to ${policy}`,
+    )
+  }
+  if (baselineTotal > total) {
+    problems.push(
+      `harness baseline constants exceed the seeded allow-list by ${baselineTotal - total} (total): baseline ${baselineTotal} > seeded ${total} — lower HARNESS_BASELINE_TOTAL to ${total}`,
     )
   }
   // Every entry must carry its category's pointer: leaks name the removing

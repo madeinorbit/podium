@@ -66,11 +66,17 @@ export interface HarnessBoundaryAllowlistEntry {
 /**
  * Seeded baseline totals. The ratchet refuses any allow-list whose leak,
  * policy or combined total exceeds these — bumping a count to admit new
- * vendor behaviour fails instead of going quiet.
+ * vendor behaviour fails instead of going quiet. The constants must equal
+ * the seeded sums (checked by `lint:boundaries` itself in
+ * checkHarnessAllowlistTotals: a baseline above the seeded total fails with
+ * "baseline constants exceed the seeded allow-list" so the next lane cannot
+ * reintroduce slack by shrinking the list without lowering the baseline).
+ * POD-4470 (1.5) shrank the list to leak 487 / policy 30 / total 517;
+ * POD-4493 (1.6) lowered the baselines to match.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 557
+export const HARNESS_BASELINE_LEAK_COUNT = 487
 export const HARNESS_BASELINE_POLICY_COUNT = 30
-export const HARNESS_BASELINE_TOTAL = 587
+export const HARNESS_BASELINE_TOTAL = 517
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/install-agents.ts', count: 16, category: 'leak', reason: 'CLI/install names a harness; move into adapter install sections (4.4)', issue: 'POD-4414/4.4' },
