@@ -24,7 +24,11 @@ import {
 } from './engine-host.js'
 import { opencode2Flavor, opencodeFlavor } from './engine-facts.js'
 import { manifestFor } from '../../../registry.js'
-import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
+import type {
+  EngineAttachment,
+  EngineProcessOwner,
+  EngineSupervisor,
+} from '../engine-supervision.js'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const FLAVOR = opencodeFlavor(manifestFor('opencode')!)
@@ -68,8 +72,14 @@ function fakeEngineSession(input: { childPid?: number; lease?: boolean } = {}): 
   return { session, exits }
 }
 
-function fakeSupervision(hooks: {
-  spawnHeadless?: (opts: {
+/**
+ * Both ports the family consumes, built from one set of hooks: the
+ * session-owned process verbs (`engines`) carry the behavior under test,
+ * while the scope port (`supervision`) answers nothing on this platform.
+ * Spread at the call site: `...fakePorts({ startEngine: ... })`.
+ */
+function fakePorts(hooks: {
+  startEngine?: (opts: {
     label: string
     cmd: string
     args: string[]
@@ -77,19 +87,24 @@ function fakeSupervision(hooks: {
     env: Record<string, string>
     stripEnv: readonly string[]
   }) => Promise<EngineAttachment>
-  attachHeadless?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
-  killed?: (label: string) => void
-}): EngineSupervisor {
+  reattachEngine?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
+  destroyed?: (label: string) => void
+}): {
+  supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
+  engines: EngineProcessOwner
+} {
   return {
-    spawnHeadless:
-      hooks.spawnHeadless ?? (() => Promise.reject(new Error('unexpected spawnHeadless'))),
-    attachHeadless:
-      hooks.attachHeadless ?? (() => Promise.reject(new Error('no engine host answers'))),
-    has: async () => false,
-    kill: async (label: string) => {
-      hooks.killed?.(label)
+    supervision: { scopeUnitFor: () => undefined },
+    engines: {
+      startEngine:
+        hooks.startEngine ?? (() => Promise.reject(new Error('unexpected startEngine'))),
+      reattachEngine:
+        hooks.reattachEngine ?? (() => Promise.reject(new Error('no engine host answers'))),
+      engineAlive: async () => false,
+      destroyEngine: async (label: string) => {
+        hooks.destroyed?.(label)
+      },
     },
-    scopeUnitFor: () => undefined,
   }
 }
 
@@ -120,13 +135,13 @@ function fakeSupervision(hooks: {
 
   it('spawns the resolved executable headless under the session label', async () => {
     const executable = '/home/rig/.opencode/bin/opencode'
-    const launched: Array<Parameters<EngineSupervisor['spawnHeadless']>[0]> = []
+    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
     const stopped = new Error('stop after argv capture')
     const host = engineHost({
       executablePath: executable,
       checkVersion: async () => null,
-      supervision: fakeSupervision({
-        spawnHeadless: async (opts) => {
+      ...fakePorts({
+        startEngine: async (opts) => {
           launched.push(opts)
           throw stopped
         },
@@ -164,13 +179,13 @@ function fakeSupervision(hooks: {
 
   it('passes the isolated database path to the OpenCode 2 server process', async () => {
     const stopped = new Error('stop after env capture')
-    const launched: Array<Parameters<EngineSupervisor['spawnHeadless']>[0]> = []
+    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
     const host = engineHost({
       flavor: FLAVOR2,
       flavorEnv: { OPENCODE_DB: '/instance/state/opencode2.db' },
       checkVersion: async () => null,
-      supervision: fakeSupervision({
-        spawnHeadless: async (opts) => {
+      ...fakePorts({
+        startEngine: async (opts) => {
           launched.push(opts)
           throw stopped
         },
@@ -238,7 +253,7 @@ function fakeSupervision(hooks: {
     } as never
 
     function adoptHost(hooks: {
-      attachHeadless?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
+      reattachEngine?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
     }) {
       return engineHost({
         journal: {
@@ -246,13 +261,13 @@ function fakeSupervision(hooks: {
           write: () => {},
           clear: () => {},
         },
-        supervision: fakeSupervision(hooks),
+        ...fakePorts(hooks),
       })
     }
 
     it('adopts a surviving server in place: same port and secret, no second spawn', async () => {
       const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-      const spawned: Array<Parameters<EngineSupervisor['spawnHeadless']>[0]> = []
+      const spawned: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
       const { session } = fakeEngineSession({ childPid: 4242 })
       const host = engineHost({
         checkVersion: async () => null,
@@ -262,12 +277,12 @@ function fakeSupervision(hooks: {
           write: () => {},
           clear: () => {},
         },
-        supervision: fakeSupervision({
-          spawnHeadless: async (opts) => {
+        ...fakePorts({
+          startEngine: async (opts) => {
             spawned.push(opts)
             throw new Error('a live server must be adopted, never re-spawned')
           },
-          attachHeadless: async () => session,
+          reattachEngine: async () => session,
         }),
       })
       try {
@@ -288,7 +303,7 @@ function fakeSupervision(hooks: {
     it('host.adopt rebinds the survivor for the driver', async () => {
       const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
       const { session } = fakeEngineSession({ childPid: 4242 })
-      const host = adoptHost({ attachHeadless: async () => session })
+      const host = adoptHost({ reattachEngine: async () => session })
       try {
         const endpoint = await host.adopt(binding)
         expect(endpoint?.baseUrl).toBe(journalled.baseUrl)
@@ -301,7 +316,7 @@ function fakeSupervision(hooks: {
 
     it('a writer lease held elsewhere refuses loudly instead of spawning beside it', async () => {
       const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'))
-      const spawned: Array<Parameters<EngineSupervisor['spawnHeadless']>[0]> = []
+      const spawned: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
       const { session } = fakeEngineSession({ childPid: 4242, lease: false })
       const host = engineHost({
         checkVersion: async () => null,
@@ -311,12 +326,12 @@ function fakeSupervision(hooks: {
           write: () => {},
           clear: () => {},
         },
-        supervision: fakeSupervision({
-          spawnHeadless: async (opts) => {
+        ...fakePorts({
+          startEngine: async (opts) => {
             spawned.push(opts)
             throw new Error('must not spawn beside a leased engine')
           },
-          attachHeadless: async () => session,
+          reattachEngine: async () => session,
         }),
       })
       try {
@@ -341,7 +356,7 @@ function fakeSupervision(hooks: {
         checkVersion: async () => null,
         freePort: async () => 41234,
         journal: { read: () => undefined, write: () => {}, clear: () => {} },
-        supervision: fakeSupervision({ spawnHeadless: async () => session }),
+        ...fakePorts({ startEngine: async () => session }),
       })
       try {
         const endpoint = await host.launch({
@@ -423,9 +438,9 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
         write: (entry) => void written.push(entry.sessionId),
         clear: () => {},
       },
-      supervision: fakeSupervision({
-        spawnHeadless: async () => session,
-        killed: (label) => void killed.push(label),
+      ...fakePorts({
+        startEngine: async () => session,
+        destroyed: (label) => void killed.push(label),
       }),
     })
     const error = await host

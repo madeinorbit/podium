@@ -27,7 +27,7 @@ import {
   evaluateCodexVersionProbe,
 } from './engine-host.js'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
-import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
+import type { EngineAttachment, EngineProcessOwner, EngineSupervisor } from '../engine-supervision.js'
 
 const FACTS = codexEngineFacts(manifestFor('codex')!)
 // Tests read the manifest directly (they are not mechanisms); production code
@@ -258,8 +258,14 @@ describe('headless engine lifecycle (POD-4433)', () => {
     return { session, exits }
   }
 
-  function fakeSupervision(hooks: {
-    spawnHeadless?: (opts: {
+  /**
+   * Both ports the family consumes, built from one set of hooks: the
+   * session-owned process verbs (`engines`) carry the behavior under test,
+   * while the scope port (`supervision`) answers nothing on this platform.
+   * Spread at the call site: `...fakePorts({ startEngine: ... })`.
+   */
+  function fakePorts(hooks: {
+    startEngine?: (opts: {
       label: string
       cmd: string
       args: string[]
@@ -267,20 +273,25 @@ describe('headless engine lifecycle (POD-4433)', () => {
       env: Record<string, string>
       stripEnv: readonly string[]
     }) => Promise<EngineAttachment>
-    attachHeadless?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
-    has?: (label: string) => Promise<boolean>
-    killed?: (label: string) => void
-  }): EngineSupervisor {
+    reattachEngine?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
+    engineAlive?: (label: string) => Promise<boolean>
+    destroyed?: (label: string) => void
+  }): {
+    supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
+    engines: EngineProcessOwner
+  } {
     return {
-      spawnHeadless:
-        hooks.spawnHeadless ?? (() => Promise.reject(new Error('unexpected spawnHeadless'))),
-      attachHeadless:
-        hooks.attachHeadless ?? (() => Promise.reject(new Error('no engine host answers'))),
-      has: hooks.has ?? (async () => false),
-      kill: async (label: string) => {
-        hooks.killed?.(label)
+      supervision: { scopeUnitFor: () => undefined },
+      engines: {
+        startEngine:
+          hooks.startEngine ?? (() => Promise.reject(new Error('unexpected startEngine'))),
+        reattachEngine:
+          hooks.reattachEngine ?? (() => Promise.reject(new Error('no engine host answers'))),
+        engineAlive: hooks.engineAlive ?? (async () => false),
+        destroyEngine: async (label: string) => {
+          hooks.destroyed?.(label)
+        },
       },
-      scopeUnitFor: () => undefined,
     }
   }
 
@@ -353,7 +364,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
   } as never
 
   it('spawns the engine headless and connects the listener it was given', async () => {
-    const launched: Array<Parameters<EngineSupervisor['spawnHeadless']>[0]> = []
+    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
     let listener: { frames: Buffer[]; close(): void } | undefined
     const { session } = fakeEngineSession()
     const host = engineHost({
@@ -369,8 +380,8 @@ describe('headless engine lifecycle (POD-4433)', () => {
           perMessageDeflate: false,
         }) as never
       },
-      supervision: fakeSupervision({
-        spawnHeadless: async (opts) => {
+      ...fakePorts({
+        startEngine: async (opts) => {
           launched.push(opts)
           return session
         },
@@ -401,7 +412,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const socketPath = join(dir, 'engine.sock')
     const socketListener = listen(socketPath)
     const clientAddress = `unix://${socketPath}`
-    const spawned: Array<Parameters<EngineSupervisor['spawnHeadless']>[0]> = []
+    const spawned: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
     const { session, exits } = fakeEngineSession({ childPid: 7777 })
     const host = engineHost({
       journal: {
@@ -416,13 +427,13 @@ describe('headless engine lifecycle (POD-4433)', () => {
           perMessageDeflate: false,
         }) as never
       },
-      supervision: fakeSupervision({
-        spawnHeadless: async (opts) => {
+      ...fakePorts({
+        startEngine: async (opts) => {
           spawned.push(opts)
           throw new Error('a live engine must be rebound, never re-spawned')
         },
-        attachHeadless: async () => session,
-        has: async () => true,
+        reattachEngine: async () => session,
+        engineAlive: async () => true,
       }),
     })
     try {
@@ -449,7 +460,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
         write: () => {},
         clear: () => {},
       },
-      supervision: fakeSupervision({ has: async () => false }),
+      ...fakePorts({ engineAlive: async () => false }),
     })
     await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   })
@@ -471,9 +482,9 @@ describe('headless engine lifecycle (POD-4433)', () => {
           perMessageDeflate: false,
         }) as never
       },
-      supervision: fakeSupervision({
-        attachHeadless: async () => session,
-        has: async () => true,
+      ...fakePorts({
+        reattachEngine: async () => session,
+        engineAlive: async () => true,
       }),
     })
     await expect(host.adopt?.(binding)).resolves.toBeUndefined()
@@ -487,9 +498,9 @@ describe('headless engine lifecycle (POD-4433)', () => {
         write: () => {},
         clear: () => {},
       },
-      supervision: fakeSupervision({
-        attachHeadless: async () => session,
-        has: async () => true,
+      ...fakePorts({
+        reattachEngine: async () => session,
+        engineAlive: async () => true,
       }),
     })
     await expect(host.adopt?.(binding)).rejects.toBeInstanceOf(CodexEngineLeaseRefused)
@@ -498,7 +509,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
   it('adopt returns undefined for entries predating the journalled address', async () => {
     const host = engineHost({
       journal: { read: () => journalledEntry(undefined), write: () => {}, clear: () => {} },
-      supervision: fakeSupervision({ has: async () => {
+      ...fakePorts({ engineAlive: async () => {
         throw new Error('liveness must not be consulted without an address')
       } }),
     })
@@ -527,9 +538,9 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
           write: (entry) => void written.push(entry.sessionId),
           clear: () => {},
         },
-        supervision: fakeSupervision({
-          spawnHeadless: async () => session,
-          killed: (label) => void killed.push(label),
+        ...fakePorts({
+          startEngine: async () => session,
+          destroyed: (label) => void killed.push(label),
         }),
       })
       const error = await host.launch({ sessionId: SESSION48, workdir: '/tmp' }).then(

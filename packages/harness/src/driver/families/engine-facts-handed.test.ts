@@ -23,7 +23,7 @@ import { grokEngineFacts } from './grok-acp/engine-facts.js'
 import { createGrokEngineHost, grokAcpProcessKey } from './grok-acp/engine-host.js'
 import { opencode2Flavor, opencodeFlavor } from './opencode/engine-facts.js'
 import { createOpencodeEngineHost, opencodeScopeLabel } from './opencode/engine-host.js'
-import type { EngineAttachment, EngineSupervisor } from './engine-supervision.js'
+import type { EngineAttachment, EngineProcessOwner } from './engine-supervision.js'
 
 function requireManifest(kind: 'codex' | 'grok' | 'opencode') {
   const manifest = manifestFor(kind)
@@ -146,18 +146,22 @@ function fakeEngineSession(): EngineAttachment {
   }
 }
 
-type SpawnOpts = Parameters<EngineSupervisor['spawnHeadless']>[0]
+type SpawnOpts = Parameters<EngineProcessOwner['startEngine']>[0]
 
-function capturingSupervision(captured: SpawnOpts[], marker: Error): EngineSupervisor {
+/**
+ * The session-owned process verbs, capturing the composed spec and refusing
+ * the start — plus the scope port the families read beside it. Spread at the
+ * call site alongside `supervision: { scopeUnitFor: ... }` where given.
+ */
+function capturingOwner(captured: SpawnOpts[], marker: Error): EngineProcessOwner {
   return {
-    spawnHeadless: async (opts) => {
+    startEngine: async (opts) => {
       captured.push(opts)
       throw marker
     },
-    attachHeadless: () => Promise.reject(new Error('no engine host answers')),
-    has: async () => false,
-    kill: async () => {},
-    scopeUnitFor: () => undefined,
+    reattachEngine: () => Promise.reject(new Error('no engine host answers')),
+    engineAlive: async () => false,
+    destroyEngine: async () => {},
   }
 }
 
@@ -187,7 +191,8 @@ describe('engine facts come from handed sections', () => {
       checkVersion: async () => ({ drivable: true as const }),
       socketRoot: tmpdir(),
       dialSocket: () => Promise.reject(new Error('no listener in this test')),
-      supervision: capturingSupervision(captured, marker),
+      supervision: { scopeUnitFor: () => undefined },
+      engines: capturingOwner(captured, marker),
     })
     await expect(host.launch({ sessionId, workdir: '/tmp' })).rejects.toBe(marker)
     expect(captured).toHaveLength(1)
@@ -215,15 +220,15 @@ describe('engine facts come from handed sections', () => {
       buildEnv: () => ({}),
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
-      supervision: {
-        spawnHeadless: async (opts) => {
+      supervision: { scopeUnitFor: () => undefined },
+      engines: {
+        startEngine: async (opts) => {
           captured.push(opts)
           return fakeEngineSession()
         },
-        attachHeadless: () => Promise.reject(new Error('no engine host answers')),
-        has: async () => false,
-        kill: async () => {},
-        scopeUnitFor: () => undefined,
+        reattachEngine: () => Promise.reject(new Error('no engine host answers')),
+        engineAlive: async () => false,
+        destroyEngine: async () => {},
       },
     })
     const endpoint = await host.launch({ sessionId, workdir: '/tmp' })
@@ -256,7 +261,8 @@ describe('engine facts come from handed sections', () => {
       gracefulExitMs: 1,
       checkVersion: async () => null,
       freePort: async () => 41234,
-      supervision: capturingSupervision(captured, marker),
+      supervision: { scopeUnitFor: () => undefined },
+      engines: capturingOwner(captured, marker),
     })
     await expect(
       host.launch({ sessionId, workdir: '/tmp', secret: 'secret', username: 'podium' }),
@@ -290,7 +296,8 @@ describe('engine facts come from handed sections', () => {
       gracefulExitMs: 1,
       checkVersion: async () => null,
       freePort: async () => 49999,
-      supervision: capturingSupervision(captured, marker),
+      supervision: { scopeUnitFor: () => undefined },
+      engines: capturingOwner(captured, marker),
     })
     await expect(
       host.launch({ sessionId, workdir: '/tmp', secret: 'secret', username: 'opencode' }),

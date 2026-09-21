@@ -20,7 +20,11 @@ import {
   GrokEngineLeaseRefused,
   grokAcpProcessKey,
 } from './engine-host.js'
-import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
+import type {
+  EngineAttachment,
+  EngineProcessOwner,
+  EngineSupervisor,
+} from '../engine-supervision.js'
 
 const FACTS = grokEngineFacts(manifestFor('grok')!)
 
@@ -97,8 +101,14 @@ describe('headless engine lifecycle (POD-4433)', () => {
     return { session, written, dataListeners, exits }
   }
 
-  function fakeSupervision(hooks: {
-    spawnHeadless?: (opts: {
+  /**
+   * Both ports the family consumes, built from one set of hooks: the
+   * session-owned process verbs (`engines`) carry the behavior under test,
+   * while the scope port (`supervision`) answers nothing on this platform.
+   * Spread at the call site: `...fakePorts({ startEngine: ... })`.
+   */
+  function fakePorts(hooks: {
+    startEngine?: (opts: {
       label: string
       cmd: string
       args: string[]
@@ -106,23 +116,28 @@ describe('headless engine lifecycle (POD-4433)', () => {
       env: Record<string, string>
       stripEnv: readonly string[]
     }) => Promise<EngineAttachment>
-  }): EngineSupervisor {
+  }): {
+    supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
+    engines: EngineProcessOwner
+  } {
     return {
-      spawnHeadless:
-        hooks.spawnHeadless ?? (() => Promise.reject(new Error('unexpected spawnHeadless'))),
-      attachHeadless: () => Promise.reject(new Error('no engine host answers')),
-      has: async () => false,
-      kill: async () => {},
-      scopeUnitFor: () => undefined,
+      supervision: { scopeUnitFor: () => undefined },
+      engines: {
+        startEngine:
+          hooks.startEngine ?? (() => Promise.reject(new Error('unexpected startEngine'))),
+        reattachEngine: () => Promise.reject(new Error('no engine host answers')),
+        engineAlive: async () => false,
+        destroyEngine: async () => {},
+      },
     }
   }
 
   it('spawns grok stdio headless under the session label, without argv secrets', async () => {
-    const launched: Array<Parameters<EngineSupervisor['spawnHeadless']>[0]> = []
+    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
     const { session } = fakeEngineSession()
     const host = engineHost({
-      supervision: fakeSupervision({
-        spawnHeadless: async (opts) => {
+      ...fakePorts({
+        startEngine: async (opts) => {
           launched.push(opts)
           return session
         },
@@ -145,7 +160,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
   it('carries ACP stdio over the host attachment: writes reach stdin, stdout lines reach the driver', async () => {
     const rig = fakeEngineSession()
     const host = engineHost({
-      supervision: fakeSupervision({ spawnHeadless: async () => rig.session }),
+      ...fakePorts({ startEngine: async () => rig.session }),
     })
     const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
     const lines: string[] = []
@@ -168,7 +183,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
   it('a writer lease held elsewhere refuses loudly', async () => {
     const { session } = fakeEngineSession({ lease: false })
     const host = engineHost({
-      supervision: fakeSupervision({ spawnHeadless: async () => session }),
+      ...fakePorts({ startEngine: async () => session }),
     })
     await expect(host.launch({ sessionId: SESSION, workdir: '/tmp' })).rejects.toBeInstanceOf(
       GrokEngineLeaseRefused,
@@ -178,7 +193,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
   it('closing the transport drops the channel without ending the engine', async () => {
     const rig = fakeEngineSession()
     const host = engineHost({
-      supervision: fakeSupervision({ spawnHeadless: async () => rig.session }),
+      ...fakePorts({ startEngine: async () => rig.session }),
     })
     const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
     let closed = 0
