@@ -50,9 +50,9 @@
  *      by the new gateway — legacy typing would have deleted them; attempts
  *      clamp, never reset; 30s quiet proves no second forward);
  *  (6) interactions.answer traverses the gateway to the real driver (which
- *      truthfully reports unknown-interaction — no model ever turned, so it
- *      never observed the menu), the row settles as claimed exactly once, and
- *      a second answer loses the first-wins race.
+ *      builds the script from the row payload and truthfully reports
+ *      delivery-failed, no menu on screen); the ask is kept open, and a
+ *      retry takes the same honest route.
  *
  * ARMING (DONE WHEN 1): this file must go red with POD-4426 reverted (binds
  * carry no driverId, so assertions (1)(2) fail) and red with POD-4427 reverted
@@ -726,6 +726,9 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           }
           ins(`qmsg_up4428_${sQueue.slice(0, 8)}_1`, t1, now)
           ins(`qmsg_up4428_${sQueue.slice(0, 8)}_2`, t2, now + 1)
+          // Row ids double as turn ids downstream (contractDeliver passes
+          // turnId: row.id), so the daemon's per-turn telemetry below names
+          // exactly these strings.
         } finally {
           db.close()
         }
@@ -995,6 +998,17 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
         if (pollOwners()) throw new Error('upgrade-4428: rows already reserved pre-resurrect')
         await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
+        const eLive = await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
+        expect(eLive?.driverId, '(5) resurrected session bound a driver').toBe('generic-pty')
+        // A live send returns its gateway receipt in-band: if the queued rows
+        // keep refusing, the reason prints here instead of hiding in a log.
+        {
+          const probe = (await newApi.sessions.sendText.mutate({
+            sessionId: sQueue,
+            text: 'up4428-live-probe',
+          })) as any
+          console.log(`upgrade-4428 live-send receipt: ${JSON.stringify(probe)?.slice(0, 400)}`)
+        }
         // The owner poll runs CONCURRENTLY with the live-wait: the justBound
         // drain starts at bind, possibly before live is visible, and both
         // reserves would land before a sequential poll ever starts. At 250ms
@@ -1013,7 +1027,24 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         ])
         expect(tRow1Set, '(5) row 1 reserved').toBeGreaterThan(0)
         expect(tRow2Set, '(5) row 2 reserved').toBeGreaterThan(0)
-        expect(tRow1Set < tRow2Set, '(5) FIFO order: row 1 reserved before row 2').toBe(true)
+        // NOTE: no timestamp order here — the daemon ACKs custody in
+        // milliseconds (reserves land in the same poll tick by design); the
+        // FIFO order is proven by the telemetry line order below instead.
+        // The daemon ACKed custody per turn ('queued' receipts) and owes the
+        // async delivery while grok stays non-idle: its per-turn telemetry
+        // must name each row id exactly once (requested + queued), in FIFO
+        // order. A duplicate forward would double a row's lines.
+        {
+          const out = newDaemon?.output(100_000) ?? ''
+          const id1 = `qmsg_up4428_${sQueue.slice(0, 8)}_1`
+          const id2 = `qmsg_up4428_${sQueue.slice(0, 8)}_2`
+          const count = (s: string, sub: string): number => s.split(sub).length - 1
+          const detail = `daemon tail:\n${out.slice(-4000)}`
+          expect(count(out, id1), `(5) row 1 telemetry lines\n${detail}`).toBe(2)
+          expect(count(out, id2), `(5) row 2 telemetry lines\n${detail}`).toBe(2)
+          expect(out.indexOf(id1) < out.indexOf(id2), `(5) telemetry FIFO\n${detail}`).toBe(true)
+          expect(out, `(5) custody ACKs logged\n${detail}`).toContain('prompt_queued')
+        }
         const db = openDb()
         try {
           const rows = db.all(
@@ -1051,19 +1082,18 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       }
 
-      // (6) gateway.answer resolves the interaction.
+      // (6) gateway.answer reaches the real driver, which truthfully refuses.
       //
-      // Honest semantics, stated plainly: no model ever turned in this
-      // session, so the new daemon's driver never OBSERVED this menu — its
-      // interaction map has no entry for it, and populating that map has no
-      // production path (asks flow daemon -> server only). The driver
-      // therefore answers unknown-interaction, and the server keeps the row
-      // as claimed (answered, delivery unverified) rather than reporting an
-      // ok:true that would claim keystrokes landed on a menu nobody saw.
-      // What this pins is everything the UPGRADE could break: the old row is
-      // still asked and answerable, the answer traverses the gateway to the
-      // real driver and back, the claim settles exactly once (a second answer
-      // loses the first-wins race), and nothing is typed twice.
+      // Honest semantics, stated plainly: no model ever turned, so no menu is
+      // on screen — the driver builds the script from the row's own payload
+      // (proving the shapes line up end to end) and reports delivery-failed
+      // 'no menu on screen' instead of typing digits at a login prompt. The
+      // server's re-verdict keeps the ask OPEN on that refusal (reopened,
+      // still asked) rather than stranding it claimed or deleting it — and a
+      // second answer retries the same honest route. What this pins is
+      // everything the UPGRADE could break: the old row is still asked and
+      // answerable, the answer traverses the gateway to the real driver and
+      // back with its payload intact, and the refusal settles openly.
       {
         const open = await newApi.interactions.forSession.query({ sessionId: sMenu })
         const rows = Array.isArray(open) ? open : (open as any)?.rows ?? []
@@ -1072,26 +1102,24 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           id: ixnId,
           answer: { kind: 'question', selections: [{ optionIndices: [0] }] },
         })) as any
-        expect(outcome?.reason, `(6) driver truthfully reports: ${JSON.stringify(outcome).slice(0, 200)}`).toBe(
-          'unknown-interaction',
-        )
+        expect(outcome?.ok, `(6) refused, not misdelivered: ${JSON.stringify(outcome).slice(0, 250)}`).toBe(false)
+        expect(outcome?.reason, '(6) driver truthfully reports no menu').toBe('delivery-failed')
+        expect(String(outcome?.detail ?? ''), '(6) refusal names the cause').toContain('no menu on screen')
         const db = openDb()
         try {
           const row = db.get(
-            'SELECT status AS s, answer_json AS a, delivered_via AS v FROM pending_interactions WHERE id = ?',
+            'SELECT status AS s, answer_json AS a FROM pending_interactions WHERE id = ?',
             ixnId,
           ) as any
-          expect(row?.s, '(6) row claimed').toBe('answered')
-          expect(String(row?.a ?? ''), '(6) answer recorded').toContain('optionIndices')
-          const second = (await newApi.interactions.answer.mutate({
-            id: ixnId,
-            answer: { kind: 'question', selections: [{ optionIndices: [1] }] },
-          })) as any
-          expect(second?.reason, '(6) first answer wins').toBe('already-answered')
-          void row?.v
+          expect(row?.s, '(6) ask kept open, not stranded').toBe('asked')
         } finally {
           db.close()
         }
+        const second = (await newApi.interactions.answer.mutate({
+          id: ixnId,
+          answer: { kind: 'question', selections: [{ optionIndices: [1] }] },
+        })) as any
+        expect(second?.reason, '(6) retry takes the same honest route').toBe('delivery-failed')
       }
     } finally {
       try {
