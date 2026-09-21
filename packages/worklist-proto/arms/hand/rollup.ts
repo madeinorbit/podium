@@ -120,7 +120,7 @@ export class RollupModule {
     const wasOpen = this.openExplicit.has(issueId)
     if (open > 0) this.openCounts.set(issueId, open)
     else this.openCounts.delete(issueId)
-    if (wasOpen === open > 0) return
+    if (wasOpen === (open > 0)) return
     if (open > 0) {
       this.openExplicit.add(issueId)
       this.staffUp(issueId)
@@ -228,7 +228,7 @@ export class RollupModule {
       this.sessionSnaps.delete(sessionId)
       return
     }
-    const snap = { issue: home, open: openSession(s), lastActiveAt: s.lastActiveAt, archived: s.archived }
+    const snap = { issue: home, open: openSession(s), lastActiveAt: s.lastActiveAt, archived: s.archived === true }
     this.sessionSnaps.set(sessionId, snap)
     if ((prev?.issue ?? null) !== home) {
       if (prev?.issue != null) this.refreshIssueSeat(prev.issue)
@@ -683,7 +683,7 @@ export class RollupModule {
         issue: s.headless !== true && s.issueId != null ? s.issueId : null,
         open: openSession(s),
         lastActiveAt: s.lastActiveAt,
-        archived: s.archived,
+        archived: s.archived === true,
       })
     }
     for (const issueId of this.openExplicit) this.staffUp(issueId)
