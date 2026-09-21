@@ -202,18 +202,23 @@ const POST_PAINT_VENDOR_PACKAGES = [
 const BROWSER_HOSTILE_SOURCES = [
   'packages/runtime/src/sqlite/',
   'packages/harness/src/',
-  'packages/transcript/src/',
 ] as const
 
 /** Exact source files admitted through declared, transitively audited browser
  * entrypoints. Keep this narrower than a directory: `manifest-browser-reach`
  * proves these modules' complete closure remains Node-free, while this build
- * check continues to reject every parser, pager and tailer in transcript. */
+ * check continues to reject every parser, pager and tailer in the store, every
+ * driver family behind `/driver/host`, and the manifests' sqlite closure.
+ * (POD-4469 dissolved `packages/transcript` into `packages/harness/src/store`,
+ * so the old transcript exceptions moved with their modules; the composer
+ * pair is the pure screen-lines-in/bytes-out interface the web fallback
+ * shares with the daemon, audited through its own browser entrypoints.) */
 const BROWSER_HOSTILE_EXCEPTIONS = [
   'packages/harness/src/browser.ts',
-  'packages/transcript/src/browser.ts',
-  'packages/transcript/src/cursor-codec.ts',
-  'packages/transcript/src/stream-identity.ts',
+  'packages/harness/src/store/cursor-codec.ts',
+  'packages/harness/src/store/stream-identity.ts',
+  'packages/harness/src/driver/families/terminal/composer-sync.ts',
+  'packages/harness/src/driver/families/terminal/prompt-extract.ts',
 ] as const
 
 /**
