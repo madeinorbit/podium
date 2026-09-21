@@ -1603,6 +1603,14 @@ export class SessionRegistry {
               status: session.status,
               agentKind: session.agentKind,
               autoHibernateProtected: session.loginHarness !== undefined,
+              // THE SHELL POLICY'S INPUTS (POD-4435): held/watched read from
+              // the same viewer state the priority fan-out reads, so the
+              // reaper and the tab-release trigger cannot disagree.
+              hasInput: session.terminal.lastInputAtMs > 0,
+              heldByTab: sessionsSvc.state.isHeld(session.sessionId),
+              watched: sessionsSvc.state.isWatched(session.sessionId),
+              purpose: session.loginHarness !== undefined ? 'login' : 'shell',
+              lastHeldAtMs: sessionsSvc.state.lastHeldAtMs(session.sessionId),
               resume: session.resume,
               agentState: session.agentState,
               lastActiveAt: session.lastActiveAt,
@@ -1620,6 +1628,7 @@ export class SessionRegistry {
         },
         hibernateSession: async (input) => await sessionsSvc.hibernateSession(input),
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
+        killShellSession: (input) => sessionsSvc.killSession(input),
         hasScheduledWakeup: async (sessionId, now) => {
           const lastSpawned = await this.store.automations.lastSpawnedSessions()
           return (await this.store.automations.list()).some((automation) => {

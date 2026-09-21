@@ -19,6 +19,13 @@ function shell(sessionId: SessionId, quietMs: number): HostSessionView {
     lastResumedAtMs: 0,
     lastInputAtMs: NOW - quietMs,
     lastOutputAtMs: NOW - quietMs,
+    // Touched (typed quietMs ago), open issue, never seen held: the dock
+    // shell at its prompt this guard was written for.
+    hasInput: true,
+    heldByTab: false,
+    watched: false,
+    purpose: 'shell',
+    lastHeldAtMs: undefined,
   }
 }
 
@@ -59,6 +66,9 @@ function harness(sessions: HostSessionView[]) {
     machineName: async (id) => id,
     sessions: async () => sessions,
     hibernateSession: async () => ({ ok: false, reason: 'not a shell path' }),
+    killShellSession: async () => {
+      throw new Error('no shell should reach the kill verb in these tests')
+    },
     hasScheduledWakeup: async () => false,
     parkShellSession: async ({ sessionId }) => {
       const target = sessions.find((item) => item.sessionId === sessionId)
@@ -110,11 +120,16 @@ describe('POD-4429 idle-shell default', () => {
   })
 
   it('parks a dock shell quiet for 61 minutes under the default', async () => {
+    // SUPERSEDED BY POD-4435: quiet time no longer parks shells at all. A
+    // touched shell with an open issue is durable — it stays, where the old
+    // timer parked it. Kept as the guard's second half: the default still
+    // moves (60, asserted above) AND still does not touch a used shell.
     const sessions = [shell(asSessionId('dock-61'), 61 * 60_000)]
     const { service, shellParked } = harness(sessions)
 
     await service.onHostMetrics(asMachineId('local'), sample())
 
-    expect(shellParked).toEqual(['dock-61'])
+    expect(shellParked).toEqual([])
+    expect(sessions[0]?.status).toBe('live')
   })
 })

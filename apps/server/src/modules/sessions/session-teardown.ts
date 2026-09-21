@@ -51,7 +51,7 @@ import type { SessionRepository } from './repository'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
-import { decideShellLifetime } from './terminal-lifetime'
+import { decideShellLifetime, shellQuietMs } from './terminal-lifetime'
 import type { SessionView } from './view'
 
 /** Only the ledger face killSession needs — avoids importing lifecycle for a type. */
@@ -409,12 +409,17 @@ export class SessionTeardown {
       const decision = decideShellLifetime({
         purpose: session.loginHarness !== undefined ? 'login' : 'shell',
         hasInput: session.terminal.lastInputAtMs > 0,
-        heldByTab: this.isHeldByTab(session.sessionId),
-        watched: this.isWatched(session.sessionId),
+        heldByTab: this.ports.state.isHeld(session.sessionId),
+        watched: this.ports.state.isWatched(session.sessionId),
         lastTabReleased: false,
         issueClosed: issue ? isIssueClosed(issue) || issue.deletedAt != null : false,
         worktreeFreed,
-        quietMs: this.quietMs(session),
+        quietMs: shellQuietMs(this.ports.now(), {
+          lastActiveAt: session.lastActiveAt,
+          lastResumedAtMs: session.terminal.lastResumedAtMs,
+          lastInputAtMs: session.terminal.lastInputAtMs,
+          lastOutputAtMs: session.terminal.lastOutputAtMs,
+        }),
         unheldMs: undefined,
         unwatchedMs: 0,
         warmTtlMs: 0,
@@ -440,40 +445,6 @@ export class SessionTeardown {
       worktreeFreed,
       deferredKill: input.selfStop === true && (wasRunning || input.reapParked === true),
     }
-  }
-
-  /** Whether any connected client renders or streams the session (POD-4435). */
-  private isHeldByTab(sessionId: SessionId): boolean {
-    for (const client of this.ports.clients.values()) {
-      if (client.viewVisible.has(sessionId)) return true
-      if (client.attached.has(sessionId)) return true
-    }
-    return false
-  }
-
-  /** Whether any connected client renders the session in native mode (POD-4435). */
-  private isWatched(sessionId: SessionId): boolean {
-    for (const client of this.ports.clients.values()) {
-      if (
-        client.viewVisible.has(sessionId) &&
-        (client.viewModes[sessionId] ?? 'native') === 'native'
-      ) {
-        return true
-      }
-    }
-    return false
-  }
-
-  /** Ms since the shell's last activity; malformed stamps read as now (POD-4435). */
-  private quietMs(session: Session): number {
-    const stamps = [
-      Date.parse(session.lastActiveAt),
-      session.terminal.lastResumedAtMs,
-      session.terminal.lastInputAtMs,
-      session.terminal.lastOutputAtMs,
-    ]
-    if (!stamps.every(Number.isFinite)) return 0
-    return Math.max(0, this.ports.now() - Math.max(...stamps))
   }
 
   /** Immediate process kill for a session already parked by stop. */

@@ -27,6 +27,13 @@ function session(sessionId: SessionId, overrides: Partial<HostSessionView> = {})
     lastResumedAtMs: 0,
     lastInputAtMs: 0,
     lastOutputAtMs: 0,
+    // THE SHELL POLICY'S INPUTS (POD-4435): agents never reach the table, so
+    // these are inert here — present only because the projection is total.
+    hasInput: false,
+    heldByTab: false,
+    watched: false,
+    purpose: 'shell',
+    lastHeldAtMs: undefined,
     ...overrides,
   }
 }
@@ -57,6 +64,9 @@ function shell(sessionId: SessionId, overrides: Partial<HostSessionView> = {}): 
     lastActiveAt: new Date(NOW - 5 * HOUR).toISOString(),
     lastInputAtMs: NOW - 5 * HOUR,
     lastOutputAtMs: NOW - 5 * HOUR,
+    // Touched by default (input 5h ago); untouched cases override both
+    // lastInputAtMs and hasInput together, as the projection would project.
+    hasInput: true,
     ...overrides,
   })
 }
@@ -123,6 +133,7 @@ function harness(input: {
   })
   const parked: string[] = []
   const shellParked: string[] = []
+  const shellKilled: string[] = []
   const hibernateRequireProof: Array<{ sessionId: string; requireTerminalProof?: boolean }> = []
   const toMachine: Array<{ machineId: string; type: string }> = []
   const deps: HostsDeps = {
@@ -143,6 +154,15 @@ function harness(input: {
       return { ok: true }
     },
     hasScheduledWakeup: async (sessionId) => input.scheduledWakeups?.has(sessionId) ?? false,
+    killShellSession: async ({ sessionId }) => {
+      if (input.fail?.has(sessionId)) throw new Error('raced')
+      const target = input.sessions.find((item) => item.sessionId === sessionId)
+      if (!target || target.status !== 'live' || target.agentKind !== 'shell') {
+        throw new Error('not a live shell session')
+      }
+      target.status = 'exited'
+      shellKilled.push(sessionId)
+    },
     parkShellSession: async ({ sessionId }) => {
       if (input.fail?.has(sessionId)) return { ok: false, reason: 'raced' }
       const target = input.sessions.find((item) => item.sessionId === sessionId)
@@ -171,6 +191,7 @@ function harness(input: {
     service: new HostsService(deps, new EventBus()),
     parked,
     shellParked,
+    shellKilled,
     hibernateRequireProof,
     toMachine,
   }
@@ -503,10 +524,13 @@ describe('idle-session cap', () => {
     expect(parked).toEqual([])
   })
 
-  it('keeps metrics live but defers idle-shell parking until the transfer fence opens', async () => {
+  it('keeps metrics live but defers shell evaluation until the transfer fence opens', async () => {
+    // The fence still defers the whole sweep — and under the policy there is
+    // nothing to defer FOR a touched shell with an open issue: it stays live
+    // before, during and after the fence.
     let fenced = true
     const sessions = [shell(asSessionId('idle-shell'))]
-    const { service, shellParked } = harness({
+    const { service, shellParked, shellKilled } = harness({
       sessions,
       maxIdleSessions: null,
       idleShellMinutes: 30,
@@ -518,15 +542,18 @@ describe('idle-session cap', () => {
       hosts: [{ hostname: 'box', machineId: 'local' }],
     })
     expect(shellParked).toEqual([])
+    expect(shellKilled).toEqual([])
     expect(sessions[0]?.status).toBe('live')
     // A premature resume request remains write-free while SQLite is fenced.
     await service.resumeAfterTransferFence()
     expect(shellParked).toEqual([])
+    expect(shellKilled).toEqual([])
 
     fenced = false
     await service.resumeAfterTransferFence()
-    expect(shellParked).toEqual(['idle-shell'])
-    expect(sessions[0]?.status).toBe('hibernated')
+    expect(shellParked).toEqual([])
+    expect(shellKilled).toEqual([])
+    expect(sessions[0]?.status).toBe('live')
   })
 
   it('leaves count pressure off when the target is unlimited', async () => {
@@ -774,11 +801,13 @@ describe('idle-session cap', () => {
 
     it('the same shell DOES count once idleShellMinutes turns the policy on', async () => {
       // The predicate follows the policy rather than a constant: switch shell
-      // reaping on and the shell becomes both parkable and countable in the same
-      // breath. Cap 1 with two sessions is an overage of 1; the shell is quiet
-      // past the threshold, so the shell path takes it and the agent is spared.
+      // reaping on and the shell becomes countable in the same breath. But the
+      // policy — not the timer — decides now: a touched shell with an open
+      // issue is durable, so the cap pressure falls on the agent instead.
+      // Cap 1 with two sessions is an overage of 1; the shell is kept and the
+      // agent is spared nothing.
       const sessions = [session(asSessionId('known-idle')), shell(asSessionId('old-shell'))]
-      const { service, shellParked } = harness({
+      const { service, parked, shellParked, shellKilled } = harness({
         sessions,
         maxIdleSessions: 1,
         idleShellMinutes: 1,
@@ -786,15 +815,23 @@ describe('idle-session cap', () => {
 
       await service.onHostMetrics(asMachineId('local'), sample(10))
 
-      expect(shellParked).toEqual(['old-shell'])
+      expect(shellParked).toEqual([])
+      expect(shellKilled).toEqual([])
+      expect(parked).toEqual(['known-idle'])
+      expect(sessions[1]?.status).toBe('live')
     })
 
-    it('parks a quiet shell when idleShellMinutes is set', async () => {
+    it('keeps a touched shell with an open issue however long it sits quiet', async () => {
+      // THE HEADLINE CHANGE (POD-4435): quiet time no longer parks shells. A
+      // shell that received input stays while its issue is open — 48 hours of
+      // quiet included — where the old timer parked it after idleShellMinutes.
+      // (The backstop is raised out of the way so this pins the reaper row,
+      // not the last resort; the backstop has its own test below.)
       const sessions = [
         shell(asSessionId('old-shell'), {
-          lastActiveAt: new Date(NOW - 48 * 60_000).toISOString(),
-          lastInputAtMs: NOW - 48 * 60_000,
-          lastOutputAtMs: NOW - 48 * 60_000,
+          lastActiveAt: new Date(NOW - 48 * HOUR).toISOString(),
+          lastInputAtMs: NOW - 48 * HOUR,
+          lastOutputAtMs: NOW - 48 * HOUR,
         }),
         shell(asSessionId('fresh-shell'), {
           lastActiveAt: new Date(NOW - 60_000).toISOString(),
@@ -802,7 +839,38 @@ describe('idle-session cap', () => {
           lastOutputAtMs: NOW - 60_000,
         }),
       ]
-      const { service, parked, shellParked } = harness({
+      const { service, parked, shellParked, shellKilled } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: 24,
+        backstopMinutes: 30 * 24 * 60,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual([])
+      expect(shellKilled).toEqual([])
+      expect(parked).toEqual([])
+      expect(sessions.every((item) => item.status === 'live')).toBe(true)
+    })
+
+    it('kills an untouched shell unheld past the idle grace', async () => {
+      // No input ever, no tab holding it, unheld for longer than
+      // idleShellMinutes: the release the server never saw (the browser closed
+      // with the tab still open). The grace is measured in UNHELD time, not
+      // quiet time.
+      const sessions = [
+        shell(asSessionId('abandoned'), {
+          lastActiveAt: new Date(NOW - 48 * 60_000).toISOString(),
+          lastInputAtMs: 0,
+          lastOutputAtMs: NOW - 48 * 60_000,
+          hasInput: false,
+          heldByTab: false,
+          watched: false,
+          lastHeldAtMs: NOW - 48 * 60_000,
+        }),
+      ]
+      const { service, shellParked, shellKilled } = harness({
         sessions,
         maxIdleSessions: null,
         idleShellMinutes: 24,
@@ -810,17 +878,67 @@ describe('idle-session cap', () => {
 
       await service.onHostMetrics(asMachineId('local'), sample(10))
 
-      expect(shellParked).toEqual(['old-shell'])
-      expect(parked).toEqual([])
-      expect(sessions[1]?.status).toBe('live')
+      expect(shellKilled).toEqual(['abandoned'])
+      expect(shellParked).toEqual([])
+    })
+
+    it('keeps an untouched shell unheld inside the grace: a blip is not a close', async () => {
+      const sessions = [
+        shell(asSessionId('blipped'), {
+          lastActiveAt: new Date(NOW - 48 * 60_000).toISOString(),
+          lastInputAtMs: 0,
+          lastOutputAtMs: NOW - 48 * 60_000,
+          hasInput: false,
+          heldByTab: false,
+          watched: false,
+          lastHeldAtMs: NOW - 5 * 60_000,
+        }),
+      ]
+      const { service, shellParked, shellKilled } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: 24,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellKilled).toEqual([])
+      expect(shellParked).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
+    it('parks a touched shell whose issue closed', async () => {
+      // (Backstop raised out of the way as above, so this pins the
+      // owner-gone row rather than the last resort.)
+      const sessions = [
+        shell(asSessionId('finished'), {
+          lastActiveAt: new Date(NOW - 48 * HOUR).toISOString(),
+          lastInputAtMs: NOW - 48 * HOUR,
+          lastOutputAtMs: NOW - 48 * HOUR,
+          issueClosed: true,
+        }),
+      ]
+      const { service, shellParked, shellKilled } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: 24,
+        backstopMinutes: 30 * 24 * 60,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual(['finished'])
+      expect(shellKilled).toEqual([])
     })
 
     it('never auto-parks a native login shell', async () => {
+      // The login exemption is one line in the policy table now (purpose), not
+      // a skip beside it — same verdict, single decision point.
       const sessions = [
-        shell(asSessionId('login-shell'), { autoHibernateProtected: true }),
+        shell(asSessionId('login-shell'), { autoHibernateProtected: true, purpose: 'login' }),
         shell(asSessionId('ordinary-shell')),
       ]
-      const { service, shellParked } = harness({
+      const { service, shellParked, shellKilled } = harness({
         sessions,
         maxIdleSessions: null,
         idleShellMinutes: 1,
@@ -828,14 +946,16 @@ describe('idle-session cap', () => {
 
       await service.onHostMetrics(asMachineId('local'), sample(10))
 
-      expect(shellParked).toEqual(['ordinary-shell'])
+      expect(shellParked).toEqual([])
+      expect(shellKilled).toEqual([])
       expect(sessions[0]?.status).toBe('live')
+      expect(sessions[1]?.status).toBe('live')
     })
 
     it('does not make an idle agent pay for a protected login shell', async () => {
       const sessions = [
         session(asSessionId('known-idle')),
-        shell(asSessionId('login-shell'), { autoHibernateProtected: true }),
+        shell(asSessionId('login-shell'), { autoHibernateProtected: true, purpose: 'login' }),
       ]
       const { service, parked, shellParked } = harness({
         sessions,
@@ -864,20 +984,24 @@ describe('idle-session cap', () => {
       expect(sessions[0]?.status).toBe('live')
     })
 
-    it('parks the oldest quiet shell first under idleShellMinutes', async () => {
+    it('retires the oldest actionable shell first, one per sample', async () => {
+      // Two untouched shells past the grace: oldest unheld goes, the other
+      // waits for the next sample — the one-action discipline survives the
+      // policy change.
+      const untouched = (unheldMs: number) => ({
+        lastInputAtMs: 0,
+        lastOutputAtMs: NOW - unheldMs,
+        lastActiveAt: new Date(NOW - unheldMs).toISOString(),
+        hasInput: false,
+        heldByTab: false,
+        watched: false,
+        lastHeldAtMs: NOW - unheldMs,
+      })
       const sessions = [
-        shell(asSessionId('newer'), {
-          lastActiveAt: new Date(NOW - 30 * 60_000).toISOString(),
-          lastInputAtMs: NOW - 30 * 60_000,
-          lastOutputAtMs: NOW - 30 * 60_000,
-        }),
-        shell(asSessionId('older'), {
-          lastActiveAt: new Date(NOW - 72 * 60_000).toISOString(),
-          lastInputAtMs: NOW - 72 * 60_000,
-          lastOutputAtMs: NOW - 72 * 60_000,
-        }),
+        shell(asSessionId('newer'), untouched(30 * 60_000)),
+        shell(asSessionId('older'), untouched(72 * 60_000)),
       ]
-      const { service, shellParked } = harness({
+      const { service, shellParked, shellKilled } = harness({
         sessions,
         maxIdleSessions: null,
         idleShellMinutes: 24,
@@ -885,7 +1009,9 @@ describe('idle-session cap', () => {
 
       await service.onHostMetrics(asMachineId('local'), sample(10))
 
-      expect(shellParked).toEqual(['older'])
+      expect(shellKilled).toEqual(['older'])
+      expect(shellParked).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
     })
   })
 
@@ -918,6 +1044,30 @@ describe('idle-session cap', () => {
       await service.onHostMetrics(asMachineId('local'), sample(10))
 
       expect(parked).toEqual(['forgotten'])
+    })
+
+    it('kills (not parks) a shell quiet past the backstop', async () => {
+      // THE LAST RESORT (POD-4435): the backstop is the only quiet timer that
+      // still decides for shells, and its verb is kill — a touched shell that
+      // sat five days is tombstoned, not parked.
+      const sessions = [
+        shell(asSessionId('forgotten-shell'), {
+          lastActiveAt: new Date(NOW - 5 * 24 * HOUR).toISOString(),
+          lastInputAtMs: NOW - 5 * 24 * HOUR,
+          lastOutputAtMs: NOW - 5 * 24 * HOUR,
+        }),
+      ]
+      const { service, shellParked, shellKilled } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+        backstopMinutes: 2 * 24 * 60,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellKilled).toEqual(['forgotten-shell'])
+      expect(shellParked).toEqual([])
     })
 
     it.each(['proof', 'resume', 'working', 'unknown floor'] as const)(

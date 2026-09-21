@@ -13,6 +13,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
+import { decideShellLifetime, shellQuietMs } from '../sessions/terminal-lifetime'
 
 const log = createLogger('server:hosts')
 
@@ -74,6 +75,21 @@ export interface HostSessionView {
   agentKind: string
   /** Purpose-bound shells (currently native login) are never auto-parked. */
   autoHibernateProtected?: boolean | undefined
+  /**
+   * THE SHELL POLICY'S INPUTS (POD-4435). The reaper no longer decides for
+   * shells from quiet time — it builds these per live shell and asks
+   * decideShellLifetime once each (see applyShellIdlePressure).
+   */
+  /** Whether the shell ever received input (`last_input_at` non-null). */
+  hasInput: boolean
+  /** Whether any connected client renders or streams it. */
+  heldByTab: boolean
+  /** Whether a viewer renders it in native mode right now. */
+  watched: boolean
+  /** Shell purpose: login panes are kept until exit, as one table line. */
+  purpose: 'shell' | 'login'
+  /** Ms since anything held it; undefined = never seen held (disables grace). */
+  lastHeldAtMs: number | undefined
   resume?: { kind: string; value: string } | undefined
   agentState?: AgentRuntimeState | undefined
   lastActiveAt: string
@@ -118,6 +134,11 @@ export interface HostsDeps {
    * Does not free worktrees — that stays an explicit stop.
    */
   parkShellSession(input: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }>
+  /**
+   * Row-tombstone kill for the shell policy's kill verdicts (POD-4435): the
+   * multi-day backstop and the unheld untouched-shell grace.
+   */
+  killShellSession(input: { sessionId: SessionId }): Promise<void>
   hasScheduledWakeup(sessionId: SessionId, now: number): boolean | Promise<boolean>
   /** Server-authoritative, atomically revalidated two-pass terminal proof. */
   hasValidTerminalProof(sessionId: SessionId): boolean | Promise<boolean>
@@ -473,13 +494,27 @@ export class HostsService {
       }
     }
 
-    // Shells never enter hibernateSession (no resume ref). Explicit opt-in.
+    // Shells never enter hibernateSession (no resume ref). The shell lifetime
+    // policy owns them (POD-4435): null switches the reaper trigger off, while
+    // the release and close/free triggers still fire.
     if (cfg.idleShellMinutes !== null) {
-      await this.applyShellIdlePressure(machineId, cfg.idleShellMinutes, now, failed)
+      await this.applyShellIdlePressure(
+        machineId,
+        cfg.idleShellMinutes,
+        cfg.backstopMinutes,
+        now,
+        failed,
+      )
     }
 
     if (cfg.backstopMinutes !== null) {
-      await this.applyIdleBackstop(machineId, cfg.backstopMinutes, now, failed)
+      await this.applyIdleBackstop(
+        machineId,
+        cfg.backstopMinutes,
+        cfg.idleShellMinutes,
+        now,
+        failed,
+      )
     }
 
     // Unobserved quiet sessions are IN the idle-live cap when some active policy
@@ -574,42 +609,116 @@ export class HostsService {
   }
 
   /**
-   * Park the oldest quiet live shell when idleShellMinutes is set. One per sample
-   * (same one-park discipline as memory/load), oldest quiet first.
+   * THE SHELL POLICY'S REAPER TRIGGER (POD-4435): every live shell goes
+   * through decideShellLifetime — ownership and use decide, not a quiet-time
+   * timer. A touched shell with an open issue is kept however long it sits at
+   * its prompt; an untouched shell nobody holds dies on its tab release (the
+   * release trigger) or, for releases the server never saw, after the unheld
+   * grace; the multi-day backstop kills as the last resort.
+   *
+   * One action per sample (same one-park discipline as memory/load), oldest
+   * quiet first. Failures are recorded and skipped within the sample.
    */
   private async applyShellIdlePressure(
     machineId: MachineId,
     idleShellMinutes: number,
+    backstopMinutes: number | null,
     now: number,
     failed: Set<string>,
   ): Promise<void> {
-    const cutoff = now - idleShellMinutes * 60_000
-    const target = [...(await this.deps.sessions())]
-      .filter((session) => {
-        if (session.machineId !== machineId || session.status !== 'live') return false
-        if (session.agentKind !== 'shell') return false
-        if (session.autoHibernateProtected) return false
-        if (failed.has(session.sessionId)) return false
-        return this.quietSinceMs(session) <= cutoff
-      })
-      .sort((a, b) => this.quietSinceMs(a) - this.quietSinceMs(b))[0]
-    if (!target) return
-    const result = await this.deps.parkShellSession({ sessionId: target.sessionId })
-    if (!result.ok) {
-      failed.add(target.sessionId)
+    const live = [...(await this.deps.sessions())]
+      .filter(
+        (session) =>
+          session.machineId === machineId &&
+          session.status === 'live' &&
+          session.agentKind === 'shell' &&
+          !failed.has(session.sessionId),
+      )
+      .sort((a, b) => this.quietSinceMs(a) - this.quietSinceMs(b))
+    for (const session of live) {
+      const decision = this.decideForShell(session, idleShellMinutes, backstopMinutes, now)
+      if (decision.verdict === 'keep') continue
+      const ok =
+        decision.verdict === 'kill'
+          ? await this.killShellSession(session.sessionId, failed)
+          : await this.parkShell(session.sessionId, failed)
+      if (!ok) continue
+      log.info(
+        decision.verdict === 'kill'
+          ? 'shell lifetime policy — killing a shell session'
+          : 'shell lifetime policy — parking a shell session',
+        {
+          machine: await this.deps.machineName(machineId),
+          sessionId: session.sessionId,
+          reason: decision.reason,
+        },
+      )
       return
     }
-    log.info('idle-shell threshold reached — parking a shell session', {
-      machine: await this.deps.machineName(machineId),
-      idleShellMinutes,
-      sessionId: target.sessionId,
+  }
+
+  /**
+   * One shell's policy inputs, shared by the reaper tick and the backstop tick
+   * so the two triggers cannot disagree about what the table says.
+   */
+  private decideForShell(
+    session: HostSessionView,
+    idleShellMinutes: number | null,
+    backstopMinutes: number | null,
+    now: number,
+  ) {
+    return decideShellLifetime({
+      purpose: session.purpose,
+      hasInput: session.hasInput,
+      heldByTab: session.heldByTab,
+      watched: session.watched,
+      lastTabReleased: false,
+      issueClosed: session.issueClosed === true,
+      // The reaper never sees a freed worktree: freeing goes through stop,
+      // which parks first, and the close/free trigger owns that transition.
+      worktreeFreed: false,
+      quietMs: shellQuietMs(now, {
+        lastActiveAt: session.lastActiveAt,
+        lastResumedAtMs: session.lastResumedAtMs,
+        lastInputAtMs: session.lastInputAtMs,
+        lastOutputAtMs: session.lastOutputAtMs,
+      }),
+      unheldMs:
+        session.lastHeldAtMs === undefined ? undefined : Math.max(0, now - session.lastHeldAtMs),
+      unwatchedMs: 0,
+      warmTtlMs: 0,
+      backstopMs: backstopMinutes === null ? undefined : backstopMinutes * 60_000,
+      idleGraceMs: idleShellMinutes === null ? undefined : idleShellMinutes * 60_000,
+      exited: false,
     })
+  }
+
+  /** Park one shell through the teardown verb, recording races. */
+  private async parkShell(sessionId: SessionId, failed: Set<string>): Promise<boolean> {
+    const result = await this.deps.parkShellSession({ sessionId })
+    if (!result.ok) {
+      failed.add(sessionId)
+      return false
+    }
+    return true
+  }
+
+  /** Kill one shell through the tombstone verb, recording races and refusals. */
+  private async killShellSession(sessionId: SessionId, failed: Set<string>): Promise<boolean> {
+    try {
+      await this.deps.killShellSession({ sessionId })
+    } catch {
+      failed.add(sessionId)
+      return false
+    }
+    return true
   }
 
   /** The backstop selects old sessions but cannot waive agent parking evidence. */
   private async applyIdleBackstop(
     machineId: MachineId,
     backstopMinutes: number,
+    idleShellMinutes: number | null,
     now: number,
     failed: Set<string>,
   ): Promise<void> {
@@ -646,10 +755,33 @@ export class HostsService {
       (a, b) => this.quietSinceMs(a) - this.quietSinceMs(b),
     )[0]
     if (!target) return
-    const result =
-      target.agentKind === 'shell'
-        ? await this.deps.parkShellSession({ sessionId: target.sessionId })
-        : { ok: await this.tryHibernateCandidate(target, failed) }
+    // Shells at the backstop go through the same table (POD-4435): the
+    // backstop's own selection IS the table's last-resort row, so the verdict
+    // here is kill (login panes never arrive — still skipped above). Agents
+    // keep the hibernate path.
+    if (target.agentKind === 'shell') {
+      const decision = this.decideForShell(target, idleShellMinutes, backstopMinutes, now)
+      // Unreachable for a backstop-selected shell (its quiet already tripped
+      // row 3), but the table owns the verdict either way — never re-decide it
+      // here.
+      if (decision.verdict === 'keep') return
+      const ok =
+        decision.verdict === 'kill'
+          ? await this.killShellSession(target.sessionId, failed)
+          : await this.parkShell(target.sessionId, failed)
+      if (!ok) {
+        failed.add(target.sessionId)
+        return
+      }
+      log.info('idle backstop reached — retiring a shell session', {
+        machine: await this.deps.machineName(machineId),
+        backstopMinutes,
+        sessionId: target.sessionId,
+        reason: decision.reason,
+      })
+      return
+    }
+    const result = { ok: await this.tryHibernateCandidate(target, failed) }
     if (!result.ok) {
       failed.add(target.sessionId)
       return
