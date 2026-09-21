@@ -16,15 +16,17 @@ import { decodeJoin } from '@podium/runtime/join'
 import {
   assertModeWritable,
   assertPublicUrlWritable,
+  commandExists,
   ephemeralTunnelWarning,
   NETWORK_OPTIONS,
   type NetworkOption,
   networkOptionCommand,
+  networkOptionTool,
   validatePublicUrl,
 } from '@podium/runtime/setup'
 import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
-import { isCancel, type SetupIO } from './setup-ui'
+import { BACK, isBack, isCancel, type SetupIO } from './setup-ui'
 
 export type { SetupIO } from './setup-ui'
 
@@ -68,6 +70,12 @@ export interface SetupDeps {
    * until POD-3274 nothing ran it on a machine that had just been installed.
    */
   activateImmediately?: boolean
+  /**
+   * Injected for testing; defaults to a PATH walk. Answers whether the tool a reachability
+   * option needs — `tailscale`, `cloudflared` — can actually be run on this machine, so the
+   * flow can offer install instructions instead of a command that cannot work.
+   */
+  hasCommand?: (binary: string) => boolean
 }
 
 const JOIN_CONNECT_TIMEOUT_MS = 30_000
@@ -255,60 +263,138 @@ interface ReachabilityChoice {
   networkOption: NetworkOption
 }
 
+/** The label of the row that backs out of a step. One constant so the flow reads the same
+ *  everywhere it is offered, and a test can look for it. */
+const GO_BACK_LABEL = '\u21a9 Go back'
+
+type NetworkEntry = (typeof NETWORK_OPTIONS)[number]
+
+/**
+ * Show what the operator has to run — and, when the tool that command needs is NOT on this
+ * machine, how to get it first.
+ *
+ * The flow used to print `tailscale funnel 18787` whether or not tailscale existed here, so
+ * on a bare box the very next instruction was a command that answers `command not found`.
+ * The install lines come FIRST and the reachability command after, because that is the order
+ * they have to be run in.
+ */
+function presentReachabilityCommand(
+  io: SetupIO,
+  opt: NetworkOption,
+  port: number,
+  hasCommand: (binary: string) => boolean,
+): void {
+  const { command } = networkOptionCommand(opt, port)
+  const tool = networkOptionTool(opt)
+  const installed = tool === undefined || hasCommand(tool.binary)
+  if (tool && !installed) {
+    // ONE box, not one per line: four stacked boxes is the same information at four times
+    // the visual weight, and `command()` already keeps each line separately selectable.
+    // The docs URL is not a command, so it stays in the sentence.
+    io.warn(
+      `\`${tool.binary}\` is not installed on this machine.\n` +
+        `Other ways to install it: ${tool.docs}`,
+    )
+    const steps = [tool.install, tool.signIn].filter((s): s is string => s !== undefined)
+    if (steps.length > 0) {
+      io.command(
+        steps.join('\n'),
+        tool.signIn ? `Install ${tool.binary} and sign in:` : `Install ${tool.binary}:`,
+      )
+    }
+  }
+  // The one thing on this screen the operator must COPY gets a box of its own.
+  if (command) {
+    io.command(command, installed ? 'Run this, then come back:' : 'Then run this and come back:')
+  }
+}
+
 /**
  * Reachability step: pick how to expose the relay, run the command, paste the URL. Returns
- * the validated URL and exposure method, or undefined when the operator gave up. With `save` (the standalone
+ * the validated URL and exposure method, BACK when the operator asked for the previous step,
+ * or undefined when they gave up. With `save` (the standalone
  * "change the URL" menu edit on an already-configured box) it persists immediately; the
  * full host flow passes save:false and writes config ONCE at the end — so a Ctrl-C midway
  * can't leave a configured-looking-but-passwordless box (issue #21).
+ *
+ * The two questions here are a LOOP, not a sequence: a blank URL goes back to the method
+ * list rather than ending the flow, because picking the wrong exposure method is the
+ * mistake this step actually invites and nothing has been written yet either way.
  */
 async function reachabilityStep(
   io: SetupIO,
   port: number,
   mode: HostMode,
-  opts: { save: boolean; confirmUrlChange?: boolean } = { save: true },
-): Promise<ReachabilityChoice | undefined> {
-  const opt = await io.select({
-    message: 'Make this instance reachable (encrypted, no domain needed)',
-    options: NETWORK_OPTIONS.map((o) => ({ value: o, label: o.label, hint: o.note })),
-  })
-  if (isCancel(opt) || !opt) return undefined
-  const { command, hint } = networkOptionCommand(opt.id, port)
-  // The one thing on this screen the operator must COPY gets a box of its own.
-  if (command) io.command(command, 'Run this, then come back:')
-  // A URL is re-asked by the prompt itself until it validates, so there is no attempt
-  // counter here any more: a cancelled prompt returns CANCEL rather than '' forever.
-  const pasted = await io.text({
-    message: hint,
-    placeholder: 'https://…',
-    validate: (v) =>
-      v.trim() === ''
-        ? 'Paste the URL, or press Ctrl-C to give up.'
-        : validatePublicUrl(v).ok
-          ? undefined
-          : (validatePublicUrl(v) as { error: string }).error,
-  })
-  if (isCancel(pasted)) {
-    io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
-    return undefined
-  }
-  const v = validatePublicUrl(pasted)
-  if (!v.ok) {
-    io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
-    return undefined
-  }
-  if (opts.save) {
-    if (!(await confirmUrlChange(io, v.normalized, opts.confirmUrlChange === true))) {
+  opts: {
+    save: boolean
+    confirmUrlChange?: boolean
+    hasCommand?: (binary: string) => boolean
+    /** Offer a row that returns to the step BEFORE this one. Only a caller that has one
+     *  passes it — `runVpsSetup` starts here, so there is nowhere to go back to. */
+    allowBack?: boolean
+  } = { save: true },
+): Promise<ReachabilityChoice | typeof BACK | undefined> {
+  const hasCommand = opts.hasCommand ?? commandExists
+  for (;;) {
+    const chosen = await io.select<NetworkEntry | typeof BACK>({
+      message: 'How can clients reach this machine over the network?',
+      options: [
+        ...NETWORK_OPTIONS.map((o) => {
+          const tool = networkOptionTool(o.id)
+          // Said on the ROW, not only after the choice: an operator picking the recommended
+          // option on a box without tailscale should see that before they commit to it.
+          const missing = tool !== undefined && !hasCommand(tool.binary)
+          return {
+            value: o as NetworkEntry | typeof BACK,
+            label: missing ? `${o.label} — ${tool.binary} is not installed` : o.label,
+            hint: o.note,
+          }
+        }),
+        ...(opts.allowBack
+          ? [{ value: BACK as NetworkEntry | typeof BACK, label: GO_BACK_LABEL }]
+          : []),
+      ],
+    })
+    if (isCancel(chosen) || !chosen) return undefined
+    if (isBack(chosen)) return BACK
+    const opt = chosen
+    presentReachabilityCommand(io, opt.id, port, hasCommand)
+    const { hint } = networkOptionCommand(opt.id, port)
+    // A URL is re-asked by the prompt itself until it validates, so there is no attempt
+    // counter here any more: a cancelled prompt returns CANCEL rather than '' forever.
+    // A BLANK answer is not a failed answer — it is "I picked the wrong option".
+    const pasted = await io.text({
+      message: `${hint} (blank = pick a different option)`,
+      placeholder: 'https://…',
+      validate: (v) => {
+        if (v.trim() === '') return undefined
+        const res = validatePublicUrl(v)
+        return res.ok ? undefined : res.error
+      },
+    })
+    if (isCancel(pasted)) {
+      io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
       return undefined
     }
-    saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized, networkOption: opt.id })
-    io.success(`Saved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
-  } else {
-    io.step(`This instance will be reachable at ${v.normalized}.`)
+    if (pasted.trim() === '') continue
+    const v = validatePublicUrl(pasted)
+    if (!v.ok) {
+      io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
+      return undefined
+    }
+    if (opts.save) {
+      if (!(await confirmUrlChange(io, v.normalized, opts.confirmUrlChange === true))) {
+        return undefined
+      }
+      saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized, networkOption: opt.id })
+      io.success(`Saved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
+    } else {
+      io.step(`This instance will be reachable at ${v.normalized}.`)
+    }
+    const warning = ephemeralTunnelWarning(v.normalized)
+    if (warning) io.warn(warning)
+    return { publicUrl: v.normalized, networkOption: opt.id }
   }
-  const warning = ephemeralTunnelWarning(v.normalized)
-  if (warning) io.warn(warning)
-  return { publicUrl: v.normalized, networkOption: opt.id }
 }
 
 /**
@@ -507,19 +593,28 @@ async function hostStep(
     activateImmediately?: boolean
     /** `--confirm-url-change`: answer the "this strands joined machines" question ahead of time. */
     confirmUrlChange?: boolean
+    /** There is a step before this one (the mode menu) to go back to. */
+    allowBack?: boolean
+    hasCommand?: (binary: string) => boolean
   } = {},
-): Promise<void> {
-  if (deploymentOwns(io, 'mode') || deploymentOwns(io, 'publicUrl')) return
-  const reachability = await reachabilityStep(io, port, mode, { save: false })
-  if (!reachability) return
+): Promise<typeof BACK | undefined> {
+  if (deploymentOwns(io, 'mode') || deploymentOwns(io, 'publicUrl')) return undefined
+  const reachability = await reachabilityStep(io, port, mode, {
+    save: false,
+    ...(options.allowBack ? { allowBack: true } : {}),
+    ...(options.hasCommand ? { hasCommand: options.hasCommand } : {}),
+  })
+  if (isBack(reachability)) return BACK
+  if (!reachability) return undefined
   const { publicUrl, networkOption } = reachability
-  if (!(await confirmUrlChange(io, publicUrl, options.confirmUrlChange === true))) return
+  if (!(await confirmUrlChange(io, publicUrl, options.confirmUrlChange === true))) return undefined
   if (!(await passwordStep(io, setPassword))) {
     io.error('Nothing saved — re-run `podium setup` to start over.')
-    return
+    return undefined
   }
   const supervisor = loadSupervisorState(stateDir())
-  if (!supervisor.enrolledPublicKey && !supervisor.token) prepareSetupEnrollment(mode === 'all-in-one', true)
+  if (!supervisor.enrolledPublicKey && !supervisor.token)
+    prepareSetupEnrollment(mode === 'all-in-one', true)
   saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
   io.success(`Saved. This instance is reachable at ${publicUrl}.`)
   await persistenceStep(io, port, mode, startBackend, {
@@ -530,6 +625,7 @@ async function hostStep(
   // The backend being up first is why consent must be read fresh at flush (D9) —
   // and that is the right behavior independently.
   if (options.askTelemetry !== false) await telemetryStep(io)
+  return undefined
 }
 
 /**
@@ -554,7 +650,11 @@ export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {
     'all-in-one',
     deps.setPassword ?? realSetPassword,
     deps.startBackend ?? startBackendEngine,
-    { askTelemetry: false, activateImmediately: true },
+    {
+      askTelemetry: false,
+      activateImmediately: true,
+      ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
+    },
   )
 }
 
@@ -566,13 +666,19 @@ async function joinStep(
   port: number,
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
   waitForEnrollment: () => Promise<void>,
-): Promise<void> {
+  /** There is a step before this one (the mode menu) to go back to. */
+  allowBack = false,
+): Promise<typeof BACK | undefined> {
   io.note('Find it on the server, under Machines \u2192 Add machine.', 'Paste the join code')
   // Validated in the prompt, so a typo is corrected in place rather than restarting the step.
+  // A blank answer means "wrong menu choice": nothing has been written yet, so it returns to
+  // the mode menu rather than ending the run.
   const token = await io.text({
-    message: 'Join code',
+    message: allowBack ? 'Join code (blank = go back)' : 'Join code',
     validate: (v) => {
-      if (v.trim() === '') return 'Paste the join code, or press Ctrl-C to cancel.'
+      if (v.trim() === '') {
+        return allowBack ? undefined : 'Paste the join code, or press Ctrl-C to cancel.'
+      }
       try {
         decodeJoin(v.trim())
         return undefined
@@ -583,8 +689,9 @@ async function joinStep(
   })
   if (isCancel(token)) {
     io.step('Cancelled.')
-    return
+    return undefined
   }
+  if (token.trim() === '') return BACK
   try {
     const { name, warning } = await applyJoinToken(token.trim())
     if (warning) io.warn(warning)
@@ -601,6 +708,7 @@ async function joinStep(
   } catch (e) {
     io.error((e as Error).message)
   }
+  return undefined
 }
 
 /**
@@ -654,18 +762,18 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   const menu: { value: SetupChoice; label: string; hint: string }[] = [
     {
       value: 'all-in-one',
-      label: 'Run Podium on this machine',
-      hint: 'The app AND your agents run right here. Best if this is your only computer.',
-    },
-    {
-      value: 'server',
-      label: 'Set up a hub for your other machines',
-      hint: 'This box hosts the app; your agents run on the machines that connect to it, not here. Best for an always-on server or VPS.',
+      label: 'Run the Podium server AND agents here. (Recommended)',
+      hint: 'It will serve the web frontend and let native desktop clients connect to it.',
     },
     {
       value: 'daemon',
-      label: 'Add this machine to a Podium you already run',
-      hint: 'It runs agents here and connects to your existing server. Paste its join code.',
+      label: 'Connect to an existing Podium server.',
+      hint: 'You want to run agents on this machine.',
+    },
+    {
+      value: 'server',
+      label: 'Run ONLY the Podium server and NO agents here.',
+      hint: 'You will need to set up an additional machine that will host your agents.',
     },
   ]
   if (hostsServer) {
@@ -678,37 +786,53 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
       { value: 'telemetry', label: 'Change telemetry', hint: '' },
     )
   }
-  const choice = await io.select({
-    message: 'What do you want this machine to do?',
-    options: menu.map((m) => ({
-      value: m.value,
-      label: m.label,
-      ...(m.hint ? { hint: m.hint } : {}),
-    })),
-  })
 
   const hostOptions = {
+    allowBack: true,
+    ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
     ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
     ...(deps.activateImmediately ? { activateImmediately: true } : {}),
   }
-  if (choice === 'all-in-one') {
-    await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
-  } else if (choice === 'server') {
-    await hostStep(io, port, 'server', setPassword, startBackend, hostOptions)
-  } else if (choice === 'daemon') {
-    if (deploymentOwns(io, 'mode')) return
-    await joinStep(io, port, startBackend, waitForEnrollment)
-  } else if (choice === 'url' && hostsServer) {
-    if (deploymentOwns(io, 'publicUrl')) return
-    await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one', {
-      save: true,
-      ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
+
+  // THE MENU IS A LOOP, not a first question. Everything it dispatches to is a string of
+  // DECISIONS before any of them is applied — a mode, an exposure method, a URL — so an
+  // operator who picks the wrong one has nothing to undo, only a screen to get back to.
+  // A step says so by answering BACK; anything else ends the run, which is what a step
+  // that has already written something must do.
+  for (;;) {
+    const choice = await io.select({
+      message: 'What do you want this machine to do?',
+      options: menu.map((m) => ({
+        value: m.value,
+        label: m.label,
+        ...(m.hint ? { hint: m.hint } : {}),
+      })),
     })
-  } else if (choice === 'password' && hostsServer) {
-    await passwordStep(io, setPassword)
-  } else if (choice === 'telemetry' && hostsServer) {
-    await telemetryStep(io)
-  } else {
-    io.step('Nothing changed.')
+
+    let back: typeof BACK | undefined
+    if (choice === 'all-in-one') {
+      back = await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
+    } else if (choice === 'server') {
+      back = await hostStep(io, port, 'server', setPassword, startBackend, hostOptions)
+    } else if (choice === 'daemon') {
+      if (deploymentOwns(io, 'mode')) return
+      back = await joinStep(io, port, startBackend, waitForEnrollment, true)
+    } else if (choice === 'url' && hostsServer) {
+      if (deploymentOwns(io, 'publicUrl')) return
+      const res = await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one', {
+        save: true,
+        allowBack: true,
+        ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
+        ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
+      })
+      back = isBack(res) ? BACK : undefined
+    } else if (choice === 'password' && hostsServer) {
+      await passwordStep(io, setPassword)
+    } else if (choice === 'telemetry' && hostsServer) {
+      await telemetryStep(io)
+    } else {
+      io.step('Nothing changed.')
+    }
+    if (!isBack(back)) return
   }
 }
