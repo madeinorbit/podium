@@ -89,7 +89,11 @@ describe('the SDK host spawn site', () => {
       prompt: 'hello',
     } as unknown as Spec
 
-    const child = runClaudeSdkChildTurn(spec, () => {}, { childEnv: { ...process.env } })
+    const childEnv: Record<string, string> = {}
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined) childEnv[key] = value
+    }
+    const child = runClaudeSdkChildTurn(spec, () => {}, { childEnv })
     await child.done.catch(() => {})
 
     expect(spawns).toHaveLength(1)

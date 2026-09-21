@@ -24,7 +24,7 @@ import {
   readSync,
 } from 'node:fs'
 import { createLogger } from '@podium/logger'
-import type { AgentKind, SessionId } from '@podium/model'
+import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { grokSessionPaths } from '../../../agent-state/grok.js'
 import {
@@ -32,14 +32,14 @@ import {
   gateHarnessVersion,
   harnessVersionDiagnostic,
 } from '../../../version-policy.js'
+import type { ScopeResources } from '../../capabilities.js'
 import type {
   GrokAcpEndpoint,
   GrokAcpJournal,
   GrokAcpRuntimeHost,
-  GrokAcpTransport,
-  GrokVersionDiagnostic,
-  ScopeResources,
 } from './runtime.js'
+import type { GrokAcpTransport } from './client.js'
+import type { GrokVersionDiagnostic } from './version.js'
 import type { GrokEngineFacts } from './engine-facts.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
 
@@ -116,7 +116,7 @@ export interface GrokEngineHostDeps {
    */
   buildEnv(input: {
     sessionId: SessionId
-    agentKind: AgentKind
+    agentKind: HarnessAgent
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
@@ -462,7 +462,7 @@ function hostTransport(sessionId: SessionId, held: HeldEngine): GrokAcpTransport
   return {
     write(line) {
       if (closed) return
-      held.session.connection.write(Buffer.from(line)).catch(() => {
+      held.session.connection.write?.(Buffer.from(line))?.catch(() => {
         // A write to a dead channel is the engine being gone; the close path
         // below reports it, and throwing here would surface the fact twice.
       })

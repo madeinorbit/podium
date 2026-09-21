@@ -9,14 +9,14 @@
 // packages/harness — but the mechanism still reads rather than hardcodes, so
 // a second speaker of this protocol reuses the host with different facts.)
 
-import type { AgentKind } from '@podium/model'
+import type { HarnessAgent } from '@podium/model'
 import { declaredValue } from '../../../manifest.js'
 import { manifestFor } from '../../../registry.js'
 
 /** The codex engine's per-harness facts, read off its adapter sections. */
 export interface CodexEngineFacts {
   /** Value passed as the engine child's harness identity (env composition). */
-  harnessKind: AgentKind
+  harnessKind: HarnessAgent
   /** `runtime.server.spawn` stem: the command that starts the engine. */
   command: string
   serverArgs: string[]

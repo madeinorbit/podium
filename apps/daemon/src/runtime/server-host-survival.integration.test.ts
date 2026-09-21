@@ -34,9 +34,38 @@ import { createGrokAcpRuntime, createOpencodeRuntime, createCodexRuntime } from 
 import type { RuntimeEvent, SessionBinding } from '@podium/harness/driver/host'
 import { createDurableProcess } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { createCodexHost, codexScopeLabel } from './codex-app-server'
-import { createGrokAcpHost, grokAcpProcessKey } from './grok-acp-server'
-import { createOpencodeHost, opencodeScopeLabel } from './opencode-server'
+import {
+  codexEngineFacts,
+  codexScopeLabel,
+  createCodexEngineHost,
+  createGrokEngineHost,
+  createOpencodeEngineHost,
+  grokAcpProcessKey,
+  grokEngineFacts,
+  opencodeFlavor,
+  opencodeScopeLabel,
+  type CodexJournalEntry,
+  type GrokAcpJournalEntry,
+  type OpencodeJournalEntry,
+} from '@podium/harness/driver/host'
+import { stageRuntimeAttachment } from './attachment-staging'
+import {
+  composeEngineEnv,
+  createEngineJournal,
+  dialEngineSocket,
+  engineSocketRoot,
+  supervisionFor,
+} from './host'
+import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
+import {
+  codexAppServerVersionProbe,
+  grokAcpVersionProbe,
+  opencodeVersionProbeForExecutable,
+} from './version-probe'
+
+const codexFacts = codexEngineFacts()
+const grokFacts = grokEngineFacts()
+const flavor = opencodeFlavor()
 
 const GEN1 = fileURLToPath(new URL('../test-support/server-host-survival.gen1.ts', import.meta.url))
 
@@ -413,7 +442,18 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
 
       // CODEX: the driver rebinds to the survivor — same pid — and the
       // in-flight turn completes on the adopted handle.
-      const codexHost = createCodexHost({ resources: noResources, durable })
+      const codexHost = createCodexEngineHost({
+        facts: codexFacts,
+        supervision: supervisionFor(durable),
+        journal: createEngineJournal<CodexJournalEntry>({ namespace: codexFacts.journalNamespace }),
+        stageAttachment: stageRuntimeAttachment,
+        resources: noResources,
+        buildEnv: composeEngineEnv,
+        gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+        checkVersion: () => codexAppServerVersionProbe(),
+        socketRoot: engineSocketRoot(),
+        dialSocket: dialEngineSocket,
+      })
       const codexRuntime = createCodexRuntime(codexHost)
       const adoptedCodex = await codexRuntime.driver.adopt(codexBinding)
       expect(adoptedCodex.binding.process.pid).toBe(codexPid)
@@ -451,7 +491,19 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       expect(await adoptedCodex.state().then((state) => state.phase)).toBe('idle')
 
       // OPENCODE: same server, same port and secret, same pid.
-      const opencodeHost = createOpencodeHost({ resources: noResources, durable })
+      const opencodeHost = createOpencodeEngineHost({
+        flavor,
+        supervision: supervisionFor(durable),
+        journal: createEngineJournal<OpencodeJournalEntry>({ namespace: flavor.journalNamespace }),
+        stageAttachment: stageRuntimeAttachment,
+        resources: noResources,
+        buildEnv: composeEngineEnv,
+        gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+        checkVersion: ({ executable }) =>
+          opencodeVersionProbeForExecutable(executable).then((v) =>
+            v.drivable ? null : v.diagnostic,
+          ),
+      })
       const opencodeRuntime = createOpencodeRuntime(opencodeHost)
       const adoptedOpencode = await opencodeRuntime.driver.adopt(opencodeBinding)
       expect(adoptedOpencode.binding.process.pid).toBe(opencodePid)
@@ -459,7 +511,15 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
 
       // GROK: the stdio channel re-attaches to the survivor; session/load
       // answers over the new pipes.
-      const grokHost = createGrokAcpHost({ resources: noResources, durable })
+      const grokHost = createGrokEngineHost({
+        facts: grokFacts,
+        supervision: supervisionFor(durable),
+        journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: grokFacts.journalNamespace }),
+        resources: noResources,
+        buildEnv: composeEngineEnv,
+        gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+        checkVersion: () => grokAcpVersionProbe(),
+      })
       const grokRuntime = createGrokAcpRuntime(grokHost)
       const adoptedGrok = await grokRuntime.driver.adopt(grokBinding)
       expect(adoptedGrok.binding.process.pid).toBe(grokPid)
@@ -467,9 +527,9 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
 
       // Cleanup owns every engine by label, whatever generation holds it now.
       const killer = createDurableProcess('host', { host: true, abduco: false })
-      await killer.kill(codexScopeLabel(codexBinding.sessionId))
-      await killer.kill(opencodeScopeLabel(opencodeBinding.sessionId))
-      await killer.kill(grokAcpProcessKey(grokBinding.sessionId))
+      await killer.kill(codexScopeLabel(codexFacts, codexBinding.sessionId))
+      await killer.kill(opencodeScopeLabel(flavor, opencodeBinding.sessionId))
+      await killer.kill(grokAcpProcessKey(grokFacts, grokBinding.sessionId))
       codexRuntime.dispose()
       opencodeRuntime.dispose()
       grokRuntime.dispose()

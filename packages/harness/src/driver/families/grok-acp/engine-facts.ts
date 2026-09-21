@@ -4,14 +4,14 @@
 // ../codex/engine-facts.ts: read off the grok adapter's sections, never
 // restated. A second ACP speaker reuses the engine host with different facts.
 
-import type { AgentKind } from '@podium/model'
+import type { HarnessAgent } from '@podium/model'
 import { declaredValue } from '../../../manifest.js'
 import { manifestFor } from '../../../registry.js'
 
 /** The grok engine's per-harness facts, read off its adapter sections. */
 export interface GrokEngineFacts {
   /** Value passed as the engine child's harness identity (env composition). */
-  harnessKind: AgentKind
+  harnessKind: HarnessAgent
   /** `runtime.server.spawn` stem: the command that starts the engine. */
   command: string
   serverArgs: string[]

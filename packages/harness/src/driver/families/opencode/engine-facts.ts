@@ -11,7 +11,7 @@
 // That is also the spec's genericity test in miniature: the same engine host
 // drives both speakers with no edits, differing only in the facts object.
 
-import type { AgentKind } from '@podium/model'
+import type { HarnessAgent } from '@podium/model'
 import { declaredValue } from '../../../manifest.js'
 import { manifestFor } from '../../../registry.js'
 
@@ -19,7 +19,7 @@ import { manifestFor } from '../../../registry.js'
 export interface OpencodeEngineFlavor {
   driverId: 'opencode-server' | 'opencode2-server'
   /** Value passed as the engine child's harness identity (env composition). */
-  harnessKind: AgentKind
+  harnessKind: HarnessAgent
   /** Bare executable name, resolved to a path by the supervisor's inventory. */
   executableName: string
   /** `runtime.server.spawn` stem with the resolved executable and the

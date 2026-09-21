@@ -34,7 +34,7 @@ function engineHost(extra: Partial<CodexEngineHostDeps> = {}) {
   return createCodexEngineHost({
     facts: FACTS,
     journal: { read: () => undefined, write: () => {}, clear: () => {} },
-    stageAttachment: async () => ({ staged: [], refused: [] }),
+    stageAttachment: async () => { throw new Error('attachments are not under test') },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
@@ -397,7 +397,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const socketPath = join(dir, 'engine.sock')
     const socketListener = listen(socketPath)
     const clientAddress = `unix://${socketPath}`
-    const spawned: HeadlessSpawnOptions[] = []
+    const spawned: Array<Parameters<EngineSupervisor['spawnHeadless']>[0]> = []
     const { session, exits } = fakeEngineSession({ childPid: 7777 })
     const host = engineHost({
       journal: {

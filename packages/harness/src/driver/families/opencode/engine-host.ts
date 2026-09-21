@@ -62,7 +62,7 @@
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:net'
 import { createLogger } from '@podium/logger'
-import type { AgentKind, SessionId } from '@podium/model'
+import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import {
   gateHarnessVersion,
@@ -70,12 +70,12 @@ import {
   OPENCODE_VERSION_POLICY,
 } from '../../../version-policy.js'
 import type { OpencodeVersionDiagnostic } from './version.js'
+import type { AttachmentStager } from '../../turns.js'
+import type { ScopeResources } from '../../capabilities.js'
 import type {
-  AttachmentStager,
   OpencodeJournal,
   OpencodeRuntimeHost,
   OpencodeServerEndpoint,
-  ScopeResources,
 } from './runtime.js'
 import type { OpencodeEngineFlavor } from './engine-facts.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
@@ -96,12 +96,6 @@ const READY_POLL_MS = 250
  * ready".
  */
 const PROBE_TIMEOUT_MS = 2000
-
-/** Where a session's journal entry lives. Under the daemon's own state dir, so
- *  it moves with the instance and is swept with it. */
-const journalDir = (namespace = 'opencode-servers'): string => join(stateDir(), namespace)
-const journalPath = (sessionId: SessionId, namespace = 'opencode-servers'): string =>
-  join(journalDir(namespace), `${encodeURIComponent(sessionId)}.json`)
 
 /**
  * Provider credentials that MUST NOT reach the child.
@@ -147,7 +141,7 @@ async function freeLoopbackPort(): Promise<number> {
   })
 }
 
-const basicAuth = (secret: string, username = USERNAME): string =>
+const basicAuth = (secret: string, username: string): string =>
   `Basic ${Buffer.from(`${username}:${secret}`).toString('base64')}`
 
 /** One bounded health probe. `false` covers dead, not-yet-listening AND wrong
@@ -159,7 +153,9 @@ const basicAuth = (secret: string, username = USERNAME): string =>
 export async function probeHealth(
   baseUrl: string,
   secret: string,
-  username = USERNAME,
+  // Defaults are the stable speaker's (the only speaker flavors today pair
+  // with journalled entries); the engine host always passes its flavor's own.
+  username = 'podium',
   healthPath = '/global/health',
 ): Promise<boolean> {
   try {
@@ -345,7 +341,7 @@ export interface OpencodeEngineHostDeps {
    */
   buildEnv(input: {
     sessionId: SessionId
-    agentKind: AgentKind
+    agentKind: HarnessAgent
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     instanceUuid?: string

@@ -124,6 +124,7 @@ import {
   createEngineJournal,
   daemonRuntimeHost,
   dialEngineSocket,
+  engineClientTerminals,
   engineSocketRoot,
   supervisionFor,
 } from './runtime/host'
@@ -1193,9 +1194,9 @@ export async function createDaemonHostRuntime(args: {
        * to hand over, and the opencode host answers a Native attach with its
        * per-machine refusal instead.
        */
-      ...(clientTerminals ? { clientTerminals } : {}),
-      ...(generationInventory?.executables.has(ocFacts.executableName)
-        ? { executablePath: resolvedHarnessPath(generationInventory, ocFacts.executableName) }
+      ...(clientTerminals ? { clientTerminals: engineClientTerminals(clientTerminals) } : {}),
+      ...(generationInventory?.executables.has(ocFacts.harnessKind)
+        ? { executablePath: resolvedHarnessPath(generationInventory, ocFacts.harnessKind) }
         : {}),
       // The instance agent home: a server-driver child's HOME must be the
       // instance's, exactly as the PTY path's children get it (POD-2247).
@@ -1217,7 +1218,7 @@ export async function createDaemonHostRuntime(args: {
         resources: (subject) => scopeMonitor.resources(subject),
         // Absent on a backend=none daemon (POD-3917): no terminal host, so the
         // opencode host refuses a Native attach with its per-machine wording.
-        ...(clientTerminals ? { clientTerminals } : {}),
+        ...(clientTerminals ? { clientTerminals: engineClientTerminals(clientTerminals) } : {}),
         stageAttachment,
         buildEnv: composeEngineEnv,
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,

@@ -16,6 +16,7 @@
 // One port, not three near-identical ones, so a second speaker of any of
 // these protocols reuses the same supervision seam without edits.
 
+import type { Buffer } from 'node:buffer'
 import type { SessionId } from '@podium/model'
 
 /** One held engine attachment: the supervisor's handle on a live engine. */
@@ -28,7 +29,7 @@ export interface EngineAttachment {
   readonly ready: Promise<{ lease: boolean; childPid?: number }>
   readonly connection: {
     /** Merged stdout/stderr ring. Returns an unsubscribe. */
-    onData(cb: (seq: bigint, data: Uint8Array) => void): () => void
+    onData(cb: (seq: bigint, data: Buffer) => void): () => void
     /** The host's EXITED frame — the real status, never a dead-pipe inference.
      *  Returns an unsubscribe. */
     onExit(cb: (code: number, signal: number) => void): () => void

@@ -32,7 +32,7 @@ function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
   return createOpencodeEngineHost({
     flavor: FLAVOR,
     journal: { read: () => undefined, write: () => {}, clear: () => {} },
-    stageAttachment: async () => ({ staged: [], refused: [] }),
+    stageAttachment: async () => { throw new Error('attachments are not under test') },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
