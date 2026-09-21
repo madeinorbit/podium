@@ -47,8 +47,11 @@ safety standing does not depend on walls.
 
 Walls now point at the hand-rolled arm, plainly and by a clear margin: it is
 fastest on the hot path in both pipeline medians and the task-bounded outer
-medians, and it is
-the only arm with no long tasks at all on the rename step. The quiet tables
+medians, and at the measured revision it was
+the only arm with no long tasks at all on the rename step (MobX carried a
+3-per-twenty tail there). The `7d5ef3afe` re-run reads MobX at zero too, so
+the exclusivity belongs to the measured revision — the wall lead itself
+reproduces. The quiet tables
 name the gap; the winner's downside names what MobX costs in exchange.
 
 No arm passes the performance gate, so a gate that everything fails cannot by
@@ -130,7 +133,7 @@ quiet-window re-run for walls.
 | Rank | Arm | Standing | What decides it |
 |---|---|---|---|
 | First | MobX | Passes safety, fidelity, bundle, counts and count-slope; fails the shared absolute wall budgets | Sole safety passer; smallest change diffs on the comparable changes; bundle inside budget; wall costs bounded and priced against a control far worse still |
-| Second | Hand-rolled | One safety gate failed plus the shared absolute wall miss | The render-path silence; otherwise the cheapest bundle, the fastest quiet walls with the only zero-long-task rename, and a compile-time exhaustiveness check the others lack |
+| Second | Hand-rolled | One safety gate failed plus the shared absolute wall miss | The render-path silence; otherwise the cheapest bundle, the fastest quiet walls (the zero-long-task rename was exclusive at the measured revision — MobX reads 0-per-twenty at `7d5ef3afe`), and a compile-time exhaustiveness check the others lack |
 | Third | TanStack DB | Two gates failed plus the quiet clock engine finding | The render-path silence plus the bundle overrun plus the slowest hot-path walls and the reproduced engine-cost tick; the fastest large-change time but the largest diffs |
 
 The ranking among survivors is decided first by the change exercise, then by growth
@@ -333,9 +336,8 @@ and only the click scenario takes the driver branch that measures paint.
 
 The prose between these tables points at them without restating them. On the
 hot path the hand arm is fastest by a clear margin on both pipeline and
-task-bounded outer medians and is the only arm with no long tasks at all on the
-rename step; the MobX arm sits in the middle with a small long-task tail on
-rename and a clock price several times its own rename; the TanStack arm is
+task-bounded outer medians and at the measured revision was the only arm with no long tasks at all on the
+rename step; the MobX arm sits in the middle, its small rename long-task tail (3 per twenty at the measured revision) reading zero in the `7d5ef3afe` re-run, and a clock price several times its own rename; the TanStack arm is
 slowest by multiples with most rename records carrying long tasks. The control
 misses the same hot-path line by a far larger margin on either field while deriving the whole
 world per rename and stagemove against a single committed row on the arms, with
@@ -765,8 +767,8 @@ are identical to the winner's on every scenario with a flat slope, its bundle is
 the cheapest of the three inside budget, its fidelity is green with the rebuild
 oracle as an extra proof no other arm carries, and its change-exercise large change
 caught two real defects through that oracle. On the quiet walls it is fastest by a
-clear margin on the hot path and the only arm with no long tasks at all on the
-rename step — and it still exceeds the hot-path and click budgets under quiet
+clear margin on the hot path and, at the measured revision, the only arm with no long tasks at all on the
+rename step (MobX reads zero there too at `7d5ef3afe`) — and it still exceeds the hot-path and click budgets under quiet
 conditions, so the shared absolute miss sits beside its relative lead rather than
 erasing it. Its strengths are real: the
 exhaustiveness check fires at compile time when a new input kind is added
@@ -802,11 +804,11 @@ A recommendation without its cost named is not acceptable, so the MobX costs are
 listed with the same care as the losers'. The quiet walls miss the hot-path and
 click budgets under quiet conditions, which fails the performance gate on the
 same absolute line that fails both losers: the rename task-bounded tail sits well
-above the line with a small long-task tail, the pipeline tail misses too but far
+above the line (its small long-task tail, 3 per twenty at the measured revision, reads zero at `7d5ef3afe`), the pipeline tail misses too but far
 more narrowly, the stagemove follows it, and the
 click tail misses at both scales on the cold-first-click shape every page shows.
-The wall lead belongs to the hand arm, plainly, and the only zero-long-task
-rename belongs to it as well. The tick re-runs settled bodies while
+The wall lead belongs to the hand arm, plainly, while the zero-long-task
+rename, exclusive to it at the measured revision, is shared with MobX at `7d5ef3afe` (zero per twenty on both). The tick re-runs settled bodies while
 committing nothing on a boundary-free tick, now quiet-confirmed at several times
 the arm's own rename pipeline: correct by construction, bounded,
 processor-only, but the single largest behavioral cost the comparison found, and
