@@ -623,7 +623,11 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         },
       })
       const adoptedClaude = await claudeRuntime.adoptFromJournal(claudeBinding.sessionId)
-      expect(adoptedClaude?.binding.process.pid).toBe(claudePid)
+      // Same engine, proved two ways: the journal re-bound to the survivor
+      // carries the first generation's pid (the contract core keeps its
+      // embedded placeholder key; the journal is the adopt source), and the
+      // stub recorded exactly one incarnation — no fresh `claude`.
+      expect(claudeRuntime.journalEntry(claudeBinding.sessionId)?.process.pid).toBe(claudePid)
       expect(incarnations('claude')).toEqual([String(claudePid)])
       if (!adoptedClaude) throw new Error('claude adoptFromJournal answered undefined')
       const claudeCollected: RuntimeEvent[] = []

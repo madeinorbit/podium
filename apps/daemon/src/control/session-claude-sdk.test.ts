@@ -139,10 +139,10 @@ describe('Claude SDK reattach control', () => {
     expect(w.sent).toContainEqual({
       type: 'bind',
       sessionId: SESSION_ID,
-      cmd: 'Claude Agent SDK (embedded)',
+      cmd: 'Claude stream engine',
       cwd: '/project',
       agentKind: 'claude-code',
-      // NO `geometry` (POD-3279). Resuming an embedded child after process loss
+      // NO `geometry` (POD-3279). Resuming a stream engine after process loss
       // puts nothing at a size, so the bind reports none — and because this
       // assertion is exact, a geometry reappearing here fails the test rather
       // than passing unnoticed.
