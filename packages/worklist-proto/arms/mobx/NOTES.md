@@ -155,7 +155,8 @@ rename 1 (i0) / 1+3, stagemove 1 (i3) / 1+3, new 0 / 1+3, archive 1 (i3) /
 0 — locals dispatch nothing), optimism 0 per step with model kept and echo
 value restored (press2 two dispatches, rollback quiet), burst50 21 / 32+138
 with one notification. Parity green and zero over-commit on every step; #7
-and #10 commit byte-identical rows to the hand arm (2 [i2,i8]; 21). Full
+commits the same rows with the same counts as the hand arm (2 [i2,i8] /
+2+5), #10 the same counts (21 / 32). Full
 table + scan judgments in `docs/measurements/POD-4451-m2.md`.
 
 - **Stale `resolveNeeded` (the one mechanism fix).** Bootstrap's ingests set
