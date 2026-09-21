@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { type AgentManifest, manifestFor } from '@podium/harness'
 import {
   type CodexProbeVerdict,
   codexEngineFacts,
@@ -125,13 +126,29 @@ export function execVersionProbe(command: string, timeoutMs: number): Promise<Ve
  *  POD-2056 established what two numbers for one concept cost. */
 const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
 
+/**
+ * The composition root's side of the POD-4494 handover: the families take
+ * handed sections, so each default probe reads its adapter here — the one
+ * place on this path allowed to name a harness — and hands the sections in.
+ */
+function engineSections(
+  kind: 'codex' | 'grok' | 'opencode',
+): Pick<AgentManifest, 'kind' | 'runtime' | 'inventory'> {
+  const manifest = manifestFor(kind)
+  if (!manifest) throw new Error(`no harness adapter for '${kind}'`)
+  return { kind: manifest.kind, runtime: manifest.runtime, inventory: manifest.inventory }
+}
+
 const codexProbeCache = createVersionProbeCache<CodexProbeVerdict>({
   evaluate: ({ output, ok }) => evaluateCodexVersionProbe(output, ok),
 })
 
 export function codexAppServerVersionProbe(
   probe: VersionProbe = () =>
-    execVersionProbe(codexEngineFacts().executableName, VERSION_PROBE_TIMEOUT_MS),
+    execVersionProbe(
+      codexEngineFacts(engineSections('codex')).executableName,
+      VERSION_PROBE_TIMEOUT_MS,
+    ),
   policy?: VersionProbePolicy,
 ): Promise<CodexProbeVerdict> {
   return codexProbeCache.probe(probe, policy)
@@ -148,7 +165,10 @@ const grokProbeCache = createVersionProbeCache<GrokAcpProbeVerdict>({
 
 export function grokAcpVersionProbe(
   probe: VersionProbe = () =>
-    execVersionProbe(grokEngineFacts().executableName, VERSION_PROBE_TIMEOUT_MS),
+    execVersionProbe(
+      grokEngineFacts(engineSections('grok')).executableName,
+      VERSION_PROBE_TIMEOUT_MS,
+    ),
   policy?: VersionProbePolicy,
 ): Promise<GrokAcpProbeVerdict> {
   return grokProbeCache.probe(probe, policy)
@@ -164,7 +184,10 @@ const opencodeProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
 
 export function opencodeVersionProbe(
   probe: VersionProbe = () =>
-    execVersionProbe(opencodeFlavor().executableName, VERSION_PROBE_TIMEOUT_MS),
+    execVersionProbe(
+      opencodeFlavor(engineSections('opencode')).executableName,
+      VERSION_PROBE_TIMEOUT_MS,
+    ),
   policy?: VersionProbePolicy,
 ): Promise<OpencodeProbeVerdict> {
   return opencodeProbeCache.probe(probe, policy)
@@ -186,7 +209,10 @@ const opencode2ProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
 
 export function opencode2VersionProbe(
   probe: VersionProbe = () =>
-    execVersionProbe(opencode2Flavor().executableName, VERSION_PROBE_TIMEOUT_MS),
+    execVersionProbe(
+      opencode2Flavor(engineSections('opencode')).executableName,
+      VERSION_PROBE_TIMEOUT_MS,
+    ),
   policy?: VersionProbePolicy,
 ): Promise<OpencodeProbeVerdict> {
   return opencode2ProbeCache.probe(probe, policy)

@@ -280,13 +280,16 @@ function collectStderr(child: ChildProcess): () => string {
  * resume <id> --json` (turns ≥2). The turn shape — argv off the adapter's
  * `headless.buildExec` section, the `thread.started`/`item.*` fold — lives in
  * the codex family; this file owns the supervisor's side (spawn, composed
- * env, timeout budget).
+ * env, timeout budget). The headless section is read here — the one place on
+ * this path allowed to name the harness — and handed to the family.
  */
 function runCodexTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   snapshot: ResolvedHarnessInventory,
 ): HeadlessTurnHandle {
+  const manifest = harnessAdapterFor('codex')
+  if (!manifest) throw new Error("no harness adapter for 'codex'")
   const turn = runCodexExecTurn({
     prompt: spec.prompt,
     ...(spec.model ? { model: spec.model } : {}),
@@ -303,6 +306,7 @@ function runCodexTurn(
       ...(spec.env ? { specEnv: spec.env } : {}),
       commandEnv: snapshot.commandEnvironment.env,
     }),
+    sections: { headless: manifest.headless },
     snapshot,
     emit,
     spawnChild: (cmd, args, opts) => spawnTurnChild(cmd, args, opts.cwd, opts.env),

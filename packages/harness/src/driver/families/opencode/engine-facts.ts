@@ -1,19 +1,19 @@
 // packages/harness/src/driver/families/opencode/engine-facts.ts
 //
-// THE OPENCODE ENGINE'S FACTS (1.5, spec §5). Same rule as
-// ../codex/engine-facts.ts, with one extra row: this protocol has TWO
-// speakers — the stable server and the 2 preview server — so the facts come
-// in two flavors. The v1 flavor reads off the opencode adapter's sections;
-// the v2 flavor reads the adapter's `serverAlternatives[0]` where a section
-// exists (spawn stem, label token) and declares the preview's own deployment
-// facts beside it. Either way the engine host takes facts, never names.
+// THE OPENCODE ENGINE'S FACTS (1.5, spec §5; handed sections per POD-4494).
+// Same rule as ../codex/engine-facts.ts, with one extra row: this protocol
+// has TWO speakers — the stable server and the 2 preview server — so the
+// facts come in two flavors. The v1 flavor reads off the HANDED sections'
+// server; the v2 flavor reads the handed sections' `serverAlternatives[0]`
+// where a section exists (spawn stem, label token) and declares the preview's
+// own deployment facts beside it. Either way the engine host takes facts,
+// never names — and neither flavor fetches the registry by name.
 //
 // That is also the spec's genericity test in miniature: the same engine host
 // drives both speakers with no edits, differing only in the facts object.
 
 import type { HarnessAgent } from '@podium/model'
-import { declaredValue } from '../../../manifest.js'
-import { manifestFor } from '../../../registry.js'
+import { declaredValue, type AgentManifest } from '../../../manifest.js'
 
 /** One speaker of the opencode HTTP protocol. */
 export interface OpencodeEngineFlavor {
@@ -59,24 +59,25 @@ function serveArgsFromStem(stem: readonly string[]) {
     })
 }
 
-/** The stable speaker, read off the opencode adapter's sections. */
-export function opencodeFlavor(): OpencodeEngineFlavor {
-  const manifest = manifestFor('opencode')
-  if (!manifest) throw new Error("no harness adapter for 'opencode'")
-  const server = required(declaredValue(manifest.runtime.server), 'runtime.server')
+/** The stable speaker, read off the HANDED adapter sections. */
+export function opencodeFlavor(
+  sections: Pick<AgentManifest, 'kind' | 'runtime' | 'inventory'>,
+): OpencodeEngineFlavor {
+  const server = required(declaredValue(sections.runtime.server), 'runtime.server')
   const clientTerminal = required(
     declaredValue(server.clientTerminal),
     'runtime.server.clientTerminal',
   )
   return {
     driverId: 'opencode-server',
-    harnessKind: manifest.kind,
+    harnessKind: sections.kind,
     executableName:
-      manifest.inventory.executable.names[0] ?? required(server.spawn[0], 'runtime.server.spawn[0]'),
+      sections.inventory.executable.names[0] ??
+      required(server.spawn[0], 'runtime.server.spawn[0]'),
     serveArgs: serveArgsFromStem(server.spawn),
     username: 'podium',
     healthPath: '/global/health',
-    stripEnv: manifest.inventory.foreignCredentialEnv,
+    stripEnv: sections.inventory.foreignCredentialEnv,
     scopeToken: clientTerminal.labelToken,
     journalNamespace: 'opencode-servers',
     attachKind: 'opencode',
@@ -84,12 +85,12 @@ export function opencodeFlavor(): OpencodeEngineFlavor {
   }
 }
 
-/** The preview speaker: the adapter's `serverAlternatives[0]` where a section
- *  exists, preview deployment facts otherwise. */
-export function opencode2Flavor(): OpencodeEngineFlavor {
-  const manifest = manifestFor('opencode')
-  if (!manifest) throw new Error("no harness adapter for 'opencode'")
-  const alternative = manifest.runtime.serverAlternatives?.find(
+/** The preview speaker: the HANDED sections' `serverAlternatives[0]` where a
+ *  section exists, preview deployment facts otherwise. */
+export function opencode2Flavor(
+  sections: Pick<AgentManifest, 'kind' | 'runtime' | 'inventory'>,
+): OpencodeEngineFlavor {
+  const alternative = sections.runtime.serverAlternatives?.find(
     (server) => server.driverId === 'opencode2-server',
   )
   if (!alternative) throw new Error("opencode adapter declares no 'opencode2-server' alternative")
@@ -100,12 +101,12 @@ export function opencode2Flavor(): OpencodeEngineFlavor {
   const [executable] = alternative.spawn
   return {
     driverId: 'opencode2-server',
-    harnessKind: manifest.kind,
+    harnessKind: sections.kind,
     executableName: required(executable, 'serverAlternatives[0].spawn[0]'),
     serveArgs: serveArgsFromStem(alternative.spawn),
     username: 'opencode',
     healthPath: '/api/health',
-    stripEnv: manifest.inventory.foreignCredentialEnv,
+    stripEnv: sections.inventory.foreignCredentialEnv,
     scopeToken: clientTerminal.labelToken,
     journalNamespace: 'opencode2-servers',
     attachKind: 'opencode',

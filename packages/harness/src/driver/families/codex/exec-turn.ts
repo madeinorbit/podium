@@ -22,8 +22,7 @@ import type { ChildProcess } from 'node:child_process'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { bindHarnessExec } from '../../../executable-runtime.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
-import { declaredValue, type HeadlessExecOptions } from '../../../manifest.js'
-import { harnessAdapterFor } from '../../../registry.js'
+import { declaredValue, type AgentManifest, type HeadlessExecOptions } from '../../../manifest.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
 
 /** The turn, as this family reads it: prompt facts plus supervisor facts. */
@@ -42,6 +41,9 @@ export interface CodexExecTurnInput {
   timeoutMs: number
   /** Fully composed child env (stored-login precedence is the supervisor's). */
   env: Record<string, string>
+  /** The turn's headless section, handed by the composition root (which may
+   *  read the registry) — this family never fetches an adapter by name. */
+  sections: Pick<AgentManifest, 'headless'>
   snapshot: ResolvedHarnessInventory
   emit: (event: HeadlessTurnEvent) => void
   /**
@@ -63,15 +65,15 @@ export interface CodexExecTurnOutcome {
 
 /**
  * Pure argv builder for the codex-json turn, so the exact invocation shape is
- * unit-testable. Pure dispatch into the harness adapter registry: the
- * adapter's `headless.buildExec` owns the CLI's invocation shape.
+ * unit-testable. Reads the HANDED headless section: the adapter's
+ * `headless.buildExec` owns the CLI's invocation shape.
  */
 export function buildCodexExecTurn(
   opts: HeadlessExecOptions,
   snapshot: ResolvedHarnessInventory,
+  sections: Pick<AgentManifest, 'headless'>,
 ): { cmd: string; args: string[]; env?: Record<string, string> } {
-  const manifest = harnessAdapterFor('codex')
-  const headless = manifest && declaredValue(manifest.headless)
+  const headless = declaredValue(sections.headless)
   const buildExec = headless && declaredValue(headless.buildExec)
   if (!buildExec) throw new Error('codex adapter has no headless exec builder')
   return bindHarnessExec(snapshot, 'codex', buildExec({ ...opts, env: opts.env ?? snapshot.commandEnvironment.env }))
@@ -96,6 +98,7 @@ export function runCodexExecTurn(input: CodexExecTurnInput): {
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
     },
     input.snapshot,
+    input.sections,
   )
   input.emit({ kind: 'status', status: 'starting' })
   // Merge order matches the supervisor's spawn composition: explicitly
