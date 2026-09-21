@@ -1,0 +1,265 @@
+// @vitest-environment happy-dom
+/**
+ * POD-4450 — hand-rolled arm milestone 2: structural scenarios #4–#10 through
+ * the G4 count harness at live corpus (1x), with oracle parity and the rebuild
+ * oracle after every step.
+ *
+ * One engine, methodology order (#4 rename, #5 stage move, #6a new, #6b
+ * archive, #6c evict, #7 reparent, #8 clock, #9 optimism in four steps, #10
+ * burst50). Each step records rows committed, arm stats, parity and the
+ * rebuild-oracle verdict into a table; budget assertions run when
+ * `PROTO_M2_STRICT=1` (the gate), otherwise the table is printed for the
+ * before/after record. Corpus scale via `PROTO_M2_SPEC=small` (iteration) or
+ * the default 1x (the record).
+ *
+ * Counts only — no walls under box load (methodology §5.7).
+ */
+
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { createRowSource } from '../../shared/src/row-source'
+import { GROWTH_CORPORA, SMALL_CORPUS, startScenarioEngine } from '../../shared/src/scenarios'
+import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
+import {
+  mountArmForCounts,
+  runCountScenario,
+  type CountResult,
+} from '../../harness/src/count-harness'
+import { snapshotFromStore } from '../../harness/src/oracle/index'
+import {
+  armMarkReadRejection,
+  writeArchiveIssue,
+  writeBurst50,
+  writeEvictIssue,
+  writeNewIssue,
+  writeOptimisticEcho,
+  writeOptimisticPress,
+  writeParentReassignment,
+  writeStageMove,
+  writeTitleRename,
+} from '../../harness/src/scenario-writes'
+import { handArm } from './arm'
+import { rebuildFromScratch } from './rebuild'
+import type { HandStore } from './store'
+
+const SPEC = process.env.PROTO_M2_SPEC === 'small' ? SMALL_CORPUS : GROWTH_CORPORA.x1
+const STRICT = process.env.PROTO_M2_STRICT === '1'
+
+interface StepRecord {
+  scenario: string
+  methodology: string
+  rowsCommitted: number
+  commitsByRow: Record<string, number>
+  visibleRows: number
+  stats: CountResult['stats']
+  parity: boolean
+  parityDiff: string | null
+  oracle: boolean
+}
+
+function changedRows(before: SliceSnapshot, after: SliceSnapshot): string[] {
+  const out = new Set<string>()
+  for (const id of new Set([...Object.keys(before.rowsById), ...Object.keys(after.rowsById)])) {
+    if (JSON.stringify(before.rowsById[id] ?? null) !== JSON.stringify(after.rowsById[id] ?? null)) {
+      out.add(id)
+    }
+  }
+  return [...out].sort()
+}
+
+describe('hand-rolled arm milestone 2: structural scenarios', () => {
+  it('scenarios #4-#10 with parity, rebuild oracle, and budgets', async () => {
+    const started = performance.now()
+    const ctx = await startScenarioEngine(SPEC)
+    const source = createRowSource(ctx.engine, ctx.replica)
+    let locals: SliceLocals = {
+      selectedIssueId: null,
+      coarseNow: ctx.engine.getSnapshot().coarseNow,
+    }
+    const mounted = mountArmForCounts(handArm, source.source, locals)
+    const store = (mounted.handle as unknown as { store: HandStore }).store
+    const records: StepRecord[] = []
+
+    const checkOracle = (): boolean => {
+      const rebuilt = rebuildFromScratch({
+        issues: store.issues,
+        sessions: store.sessions,
+        worktrees: store.worktrees,
+        selection: {
+          selectedIssueId: store.locals.selectedIssueId,
+          selectedIssueWasFolded: store.locals.selectedIssueWasFolded ?? false,
+        },
+        now: store.locals.coarseNow,
+      })
+      try {
+        expect(mounted.handle.snapshot()).toEqual(rebuilt.snapshot)
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    const step = async (
+      scenario: string,
+      methodology: string,
+      apply: () => void | Promise<void>,
+      expectedLocals: SliceLocals = locals,
+    ): Promise<CountResult> => {
+      const before = snapshotFromStore(ctx.engine.getSnapshot(), expectedLocalsFor(scenario))
+      const result = await runCountScenario(mounted, {
+        scenario,
+        methodology,
+        apply: async () => {
+          await apply()
+          source.flush()
+        },
+        expected: () => snapshotFromStore(ctx.engine.getSnapshot(), expectedLocals),
+      })
+      const oracle = checkOracle()
+      const changed = changedRows(before, snapshotFromStore(ctx.engine.getSnapshot(), expectedLocals))
+      const committed = Object.keys(result.commitsByRow).sort()
+      const over = committed.filter((id) => !changed.includes(id))
+      console.info(
+        `[hand-m2] ${methodology} ${scenario}: visible=${result.visibleRows} ` +
+          `committed=${result.rowsCommitted} [${committed.slice(0, 8).join(',')}${committed.length > 8 ? '…' : ''}] ` +
+          `oracleChanged=${changed.length} overCommit=[${over.join(',')}] ` +
+          `stats=${JSON.stringify(result.stats)} parity=${result.parity} oracle=${oracle}`,
+      )
+      records.push({ ...result, scenario, methodology, oracle })
+      expect(result.parity, `${scenario}: parity ${result.parityDiff ?? ''}`).toBe(true)
+      expect(oracle, `${scenario}: rebuild oracle`).toBe(true)
+      expect(over, `${scenario}: every committed row must be oracle-changed`).toEqual([])
+      return result
+    }
+
+    // `before` for the clock step is captured with pre-tick locals; every
+    // other step shares the current locals.
+    const expectedLocalsFor = (_scenario: string): SliceLocals => locals
+
+    try {
+      const atMount = mounted.handle.snapshot()
+      expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
+      expect(atMount).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), locals))
+      expect(checkOracle()).toBe(true)
+
+      const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx))
+      const stageMove = await step('stageMoveAcrossGroups', '#5', () => writeStageMove(ctx))
+      const newIssue = await step('newIssue', '#6a', () => writeNewIssue(ctx, SPEC))
+      const archive = await step('archiveIssue', '#6b', () => writeArchiveIssue(ctx))
+      const evict = await step('evictWithoutRevision', '#6c', () => writeEvictIssue(ctx))
+      const reparent = await step('parentReassignment', '#7', () => writeParentReassignment(ctx))
+
+      // #8 — the coarse clock ticks with no row change: time is a local.
+      // Expected locals advance with the arm; the engine's own clock is
+      // untouched (mirrors G3 `clockTick`).
+      const tickTo = store.locals.coarseNow + 60_000
+      const tickLocals: SliceLocals = { ...locals, coarseNow: tickTo }
+      const tick = await step(
+        'clockTick',
+        '#8',
+        () => {
+          store.setCoarseNow(tickTo)
+        },
+        tickLocals,
+      )
+      locals = tickLocals
+
+      // #9 — optimistic press, server echo, second press, definitive
+      // rejection. Row identity is captured per step: the rejection must
+      // restore the echo step's committed object (compare by identity).
+      const target = 'i6'
+      const prePress = store.rows.rows.get(target)
+      const press1 = await step('optimisticPress', '#9a', () => writeOptimisticPress(ctx, target))
+      const afterPress1 = store.rows.rows.get(target)
+      const echo = await step('optimisticEcho', '#9b', () => writeOptimisticEcho(ctx, target))
+      const echoObj = store.rows.rows.get(target)
+      armMarkReadRejection(ctx)
+      const press2 = await step('optimisticPressRejected', '#9c', () =>
+        writeOptimisticPress(ctx, target),
+      )
+      const rejected = await step('optimisticRollback', '#9d', () => Promise.resolve())
+      const finalObj = store.rows.rows.get(target)
+      console.info(
+        `[hand-m2] #9 identity: prePress===afterPress1 ${prePress === afterPress1} ` +
+          `echoKept=${echoObj !== undefined} final===echo ${finalObj === echoObj}`,
+      )
+
+      const burst = await step('burst50', '#10', () => writeBurst50(ctx, SPEC))
+
+      if (STRICT) {
+        // #4: exactly the renamed row; derivation bodies: own-summary,
+        // visibility predicate, subtree aggregate (methodology Q-H3/M3: this
+        // counter is arm-relative; the cross-arm metric is rows committed).
+        expect(rename.rowsCommitted).toBe(1)
+        expect(rename.stats.rowsDerived).toBe(1)
+        expect(rename.stats.rollupsDerived).toBe(3)
+        // #5: the moved row plus its chain (its child loses a subtree
+        // member); order and group deltas, no other row values move.
+        expect(stageMove.rowsCommitted).toBeLessThanOrEqual(3)
+        expect(stageMove.stats.notifications).toBe(1)
+        // #6: order + the arriving/leaving row, one notification each.
+        for (const [name, r] of [
+          ['newIssue', newIssue],
+          ['archiveIssue', archive],
+          ['evictWithoutRevision', evict],
+        ] as const) {
+          expect(r.stats.notifications, name).toBe(1)
+          expect(r.rowsCommitted, name).toBeLessThanOrEqual(3)
+        }
+        // #7: both chains (old parent, new parent); the moved row itself is
+        // value-stable.
+        expect(reparent.rowsCommitted).toBeLessThanOrEqual(4)
+        expect(reparent.stats.notifications).toBe(1)
+        // #8: only rows whose band moved commit.
+        expect(tick.stats.notifications).toBe(1)
+        // #9: every step bounded like a phase change; the rollback restores
+        // the echo step's object identity; never a full rebuild.
+        for (const [name, r] of [
+          ['press1', press1],
+          ['echo', echo],
+          ['press2', press2],
+          ['rollback', rejected],
+        ] as const) {
+          expect(r.rowsCommitted, name).toBeLessThanOrEqual(2)
+          expect(r.visibleRows, `${name} never a full rebuild`).toBeGreaterThan(10)
+        }
+        expect(finalObj, 'rollback restores the echo row object').toBe(echoObj)
+        // #10: one event, work bounded by the burst size plus chains.
+        expect(burst.stats.notifications).toBe(1)
+        expect(burst.rowsCommitted).toBeLessThanOrEqual(100)
+      }
+
+      const elapsedMs = performance.now() - started
+      const cwd = process.cwd()
+      const resultsDir = cwd.endsWith(join('packages', 'worklist-proto'))
+        ? join(cwd, 'harness', 'browser', 'results')
+        : join(cwd, 'packages', 'worklist-proto', 'harness', 'browser', 'results')
+      mkdirSync(resultsDir, { recursive: true })
+      writeFileSync(
+        join(resultsDir, `hand-m2-counts-${process.env.PROTO_M2_SPEC === 'small' ? 'small' : '1x'}.json`),
+        JSON.stringify(
+          {
+            arm: 'hand',
+            milestone: 2,
+            spec: process.env.PROTO_M2_SPEC === 'small' ? 'small' : '1x',
+            strict: STRICT,
+            runtimeSha: execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+              encoding: 'utf-8',
+            }).trim(),
+            capturedAt: new Date().toISOString(),
+            elapsedMs: Math.round(elapsedMs),
+            steps: records,
+          },
+          null,
+          2,
+        ),
+      )
+    } finally {
+      mounted.unmount()
+      source.dispose()
+      ctx.engine.destroy()
+    }
+  }, 600_000)
+})
