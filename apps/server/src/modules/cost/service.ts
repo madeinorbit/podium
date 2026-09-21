@@ -40,7 +40,6 @@ import { readIssues, readIssueParentEdges } from '../world-index/issue-reader'
  */
 
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
 import {
   type ConversationId,
   type CostHarness,
@@ -61,6 +60,7 @@ import {
   type UsageSourceWire,
 } from '@podium/model'
 import { formatIssueRef } from '@podium/protocol'
+import { harnessTranscriptSiblingPaths } from '@podium/harness/metadata'
 import type { SessionStore } from '../../store'
 import type { TranscriptCostRecord } from '../../store/transcript-costs'
 import type { SessionRow } from '../../store/types'
@@ -104,15 +104,14 @@ export class CostService {
     if (sources.length === 0) return 0
     const registry = this.store.conversations.registry
 
-    // A Grok "transcript" is a session snapshot the scan reads from
-    // `signals.json`, while the registry indexes its sibling `summary.json`.
-    // Both candidates go into the one batch lookup so it stays a single query.
+    // A harvested "transcript" may be a session snapshot whose registry row is
+    // indexed under a sibling path — declared once per harness in its usage
+    // section and read here through the narrow metadata reader, never a
+    // harness name. Both candidates go into the one batch lookup so it stays
+    // a single query.
     const candidates = new Map<string, string[]>()
     for (const s of sources) {
-      candidates.set(
-        s.path,
-        s.harness === 'grok' ? [s.path, join(dirname(s.path), 'summary.json')] : [s.path],
-      )
+      candidates.set(s.path, harnessTranscriptSiblingPaths(s.harness, s.path))
     }
     const segments = await registry.segmentsByPaths(machineId, [...candidates.values()].flat())
 

@@ -113,6 +113,26 @@ export function harnessPortableCredential(
   return declaration ? declaredValue(declaration) : undefined
 }
 
+/**
+ * Sibling transcript paths the server resolves alongside a harvested usage
+ * path, read off the harness's usage section (POD-4414 §4.4, issue 3.3).
+ *
+ * One authoritative definition with a narrow reader: the layout (Grok's
+ * session snapshot reads `signals.json` while the registry indexes its
+ * sibling `summary.json`) is declared once in `adapters/<harness>/usage.ts`,
+ * and this is the only other place that knows it. A harness with no declared
+ * siblings resolves alone.
+ */
+export function harnessTranscriptSiblingPaths(
+  kind: AgentKind | string,
+  path: string,
+): string[] {
+  const usage = manifestFor(kind)?.usage
+  const transcripts = usage ? declaredValue(usage) : undefined
+  const section = transcripts ? declaredValue(transcripts.transcripts) : undefined
+  return section?.siblingPaths?.(path) ?? [path]
+}
+
 const PROPAGATABLE_HARNESSES: Partial<Record<AgentKind, true>> = {
   'claude-code': true,
   codex: true,

@@ -16,7 +16,15 @@ const log = createLogger('server:machines')
 export const LOGIN_PROPAGATION_MAX_ATTEMPTS = 3
 export const LOGIN_PROPAGATION_INITIAL_BACKOFF_MS = 1_000
 
-type PropagatableHarness = Extract<HarnessAgent, 'claude-code' | 'codex'>
+/**
+ * Static approximation of "may propagate". The RUNTIME guard
+ * (`harnessSupportsCredentialPropagation`, read off the adapter registry)
+ * decides — a harness whose credentials section declares no propagatable file
+ * can never pass it, so the wider static member is unreachable, not
+ * propagatable. Written as an `Extract` over the portable bundle kinds so this
+ * module never names a harness of its own.
+ */
+type PropagatableHarness = Extract<PortableCredentialBundle['kind'], HarnessAgent>
 
 export interface LoginPropagationTrigger {
   targetMachineId: MachineId
@@ -187,7 +195,7 @@ export class LoginPropagationService {
     const donor = entry.machines.find(isDonor)
     if (!donor) return { status: 'failed', reason: 'no online donor login found' }
 
-    const kind = input.harness as PortableCredentialBundle['kind']
+    const kind = input.harness
     const exported = await this.deps.rpc.credentialExport([kind], donor.machineId, {
       propagation: true,
     })
