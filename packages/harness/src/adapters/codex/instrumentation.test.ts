@@ -13,6 +13,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
   type CodexVersionProbe,
   checkPodiumHookTrust,
+  codexInstrumentation,
   detectCodexVersion,
   ensurePodiumCodexHooks,
   parseCodexHookTrustState,
@@ -647,4 +648,49 @@ describe('codex hooks real-binary smoke', () => {
     },
     180_000,
   )
+})
+
+/** Hook payload fixtures decode through the section, not past it (POD-4472). */
+describe('codexInstrumentation.payloadCodec', () => {
+  it('reads the snake_case routing fields', () => {
+    const codec = codexInstrumentation.payloadCodec
+    const payload = {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'cx1',
+      transcript_path: '/tmp/rollout.jsonl',
+    }
+    expect(codec.eventName(payload)).toBe('UserPromptSubmit')
+    expect(codec.sessionId(payload)).toBe('cx1')
+    expect(codec.transcriptPath(payload)).toBe('/tmp/rollout.jsonl')
+    expect(codec.eventName(null)).toBeUndefined()
+  })
+
+  it('decodes native hooks with the hook channel', async () => {
+    const codec = codexInstrumentation.payloadCodec
+    await expect(
+      codec.decode({ hook_event_name: 'SessionStart', session_id: 'cx1' }),
+    ).resolves.toEqual([{ kind: 'session_started', source: 'hook', confidence: 1 }])
+    await expect(
+      codec.decode({ hook_event_name: 'UserPromptSubmit', session_id: 'cx1' }),
+    ).resolves.toEqual([{ kind: 'prompt_submitted', source: 'hook', confidence: 1 }])
+    await expect(
+      codec.decode({
+        hook_event_name: 'Stop',
+        session_id: 'cx1',
+        last_assistant_message: 'All done.',
+      }),
+    ).resolves.toEqual([
+      {
+        kind: 'turn_completed',
+        verdict: { kind: 'done', summary: 'All done.' },
+        source: 'hook',
+        confidence: 1,
+      },
+    ])
+    await expect(codec.decode(null)).resolves.toEqual([])
+  })
+
+  it('declares the loopback transport', () => {
+    expect(codexInstrumentation.hookTransport).toBe('loopback-http')
+  })
 })
