@@ -44,6 +44,7 @@ import { testSessions } from '../session/testing.js'
 import {
   createOpencodeEngineHost,
   type EngineAttachment,
+  type EngineProcessOwner,
   type EngineSupervisor,
   type OpencodeEngineClientTerminals,
   type OpencodeEngineHostDeps,
@@ -1438,12 +1439,13 @@ describe('what a machine can give back under pressure (spec §5)', () => {
 const OC_FLAVOR = opencodeFlavor(manifestFor('opencode')!)
 
 function engineHost(
-  extra: Omit<Partial<OpencodeEngineHostDeps>, 'clientTerminals' | 'supervision'> & {
+  extra: Omit<Partial<OpencodeEngineHostDeps>, 'clientTerminals' | 'supervision' | 'engines'> & {
     clientTerminals?: OpencodeEngineClientTerminals
-    supervision?: EngineSupervisor
+    supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
+    engines?: EngineProcessOwner
   } = {},
 ) {
-  const { clientTerminals, supervision, ...rest } = extra
+  const { clientTerminals, supervision, engines, ...rest } = extra
   const attachment: EngineAttachment = {
     ready: Promise.resolve({ lease: true, childPid: 4242 }),
     connection: {
@@ -1462,14 +1464,14 @@ function engineHost(
     gracefulExitMs: 1,
     checkVersion: async () => null,
     // Production always holds the engine under podium-host; the default stub
-    // answers re-attach. Tests that need absence pass `supervision: undefined`
+    // answers re-attach. Tests that need absence pass `engines: undefined`
     // explicitly and get the loud refusal.
-    supervision: supervision ?? {
-      spawnHeadless: () => Promise.reject(new Error('no spawn in this test')),
-      attachHeadless: async () => attachment,
-      has: async () => true,
-      kill: async () => {},
-      scopeUnitFor: () => undefined,
+    supervision: supervision ?? { scopeUnitFor: () => undefined },
+    engines: engines ?? {
+      startEngine: () => Promise.reject(new Error('no spawn in this test')),
+      reattachEngine: async () => attachment,
+      engineAlive: async () => true,
+      destroyEngine: async () => {},
     },
     // POD-4497: adopting the engine re-attaches through the session-owned
     // `engines` port; the family never spawns its own. The default owner hands

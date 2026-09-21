@@ -34,10 +34,8 @@ import type { SessionId } from '@podium/model'
 import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
 import {
   composeEngineEnv,
-  createEngineJournal,
   dialEngineSocket,
   engineSocketRoot,
-  supervisionFor,
 } from '../runtime/host.js'
 import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from '../runtime/server-teardown-budget.js'
@@ -52,7 +50,7 @@ const workdir = `${root}/work`
 const noResources = () => undefined
 const durable = createDurableProcess('host', { host: true, abduco: false })
 // Gen1 launches through the session layer's engine hold, exactly as the
-// daemon wires it; claude stays on the legacy supervision port.
+// daemon wires it.
 const sessionEngines = createSessionEngineScope(durable)
 
 const ready = (engine: string, binding: unknown): void => {
@@ -156,8 +154,9 @@ ready('grok', grokHandle.binding)
 // for, so generation 2 never adopts a label with nothing behind it.
 const claudeEngine = createClaudeEngineHost({
   facts: claudeFacts,
-  supervision: supervisionFor(durable),
-  journal: createEngineJournal<ClaudeEngineJournalEntry>({ namespace: claudeFacts.journalNamespace }),
+  engines: sessionEngines,
+  supervision: sessionEngines,
+  journal: sessionEngines.journalFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
   buildEnv: composeEngineEnv,
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
 })

@@ -1,10 +1,12 @@
-// The stream engine under supervision, hermetically: spawn, adopt, journal,
-// stop and kill — over fake host attachments, no daemon, no CLI.
+// The stream engine under the session-owned engine ports, hermetically:
+// spawn, adopt, journal, stop and kill — over fake owner attachments, no
+// daemon, no CLI.
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@podium/model'
 import type {
   EngineAttachment,
+  EngineProcessOwner,
   EngineSpawnRequest,
   EngineSupervisor,
 } from '../engine-supervision.js'
@@ -75,30 +77,39 @@ function fakeAttachment(opts: { lease?: boolean; childPid?: number } = {}): Engi
   return attachment
 }
 
-function fakeSupervision(hooks: {
-  has?: boolean
+/**
+ * Both ports the family consumes, built from one set of hooks: the
+ * session-owned process verbs (`engines`) carry the behavior under test,
+ * while the scope port (`supervision`) answers nothing on this platform.
+ * Spread at the call site: `fakePorts({ spawn: ... })`.
+ */
+function fakePorts(hooks: {
+  engineAlive?: boolean
   attach?: ReturnType<typeof fakeAttachment>
   spawn?: ReturnType<typeof fakeAttachment>
-  killed?: string[]
-}): { supervision: EngineSupervisor; spawned: EngineSpawnRequest[] } {
+  destroyed?: string[]
+}): {
+  supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
+  engines: EngineProcessOwner
+} {
   const spawned: EngineSpawnRequest[] = []
   return {
     spawned,
-    supervision: {
-      spawnHeadless: async (req) => {
+    supervision: { scopeUnitFor: () => undefined },
+    engines: {
+      startEngine: async (req) => {
         spawned.push(req)
-        if (!hooks.spawn) throw new Error('unexpected spawnHeadless')
+        if (!hooks.spawn) throw new Error('unexpected startEngine')
         return hooks.spawn
       },
-      attachHeadless: async () => {
-        if (!hooks.attach) throw new Error('unexpected attachHeadless')
+      reattachEngine: async () => {
+        if (!hooks.attach) throw new Error('unexpected reattachEngine')
         return hooks.attach
       },
-      has: async () => hooks.has ?? false,
-      kill: async (label) => {
-        hooks.killed?.push(label)
+      engineAlive: async () => hooks.engineAlive ?? false,
+      destroyEngine: async (label) => {
+        hooks.destroyed?.push(label)
       },
-      scopeUnitFor: () => undefined,
     },
   }
 }
@@ -118,13 +129,13 @@ function journalStore(): ClaudeEngineJournal & { entries: Map<SessionId, { sessi
 }
 
 function hostDeps(
-  supervision: EngineSupervisor,
+  ports: Pick<ClaudeEngineHostDeps, 'supervision' | 'engines'>,
   journal: ClaudeEngineJournal,
   extra: Partial<ClaudeEngineHostDeps> = {},
 ): ClaudeEngineHostDeps {
   return {
     facts: FACTS,
-    supervision,
+    ...ports,
     journal,
     buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
     gracefulExitMs: 50,
@@ -177,9 +188,9 @@ function endTurn(attachment: ReturnType<typeof fakeAttachment>, output = 'answer
 describe('the claude stream engine host', () => {
   it('spawns the engine under the host and journals the harness session id', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })
-    const { supervision, spawned } = fakeSupervision({ spawn: attachment })
+    const { supervision, engines, spawned } = fakePorts({ spawn: attachment })
     const journal = journalStore()
-    const host = createClaudeEngineHost(hostDeps(supervision, journal))
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journal))
 
     const handle = host.startTurn(turnInput())
     // The spawn raced the test's next line; the handshake answer waits for it.
@@ -217,8 +228,8 @@ describe('the claude stream engine host', () => {
 
   it('reuses the held engine for the next turn', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })
-    const { supervision, spawned } = fakeSupervision({ spawn: attachment })
-    const host = createClaudeEngineHost(hostDeps(supervision, journalStore()))
+    const { supervision, engines, spawned } = fakePorts({ spawn: attachment })
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journalStore()))
 
     const first = host.startTurn(turnInput('one', 'resume-1', true))
     await vi.waitFor(() => expect(spawned).toHaveLength(1))
@@ -252,9 +263,9 @@ describe('the claude stream engine host', () => {
 
   it('adopts the surviving engine after a restart and completes the turn on it', async () => {
     const attachment = fakeAttachment({ childPid: 9999 })
-    const { supervision, spawned } = fakeSupervision({ has: true, attach: attachment })
+    const { supervision, engines, spawned } = fakePorts({ engineAlive: true, attach: attachment })
     const journal = journalStore()
-    const host = createClaudeEngineHost(hostDeps(supervision, journal))
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journal))
 
     const handle = host.startTurn(turnInput('survive this', 'resume-1', false))
     await vi.waitFor(() =>
@@ -288,18 +299,18 @@ describe('the claude stream engine host', () => {
 
   it('refuses loudly when another daemon holds the writer lease', async () => {
     const attachment = fakeAttachment({ lease: false })
-    const { supervision } = fakeSupervision({ has: true, attach: attachment })
-    const host = createClaudeEngineHost(hostDeps(supervision, journalStore()))
+    const { supervision, engines } = fakePorts({ engineAlive: true, attach: attachment })
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journalStore()))
     const handle = host.startTurn(turnInput())
     await expect(handle.done).rejects.toBeInstanceOf(ClaudeEngineLeaseRefused)
   })
 
   it('reaps a stillborn engine and reports the bind failure', async () => {
     const attachment = fakeAttachment({ childPid: 1111 })
-    const killed: string[] = []
-    const { supervision } = fakeSupervision({ spawn: attachment, killed })
+    const destroyed: string[] = []
+    const { supervision, engines } = fakePorts({ spawn: attachment, destroyed })
     const journal = journalStore()
-    const host = createClaudeEngineHost(hostDeps(supervision, journal))
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journal))
     const handle = host.startTurn(turnInput())
     await vi.waitFor(() =>
       expect(
@@ -316,16 +327,16 @@ describe('the claude stream engine host', () => {
       `${frame({ type: 'control_response', response: { subtype: 'error', request_id: init.request_id, error: 'nope' } })}\n`,
     )
     await expect(handle.done).rejects.toBeInstanceOf(EngineBindUnrecoverable)
-    await vi.waitFor(() => expect(killed).toEqual(['podium-cl-claude-engine-session']))
+    await vi.waitFor(() => expect(destroyed).toEqual(['podium-cl-claude-engine-session']))
     expect(journal.read(SESSION_ID)).toBeUndefined()
   })
 
   it('stops the engine with a scope sweep, retiring the journal only on retire', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })
-    const killed: string[] = []
-    const { supervision, spawned } = fakeSupervision({ spawn: attachment, killed })
+    const destroyed: string[] = []
+    const { supervision, engines, spawned } = fakePorts({ spawn: attachment, destroyed })
     const journal = journalStore()
-    const host = createClaudeEngineHost(hostDeps(supervision, journal))
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journal))
     const handle = host.startTurn(turnInput())
     await vi.waitFor(() => expect(spawned).toHaveLength(1))
     answerHandshake(attachment, 'claude-native-1')
@@ -339,13 +350,13 @@ describe('the claude stream engine host', () => {
     attachment.exit(0, 0)
     await stopping
     expect(attachment.signals).toContain(15)
-    expect(killed).toEqual(['podium-cl-claude-engine-session'])
+    expect(destroyed).toEqual(['podium-cl-claude-engine-session'])
     expect(journal.read(SESSION_ID)).toBeDefined()
 
     // Retire: the journal goes with the session.
     const attachment2 = fakeAttachment({ childPid: 5555 })
-    const { supervision: supervision2, spawned: spawned2 } = fakeSupervision({ spawn: attachment2 })
-    const host2 = createClaudeEngineHost(hostDeps(supervision2, journal))
+    const { supervision: supervision2, engines: engines2, spawned: spawned2 } = fakePorts({ spawn: attachment2 })
+    const host2 = createClaudeEngineHost(hostDeps({ supervision: supervision2, engines: engines2 }, journal))
     const handle2: ClaudeSdkTurnHandle = host2.startTurn(turnInput())
     void handle2
     await vi.waitFor(() => expect(spawned2).toHaveLength(1))
@@ -360,15 +371,15 @@ describe('the claude stream engine host', () => {
 
   it('releases holds without ending engines on dispose', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })
-    const killed: string[] = []
-    const { supervision, spawned } = fakeSupervision({ spawn: attachment, killed })
+    const destroyed: string[] = []
+    const { supervision, engines, spawned } = fakePorts({ spawn: attachment, destroyed })
     const journal = journalStore()
-    const host = createClaudeEngineHost(hostDeps(supervision, journal))
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journal))
     host.startTurn(turnInput())
     await vi.waitFor(() => expect(spawned).toHaveLength(1))
     host.releaseEngines()
     expect(attachment.disposed).toBe(true)
-    expect(killed).toEqual([])
+    expect(destroyed).toEqual([])
     // The journal stays: the next generation adopts the survivor.
     answerHandshake(attachment, 'claude-native-1')
     await vi.waitFor(() => expect(journal.read(SESSION_ID)).toBeDefined())
@@ -378,8 +389,8 @@ describe('the claude stream engine host', () => {
     vi.useFakeTimers()
     try {
       const attachment = fakeAttachment({ childPid: 4242 })
-      const { supervision, spawned } = fakeSupervision({ spawn: attachment })
-      const host = createClaudeEngineHost(hostDeps(supervision, journalStore()))
+      const { supervision, engines, spawned } = fakePorts({ spawn: attachment })
+      const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journalStore()))
       const handle = host.startTurn(turnInput())
       // Let the async bind run under fake timers.
       const binding = (async () => {

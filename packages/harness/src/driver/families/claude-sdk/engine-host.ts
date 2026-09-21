@@ -1,14 +1,15 @@
 /**
  * `claude` IN STREAMING-INPUT MODE, ONE PER SESSION, UNDER A PODIUM-HOST
- * (`--no-pty`) OWNED BY THE SUPERVISOR'S DURABLE PROCESS (POD-4499).
+ * (`--no-pty`) OWNED BY THE SESSION LAYER'S DURABLE PROCESS (POD-4499).
  *
- * The family is handed the engine address through injected supervision ports
- * and never spawns, journals or kills the engine itself; argv/env compose
- * here off the handed facts, read through {@link ClaudeEngineFacts}, and the
- * stream-json wire is spoken by ./protocol.js over a line transport. The
- * protocol client lives in the daemon's address space but loads no SDK —
- * `grep child_process` in this file must stay empty; process mechanics live
- * behind the supervision port.
+ * The family is handed the engine attachment by the session layer through the
+ * injected `engines` port and never spawns, journals or kills the engine
+ * itself; argv/env compose here off the handed facts, read through
+ * {@link ClaudeEngineFacts}, and the stream-json wire is spoken by
+ * ./protocol.js over a line transport. The protocol client lives in the
+ * daemon's address space but loads no SDK — `grep child_process` in this
+ * file must stay empty; process mechanics live behind the session-owned
+ * `engines` port.
  *
  * ---------------------------------------------------------------------------
  * WHY STREAMING-INPUT, AND WHAT SURVIVES A RESTART
@@ -33,6 +34,7 @@ import type { ProcessIdentity } from '../../binding.js'
 import {
   EngineBindUnrecoverable,
   type EngineAttachment,
+  type EngineProcessOwner,
   type EngineSupervisor,
 } from '../engine-supervision.js'
 import { claudeEngineProcessKey, type ClaudeEngineFacts } from './engine-facts.js'
@@ -85,16 +87,25 @@ export interface ClaudeEngineJournal {
 
 /**
  * What the claude engine host needs from whoever owns processes and disks.
- * Facts arrive as values (handed sections, read by the family); supervision
- * arrives as ports the supervisor implements.
+ * Facts arrive as values (handed sections, read by the family); engine
+ * ownership arrives as the session layer's port, the scope answer as the
+ * supervisor's.
  */
 export interface ClaudeEngineHostDeps {
   facts: ClaudeEngineFacts
-  /** The durable owner of every engine: spawn, re-attach and kill go through
-   *  it; this family composes argv/env and binds protocol, never forks.
-   *  Absent (tests that never launch) = launch/stop/kill refuse loudly rather
-   *  than forking a child no restart could re-adopt. */
-  supervision?: EngineSupervisor
+  /**
+   * The session layer's ownership of every engine: start, re-attach and
+   * destroy go through it; this family composes argv/env and binds protocol,
+   * never forks. Absent (tests that never launch) = launch/stop/kill refuse
+   * loudly rather than forking a child no restart could re-adopt.
+   */
+  engines?: EngineProcessOwner
+  /**
+   * The session's transient scope unit, where the platform has one. Only
+   * `scopeUnitFor` is read here — never a process verb: spawning, attaching
+   * and killing are the session owner's job, delivered through `engines`.
+   */
+  supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
   /** The binding journal, persisted by the supervisor (0600, sync). */
   journal: ClaudeEngineJournal
   /** Resource truth for a session's scope — reserved for the health path;
@@ -150,19 +161,31 @@ interface HeldEngine {
 type StartTurnInput = Parameters<ClaudeSdkRuntimeHost['startTurn']>[0]
 
 /**
- * Pick the host adapter out of the daemon's durable object. Engines are never
- * terminal sessions, so they never follow the terminal backend: abduco has no
- * pty-less mode, and a daemon without a host adapter cannot own an engine at
- * all. Loud, naming the session — a refused launch beats a child no restart
- * could re-adopt.
+ * The session layer's ownership of this session's engine. Engines are never
+ * terminal sessions and never follow the terminal backend; a family without
+ * an owner cannot summon one at all. Loud, naming the session — a refused
+ * launch beats a child no restart could re-adopt.
  */
-function engineAdapter(
-  supervision: EngineSupervisor | undefined,
+function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+  if (!engines) {
+    throw new Error(
+      `claude engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
+    )
+  }
+  return engines
+}
+
+/**
+ * The session's transient scope unit, where the platform has one. Only the
+ * scope answer is read here — never a process verb.
+ */
+function engineScope(
+  supervision: Pick<EngineSupervisor, 'scopeUnitFor'> | undefined,
   sessionId: SessionId,
-): EngineSupervisor {
+): Pick<EngineSupervisor, 'scopeUnitFor'> {
   if (!supervision) {
     throw new Error(
-      `claude engine for ${sessionId} requires the podium-host backend: this supervisor runs with no durable backend`,
+      `claude engine for ${sessionId} requires the session scope port: this family never spawns its own engine`,
     )
   }
   return supervision
@@ -240,8 +263,11 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
    *  adopts a live host instead of spawning beside it. */
   const engines = new Map<SessionId, HeldEngine>()
 
-  const adapterFor = (sessionId: SessionId): EngineSupervisor =>
-    engineAdapter(deps.supervision, sessionId)
+  const adapterFor = (sessionId: SessionId): EngineProcessOwner =>
+    engineOwner(deps.engines, sessionId)
+
+  const scopeFor = (sessionId: SessionId): Pick<EngineSupervisor, 'scopeUnitFor'> =>
+    engineScope(deps.supervision, sessionId)
 
   /**
    * Tap a host attachment: the host's EXITED frame records the real status. A
@@ -325,7 +351,9 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
 
   /**
    * End ONE engine — the one this session owns — and sweep its scope. The
-   * label's scope is swept so MCP grandchildren die with it (the orphaned-MCP
+   * sweep itself is the session owner's: this family signals its held
+   * attachment and releases it, and the owner ends the process. The label's
+   * scope is swept so MCP grandchildren die with it (the orphaned-MCP
    * pitfall the host's scope kill covers — assert it in the survival test).
    */
   async function terminate(sessionId: SessionId, retire: boolean): Promise<void> {
@@ -345,7 +373,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       await engineExited(held, deps.gracefulExitMs)
       held.attachment.dispose()
     }
-    await adapterFor(sessionId).kill(claudeEngineProcessKey(deps.facts, sessionId))
+    await adapterFor(sessionId).destroyEngine(claudeEngineProcessKey(deps.facts, sessionId))
     if (retire) deps.journal.clear(sessionId)
   }
 
@@ -421,18 +449,20 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     if (held) engines.delete(sessionId)
 
     const label = claudeEngineProcessKey(deps.facts, sessionId)
-    const adapter = adapterFor(sessionId)
+    const owner = adapterFor(sessionId)
 
     // ADOPT: a live host owns this label. The child's conversation survived;
-    // only the channel is new. A host that dies between the probe and the
-    // attach falls through to a fresh spawn below — except a lease refusal,
-    // which is a live driver elsewhere and must stay loud.
-    if (await adapter.has(label)) {
+    // only the channel is new — claude adopts by label, and only a fresh
+    // spawn below carries `--resume` off the journalled harness session id.
+    // A host that dies between the probe and the re-attach falls through to
+    // a fresh spawn below — except a lease refusal, which is a live driver
+    // elsewhere and must stay loud.
+    if (await owner.engineAlive(label)) {
       try {
         const attached = await claimEngine(
           sessionId,
           label,
-          await adapter.attachHeadless({ label, fromSeq: 'tail' }),
+          await owner.reattachEngine({ label, fromSeq: 'tail' }),
         )
         if (attached) {
           try {
@@ -462,13 +492,15 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       }
     }
 
-    // FRESH: spawn the streaming child under the host and bind it.
+    // FRESH: the session owner starts the streaming child under the host and
+    // this family binds the attachment it gets back; summoning the process
+    // is the owner's job, never this family's.
     const executable = deps.executablePath ?? deps.facts.command
     const { cmd, args } = buildClaudeStreamInvocation(spec, executable)
     const spawned = await claimEngine(
       sessionId,
       label,
-      await adapter.spawnHeadless({
+      await owner.startEngine({
         label,
         cmd,
         args,
@@ -497,7 +529,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       } catch {
         // Already gone.
       }
-      await adapter.kill(label).catch(() => {})
+      await owner.destroyEngine(label).catch(() => {})
       log.warn('claude engine never bound its protocol; reaped the stillborn engine', {
         sessionId,
         label,
@@ -619,7 +651,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       const bound = held
       void bound.client.ready
         .then((claudeSessionId) => {
-          const scopeUnit = adapterFor(sessionId).scopeUnitFor(
+          const scopeUnit = scopeFor(sessionId).scopeUnitFor(
             claudeEngineProcessKey(deps.facts, sessionId),
           )
           deps.journal.write({

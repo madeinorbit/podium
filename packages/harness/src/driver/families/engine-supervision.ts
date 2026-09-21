@@ -1,20 +1,21 @@
 // packages/harness/src/driver/families/engine-supervision.ts
 //
-// THE SUPERVISION PORT (1.5, spec §4.8 and §5).
+// THE SUPERVISION PORTS (1.5, spec §4.8 and §5).
 //
 // A driver family is handed its engine's address and never spawns, journals or
-// kills the engine itself: process supervision (spawn, re-attach, kill) is the
-// supervisor's job, delivered here as an injected port. The supervisor
-// implements this over its durable process owner (podium-host); the families
-// compose argv/env, bind protocol, and own failure ownership — an engine that
-// is up but will not bind is a bind failure with the process kept, never a
-// silent orphan.
+// kills the engine itself: process acts (start, re-attach, destroy) are the
+// session layer's job, delivered as the injected `EngineProcessOwner` port,
+// and the transient scope answer arrives as the injected `EngineSupervisor`
+// port. The session layer implements both over its durable process owner
+// (podium-host); the families compose argv/env, bind protocol, and own
+// failure ownership — an engine that is up but will not bind is a bind
+// failure with the process kept, never a silent orphan.
 //
-// Shared by the codex, opencode and grok-acp engine hosts: all three hold the
-// same kind of attachment (a host session with a writer lease, a merged
-// output ring, an EXITED frame and — for stdio engines — a write channel).
-// One port, not three near-identical ones, so a second speaker of any of
-// these protocols reuses the same supervision seam without edits.
+// Shared by the codex, opencode, grok-acp and claude-sdk engine hosts: all
+// four hold the same kind of attachment (a host session with a writer lease,
+// a merged output ring, an EXITED frame and — for stdio engines — a write
+// channel). One port, not four near-identical ones, so a second speaker of
+// any of these protocols reuses the same supervision seam without edits.
 
 import type { Buffer } from 'node:buffer'
 import type { SessionId } from '@podium/model'
@@ -55,21 +56,16 @@ export interface EngineSpawnRequest {
 }
 
 /**
- * The supervisor's process ownership, as the engine hosts need it.
+ * The session's transient scope answer, as the engine hosts need it.
  *
- * Spawn adopts when the label already owns a live host (that IS the
- * daemon-restart case); attach rebinds to a survivor; kill sweeps the label's
- * scope. What the supervisor never does here is decide anything about the
- * harness: argv, env and labels arrive composed, and the engine's address
- * (socket path, port+secret) travels beside the label in the family's own
- * journal, never here — this stays harness-agnostic.
+ * Process ownership lives on {@link EngineProcessOwner} beside this: the
+ * family's `supervision` port carries no verb that summons, re-attaches,
+ * probes or reaps a process — only where the session's scope unit is, so the
+ * journal and health can name it. A family file naming `spawnHeadless`,
+ * `attachHeadless`, `has` or `kill` after this lands is the lifecycle
+ * decision sitting in the wrong place.
  */
 export interface EngineSupervisor {
-  spawnHeadless(req: EngineSpawnRequest): Promise<EngineAttachment>
-  attachHeadless(input: { label: string; fromSeq: 'tail' }): Promise<EngineAttachment>
-  /** A live host owns the label AND its program is still running. */
-  has(label: string): Promise<boolean>
-  kill(label: string): Promise<void>
   /**
    * The session's transient scope unit, where the platform has one. Absent on
    * macOS, honestly so: there is no transient scope there, and a fabricated

@@ -66,8 +66,8 @@ export function claudeEngineFacts(
   }
 }
 
-/** The `podium-<token>-<sessionId>` durable label, so the supervisor's
- *  `spawnHeadless` adopt finds the same engine after a daemon restart.
+/** The `podium-<token>-<sessionId>` durable label, so the session owner's
+ *  `startEngine` adopt finds the same engine after a daemon restart.
  *  Derived from the Podium session id, never trusted from the journal. */
 export const claudeEngineProcessKey = (facts: ClaudeEngineFacts, sessionId: string): string =>
   `podium-${facts.scopeToken}-${String(sessionId)
