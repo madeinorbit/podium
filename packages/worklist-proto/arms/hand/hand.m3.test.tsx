@@ -60,7 +60,14 @@ function checkOracle(mounted: MountedArm): void {
 }
 
 describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
+  const resultsDirOf = (): string => {
+    const cwd = process.cwd()
+    return cwd.endsWith(join('packages', 'worklist-proto'))
+      ? join(cwd, 'harness', 'browser', 'results')
+      : join(cwd, 'packages', 'worklist-proto', 'harness', 'browser', 'results')
+  }
   it('lifecycle: cold bootstrap, fresh-replica principal switch, rescope, zero listeners survive', async () => {
+    const lifecycle: Record<string, unknown> = {}
     // Cold bootstrap at live corpus: construction snapshots full, once.
     const cold = await startScenarioEngine(GROWTH_CORPORA.x1)
     const coldSource = createRowSource(cold.engine, cold.replica)
@@ -79,6 +86,13 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
           `issues=${storeOf(coldMounted).issues.rows.size} ` +
           `sessions=${storeOf(coldMounted).sessions.rows.size} parity=true`,
       )
+      lifecycle['coldBootstrap'] = {
+        scale: '1x',
+        visibleRows: Object.keys(atMount.rowsById).length,
+        issues: storeOf(coldMounted).issues.rows.size,
+        sessions: storeOf(coldMounted).sessions.rows.size,
+        parity: true,
+      }
     } finally {
       coldMounted.unmount()
       coldSource.dispose()
@@ -120,6 +134,12 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
         `[hand-m3] principalSwitch fresh replica: visible=${Object.keys(atMount.rowsById).length} ` +
           `oldListeners=0 parity=true`,
       )
+      lifecycle['principalSwitch'] = {
+        corpus: 'small',
+        visibleRows: Object.keys(atMount.rowsById).length,
+        oldStoreListenersAfterDispose: 0,
+        parity: true,
+      }
     } finally {
       secondMounted.unmount()
       secondSource.dispose()
@@ -221,6 +241,20 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       expect(store.sessions.rows.size).toBe(sessionsBefore)
       expect(Object.keys(after.rowsById).length).toBe(visibleBefore)
       expect(store.listenerCount()).toBeGreaterThan(0)
+      lifecycle['rescope'] = {
+        scale: '1x',
+        visibleBefore,
+        visibleGrown: grownVisible,
+        visibleBack: Object.keys(after.rowsById).length,
+        issuesBefore,
+        issuesAfter: store.issues.rows.size,
+        sessionsBefore,
+        sessionsAfter: store.sessions.rows.size,
+        parity: true,
+      }
+      const resultsDir = resultsDirOf()
+      mkdirSync(resultsDir, { recursive: true })
+      writeFileSync(join(resultsDir, 'hand-m3-lifecycle.json'), JSON.stringify(lifecycle, null, 2))
     } finally {
       const store = storeOf(mounted)
       mounted.unmount()
@@ -340,7 +374,6 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     mkdirSync(resultsDir, { recursive: true })
     writeFileSync(join(resultsDir, 'hand-m3-growth.json'), JSON.stringify(table, null, 2))
   }, 600_000)
-
   it('coexistence scenario 15: arm + control on one kernel match their solo counts', async () => {
     const soloHeartbeat = async (
       kind: 'arm' | 'control',
@@ -422,6 +455,40 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       expect(controlStats.rowsDerived).toBe(soloControl.stats.rowsDerived)
       expect(controlStats.rollupsDerived).toBe(soloControl.stats.rollupsDerived)
       checkOracle(armMounted)
+      const resultsDir = resultsDirOf()
+      mkdirSync(resultsDir, { recursive: true })
+      writeFileSync(
+        join(resultsDir, 'hand-m3-coexistence.json'),
+        JSON.stringify(
+          {
+            corpus: 'small',
+            soloArm,
+            soloControl,
+            coArm: {
+              rows: armRows,
+              stats: {
+                rowsDerived: armStats.rowsDerived,
+                rollupsDerived: armStats.rollupsDerived,
+                indexUpdates: armStats.indexUpdates,
+                notifications: armStats.notifications,
+              },
+              parity: armParity,
+            },
+            coControl: {
+              rows: controlRows,
+              stats: {
+                rowsDerived: controlStats.rowsDerived,
+                rollupsDerived: controlStats.rollupsDerived,
+                indexUpdates: controlStats.indexUpdates,
+                notifications: controlStats.notifications,
+              },
+              parity: controlParity,
+            },
+          },
+          null,
+          2,
+        ),
+      )
     } finally {
       armMounted.unmount()
       controlMounted.unmount()
