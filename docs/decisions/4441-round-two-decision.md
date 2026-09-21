@@ -46,19 +46,22 @@ and silent in both others, verified by planting the defect in each arm, and the
 safety standing does not depend on walls.
 
 Walls now point at the hand-rolled arm, plainly and by a clear margin: it is
-fastest on the hot path in both pipeline and wall-to-paint medians, and it is
+fastest on the hot path in both pipeline medians and the task-bounded outer
+medians, and it is
 the only arm with no long tasks at all on the rename step. The quiet tables
 name the gap; the winner's downside names what MobX costs in exchange.
 
 No arm passes the performance gate, so a gate that everything fails cannot by
 itself select between the arms — but it can disqualify, and the answer is split.
 The shared absolute miss does not disqualify the two arms inside the bundle
-budget, because the budget was set too tight rather than all three approaches
-being unusable: the legacy control the arms replace misses the same hot-path
-and click lines by a far larger margin while committing the visible set on
+budget, because the gate as written was never a valid gate rather than all three approaches
+being unusable: asserted on the task-bounded field it carries two frame waits
+inside every measured value and no implementation can pass it, while asserted on
+the pipeline field every arm still misses but the hand miss is far narrower and
+the legacy control the arms replace misses by a far larger margin while committing the visible set on
 steps the arms commit a single row or nothing, so a line that disqualifies all
 three survivors disqualifies the status quo by an order of magnitude more and
-prices paint, collection, and cold-start shape rather than approach. What does
+prices scheduler wait and cold-start shape rather than approach. What does
 disqualify is approach-specific: the TanStack clock finding the document said
 would convert on a quiet reproduction has reproduced — engine re-run cost with
 no commits and no long tasks, against a control tick that pipelines near
@@ -112,7 +115,7 @@ bundle from the same-build production bundle comparison.
 | Gate | Hand-rolled arm | MobX arm | TanStack DB arm |
 |---|---|---|---|
 | Safety: every planted mistake loud | FAIL: the render-path scan stays silent | PASS | FAIL: the render-path scan stays silent |
-| Performance: budgets at live corpus plus slope | FAIL: hot-path and click walls over budget under quiet conditions; counts and count-slope pass; lifecycle walls and named cells still withheld | FAIL: hot-path and click walls over budget under quiet conditions, which reopens the recommendation and is re-decided here; counts and count-slope pass; lifecycle walls and named cells still withheld | FAIL: bundle over budget, self-declared, plus hot-path and click walls over budget under quiet conditions and the quiet-reproduced clock engine finding; counts and count-slope pass; lifecycle walls and named cells still withheld |
+| Performance: budgets at live corpus plus slope | FAIL: hot-path pipeline and click walls over budget under quiet conditions, with the task-bounded outer bound structurally floored by frame waits; counts and count-slope pass; lifecycle walls and named cells still withheld | FAIL: hot-path pipeline and click walls over budget under quiet conditions, which reopens the recommendation and is re-decided here, with the task-bounded outer bound structurally floored by frame waits; counts and count-slope pass; lifecycle walls and named cells still withheld | FAIL: bundle over budget, self-declared, plus hot-path pipeline and click walls over budget under quiet conditions and the quiet-reproduced clock engine finding; counts and count-slope pass; lifecycle walls and named cells still withheld |
 | Fidelity: parity on all scenarios, lifecycle green | PASS | PASS | PASS |
 
 The failing item is named in each cell. Detail per gate follows in the gate sections.
@@ -302,33 +305,44 @@ invocations per cell. The stagemove zero-commit shape is the known fold-blocked
 form rotating fresh rows per sample, identical across the milestone notes. The
 control clock pipeline near zero is asymmetric by construction: its tick emits
 no publication and its cost arrives with the next engine write, as the milestone
-notes state.
+notes state. The task-bounded field on the event path covers the pipeline plus
+the notification wait plus two nested frame waits past the stopped pipeline
+clock: `packages/worklist-proto/harness/browser/run.ts:295-296` for the event
+branch against `:242-243` for the click-only paint branch;
+`packages/worklist-proto/harness/web/entrylib.ts:294-322` for the measured
+window with the wait and the double frame wait inside it, double frame defined
+at `:87`.
 
 The per-invocation medians below verify the pooled table against the raw driver
 records rather than transcribing it; each invocation holds the same sample count
 with scenarios rotating round-robin per sample.
 
-| Arm | Rename wall-to-paint median, invocation A | Rename wall-to-paint median, invocation B | Per-record load window |
-|---|---|---|---|
-| hand | 20.8 | 21.5 | 5.1–6.8 |
-| mobx | 26.4 | 27.1 | 4.8–8.0 |
-| tanstack | 97.8 | 105.8 | 5.9–8.2 |
-| control | 199.0 | 203.5 | 7.1–8.4 |
+| Arm | Rename taskMs median, invocation A | Rename taskMs median, invocation B | Rename actionMs median, invocation A | Rename actionMs median, invocation B | Per-record load window |
+|---|---|---|---|---|---|
+| hand | 20.8 | 21.5 | 8.9 | 10.8 | 5.1–6.8 |
+| mobx | 26.4 | 27.1 | 14.8 | 16.8 | 4.8–8.0 |
+| tanstack | 97.8 | 105.8 | 85.6 | 92.1 | 5.9–8.2 |
+| control | 199.0 | 203.5 | 190.6 | 194.9 | 7.1–8.4 |
 
 Sources: raw driver records from the quiet-window artifact bundle, checked
-record by record; pooled medians above match their pool. Wall-to-paint is the
-budget's asserted field; the pipeline field beside it separates sync-plus-drain
-cost from paint and collection cost.
+record by record; pooled medians above match their pool. The task-bounded field
+is the budget's asserted field as written; the pipeline field beside it stops
+after the microtask drain and is the metric a valid hot-path gate asserts on.
+Paint is unmeasured on the event path: its field reads null on every record,
+and only the click scenario takes the driver branch that measures paint.
 
 The prose between these tables points at them without restating them. On the
 hot path the hand arm is fastest by a clear margin on both pipeline and
-wall-to-paint medians and is the only arm with no long tasks at all on the
+task-bounded outer medians and is the only arm with no long tasks at all on the
 rename step; the MobX arm sits in the middle with a small long-task tail on
 rename and a clock price several times its own rename; the TanStack arm is
 slowest by multiples with most rename records carrying long tasks. The control
-misses the same hot-path line by a far larger margin while deriving the whole
+misses the same hot-path line by a far larger margin on either field while deriving the whole
 world per rename and stagemove against a single committed row on the arms, with
-every hot-path record carrying a long task. The TanStack clock with no commits
+every hot-path record carrying a long task. The task-bounded gap over the
+pipeline gap on every arm is scheduler wait, not work: the measured window holds
+the notification wait and two nested frame waits past the stopped pipeline clock
+on the event path. The TanStack clock with no commits
 and no long tasks separates engine re-run cost from frame starvation and
 converts, by the provisional section's own rule, from a load artifact into a
 TanStack performance finding; against it the control tick pipelines near
@@ -340,7 +354,7 @@ committing nothing everywhere.
 
 | Budget | Verdict under quiet conditions | What decides it |
 |---|---|---|
-| Hot-path event within the main-thread budget at live corpus, wall-to-paint | NOT MET on any arm for rename and stagemove, including by hand | Every pooled wall-to-paint tail sits above the line by multiples; the only sub-line pipeline number is the hand clock, which the budget's asserted field still fails on paint plus collection |
+| Hot-path event within the main-thread budget at live corpus, pipeline field with the task-bounded field as outer bound | NOT MET on any arm for rename and stagemove, including by hand | Every pooled pipeline tail on those two steps sits above the line; the hand miss is far narrower than its task-bounded miss with its pipeline median near the line, while the other two miss by multiples on either field; the task-bounded field as written carries two frame waits in every value and no implementation can pass it |
 | Row click input-to-paint within budget at live corpus and at the largest corpus | NOT MET anywhere at either scale | Medians sit near the single-scale line but every file carries one slow first click from cold-list warm-up, present on all four pages including the control, which single-handedly sets the tail at the stated sample count |
 | Publish on an unrelated change within budget | Carried by counts; wall covered by the heartbeat medians below | Heartbeat commits nothing on every arm against the control's visible-set commit |
 | Principal switch within twice the control | Mechanism proved by counts, wall withheld | No browser-harness method exists for it; happy-dom table-equality proxies stand |
@@ -787,8 +801,9 @@ less reopens it.
 A recommendation without its cost named is not acceptable, so the MobX costs are
 listed with the same care as the losers'. The quiet walls miss the hot-path and
 click budgets under quiet conditions, which fails the performance gate on the
-same absolute line that fails both losers: the rename wall-to-paint sits well
-above the line with a small long-task tail, the stagemove follows it, and the
+same absolute line that fails both losers: the rename task-bounded tail sits well
+above the line with a small long-task tail, the pipeline tail misses too but far
+more narrowly, the stagemove follows it, and the
 click tail misses at both scales on the cold-first-click shape every page shows.
 The wall lead belongs to the hand arm, plainly, and the only zero-long-task
 rename belongs to it as well. The tick re-runs settled bodies while
@@ -820,11 +835,16 @@ compile-time claim unverified by the gate until the review caught it. And the
 eviction expectation cannot trigger on its corpus: the specced scenario-six evict
 removes no keeper and no sole asker, so the milestone gate stays green on a branch
 carrying a real eviction defect in every arm. The fifth is the hot-path budget as
-an absolute usability line: asserted on wall-to-paint, which prices paint and
-collection beside the pipeline, it disqualifies the status quo by an order of
-magnitude more than any survivor, so the shared miss reads as calibration rather
-than approach failure — the approach-specific findings beside it still select.
-The sixth is the click tail at the stated sample count: with one slow first click
+an absolute usability line: asserted on the task-bounded field it carries the
+notification wait and two nested frame waits inside every measured value past the
+stopped pipeline clock, so no implementation including a no-op can pass it — not
+merely tight but never a valid gate, and a gate no implementation can pass cannot
+discriminate either, which is the same class as the instruments above. A valid
+gate asserts on the pipeline field, where the miss survives but far narrower for
+the hand arm — and where the control still misses by an order of magnitude more
+than any survivor while committing the visible set, so the shared miss on the
+valid metric reads as calibration rather than approach failure, and the
+approach-specific findings beside it still select. The sixth is the click tail at the stated sample count: with one slow first click
 per file from cold-list warm-up on every page including the control, the tail
 prices warm-up rather than steady state. The first two are fixed in-tree with
 both-directions guard tests; the third was fixed with an include-list correction;
