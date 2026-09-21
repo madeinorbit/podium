@@ -135,6 +135,7 @@ describe('a lake the deployment turned off', () => {
         daemonRequest,
         parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
         findSessionByNativeId: async () => undefined,
+      },
       {},
     )
     try {
@@ -159,6 +160,7 @@ describe('a lake the deployment turned off', () => {
         daemonRequest,
         parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
         findSessionByNativeId: async () => undefined,
+      },
       { mirrorLakeDir: lakeDir },
     )
     try {
@@ -268,6 +270,7 @@ it.each([
       daemonRequest,
       parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
       findSessionByNativeId: async () => undefined,
+    },
     { mirrorLakeDir: dir },
   )
   try {
