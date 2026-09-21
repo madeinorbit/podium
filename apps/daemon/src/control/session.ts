@@ -2966,8 +2966,8 @@ export const sessionHandlers: Pick<
     //
     // The branch below keeps today's order exactly (0b C7): a driver-owned
     // (server-family) session takes the resize through `clientTerminals` and
-    // never touches `pendingResizes`; only a session with no bridge and no
-    // client terminal holds. A HELD request still gets no report — nothing was
+    // never holds it on the session; only a session with no terminal at all
+    // holds. A HELD request still gets no report — nothing was
     // applied, so there is nothing to report, which is the one thing this file
     // and the record agree on without either having to remember it.
     const record = appliedGeometryFor(ctx)
