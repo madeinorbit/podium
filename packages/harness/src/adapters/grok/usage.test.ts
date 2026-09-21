@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { grokUsageFromSession, scanGrokUsage, fetchGrokQuota, parseGrokBilling, grokSampleFromLogLine } from './usage.js'
+import { fileBuckets, mergeBuckets, windowBuckets } from '../../usage-records.js'
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
@@ -13,6 +14,12 @@ function trackTmp(prefix: string): string {
 }
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+
+/** Fold section scans the way the inventory mechanism does (file fold, window, merge). */
+async function scanBuckets(opts: { sinceMs: number; homeDir: string }) {
+  const scans = await scanGrokUsage(opts)
+  return mergeBuckets(scans.flatMap((scan) => windowBuckets(fileBuckets(scan), opts.sinceMs)))
+}
 })
 
 function writeGrokSession(
@@ -98,7 +105,7 @@ describe('scanGrokUsage', () => {
       },
     )
 
-    const buckets = await scanGrokUsage({
+    const buckets = await scanBuckets({
       sinceMs: Date.parse('2026-06-10T00:00:00Z'),
       homeDir: home,
     })
@@ -119,7 +126,7 @@ describe('scanGrokUsage', () => {
       assistantMessageCount: 1,
       primaryModelId: 'grok-4.5',
     })
-    const buckets = await scanGrokUsage({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({ model: 'grok-4.5', inputTokens: 40, messages: 1 })
   })
@@ -147,7 +154,7 @@ describe('scanGrokUsage', () => {
       }),
     )
 
-    const buckets = await scanGrokUsage({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({ inputTokens: 10, messages: 1 })
   })
@@ -170,7 +177,7 @@ describe('scanGrokUsage', () => {
       }),
     )
 
-    const buckets = await scanGrokUsage({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({ model: 'grok-4.6', inputTokens: 50, messages: 3 })
   })

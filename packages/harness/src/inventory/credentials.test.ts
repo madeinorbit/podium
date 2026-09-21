@@ -249,7 +249,7 @@ describe('Darwin Claude Keychain routing', () => {
       realHome: true,
     })
     expect(Buffer.from(bundle?.contentBase64 ?? '', 'base64').toString()).toBe(secret)
-    expect(claudeKeychainSeams.runner.calls[0]?.args).toEqual([
+    expect((claudeKeychainSeams.runner as FakeSecurityRunner).calls[0]?.args).toEqual([
       'find-generic-password',
       '-a',
       'native-user',
