@@ -105,6 +105,64 @@ export const sharedVitestConfig = {
           ),
         ),
       },
+      // Hook instrumentation sections (POD-4472): the family mechanism and the
+      // per-harness sections the daemon installs/decodes through. Same
+      // anchored shape as every entry above: without one the subpath falls
+      // through to node_modules resolution and the main checkout's copy.
+      {
+        find: /^@podium\/harness\/driver\/families\/terminal\/instrumentation$/,
+        replacement: fileURLToPath(
+          new URL(
+            './packages/harness/src/driver/families/terminal/instrumentation.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+      {
+        find: /^@podium\/harness\/driver\/families\/terminal\/loopback-listen$/,
+        replacement: fileURLToPath(
+          new URL(
+            './packages/harness/src/driver/families/terminal/loopback-listen.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+      {
+        find: /^@podium\/harness\/driver\/families\/terminal\/observer$/,
+        replacement: fileURLToPath(
+          new URL(
+            './packages/harness/src/driver/families/terminal/observer.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+      {
+        find: /^@podium\/harness\/adapters\/shared\/hook-fields$/,
+        replacement: fileURLToPath(
+          new URL('./packages/harness/src/adapters/shared/hook-fields.ts', import.meta.url),
+        ),
+      },
+      {
+        find: /^@podium\/harness\/adapters\/codex\/instrumentation$/,
+        replacement: fileURLToPath(
+          new URL('./packages/harness/src/adapters/codex/instrumentation.ts', import.meta.url),
+        ),
+      },
+      {
+        find: /^@podium\/harness\/adapters\/grok\/instrumentation$/,
+        replacement: fileURLToPath(
+          new URL('./packages/harness/src/adapters/grok/instrumentation.ts', import.meta.url),
+        ),
+      },
+      {
+        find: /^@podium\/harness\/adapters\/claude-code\/instrumentation$/,
+        replacement: fileURLToPath(
+          new URL(
+            './packages/harness/src/adapters/claude-code/instrumentation.ts',
+            import.meta.url,
+          ),
+        ),
+      },
       {
         find: /^@podium\/harness\/store$/,
         replacement: fileURLToPath(

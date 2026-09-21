@@ -360,24 +360,32 @@ export async function installTerminalInstrumentation(input: {
     ...(input.reportVersionProbe ? { reportVersionProbe: input.reportVersionProbe } : {}),
   }
   let wiring: InstalledInstrumentation
-  if (manifest.capabilities.hookInstall === 'global-env') {
-    // Match the child environment: instance-owned homes override session values.
-    const selector = manifest.environment.instanceHome
-    const env = {
-      ...process.env,
-      ...spec.env,
-      ...harnessInstanceHomeEnv(spec.harness, input.homeDir),
+  try {
+    if (manifest.capabilities.hookInstall === 'global-env') {
+      // Match the child environment: instance-owned homes override session values.
+      const selector = manifest.environment.instanceHome
+      const env = {
+        ...process.env,
+        ...spec.env,
+        ...harnessInstanceHomeEnv(spec.harness, input.homeDir),
+      }
+      const homeDir = input.homeDir ?? env.HOME ?? homedir()
+      const harnessHome = selector
+        ? env[selector.variable]?.trim() || join(homeDir, selector.relativeDir)
+        : homeDir
+      destination.harnessHome = harnessHome
+      wiring = await serialized(`${spec.harness}:${harnessHome}`, () =>
+        instrumentation.install(destination),
+      )
+    } else {
+      wiring = await instrumentation.install(destination)
     }
-    const homeDir = input.homeDir ?? env.HOME ?? homedir()
-    const harnessHome = selector
-      ? env[selector.variable]?.trim() || join(homeDir, selector.relativeDir)
-      : homeDir
-    destination.harnessHome = harnessHome
-    wiring = await serialized(`${spec.harness}:${harnessHome}`, () =>
-      instrumentation.install(destination),
-    )
-  } else {
-    wiring = await instrumentation.install(destination)
+  } catch (error) {
+    // A throwing install degrades like a refused one: the session starts
+    // poll-only with the reason reported, it is not refused. (Refusal is the
+    // prepare gate above, for a required install with no channel at all.)
+    const reason = error instanceof Error ? error.message : String(error)
+    return { args: [], degradedReason: reason, degradedKind: 'error' }
   }
   if (wiring.file) {
     try {
