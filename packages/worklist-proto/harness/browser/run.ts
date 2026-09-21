@@ -87,7 +87,12 @@ const MIME: Record<string, string> = {
 function serveDist(dir: string, port: number): Promise<Server> {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x')
-    let file = join(dir, url.pathname === '/' ? 'control.html' : url.pathname)
+    let file = join(dir, url.pathname === '/' ? 'control.html' : url.pathname.slice(1))
+    // POD-4446: vite emits entries under `entries/` (multi-page input), so
+    // `/hand.html` lives at `<serve>/entries/hand.html`. Fall back there.
+    if (!existsSync(file) && file.endsWith('.html')) {
+      file = join(dir, 'entries', url.pathname.split('/').pop() as string)
+    }
     if (!existsSync(file) && file.endsWith('.html')) {
       res.writeHead(404)
       res.end('no such entry')
