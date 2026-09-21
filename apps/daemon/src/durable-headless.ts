@@ -41,7 +41,7 @@ import {
   headlessChildEnv,
   headlessSpawnEnv,
 } from './headless-drivers.js'
-import { createPiStreamReducer } from './pi-stream.js'
+import { createPiStreamReducer, HeadlessTurnFailure } from '@podium/harness/driver/host'
 
 /**
  * The pty size a durable headless turn runs at. No viewer ever looks at it, so
@@ -715,7 +715,7 @@ export function runDurableHeadlessTurn(
       finish({
         ok: false,
         error: error instanceof Error ? error.message : String(error),
-        ...(error instanceof HeadlessTurnError && error.harnessSessionId
+        ...(error instanceof HeadlessTurnFailure && error.harnessSessionId
           ? { harnessSessionId: error.harnessSessionId }
           : {}),
       })

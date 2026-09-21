@@ -4,7 +4,7 @@
  * after selecting and claiming the instance root. Only this entry pulls the Bun-only
  * embedded-file import; plain scripts/cli.ts stays Node/test-importable.
  */
-import { CLAUDE_SDK_HOST_ENV } from '../apps/daemon/src/claude-sdk-protocol.js'
+import { CLAUDE_SDK_HOST_ENV } from '../packages/harness/src/driver/families/claude-sdk/host-protocol.js'
 import { runSnapshotVerifierChildIfRequested } from '../apps/server/src/migrations/snapshot-verifier-child.js'
 import { main } from './cli.js'
 import { materializeEmbeddedAbduco } from './embedded-abduco.js'
@@ -18,7 +18,7 @@ import { materializeEmbeddedHost } from './embedded-host.js'
 // module and never loads the SDK into its own process. Presence in the image is
 // not presence in the heap.
 if (process.env[CLAUDE_SDK_HOST_ENV] === '1') {
-  await import('../apps/daemon/src/claude-sdk-host.js')
+  await import('../packages/harness/src/driver/families/claude-sdk/claude-sdk-host.js')
 } else {
   // The recovery-snapshot verifier runs as a child of this same binary (POD-3068).
   // Answered before `main` so a verification never boots a server, and gated on an

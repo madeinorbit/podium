@@ -1,4 +1,4 @@
-// apps/daemon/src/claude-sdk-client.test.ts
+// packages/harness/src/driver/families/claude-sdk/child-turn.test.ts
 //
 // The other direction of the bar. claude-sdk-isolation.test.ts proves the SDK
 // LEFT the daemon; nothing there can tell "moved" from "moved and broken". These
@@ -9,17 +9,19 @@
 // is about what happens when a process dies, and a mock that resolves a promise
 // when you call `.kill()` on it would prove nothing about pipes, exit codes,
 // signals, or the order events arrive in. These children are killed for real.
+//
+// (Moved from apps/daemon/src/claude-sdk-client.test.ts in 1.5 with the code it
+// pins: the supervisor's half of the split lives in this family now.)
 
 import { type ChildProcess, spawn } from 'node:child_process'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
-import { claudeSdkHostEnv, runClaudeSdkChildTurn } from './claude-sdk-client.js'
-import { HeadlessTurnError, type HeadlessTurnSpec } from './headless-drivers.js'
+import { HeadlessTurnFailure, runClaudeSdkChildTurn } from './child-turn.js'
 
-const spec: HeadlessTurnSpec = {
-  agent: 'claude-code',
-  accountId: 'native:claude-code:test' as HeadlessTurnSpec['accountId'],
-  requestDigest: 'a'.repeat(64),
+
+import type { ClaudeSdkChildTurnInput } from './child-turn.js'
+
+const spec: ClaudeSdkChildTurnInput = {
   cwd: process.cwd(),
   prompt: 'hello',
 }
@@ -48,6 +50,7 @@ describe('a Claude turn in a child process', () => {
   it("forwards the host's events and resolves with its outcome", async () => {
     const events: HeadlessTurnEvent[] = []
     const handle = runClaudeSdkChildTurn(spec, (e) => events.push(e), {
+      childEnv: {},
       spawnHost: fakeHost(
         [
           say({ t: 'event', event: { kind: 'status', status: 'starting' } }),
@@ -73,6 +76,7 @@ describe('a Claude turn in a child process', () => {
     // The host echoes back whatever prompt it was handed, proving the spec
     // crossed the pipe rather than being reconstructed on the far side.
     const handle = runClaudeSdkChildTurn({ ...spec, prompt: 'MARKER-9f3a' }, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(`
           let buf = ''
           process.stdin.on('data', (d) => {
@@ -94,6 +98,7 @@ describe('a Claude turn in a child process', () => {
     let child: ChildProcess | undefined
     const events: HeadlessTurnEvent[] = []
     const handle = runClaudeSdkChildTurn(spec, (e) => events.push(e), {
+      childEnv: {},
       spawnHost: () => {
         child = fakeHost(
           emitsThenHangs(
@@ -119,7 +124,7 @@ describe('a Claude turn in a child process', () => {
       () => null,
       (e: unknown) => e,
     )
-    expect(err).toBeInstanceOf(HeadlessTurnError)
+    expect(err).toBeInstanceOf(HeadlessTurnFailure)
     // TRUE, and specific enough for a human to act on: it names the process that
     // died and says the turn did not finish. Not a generic 'turn failed', and
     // above all not silence.
@@ -128,11 +133,12 @@ describe('a Claude turn in a child process', () => {
     // AND the conversation is not orphaned. The id the host reported before it
     // died comes out with the error, so the thread keeps its transcript binding
     // and the next turn resumes instead of silently starting over.
-    expect((err as HeadlessTurnError).harnessSessionId).toBe('sess-mid')
+    expect((err as HeadlessTurnFailure).harnessSessionId).toBe('sess-mid')
   }, 20_000)
 
   it('still reports a reason when the host dies before minting a session', async () => {
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(`
         process.stderr.write('cannot allocate memory\\n')
         process.exit(137)
@@ -147,7 +153,7 @@ describe('a Claude turn in a child process', () => {
     // The host's dying words are carried out — that stderr tail is the only
     // explanation an OOM kill ever leaves behind.
     expect((err as Error).message).toContain('cannot allocate memory')
-    expect((err as HeadlessTurnError).harnessSessionId).toBeUndefined()
+    expect((err as HeadlessTurnFailure).harnessSessionId).toBeUndefined()
   })
 
   it('degrades exactly one session: a sibling turn finishes while its neighbour is killed', async () => {
@@ -156,6 +162,7 @@ describe('a Claude turn in a child process', () => {
     let victim: ChildProcess | undefined
     const victimEvents: HeadlessTurnEvent[] = []
     const dying = runClaudeSdkChildTurn(spec, (e) => victimEvents.push(e), {
+      childEnv: {},
       spawnHost: () => {
         victim = fakeHost(
           emitsThenHangs(say({ t: 'event', event: { kind: 'status', status: 'running' } })),
@@ -164,6 +171,7 @@ describe('a Claude turn in a child process', () => {
       },
     })
     const survivor = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(`
         setTimeout(() => {
           process.stdout.write(JSON.stringify({
@@ -186,6 +194,7 @@ describe('a Claude turn in a child process', () => {
 
   it('turns a host error frame into a failure that keeps the session id', async () => {
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(
         `${say({ t: 'error', message: 'claude turn failed: error_during_execution', harnessSessionId: 'sess-e' })}\nprocess.exit(0)`,
       ),
@@ -195,12 +204,13 @@ describe('a Claude turn in a child process', () => {
       (e: unknown) => e,
     )
     expect((err as Error).message).toBe('claude turn failed: error_during_execution')
-    expect((err as HeadlessTurnError).harnessSessionId).toBe('sess-e')
+    expect((err as HeadlessTurnFailure).harnessSessionId).toBe('sess-e')
   })
 
   it('bounds a wedged host: the turn times out and the child is not left running', async () => {
     let child: ChildProcess | undefined
     const handle = runClaudeSdkChildTurn({ ...spec, timeoutMs: 300 }, () => {}, {
+      childEnv: {},
       spawnHost: () => {
         // Ignores the interrupt entirely — the case where being in-process
         // meant the daemon had no recourse at all.
@@ -213,7 +223,7 @@ describe('a Claude turn in a child process', () => {
       (e: unknown) => e,
     )
     expect((err as Error).message).toBe('turn timed out')
-    expect((err as HeadlessTurnError).harnessSessionId).toBe('sess-wedged')
+    expect((err as HeadlessTurnFailure).harnessSessionId).toBe('sess-wedged')
   }, 30_000)
 
   it('never reports a timed-out turn as a successful one', async () => {
@@ -226,6 +236,7 @@ describe('a Claude turn in a child process', () => {
     // Reachable in production: a superagent budget clamps the turn timeout as low
     // as 30 seconds, so this is an ordinary short turn, not an exotic case.
     const handle = runClaudeSdkChildTurn({ ...spec, timeoutMs: 300 }, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(`
         let buf = ''
         process.stdout.write(JSON.stringify({ t: 'session', harnessSessionId: 'sess-cut' }) + '\\n')
@@ -259,12 +270,13 @@ describe('a Claude turn in a child process', () => {
     const e = (err as { rejected: Error }).rejected
     expect(e.message).toBe('turn timed out')
     // And the conversation still comes out, so the thread is not orphaned.
-    expect((e as HeadlessTurnError).harnessSessionId).toBe('sess-cut')
+    expect((e as HeadlessTurnFailure).harnessSessionId).toBe('sess-cut')
   }, 20_000)
 
   it("ignores non-protocol noise on the host's stdout", async () => {
     // A dependency that logs to stdout must not be able to fail a live turn.
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(
         [
           `process.stdout.write('Debugger listening on ws://127.0.0.1:9229\\n')`,
@@ -277,6 +289,7 @@ describe('a Claude turn in a child process', () => {
 
   it('reports a host that cannot be started at all', async () => {
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: () => {
         const child = spawn('/nonexistent/claude-sdk-host', [], {
           stdio: ['pipe', 'pipe', 'pipe'],
@@ -292,6 +305,7 @@ describe('a Claude turn in a child process', () => {
     let handle: ReturnType<typeof runClaudeSdkChildTurn>
     let observed: { id: string; toolName: string } | undefined
     handle = runClaudeSdkChildTurn({ ...spec, structuredPermissions: true }, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(`
           let buf = ''
           let asked = false
@@ -335,6 +349,7 @@ describe('a Claude turn in a child process', () => {
   it('disposes a wedged host immediately when the owning runtime ends', async () => {
     let child: ChildProcess | undefined
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: () => {
         child = fakeHost(emitsThenHangs(''))()
         return child
@@ -387,6 +402,7 @@ describe('the daemon reads back what the host did with an interrupt', () => {
 
   it('reports an accepted interrupt as accepted, under the id it asked with', async () => {
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(hostAnswering({ t: 'interrupt-ack', accepted: true })),
     })
     ignoreTeardown(handle)
@@ -395,6 +411,7 @@ describe('the daemon reads back what the host did with an interrupt', () => {
 
   it("reports a refused interrupt as refused, carrying the provider's reason", async () => {
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(
         hostAnswering({ t: 'interrupt-ack', accepted: false, detail: 'no turn to interrupt' }),
       ),
@@ -411,6 +428,7 @@ describe('the daemon reads back what the host did with an interrupt', () => {
     // answered; claiming either verdict here would be inventing one.
     let child: ChildProcess | undefined
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: () => {
         child = fakeHost(emitsThenHangs(say({ t: 'session', harnessSessionId: 'sess-d' })))()
         return child
@@ -431,6 +449,7 @@ describe('the daemon reads back what the host did with an interrupt', () => {
     // operator's stop in the one state they cannot see; the deadline turns it
     // into a truthful "we do not know" instead.
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(emitsThenHangs(say({ t: 'session', harnessSessionId: 'sess-mute' }))),
     })
     ignoreTeardown(handle)
@@ -443,6 +462,7 @@ describe('the daemon reads back what the host did with an interrupt', () => {
     // One press must not consume another's receipt: the ids are what keep two
     // stops from collapsing into one answer.
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(`
         let buf = ''
         process.stdin.on('data', (d) => {
@@ -477,6 +497,7 @@ describe('the daemon carries the tool record across the pipe (POD-3050)', () => 
     // would be the one place a result could overtake its own call.
     const seen: string[] = []
     const handle = runClaudeSdkChildTurn(spec, () => {}, {
+      childEnv: {},
       spawnHost: fakeHost(
         [
           say({ t: 'session', harnessSessionId: 'sess-tools' }),
@@ -507,25 +528,25 @@ describe('the daemon carries the tool record across the pipe (POD-3050)', () => 
   })
 
   /**
-   * POD-3057, the second half of the chain. The driver puts the instance's agent
-   * home on the turn spec (claude-sdk-driver.test.ts); this asserts the spawn
-   * carries it all the way to a process — the HOME that process really ran
-   * under, printed by the process itself, not the merge expression read back.
+   * POD-3057, the second half of the chain. The supervisor puts the instance's
+   * agent home on the composed child env; this asserts the family carries that
+   * handed env all the way to a process — the HOME that process really ran
+   * under, printed by the process itself, not a merge expression read back.
+   * The merge itself (stored-login precedence) is the supervisor's and is
+   * pinned daemon-side; here the pin is passthrough, never recomputation.
    *
    * That home is where the CLI writes the session's JSONL, and where
    * `sessions.read` resolves it. When the two disagree the read answers empty.
    */
-  it('spawns the host under the HOME the turn spec names', async () => {
+  it('spawns the host under the handed HOME, recomputing nothing', async () => {
     const home = '/state/p3057/agent-home'
     const child = spawn(
       process.execPath,
       ['-e', 'process.stdout.write(`${process.env.HOME}|${process.env.CLAUDE_CONFIG_DIR}`)'],
       {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: claudeSdkHostEnv({
-          ...spec,
-          env: { HOME: home, CLAUDE_CONFIG_DIR: `${home}/.claude` },
-        }),
+        // What the supervisor would hand in after composing it.
+        env: { HOME: home, CLAUDE_CONFIG_DIR: `${home}/.claude` },
       },
     )
     alive.push(child)

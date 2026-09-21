@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createPiStreamReducer } from './pi-stream.js'
+import { createPiStreamReducer } from './stream.js'
 
 const header =
   '{"type":"session","version":3,"id":"9e804279-978a-4644-adc4-f815f25a5728","timestamp":"2026-09-02T09:48:46.898Z","cwd":"/w"}'

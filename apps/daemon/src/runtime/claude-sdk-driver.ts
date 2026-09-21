@@ -8,14 +8,14 @@ import {
   configureFieldsForDriver,
   createClaudeSdkRuntime,
   type PendingInteraction,
+  runClaudeSdkChildTurn,
   type RuntimeEvent,
 } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { AccountId, AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
-import { runClaudeSdkChildTurn } from '../claude-sdk-client'
 import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
-import type { HeadlessTurnSpec } from '../headless-drivers'
+import { type HeadlessTurnSpec, headlessChildEnv } from '../headless-drivers'
 import { driverTiming } from './driver-timing'
 import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
 import { reportQueueAbandonment } from './queue-abandonment'
@@ -184,6 +184,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
           }
         },
         {
+          childEnv: headlessChildEnv(spec.agent, spec.env),
           onPermission: input.onPermission,
           onToolCall: input.onToolCall,
           onToolResult: input.onToolResult,

@@ -1,4 +1,4 @@
-// apps/daemon/src/claude-sdk-protocol.test.ts
+// packages/harness/src/driver/families/claude-sdk/host-protocol.test.ts
 //
 // How the SDK host gets launched, pinned per runtime. This is the part of the
 // split with no type system behind it: an argv list handed to `spawn`. Each
@@ -10,7 +10,7 @@ import {
   CLAUDE_SDK_HOST_ENV,
   claudeSdkHostLaunch,
   isCompiledBunfsUrl,
-} from './claude-sdk-protocol.js'
+} from './host-protocol.js'
 
 describe('launching the Claude SDK host', () => {
   it('re-execs the standalone binary with the sentinel when compiled', () => {
@@ -55,8 +55,8 @@ describe('launching the Claude SDK host', () => {
   it('points at a host entry that is really there', () => {
     // The compiled build and the from-source spawn must name the same file; a
     // stale constant here is a crash-loop in production and nothing in CI.
-    expect(CLAUDE_SDK_HOST_ENTRY).toBe('apps/daemon/src/claude-sdk-host.ts')
+    expect(CLAUDE_SDK_HOST_ENTRY).toBe('packages/harness/src/driver/families/claude-sdk/claude-sdk-host.ts')
     const launch = claudeSdkHostLaunch(import.meta.url)
-    expect(launch.args.at(-1)).toContain(CLAUDE_SDK_HOST_ENTRY.replace('apps/daemon/src/', ''))
+    expect(launch.args.at(-1)).toContain(CLAUDE_SDK_HOST_ENTRY.replace('packages/harness/src/driver/families/claude-sdk/', ''))
   })
 })

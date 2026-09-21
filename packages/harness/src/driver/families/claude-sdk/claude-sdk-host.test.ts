@@ -1,12 +1,16 @@
-// apps/daemon/src/claude-sdk-host.test.ts
+// packages/harness/src/driver/families/claude-sdk/sdk-host.test.ts
 //
 // The host's own lifecycle, with the SDK stubbed so the turn is controllable.
-// The daemon side is covered by claude-sdk-client.test.ts against real child
+// The supervisor side is covered by child-turn.test.ts against real child
 // processes; what can only be tested here is what the host does when the thing
 // on the other end of its stdin goes away.
+//
+// (Moved from apps/daemon/src/claude-sdk-host.test.ts in 1.5 with the code it
+// pins. The extra turn-spec fields below are deliberate: the supervisor sends
+// its fuller turn object and the host must ignore what it does not read.)
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ClaudeSdkHostFrame } from './claude-sdk-protocol.js'
+import type { ClaudeSdkHostFrame } from './host-protocol.js'
 
 const sdk = vi.hoisted(() => ({
   interruptCalled: false,
@@ -390,4 +394,90 @@ describe('the SDK host records the tools a turn ran (POD-3050)', () => {
     )
     expect(frames.filter((f) => f.t === 'tool-call' || f.t === 'tool-result')).toEqual([])
   }, 10_000)
+})
+
+// THE SDK HOST'S OPTION SHAPE (moved from apps/daemon/src/headless-drivers.test.ts
+// in 1.5 with buildClaudeSdkOptions).
+//
+// NOTE ON THE ENV CONTRACT: the supervisor composes the host child's
+// environment (stored-login precedence stripping) before spawning and hands it
+// in; the host merges the handed overlay over its own environment without
+// recomputing either. The strip itself is pinned daemon-side (headlessChildEnv)
+// and at the spawn site (spawn-site.test.ts); here the pin is merge order.
+import { buildClaudeSdkOptions } from './claude-sdk-host.js'
+
+describe('buildClaudeSdkOptions', () => {
+  it('reapplies the current system prompt when resuming a Claude SDK thread', () => {
+    const options = buildClaudeSdkOptions({
+      cwd: '/repo',
+      prompt: 'Why?',
+      systemPrompt: 'NORMAL: HARD LIMIT 80 words total',
+      contextPrompt: 'current context',
+      resumeValue: 'claude-thread-1',
+    })
+
+    expect(options.resume).toBe('claude-thread-1')
+    expect(options).not.toHaveProperty('sessionId')
+    expect(options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: 'NORMAL: HARD LIMIT 80 words total\n\ncurrent context',
+    })
+  })
+
+  it('makes structured permission prompts authoritative without overriding explicit policy', () => {
+    const canUseTool = () => Promise.resolve({ behavior: 'allow' as const, updatedInput: {} })
+    const structured = buildClaudeSdkOptions(
+      {
+        cwd: '/repo',
+        prompt: 'change a guarded file',
+        structuredPermissions: true,
+      },
+      canUseTool,
+    )
+
+    expect(structured.permissionMode).toBe('default')
+    expect(structured.canUseTool).toBe(canUseTool)
+    expect(structured).not.toHaveProperty('allowDangerouslySkipPermissions')
+
+    const explicitlyAuthorized = buildClaudeSdkOptions(
+      {
+        cwd: '/repo',
+        prompt: 'change a guarded file',
+        structuredPermissions: true,
+        permissionMode: 'auto',
+      },
+      canUseTool,
+    )
+    expect(explicitlyAuthorized.permissionMode).toBe('auto')
+
+    const legacyUnstructured = buildClaudeSdkOptions({
+      cwd: '/repo',
+      prompt: 'change a guarded file',
+    })
+    expect(legacyUnstructured.permissionMode).toBe('auto')
+  })
+
+  it('enforces a native no-tools posture', () => {
+    const options = buildClaudeSdkOptions({
+      cwd: '/repo',
+      prompt: 'repair',
+      toolPolicy: 'none',
+      mcpConfig: JSON.stringify({ mcpServers: { podium: { url: 'http://podium.invalid' } } }),
+    })
+    expect(options.tools).toEqual([])
+    expect(options.allowedTools).toEqual([])
+    expect(options.settingSources).toEqual([])
+    expect(options).not.toHaveProperty('mcpServers')
+  })
+
+  it('merges the handed env over its own without recomputing it', () => {
+    const options = buildClaudeSdkOptions({
+      cwd: '/repo',
+      prompt: 'repair',
+      toolPolicy: 'none',
+      env: { HOME: '/accounts/claude' },
+    })
+    expect(options.env).toMatchObject({ HOME: '/accounts/claude' })
+  })
 })

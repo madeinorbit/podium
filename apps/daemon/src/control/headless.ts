@@ -8,12 +8,12 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { acknowledgeDurableHeadlessTurn, runDurableHeadlessTurn } from '../durable-headless.js'
 import { durableProcessFor } from '@podium/process/durable'
 import {
-  HeadlessTurnError,
   type HeadlessTurnHandle,
   type HeadlessTurnIdentity,
   type HeadlessTurnSpec,
   runHeadlessTurn,
 } from '../headless-drivers.js'
+import { HeadlessTurnFailure } from '@podium/harness/driver/host'
 import type { ControlHandlers, DaemonContext } from './context'
 import { sessionRelayEnv } from './session'
 import { spawnEnv } from './session-env'
@@ -274,7 +274,9 @@ function wireTurnResult(
       // crash, error_during_execution). The conversation exists — report its id
       // and bind the tail anyway, or the thread is orphaned and the next turn
       // silently starts over in a new conversation.
-      const harnessSessionId = err instanceof HeadlessTurnError ? err.harnessSessionId : undefined
+      // A turn the FAMILY failed carries the base class; a turn the daemon
+      // failed carries the subclass. Match the base so both report the id.
+      const harnessSessionId = err instanceof HeadlessTurnFailure ? err.harnessSessionId : undefined
       if (!msg.resumeValue && harnessSessionId && !isFirstTurnBound()) {
         recordHeadlessAllocation(ctx, {
           sessionId: identity.sessionId,
