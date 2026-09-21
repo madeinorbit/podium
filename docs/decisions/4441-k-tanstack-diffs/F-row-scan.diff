@@ -1,0 +1,21 @@
+diff --git a/packages/worklist-proto/arms/tanstack/react/list.tsx b/packages/worklist-proto/arms/tanstack/react/list.tsx
+index 06ff4dd84..d12d5b79a 100644
+--- a/packages/worklist-proto/arms/tanstack/react/list.tsx
++++ b/packages/worklist-proto/arms/tanstack/react/list.tsx
+@@ -49,6 +49,16 @@ const TanStackRow = memo(function TanStackRow({
+   const selected = useTanStackKey<boolean>(store, `selected:${id}`)
+   if (row === null) return null
+   const tick = store.rollup.ticks.get(id) ?? null
++  // K3-F (foot-gun, exercise only): an O(N) read inside the row component —
++  // counts working rows by scanning every committed row on every render. The
++  // committed rows are plain objects read through no subscription, so this
++  // subscribes to nothing, commits nothing and renders byte-identically —
++  // while a full list render does N×N field reads the fence cannot see.
++  let workingElsewhere = 0
++  for (const [, committed] of store.rows) {
++    if (committed.working) workingElsewhere += 1
++  }
++  void workingElsewhere
+   return (
+     <RowShell id={id}>
+       <div data-issue-row={id} data-selected={selected ? 'true' : 'false'}>
