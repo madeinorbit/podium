@@ -262,9 +262,9 @@ function openDb(ro = true): {
     db.exec('PRAGMA busy_timeout = 15000')
   } catch {}
   return {
-    get: (sql: string, ...params: unknown[]) => db.prepare(sql).get(...params) as unknown,
-    all: (sql: string, ...params: unknown[]) => db.prepare(sql).all(...params) as unknown[],
-    run: (sql: string, ...params: unknown[]) => {
+    get: (sql: string, ...params: SqlParam[]) => db.prepare(sql).get(...params) as unknown,
+    all: (sql: string, ...params: SqlParam[]) => db.prepare(sql).all(...params) as unknown[],
+    run: (sql: string, ...params: SqlParam[]) => {
       db.prepare(sql).run(...params)
     },
     close: () => db.close(),
