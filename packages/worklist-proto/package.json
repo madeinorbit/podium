@@ -47,6 +47,8 @@
     "react": ">=19"
   },
   "dependencies": {
+    "@tanstack/db": "0.9.2",
+    "@tanstack/react-db": "0.4.1",
     "mobx": "7.0.3",
     "mobx-react-lite": "5.0.3"
   }
