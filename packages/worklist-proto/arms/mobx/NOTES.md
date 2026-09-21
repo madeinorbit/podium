@@ -147,6 +147,38 @@ one computed path instead of incremental + from-scratch. Further compression
 is comment-trimming and ingest-sharing, not structure — deferred to H4
 review (open question 1 below, shared with the hand arm).
 
+## M2 record (POD-4451)
+
+Count harness at 1x (`mobx.m2.test.tsx`, `PROTO_M2_STRICT=1` green):
+rename 1 (i0) / 1+3, stagemove 1 (i3) / 1+3, new 0 / 1+3, archive 1 (i3) /
+2+1, evict 0 / 1+1, reparent 2 (i2,i8) / 2+5, clock 0 / 0+404 (notifications
+0 — locals dispatch nothing), optimism 0 per step with model kept and echo
+value restored (press2 two dispatches, rollback quiet), burst50 21 / 32+138
+with one notification. Parity green and zero over-commit on every step; #7
+and #10 commit byte-identical rows to the hand arm (2 [i2,i8]; 21). Full
+table + scan judgments in `docs/measurements/POD-4451-m2.md`.
+
+- **Stale `resolveNeeded` (the one mechanism fix).** Bootstrap's ingests set
+  the flag and nothing consumed it (`stats.reset()` clears counters, not the
+  flag), so the first post-mount event ran one full redundant unbound
+  re-resolve: 4,304 home visits + 614k root spreads for zero seat changes
+  (M2 #4 before-table). Fix in the idiom: the consumer clears the flag —
+  `resolveAllUnbound` sets `resolveNeeded = false` at entry, so bootstrap,
+  replace and the gated update path stay consistent. After-table proves it:
+  #4 scans drop to `move-seat-scan` + `groups-bucket`, every count
+  identical. No new place to remember (inside place #4).
+- **`assertNever` in `tableApply` (H4 R-H3, shared with the hand arm).** A
+  new stream kind is now a compile error, not a silent fallthrough. One
+  line, no new place to remember.
+- **Scan instrumentation (no behavior change).** `MobxScanName` + counters
+  beside `ArmStats`, cleared on reset. Biggest slope item named removable
+  (`move-seat-scan`: O(repo buckets) per issue ingest — targeted-seat
+  tracking, J-phase); `roots-spread`/`resolve-unbound` priced for lifecycle
+  (J-phase M3); the V-scale list walks judged inherent. Extends place #4.
+- **Line growth M1→M2: +65 non-test lines** (`store.ts` +59, `worklist.ts`
+  +6) — all instrumentation + the two hardenings above; no derivation logic
+  changed. The M1 size gap vs the hand arm survives (~2,420 vs 3,589).
+
 ## Open questions for H4
 
 1. Line budget vs fidelity (shared with the hand arm): is ~2,000–2,800

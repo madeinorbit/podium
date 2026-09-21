@@ -93,3 +93,27 @@ bodies; `rowsDerived` = committed rows + tick rides; `indexUpdates` = bucket
 writes) are observation-driven: unobserved computeds suspend, so count
 assertions belong in mounted tests (`mobx.ui.test.tsx`, the engine lanes),
 never in bare-store tests.
+
+## M2: structural scenarios (POD-4451)
+
+`mobx.m2.test.tsx` replays scenarios #4–#10 through the G4 count harness
+at 1x with parity and the over-commit check (every committed row ⊆
+oracle-changed rows) after every step, plus `PROTO_M2_STRICT=1` budget
+assertions. The scan vocabulary (`MobxScanName` in `store.ts`, beside
+`ArmStats`, cleared by `stats.reset()`, read via `scanCounts()`) counts the
+H4 slope material per step: `move-seat-scan` (buckets visited by
+`moveSeat`), `roots-spread` (keys spread by `roots()`), `resolve-unbound`
+(homes visited by `resolveAllUnbound`), `visible-enumeration` (issues per
+`visibleIds` run — the ONE enumeration), `order-sort`, `groups-bucket`.
+Judgments per walk (inherent vs removable) live in
+`docs/measurements/POD-4451-m2.md`.
+
+Two idiom translations worth knowing. First, the identity unit is the
+`IssueModel`, not the row object: models are created once and mutated
+(`prev.value = …`), never replaced, so the optimism test asserts the model
+survives all four #9 steps while its borrowed value settles back to the
+echo value (snapshot rows are fresh objects per read by construction —
+identity there is meaningless). Second, locals dispatch no row-source
+event: `setCoarseNow` moves no notification counter (reactions commit, the
+dispatch counter does not), so the clock step asserts `notifications == 0`
+where the hand arm asserts 1 — same verdict, honest counter.
