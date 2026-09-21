@@ -1,5 +1,6 @@
 import { asSessionId, type TranscriptItem } from '@podium/model/browser'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -126,9 +127,9 @@ it('renders the real recorded Bash edit with identical path, hunk lines and coun
   // with the transcript package).
   const records = JSON.parse(
     readFileSync(
-      new URL(
+      join(
+        __dirname,
         '../../../../../packages/harness/src/store/__fixtures__/claude-bash-edit.json',
-        import.meta.url,
       ),
       'utf8',
     ),
