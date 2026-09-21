@@ -309,6 +309,14 @@ function seedCorpus(cache: ScenarioCache, spec: CorpusSpec): void {
       archived,
       priority: 2,
       type: 'task',
+      // R3 anchor dual-carry (POD-4496): the legacy model reads worktreePath
+      // off the PROJECTION (`issue-view-models.ts:88`, projection overwrites
+      // wire at :171-173), while arms read the wire row through the row
+      // source. Both spellings must carry the anchor or the two worlds
+      // disagree: wire-only leaves the oracle blind (i265 et al. orphaned)
+      // while arms resolve R3. Mirrors the G2 fixture (corpus.ts wire :503,
+      // projection :522).
+      ...(worktreePath !== null ? { worktreePath } : {}),
     }
     put('issue', id, wire)
     put('issueProjection', id, projection)

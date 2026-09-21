@@ -93,6 +93,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       methodology: string,
       apply: () => unknown,
       expectedLocals: SliceLocals = locals,
+      allowOver: string[] = [],
     ): Promise<CountResult> => {
       const before = snapshotFromStore(ctx.engine.getSnapshot(), expectedLocalsFor(scenario))
       const result = await runCountScenario(mounted, {
@@ -117,7 +118,12 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       )
       records.push({ ...result, scenario, methodology, scans })
       expect(result.parity, `${scenario}: parity ${result.parityDiff ?? ''}`).toBe(true)
-      expect(over, `${scenario}: every committed row must be oracle-changed`).toEqual([])
+      // POD-4491/POD-4496: #4 rename commits i1 for its R4 origin tick
+      // (spinOffOriginId, mission.ts:479-483; tick UnifiedIssueRow.tsx:450-460).
+      // The tick is UI-only, outside the SliceSnapshot oracle projection
+      // (spec §7), so the oracle reports no change for i1 while the arm
+      // correctly re-renders it. Allowed, not a leak.
+      expect(over, `${scenario}: every committed row must be oracle-changed`).toEqual(allowOver)
       return result
     }
 
@@ -130,7 +136,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
       expect(atMount).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), locals))
 
-      const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx))
+      const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx), locals, ['i1'])
       const stageMove = await step('stageMoveAcrossGroups', '#5', () => writeStageMove(ctx))
       const newIssue = await step('newIssue', '#6a', () => writeNewIssue(ctx, SPEC))
       const archive = await step('archiveIssue', '#6b', () => writeArchiveIssue(ctx))
@@ -194,13 +200,15 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       const burst = await step('burst50', '#10', () => writeBurst50(ctx, SPEC))
 
       if (STRICT) {
-        // #4: exactly the renamed row; derivation bodies: flat + summary +
-        // aggregate input checks on the replaced row object (methodology
-        // Q-H3/M3: this counter is arm-relative; the cross-arm metric is rows
-        // committed). One event, one notification.
-        expect(rename.rowsCommitted).toBe(1)
-        expect(rename.commitsByRow).toEqual({ i0: 1 })
-        expect(rename.stats.rowsDerived).toBe(1)
+        // #4: the renamed row plus its R4 spin-off's tick (POD-4491/POD-4496:
+        // i1->i0 discovered-from, spinOffOriginId mission.ts:479-483; the tick
+        // is UI-only, outside the SliceSnapshot oracle, hence the allowed
+        // over-commit above). Derivation bodies arm-relative (methodology
+        // Q-H3/M3: the cross-arm metric is rows committed). One event, one
+        // notification.
+        expect(rename.rowsCommitted).toBe(2)
+        expect(rename.commitsByRow).toEqual({ i0: 1, i1: 1 })
+        expect(rename.stats.rowsDerived).toBe(2)
         expect(rename.stats.rollupsDerived).toBe(3)
         expect(rename.stats.notifications).toBe(1)
         // #5: the moved row only (its child's aggregate reads its own

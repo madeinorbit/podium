@@ -87,12 +87,15 @@ number) and `tanstack-m2-counts-1x.json` (attached to the issue).
 Shape: value updates are delta-precise (only the touched chain re-runs,
 every counter scale-invariant); keyspace changes and clock ticks re-run
 the graph's fns broadly with value-equal suppression containing commits
-(#6a: 9,253 summary runs → 2 changes → 0 commits). Commits match both
+(#6a: 9,253 summary runs → 2 changes → 1 commit on i1, the documented R3
+fan-out over-commit; #6b archive re-runs ~9.2k rollups when i4's R3 anchor
+leaves). Commits match both
 finished arms exactly where comparable (#7: 2 [i2,i8]; #10: 21 / 32).
 Query-graph runs per scenario are reported next to the counts in the
 note. Mount record for the Q-T5 fan-out check: verdictQ 3,354,
-verdictR 0 (no R3 fan-out on the scenario corpus — F-seed, see the
-note), max issues per worktree 0.
+verdictR 559 (POD-4496: R3 live after the projection dual-carry; was 0
+while the seed was wire-only and the oracle R3-blind — F-seed closed),
+max issues per worktree 2 (was 0).
 
 ### M2 mechanism fixes (both inside existing places — no new list entry)
 
@@ -123,11 +126,11 @@ note), max issues per worktree 0.
     subscribers hear nothing). Only `fn` queries notify reliably —
     every mirrored seat must hang off one.
 
-### 1x engine-backed (GROWTH_CORPORA.x1; 4,867 issues / 4,304 sessions / 500 repos; 3,230 visible rows)
+### 1x engine-backed (GROWTH_CORPORA.x1; 4,867 issues / 4,304 sessions / 500 repos; 3,332 visible rows)
 
 | Scenario | Rows committed | rowsDerived | rollupsDerived | indexUpdates | notifications | Parity |
 |---|---|---|---|---|---|---|
-| #1 unrelatedHeartbeat | 0 / 3230 | 0 | 0 | 0 | 1 | green |
+| #1 unrelatedHeartbeat | 0 / 3332 | 0 | 0 | 0 | 1 | green |
 | #2 visibleSessionPhaseChange | 1 (i0) | 1 | 7 | 0 | 1 | green |
 | #3 selectionClick (engine path) | 0 | 0 | 5 | 0 | 1 | green |
 

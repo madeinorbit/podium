@@ -68,11 +68,11 @@
 
 ## Count tables
 
-### 1x engine-backed (GROWTH_CORPORA.x1; 4,867 issues / 4,304 sessions / 500 repos; 3,230 visible rows; `mobx-1x-counts.json`, gitignored)
+### 1x engine-backed (GROWTH_CORPORA.x1; 4,867 issues / 4,304 sessions / 500 repos; 3,332 visible rows; `mobx-1x-counts.json`, gitignored)
 
 | Scenario | Rows committed | rowsDerived | rollupsDerived | indexUpdates | notifications | Parity |
 |---|---|---|---|---|---|---|
-| #1 unrelatedHeartbeat | 0 / 3230 | 0 | 0 | 0 | 1 | green |
+| #1 unrelatedHeartbeat | 0 / 3332 | 0 | 0 | 0 | 1 | green |
 | #2 visibleSessionPhaseChange | 1 (i0) | 1 | 3 | 0 | 1 | green |
 | #3 selectionClick (engine path) | 0 | 0 | 3¹ | 0 | 1 | green |
 
@@ -150,11 +150,15 @@ review (open question 1 below, shared with the hand arm).
 ## M2 record (POD-4451)
 
 Count harness at 1x (`mobx.m2.test.tsx`, `PROTO_M2_STRICT=1` green):
-rename 1 (i0) / 1+3, stagemove 1 (i3) / 1+3, new 0 / 1+3, archive 1 (i3) /
+rename 2 (i0,i1) / 2+3 (POD-4491/POD-4496: i1 R4 tick, allowed over-commit —
+tick UI-only, outside the SliceSnapshot oracle), stagemove 1 (i3) / 1+3,
+new 0 / 1+3, archive 1 (i3) /
 2+1, evict 0 / 1+1, reparent 2 (i2,i8) / 2+5, clock 0 / 0+404 (notifications
 0 — locals dispatch nothing), optimism 0 per step with model kept and echo
 value restored (press2 two dispatches, rollback quiet), burst50 21 / 32+138
-with one notification. Parity green and zero over-commit on every step; #7
+with one notification. Parity green on every step; over-commit only the
+documented #4 i1 tick. Visible rows 3,332 at 1x (POD-4496 R3 dual-carry;
+was 3,230 while the oracle was R3-blind). #7
 commits the same rows with the same counts as the hand arm (2 [i2,i8] /
 2+5), #10 the same counts (21 / 32). Full
 table + scan judgments in `docs/measurements/POD-4451-m2.md`.

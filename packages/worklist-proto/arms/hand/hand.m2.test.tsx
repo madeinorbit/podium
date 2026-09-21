@@ -191,9 +191,9 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
 
       // #9 supplement (not a G3 scenario): the same optimistic press on a
       // VISIBLE row. readAt moves no derived value, so the committed object
-      // must survive press + confirm with identity intact — the non-vacuous
-      // half of the #9 identity gate (i6 above is invisible in the seed
-      // corpus, so its identity holds trivially).
+      // must survive press + confirm with identity intact. Both i6 and i0
+      // are visible at 1x (POD-4496: the R3 anchor dual-carry makes s6 join
+      // i6), so both halves touch all three bodies.
       const visibleTarget = 'i0'
       const visibleBefore = store.rows.rows.get(visibleTarget)
       expect(visibleBefore, 'supplement needs a visible row').toBeDefined()
@@ -247,20 +247,20 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
         expect(tick.rowsCommitted).toBe(0)
         expect(tick.stats.notifications).toBe(1)
         // #9: every step bounded like a phase change; the rollback restores
-        // the echo step's object identity; never a full rebuild. i6 is
-        // invisible in the seed corpus, so its steps touch summary +
-        // visibility only (the rollup skips invisible rows); the visible
-        // supplement touches all three bodies.
+        // the echo step's object identity; never a full rebuild. POD-4496:
+        // i6 is VISIBLE at 1x (R3 anchor s6 joins i6 after the projection
+        // dual-carry), so its steps touch all three bodies like the visible
+        // supplement (3 evals per press); press2 carries two presses (6).
         for (const [name, r] of [
           ['press1', press1],
           ['echo', echo],
         ] as const) {
           expect(r.rowsCommitted, name).toBe(0)
-          expect(r.stats.rollupsDerived, name).toBe(2)
+          expect(r.stats.rollupsDerived, name).toBe(3)
           expect(r.visibleRows, `${name} never a full rebuild`).toBeGreaterThan(10)
         }
         expect(press2.rowsCommitted, 'press2').toBe(0)
-        expect(press2.stats.rollupsDerived, 'press2').toBe(4)
+        expect(press2.stats.rollupsDerived, 'press2').toBe(6)
         expect(press2.stats.notifications, 'press2 optimistic + rollback').toBe(2)
         expect(rejected.rowsCommitted, 'rollback').toBe(0)
         expect(rejected.stats.notifications, 'rollback quiet').toBe(0)

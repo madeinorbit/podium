@@ -62,11 +62,11 @@
 
 ## Count tables
 
-### 1x engine-backed (GROWTH_CORPORA.x1; 4,867 issues / 4,304 sessions / 500 repos; 3,230 visible rows; `hand-1x-counts.json`)
+### 1x engine-backed (GROWTH_CORPORA.x1; 4,867 issues / 4,304 sessions / 500 repos; 3,332 visible rows; `hand-1x-counts.json`)
 
 | Scenario | Rows committed | rowsDerived | rollupsDerived | indexUpdates | notifications | Parity |
 |---|---|---|---|---|---|---|
-| #1 unrelatedHeartbeat | 0 / 3230 | 0 | 0 | 0 | 1 | green |
+| #1 unrelatedHeartbeat | 0 / 3332 | 0 | 0 | 0 | 1 | green |
 | #2 visibleSessionPhaseChange | 1 (i0) | 1 | 3 | 0 | 1 | green |
 | #3 selectionClick (engine path) | 0 | 0 | 3¹ | 0 | 1 | green |
 
@@ -182,7 +182,14 @@ compression is comment-trimming, not structure — deferred to H4 review.
    visibility loss for zero scenario benefit. The adjacent real holes are
    findings F1–F2 below, not M2 fixes.
 
-## Count tables (1x: 4,867 issues / 4,304 sessions; 3,230 visible rows)
+## Count tables (1x: 4,867 issues / 4,304 sessions; 3,332 visible rows)
+
+POD-4496: the scenario seed dual-carries R3 anchors on wire + projection
+(`scenarios.ts`; legacy reads projection, `issue-view-models.ts:88,171-173`,
+projection overwrites wire). Before the dual-carry the oracle was blind to
+R3 (3,230 rows); after, both sides resolve R3 (3,332 rows, +102 anchors
+incl. i265). i6 is now visible via s6, so #9 optimism touches all three
+bodies like the visible supplement.
 
 BEFORE (no arm changes; parity + rebuild oracle green throughout):
 
@@ -195,8 +202,8 @@ BEFORE (no arm changes; parity + rebuild oracle green throughout):
 | #6c evict | 0 (unmount¹) | 1 | 0 | 1 | 1 |
 | #7 reparent | 2 (i2, i8) | 2 | 5 | 2 | 1 |
 | #8 tick | 0 | 0 | 45 | 0 | 1 |
-| #9a press / #9b echo | 0 / 0 | 0 / 0 | 2 / 2 | 0 / 0 | 1 / 1 |
-| #9c rejected press | 0 | 0 | 4 | 0 | 2 |
+| #9a press / #9b echo | 0 / 0 | 0 / 0 | 3 / 3 (was 2/2 pre-R3; i6 now visible) | 0 / 0 | 1 / 1 |
+| #9c rejected press | 0 | 0 | 6 (was 4) | 0 | 2 |
 | #9d rollback quiet | 0 | 0 | 0 | 0 | 0 |
 | #10 burst50 | 21 | 32³ | 143 | 50 | 1 |
 
@@ -218,7 +225,7 @@ AFTER (budgets beside each number; scans per step):
 | #6c (order + row) | 0 unmount ✓ | 1 + 0 | order-idx 3,228; groups 3,229; rowgrp 6; snapshot 3,229 |
 | #7 (both chains) | 2 ✓ | 2 + 5 | walk 2; batch 11,162; snapshot 3,229 |
 | #8 (band-movers only) | 0 ✓ | 0 + 558⁵ | snapshot 3,229 |
-| #9 each step phase-like | 0 ✓ | 2/2/4/0 | snapshot only (no walks, no batch⁶) |
+| #9 each step phase-like | 0 ✓ | 3/3/6/0 (POD-4496: i6 visible via R3) | snapshot only (no walks, no batch⁶) |
 | #9 suppl. visible press | 0, identity kept ✓ | 3 | batch 11,162; snapshot 3,229 |
 | #9 rollback identity | echo object ✓ | — | — |
 | #10 (one event, ≤50+chains) | 21 ✓ | 32 + 143 | walk 3+24; batch 11,268; groups 3,240; rowgrp 83; snapshot 3,240 |
@@ -226,9 +233,11 @@ AFTER (budgets beside each number; scans per step):
 ⁴ Derivation bodies are arm-relative (methodology Q-H3/M3): own-summary +
 visibility + aggregate = 3 per single-row change. Cross-arm metric is rows
 committed. ⁵ 513 live deferUntil carriers + 45 decay rows; every number
-reconciles (27 archived carriers excluded before counting). ⁶ i6 is
-invisible in the seed corpus (unbound session, no audience), so optimism
-steps touch summary + visibility only — trivially identity-safe. The real
+reconciles (27 archived carriers excluded before counting). ⁶ POD-4496: i6
+is VISIBLE at 1x (R3 anchor s6 joins i6 after the projection dual-carry),
+so optimism steps touch all three bodies like the visible supplement (3
+evals per press, 6 for the double press). Pre-R3 it was invisible
+(unbound session, no audience), touching summary + visibility only.
 mechanism: `readAt` feeds no derived value, and the kernel restores the
 echo object by reference on rollback (G3 covered truth). The visible-row
 supplement (#9 suppl., i0, all three bodies) carries the non-vacuous half.
