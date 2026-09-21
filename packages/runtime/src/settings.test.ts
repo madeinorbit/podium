@@ -31,6 +31,21 @@ describe('settings harness choices', () => {
     expect(resolveRole(s, 'coding')).toMatchObject({ execution: 'harness', harness: 'grok' })
     expect(resolveRole(s, 'superagent')).toMatchObject({ execution: 'harness', harness: 'grok' })
   })
+
+  it('derives AgentChoice from the closed set: auto plus the offered harnesses (4.2)', () => {
+    expect([...AgentChoice.options]).toEqual([
+      'auto',
+      'claude-code',
+      'codex',
+      'grok',
+      'opencode',
+      'cursor',
+    ])
+    // `pi` is deliberately unoffered — adding it is a product decision, not a
+    // registry sync — so the derived set must keep rejecting it.
+    expect(AgentChoice.safeParse('pi').success).toBe(false)
+    expect(AgentChoice.safeParse('shell').success).toBe(false)
+  })
 })
 
 describe('resolveRole harness precedence', () => {
