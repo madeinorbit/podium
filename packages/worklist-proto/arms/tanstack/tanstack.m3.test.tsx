@@ -97,6 +97,16 @@ function diffRuns(
   return out
 }
 
+/** Per-query fn-wall deltas since the snapshot (M3 stats split input). */
+function diffMs(before: { ms: Record<string, number> }, after: GraphRuns): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const key of new Set([...Object.keys(before.ms), ...Object.keys(after.ms)])) {
+    const delta = (after.ms[key] ?? 0) - (before.ms[key] ?? 0)
+    if (delta !== 0) out[key] = delta
+  }
+  return out
+}
+
 function changedRows(before: SliceSnapshot, after: SliceSnapshot): string[] {
   const out = new Set<string>()
   for (const id of new Set([...Object.keys(before.rowsById), ...Object.keys(after.rowsById)])) {
@@ -354,11 +364,7 @@ describe('tanstack arm milestone 3: lifecycle, growth, coexistence', () => {
           const runsDelta = diffRuns(runsBefore, store.runs)
           const scans = store.scanCounts()
           const phaseMs = store.phaseMs()
-          const fnMs = { ...store.runs.ms }
-          for (const key of Object.keys(runsBefore.ms)) {
-            if ((fnMs[key] ?? 0) === (runsBefore.ms[key] ?? 0)) delete fnMs[key]
-            else fnMs[key] = (fnMs[key] ?? 0) - (runsBefore.ms[key] ?? 0)
-          }
+          const fnMs = diffMs(runsBefore, store.runs)
           table.push({
             scale: name,
             issues: (spec as CorpusSpec).issues,
@@ -583,6 +589,7 @@ describe('tanstack arm milestone 3: lifecycle, growth, coexistence', () => {
         expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
       })
       const runsDelta = diffRuns(runsBefore, store.runs)
+      const fnMsDelta = diffMs(runsBefore, store.runs)
       const changed = changedRows(before, snapshotFromStore(ctx.engine.getSnapshot(), locals))
       const committed = Object.keys(result.commitsByRow).sort()
       const over = committed.filter((id) => !changed.includes(id))
@@ -592,9 +599,13 @@ describe('tanstack arm milestone 3: lifecycle, growth, coexistence', () => {
           `stats=${JSON.stringify(result.stats)} runs=${JSON.stringify(runsDelta)} parity=${result.parity}`,
       )
       expect(result.parity).toBe(true)
-      // The fan-out ran: the R3 join re-evaluated (change events on
-      // verdictR), and every committed row is oracle-changed (contained).
-      expect(runsDelta['changes:verdictR'] ?? 0).toBeGreaterThan(0)
+      // The fan-out ran AND was contained: the R3 join re-evaluated
+      // (verdictR fn walls > 0 — the shared `verdict` run counter cannot
+      // separate verdictQ from verdictR, but the ms split can) while every
+      // verdictR output settled value-equal (zero verdictR change events,
+      // zero over-commits).
+      expect(fnMsDelta['verdictR'] ?? 0).toBeGreaterThan(0)
+      expect(runsDelta['changes:verdictR'] ?? 0).toBe(0)
       expect(over).toEqual([])
       const resultsDir = resultsDirOf()
       mkdirSync(resultsDir, { recursive: true })
@@ -611,6 +622,7 @@ describe('tanstack arm milestone 3: lifecycle, growth, coexistence', () => {
             oracleChanged: changed,
             stats: result.stats,
             runs: runsDelta,
+            fnMs: fnMsDelta,
             parity: result.parity,
           },
           null,
