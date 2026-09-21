@@ -12,7 +12,7 @@
  * full render instead of guessing a window.
  */
 
-import { memo, useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import { observer } from 'mobx-react-lite'
 import { RowShell } from '../../../shared/src/row-shell'
 import type { SliceRow } from '../../../shared/src/slice-types'
@@ -47,7 +47,7 @@ const MobxRowView = observer(function MobxRowView({
   )
 })
 
-const MobxRow = memo(function MobxRow({
+const MobxRow = observer(function MobxRow({
   model,
   store,
 }: {

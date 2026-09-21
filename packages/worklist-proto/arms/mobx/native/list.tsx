@@ -12,7 +12,6 @@
  */
 
 import type { ReactElement } from 'react'
-import { memo } from 'react'
 import { observer } from 'mobx-react-lite'
 import { ScrollView, Text, View } from 'react-native'
 import { RowShell } from '../../../shared/src/row-shell'
@@ -46,7 +45,7 @@ const MobxNativeRowView = observer(function MobxNativeRowView({
   )
 })
 
-const MobxNativeRow = memo(function MobxNativeRow({
+const MobxNativeRow = observer(function MobxNativeRow({
   model,
   store,
 }: {

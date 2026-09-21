@@ -6,6 +6,7 @@
 
 import './config'
 import { createElement, type ReactElement } from 'react'
+import { observer } from 'mobx-react-lite'
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
 import type { SliceLocals } from '../../shared/src/slice-types'
 import { MobXStore } from './store'
@@ -26,12 +27,12 @@ export function preloadMobxNative(): Promise<void> {
   })
 }
 
-function NativeHost({ store }: { store: MobXStore }): ReactElement {
+const NativeHost = observer(function NativeHost({ store }: { store: MobXStore }): ReactElement {
   if (nativeModule === null) {
     throw new Error('[mobx] native list not preloaded — call preloadMobxNative() first')
   }
   return createElement(nativeModule.MobxNativeList, { store })
-}
+})
 
 export const mobxArm: Arm = {
   create(source: RowSource, locals: SliceLocals): ArmHandle {
