@@ -46,6 +46,15 @@ export * from './families/terminal/index.js'
  *  supervisor owns spawn/re-attach/kill, families compose argv/env and bind
  *  protocol. Implemented once in the daemon's process-supervision wiring. */
 export * from './families/engine-supervision.js'
+/** The shared lost-queue reporter every server-family session adapter wires. */
+export { reportQueueAbandonment } from './families/queue-report.js'
+/** The uniform server-family shape the supervisor composes (1.5). */
+export type {
+  ServerFamilyJournalEntry,
+  ServerFamilyLaunch,
+  ServerFamilyRuntime,
+  ServerSessionFramePorts,
+} from './families/server-family.js'
 /** Pi's `--mode json` turn-output fold (moved from the daemon in 1.5: pi has no
  *  driver family, so its turn grammar lives with its adapter; re-exported here
  *  for the supervisor's headless machinery, which stays daemon-owned). */

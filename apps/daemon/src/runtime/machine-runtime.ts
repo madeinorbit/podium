@@ -4,6 +4,11 @@
  * Family runtimes retain only mechanism-private maps and journals. Every
  * cross-family question — driver selection, capability lookup, session lookup,
  * inventory, adoption, and teardown identity — enters through this object.
+ *
+ * (1.5: the server families arrive as `ServerFamilyRuntime` — one uniform
+ * shape per family, built by the families' session modules. No branch here
+ * names a harness; driver ids are the only identities that cross this
+ * boundary.)
  */
 
 import {
@@ -20,10 +25,10 @@ import {
 import type { AcceptedDriverId } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { DaemonMessage, RuntimeWatchLevel } from '@podium/protocol/daemon'
-import type { DaemonClaudeSdkRuntime } from './claude-sdk-driver'
-import type { DaemonCodexRuntime } from './codex-driver'
-import type { DaemonGrokRuntime } from './grok-driver'
-import type { DaemonOpencodeRuntime } from './opencode-driver'
+import type {
+  DaemonClaudeSdkRuntime,
+  ServerFamilyRuntime,
+} from '@podium/harness/driver/host'
 import { HEADLESS_DRIVER_ID, type HeadlessRuntime } from './headless-driver'
 import { type DriverResolution, resolveRuntimeDriver, terminalProfileFor } from './registry'
 import type {
@@ -34,7 +39,7 @@ import type {
 import { createRuntimeWatchLifecycle } from './watch'
 
 export interface JournalledServerProcess {
-  driver: 'opencode' | 'opencode2' | 'codex' | 'grok'
+  driver: DriverId
   identity: { key: string; pid?: number; scopeUnit?: string }
   probe?: { baseUrl: string; secret: string; username?: string; healthPath?: string }
   clearJournal(): void
@@ -105,22 +110,21 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
 export function createDaemonMachineRuntime(input: {
   terminal: TerminalRuntime
   claude: DaemonClaudeSdkRuntime
-  opencode: DaemonOpencodeRuntime
-  opencode2: DaemonOpencodeRuntime
-  codex: DaemonCodexRuntime
-  grok: DaemonGrokRuntime
+  servers: readonly ServerFamilyRuntime[]
   headless: HeadlessRuntime
   inventory(): ReturnType<MachineAgentRuntime['inventory']>
 }): DaemonMachineRuntime {
-  const servers = [input.opencode, input.opencode2, input.codex, input.grok] as const
+  const servers = input.servers
 
   const journalled = (sessionId: SessionId) => {
-    const found = [
-      [input.opencode, input.opencode.journal.read(sessionId), 'opencode serve'] as const,
-      [input.opencode2, input.opencode2.journal.read(sessionId), 'opencode2 serve'] as const,
-      [input.codex, input.codex.journal.read(sessionId), 'codex app-server'] as const,
-      [input.grok, input.grok.journal.read(sessionId), 'grok agent stdio'] as const,
-    ].filter((entry) => entry[1] !== undefined)
+    const found: Array<{
+      server: ServerFamilyRuntime
+      entry: NonNullable<ReturnType<ServerFamilyRuntime['journalEntry']>>
+    }> = []
+    for (const server of servers) {
+      const entry = server.journalEntry(sessionId)
+      if (entry !== undefined) found.push({ server, entry })
+    }
     return found
   }
 
@@ -162,10 +166,7 @@ export function createDaemonMachineRuntime(input: {
     ...(spec.initialPrompt ? { initialPrompt: spec.initialPrompt } : {}),
   })
 
-  const serverSource = (
-    server: DaemonOpencodeRuntime | DaemonCodexRuntime | DaemonGrokRuntime,
-    launch: (sessionId: SessionId, spec: SessionSpec) => Promise<void>,
-  ): AgentRuntimeDriverSource => ({
+  const serverSource = (server: ServerFamilyRuntime): AgentRuntimeDriverSource => ({
     driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined {
       return server.driver.harness === harness && server.driver.id === driver
         ? server.driver
@@ -178,7 +179,7 @@ export function createDaemonMachineRuntime(input: {
       if (existing.length > 0) {
         throw new Error(`session '${sessionId}' already has a persisted server journal`)
       }
-      await launch(sessionId, spec)
+      await server.launch(serverLaunchFor(sessionId, spec))
       const handle = server.handleFor(sessionId)
       if (!handle) throw new Error(`server runtime did not index session '${sessionId}'`)
       return handle
@@ -239,20 +240,7 @@ export function createDaemonMachineRuntime(input: {
     },
   }
 
-  const serverSources: readonly AgentRuntimeDriverSource[] = [
-    serverSource(input.opencode, (sessionId, spec) =>
-      input.opencode.launch(serverLaunchFor(sessionId, spec)),
-    ),
-    serverSource(input.opencode2, (sessionId, spec) =>
-      input.opencode2.launch(serverLaunchFor(sessionId, spec)),
-    ),
-    serverSource(input.codex, (sessionId, spec) =>
-      input.codex.launch(serverLaunchFor(sessionId, spec)),
-    ),
-    serverSource(input.grok, (sessionId, spec) =>
-      input.grok.launch(serverLaunchFor(sessionId, spec)),
-    ),
-  ]
+  const serverSources: readonly AgentRuntimeDriverSource[] = servers.map(serverSource)
 
   let runtime!: MachineAgentRuntime
   runtime = createAgentRuntime({
@@ -390,8 +378,8 @@ export function createDaemonMachineRuntime(input: {
       if (found.length > 1) throw new Error(`session '${sessionId}' has duplicate server journals`)
       const match = found[0]
       if (!match) return { found: false }
-      const [server, entry, what] = match
-      if (!entry) return { found: false }
+      const { server, entry } = match
+      const what = server.describe
       const binding: SessionBinding = {
         sessionId,
         driver: server.driver.id,
@@ -429,55 +417,21 @@ export function createDaemonMachineRuntime(input: {
       const matches = journalled(sessionId)
       if (matches.length > 1)
         throw new Error(`session '${sessionId}' has duplicate server journals`)
-      const opencode = input.opencode.journal.read(sessionId)
-      if (opencode) {
-        return {
-          driver: 'opencode',
-          identity: opencode.process,
-          probe: { baseUrl: opencode.baseUrl, secret: opencode.secret },
-          clearJournal: () => input.opencode.journal.clear(sessionId),
-        }
+      const match = matches[0]
+      if (!match) return undefined
+      const { server, entry } = match
+      return {
+        driver: server.driver.id,
+        identity: entry.process,
+        ...(entry.probe ? { probe: entry.probe } : {}),
+        clearJournal: () => server.clearJournal(sessionId),
       }
-      const opencode2 = input.opencode2.journal.read(sessionId)
-      if (opencode2) {
-        return {
-          driver: 'opencode2',
-          identity: opencode2.process,
-          probe: {
-            baseUrl: opencode2.baseUrl,
-            secret: opencode2.secret,
-            username: opencode2.username,
-            healthPath: '/api/health',
-          },
-          clearJournal: () => input.opencode2.journal.clear(sessionId),
-        }
-      }
-      const codex = input.codex.journal.read(sessionId)
-      if (codex) {
-        return {
-          driver: 'codex',
-          identity: codex.process,
-          clearJournal: () => input.codex.journal.clear(sessionId),
-        }
-      }
-      const grok = input.grok.journal.read(sessionId)
-      if (grok) {
-        return {
-          driver: 'grok',
-          identity: grok.process,
-          clearJournal: () => input.grok.journal.clear(sessionId),
-        }
-      }
-      return undefined
     },
     dispose() {
       watches.dispose()
       input.terminal.dispose()
       input.claude.dispose()
-      input.opencode.dispose()
-      input.opencode2.dispose()
-      input.codex.dispose()
-      input.grok.dispose()
+      for (const server of servers) server.dispose()
     },
   }
 }

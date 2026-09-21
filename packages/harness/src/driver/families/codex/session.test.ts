@@ -1,32 +1,25 @@
 /**
- * THE DAEMON'S HALF OF RESTART-ADOPTION FOR CODEX (POD-1761 W6, review fix 1).
+ * THE CODEX SESSION ADAPTER (moved from apps/daemon/src/runtime/codex-driver.test.ts
+ * in 1.5 with the code it pins).
  *
- * The driver half was done and correct — `driver.adopt()` resumes the journalled
- * thread and the conformance corpus exercises it — and the CALLER was missing.
- * `adoptServerDriverSession` consulted only the opencode runtime, so a codex
- * session answered "not mine" and fell through to a path whose own words are
- * that it "assumes a PTY". The session came back `reattachFailed: session not
- * found`: verbatim the failure that function exists to prevent.
- *
- * WHAT THIS FILE TESTS IS THE WIRING, deliberately, and not the protocol. Does a
- * journal entry get read, does `driver.adopt()` get called for it, does the
- * handle come back registered and reported? Protocol fidelity is covered
- * exhaustively one package over against frames recorded from a live codex; a
- * second copy of that here would be a second source of truth for shapes this
- * layer never looks at.
- *
- * THE FAKE APP-SERVER IS THEREFORE MINIMAL and answers exactly the three calls
- * an adopt makes: `initialize`, `initialized`, `thread/resume`.
+ * Restart-adoption, launch registration and lost-queue reporting at the
+ * session layer: journal entries in, adopted handles and durable frames out.
+ * The engine is a stub transport; supervision ports are stubs — the
+ * supervisor's own wiring (send sink, bind builder, timing, mail) is pinned
+ * daemon-side.
  */
 
-import type { CodexRuntimeHost, CodexTransport } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
-import { startFakeAppServer } from '../../../../packages/harness/src/driver/families/codex/test-support/fake-app-server'
-import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
-import { createDaemonCodexRuntime } from './codex-driver'
+import { startFakeAppServer } from './test-support/fake-app-server'
+import { codexEngineFacts } from './engine-facts.js'
+import { createCodexSessionRuntime } from './session.js'
+import type { CodexRuntimeHost } from './runtime.js'
+import type { CodexTransport } from './client.js'
+
+const FACTS = codexEngineFacts()
 
 /** Just enough app-server to complete a handshake and resume a thread. */
 function stubTransport(): { transport: CodexTransport; resumedThreads: string[] } {
@@ -119,7 +112,9 @@ function world(options: { sendThrows?: boolean } = {}) {
     entries,
     resumed,
     launches: () => launches,
-    runtime: createDaemonCodexRuntime({
+    runtime: createCodexSessionRuntime({
+      facts: FACTS,
+      engine: host,
       send: (msg) => {
         // What `connection-state.send` does for this frame: enqueue onto the
         // fsynced outbox, which throws on ENOSPC/EDQUOT/EIO and on a reportId
@@ -129,7 +124,12 @@ function world(options: { sendThrows?: boolean } = {}) {
         }
         sent.push(msg)
       },
-      host,
+      emitBind: (bind) => {
+        sent.push({ type: 'bind', ...bind })
+      },
+      sessionReady: () => {},
+      traceRuntimeEvent: () => {},
+      startMailContinuation: () => () => {},
     }),
   }
 }
@@ -413,68 +413,6 @@ describe('the abandonment is said out loud before it is made durable — POD-229
       expect(w.sent.filter((m) => m.type === 'runtimeQueueDrainAbandoned')).toHaveLength(0)
     } finally {
       dispose()
-    }
-  })
-})
-
-
-
-describe('issue mail without terminal callbacks', () => {
-  it.each(['unread', 'reminder', 'empty', 'failed'] as const)('handles %s at completion with the correct active state and no mail loop', async (mode) => {
-    const base = world()
-    const server = startFakeAppServer()
-    let now = 0
-    let polls = 0
-    const mail = createMailInjector(async () => {
-      polls++
-      if (mode === 'failed') throw new Error('relay offline')
-      return { ok: true, result: { unread: mode === 'unread' ? 2 : 0, senders: ['coordinator'] } }
-    }, () => now)
-    const ack = createAckReminderInjector(async () => ({ ok: true, result:
-      mode === 'reminder' ? [{ id: 'msg_reply', from: 'coordinator' }] : [] }), () => now)
-    const runtime = createDaemonCodexRuntime({
-      send: () => {},
-      boundaryContext: composeMailContext(mail, ack).pendingContext,
-      host: {
-        ...base.host,
-        launch: async () => ({
-          transport: server.transport,
-          clientAddress: 'unix:///tmp/boundary-test.sock',
-          process: { key: 'boundary-test' },
-          stop: async () => {},
-          kill: async () => {},
-          resources: () => undefined,
-        }),
-      },
-    })
-    try {
-      const sessionId = 'boundary-mail' as SessionId
-      await runtime.launch({ sessionId, cwd: '/work' })
-      const handle = runtime.handleFor(sessionId)!
-      await handle.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
-      expect(polls).toBe(0)
-      server.completeTurn('completed')
-      if (mode === 'empty' || mode === 'failed') {
-        await expect.poll(() => polls).toBe(1)
-        await new Promise((resolve) => setTimeout(resolve, 20))
-        expect(server.turnStarts).toBe(1)
-        expect((await handle.state()).phase).toBe('idle')
-        return
-      }
-      await expect.poll(() => server.turnStarts).toBe(2)
-      expect((await handle.state()).phase).toBe('working')
-      expect(JSON.stringify(server.lastTurnInput)).toContain(mode === 'unread' ? 'podium issue mail inbox' : 'podium mail reply msg_reply')
-      expect(JSON.stringify(server.lastTurnInput)).toContain('coordinator')
-      // Even when the cooldown expires, the mail turn cannot remind itself.
-      now = 120_000
-      server.completeTurn('completed')
-      await new Promise((resolve) => setTimeout(resolve, 20))
-      expect(server.turnStarts).toBe(2)
-      expect(polls).toBe(1)
-      expect((await handle.state()).phase).toBe('idle')
-    } finally {
-      runtime.dispose()
-      base.runtime.dispose()
     }
   })
 })

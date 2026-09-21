@@ -78,6 +78,11 @@ export {
   opencodeFlavor,
 } from './engine-facts.js'
 export {
+  type DaemonOpencodeRuntime,
+  type OpencodeSessionDeps,
+  createOpencodeSessionRuntime,
+} from './session.js'
+export {
   gateOpencodeVersion,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type OpencodeVersion,

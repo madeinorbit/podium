@@ -1,28 +1,34 @@
 import { randomUUID } from 'node:crypto'
 import { basename, join } from 'node:path'
+import type { AgentSessionHandle } from '../../driver.js'
+import type { RuntimeEvent } from '../../events.js'
+import type { PendingInteraction } from '../../interactions.js'
+import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
 import {
-  type AgentSessionHandle,
-  attachKindsForDriver,
   type ClaudeSdkRuntime,
   type ClaudeSdkRuntimeHost,
-  configureFieldsForDriver,
   createClaudeSdkRuntime,
-  type PendingInteraction,
-  runClaudeSdkChildTurn,
-  type RuntimeEvent,
-} from '@podium/harness/driver/host'
+} from './runtime.js'
+import { type ClaudeSdkChildTurnInput, runClaudeSdkChildTurn } from './child-turn.js'
+import { reportQueueAbandonment } from '../queue-report.js'
+import type { ServerSessionFramePorts } from '../server-family.js'
 import { createLogger } from '@podium/logger'
-import type { AccountId, AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
-import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
-import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
-import { type HeadlessTurnSpec, headlessChildEnv } from '../headless-drivers'
-import { driverTiming } from './driver-timing'
-import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
-import { reportQueueAbandonment } from './queue-abandonment'
-import type { TerminalRuntimeHost } from './terminal-driver'
+import type { AgentRuntimeState, HarnessAgent, ResumeRef, SessionId } from '@podium/model'
+import {
+  type DaemonMessage,
+  isRuntimeFineEvent,
+  type RuntimeHistoryPage,
+  type RuntimeHistoryRange,
+} from '@podium/protocol/daemon'
 
-const log = createLogger('daemon:claude-sdk-runtime')
-const ZERO_DIGEST = '0'.repeat(64)
+const log = createLogger('harness:claude-sdk-session')
+
+/**
+ * THE FAMILY'S KEY. The harness this session adapter serves — the one value
+ * the adapter selects on. Centralized here (never restated per call site) so
+ * the supervisor's wiring can read it as a value rather than naming it.
+ */
+export const claudeSdkHarnessKind = 'claude-code' as const
 const publishedClaudeBindings = new WeakSet<AgentSessionHandle>()
 
 export interface ClaudeSdkSessionLaunch {
@@ -36,42 +42,29 @@ export interface ClaudeSdkSessionLaunch {
 }
 
 export async function emitClaudeBinding(
-  send: (message: DaemonMessage) => void,
+  ports: Pick<ServerSessionFramePorts, 'send' | 'emitBind'>,
   input: {
     sessionId: SessionId
     cwd: string
-    agentKind: 'claude-code'
-    /**
-     * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), not a geometry.
-     *
-     * What stood here was `geometry?: Geometry`, and its launch caller filled it
-     * with a hardcoded `120x40`: an EMBEDDED SDK session has no pty, no attach
-     * client and no terminal of any kind, so there was never a size to report.
-     * The field is now the record, `bindFrame` is the only thing that reads it,
-     * and this family's binds come out bare — the same answer the adopt and
-     * resume arms already gave by passing nothing.
-     */
-    appliedGeometry?: AppliedGeometryRecord
+    agentKind: typeof claudeSdkHarnessKind
   },
   handle: AgentSessionHandle,
 ): Promise<void> {
   publishedClaudeBindings.add(handle)
-  send(
-    bindFrame(input.appliedGeometry, {
-      sessionId: input.sessionId,
-      cmd: 'Claude Agent SDK (embedded)',
-      cwd: input.cwd,
-      agentKind: input.agentKind,
-      driverId: handle.binding.driver,
-      // POD-3087: what this driver's configure() can change, read off its own
-      // declaration so no consumer has to keep a second copy of it.
-      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-    }),
-  )
-  send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
+  ports.emitBind({
+    sessionId: input.sessionId,
+    cmd: 'Claude Agent SDK (embedded)',
+    cwd: input.cwd,
+    agentKind: input.agentKind,
+    driverId: handle.binding.driver,
+    // POD-3087: what this driver's configure() can change, read off its own
+    // declaration so no consumer has to keep a second copy of it.
+    configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+    attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+  })
+  ports.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })
   if (handle.binding.resume) {
-    send({
+    ports.send({
       type: 'sessionResumeRef',
       sessionId: input.sessionId,
       resume: handle.binding.resume,
@@ -82,12 +75,12 @@ export async function emitClaudeBinding(
 
 /** Publish a newly resumed handle only when its adapter did not already do so. */
 export async function ensureClaudeBindingPublished(
-  send: (message: DaemonMessage) => void,
+  ports: Parameters<typeof emitClaudeBinding>[0],
   input: Parameters<typeof emitClaudeBinding>[1],
   handle: AgentSessionHandle,
 ): Promise<void> {
   if (publishedClaudeBindings.has(handle)) return
-  await emitClaudeBinding(send, input, handle)
+  await emitClaudeBinding(ports, input, handle)
 }
 
 export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
@@ -117,17 +110,51 @@ export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
  * Absent on the DEFAULT instance, where the daemon has no agent home of its own
  * and reader and child already agree on the ambient one.
  */
-export function createDaemonClaudeSdkRuntime(deps: {
-  send(msg: DaemonMessage): void
-  boundaryContext?: MailBoundaryContext
-  host: TerminalRuntimeHost
-  /** This daemon's applied-size record (POD-3290) — see `emitClaudeBinding`. */
-  appliedGeometry?: AppliedGeometryRecord
-  /** `ctx.homeDir` — the named instance's agent home, when there is one. */
+/**
+ * What a Claude SDK session adapter needs from whoever supervises it.
+ *
+ * The SDK child runs where the supervisor puts it; the transcript it writes
+ * is read back through the supervisor's transcript ports; env composition
+ * (stored-login precedence) is the supervisor's merge. Ports and facts as in
+ * ../codex/session.ts.
+ */
+export interface ClaudeSdkSessionDeps extends ServerSessionFramePorts {
+  transcript: {
+    readHistory(
+      session: {
+        sessionId: SessionId
+        agentKind: typeof claudeSdkHarnessKind
+        cwd: string
+        resume?: ResumeRef
+      },
+      range: Omit<RuntimeHistoryRange, 'direction'> & {
+        direction?: RuntimeHistoryRange['direction']
+      },
+    ): Promise<RuntimeHistoryPage>
+    archiveTranscript(input: {
+      agentKind: typeof claudeSdkHarnessKind
+      cwd: string
+      resumeValue: string
+    }): Promise<{ path: string; relativeDir?: string }>
+    readFileBytes(path: string): Promise<Uint8Array>
+  }
+  /**
+   * Compose the SDK host child's environment (stored-login precedence).
+   * Owned by the supervisor — the same merge every other child gets.
+   */
+  composeChildEnv(
+    agent: typeof claudeSdkHarnessKind,
+    explicit?: Readonly<Record<string, string>>,
+  ): Record<string, string>
+  /** The named instance's agent home, when there is one. */
   homeDir?: string
-  /** Installed Claude executable captured from this daemon generation. */
+  /** Installed Claude executable captured from this supervisor generation. */
   executablePath?: string
-}): DaemonClaudeSdkRuntime {
+}
+
+export function createClaudeSdkSessionRuntime(
+  deps: ClaudeSdkSessionDeps,
+): DaemonClaudeSdkRuntime {
   /**
    * The instance-owned overlay, layered LAST so it outranks the spawn frame's
    * env. `CLAUDE_CONFIG_DIR` rides along because the CLI honours it over `HOME`
@@ -159,10 +186,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
         input.turn.overrides?.supported && input.turn.overrides.value.effort
           ? input.turn.overrides.value.effort
           : input.spec.model.effort
-      const spec: HeadlessTurnSpec = {
-        agent: 'claude-code',
-        accountId: (input.spec.principal ?? 'operator-owned') as AccountId,
-        requestDigest: ZERO_DIGEST,
+      const spec: ClaudeSdkChildTurnInput = {
         cwd: input.spec.workdir,
         prompt: input.turn.text,
         ...(input.newConversation
@@ -184,7 +208,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
           }
         },
         {
-          childEnv: headlessChildEnv(spec.agent, spec.env),
+          childEnv: deps.composeChildEnv(claudeSdkHarnessKind, spec.env),
           onPermission: input.onPermission,
           onToolCall: input.onToolCall,
           onToolResult: input.onToolResult,
@@ -210,10 +234,10 @@ export function createDaemonClaudeSdkRuntime(deps: {
       }
     },
     readTranscript: ({ sessionId, workdir, resumeValue, range }) =>
-      deps.host.readHistory(
+      deps.transcript.readHistory(
         {
           sessionId,
-          agentKind: 'claude-code',
+          agentKind: claudeSdkHarnessKind,
           cwd: workdir,
           resume: { kind: 'claude-session', value: resumeValue },
         },
@@ -221,12 +245,15 @@ export function createDaemonClaudeSdkRuntime(deps: {
       ),
     async readArchive({ workdir, resumeValue }) {
       try {
-        const located = await deps.host.archiveTranscript({
-          agentKind: 'claude-code',
+        const located = await deps.transcript.archiveTranscript({
+          agentKind: claudeSdkHarnessKind,
           cwd: workdir,
           resumeValue,
         })
-        return { path: basename(located.path), bytes: await deps.host.readFileBytes(located.path) }
+        return {
+          path: basename(located.path),
+          bytes: await deps.transcript.readFileBytes(located.path),
+        }
       } catch {
         return undefined
       }
@@ -253,7 +280,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     const timingHandle = runtime.handleFor(sessionId)
-    if (timingHandle) driverTiming.runtimeEvent(timingHandle.binding, event)
+    if (timingHandle) deps.traceRuntimeEvent(timingHandle.binding, event)
     deps.send(
       isRuntimeFineEvent(event)
         ? { type: 'runtimeFineEvent', sessionId, event }
@@ -292,9 +319,10 @@ export function createDaemonClaudeSdkRuntime(deps: {
     if (!handle) return
     void (async () => {
       try {
-        const boundary = createMailContinuation(handle, deps.boundaryContext,
+        const boundary = deps.startMailContinuation(
+          handle,
           () => runtime.handleFor(sessionId) === handle,
-          (error) => log.warn('issue mail boundary delivery failed', { sessionId, error }))
+        )
         for await (const event of handle.events('bootstrap')) {
           translate(sessionId, event)
           boundary(event)
@@ -309,7 +337,7 @@ export function createDaemonClaudeSdkRuntime(deps: {
     ...contractRuntime,
     async launch(input) {
       const spec = {
-        harness: 'claude-code',
+        harness: claudeSdkHarnessKind,
         selection: {
           auth: 'unknown',
           platform: process.platform,
@@ -330,18 +358,17 @@ export function createDaemonClaudeSdkRuntime(deps: {
         ? await contractRuntime.resumeWithId(input.sessionId, input.resume, spec)
         : await contractRuntime.createWithId(input.sessionId, spec)
       pump(input.sessionId)
-      driverTiming.sessionReady(handle.binding)
+      deps.sessionReady(handle.binding)
+      // THE BIND IS BARE (POD-3290). An embedded SDK child is not attached to
+      // a terminal, so nothing here reports a size — instead of the `120x40`
+      // that used to go out as a report, the server keeps W unknown until a
+      // viewer asks.
       await emitClaudeBinding(
-        deps.send,
+        deps,
         {
           sessionId: input.sessionId,
           cwd: input.cwd,
-          agentKind: 'claude-code',
-          // THE RECORD, WHICH THIS LAUNCH LEAVES EMPTY (POD-3290). An embedded
-          // SDK child is not attached to a terminal, so the bind is bare and the
-          // server keeps W unknown until a viewer asks — instead of the
-          // `120x40` that used to go out here as a report.
-          ...(deps.appliedGeometry ? { appliedGeometry: deps.appliedGeometry } : {}),
+          agentKind: claudeSdkHarnessKind,
         },
         handle,
       )

@@ -1,9 +1,11 @@
-import type {
-  AgentSessionHandle,
-  OpencodeRuntime,
-  OpencodeRuntimeHost,
-  RuntimeEvent,
-} from '@podium/harness/driver/host'
+/**
+ * THE OPENCODE SESSION ADAPTER (moved from
+ * apps/daemon/src/runtime/opencode-driver.test.ts in 1.5 with the code it
+ * pins: turn-status translation at the session layer).
+ */
+import type { AgentSessionHandle } from '../../driver.js'
+import type { OpencodeRuntime, OpencodeRuntimeHost } from './runtime.js'
+import type { RuntimeEvent } from '../../events.js'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -13,24 +15,24 @@ const mocks = vi.hoisted(() => ({
 }))
 
 /**
- * A TOTAL replacement of the module, so every export this file's subject reaches
- * for has to appear here. `configureFieldsForDriver` (POD-3087) is REAL rather
- * than stubbed: it is a pure lookup over the drivers' own capability
- * declarations with no IO, so faking it would only let this suite disagree with
- * what the bind actually carries — which is the one thing worth knowing about
- * the line that calls it.
+ * A TOTAL replacement of the runtime module, so every export this file's
+ * subject reaches for has to appear here. `configureFieldsForDriver`
+ * (POD-3087) stays REAL (it lives in ../../configure-catalog.js, untouched
+ * by this mock): it is a pure lookup over the drivers' own capability
+ * declarations with no IO, so faking it would only let this suite disagree
+ * with what the bind actually carries.
  */
-vi.mock('@podium/harness/driver/host', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/harness/driver/host')>()
+vi.mock('./runtime.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./runtime.js')>()
   return {
+    ...actual,
     createOpencodeRuntime: mocks.createOpencodeRuntime,
     OPENCODE_SERVER_DRIVER_ID: 'opencode-server',
-    configureFieldsForDriver: actual.configureFieldsForDriver,
-    attachKindsForDriver: actual.attachKindsForDriver,
   }
 })
 
-import { createDaemonOpencodeRuntime } from './opencode-driver'
+import { createOpencodeSessionRuntime } from './session.js'
+import { opencodeFlavor } from './engine-facts.js'
 
 function world() {
   const sessionId = 'opencode-status-test' as SessionId
@@ -90,9 +92,16 @@ function world() {
   mocks.createOpencodeRuntime.mockReset()
   mocks.createOpencodeRuntime.mockReturnValue(runtime)
 
-  const daemon = createDaemonOpencodeRuntime({
+  const daemon = createOpencodeSessionRuntime({
+    flavor: opencodeFlavor(),
+    engine: {} as OpencodeRuntimeHost,
     send: (message) => sent.push(message),
-    host: {} as OpencodeRuntimeHost,
+    emitBind: (bind) => {
+      sent.push({ type: 'bind', ...bind })
+    },
+    sessionReady: () => {},
+    traceRuntimeEvent: () => {},
+    startMailContinuation: () => () => {},
   })
   const phases = () =>
     sent.flatMap((message) => (message.type === 'agentState' ? [message.state.phase] : []))

@@ -67,7 +67,7 @@
 import { spawn } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { setTimeout as sleepFor } from 'node:timers/promises'
-import type { AgentSessionHandle } from '@podium/harness/driver/host'
+import type { AgentSessionHandle, DriverId } from '@podium/harness/driver/host'
 import { probeHealth } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
@@ -202,7 +202,7 @@ export function serverRuntimeHandleFor(
  *  corroboration differs — see the module header), and opencode's credentialed
  *  probe material. */
 interface JournalledReap {
-  driver: 'opencode' | 'opencode2' | 'codex' | 'grok'
+  driver: DriverId
   identity: ServerProcessIdentity
   /** opencode only: the exact-identity liveness probe from its journal. */
   probe?: { baseUrl: string; secret: string; username?: string; healthPath?: string }

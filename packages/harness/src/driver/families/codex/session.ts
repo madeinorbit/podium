@@ -1,5 +1,12 @@
 /**
- * THE codex app-server SESSION, AS THE DAEMON RUNS IT (POD-1761 W6; plan §4).
+ * THE codex app-server SESSION, AS THE SUPERVISOR RUNS IT (POD-1761 W6; plan §4).
+ *
+ * (Moved from apps/daemon/src/runtime/codex-driver.ts in 1.5: the daemon
+ * stops knowing this headless harness. The session adapter translates the
+ * contract event stream onto the supervisor's frame stream; every
+ * supervisor facility it touches — send, bind, timing, mail continuation —
+ * arrives as an injected port, and every harness-shaped value arrives
+ * through the family's facts.)
  *
  * ---------------------------------------------------------------------------
  * THE SAME TRANSLATION THE opencode DRIVER MAKES, FOR THE SAME REASON
@@ -7,10 +14,10 @@
  *
  * A server-family session has no bridge, no abduco master, no frames and no
  * observer — and the acceptance criterion is that it works from the existing web
- * UI with NO UI redesign. So the daemon speaks, on this session's behalf, the
- * same small vocabulary every other session speaks: `bind`, `transcriptDelta`,
- * `agentState`, `agentExit`. This file is that translation and deliberately
- * nothing else.
+ * UI with NO UI redesign. So the supervisor speaks, on this session's behalf,
+ * the same small vocabulary every other session speaks: `bind`,
+ * `transcriptDelta`, `agentState`, `agentExit`. This file is that translation
+ * and deliberately nothing else.
  *
  * IT IS DERIVED FROM `./opencode-driver.ts` ON PURPOSE. The plan says to mirror
  * W5 file for file where it fits, and this fits exactly: the two drivers differ
@@ -30,45 +37,39 @@
  * they are keyed to an env var this spawn never sets.
  */
 
-import type { AgentSessionHandle } from '@podium/harness/driver/host'
+import { createLogger } from '@podium/logger'
+import type { AgentRuntimeState, HarnessAgent, SessionId } from '@podium/model'
+import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
+import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
+import type { AgentSessionHandle } from '../../driver.js'
+import type { RuntimeEvent } from '../../events.js'
+import type { PendingInteraction } from '../../interactions.js'
 import {
-  attachKindsForDriver,
   CODEX_APP_SERVER_DRIVER_ID,
   type CodexJournal,
   type CodexRuntime,
   type CodexRuntimeHost,
-  configureFieldsForDriver,
   createCodexRuntime,
-  type PendingInteraction,
-  type RuntimeEvent,
-} from '@podium/harness/driver/host'
-import { createLogger } from '@podium/logger'
-import type { AgentRuntimeState, SessionId } from '@podium/model'
-import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
-import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
-import { driverTiming } from './driver-timing'
-import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
-import { reportQueueAbandonment } from './queue-abandonment'
+} from './runtime.js'
+import type { CodexEngineFacts } from './engine-facts.js'
+import { reportQueueAbandonment } from '../queue-report.js'
+import type { ServerSessionFramePorts } from '../server-family.js'
+import type { ServerFamilyJournalEntry } from '../server-family.js'
 
-const log = createLogger('daemon:codex-driver')
+const log = createLogger('harness:codex-session')
 
-/** The narrow slice of the daemon this driver's session lifecycle needs. */
-export interface CodexSessionHost {
-  send(msg: DaemonMessage): void
-  host: CodexRuntimeHost
-  /** Fetch issue context after a successfully completed provider turn. */
-  boundaryContext?: MailBoundaryContext
-  /**
-   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
-   * written by nothing in this file. A server-family session has no terminal at
-   * launch, so the record is empty and the bind is bare — which is the point:
-   * the `geometry: { cols: 120, rows: 40 }` that stood in this frame described a
-   * client nobody had opened, and the server took it for a report.
-   *
-   * Optional because a host can be built without a daemon behind it; absent
-   * reads as "applied nothing", which is the same bare bind.
-   */
-  appliedGeometry?: AppliedGeometryRecord
+/**
+ * What a codex session adapter needs from whoever supervises it.
+ *
+ * The engine (protocol transport over the supervisor-held child) arrives as
+ * `engine`; the frame stream, bind emission, timing and mail continuation
+ * arrive as narrow ports; harness-shaped values arrive through `facts`. The
+ * supervisor owns processes, disks and the wire — this adapter owns the
+ * translation between the contract and the frames.
+ */
+export interface CodexSessionDeps extends ServerSessionFramePorts {
+  facts: CodexEngineFacts
+  engine: CodexRuntimeHost
 }
 
 export interface CodexSessionLaunch {
@@ -123,14 +124,20 @@ export interface DaemonCodexRuntime extends CodexRuntime {
    * nothing to rebind from.
    */
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
+  /** Uniform server-family shape: the supervisor composes families without
+   *  naming them. Satisfied by the members below (describe/journalEntry/
+   *  clearJournal) plus the spread runtime above. */
+  readonly describe: string
+  journalEntry(sessionId: SessionId): ServerFamilyJournalEntry | undefined
+  clearJournal(sessionId: SessionId): void
 }
 
-export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRuntime {
+export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRuntime {
   const runtime = createCodexRuntime({
-    ...deps.host,
+    ...deps.engine,
     // A queue this driver loses becomes a durable server-side receipt
     // correction, so the port is wired HERE, next to `send` (POD-2297).
-    onQueueAbandoned: reportQueueAbandonment('codex', deps.send),
+    onQueueAbandoned: reportQueueAbandonment(deps.facts.harnessKind, deps.send),
   })
 
   /**
@@ -147,9 +154,10 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
     if (!handle) return
     void (async () => {
       try {
-        const boundary = createMailContinuation(handle, deps.boundaryContext,
+        const boundary = deps.startMailContinuation(
+          handle,
           () => runtime.handleFor(sessionId) === handle,
-          (error) => log.warn('issue mail boundary delivery failed', { sessionId, error }))
+        )
         for await (const event of handle.events('bootstrap')) {
           translate(sessionId, event)
           boundary(event)
@@ -162,7 +170,7 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     const timingHandle = runtime.handleFor(sessionId)
-    if (timingHandle) driverTiming.runtimeEvent(timingHandle.binding, event)
+    if (timingHandle) deps.traceRuntimeEvent(timingHandle.binding, event)
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract reads this; the legacy frames below are for the surfaces that do
     // not, and both describe the same fact.
@@ -233,6 +241,19 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
 
   return {
     ...runtime,
+    describe: [deps.facts.command, ...deps.facts.serverArgs].join(' '),
+    journalEntry(sessionId) {
+      const entry = deps.engine.journal.read(sessionId)
+      if (!entry) return undefined
+      return {
+        workdir: entry.workdir,
+        process: entry.process,
+        bindingVersion: entry.bindingVersion,
+      }
+    },
+    clearJournal(sessionId) {
+      deps.engine.journal.clear(sessionId)
+    },
 
     /**
      * STRAIGHT FROM THE RUNTIME'S HANDLE MAP, never a parallel Set (POD-2249;
@@ -244,10 +265,10 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
      */
     has: (sessionId) => runtime.handleFor(sessionId) !== undefined,
 
-    journal: deps.host.journal,
+    journal: deps.engine.journal,
 
     async adoptFromJournal(sessionId) {
-      const entry = deps.host.journal.read(sessionId)
+      const entry = deps.engine.journal.read(sessionId)
       if (!entry) return undefined
       let handle: AgentSessionHandle
       try {
@@ -255,7 +276,7 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
           sessionId: entry.sessionId,
           driver: CODEX_APP_SERVER_DRIVER_ID,
           family: 'server',
-          harness: 'codex',
+          harness: deps.facts.harnessKind,
           workdir: entry.workdir,
           resume: { kind: 'codex-thread', value: entry.threadId },
           process: entry.process,
@@ -283,7 +304,7 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
        * subsequent verb answer `not_running` for a session that is running.
        */
       const handle = await runtime.createWithId(input.sessionId, {
-        harness: 'codex',
+        harness: deps.facts.harnessKind,
         selection: {
           // THE HARNESS WHERE SUBSCRIPTION AUTH WORKS HEADLESS, which is the
           // whole payoff of this driver: `~/.codex/auth.json` serves the
@@ -327,13 +348,12 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
        * nothing at a size, so the applied-size record is empty and the one bind
        * builder states nothing about the grid.
        */
-      driverTiming.sessionReady(handle.binding)
-      deps.send(
-        bindFrame(deps.appliedGeometry, {
+      deps.sessionReady(handle.binding)
+      deps.emitBind({
           sessionId: input.sessionId,
           cmd: `codex app-server (${handle.binding.driver})`,
           cwd: input.cwd,
-          agentKind: 'codex',
+          agentKind: deps.facts.harnessKind,
           /**
            * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023's
            * lesson, unchanged here). The server records `driverId` on the row
@@ -350,8 +370,7 @@ export function createDaemonCodexRuntime(deps: CodexSessionHost): DaemonCodexRun
           // declaration so no consumer has to keep a second copy of it.
           configureFields: [...configureFieldsForDriver(handle.binding.driver)],
           attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-        }),
-      )
+      })
       // …and the first state, so the badge is right before the first event
       // rather than after it.
       deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })

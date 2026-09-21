@@ -110,6 +110,11 @@ export {
 export { type CodexChildLiveness } from './engine-host.js'
 export { type CodexEngineFacts, codexEngineFacts } from './engine-facts.js'
 export {
+  type CodexSessionDeps,
+  createCodexSessionRuntime,
+  type DaemonCodexRuntime,
+} from './session.js'
+export {
   STRIPPED_CODEX_CREDENTIALS,
   type CodexVersion,
   type CodexVersionDiagnostic,

@@ -35,7 +35,11 @@ import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
-import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
+import {
+  claudeSdkHarnessKind,
+  emitClaudeBinding,
+  ensureClaudeBindingPublished,
+} from '@podium/harness/driver/host'
 import { codexAppServerVersionProbe } from '../runtime/version-probe'
 import { driverTiming } from '../runtime/driver-timing'
 import { grokAcpVersionProbe } from '../runtime/version-probe'
@@ -2063,12 +2067,14 @@ async function adoptOrResumeEmbeddedClaudeSession(
     // record is handed over rather than a size (POD-3290) — it is empty for an
     // embedded session, and this site could not state one if it were not.
     await emitClaudeBinding(
-      ctx.send,
+      {
+        send: ctx.send,
+        emitBind: (input) => ctx.send(bindFrame(appliedGeometryFor(ctx), input)),
+      },
       {
         sessionId: msg.sessionId,
         cwd: msg.cwd,
-        agentKind: 'claude-code',
-        appliedGeometry: appliedGeometryFor(ctx),
+        agentKind: claudeSdkHarnessKind,
       },
       handle,
     )
@@ -2117,12 +2123,14 @@ async function adoptOrResumeEmbeddedClaudeSession(
       // NO GEOMETRY, for the same reason as the adopt above: a resume rebinds a
       // conversation, it does not put anything at a size (POD-3279).
       await ensureClaudeBindingPublished(
-        ctx.send,
+        {
+          send: ctx.send,
+          emitBind: (input) => ctx.send(bindFrame(appliedGeometryFor(ctx), input)),
+        },
         {
           sessionId: msg.sessionId,
           cwd: msg.cwd,
-          agentKind: 'claude-code',
-          appliedGeometry: appliedGeometryFor(ctx),
+          agentKind: claudeSdkHarnessKind,
         },
         handle,
       )
