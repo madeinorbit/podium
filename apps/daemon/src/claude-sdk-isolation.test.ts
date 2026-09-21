@@ -1,48 +1,24 @@
 // apps/daemon/src/claude-sdk-isolation.test.ts
 //
-// THE TEST THAT ROTS IF YOU WRITE IT THE OBVIOUS WAY.
+// THE TEST THAT ROTS IF YOU WRITE IT THE OBVIOUS WAY (POD-4499 retarget).
 //
-// The property is "the Claude Agent SDK is not loaded into any process that hosts
-// the daemon". The tempting spelling is a grep for the package name, and it is
-// worthless: it passes the moment anyone re-exports `query` from a module with a
-// different name. So this walks the actual IMPORT GRAPH, transitively, following
-// static imports, dynamic `import()`, `require()`, `export … from`, and — added
-// after an adversarial review defeated the first version — calls through a
-// `createRequire` alias.
+// Two properties now, because the engine moved under podium-host and the SDK
+// left the machine entirely:
 //
-// THREE LAYERS, BECAUSE NO ONE OF THEM IS ENOUGH AND EACH SEES WHAT THE OTHERS
-// CANNOT. Four rounds of adversarial review defeated every single-layer version:
+//   1. THE CLAUDE AGENT SDK IS NOT LOADED INTO ANY PROCESS THAT HOSTS THE
+//      DAEMON — unchanged. The per-turn helper child is gone; nothing imports
+//      the SDK anywhere any more, so this half guards against reintroduction
+//      rather than against a live edge.
+//   2. THE FAMILY NEVER FORKS — `packages/harness/src/driver/families`
+//      holds no `child_process` value import outside tests (spec §7). Engine
+//      spawns go through the injected supervision port (podium-host) and
+//      one-shot spawns through the daemon's own one-shot runner; a family
+//      that forks directly builds a child no restart could re-adopt.
 //
-//   1. THE GRAPH WALK follows real edges — static, dynamic, require, `export … from`
-//      — from every daemon-hosting entry point. Catches renames and re-exports that
-//      no name check can see. Blind to anything not spelled as an import.
-//   2. THE CAPABILITY BAN refuses a daemon module the right to OBTAIN a module
-//      loader at all. Catches every place a loader can be parked — alias, property,
-//      destructure, return, rebound binding — because it must be obtained before it
-//      can be hidden. Blind inside the five files that are legitimately allowed one.
-//   3. THE SPECIFIER BAN refuses the SDK's NAME as a string literal anywhere in the
-//      graph. Catches what survives both: a loader borrowed from an allowed file, a
-//      parking trick inside one, `Module._load`, `new Function('return require')`.
-//      Every one of those still has to write the name down. Blind to string
-//      concatenation — which is why it is the third layer and not the only one.
-//
-// TWO THINGS THIS FILE LEARNED THE HARD WAY, both from guards that could not fail:
-//
-//   ROOTS ARE DERIVED, NOT LISTED. The first version carried a hand-written root
-//   list, and a hand-written list is an inventory: `scripts/cli.ts` and
-//   `scripts/host.ts` each run the daemon in-process and were in neither, so a
-//   static import of the SDK in either left the suite green. Roots are now
-//   computed from what a module DOES — calls `startDaemon`, imports the daemon
-//   module, or reads `parentPort` — so a new daemon-hosting entry point is walked
-//   the day it is written, by nobody's decision.
-//
-//   `createRequire` IS AN IMPORT EDGE. `const req = createRequire(import.meta.url)`
-//   then `req('pkg')` loads a module into this process's heap and is invisible to a
-//   regex looking for a literal after a `require`/`import` token. The idiom is
-//   already at module scope in three files inside this graph, and node-pty — a
-//   NATIVE addon in the daemon's address space — was visible to the walk only
-//   because an unrelated `typeof import('node-pty')` type annotation happened to
-//   sit next to it. Delete the annotation as a tidy-up and it vanished silently.
+// The walk below is unchanged (three layers, derived roots, the defeat
+// battery): only the controls that named the deleted helper moved — to a
+// synthetic fixture (for "the walker sees the SDK") and to the new family
+// files (for "the walk reaches the claude path").
 
 import {
   existsSync,
@@ -66,9 +42,11 @@ import {
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const SDK = '@anthropic-ai/claude-agent-sdk'
 
-/** The one module allowed to load the SDK: the child-process host. */
-const HOST = 'packages/harness/src/driver/families/claude-sdk/claude-sdk-host.ts'
-/** The compiled binary's entry, which dispatches to the host on a sentinel. */
+/** The claude stream engine host: the family's supervision-driven spawn path. */
+const ENGINE_HOST = 'packages/harness/src/driver/families/claude-sdk/engine-host.ts'
+/** The stream-json wire the family speaks to the CLI directly. */
+const ENGINE_WIRE = 'packages/harness/src/driver/families/claude-sdk/protocol.ts'
+/** The compiled binary's entry, which no longer dispatches any SDK child. */
 const COMPILED_ENTRY = 'scripts/cli-compiled.ts'
 
 // ---------------------------------------------------------------------------
@@ -162,9 +140,6 @@ const REQUIRER_ALLOWANCE: Record<string, readonly string[]> = {
   'packages/pty/src/backends/bun-node-pty-tty-polyfill.ts': ['tty'],
   // A Bun builtin loaded at runtime, which a static import cannot express.
   'packages/runtime/src/sqlite/bun.ts': ['bun:sqlite'],
-  // Resolves the TypeScript loader for the SDK host CHILD. `.resolve()` returns a
-  // path and loads nothing into this process.
-  'packages/harness/src/driver/families/claude-sdk/host-protocol.ts': ['tsx'],
 }
 
 /** Every specifier this file loads through a requirer, plus unresolvable ones. */
@@ -387,21 +362,18 @@ function edgesOf(file: string): Edges {
 }
 
 /**
- * The compiled binary's ONE allowed edge.
+ * The compiled binary's dispatch, RETIRED (POD-4499).
  *
  * `podium all-in-one` runs the daemon inside the CLI's process, so
- * cli-compiled.ts is a daemon-address-space entry point. It must reach the host
- * ONLY through the sentinel-guarded dynamic import: present in the image,
- * evaluated only in a process launched to be the host. The edge is dropped from
- * the walk exactly when it is spelled that way — a static import, or any
- * indirection through another module, is a normal edge and gets followed.
+ * cli-compiled.ts is a daemon-address-space entry point. It used to reach
+ * the SDK host through a sentinel-guarded dynamic import; the helper child
+ * is gone, so the entry must reach NO SDK host at all — statically,
+ * dynamically, or by indirection. The walk below follows every path, so any
+ * new one is followed the day it is written, by nobody's decision.
  */
-function isGuardedHostDispatch(file: string): boolean {
-  if (file !== COMPILED_ENTRY) return false
+function compiledEntryReachesSdkHost(): boolean {
   const src = readFileSync(join(repoRoot, COMPILED_ENTRY), 'utf8')
-  const dynamic = /await import\(\s*['"][^'"]*claude-sdk-host\.js['"]\s*\)/.test(src)
-  const staticImport = /^\s*import\s+(?:[^'"\n]*\s+from\s+)?['"][^'"]*claude-sdk-host/m.test(src)
-  return dynamic && !staticImport
+  return src.includes('claude-sdk-host')
 }
 
 interface Graph {
@@ -423,9 +395,7 @@ function closure(roots: string[]): Graph {
     const edges = edgesOf(file)
     for (const v of edges.violations) violations.push(v)
     for (const name of edges.external) if (!externals.has(name)) externals.set(name, file)
-    const skipHost = isGuardedHostDispatch(file)
     for (const target of edges.internal) {
-      if (skipHost && target === HOST) continue
       queue.push(target)
     }
   }
@@ -658,7 +628,7 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
   // lend its requirer to a borrower that never names the token, and createRequire
   // is not the only door. These are those shapes, evaluated in an ALLOWED file —
   // the configuration where the earlier layers are by design silent.
-  const ALLOWED_FILE = 'packages/harness/src/driver/families/claude-sdk/host-protocol.ts'
+  const ALLOWED_FILE = 'packages/pty/src/backends/node-pty-backend.ts'
   const ROUND4: readonly { id: string; what: string; code: string }[] = [
     {
       id: 'G1',
@@ -747,17 +717,14 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
     ).toEqual([])
   })
 
-  it('follows the compiled entry into any indirection, not just its own text', () => {
-    // The all-in-one binary hosts the daemon in the CLI's process. A review
-    // defeated the previous spelling check with one hop:
-    //   scripts/sdk-preload.ts: export { … } from '…/claude-sdk-host.js'
-    //   scripts/cli-compiled.ts: import './sdk-preload.js'
-    // The text check saw nothing. The graph does: only the DIRECT, dynamic,
-    // sentinel-guarded edge is dropped, so any other path is followed.
+  it('the compiled entry reaches no SDK host by any path', () => {
+    // The all-in-one binary hosts the daemon in the CLI's process. The old
+    // sentinel dispatch is gone with the helper child: the entry must name no
+    // SDK host, and the graph walk (which now drops nothing) must find no SDK
+    // edge from it either. A review once defeated a text-only spelling check
+    // with a one-hop indirection — the graph half below is what catches that.
     expect(closure([COMPILED_ENTRY]).externals.get(SDK)).toBeUndefined()
-    const src = readFileSync(join(repoRoot, COMPILED_ENTRY), 'utf8')
-    expect(src).toContain('claude-sdk-host')
-    expect(isGuardedHostDispatch(COMPILED_ENTRY), 'the dispatch must stay dynamic').toBe(true)
+    expect(compiledEntryReachesSdkHost(), 'the retired host dispatch must stay retired').toBe(false)
   })
 
   // ---- guards on the walker itself ------------------------------------------
@@ -766,8 +733,8 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
   // on purpose and confirmed to go red.
 
   it('walks far enough for the absence above to mean anything', () => {
-    expect(graph.files.has('packages/harness/src/driver/families/claude-sdk/child-turn.ts')).toBe(true)
-    expect(graph.files.has('packages/harness/src/driver/families/claude-sdk/host-protocol.ts')).toBe(true)
+    expect(graph.files.has(ENGINE_HOST)).toBe(true)
+    expect(graph.files.has(ENGINE_WIRE)).toBe(true)
     expect(graph.files.has('apps/daemon/src/discovery-jobs.ts')).toBe(true)
     expect([...graph.files].some((f) => f.startsWith('packages/harness/src/'))).toBe(true)
     expect(graph.files.size).toBeGreaterThan(100)
@@ -775,8 +742,32 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
   })
 
   it('finds the SDK when it IS imported, so a clean result is a real result', () => {
-    const host = closure([HOST])
-    expect(host.externals.get(SDK)).toBe(HOST)
+    // The deleted helper was the old positive control. The control below is
+    // synthetic instead — a three-file chain built on disk importing the SDK
+    // by name — so it cannot drift into vacuity with a refactor.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-sdk-witness-'))
+    try {
+      writeFileSync(join(dir, 'leaf.ts'), `export { query } from '${SDK}'\n`)
+      writeFileSync(join(dir, 'middle.ts'), `export * from './leaf.js'\n`)
+      writeFileSync(join(dir, 'root.ts'), `import { query } from './middle.js'\nquery\n`)
+      const seen = new Set<string>()
+      const found: string[] = []
+      const walk = (abs: string): void => {
+        if (seen.has(abs)) return
+        seen.add(abs)
+        for (const ref of extractImports(readFileSync(abs, 'utf8'))) {
+          if (ref.specifier.startsWith('.')) {
+            const next = existsFile(resolve(dirname(abs), ref.specifier))
+            if (next) walk(next)
+          } else found.push(externalName(ref.specifier))
+        }
+      }
+      walk(join(dir, 'root.ts'))
+      expect(seen.size, 'the chain must be three files, or it is not two hops').toBe(3)
+      expect(found).toContain(SDK)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('follows `export … from`, on a chain that actually contains one', () => {
@@ -810,9 +801,42 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
     }
   })
 
-  it('never lets a daemon-hosting module import the host directly', () => {
-    // The host is reached by SPAWNING it, never by importing it — except the
-    // compiled entry's guarded dynamic dispatch, which the walk drops by design.
-    expect(graph.files.has(HOST)).toBe(false)
+  it('never lets the family fork: no child_process value import outside tests', () => {
+    // SPEC §7, AS A TEST. Engine spawns go through the injected supervision
+    // port (podium-host) and one-shot spawns through the daemon's own
+    // one-shot runner; a family that forks directly builds a child no
+    // restart could re-adopt. Type-only imports (`import type`) are not a
+    // fork — codex's exec-turn takes its injected spawner in that shape —
+    // so only value imports are refused. Comments naming the rule are not
+    // imports either.
+    const violations: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry)
+        const st = statSync(full)
+        if (st.isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!/\.tsx?$/.test(entry) || isTestFile(entry)) continue
+        const source = stripComments(readFileSync(full, 'utf8'))
+        if (
+          /^\s*import\s+(?!type\b)[^'"]*from\s+['"]node:child_process['"]/m.test(source) ||
+          /(?:^|[^.\w$])(?:spawn|spawnSync|execFile|execFileSync|exec|execSync|fork)\s*\(/.test(source)
+        ) {
+          violations.push(relative(repoRoot, full))
+        }
+      }
+    }
+    walk(join(repoRoot, 'packages/harness/src/driver/families'))
+    expect(violations, violations.join('\n')).toEqual([])
+  })
+
+  it('the engine host takes supervision rather than a spawn mechanism', () => {
+    // The structural half of the fork ban: the claude engine host's deps
+    // carry the supervision port, so there is no second spawn path to audit.
+    const source = readFileSync(join(repoRoot, ENGINE_HOST), 'utf8')
+    expect(source).toContain('supervision?: EngineSupervisor')
+    expect(source).toContain('spawnHeadless')
   })
 })
