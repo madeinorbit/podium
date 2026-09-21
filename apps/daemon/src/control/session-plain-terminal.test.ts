@@ -303,7 +303,18 @@ it.each([undefined, 'generic-pty', 'claude-pty'] as const)(
     const { bindTerminal } = installRuntime(ctx)
     const msg = reconnectMessage()
     ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
-    attachTestTerminal(ctx, msg.sessionId, { redraw: vi.fn(), dispose } as never)
+    attachTestTerminal(ctx, msg.sessionId, {
+      pid: 4242,
+      onFrame: () => () => {},
+      onTitle: () => () => {},
+      onExit: () => () => {},
+      write: () => {},
+      writeBytes: () => {},
+      resize: () => {},
+      redraw: vi.fn(),
+      geometry: () => ({ cols: 80, rows: 24 }),
+      dispose,
+    } as never)
     sessionHandlers.reattach(ctx, { ...msg, ...(requestedDriverId ? { requestedDriverId } : {}) })
     await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'bind', driverId: terminalProfileFor('codex')!.driverId,
@@ -318,7 +329,18 @@ it('reports and reaps a reconnect whose handle cannot be constructed', async () 
   installRuntime(ctx, 'throw')
   const msg = reconnectMessage()
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
-  attachTestTerminal(ctx, msg.sessionId, { redraw: vi.fn(), dispose } as never)
+  attachTestTerminal(ctx, msg.sessionId, {
+      pid: 4242,
+      onFrame: () => () => {},
+      onTitle: () => () => {},
+      onExit: () => () => {},
+      write: () => {},
+      writeBytes: () => {},
+      resize: () => {},
+      redraw: vi.fn(),
+      geometry: () => ({ cols: 80, rows: 24 }),
+      dispose,
+    } as never)
   sessionHandlers.reattach(ctx, msg)
   await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
     type: 'reattachFailed', reason: 'driver binding failed',
@@ -332,7 +354,18 @@ it.each(['codex-app-server', 'codex-pty', 'unknown-driver'])(
   const ctx = contextForSpawn()
   const { bindTerminal } = installRuntime(ctx)
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
-  attachTestTerminal(ctx, reconnectMessage().sessionId, { redraw: vi.fn(), dispose } as never)
+  attachTestTerminal(ctx, reconnectMessage().sessionId, {
+      pid: 4242,
+      onFrame: () => () => {},
+      onTitle: () => () => {},
+      onExit: () => () => {},
+      write: () => {},
+      writeBytes: () => {},
+      resize: () => {},
+      redraw: vi.fn(),
+      geometry: () => ({ cols: 80, rows: 24 }),
+      dispose,
+    } as never)
   sessionHandlers.reattach(ctx, { ...reconnectMessage(), requestedDriverId: driver })
   await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
     type: 'reattachFailed', reason: expect.stringContaining(driver),
