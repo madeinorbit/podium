@@ -272,18 +272,19 @@ export class IssueModel {
   /** The origin tick beside the row (spec §3 R-ORIGIN). Rides the commit. */
   get tick(): OriginTick | null {
     const originId = this.store.originOf.get(this.value.id)
-    if (originId === undefined) return null
-    const origin = this.store.issues.get(originId)
-    if (!origin) return null
-    const row = origin.value
-    const prefix = this.store.prefixForRepo(row.repoId)
-    const next: OriginTick = {
-      id: row.id,
-      seq: row.seq,
-      title: row.title,
-      ref: prefix ? `${prefix}-${row.seq}` : `#${row.seq}`,
+    const origin = originId === undefined ? undefined : this.store.issues.get(originId)
+    let next: OriginTick | null = null
+    if (origin) {
+      const row = origin.value
+      const prefix = this.store.prefixForRepo(row.repoId)
+      next = {
+        id: row.id,
+        seq: row.seq,
+        title: row.title,
+        ref: prefix ? `${prefix}-${row.seq}` : `#${row.seq}`,
+      }
     }
-    const json = JSON.stringify(next)
+    const json = next === null ? null : JSON.stringify(next)
     if (json !== this.lastTickJson) {
       this.lastTickJson = json
       this.store.stats.rowsDerived += 1
