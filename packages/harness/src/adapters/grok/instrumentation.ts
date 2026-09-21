@@ -583,17 +583,28 @@ async function installGrokInstrumentation(
     (destination.homeDir
       ? join(destination.homeDir, '.grok')
       : process.env.GROK_HOME?.trim() || join(homedir(), '.grok'))
-  const result = await ensurePodiumGrokHooks({ grokHome })
-  const degradedReason = !result.installed ? (result.reason ?? 'hook installation failed') : undefined
-  return {
+  const wiring = {
     args: [],
     env: { [PODIUM_GROK_HOOK_URL_ENV]: destination.endpointUrl },
-    ...(degradedReason
-      ? {
-          degradedReason,
-          degradedKind: installerDegradedKind(result.reason) as InstalledInstrumentation['degradedKind'],
-        }
-      : {}),
+  }
+  // A throwing global install degrades like a refused one: the per-session
+  // wiring above is still returned, so the session starts poll-only with the
+  // reason reported instead of being refused.
+  try {
+    const result = await ensurePodiumGrokHooks({ grokHome })
+    const degradedReason = !result.installed ? (result.reason ?? 'hook installation failed') : undefined
+    return {
+      ...wiring,
+      ...(degradedReason
+        ? {
+            degradedReason,
+            degradedKind: installerDegradedKind(result.reason) as InstalledInstrumentation['degradedKind'],
+          }
+        : {}),
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    return { ...wiring, degradedReason: reason, degradedKind: 'error' }
   }
 }
 
