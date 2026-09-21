@@ -195,6 +195,53 @@ table + scan judgments in `docs/measurements/POD-4451-m2.md`.
   inert on the scenario path (`issueDep` vs the `issueDeps` address);
   R4 coverage comes from the fixture + unit paths. No verdict impact.
 
+## M3 record (POD-4454)
+
+`mobx.m3.test.tsx` green: lifecycle (cold 1x 3,332 visible / 4,867 issues /
+4,304 sessions, parity; fresh-replica principal switch 37 visible, parity;
+literal 2x rescope 4,867→9,734→4,867 issues with parity at every state;
+post-dispose heartbeat touches nothing — issues/sessions 0, notifications
+flat), growth 1–3+5 at 1x/2x/4x flat (table + slopes in
+`docs/measurements/POD-4454-m3.md`), coexistence heartbeat+click byte-equal
+solo counts both sides with parity green. Full tables + JSON in the m3 note.
+
+- **Clock verdict: inherent, bounded, CPU-only (F-clock closed).** The +60s
+  tick still re-runs 3,589 settled bodies and commits 0 rows / 0 renders
+  (`mobx.clock.test.tsx` pins it). Mechanism: any flat/summary whose row holds
+  a finished member subscribes to the coarse clock through its retention check
+  and stays subscribed — automatic tracking is correct to subscribe (the +60d
+  jump commits exactly the still-visible band-movers, no stale rows by
+  construction). Removing the subscriptions means hand-maintained sensitivity
+  sets, i.e. becoming the hand arm; the cost is pure-function bodies settling
+  by equality, bounded by rows holding finished members. Stated plainly as the
+  comparison's largest behavioural difference.
+- **Growth slope: counts PASS (0.25 / flat, budget ≤ 1.2); two O(N) cached
+  walks named for the browser re-run.** `groups-bucket` visits equal visible
+  rows exactly (3,332 / 6,666 / 13,331) on #2/#3/#5: one row's `closed`
+  moves → the groups body re-buckets N cached rows on the read path (order
+  does NOT re-sort — no `order-sort` scan; rankKey is phase-independent).
+  `move-seat-scan` (M2 residual R-M1) walks repo buckets per issue ingest
+  (975 / 1,950 / 3,900). Both are CPU-only, zero commits. Whether the
+  re-bucketing breaks the wall-slope budget is POD-4489's leased measurement;
+  the phaseMs proxy (happy-dom, load-contaminated) is rollup-dominated
+  (~97–98%) at 1x and 4x.
+- **Stats split (arm-local, no shared/ change).** `store.phaseMs()`:
+  `apply()` wall prices eager index maintenance (derivations are lazy),
+  flat/summary/aggregate/order/groups bodies price rollup, row/tick assembly
+  tails price row — non-overlapping by construction, cleared by
+  `stats.reset()`. +~1.1 kB raw / +0.18 kB gzip over the M2 chunk.
+- **Seed-stale SMALL #2 count (NOT chased).** `mobx.engine.test.tsx:81` and
+  `harness/native/mobx.native.test.tsx:72` expect SMALL phase → 1 commit;
+  the current seed resolves unbound sessions s48+s6 onto i0 (both working),
+  so s0 working→idle leaves i0's aggregate unchanged — the oracle itself
+  changes 0 rows (`oracleChangedRows []`), parity green, store re-runs
+  exactly i0's 3 bodies and settles. Hand native passes only by asserting
+  parity alone. Both files left red-as-stale, coordinator mailed (POD-4286),
+  direction requested; the m3 note carries the milestone verdicts.
+- **Line growth M2→M3: +~240 non-test lines** (phaseMs timers + m3 test;
+  spike/ excluded, never imported by production). Bundle delta gzip
+  +19.72 kB over control (budget +60 KB — PASS).
+
 ## Open questions for H4
 
 1. Line budget vs fidelity (shared with the hand arm): is ~2,000–2,800
