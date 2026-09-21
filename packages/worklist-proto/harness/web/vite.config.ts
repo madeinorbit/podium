@@ -35,16 +35,6 @@ export default defineConfig({
           new URL('../../node_modules/react-native-web/dist/index.js', import.meta.url),
         ),
       },
-      // Commit logging rides React.Profiler, whose onRender is a no-op in a
-      // production react-dom (M2 found every browser page logging zero
-      // commits on all arms). The documented profiling bundle re-enables it;
-      // all pages share it, so walls stay comparable.
-      {
-        find: /^react-dom(\/client)?$/,
-        replacement: fileURLToPath(
-          new URL('../../node_modules/react-dom/profiling.js', import.meta.url),
-        ),
-      },
     ],
   },
   build: {

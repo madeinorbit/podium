@@ -39,6 +39,11 @@ export interface ProtoScenarioResult {
   stats: { rowsDerived: number; rollupsDerived: number; indexUpdates: number; notifications: number }
   /** Wall time of the scenario action including settle, ms (NOT input-to-paint). */
   taskMs: number
+  /** Main-thread slices running the event pipeline: the synchronous action
+   *  plus the microtask drain (row-source → arm dispatch → notify), measured
+   *  in-page. This is the methodology §1a "hot-path event" subject; taskMs
+   *  additionally covers the notification poll and two rAFs to paint. */
+  actionMs: number
   longTasks: { startTime: number; duration: number }[]
   /** Rows currently mounted in the windowed list (commits only observe these). */
   mountedRows: number
@@ -56,6 +61,7 @@ export interface ProtoPage {
   clickRow(id?: string): Promise<{
     inputMs: number
     paintMs: number
+    actionMs: number
     longTasks: { startTime: number; duration: number }[]
     commits: number
     mountedRows: number
@@ -248,6 +254,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
   ): Promise<{
     inputMs: number
     paintMs: number
+    actionMs: number
     longTasks: { startTime: number; duration: number }[]
     commits: number
     mountedRows: number
@@ -263,10 +270,13 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       const inputMs = performance.now()
       button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
       ;(button as HTMLElement).click()
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+      const actionMs = performance.now() - inputMs
       await doubleRaf()
       return {
         inputMs,
         paintMs: performance.now(),
+        actionMs,
         longTasks: [...longTasks],
         commits: log.total(),
         mountedRows: document.querySelectorAll('[data-issue-row]').length,
@@ -282,7 +292,9 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     longTasks.length = 0
     const notificationsBefore = handle.stats.notifications
     const start = performance.now()
+    let actionMs = 0
     await withCommitLogAsync(log, async () => {
+      const actionStart = performance.now()
       if (name === 'heartbeat') await heartbeat()
       else if (name === 'rename') await rename()
       else if (name === 'stagemove') await stagemove()
@@ -291,6 +303,12 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
         const rowId = firstVisibleId()
         engine.getSnapshot().setSelectedIssueId(asIssueId(rowId))
       }
+      // Drain the microtask queue (row-source drain → arm dispatch → notify
+      // → React sync-lane commit run here) before stopping the action clock:
+      // the pipeline's main-thread cost, without paint and without timer
+      // slop. A React tail that slips to paint is bounded by taskMs instead.
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+      actionMs = performance.now() - actionStart
       // The clock tick is locals-only by design (no row event, and the
       // control emits no publication for it either): nothing to wait for —
       // the arm pipeline runs synchronously inside setCoarseNow and the
@@ -302,6 +320,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       commits: log.total(),
       stats: statsOf(),
       taskMs: performance.now() - start,
+      actionMs,
       longTasks: [...longTasks],
       mountedRows: document.querySelectorAll('[data-issue-row]').length,
     }

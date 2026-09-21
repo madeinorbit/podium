@@ -128,6 +128,8 @@ interface TimingRecord {
   inputToPaintMs: number | null
   /** Scenario wall including settle, ms. */
   taskMs: number
+  /** Main-thread pipeline slices measured in-page (no paint, no poll). */
+  actionMs: number
   longTasks: number
   longTaskMs: number
   heapBefore: HeapUsage | null
@@ -216,6 +218,7 @@ async function main(): Promise<void> {
                   clickRow: () => Promise<{
                     inputMs: number
                     paintMs: number
+                    actionMs: number
                     longTasks: { duration: number }[]
                     commits: number
                     mountedRows: number
@@ -226,6 +229,7 @@ async function main(): Promise<void> {
           )) as {
             inputMs: number
             paintMs: number
+            actionMs: number
             longTasks: { duration: number }[]
             commits: number
             mountedRows: number
@@ -237,6 +241,7 @@ async function main(): Promise<void> {
             sample,
             inputToPaintMs: painted.paintMs - painted.inputMs,
             taskMs: painted.paintMs - painted.inputMs,
+            actionMs: painted.actionMs,
             longTasks: painted.longTasks.length,
             longTaskMs: painted.longTasks.reduce((sum, t) => sum + t.duration, 0),
             heapBefore,
@@ -263,6 +268,7 @@ async function main(): Promise<void> {
                       notifications: number
                     }
                     taskMs: number
+                    actionMs: number
                     longTasks: { duration: number }[]
                   }>
                 }
@@ -278,6 +284,7 @@ async function main(): Promise<void> {
               notifications: number
             }
             taskMs: number
+            actionMs: number
             longTasks: { duration: number }[]
           }
           record = {
@@ -287,6 +294,7 @@ async function main(): Promise<void> {
             sample,
             inputToPaintMs: null,
             taskMs: result.taskMs,
+            actionMs: result.actionMs,
             longTasks: result.longTasks.length,
             longTaskMs: result.longTasks.reduce((sum, t) => sum + t.duration, 0),
             heapBefore,
