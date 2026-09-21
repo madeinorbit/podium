@@ -78,8 +78,11 @@ describe('mobx arm at 1x', () => {
       )
       expect(phase.parity).toBe(true)
       expect(phase.parityDiff).toBeNull()
-      expect(phase.rowsCommitted).toBeGreaterThanOrEqual(1)
-      expect(phase.stats.rowsDerived).toBe(phase.rowsCommitted)
+      expect(phase.rowsCommitted).toBe(1)
+      expect(phase.commitsByRow).toEqual({ i0: 1 })
+      expect(phase.stats.rowsDerived).toBe(1)
+      expect(phase.stats.rollupsDerived).toBe(3)
+      expect(phase.stats.indexUpdates).toBe(0)
 
       const click = await runCountScenario(mounted, {
         scenario: 'selectionClick',
@@ -98,6 +101,7 @@ describe('mobx arm at 1x', () => {
       expect(click.parityDiff).toBeNull()
       expect(click.rowsCommitted).toBe(0)
       expect(click.stats.rowsDerived).toBe(0)
+      expect(click.stats.rollupsDerived).toBe(3)
 
       const elapsedMs = performance.now() - started
       expect(elapsedMs).toBeLessThan(60_000)

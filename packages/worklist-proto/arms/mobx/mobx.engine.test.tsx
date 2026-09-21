@@ -76,9 +76,13 @@ describe('mobx arm on the engine (SMALL)', () => {
       )
       expect(phase.parityDiff).toBeNull()
       expect(phase.parity).toBe(true)
-      // Exactly the rows whose rollup changed commit; derivations are the chain.
-      expect(phase.rowsCommitted).toBeGreaterThanOrEqual(1)
-      expect(phase.stats.rowsDerived).toBe(phase.rowsCommitted)
+      // i0 is a root: its flat + summary + aggregate re-run (the chain is
+      // the row itself), exactly it commits, nothing else moves.
+      expect(phase.rowsCommitted).toBe(1)
+      expect(phase.commitsByRow).toEqual({ i0: 1 })
+      expect(phase.stats.rowsDerived).toBe(1)
+      expect(phase.stats.rollupsDerived).toBe(3)
+      expect(phase.stats.indexUpdates).toBe(0)
 
       const click = await runCountScenario(mounted, {
         scenario: 'selectionClick',
@@ -101,6 +105,9 @@ describe('mobx arm on the engine (SMALL)', () => {
       // clicked row's flat predicate (unread is a genuine input there).
       expect(click.rowsCommitted).toBe(0)
       expect(click.stats.rowsDerived).toBe(0)
+      // The eager mark-read row replaces i1's row object, so its three input
+      // checks (flat + summary + aggregate) execute and prove no value change.
+      expect(click.stats.rollupsDerived).toBe(3)
       // The methodology's "2 rows" for #3 is the UI click path (selection
       // style on the two rows whose selected-ness flips, zero derivations) —
       // covered by the selection unit test and the UI click test.
