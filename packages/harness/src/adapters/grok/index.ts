@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { grokRecordToItems, grokRuntime } from '../../store/index.js'
-import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
-import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
-import { locateGrokChatHistory } from '../agent-state/grok-locate.js'
-import { withStateChannel } from '../agent-state/types.js'
-import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
-import { createGrokConversationProvider } from '../discovery/providers/grok.js'
-import { composeAgentInstructions } from '../instructions.js'
+import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { grokSessionPaths, grokStateProvider, observeGrokState } from '../../agent-state/grok.js'
+import { locateGrokChatHistory } from '../../agent-state/grok-locate.js'
+import { withStateChannel } from '../../agent-state/types.js'
+import { fingerprintForLoginIdentity } from '../../codex-auth-identity.js'
+import { createGrokConversationProvider } from '../../discovery/providers/grok.js'
+import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
@@ -19,8 +19,8 @@ import {
   supported,
   type TranscriptSourceInput,
   unsupported,
-} from '../manifest.js'
-import { GROK_ACP_VERSION_POLICY, harnessVersionFloor } from '../version-policy.js'
+} from '../../manifest.js'
+import { GROK_ACP_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 
 interface GrokAuthRecord {
   key?: unknown

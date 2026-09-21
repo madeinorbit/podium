@@ -489,7 +489,7 @@ export interface HarnessTranscript {
 
 /** Build the common file-backed transcript declaration without restating its
  * mapper in both `recordToItems` and `sourceFor`. The parser implementation stays
- * in browser-safe @podium/transcript (ADR 8 D4.3); the per-CLI manifest owns the
+ * in the browser-safe transcript store (ADR 8 D4.3); the per-CLI manifest owns the
  * choice of which parser applies. */
 export function fileTranscript(
   chainPaths: (input: TranscriptSourceInput) => Promise<string[]>,

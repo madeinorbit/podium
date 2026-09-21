@@ -1,8 +1,8 @@
 import { asSessionId } from '@podium/model'
 import type { AgentObservationRebindAckMessage } from '@podium/protocol'
-import type { StatTick } from '../store/index.js'
+import type { StatTick } from '../../store/index.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { HarnessObservationLease, HarnessObserverHost } from '../manifest.js'
+import type { HarnessObservationLease, HarnessObserverHost } from '../../manifest.js'
 
 const mocked = vi.hoisted(() => ({
   locate: vi.fn(),
@@ -16,13 +16,13 @@ const mocked = vi.hoisted(() => ({
   }>,
 }))
 
-vi.mock('../agent-state/grok-locate.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../agent-state/grok-locate.js')>()
+vi.mock('../../agent-state/grok-locate.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent-state/grok-locate.js')>()
   return { ...actual, locateGrokChatHistory: mocked.locate }
 })
 
-vi.mock('../agent-state/grok.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../agent-state/grok.js')>()
+vi.mock('../../agent-state/grok.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../agent-state/grok.js')>()
   return {
     ...actual,
     observeGrokState: vi.fn((opts) => {
@@ -39,7 +39,7 @@ vi.mock('../agent-state/grok.js', async (importOriginal) => {
   }
 })
 
-import { grokManifest } from './grok.js'
+import { grokManifest } from './index.js'
 
 class ManualStatTick implements StatTick {
   readonly watchers = new Set<() => void>()

@@ -35,7 +35,7 @@ export {
   claudeHookAcceptCorrelation,
   transcriptEchoAcceptCorrelation,
 } from './accept-correlation.js'
-export { codexMcpArgs, codexTranscriptPlacement } from './manifests/codex.js'
+export { codexMcpArgs, codexTranscriptPlacement } from './adapters/codex/index.js'
 export * from './model-probe.js'
 export { opencodeAuthPath } from './opencode/auth.js'
 export * from './opencode/cli.js'

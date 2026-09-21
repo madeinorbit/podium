@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { ConversationDiscoveryCache } from './cache.js'
+import { ConversationDiscoveryCache } from '../discovery/cache.js'
 import {
   loadAgentConversation,
   scanAgentConversations,
   scanAgentConversationsCached,
 } from './scanner.js'
-import { AgentConversationLoadError, type AgentConversationSummary } from './types.js'
+import { AgentConversationLoadError, type AgentConversationSummary } from '../discovery/types.js'
 
 async function createHome(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'podium-scanner-'))

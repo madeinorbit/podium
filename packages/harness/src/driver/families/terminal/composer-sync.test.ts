@@ -7,7 +7,7 @@ import {
   composerDriverFor,
   PASTE_END,
   PASTE_START,
-} from './driver'
+} from './composer-sync'
 
 function claudeBox(...contentRows: string[]): string[] {
   return [

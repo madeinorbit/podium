@@ -16,11 +16,11 @@
 import { describe, expect, it } from 'vitest'
 import type { DriverCapabilities } from './capabilities.js'
 import { attachKindsForDriver, configureFieldsForDriver } from './configure-catalog.js'
-import { claudeSdkCapabilities } from './drivers/claude-sdk/capabilities.js'
-import { codexAppServerCapabilities } from './drivers/codex/capabilities.js'
-import { grokAcpCapabilities } from './drivers/grok-acp/capabilities.js'
-import { opencodeServerCapabilities } from './drivers/opencode/capabilities.js'
-import { terminalCapabilities } from './drivers/terminal/capabilities.js'
+import { claudeSdkCapabilities } from './families/claude-sdk/capabilities.js'
+import { codexAppServerCapabilities } from './families/codex/capabilities.js'
+import { grokAcpCapabilities } from './families/grok-acp/capabilities.js'
+import { opencodeServerCapabilities } from './families/opencode/capabilities.js'
+import { terminalCapabilities } from './families/terminal/capabilities.js'
 
 const declaredFields = (caps: DriverCapabilities): readonly string[] =>
   caps.configure.supported ? caps.configure.value.fields : []

@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { piRecordToItems, piRuntime } from '../../store/index.js'
-import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
-import { observePiState, piStateProvider } from '../agent-state/pi.js'
-import { withStateChannel } from '../agent-state/types.js'
-import { createPiConversationProvider } from '../discovery/providers/pi.js'
-import { composeAgentInstructions } from '../instructions.js'
+import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
+import { observePiState, piStateProvider } from '../../agent-state/pi.js'
+import { withStateChannel } from '../../agent-state/types.js'
+import { createPiConversationProvider } from '../../discovery/providers/pi.js'
+import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   fileTranscript,
@@ -17,8 +17,8 @@ import {
   supported,
   type TranscriptSourceInput,
   unsupported,
-} from '../manifest.js'
-import { locatePiSessionFile, piAgentDir } from '../pi/paths.js'
+} from '../../manifest.js'
+import { locatePiSessionFile, piAgentDir } from '../../pi/paths.js'
 
 /**
  * Pi (`pi`, @earendil-works/pi-coding-agent). Everything below was verified

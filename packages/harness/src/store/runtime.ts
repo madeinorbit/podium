@@ -19,7 +19,7 @@ function finiteNumber(value: unknown): number | undefined {
  * these per harness; WHICH one applies is the manifest's answer, not a switch
  * here — behaviour keyed on a harness belongs in that harness's declaration
  * (`HarnessTranscript.recordRuntime`), while these parsers stay in browser-safe
- * @podium/transcript (ADR 8 D4.3). */
+ * @podium/harness/store (ADR 8 D4.3). */
 export type TranscriptRuntimeReader = (record: unknown) => HarnessRuntimeObservation
 
 /** Claude Code: model and effort ride the assistant record. */

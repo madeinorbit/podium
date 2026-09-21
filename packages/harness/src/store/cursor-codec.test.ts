@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { streamItemIdOf } from './browser'
+import { streamItemIdOf } from './stream-identity'
 import { decodeCursor, encodeCursor, recordUuid, stampCursors } from './cursor-codec'
 
 describe('cursor codec', () => {

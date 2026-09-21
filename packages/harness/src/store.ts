@@ -32,16 +32,20 @@ export {
   cursorRecordToItems,
 } from './store/cursor.js'
 export {
-  CursorParts,
   SYNTHESIZED_ITEM_ID_PREFIX,
   decodeCursor,
   encodeCursor,
   recordUuid,
   stampCursors,
 } from './store/cursor-codec.js'
+export type {
+  CursorParts,
+} from './store/cursor-codec.js'
 export {
-  ChainEntry,
   fileIdFor,
+} from './store/file-chain.js'
+export type {
+  ChainEntry,
 } from './store/file-chain.js'
 export {
   grokRecordToItems,
@@ -52,66 +56,80 @@ export {
   stringField,
 } from './store/json-util.js'
 export {
-  OpencodeMessagePartRow,
   classifyOpencodeIdleText,
   isOpencodeMessageAborted,
   opencodePartToItems,
   opencodeRowsToItems,
+} from './store/opencode.js'
+export type {
+  OpencodeMessagePartRow,
 } from './store/opencode.js'
 export {
   piRecordToItems,
   piRuntime,
 } from './store/pi.js'
 export {
-  HarnessRuntimeObservation,
-  TranscriptRuntimeReader,
   claudeRuntime,
   codexRuntime,
   grokRuntime,
 } from './store/runtime.js'
+export type {
+  HarnessRuntimeObservation,
+  TranscriptRuntimeReader,
+} from './store/runtime.js'
 export {
-  SliceOptions,
-  SliceResult,
   readFileItems,
   readTranscriptSlice,
   readTranscriptSliceCached,
   resetSliceCache,
   sliceCacheStats,
 } from './store/slice.js'
+export type {
+  SliceOptions,
+  SliceResult,
+} from './store/slice.js'
 export {
-  TranscriptRecordMapper,
-  TranscriptSource,
   fileChainSource,
   opencodeFileId,
   sliceItemsByAnchor,
   stampOpencodeItems,
 } from './store/source.js'
+export type {
+  TranscriptRecordMapper,
+  TranscriptSource,
+} from './store/source.js'
 export {
-  SharedStatTick,
-  StatTick,
   createSharedStatTick,
   scheduleStatPoll,
+} from './store/stat-tick.js'
+export type {
+  SharedStatTick,
+  StatTick,
 } from './store/stat-tick.js'
 export {
   streamIdOfCursor,
   streamItemIdOf,
 } from './store/stream-identity.js'
 export {
+  tailTranscript,
+} from './store/tailer.js'
+export type {
   TranscriptTailMeta,
   TranscriptTailOptions,
   TranscriptTailStatus,
   TranscriptTailer,
-  tailTranscript,
 } from './store/tailer.js'
 export {
   TOOL_EDIT_KIND,
-  ToolEditHunk,
-  ToolEditMode,
-  ToolEditPayload,
   extractToolEdit,
   extractToolEditFromPatch,
   isFileEditToolName,
   looksLikePatch,
   safeToolEditJson,
   safeToolEditJsonFromInput,
+} from './store/tool-edit.js'
+export type {
+  ToolEditHunk,
+  ToolEditMode,
+  ToolEditPayload,
 } from './store/tool-edit.js'

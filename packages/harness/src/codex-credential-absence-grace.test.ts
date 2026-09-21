@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CodexCredentialAbsenceGrace } from './codex-credential-absence-grace.js'
-import { codexManifest } from './manifests/codex.js'
+import { codexManifest } from './adapters/codex/index.js'
 
 describe('Codex credential absence grace', () => {
   it('retains a settled login for one missing read, then expires the grace', () => {

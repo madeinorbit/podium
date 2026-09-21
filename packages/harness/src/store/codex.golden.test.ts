@@ -92,9 +92,9 @@ describe('codexRecordToItems golden fixture', () => {
 })
 
 it('preserves the same message IDs as fake app-server notifications through the live mapper', async () => {
-  // Load the sibling test helpers at runtime: transcript's rootDir deliberately
-  // excludes agent-runtime, and this parity test must not add a package dependency.
-  const driverUrl = new URL('../../agent-runtime/src/drivers/codex/', import.meta.url)
+  // Load the family test helpers at runtime: the store must not take a static
+  // dependency on a driver family, so this parity test reaches it by URL.
+  const driverUrl = new URL('../../driver/families/codex/', import.meta.url)
   const { startFakeAppServer } = await import(
     new URL('test-support/fake-app-server.ts', driverUrl).href
   )

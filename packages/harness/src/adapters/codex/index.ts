@@ -2,22 +2,22 @@ import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { codexRecordToItems, codexRuntime } from '../../store/index.js'
-import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
+import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import {
   codexStateProvider,
   findCodexRolloutPath,
   observeCodexState,
   resolvePinnedCodexRollout,
-} from '../agent-state/codex.js'
-import { withStateChannel } from '../agent-state/types.js'
+} from '../../agent-state/codex.js'
+import { withStateChannel } from '../../agent-state/types.js'
 import {
   compareCodexAuthFreshness,
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
-} from '../codex-auth-identity.js'
-import { CodexCredentialAbsenceGrace } from '../codex-credential-absence-grace.js'
-import { createCodexConversationProvider } from '../discovery/providers/codex.js'
-import { composeAgentInstructions } from '../instructions.js'
+} from '../../codex-auth-identity.js'
+import { CodexCredentialAbsenceGrace } from '../../codex-credential-absence-grace.js'
+import { createCodexConversationProvider } from '../../discovery/providers/codex.js'
+import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
@@ -30,8 +30,8 @@ import {
   supported,
   type TranscriptSourceInput,
   unsupported,
-} from '../manifest.js'
-import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../version-policy.js'
+} from '../../manifest.js'
+import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 
 const log = createLogger('harness:codex')
 

@@ -19,12 +19,12 @@ import {
   type PortableCredential,
   type AcceptedDriverId,
 } from './manifest.js'
-import { claudeCodeManifest } from './manifests/claude-code.js'
-import { codexManifest } from './manifests/codex.js'
-import { cursorManifest } from './manifests/cursor.js'
-import { grokManifest } from './manifests/grok.js'
-import { opencodeManifest } from './manifests/opencode.js'
-import { piManifest } from './manifests/pi.js'
+import { claudeCodeManifest } from './adapters/claude-code/index.js'
+import { codexManifest } from './adapters/codex/index.js'
+import { cursorManifest } from './adapters/cursor/index.js'
+import { grokManifest } from './adapters/grok/index.js'
+import { opencodeManifest } from './adapters/opencode/index.js'
+import { piManifest } from './adapters/pi/index.js'
 
 /**
  * THE harness registry (#158/POD-303): one manifest per driveable harness kind.

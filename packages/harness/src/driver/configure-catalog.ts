@@ -4,10 +4,10 @@
 import type { Declared } from '../manifest.js'
 import { canonicalDriverId, supported, unsupported } from '../manifest.js'
 import type { AttachCapability, ConfigureCapability, ConfigureRequest } from './capabilities.js'
-import { claudeSdkCapabilities } from './drivers/claude-sdk/capabilities.js'
-import { codexAppServerCapabilities } from './drivers/codex/capabilities.js'
-import { grokAcpCapabilities } from './drivers/grok-acp/capabilities.js'
-import { opencodeServerCapabilities } from './drivers/opencode/capabilities.js'
+import { claudeSdkCapabilities } from './families/claude-sdk/capabilities.js'
+import { codexAppServerCapabilities } from './families/codex/capabilities.js'
+import { grokAcpCapabilities } from './families/grok-acp/capabilities.js'
+import { opencodeServerCapabilities } from './families/opencode/capabilities.js'
 import type { DriverId } from './families.js'
 
 /**
