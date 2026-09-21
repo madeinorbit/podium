@@ -105,7 +105,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
     const step = async (
       scenario: string,
       methodology: string,
-      apply: () => void | Promise<void>,
+      apply: () => unknown,
       expectedLocals: SliceLocals = locals,
     ): Promise<CountResult> => {
       const before = snapshotFromStore(ctx.engine.getSnapshot(), expectedLocalsFor(scenario))
