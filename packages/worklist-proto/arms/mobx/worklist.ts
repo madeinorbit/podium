@@ -35,6 +35,9 @@ export class WorklistModel {
 
   /** Every visible issue id (spec §3 R-VIS). The ONE table enumeration. */
   get visibleIds(): readonly string[] {
+    // The enumeration itself is O(issues) per body run (counted; the per-row
+    // reads are cached, so only invalidated rows re-derive).
+    this.store.scan('visible-enumeration', this.store.issues.size)
     const out: string[] = []
     for (const [id, model] of this.store.issues) {
       if (model.visible) out.push(id)
@@ -49,6 +52,7 @@ export class WorklistModel {
       const model = this.store.issues.get(id)
       if (model) ranked.set(id, model.rankKey)
     }
+    this.store.scan('order-sort', ranked.size)
     return [...this.visibleIds].sort((a, b) =>
       compareRank(ranked.get(a) as RankInput, ranked.get(b) as RankInput),
     )
@@ -58,7 +62,9 @@ export class WorklistModel {
   get groups(): { pinnedIds: string[]; groups: SliceGroup[] } {
     const pinnedIds: string[] = []
     const buckets = new Map<string, { label: string; open: string[]; closed: string[] }>()
-    for (const id of this.order) {
+    const order = this.order
+    this.store.scan('groups-bucket', order.length)
+    for (const id of order) {
       const model = this.store.issues.get(id)
       if (!model) continue
       if (model.value.pinned === true) {

@@ -60,6 +60,29 @@ function normalizeRoot(path: string): string {
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
 }
 
+function assertNever(value: never): never {
+  throw new Error(`[mobx] unhandled row kind: ${JSON.stringify(value)}`)
+}
+
+/**
+ * Named multi-row walks. Each is bounded by the structure named, never by an
+ * ad-hoc collection: that bound is what the M2 note judges inherent or
+ * removable per walk (the MobX analog of the hand arm's `ScanName`).
+ */
+export type MobxScanName =
+  /** Buckets visited by `moveSeat`'s full-map scan (H4 residual R-M1). */
+  | 'move-seat-scan'
+  /** Keys spread by `roots()` per `resolveCwd` call. */
+  | 'roots-spread'
+  /** `sessionHome` entries visited by `resolveAllUnbound`. */
+  | 'resolve-unbound'
+  /** Issues visited per `visibleIds` body run (the ONE enumeration). */
+  | 'visible-enumeration'
+  /** Visible ids presented to the sort per `order` body run. */
+  | 'order-sort'
+  /** Ordered ids bucketed per `groups` body run. */
+  | 'groups-bucket'
+
 export class MobXStore {
   readonly issues = observable.map<string, IssueModel>({}, { deep: false })
   readonly sessions = observable.map<string, SessionModel>({}, { deep: false })
@@ -101,6 +124,8 @@ export class MobXStore {
   private readonly source: RowSource
   /** Set when R3 targets move; gates the unbound re-resolve per batch. */
   private resolveNeeded = false
+  /** Cumulative multi-row walk visits (H4 slope material), beside ArmStats. */
+  private readonly scanTotals = new Map<MobxScanName, number>()
 
   constructor(source: RowSource, locals: SliceLocals) {
     this.source = source
@@ -114,6 +139,7 @@ export class MobXStore {
         stats.rollupsDerived = 0
         stats.indexUpdates = 0
         stats.notifications = 0
+        this.scanTotals.clear()
       },
     }
     this.stats = stats
@@ -142,6 +168,9 @@ export class MobXStore {
       | 'resolveAllUnbound'
       | 'roots'
       | 'resolveNeeded'
+      | 'scanTotals'
+      | 'scan'
+      | 'scanCounts'
     >(this, {
       source: false,
       locals: false,
@@ -186,6 +215,9 @@ export class MobXStore {
       mountWeb: false,
       snapshot: false,
       handle: false,
+      scan: false,
+      scanCounts: false,
+      scanTotals: false,
       membersOf: false,
       unreadMembersOf: false,
       prefixForRepo: false,
@@ -292,6 +324,8 @@ export class MobXStore {
         else this.worktrees.set(record.id, new WorktreeModel(record.value as SliceWorktree))
         return true
       }
+      default:
+        return assertNever(record.kind)
     }
   }
 
@@ -309,6 +343,20 @@ export class MobXStore {
     for (const id of this.sessions.keys()) this.ingestSession(id)
     for (const id of this.worktrees.keys()) this.ingestWorktree(id)
     this.resolveAllUnbound()
+  }
+
+  // ----------------------------------------------------------------- scans
+
+  /** Record a multi-row walk (H4 slope material); cleared by `stats.reset()`. */
+  scan(name: MobxScanName, visits: number): void {
+    this.scanTotals.set(name, (this.scanTotals.get(name) ?? 0) + visits)
+  }
+
+  /** Cumulative scan visits since the last `stats.reset()` (M2 slope record). */
+  scanCounts(): Record<string, number> {
+    const out: Record<string, number> = {}
+    for (const [name, visits] of this.scanTotals) out[name] = visits
+    return out
   }
 
   // --------------------------------------------------------------- indexes
@@ -436,6 +484,9 @@ export class MobXStore {
 
   private moveSeat(map: Map<string, readonly string[]>, id: string, seat: string | null): boolean {
     let changed = false
+    // The spread below visits every bucket per ingest (H4 residual R-M1);
+    // counted here so the growth slope prices it.
+    this.scan('move-seat-scan', map.size)
     for (const [bucket, members] of [...map]) {
       if (bucket !== seat && members.includes(id)) changed = this.dropSeat(map, bucket, id) || changed
     }
@@ -511,6 +562,7 @@ export class MobXStore {
     // rebuild unconditionally; the drop-then-take split preserves bucket
     // order across the rebuild.
     const pending: Array<{ id: string; explicit: string | null; resolved: string | null }> = []
+    this.scan('resolve-unbound', this.sessionHome.size)
     for (const [id, home] of [...this.sessionHome]) {
       if (home.explicit !== null) continue
       const session = this.sessions.get(id)?.value
@@ -546,6 +598,7 @@ export class MobXStore {
   }
 
   private roots(): string[] {
+    this.scan('roots-spread', this.lanePaths.size + this.issuesByWorktree.size)
     return [...this.lanePaths.keys(), ...this.issuesByWorktree.keys()]
   }
 
