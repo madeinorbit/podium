@@ -565,6 +565,13 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       '@podium/harness/browser',
       '@podium/harness/driver',
       '@podium/harness/store',
+      // Two narrow deep entries for the pure composer interface (POD-4469):
+      // the web fallback and terminal-client share the daemon's draft
+      // extractors without taking the host barrel. The composer rules move to
+      // `adapters/<h>/composer.ts` with browser-surface exports in 4.3; these
+      // entries are the interim that keeps the move behavior-neutral.
+      '@podium/harness/driver/families/terminal/composer-sync',
+      '@podium/harness/driver/families/terminal/prompt-extract',
     ],
     consumers: ['apps/daemon', 'scripts'],
   },
@@ -709,6 +716,11 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   // `createRequire is not a function` before it could render. This row is what
   // keeps `./browser` the only reachable one, and holds it to importing nothing.
   ['@podium/harness/browser', 'packages/harness/src/browser.ts'],
+  // The pure composer interface both browser consumers share (POD-4469, see
+  // the open-entrypoint note above). Each row's closure is held to no-Node;
+  // both modules are screen-lines-in/bytes-out with type-only model imports.
+  ['@podium/harness/driver/families/terminal/composer-sync', 'packages/harness/src/driver/families/terminal/composer-sync.ts'],
+  ['@podium/harness/driver/families/terminal/prompt-extract', 'packages/harness/src/driver/families/terminal/prompt-extract.ts'],
   // The store's cursor helpers ride the harness browser entry (POD-4469):
   // parsing, filesystem paging and tailing stay behind the host-only store
   // entry, and the opaque cursor/stream-item identity the feed needs is

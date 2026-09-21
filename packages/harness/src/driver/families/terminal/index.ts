@@ -69,21 +69,3 @@ export {
   TERMINAL_EXEMPTION_NAMES,
   TERMINAL_PERMITTED_FAILURES,
 } from './permitted-failures.js'
-// The pure composer interface (POD-4469: dissolved from `@podium/composer`).
-// No IO: screen lines in, bytes out — shared by the daemon draft-sync engine
-// and (through `@podium/harness/browser`) the web fallback.
-export {
-  type ComposerDriver,
-  composerDriverFor,
-  claudeComposerDriver,
-  codexComposerDriver,
-  CTRL_C,
-  CTRL_U,
-  PASTE_END,
-  PASTE_START,
-} from './composer-sync.js'
-export {
-  extractClaudePromptDraft,
-  extractCodexPromptDraft,
-  type ScreenLines,
-} from './prompt-extract.js'

@@ -48,6 +48,16 @@
       "@podium/source": "./src/inventory.ts",
       "types": "./dist/inventory.d.ts",
       "import": "./dist/inventory.js"
+    },
+    "./driver/families/terminal/composer-sync": {
+      "@podium/source": "./src/driver/families/terminal/composer-sync.ts",
+      "types": "./dist/driver/families/terminal/composer-sync.d.ts",
+      "import": "./dist/driver/families/terminal/composer-sync.js"
+    },
+    "./driver/families/terminal/prompt-extract": {
+      "@podium/source": "./src/driver/families/terminal/prompt-extract.ts",
+      "types": "./dist/driver/families/terminal/prompt-extract.d.ts",
+      "import": "./dist/driver/families/terminal/prompt-extract.js"
     }
   },
   "files": [

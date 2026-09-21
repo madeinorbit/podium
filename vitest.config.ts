@@ -97,6 +97,15 @@ export const sharedVitestConfig = {
         ),
       },
       {
+        find: /^@podium\/harness\/driver\/families\/terminal\/prompt-extract$/,
+        replacement: fileURLToPath(
+          new URL(
+            './packages/harness/src/driver/families/terminal/prompt-extract.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+      {
         find: /^@podium\/harness\/store$/,
         replacement: fileURLToPath(
           new URL('./packages/harness/src/store.ts', import.meta.url),
