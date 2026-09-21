@@ -26,7 +26,7 @@ import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './version-probe'
 import { composeEngineEnv, createEngineJournal, supervisionFor } from './host'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createDurableProcess } from '@podium/process/durable'
-import { createDaemonGrokRuntime } from './grok-driver'
+import { createGrokSessionRuntime } from '@podium/harness/driver/host'
 
 const CHILD_HELPER = `
 const fs = require('node:fs')
@@ -115,7 +115,7 @@ describe('Grok ACP real scoped child boundary', () => {
       PODIUM_TEST_SCOPE_ARGS: process.env.PODIUM_TEST_SCOPE_ARGS,
       XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
     }
-    let runtime: ReturnType<typeof createDaemonGrokRuntime> | undefined
+    let runtime: ReturnType<typeof createGrokSessionRuntime> | undefined
     let hostSockets = ''
     try {
       process.env.PATH = `${rig.bin}:${previous.PATH ?? ''}`
@@ -142,7 +142,17 @@ describe('Grok ACP real scoped child boundary', () => {
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => grokAcpVersionProbe(),
       })
-      runtime = createDaemonGrokRuntime({ send: (message) => sent.push(message), host })
+      runtime = createGrokSessionRuntime({
+        facts,
+        engine: host,
+        send: (message) => sent.push(message),
+        emitBind: (bind) => {
+          sent.push({ type: 'bind', ...bind })
+        },
+        sessionReady: () => {},
+        traceRuntimeEvent: () => {},
+        startMailContinuation: () => () => {},
+      })
       const sessionId = asSessionId('grok-real-scoped-exit')
 
       await runtime.launch({ sessionId, cwd: root })

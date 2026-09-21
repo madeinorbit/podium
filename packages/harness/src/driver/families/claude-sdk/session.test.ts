@@ -1,15 +1,18 @@
-import { pageHistory } from '@podium/harness/driver/host'
+/**
+ * THE CLAUDE SDK SESSION ADAPTER (moved from
+ * apps/daemon/src/runtime/claude-sdk-driver.test.ts in 1.5 with the code it
+ * pins: launch/resume/transcript/turn/env translation at the session layer.
+ */
+import { pageHistory } from '../../history.js'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import type { ClaudeSdkChildHandle, ClaudeSdkChildTurnInput } from '@podium/harness/driver/host'
-import { runClaudeSdkChildTurn } from '@podium/harness/driver/host'
-import { createDaemonClaudeSdkRuntime } from './claude-sdk-driver'
-import { createDaemonMachineRuntime } from './machine-runtime'
-import type { TerminalRuntimeHost } from './terminal-driver'
+import type { ClaudeSdkChildHandle, ClaudeSdkChildTurnInput } from './child-turn.js'
+import { runClaudeSdkChildTurn } from './child-turn.js'
+import { createClaudeSdkSessionRuntime, type ClaudeSdkSessionDeps } from './session.js'
 
-vi.mock('@podium/harness/driver/host', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@podium/harness/driver/host')>()),
+vi.mock('./child-turn.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./child-turn.js')>()),
   runClaudeSdkChildTurn: vi.fn(),
 }))
 
@@ -31,13 +34,37 @@ const WITNESS: TranscriptItem[] = [
   },
 ]
 
-function host(reads: Array<{ resumeValue: string; limit: number }>): TerminalRuntimeHost {
+function transcript(reads: Array<{ resumeValue: string; limit: number }>) {
   return {
-    readHistory: async (session: { resume?: { value?: string } }, range: { limit: number }) => {
+    readHistory: async (
+      session: { resume?: { value?: string } },
+      range: { limit: number },
+    ) => {
       reads.push({ resumeValue: session.resume?.value ?? '', limit: range.limit })
       return pageHistory(WITNESS, session.resume?.value ?? '', range)
     },
-  } as unknown as TerminalRuntimeHost
+    archiveTranscript: async () => ({ path: '/tmp/archive.jsonl' }),
+    readFileBytes: async () => new Uint8Array(),
+  }
+}
+
+function sessionWorld(
+  sent: DaemonMessage[],
+  reads: Array<{ resumeValue: string; limit: number }>,
+  extra: Partial<ClaudeSdkSessionDeps> = {},
+) {
+  return createClaudeSdkSessionRuntime({
+    send: (message) => sent.push(message),
+    emitBind: (bind) => {
+      sent.push({ type: 'bind', ...bind })
+    },
+    sessionReady: () => {},
+    traceRuntimeEvent: () => {},
+    startMailContinuation: () => () => {},
+    transcript: transcript(reads),
+    composeChildEnv: (_agent, explicit) => ({ ...explicit }),
+    ...extra,
+  })
 }
 
 function serverRuntime(id: string, harness: string) {
@@ -78,11 +105,7 @@ describe('Claude SDK daemon host adapter', () => {
       } satisfies ClaudeSdkChildHandle
     })
 
-    const runtime = createDaemonClaudeSdkRuntime({
-      send: (message) => sent.push(message),
-      host: host(reads),
-      executablePath: '/opt/claude/2.1.236/claude',
-    })
+    const runtime = sessionWorld(sent, reads, { executablePath: '/opt/claude/2.1.236/claude' })
     const handle = await runtime.launch({
       sessionId: SESSION_ID,
       cwd: '/project',
@@ -139,80 +162,6 @@ describe('Claude SDK daemon host adapter', () => {
     runtime.dispose()
   })
 
-  it('routes process-gone resume through the machine root and publishes once', async () => {
-    const sent: DaemonMessage[] = []
-    const claude = createDaemonClaudeSdkRuntime({
-      send: (message) => sent.push(message),
-      host: host([]),
-    })
-    const terminal = {
-      driverFor: vi.fn(),
-      handleFor: () => undefined,
-      bindings: () => [],
-      observe: vi.fn(),
-      onHookPayload: vi.fn(),
-      register: vi.fn(),
-      clear: vi.fn(),
-      dispose: vi.fn(),
-    }
-    const machine = createDaemonMachineRuntime({
-      terminal,
-      claude,
-      opencode: serverRuntime('opencode-server', 'opencode'),
-      opencode2: serverRuntime('opencode2-server', 'opencode'),
-      codex: serverRuntime('codex-app-server', 'codex'),
-      grok: serverRuntime('grok-acp', 'grok'),
-      headless: {
-        driverFor: () => undefined,
-        handleFor: () => undefined,
-        bindings: () => [],
-      },
-      inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
-    } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
-
-    const handle = await machine.resume(
-      RESUME,
-      {
-        harness: 'claude-code',
-        selection: {
-          auth: 'unknown',
-          platform: 'linux',
-          available: ['claude-sdk'],
-          preference: 'claude-sdk',
-          role: 'interactive',
-        },
-        workdir: '/project',
-        model: {},
-        instructions: { supported: false, reason: 'fixture' },
-        mcpServers: { supported: false, reason: 'fixture' },
-      },
-      SESSION_ID,
-    )
-
-    expect(handle.binding).toMatchObject({
-      sessionId: SESSION_ID,
-      driver: 'claude-sdk',
-      resume: RESUME,
-    })
-    const binds = sent.filter((message) => message.type === 'bind')
-    const states = sent.filter((message) => message.type === 'agentState')
-    const refs = sent.filter((message) => message.type === 'sessionResumeRef')
-    expect(binds).toHaveLength(1)
-    expect(binds[0]).toMatchObject({
-      sessionId: SESSION_ID,
-      driverId: 'claude-sdk',
-    })
-    expect(states.length).toBeGreaterThanOrEqual(1)
-    expect(refs).toEqual([
-      {
-        type: 'sessionResumeRef',
-        sessionId: SESSION_ID,
-        resume: RESUME,
-        confidence: 'exact',
-      },
-    ])
-    machine.dispose()
-  })
   it('forwards queued teardown loss once through the durable daemon contract', async () => {
     const sent: DaemonMessage[] = []
     vi.mocked(runClaudeSdkChildTurn).mockImplementation(
@@ -226,10 +175,7 @@ describe('Claude SDK daemon host adapter', () => {
         }) satisfies ClaudeSdkChildHandle,
     )
 
-    const runtime = createDaemonClaudeSdkRuntime({
-      send: (message) => sent.push(message),
-      host: host([]),
-    })
+    const runtime = sessionWorld(sent, [])
     const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project', resume: RESUME })
     await handle.send({ id: 'active', text: 'active' }, { origin: 'human', delivery: 'when-ready' })
     await handle.send(
@@ -268,10 +214,7 @@ describe('Claude SDK daemon host adapter', () => {
         }) satisfies ClaudeSdkChildHandle,
     )
 
-    const runtime = createDaemonClaudeSdkRuntime({
-      send: (message) => sent.push(message),
-      host: host([]),
-    })
+    const runtime = sessionWorld(sent, [])
     const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
     await handle.send({ id: 'prompt', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 
@@ -334,10 +277,7 @@ describe('Claude SDK daemon host adapter', () => {
         }) satisfies ClaudeSdkChildHandle,
     )
 
-    const runtime = createDaemonClaudeSdkRuntime({
-      send: (message) => sent.push(message),
-      host: host([]),
-    })
+    const runtime = sessionWorld(sent, [])
     const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
     await handle.send({ id: 'prompt', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 
@@ -385,9 +325,8 @@ describe('Claude SDK daemon host adapter', () => {
       } satisfies ClaudeSdkChildHandle
     })
 
-    const runtime = createDaemonClaudeSdkRuntime({
+    const runtime = sessionWorld([], [], {
       send: () => {},
-      host: host([]),
       homeDir: '/state/p3057/agent-home',
     })
     const handle = await runtime.launch({
@@ -424,7 +363,7 @@ describe('Claude SDK daemon host adapter', () => {
       } satisfies ClaudeSdkChildHandle
     })
 
-    const runtime = createDaemonClaudeSdkRuntime({ send: () => {}, host: host([]) })
+    const runtime = sessionWorld([], [], { send: () => {} })
     const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
     await handle.send({ id: 'first', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 

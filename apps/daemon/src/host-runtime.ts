@@ -9,8 +9,14 @@ import {
   type CodexJournalEntry,
   codexEngineFacts,
   createCodexEngineHost,
+  createCodexSessionRuntime,
   createGrokEngineHost,
+  createGrokSessionRuntime,
   createOpencodeEngineHost,
+  createOpencodeSessionRuntime,
+  createClaudeSdkSessionRuntime,
+  claudeSdkHarnessKind,
+  type ServerSessionFramePorts,
   type GrokAcpJournalEntry,
   grokEngineFacts,
   type OpencodeJournalEntry,
@@ -75,7 +81,7 @@ import { BindingStore } from './binding-store'
 import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
-import { appliedGeometryFor } from './control/applied-geometry'
+import { appliedGeometryFor, bindFrame } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { assertNativeHeadlessAccount } from './control/headless'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
@@ -113,12 +119,12 @@ import { createPrimeInjector, primeHookResponse } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
-import {
-  createDaemonClaudeSdkRuntime,
-  type DaemonClaudeSdkRuntime,
-} from './runtime/claude-sdk-driver'
-import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
-import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
+import { driverTiming } from './runtime/driver-timing'
+import { headlessChildEnv } from './headless-drivers'
+import { createMailContinuation } from './runtime/mail-boundary'
+import type { DaemonClaudeSdkRuntime } from '@podium/harness/driver/host'
+import type { DaemonCodexRuntime } from '@podium/harness/driver/host'
+import type { DaemonGrokRuntime } from '@podium/harness/driver/host'
 import {
   composeEngineEnv,
   createEngineJournal,
@@ -139,7 +145,7 @@ import {
 import { createHeadlessRuntime, type HeadlessRuntime } from './runtime/headless-driver'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
-import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
+import type { DaemonOpencodeRuntime } from '@podium/harness/driver/host'
 import { createScopeMonitor } from './runtime/scope-monitor'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
@@ -1142,19 +1148,45 @@ export async function createDaemonHostRuntime(args: {
   // supervision implementation drives every engine family.
   const engineSupervision = supervisionFor(engineDurable)
   const opencode2Executable = generationInventory?.commandEnvironment.resolve(oc2Facts.executableName)
-  claudeRuntime = createDaemonClaudeSdkRuntime({
+  // Session-frame ports shared by the four headless families: the frame sink,
+  // the one bind builder, timing stages and the mail continuation. The
+  // supervisor owns the wire; the families own the translation.
+  const emitBind: ServerSessionFramePorts['emitBind'] = (input) =>
+    send(bindFrame(appliedGeometryFor(ctx), input))
+  const sessionReady: ServerSessionFramePorts['sessionReady'] = (binding) =>
+    driverTiming.sessionReady(binding)
+  const traceRuntimeEvent: ServerSessionFramePorts['traceRuntimeEvent'] = (binding, event) =>
+    driverTiming.runtimeEvent(binding, event)
+  const startMailContinuation: ServerSessionFramePorts['startMailContinuation'] = (
+    handle,
+    isCurrent,
+  ) =>
+    createMailContinuation(
+      handle,
+      mailContext.pendingContext,
+      isCurrent,
+      (error) =>
+        log.warn('issue mail boundary delivery failed', {
+          sessionId: handle.binding.sessionId,
+          error,
+        }),
+    )
+  const sessionFrames = { emitBind, sessionReady, traceRuntimeEvent, startMailContinuation }
+  claudeRuntime = createClaudeSdkSessionRuntime({
     send,
-    boundaryContext: mailContext.pendingContext,
-    // Every bind this driver sends is built by the one builder, which reads
-    // this record and nothing else (POD-3290).
-    appliedGeometry: appliedGeometryFor(ctx),
-    host: contractHost,
+    ...sessionFrames,
+    transcript: {
+      readHistory: contractHost.readHistory,
+      archiveTranscript: contractHost.archiveTranscript,
+      readFileBytes: contractHost.readFileBytes,
+    },
+    composeChildEnv: headlessChildEnv,
     // The instance agent home the transcript reader already resolves against
     // (control/transcripts.ts sourceForRead), so the SDK child writes its JSONL
     // where sessions.read looks for it (POD-3057).
     ...(homeDir ? { homeDir } : {}),
-    ...(generationInventory?.executables.has('claude-code')
-      ? { executablePath: resolvedHarnessPath(generationInventory, 'claude-code') }
+    ...(generationInventory?.executables.has(claudeSdkHarnessKind)
+      ? { executablePath: resolvedHarnessPath(generationInventory, claudeSdkHarnessKind) }
       : {}),
   })
   /**
@@ -1167,75 +1199,71 @@ export async function createDaemonHostRuntime(args: {
    * flag would mean the flag had to be read before the context existed, which is
    * how the terminal path's own wiring cycle got its comment above.
    */
-  opencodeRuntime = createDaemonOpencodeRuntime({
-    send,
-    boundaryContext: mailContext.pendingContext,
-    // Every bind this driver sends is built by the one builder, which reads
-    // this record and nothing else (POD-3290).
-    appliedGeometry: appliedGeometryFor(ctx),
-    host: createOpencodeEngineHost({
-      flavor: ocFacts,
-      supervision: engineSupervision,
-      journal: createEngineJournal<OpencodeJournalEntry>({ namespace: ocFacts.journalNamespace }),
-      resources: (subject) => scopeMonitor.resources(subject),
-      stageAttachment,
-      buildEnv: composeEngineEnv,
-      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-      checkVersion: ({ executable }) =>
-        opencodeVersionProbeForExecutable(executable).then((verdict) =>
-          verdict.drivable ? null : verdict.diagnostic,
-        ),
-      /**
-       * `attach()`'s client terminal (POD-2059), on the frames path this daemon
-       * already runs. The stream id is the key, exactly as the engine variant's
-       * endpoint uses the session id — one relay, two kinds of terminal.
-       *
-       * ABSENT ON A backend=none DAEMON (POD-3917): there is no terminal host
-       * to hand over, and the opencode host answers a Native attach with its
-       * per-machine refusal instead.
-       */
-      ...(clientTerminals ? { clientTerminals: engineClientTerminals(clientTerminals) } : {}),
-      ...(generationInventory?.executables.has(ocFacts.harnessKind)
-        ? { executablePath: resolvedHarnessPath(generationInventory, ocFacts.harnessKind) }
-        : {}),
-      // The instance agent home: a server-driver child's HOME must be the
-      // instance's, exactly as the PTY path's children get it (POD-2247).
-      ...(homeDir ? { homeDir } : {}),
-      instanceUuid: instance.instanceUuid,
-    }),
+  const opencodeEngine = createOpencodeEngineHost({
+    flavor: ocFacts,
+    supervision: engineSupervision,
+    journal: createEngineJournal<OpencodeJournalEntry>({ namespace: ocFacts.journalNamespace }),
+    resources: (subject) => scopeMonitor.resources(subject),
+    stageAttachment,
+    buildEnv: composeEngineEnv,
+    gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+    checkVersion: ({ executable }) =>
+      opencodeVersionProbeForExecutable(executable).then((verdict) =>
+        verdict.drivable ? null : verdict.diagnostic,
+      ),
+    /**
+     * `attach()`'s client terminal (POD-2059), on the frames path this daemon
+     * already runs. The stream id is the key, exactly as the engine variant's
+     * endpoint uses the session id — one relay, two kinds of terminal.
+     *
+     * ABSENT ON A backend=none DAEMON (POD-3917): there is no terminal host
+     * to hand over, and the opencode host answers a Native attach with its
+     * per-machine refusal instead.
+     */
+    ...(clientTerminals ? { clientTerminals: engineClientTerminals(clientTerminals) } : {}),
+    ...(generationInventory?.executables.has(ocFacts.harnessKind)
+      ? { executablePath: resolvedHarnessPath(generationInventory, ocFacts.harnessKind) }
+      : {}),
+    // The instance agent home: a server-driver child's HOME must be the
+    // instance's, exactly as the PTY path's children get it (POD-2247).
+    ...(homeDir ? { homeDir } : {}),
+    instanceUuid: instance.instanceUuid,
   })
-  opencode2Runtime = createDaemonOpencodeRuntime({
+  opencodeRuntime = createOpencodeSessionRuntime({
+    flavor: ocFacts,
+    engine: opencodeEngine,
     send,
-    boundaryContext: mailContext.pendingContext,
-    // Every bind this driver sends is built by the one builder, which reads
-    // this record and nothing else (POD-3290).
-    appliedGeometry: appliedGeometryFor(ctx),
-    host: {
-      ...createOpencodeEngineHost({
-        flavor: oc2Facts,
-        supervision: engineSupervision,
-        journal: createEngineJournal<OpencodeJournalEntry>({ namespace: oc2Facts.journalNamespace }),
-        resources: (subject) => scopeMonitor.resources(subject),
-        // Absent on a backend=none daemon (POD-3917): no terminal host, so the
-        // opencode host refuses a Native attach with its per-machine wording.
-        ...(clientTerminals ? { clientTerminals: engineClientTerminals(clientTerminals) } : {}),
-        stageAttachment,
-        buildEnv: composeEngineEnv,
-        gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-        checkVersion: ({ executable }) =>
-          opencode2VersionProbeForExecutable(executable).then((verdict) =>
-            verdict.drivable ? null : verdict.diagnostic,
-          ),
-        ...(opencode2Executable ? { executablePath: opencode2Executable } : {}),
-        ...(homeDir ? { homeDir } : {}),
-        instanceUuid: instance.instanceUuid,
-        // V2 migrates the stable CLI's default database to an incompatible
-        // schema: isolate only the database (supervisor layout) so both still
-        // read the instance's shared credentials and configuration.
-        flavorEnv: { OPENCODE_DB: join(stateDir(), 'opencode2.db') },
-      }),
-      makeClient: createOpencode2Client,
-    },
+    ...sessionFrames,
+  })
+  const opencodeEngine2 = createOpencodeEngineHost({
+    flavor: oc2Facts,
+    supervision: engineSupervision,
+    journal: createEngineJournal<OpencodeJournalEntry>({ namespace: oc2Facts.journalNamespace }),
+    resources: (subject) => scopeMonitor.resources(subject),
+    // Absent on a backend=none daemon (POD-3917): no terminal host, so the
+    // opencode host refuses a Native attach with its per-machine wording.
+    ...(clientTerminals ? { clientTerminals: engineClientTerminals(clientTerminals) } : {}),
+    stageAttachment,
+    buildEnv: composeEngineEnv,
+    gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+    checkVersion: ({ executable }) =>
+      opencode2VersionProbeForExecutable(executable).then((verdict) =>
+        verdict.drivable ? null : verdict.diagnostic,
+      ),
+    ...(opencode2Executable ? { executablePath: opencode2Executable } : {}),
+    ...(homeDir ? { homeDir } : {}),
+    instanceUuid: instance.instanceUuid,
+    // V2 migrates the stable CLI's default database to an incompatible
+    // schema: isolate only the database (supervisor layout) so both still
+    // read the instance's shared credentials and configuration.
+    flavorEnv: { OPENCODE_DB: join(stateDir(), 'opencode2.db') },
+    makeClient: createOpencode2Client,
+  })
+  opencode2Runtime = createOpencodeSessionRuntime({
+    flavor: oc2Facts,
+    engine: opencodeEngine2,
+    send,
+    ...sessionFrames,
   })
   /**
    * THE SECOND SERVER-FAMILY RUNTIME (POD-1761 W6), constructed on the same
@@ -1243,99 +1271,97 @@ export async function createDaemonHostRuntime(args: {
    * `codex app-server` child starts until a spawn explicitly asks for
    * `codex-app-server`.
    */
-  codexRuntime = createDaemonCodexRuntime({
-    send,
-    boundaryContext: mailContext.pendingContext,
-    // Every bind this driver sends is built by the one builder, which reads
-    // this record and nothing else (POD-3290).
-    appliedGeometry: appliedGeometryFor(ctx),
-    host: createCodexEngineHost({
-      facts: codexFacts,
-      supervision: engineSupervision,
-      journal: createEngineJournal<CodexJournalEntry>({ namespace: codexFacts.journalNamespace }),
-      resources: (subject) => scopeMonitor.resources(subject),
-      stageAttachment,
-      buildEnv: composeEngineEnv,
-      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-      checkVersion: () => codexAppServerVersionProbe(),
-      socketRoot: engineSocketRoot(),
-      dialSocket: dialEngineSocket,
-      // Omitted outright on a backend=none daemon (POD-3917): without a
-      // terminal host the codex host reports it cannot host one, rather than
-      // reaching a backend this daemon never selected.
-      ...(clientTerminals
-        ? {
-            attachClient: async ({ sessionId, threadId, clientAddress, workdir }) => {
-              try {
-                return await clientTerminals.attach({
-                  sessionId,
-                  // The 0600 Unix listener the stock TUI dials directly; filesystem
-                  // permission is the authentication, so there is no secret with it.
-                  // The attach kind is the family's own token, read as a value.
-                  target: {
-                    kind: codexFacts.attachKind as ClientTerminalKind,
-                    conversation: threadId,
-                    endpoint: { address: clientAddress },
-                    workdir,
-                  },
-                })
-              } catch (err) {
-                log.warn('could not host a Codex client terminal', { err, sessionId })
-                return undefined
-              }
-            },
-            detachClient: ({ sessionId }) =>
-              clientTerminals.close(sessionId, codexFacts.attachKind as ClientTerminalKind),
-          }
-        : {}),
-      // Same instance-home rule as the opencode host above (POD-2247).
-      ...(homeDir ? { homeDir } : {}),
-      instanceUuid: instance.instanceUuid,
-    }),
+  const codexEngine = createCodexEngineHost({
+    facts: codexFacts,
+    supervision: engineSupervision,
+    journal: createEngineJournal<CodexJournalEntry>({ namespace: codexFacts.journalNamespace }),
+    resources: (subject) => scopeMonitor.resources(subject),
+    stageAttachment,
+    buildEnv: composeEngineEnv,
+    gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+    checkVersion: () => codexAppServerVersionProbe(),
+    socketRoot: engineSocketRoot(),
+    dialSocket: dialEngineSocket,
+    // Omitted outright on a backend=none daemon (POD-3917): without a
+    // terminal host the codex host reports it cannot host one, rather than
+    // reaching a backend this daemon never selected.
+    ...(clientTerminals
+      ? {
+          attachClient: async ({ sessionId, threadId, clientAddress, workdir }) => {
+            try {
+              return await clientTerminals.attach({
+                sessionId,
+                // The 0600 Unix listener the stock TUI dials directly; filesystem
+                // permission is the authentication, so there is no secret with it.
+                // The attach kind is the family's own token, read as a value.
+                target: {
+                  kind: codexFacts.attachKind as ClientTerminalKind,
+                  conversation: threadId,
+                  endpoint: { address: clientAddress },
+                  workdir,
+                },
+              })
+            } catch (err) {
+              log.warn('could not host a Codex client terminal', { err, sessionId })
+              return undefined
+            }
+          },
+          detachClient: ({ sessionId }) =>
+            clientTerminals.close(sessionId, codexFacts.attachKind as ClientTerminalKind),
+        }
+      : {}),
+    // Same instance-home rule as the opencode host above (POD-2247).
+    ...(homeDir ? { homeDir } : {}),
+    instanceUuid: instance.instanceUuid,
   })
-  grokRuntime = createDaemonGrokRuntime({
+  codexRuntime = createCodexSessionRuntime({
+    facts: codexFacts,
+    engine: codexEngine,
     send,
-    boundaryContext: mailContext.pendingContext,
-    // Every bind this driver sends is built by the one builder, which reads
-    // this record and nothing else (POD-3290).
-    appliedGeometry: appliedGeometryFor(ctx),
-    host: createGrokEngineHost({
-      facts: grokFacts,
-      supervision: engineSupervision,
-      journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: grokFacts.journalNamespace }),
-      resources: (subject) => scopeMonitor.resources(subject),
-      buildEnv: composeEngineEnv,
-      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-      checkVersion: () => grokAcpVersionProbe(),
-      // Omitted outright on a backend=none daemon (POD-3917): same rule as the
-      // codex host above — no terminal host, no attach arm.
-      ...(clientTerminals
-        ? {
-            attachClient: async ({ sessionId, grokSessionId, workdir }) => {
-              try {
-                return await clientTerminals.attach({
-                  sessionId,
-                  // A stdio engine has nothing to address: the client comes back
-                  // through grok's own native store, so the endpoint is empty.
-                  // The attach kind is the family's own token, read as a value.
-                  target: {
-                    kind: grokFacts.attachKind as ClientTerminalKind,
-                    conversation: grokSessionId,
-                    endpoint: {},
-                    workdir,
-                  },
-                })
-              } catch (err) {
-                log.warn('could not host a Grok client terminal', { err, sessionId })
-                return undefined
-              }
-            },
-          }
-        : {}),
-      // Same instance-home rule as the opencode host above (POD-2247).
-      ...(homeDir ? { homeDir } : {}),
-      instanceUuid: instance.instanceUuid,
-    }),
+    ...sessionFrames,
+  })
+  const grokEngine = createGrokEngineHost({
+    facts: grokFacts,
+    supervision: engineSupervision,
+    journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: grokFacts.journalNamespace }),
+    resources: (subject) => scopeMonitor.resources(subject),
+    buildEnv: composeEngineEnv,
+    gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+    checkVersion: () => grokAcpVersionProbe(),
+    // Omitted outright on a backend=none daemon (POD-3917): same rule as the
+    // codex host above — no terminal host, no attach arm.
+    ...(clientTerminals
+      ? {
+          attachClient: async ({ sessionId, grokSessionId, workdir }) => {
+            try {
+              return await clientTerminals.attach({
+                sessionId,
+                // A stdio engine has nothing to address: the client comes back
+                // through grok's own native store, so the endpoint is empty.
+                // The attach kind is the family's own token, read as a value.
+                target: {
+                  kind: grokFacts.attachKind as ClientTerminalKind,
+                  conversation: grokSessionId,
+                  endpoint: {},
+                  workdir,
+                },
+              })
+            } catch (err) {
+              log.warn('could not host a Grok client terminal', { err, sessionId })
+              return undefined
+            }
+          },
+        }
+      : {}),
+    // Same instance-home rule as the opencode host above (POD-2247).
+    ...(homeDir ? { homeDir } : {}),
+    instanceUuid: instance.instanceUuid,
+  })
+  grokRuntime = createGrokSessionRuntime({
+    facts: grokFacts,
+    engine: grokEngine,
+    send,
+    ...sessionFrames,
   })
   /**
    * THE HEADLESS RUNTIME (POD-4392): process-per-turn harness sessions behind
@@ -1419,10 +1445,9 @@ export async function createDaemonHostRuntime(args: {
   agentRuntime = createDaemonMachineRuntime({
     terminal: terminalRuntime,
     claude: claudeRuntime,
-    opencode: opencodeRuntime,
-    opencode2: opencode2Runtime,
-    codex: codexRuntime,
-    grok: grokRuntime,
+    // One uniform shape per server family (1.5): the machine runtime never
+    // branches on which family a session belongs to.
+    servers: [opencodeRuntime, opencode2Runtime, codexRuntime, grokRuntime],
     headless: headlessRuntime,
     inventory: async () =>
       harnessRuntime

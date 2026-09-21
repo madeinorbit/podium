@@ -1,28 +1,31 @@
-/** Daemon frame adapter for Grok's ACP RuntimeDriver. */
+/** Supervisor frame adapter for Grok's ACP RuntimeDriver.
+ *
+ * (Moved from apps/daemon/src/runtime/grok-driver.ts in 1.5: the daemon
+ * stops knowing this headless harness. Ports and facts as in
+ * ../codex/session.ts.) */
+import type { AgentSessionHandle } from '../../driver.js'
+import type { RuntimeEvent } from '../../events.js'
+import type { PendingInteraction } from '../../interactions.js'
+import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
 import {
-  type AgentSessionHandle,
-  attachKindsForDriver,
-  configureFieldsForDriver,
-  createGrokAcpRuntime,
   GROK_ACP_DRIVER_ID,
   type GrokAcpJournal,
   type GrokAcpRuntime,
   type GrokAcpRuntimeHost,
-  type PendingInteraction,
-  type RuntimeEvent,
-} from '@podium/harness/driver/host'
+  createGrokAcpRuntime,
+} from './runtime.js'
+import type { GrokEngineFacts } from './engine-facts.js'
+import { reportQueueAbandonment } from '../queue-report.js'
+import type {
+  ServerFamilyJournalEntry,
+  ServerSessionFramePorts,
+} from '../server-family.js'
 import { createLogger } from '@podium/logger'
-import type { AgentRuntimeState, SessionId } from '@podium/model'
+import type { AgentRuntimeState, HarnessAgent, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
-import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
-import { driverTiming } from './driver-timing'
-import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
-import { grokAcpProcessKey, grokEngineFacts } from '@podium/harness/driver/host'
+import { grokAcpProcessKey } from './engine-host.js'
 
-const GROK_FACTS = grokEngineFacts()
-import { reportQueueAbandonment } from './queue-abandonment'
-
-const log = createLogger('daemon:grok-driver')
+const log = createLogger('harness:grok-session')
 
 export interface GrokSessionLaunch {
   sessionId: SessionId
@@ -37,35 +40,33 @@ export interface DaemonGrokRuntime extends GrokAcpRuntime {
   launch(input: GrokSessionLaunch): Promise<void>
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
   journal: GrokAcpJournal
+  /** Uniform server-family shape: the supervisor composes families without
+   *  naming them. */
+  readonly describe: string
+  journalEntry(sessionId: SessionId): ServerFamilyJournalEntry | undefined
+  clearJournal(sessionId: SessionId): void
 }
 
-export function createDaemonGrokRuntime(deps: {
-  send(msg: DaemonMessage): void
-  boundaryContext?: MailBoundaryContext
-  /**
-   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
-   * written by nothing in this file. A server-family session has no terminal at
-   * launch, so the record is empty and the bind is bare — which is the point:
-   * the `geometry: { cols: 120, rows: 40 }` that stood in this frame described a
-   * client nobody had opened, and the server took it for a report.
-   *
-   * Optional because a host can be built without a daemon behind it; absent
-   * reads as "applied nothing", which is the same bare bind.
-   */
-  appliedGeometry?: AppliedGeometryRecord
+/**
+ * What a grok session adapter needs from whoever supervises it. Ports and
+ * facts as in ../codex/session.ts.
+ */
+export interface GrokSessionDeps extends ServerSessionFramePorts {
+  facts: GrokEngineFacts
+  engine: GrokAcpRuntimeHost
+}
 
-  host: GrokAcpRuntimeHost
-}): DaemonGrokRuntime {
+export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRuntime {
   const runtime = createGrokAcpRuntime({
-    ...deps.host,
+    ...deps.engine,
     // A queue this driver loses becomes a durable server-side receipt
     // correction, so the port is wired HERE, next to `send` (POD-2297).
-    onQueueAbandoned: reportQueueAbandonment('grok', deps.send),
+    onQueueAbandoned: reportQueueAbandonment(deps.facts.harnessKind, deps.send),
   })
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     const timingHandle = runtime.handleFor(sessionId)
-    if (timingHandle) driverTiming.runtimeEvent(timingHandle.binding, event)
+    if (timingHandle) deps.traceRuntimeEvent(timingHandle.binding, event)
     if (isRuntimeFineEvent(event)) {
       deps.send({ type: 'runtimeFineEvent', sessionId, event })
     } else {
@@ -114,9 +115,10 @@ export function createDaemonGrokRuntime(deps: {
     if (!handle) return
     void (async () => {
       try {
-        const boundary = createMailContinuation(handle, deps.boundaryContext,
+        const boundary = deps.startMailContinuation(
+          handle,
           () => runtime.handleFor(sessionId) === handle,
-          (error) => log.warn('issue mail boundary delivery failed', { sessionId, error }))
+        )
         for await (const event of handle.events('bootstrap')) {
           translate(sessionId, event)
           boundary(event)
@@ -139,17 +141,30 @@ export function createDaemonGrokRuntime(deps: {
 
   return {
     ...runtime,
+    describe: [deps.facts.command, ...deps.facts.serverArgs].join(' '),
+    journalEntry(sessionId) {
+      const entry = deps.engine.journal.read(sessionId)
+      if (!entry) return undefined
+      return {
+        workdir: entry.workdir,
+        process: entry.process,
+        bindingVersion: entry.bindingVersion,
+      }
+    },
+    clearJournal(sessionId) {
+      deps.engine.journal.clear(sessionId)
+    },
     // STRAIGHT FROM THE RUNTIME'S HANDLE MAP, never a parallel Set (POD-2249;
     // the same repair `opencode-driver.ts` documents at its own `has`): the Set
     // this replaced survived the lifecycle verbs, so a parked session's bind
     // fact kept routing verbs onto a contract path answering `not_running`.
     has: (sessionId) => runtime.has(sessionId),
-    journal: deps.host.journal,
+    journal: deps.engine.journal,
 
     async adoptFromJournal(sessionId) {
-      const entry = deps.host.journal.read(sessionId)
+      const entry = deps.engine.journal.read(sessionId)
       if (!entry) return undefined
-      const processKey = grokAcpProcessKey(GROK_FACTS, sessionId)
+      const processKey = grokAcpProcessKey(deps.facts, sessionId)
       // The journal is evidence, not authority for identity. Its path is keyed
       // by the requested Podium session, while its payload can be stale or
       // replaced; derive the expected key independently and refuse a payload
@@ -160,7 +175,7 @@ export function createDaemonGrokRuntime(deps: {
           sessionId,
           driver: GROK_ACP_DRIVER_ID,
           family: 'server',
-          harness: 'grok',
+          harness: deps.facts.harnessKind,
           workdir: entry.workdir,
           resume: { kind: 'grok-session', value: entry.grokSessionId },
           process: { key: processKey },
@@ -176,7 +191,7 @@ export function createDaemonGrokRuntime(deps: {
 
     async launch(input) {
       const handle = await runtime.createWithId(input.sessionId, {
-        harness: 'grok',
+        harness: deps.facts.harnessKind,
         selection: {
           auth: 'subscription',
           platform: process.platform,
@@ -203,25 +218,22 @@ export function createDaemonGrokRuntime(deps: {
       })
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
-      driverTiming.sessionReady(handle.binding)
+      deps.sessionReady(handle.binding)
       // NO GEOMETRY (POD-3290). A stdio ACP engine has no terminal of any kind,
       // so the `{ cols: 120, rows: 40 }` that stood here was a size nothing in
-      // the system had ever applied. The one bind builder reads this daemon's
-      // applied-size record, which for this launch is empty.
-      deps.send(
-        bindFrame(deps.appliedGeometry, {
-          sessionId: input.sessionId,
-          cmd: `grok agent stdio (${handle.binding.driver})`,
-          cwd: input.cwd,
-          agentKind: 'grok',
-          driverId: handle.binding.driver,
-          // POD-3087: what this driver's configure() can change. Grok's answer is
-          // `permissionMode` alone — it never sends a model — and reporting that
-          // precisely is the case this field exists for.
-          configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-          attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-        }),
-      )
+      // the system had ever applied. The bind is bare.
+      deps.emitBind({
+        sessionId: input.sessionId,
+        cmd: `grok agent stdio (${handle.binding.driver})`,
+        cwd: input.cwd,
+        agentKind: deps.facts.harnessKind,
+        driverId: handle.binding.driver,
+        // POD-3087: what this driver's configure() can change. Grok's answer is
+        // `permissionMode` alone — it never sends a model — and reporting that
+        // precisely is the case this field exists for.
+        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+      })
       deps.send({
         type: 'agentState',
         sessionId: input.sessionId,

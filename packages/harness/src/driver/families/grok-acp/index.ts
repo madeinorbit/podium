@@ -35,4 +35,9 @@ export {
   GrokEngineLeaseRefused,
 } from './engine-host.js'
 export { type GrokEngineFacts, grokEngineFacts } from './engine-facts.js'
+export {
+  type DaemonGrokRuntime,
+  type GrokSessionDeps,
+  createGrokSessionRuntime,
+} from './session.js'
 export * from './version.js'

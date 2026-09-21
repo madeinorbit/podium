@@ -1,5 +1,9 @@
 /**
- * THE opencode SERVER SESSION, AS THE DAEMON RUNS IT (POD-1761 W5; plan §3).
+ * THE opencode SERVER SESSION, AS THE SUPERVISOR RUNS IT (POD-1761 W5; plan §3).
+ *
+ * (Moved from apps/daemon/src/runtime/opencode-driver.ts in 1.5: the daemon
+ * stops knowing this headless harness. Ports and facts as in
+ * ../codex/session.ts.)
  *
  * ---------------------------------------------------------------------------
  * A SESSION WITH NO PTY, RENDERING IN A UI BUILT FOR PTYs
@@ -8,7 +12,7 @@
  * This is where the epic's claim gets tested. A server-family session has no
  * bridge, no abduco master, no frames and no observer — and the acceptance
  * criterion is that it works from the existing web UI with NO UI redesign. The
- * only way both can be true is if the daemon speaks, on this session's behalf,
+ * only way both can be true is if the supervisor speaks, on this session's behalf,
  * the same small vocabulary of frames every other session speaks:
  *
  *   `bind`            — the session is live (what flips its status)
@@ -35,43 +39,33 @@
  * was — which is the whole of the "default-path sessions are unchanged" claim.
  */
 
+import type { AgentSessionHandle } from '../../driver.js'
+import type { RuntimeEvent } from '../../events.js'
+import type { PendingInteraction } from '../../interactions.js'
+import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
 import {
-  type AgentSessionHandle,
-  attachKindsForDriver,
-  configureFieldsForDriver,
-  createOpencodeRuntime,
   OPENCODE_SERVER_DRIVER_ID,
   type OpencodeRuntime,
   type OpencodeRuntimeHost,
-  type PendingInteraction,
-  type RuntimeEvent,
-} from '@podium/harness/driver/host'
+  createOpencodeRuntime,
+} from './runtime.js'
+import type { OpencodeEngineFlavor } from './engine-facts.js'
+import { reportQueueAbandonment } from '../queue-report.js'
+import type { ServerSessionFramePorts } from '../server-family.js'
+import type { ServerFamilyJournalEntry } from '../server-family.js'
 import { createLogger } from '@podium/logger'
-import type { AgentRuntimeState, SessionId } from '@podium/model'
+import type { AgentRuntimeState, HarnessAgent, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
-import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
-import { driverTiming } from './driver-timing'
-import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
-import { reportQueueAbandonment } from './queue-abandonment'
 
-const log = createLogger('daemon:opencode-driver')
+const log = createLogger('harness:opencode-session')
 
-/** The narrow slice of the daemon this driver's session lifecycle needs. */
-export interface OpencodeSessionHost {
-  send(msg: DaemonMessage): void
-  boundaryContext?: MailBoundaryContext
-  host: OpencodeRuntimeHost
-  /**
-   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
-   * written by nothing in this file. A server-family session has no terminal at
-   * launch, so the record is empty and the bind is bare — which is the point:
-   * the `geometry: { cols: 120, rows: 40 }` that stood in this frame described a
-   * client nobody had opened, and the server took it for a report.
-   *
-   * Optional because a host can be built without a daemon behind it; absent
-   * reads as "applied nothing", which is the same bare bind.
-   */
-  appliedGeometry?: AppliedGeometryRecord
+/**
+ * What an opencode session adapter needs from whoever supervises it. Ports
+ * and facts as in ../codex/session.ts.
+ */
+export interface OpencodeSessionDeps extends ServerSessionFramePorts {
+  flavor: OpencodeEngineFlavor
+  engine: OpencodeRuntimeHost
 }
 
 export interface OpencodeSessionLaunch {
@@ -100,14 +94,20 @@ export interface DaemonOpencodeRuntime extends OpencodeRuntime {
    * the port and the secret.
    */
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
+  /** Uniform server-family shape: the supervisor composes families without
+   *  naming them. Satisfied by the members below (describe/journalEntry/
+   *  clearJournal) plus the spread runtime above. */
+  readonly describe: string
+  journalEntry(sessionId: SessionId): ServerFamilyJournalEntry | undefined
+  clearJournal(sessionId: SessionId): void
 }
 
-export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOpencodeRuntime {
+export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonOpencodeRuntime {
   const runtime = createOpencodeRuntime({
-    ...deps.host,
+    ...deps.engine,
     // A queue this driver loses becomes a durable server-side receipt
     // correction, so the port is wired HERE, next to `send` (POD-2297).
-    onQueueAbandoned: reportQueueAbandonment('opencode', deps.send),
+    onQueueAbandoned: reportQueueAbandonment(deps.flavor.harnessKind, deps.send),
     reportObservedConfiguration: ({ sessionId, model, effort }) =>
       deps.send({
         type: 'agentModel',
@@ -131,9 +131,10 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
     if (!handle) return
     void (async () => {
       try {
-        const boundary = createMailContinuation(handle, deps.boundaryContext,
+        const boundary = deps.startMailContinuation(
+          handle,
           () => runtime.handleFor(sessionId) === handle,
-          (error) => log.warn('issue mail boundary delivery failed', { sessionId, error }))
+        )
         for await (const event of handle.events('bootstrap')) {
           translate(sessionId, event)
           boundary(event)
@@ -181,7 +182,7 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     const timingHandle = runtime.handleFor(sessionId)
-    if (timingHandle) driverTiming.runtimeEvent(timingHandle.binding, event)
+    if (timingHandle) deps.traceRuntimeEvent(timingHandle.binding, event)
     // THE CONTRACT STREAM GOES OUT AS ITSELF TOO. A consumer that speaks the
     // contract (W4's migrated callers) reads this; the legacy frames below are
     // for the surfaces that do not, and both describe the same fact.
@@ -249,6 +250,25 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
 
   return {
     ...runtime,
+    describe: `${deps.flavor.executableName} serve`,
+    journalEntry(sessionId) {
+      const entry = deps.engine.journal.read(sessionId)
+      if (!entry) return undefined
+      return {
+        workdir: entry.workdir,
+        process: entry.process,
+        bindingVersion: entry.bindingVersion,
+        probe: {
+          baseUrl: entry.baseUrl,
+          secret: entry.secret,
+          ...(entry.username ? { username: entry.username } : {}),
+          healthPath: deps.flavor.healthPath,
+        },
+      }
+    },
+    clearJournal(sessionId) {
+      deps.engine.journal.clear(sessionId)
+    },
 
     /**
      * `has` COMES STRAIGHT FROM THE RUNTIME, and this comment is here because a
@@ -263,15 +283,15 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
      * deleting the Set rather than fixing its bookkeeping.
      */
     async adoptFromJournal(sessionId) {
-      const entry = runtime.journal.read(sessionId)
+      const entry = deps.engine.journal.read(sessionId)
       if (!entry) return undefined
       let handle: AgentSessionHandle
       try {
         handle = await runtime.driver.adopt({
           sessionId: entry.sessionId,
-          driver: OPENCODE_SERVER_DRIVER_ID,
+          driver: deps.flavor.driverId,
           family: 'server',
-          harness: 'opencode',
+          harness: deps.flavor.harnessKind,
           workdir: entry.workdir,
           resume: { kind: 'opencode-session', value: entry.opencodeSessionId },
           process: entry.process,
@@ -299,12 +319,12 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
        * answer `not_running` for a session that is running perfectly.
        */
       const handle = await runtime.createWithId(input.sessionId, {
-        harness: 'opencode',
+        harness: deps.flavor.harnessKind,
         selection: {
           auth: 'api-key',
           platform: process.platform,
-          available: ['opencode-server'],
-          preference: 'opencode-server',
+          available: [deps.flavor.driverId],
+          preference: deps.flavor.driverId,
         },
         workdir: input.cwd,
         model: {
@@ -333,13 +353,12 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
        * grid is now the applied-size record's to state, through the one builder,
        * and at launch this family has applied nothing.
        */
-      driverTiming.sessionReady(handle.binding)
-      deps.send(
-        bindFrame(deps.appliedGeometry, {
+      deps.sessionReady(handle.binding)
+      deps.emitBind({
           sessionId: input.sessionId,
           cmd: `opencode serve (${handle.binding.driver})`,
           cwd: input.cwd,
-          agentKind: 'opencode',
+          agentKind: deps.flavor.harnessKind,
           /**
            * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023).
            *
@@ -358,8 +377,7 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
           // declaration so no consumer has to keep a second copy of it.
           configureFields: [...configureFieldsForDriver(handle.binding.driver)],
           attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-        }),
-      )
+      })
       // …and the first state, so the badge is right before the first event
       // rather than after it.
       deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })

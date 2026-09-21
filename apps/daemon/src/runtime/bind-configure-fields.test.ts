@@ -21,7 +21,7 @@ import {
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
-import { emitClaudeBinding } from './claude-sdk-driver'
+import { emitClaudeBinding } from '@podium/harness/driver/host'
 
 type BindFrame = Extract<DaemonMessage, { type: 'bind' }>
 
@@ -38,14 +38,16 @@ const handleOn = (driver: string): AgentSessionHandle =>
 async function bindFrameFor(driver: string): Promise<BindFrame> {
   const sent: DaemonMessage[] = []
   await emitClaudeBinding(
-    (message) => sent.push(message),
+    {
+      send: (message) => sent.push(message),
+      emitBind: (bind) => {
+        sent.push({ type: 'bind', ...bind })
+      },
+    },
     {
       sessionId: 'session-bind' as SessionId,
       cwd: '/w',
       agentKind: 'claude-code',
-      // No record and no geometry: this suite is about the capability fields,
-      // and since POD-3290 a bind's grid can only come from an applied-size
-      // record — there is no geometry to hand in here.
     },
     handleOn(driver),
   )
@@ -56,12 +58,20 @@ async function bindFrameFor(driver: string): Promise<BindFrame> {
 
 describe('bind reports driver capabilities', () => {
   it.each([
-    'opencode',
-    'codex',
-    'grok',
-    'claude-sdk',
-  ] as const)('publishes attachKinds from the bound %s driver', (name) => {
-    const source = readFileSync(new URL(`./${name}-driver.ts`, import.meta.url), 'utf8')
+    ['opencode', 'opencode/session.ts'],
+    ['codex', 'codex/session.ts'],
+    ['grok', 'grok-acp/session.ts'],
+    ['claude-sdk', 'claude-sdk/session.ts'],
+  ] as const)('publishes attachKinds from the bound %s driver', (name, session) => {
+    // The daemon's driver adapters moved into the harness driver families in
+    // 1.5; the bind still states its capabilities from the declaration.
+    const source = readFileSync(
+      new URL(
+        `../../../../packages/harness/src/driver/families/${session}`,
+        import.meta.url,
+      ),
+      'utf8',
+    )
     expect(source).toContain('attachKinds: [...attachKindsForDriver(handle.binding.driver)]')
   })
 

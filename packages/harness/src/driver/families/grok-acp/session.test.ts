@@ -1,15 +1,22 @@
+/**
+ * GROK ACP SESSION ADOPTION (moved from
+ * apps/daemon/src/runtime/grok-acp-server.test.ts in 1.5 with the code it
+ * pins: restart adoption through the session adapter against a stub ACP
+ * transport).
+ */
 import type {
   GrokAcpJournalEntry,
   GrokAcpRuntimeHost,
   GrokAcpTransport,
-} from '@podium/harness/driver/host'
+} from './runtime.js'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import { grokAcpProcessKey, grokEngineFacts } from '@podium/harness/driver/host'
+import { grokAcpProcessKey } from './engine-host.js'
+import { grokEngineFacts } from './engine-facts.js'
+import { createGrokSessionRuntime } from './session.js'
 
 const FACTS = grokEngineFacts()
-import { createDaemonGrokRuntime } from './grok-driver'
 
 function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {}) {
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
@@ -73,7 +80,17 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
       }
     },
   }
-  const runtime = createDaemonGrokRuntime({ send: (message) => sent.push(message), host })
+  const runtime = createGrokSessionRuntime({
+    facts: FACTS,
+    engine: host,
+    send: (message) => sent.push(message),
+    emitBind: (bind) => {
+      sent.push({ type: 'bind', ...bind })
+    },
+    sessionReady: () => {},
+    traceRuntimeEvent: () => {},
+    startMailContinuation: () => () => {},
+  })
   return {
     entries,
     requests,

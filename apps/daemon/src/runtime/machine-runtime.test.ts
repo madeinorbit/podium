@@ -12,6 +12,17 @@ const INVENTORY: Inventory = {
   tools: [],
 }
 
+const DESCRIBE: Record<DriverId, string> = {
+  'opencode-server': 'opencode serve',
+  'opencode2-server': 'opencode2 serve',
+  'codex-app-server': 'codex app-server',
+  'grok-acp': 'grok agent stdio',
+  'claude-sdk': 'claude-sdk',
+  'generic-pty': 'generic-pty',
+  fake: 'fake',
+  headless: 'headless',
+}
+
 function server(
   id: DriverId,
   harness: string,
@@ -49,13 +60,18 @@ function server(
     handleFor: (sessionId: SessionId) => handles.get(sessionId),
     bindings: () => [...handles.values()].map((handle) => handle.binding),
     has: (sessionId: SessionId) => handles.has(sessionId),
-    journal: {
-      read: (sessionId: SessionId) => (sessionId === SESSION ? input.journal : undefined),
-      clear: vi.fn(),
+    describe: DESCRIBE[id],
+    journalEntry: (sessionId: SessionId) => {
+      const raw = sessionId === SESSION ? input.journal : undefined
+      if (!raw) return undefined
+      const { workdir, process } = raw as { workdir: string; process: { key: string } }
+      return { workdir, process };
     },
+    clearJournal: vi.fn(),
     launch,
 
     adoptFromJournal,
+    reportOomKill: vi.fn(),
     dispose: vi.fn(),
   }
 }
@@ -119,10 +135,7 @@ describe('daemon machine runtime composition', () => {
     const runtime = createDaemonMachineRuntime({
       terminal,
       claude: claude(),
-      opencode,
-      opencode2,
-      codex,
-      grok,
+      servers: [opencode, opencode2, codex, grok],
       headless: {
         driverFor: () => undefined,
         handleFor: () => undefined,
@@ -232,10 +245,7 @@ describe('daemon machine runtime composition', () => {
     const runtime = createDaemonMachineRuntime({
       terminal,
       claude: claude(),
-      opencode,
-      opencode2,
-      codex,
-      grok,
+      servers: [opencode, opencode2, codex, grok],
       headless: {
         driverFor: () => undefined,
         handleFor: () => undefined,

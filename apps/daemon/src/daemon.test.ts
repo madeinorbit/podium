@@ -66,9 +66,13 @@ import {
   codexAppServerVersionProbe,
   resetCodexAppServerVersionProbe,
 } from './runtime/version-probe'
-import { createDaemonCodexRuntime } from './runtime/codex-driver'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/version-probe'
-import { createDaemonGrokRuntime } from './runtime/grok-driver'
+import {
+  codexEngineFacts,
+  createCodexSessionRuntime,
+  createGrokSessionRuntime,
+  grokEngineFacts,
+} from '@podium/harness/driver/host'
 import { runtimeHandlers } from './runtime/handlers'
 import { createDaemonMachineRuntime } from './runtime/machine-runtime'
 import { createVersionProbeCache } from './runtime/version-probe'
@@ -1136,7 +1140,15 @@ function defaultCodexRuntime(sent: DaemonMessage[]) {
       }
     },
   }
-  return createDaemonCodexRuntime({ send: (msg) => void sent.push(msg), host })
+  return createCodexSessionRuntime({
+    facts: codexEngineFacts(),
+    engine: host,
+    send: (msg) => void sent.push(msg),
+    emitBind: (bind) => void sent.push({ type: 'bind', ...bind }),
+    sessionReady: () => {},
+    traceRuntimeEvent: () => {},
+    startMailContinuation: () => () => {},
+  })
 }
 
 function defaultGrokRuntime(sent: DaemonMessage[]) {
@@ -1168,18 +1180,29 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
       }
     },
   }
-  return createDaemonGrokRuntime({ send: (msg) => void sent.push(msg), host })
+  return createGrokSessionRuntime({
+    facts: grokEngineFacts(),
+    engine: host,
+    send: (msg) => void sent.push(msg),
+    emitBind: (bind) => void sent.push({ type: 'bind', ...bind }),
+    sessionReady: () => {},
+    traceRuntimeEvent: () => {},
+    startMailContinuation: () => () => {},
+  })
 }
 function unavailableServerRuntime(id: string, harness: string) {
   return {
     driver: { id, harness, family: 'server', capabilities: () => ({ placement: 'dedicated' }) },
     handleFor: () => undefined,
     bindings: () => [],
-    journal: { read: () => undefined, clear: vi.fn() },
+    journalEntry: () => undefined,
+    clearJournal: vi.fn(),
+    describe: id,
     async launch() {
       throw new Error(`driver '${id}' is not wired`)
     },
     adoptFromJournal: async () => undefined,
+    reportOomKill: vi.fn(),
     dispose: vi.fn(),
   }
 }
@@ -1242,10 +1265,12 @@ function defaultServerSpawnContext(
         },
         dispose: vi.fn(),
       } as never,
-      opencode: unavailableServerRuntime('opencode-server', 'opencode'),
-      opencode2: unavailableServerRuntime('opencode2-server', 'opencode'),
-      codex: runtimes.codexRuntime ?? unavailableServerRuntime('codex-app-server', 'codex'),
-      grok: runtimes.grokRuntime ?? unavailableServerRuntime('grok-acp', 'grok'),
+      servers: [
+        unavailableServerRuntime('opencode-server', 'opencode'),
+        unavailableServerRuntime('opencode2-server', 'opencode'),
+        runtimes.codexRuntime ?? unavailableServerRuntime('codex-app-server', 'codex'),
+        runtimes.grokRuntime ?? unavailableServerRuntime('grok-acp', 'grok'),
+      ],
       headless: {
         driverFor: () => undefined,
         handleFor: () => undefined,

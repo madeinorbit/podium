@@ -77,6 +77,7 @@ import type {
   OpencodeRuntimeHost,
   OpencodeServerEndpoint,
 } from './runtime.js'
+import type { OpencodeClient, OpencodeClientConfig } from './client.js'
 import type { OpencodeEngineFlavor } from './engine-facts.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
 
@@ -357,6 +358,8 @@ export interface OpencodeEngineHostDeps {
    * `evaluateOpencode2VersionProbe`). Selected per flavor by the supervisor.
    */
   checkVersion(input: { executable: string }): Promise<OpencodeVersionDiagnostic | null>
+  /** Test seam: point the protocol client at an in-process server. */
+  makeClient?(config: OpencodeClientConfig): OpencodeClient
 }
 
 /** The writer lease held by a daemon that did not die. A new generation must
@@ -601,6 +604,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
   return {
     driverId,
     journal: deps.journal,
+    ...(deps.makeClient ? { makeClient: deps.makeClient } : {}),
     stageAttachment: deps.stageAttachment,
     now: deps.now ?? (() => Date.now()),
     /** 32 bytes from the CSPRNG. Not a uuid, not a timestamp: this is the only
