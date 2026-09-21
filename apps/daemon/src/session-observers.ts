@@ -704,8 +704,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const lease = causalLeases.get(sessionId)
     const checkpoint = msg.checkpoint
     // The family, not the name: only the claude-causal protocol mints
-    // checkpoints this observer reboots from ('claude-code' is its sole
-    // declarer, so this reads the same fact through the capability).
+    // checkpoints this observer reboots from (one harness declares it, so
+    // this reads the same fact through the capability).
     const causalProtocol =
       observations.get(sessionId)?.adapter.capabilities.observationProtocol === 'claude-causal'
     return lease &&
