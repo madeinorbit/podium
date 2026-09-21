@@ -108,7 +108,7 @@ const selectedIdTypes = [
 ] as const
 
 const providerAccountFiles = new Set([
-  'apps/daemon/src/quota-codex.ts',
+  'packages/harness/src/adapters/codex/usage.ts',
   'apps/server/src/codex-auth.ts',
   'apps/server/src/login-catalog.ts',
   'packages/harness/src/manifest.ts',
