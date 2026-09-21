@@ -24,8 +24,33 @@ Correctness comes from two mechanisms, not from input lists (there are none):
    branch, so ignoring a kind is a compile error.
 2. **Rebuild oracle.** `rebuild.ts` re-derives everything from scratch
    through the same pure `compute` functions but with zero incremental
-   state; `hand.test.ts` / `hand.engine.test.tsx` / `hand.1x.test.tsx`
-   assert incremental deep-equals rebuild after every scenario.
+   state; `hand.test.ts` / `hand.engine.test.tsx` / `hand.1x.test.tsx` /
+   `hand.m2.test.tsx` assert incremental deep-equals rebuild after every
+   scenario.
+
+## M2 (POD-4450): what the structural scenarios changed
+
+- **Clock sensitivity is a bootstrap invariant.** `timeSensitive`
+  (summary), `decaySensitive` (visible) and `graceSensitive` (groups) decide
+  which rows a tick re-derives; all three are populated by `rebuildAll`, not
+  just by incremental refresh — a bootstrap that leaves one empty blinds
+  every later tick (M2 gap, fixed with a regression test per set in
+  `hand.test.ts` "clock sensitivity sets").
+- **Order keeps a membership set and rank keys.** Placement checks read the
+  set (the old `ordered.includes` was an O(visible) scan per dirty row);
+  re-ranks whose key did not move skip the position walk (burst50 paid
+  ~1,100 no-move probes before this). Issue seats in `indexes.ts` diff
+  against a prev-seat map for the same reason (the old `moveSeat` walked
+  every bucket).
+- **Order has no clock arm on purpose.** Summary runs before order and every
+  band flip arrives as `SummaryChanged`; the old `timeSensitive` sweep
+  re-ranked ~540 carriers per tick at 1x, each paying a position walk.
+- **Multi-row walks are counted.** `scan(name, visits)` in `deltas.ts`
+  prices the remaining O(visible)-or-worse walks (group rebuilds, batch
+  builds, subtree walks, removal lookups, snapshot builds); the store
+  surfaces cumulative totals beside `ArmStats`, and the M2 run reports them
+  per scenario. The oracle does not cover counts — the M2 run's exact
+  derivation assertions do.
 
 ## Write path
 
@@ -73,5 +98,8 @@ Example: a `dueSoon` flag on the row, derived from `issue.deferUntil`.
 
 The oracle and the never-checks cover 1–11; 12 is covered by the isolation
 fence (rows committed ≤ rows affected). Miss 4–8's sensitivity sets and a
-clock tick goes stale — `hand.test.ts` has a tick-adjacent case per set;
-miss 9 and parity fails loudly.
+clock tick goes stale — `hand.test.ts` ("clock sensitivity sets", one case
+per set plus a finished-review non-decay pin) proves each set repopulates
+from bootstrap and flips its rows. Miss 9 and parity fails loudly. Scan
+miscounts (the `scan` vocabulary in `deltas.ts`) are covered by the M2 run's
+exact derivation-count assertions, not by the oracle.
