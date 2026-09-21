@@ -99,6 +99,8 @@ export class MobXStore {
   private off: (() => void) | null = null
   private webRoot: { unmount(): void } | null = null
   private readonly source: RowSource
+  /** Set when R3 targets move; gates the unbound re-resolve per batch. */
+  private resolveNeeded = false
 
   constructor(source: RowSource, locals: SliceLocals) {
     this.source = source
@@ -137,6 +139,7 @@ export class MobXStore {
       | 'ingestWorktree'
       | 'resolveAllUnbound'
       | 'roots'
+      | 'resolveNeeded'
     >(this, {
       source: false,
       locals: false,
@@ -227,6 +230,7 @@ export class MobXStore {
       for (const id of this.issues.keys()) this.ingestIssue(id)
       for (const id of this.sessions.keys()) this.ingestSession(id)
       for (const id of this.worktrees.keys()) this.ingestWorktree(id)
+      this.resolveNeeded = true
       this.resolveAllUnbound()
       this.stats.notifications += 1
       return
@@ -237,7 +241,10 @@ export class MobXStore {
     }
     if (touched) {
       for (const record of event.rows) this.ingestRecord(record)
-      this.resolveAllUnbound()
+      if (this.resolveNeeded) {
+        this.resolveNeeded = false
+        this.resolveAllUnbound()
+      }
     }
     this.stats.notifications += 1
   }
@@ -343,11 +350,15 @@ export class MobXStore {
       }
     }
     // R3 target seat + repo seat.
-    this.moveSeat(
-      this.issuesByWorktree,
-      id,
-      issue !== undefined && isLiveIssue(issue) && issue.worktreePath ? issue.worktreePath : null,
-    )
+    if (
+      this.moveSeat(
+        this.issuesByWorktree,
+        id,
+        issue !== undefined && isLiveIssue(issue) && issue.worktreePath ? issue.worktreePath : null,
+      )
+    ) {
+      this.resolveNeeded = true
+    }
     this.moveSeat(this.issuesByRepo, id, issue?.repoId ?? null)
     // R4 origin edge (kept at any liveness) + live-only adjacency.
     const nextOrigin = issue === undefined ? null : (spinOffOriginId(issue) ?? null)
@@ -403,11 +414,13 @@ export class MobXStore {
     }
   }
 
-  private moveSeat(map: Map<string, readonly string[]>, id: string, seat: string | null): void {
+  private moveSeat(map: Map<string, readonly string[]>, id: string, seat: string | null): boolean {
+    let changed = false
     for (const [bucket, members] of [...map]) {
-      if (bucket !== seat && members.includes(id)) this.dropSeat(map, bucket, id)
+      if (bucket !== seat && members.includes(id)) changed = this.dropSeat(map, bucket, id) || changed
     }
-    if (seat !== null) this.takeSeat(map, seat, id)
+    if (seat !== null) changed = this.takeSeat(map, seat, id) || changed
+    return changed
   }
 
   private ingestSession(id: string): void {
@@ -462,11 +475,15 @@ export class MobXStore {
   private ingestWorktree(id: string): void {
     const lane = this.worktrees.get(id)?.value
     if (lane === undefined) {
-      if (this.lanePaths.delete(id)) this.stats.indexUpdates += 1
+      if (this.lanePaths.delete(id)) {
+        this.stats.indexUpdates += 1
+        this.resolveNeeded = true
+      }
     } else {
       if (!this.lanePaths.has(id)) {
         this.lanePaths.set(id, true)
         this.stats.indexUpdates += 1
+        this.resolveNeeded = true
       }
       const repoId = lane.repoId ?? null
       if (repoId !== null) {
