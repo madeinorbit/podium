@@ -265,7 +265,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     writeSites: [
       'packages/runtime/src/auth-store.ts',
       'apps/server/src/modules/settings/secret-fingerprint.ts',
-      'apps/daemon/src/control/credentials.ts',
+      'packages/harness/src/inventory/credentials.ts',
     ],
   },
 
