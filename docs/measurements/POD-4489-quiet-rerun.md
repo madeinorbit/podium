@@ -1,5 +1,14 @@
 # POD-4489 — quiet-window timing re-run (supersedes the withheld walls)
 
+Supersession note (`POD-4514`, 2026-09-21): the §3 M2 1x cells below are
+re-recorded at `7d5ef3afe` (current `integrate/4441-round-two` tip, which
+adds the `POD-4503` #6d keeper-evict steps). The re-run lives in the three
+M2 notes (`POD-4450/4451/4452-m2.md` §1–§2, each carrying its as-of SHA) —
+read the M2 numbers there. Direction of movement at 1x: every M2 wall
+cell is same-or-faster in the re-run (quieter box, max per-record load
+7.98); rename commits still read 1/arm vs 346 control, clock 0 everywhere.
+Growth cells (§4) and the bundle deltas (§5) stand as printed.
+
 Issue: `POD-4489`. Runtime SHA `e426046d8` (= `integrate/4441-round-two` tip;
 worktree clean, all three arms clean — the `POD-4458` TanStack experiment had
 closed and its worktree is gone before the first record). Chromium
