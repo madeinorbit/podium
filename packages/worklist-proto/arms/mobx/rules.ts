@@ -134,8 +134,10 @@ function hasNonOfferNeedsYou(session: SliceSession): boolean {
 /** One session's motion phase; waiting dominates working (spec §3 R-SUM). */
 export function motionPhase(session: SliceSession, issue?: SliceIssue): SlicePhase {
   if (attentionGroup(session) === 'needsYou') {
+    // Loose null: engine rows omit `closedReason` (undefined) when open;
+    // only a present reason finishes (session-status.ts:463, row-attention.ts:51).
     const finished =
-      issue !== undefined && (issue.stage === 'done' || issue.closedReason !== null)
+      issue !== undefined && (issue.stage === 'done' || issue.closedReason != null)
     const offerOnly =
       finished === true &&
       session.offer !== undefined &&
@@ -216,7 +218,7 @@ export function sessionLive(session: SliceSession, now: number, issue?: SliceIss
 
 /** Finished issues: done stage or any close reason (spec §3 R-ROLL). */
 export function issueFinished(issue: SliceIssue): boolean {
-  return issue.stage === 'done' || issue.closedReason !== null
+  return issue.stage === 'done' || issue.closedReason != null
 }
 
 /** Finish anchor for decay and fold windows (spec §3 R-ROLL). */
@@ -227,7 +229,7 @@ export function issueFinishedAt(issue: SliceIssue): number {
 /** Closed top-level human issues: decay-exempt, fold candidates (spec §3 R-GROUP). */
 export function isClosedTopLevel(issue: SliceIssue): boolean {
   return (
-    issue.closedReason !== null &&
+    issue.closedReason != null &&
     (issue.parentId ?? null) === null &&
     issue.audience === 'human'
   )
