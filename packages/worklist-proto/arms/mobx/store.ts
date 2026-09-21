@@ -751,14 +751,12 @@ export class MobXStore {
   snapshot(): SliceSnapshot {
     const order = this.worklist.snapshotOrder()
     const rowsById: SliceSnapshot['rowsById'] = {}
-    const collect = (id: string): void => {
+    // Global R-ORDER (pinned, groups interleaved, closed in position) — the
+    // same assembly order as the oracle projection, so the snapshot hash
+    // compares across arms and the control.
+    for (const id of this.worklist.order) {
       const row = this.issues.get(id)?.row
       if (row !== undefined && row !== null) rowsById[id] = row
-    }
-    for (const id of order.pinnedIds) collect(id)
-    for (const group of order.groups) {
-      for (const id of group.rowIds) collect(id)
-      for (const id of group.closedIds) collect(id)
     }
     return { order, rowsById }
   }
