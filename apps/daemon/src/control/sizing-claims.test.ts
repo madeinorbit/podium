@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest'
 import { OutputScheduler } from '../output-scheduler'
 import type { DaemonContext } from './context'
 import { sessionHandlers, wireBridge } from './session'
+import { testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('s-sizing')
 

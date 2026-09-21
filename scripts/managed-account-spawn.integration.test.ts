@@ -35,6 +35,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../apps/daemon/src/control/context'
+import { SessionRegistry } from '../apps/daemon/src/session/registry.js'
 import { sessionHandlers } from '../apps/daemon/src/control/session'
 import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
 import { AccountsRepository } from '../apps/server/src/store/accounts'
@@ -98,15 +99,13 @@ function makeHarness(settingsDir: string): Harness {
     // 'none' = a bare Bun.Terminal child. No durable master can survive this test.
     machineId: 'local',
     instanceId: 'blue',
-    durableLabels: new Map(),
     durableLabelFor: (id: string) => `podium-blue-${id}`,
+    sessions: new SessionRegistry({ labelFor: (id: string) => `podium-blue-${id}` }),
     homeDir: home,
     backend: 'none',
     // The REAL launch table: agentKind 'shell' -> $SHELL, no args.
     launch: agentLaunchCommand,
     settingsDir,
-    bridges: new Map(),
-    pendingResizes: new Map(),
     // Draft sync is outside this env-propagation lane; keep the real spawn,
     // frame, and exit path explicit while disabling its optional driver.
     composerEngine: {
@@ -237,25 +236,26 @@ async function spawnAndDumpEnv(
   expect(spawnError, `daemon refused to spawn: ${JSON.stringify(spawnError)}`).toBeUndefined()
   expect(bind, 'daemon never bound the session').toBeDefined()
 
-  const session = h.ctx.bridges.get(sessionId)
-  if (!session) throw new Error('no bridge for the spawned session')
-  const pid = session.pid
+  const terminal = h.ctx.sessions.get(sessionId)?.terminal
+  if (!terminal) throw new Error('no terminal for the spawned session')
+  const session = terminal.attachment
+  const pid = terminal.pid
 
   try {
     await waitFor(() => h.output().length > 0) // shell is up and talking
-    session.write(Buffer.from('env\n', 'utf8').toString('base64'))
+    terminal.writeBase64(Buffer.from('env\n', 'utf8').toString('base64'))
     // PODIUM_SESSION_ID is bound by the daemon on EVERY spawn, so seeing it in the
     // dump is proof the env actually printed and that this process really came out of
     // Podium's spawn path — which is what makes the absence of ANTHROPIC_API_KEY in
     // the negative case meaningful rather than merely a dump we failed to wait for.
     await waitFor(() => h.output().includes(`PODIUM_SESSION_ID=${sessionId}`))
     await h.settled()
-    expect(h.ctx.durableLabels.get(sessionId)).toBe(`podium-blue-${sessionId}`)
+    expect(h.ctx.sessions.get(sessionId)?.label).toBe(`podium-blue-${sessionId}`)
     return h.output()
   } finally {
     // Reap by explicit pid. Never pattern-kill: a `pkill -f bash` here would take the
     // developer's live agent sessions with it.
-    session.dispose()
+    terminal.park()
     await waitFor(() => !alive(pid), 5_000)
     expect(alive(pid), `leaked PTY child pid ${pid}`).toBe(false)
   }

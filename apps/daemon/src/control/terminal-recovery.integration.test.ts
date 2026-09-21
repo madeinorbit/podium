@@ -11,6 +11,7 @@ import { terminalProfileFor } from '../runtime/registry'
 import { createTerminalRuntime } from '../runtime/terminal-driver'
 import { forgetSessionScreen, snapshotLines } from '../session-screens'
 import type { DaemonContext } from './context'
+import { testSessions } from '../session/testing.js'
 
 it('rebuilds the screen from a durable survivor and redraws an existing bridge', async () => {
   const root = mkdtempSync(join(tmpdir(), 'terminal-recovery-'))
@@ -56,7 +57,6 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
       durable: createDurableProcess('host', { host: true, abduco: false }),
       settingsDir: join(root, 'settings'),
       sessions: testSessions(),
-          durableSeqs: new Map(),
       durableLabelFor: () => label,
       composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
       outputScheduler: {
@@ -116,7 +116,7 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
     runtime.dispose()
   } finally {
     born?.dispose()
-    for (const bridge of ctx?.bridges.values() ?? []) bridge.dispose()
+    for (const [, owned] of ctx?.sessions.entries() ?? []) owned.park()
     if (ctx) forgetSessionScreen(ctx, sessionId)
     await killHostSession(label)
     keys.forEach((key, index) => {

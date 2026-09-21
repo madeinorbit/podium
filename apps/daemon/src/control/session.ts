@@ -973,7 +973,8 @@ export async function launchSpawn(
     removeSessionInstructions(ctx, msg.sessionId)
     // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
     // must not be applied to whatever is spawned for this id next.
-    ctx.sessions.get(msg.sessionId)?.pendingResize = undefined
+    const failed = ctx.sessions.get(msg.sessionId)
+    if (failed) failed.pendingResize = undefined
     ctx.send({
       type: 'spawnError',
       sessionId: msg.sessionId,
@@ -2962,7 +2963,8 @@ export const sessionHandlers: Pick<
             if (!acked) return
             record.apply(msg.sessionId, acked.cols, acked.rows)
             trackSessionSize(ctx, msg.sessionId, acked.cols, acked.rows)
-            ctx.sessions.get(msg.sessionId)?.pendingResize = undefined
+            const ackedSession = ctx.sessions.get(msg.sessionId)
+            if (ackedSession) ackedSession.pendingResize = undefined
           })
           .catch((err) =>
             log.warn('client terminal resize failed', { err, sessionId: msg.sessionId }),
@@ -2971,7 +2973,7 @@ export const sessionHandlers: Pick<
       }
       record.apply(msg.sessionId, answer.cols, answer.rows)
       trackSessionSize(ctx, msg.sessionId, answer.cols, answer.rows)
-      ctx.sessions.get(msg.sessionId)?.pendingResize = undefined
+      if (owned) owned.pendingResize = undefined
     }
     const terminals = ctx.clientTerminals
     if (terminals?.owns?.(msg.sessionId)) {

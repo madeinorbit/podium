@@ -40,6 +40,7 @@ import {
   WARM_TTL_MS,
 } from './opencode-attach'
 import { SessionRegistry } from '../session/registry.js'
+import { testSessions } from '../session/testing.js'
 import {
   createOpencodeEngineHost,
   type EngineAttachment,
@@ -173,6 +174,8 @@ interface HarnessOptions {
   /** The daemon's answer to "what size should this session's client open at?"
    *  (POD-3809) — the held viewport request, else the last applied grid. */
   birthGeometry?: (sessionId: SessionId) => { cols: number; rows: number } | undefined
+  /** The session registry the facade writes. Defaults to a fresh one. */
+  sessions?: SessionRegistry
 }
 
 interface Harness {
@@ -195,7 +198,7 @@ interface Harness {
 }
 
 function harness(opts: HarnessOptions = {}) {
-  const sessions = new SessionRegistry({ labelFor: () => 'podium-test-label' })
+  const sessions = opts.sessions ?? new SessionRegistry({ labelFor: () => 'podium-test-label' })
   const state: Harness = {
     spawns: [],
     reclaimed: [],
@@ -379,6 +382,7 @@ describe('the client terminal a server-family attach produces', () => {
       failSpawn = reject
     })
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
@@ -643,6 +647,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
@@ -672,6 +677,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
@@ -698,6 +704,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
@@ -725,6 +732,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: () => {},
       spawn: async () => spawned,
@@ -921,6 +929,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const reclaimed: string[] = []
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: () => {},
       spawn: async () => {
@@ -951,6 +960,7 @@ describe('warm-parking', () => {
     const resolvers: Array<(client: DurableAttachment) => void> = []
     const clients = [fakeClient(), fakeClient()]
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: () => {},
       spawn: async () =>
@@ -1038,6 +1048,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const frames: { streamId: string; data: Uint8Array }[] = []
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: (streamId, data) => frames.push({ streamId, data }),
       spawn: async (o) => {
@@ -1112,6 +1123,7 @@ describe('warm-parking', () => {
     })
     const clients: ReturnType<typeof fakeClient>[] = []
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: () => {},
       spawn: async () => {
@@ -1150,6 +1162,7 @@ describe('warm-parking', () => {
     let armed = 0
     let cleared = 0
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable: abducoOnly,
       frames: (streamId, data) => frames.push({ streamId, data }),
       spawn: async () => {
@@ -1262,6 +1275,7 @@ describe('warm-parking', () => {
     function subject(homeDir?: string) {
       const reclaimed: string[] = []
       const terminals = createOpencodeClientTerminals({
+        sessions: testSessions(),
         durable: abducoOnly,
         frames: () => {},
         // `hasMaster` is DELIBERATELY not injected here: it is the subject.
@@ -1771,43 +1785,48 @@ describe('opening a client terminal is what records an applied size', () => {
  */
 describe('a client terminal populates its host resume point', () => {
   function wired() {
-    const durableSeqs = new Map<SessionId, () => bigint | undefined>()
+    // The resume point lives ON the session now (POD-4434); this wires the real
+    // `rememberDurableSeq` exactly as `host-runtime.ts` does, against the same
+    // registry the facade writes so the test reads the point back.
+    const sessions = testSessions()
     const connectionSeq = { lastSeq: 41n }
     const { terminals, state } = harness({
+      sessions,
       connectionSeq,
       rememberDurableSeq: (sessionId, session) =>
-        rememberDurableSeq({ durableSeqs } as DaemonContext, sessionId, session),
+        rememberDurableSeq({ sessions } as DaemonContext, sessionId, session),
     })
-    return { terminals, state, durableSeqs, connectionSeq }
+    return { terminals, state, sessions, connectionSeq }
   }
 
   it('audit item 7: the point is populated and carries the live value', async () => {
-    const { terminals, durableSeqs, connectionSeq } = wired()
+    const { terminals, sessions, connectionSeq } = wired()
 
     // ARMED: before the fix nothing remembered the client session, so no point
     // was ever populated for it.
-    expect(durableSeqs.get(SESSION)).toBeUndefined()
+    expect(sessions.get(SESSION)?.seqReader).toBeUndefined()
 
     await terminals.attach({ sessionId: SESSION, target })
 
     // The point the daemon remembered…
-    expect(durableSeqs.get(SESSION)?.()).toBe(41n)
+    expect(sessions.get(SESSION)?.seqReader?.()).toBe(41n)
     // …is a reader, not a value: it moves as the connection advances.
     connectionSeq.lastSeq = 87n
-    expect(durableSeqs.get(SESSION)?.()).toBe(87n)
+    expect(sessions.get(SESSION)?.seqReader?.()).toBe(87n)
   })
 
   it('audit item 7: a terminal with no host connection populates nothing', async () => {
-    const durableSeqs = new Map<SessionId, () => bigint | undefined>()
+    const sessions = testSessions()
     const { terminals } = harness({
+      sessions,
       rememberDurableSeq: (sessionId, session) =>
-        rememberDurableSeq({ durableSeqs } as DaemonContext, sessionId, session),
+        rememberDurableSeq({ sessions } as DaemonContext, sessionId, session),
     })
 
     await terminals.attach({ sessionId: SESSION, target })
 
     // The abduco-shaped half: no connection, no resume point — and no throw.
-    expect(durableSeqs.get(SESSION)).toBeUndefined()
+    expect(sessions.get(SESSION)?.seqReader).toBeUndefined()
   })
 })
 
@@ -1857,6 +1876,7 @@ describe('under backend=host the client terminal lives in the host, not abduco (
       hasMasterSync: hostAdapter.hasMasterSync,
     }
     const terminals = createOpencodeClientTerminals({
+      sessions: testSessions(),
       durable,
       frames: () => {},
       setTimer: () => 1,
@@ -1877,6 +1897,7 @@ describe('without a durable host there are no client terminals (POD-3917)', () =
     // Now the omission throws at the call site that made it.
     expect(() =>
       createOpencodeClientTerminals({
+        sessions: testSessions(),
         frames: () => {},
       } as unknown as Parameters<typeof createOpencodeClientTerminals>[0]),
     ).toThrow(/requires ports\.durable/)
@@ -1885,11 +1906,14 @@ describe('without a durable host there are no client terminals (POD-3917)', () =
   it('a backend=none daemon gets no terminal host rather than a substituted one', () => {
     // The deliberate answer to the one real decision: `undefined` in means
     // `undefined` out — never an abduco object the daemon never selected.
-    expect(createClientTerminalsFor(undefined, { frames: () => {} })).toBeUndefined()
+    expect(
+      createClientTerminalsFor(undefined, { frames: () => {}, sessions: testSessions() }),
+    ).toBeUndefined()
   })
 
   it('a daemon WITH a durable host gets its terminals built on that object', async () => {
     const terminals = createClientTerminalsFor(abducoOnly, {
+      sessions: testSessions(),
       frames: () => {},
       spawn: async () => fakeClient(),
       reclaim: async () => {},

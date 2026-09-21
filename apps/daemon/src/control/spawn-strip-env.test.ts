@@ -40,6 +40,7 @@ import { join } from 'node:path'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
+import { testSessions } from '../session/testing.js'
 
 /** Claude's hook settings file is written here at spawn; nothing reads it back. */
 const settingsDir = mkdtempSync(join(tmpdir(), 'podium-strip-env-settings-'))

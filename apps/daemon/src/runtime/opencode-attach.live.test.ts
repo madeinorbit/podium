@@ -63,6 +63,7 @@ import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
 import { createOpencodeClientTerminals, opencodeAttachLabel } from './opencode-attach'
 import { opencodeFlavor, opencodeScopeLabel } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
+import { SessionRegistry } from '../session/registry.js'
 
 const LIVE = process.env.PODIUM_OPENCODE_LIVE === '1'
 /** Two sessions, two attachments, ONE server — booting the binary twice would
@@ -152,6 +153,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       // This re-proof predates the host backend: it asserts abduco masters, so
       // it states abduco explicitly (POD-3917).
       durable: createDurable('abduco', { host: false, abduco: true }),
+      sessions: new SessionRegistry({ labelFor: (id) => `podium-live-${id}` }),
       frames: () => {},
     })
     await terminals.close(GOOD)
@@ -165,6 +167,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     const frames: Uint8Array[] = []
     const terminals = createOpencodeClientTerminals({
       durable: createDurable('abduco', { host: false, abduco: true }),
+      sessions: new SessionRegistry({ labelFor: (id) => `podium-live-${id}` }),
       frames: (_streamId, frame) => frames.push(frame),
     })
     const endpoint = await terminals.attach({
@@ -255,6 +258,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       // a scope resident for the machine's lifetime.
       await createOpencodeClientTerminals({
         durable: createDurable('abduco', { host: false, abduco: true }),
+      sessions: new SessionRegistry({ labelFor: (id) => `podium-live-${id}` }),
         frames: () => {},
       }).close(GOOD)
       expect(await abducoHasSession(label)).toBe(false)

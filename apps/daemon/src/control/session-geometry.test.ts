@@ -5,6 +5,7 @@ import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
 import type { DaemonContext } from './context'
 import { harnessCompatEnv, sessionHandlers, wireBridge } from './session'
+import { testSessions } from '../session/testing.js'
 
 /**
  * A resize that arrives while its session's spawn is still in flight (POD-628).

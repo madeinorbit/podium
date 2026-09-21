@@ -6,6 +6,7 @@ import {
   nativeClientStateObserved,
   sessionHandlers,
 } from './session'
+import { testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 /** Every transient refusal these tests drive is one only codex can issue. */
