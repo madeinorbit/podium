@@ -557,9 +557,11 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     // is open because both sides page transcripts through it; the sqlite-backed
     // source stays host-only behind the barrel. `./driver/host` and
     // `./inventory` are NOT open: construction, adopt, attach, families and
-    // machine probing are daemon-only, which is the narrowed consumer
-    // restriction POD-2019 keeps (the dissolved `packages/agent-runtime` left
-    // the consumer set with the dissolve).
+    // machine probing are host-only. The machine hosts are the daemon AND the
+    // CLI: `podium install` runs the Inventory install mechanism and
+    // `podium quota` reads its labels, both on the machine (POD-4414/4.4) —
+    // which is the narrowed consumer restriction POD-2019 keeps (the dissolved
+    // `packages/agent-runtime` left the consumer set with the dissolve).
     openEntrypoints: [
       '@podium/harness/metadata',
       '@podium/harness/browser',
@@ -573,7 +575,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       '@podium/harness/driver/families/terminal/composer-sync',
       '@podium/harness/driver/families/terminal/prompt-extract',
     ],
-    consumers: ['apps/daemon', 'scripts'],
+    consumers: ['apps/daemon', 'apps/cli', 'scripts'],
   },
   // The driver contract dissolved INTO this package (POD-4469): lifecycle,
   // turns, interactions, observation, transcript, attach, export, plus the

@@ -501,6 +501,52 @@ export interface HarnessUsage {
 }
 
 // ---------------------------------------------------------------------------
+// Install — the Inventory install axis (POD-4414 §4.4, issue 4.4).
+// ---------------------------------------------------------------------------
+
+/**
+ * The host operations an install strategy may use. Injected so the mechanism
+ * — and the CLI through it — runs installs against fakes in tests and never
+ * shells out by accident.
+ */
+export interface HarnessInstallPorts {
+  /** Download a URL to a path. Never forwards a GitHub auth token — these are vendor hosts. */
+  fetch(url: string, out: string): void
+  /** Run a command, returning its combined output; throws with that output on failure. */
+  run(cmd: string, args: string[], env: NodeJS.ProcessEnv): string
+  env: NodeJS.ProcessEnv
+  arch: string
+  /** Whether this box's libc is musl — Claude ships a separate build for it. */
+  isMusl(): boolean
+  /**
+   * Operator-visible progress note. The CLI maps it onto its spinner; the
+   * mechanism never prints. Absent in tests that assert silence.
+   */
+  note?(message: string): void
+}
+
+/**
+ * How to install this harness's CLI on a fresh machine.
+ *
+ * A small harness-local strategy (spec principle 4): the installer URL, the
+ * shell and env it needs, and the binary it produces are vendor behaviour,
+ * and declaring them as data would build a shell interpreter. The temp-dir
+ * lifecycle, the fetch, and the `--version` verification around it are the
+ * generic mechanism (`inventory/install.ts`) and stay harness-free.
+ */
+export interface HarnessInstall {
+  /** Binary this install produces directly under the target bin dir. */
+  binary: string
+  /** Vendor installer URL — after this harness's own env override. */
+  url(env: NodeJS.ProcessEnv): string
+  /**
+   * Run the fetched installer script. Must leave `binary` behind under
+   * `binDir`; throw with the vendor's own output on failure.
+   */
+  runInstaller(scriptPath: string, binDir: string, ports: HarnessInstallPorts): void
+}
+
+// ---------------------------------------------------------------------------
 // Headless sessions (persistent, process-per-turn) — the headless-drivers axis.
 // ---------------------------------------------------------------------------
 
@@ -1243,6 +1289,11 @@ export interface AgentManifest {
   credentials: Declared<HarnessCredentials>
   /** Quota endpoint probe, quota-history recovery and token-usage harvest layouts. */
   usage: Declared<HarnessUsage>
+  /**
+   * How to install this harness's CLI on a fresh machine. Unsupported ⇒ no
+   * verified unattended installer; the CLI refuses with the reason.
+   */
+  install: Declared<HarnessInstall>
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
   launch(opts: HarnessLaunchOptions): LaunchSpec
   /** Native-conversation discovery provider. */

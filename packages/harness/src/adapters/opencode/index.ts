@@ -22,6 +22,7 @@ import {
 } from '../../opencode/db.js'
 import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
 import { opencodeCredentials } from './credentials.js'
+import { opencodeInstall } from './install.js'
 import { opencodeUsage } from './usage.js'
 
 /**
@@ -133,6 +134,7 @@ export const opencodeManifest: AgentManifest = {
 
   credentials: opencodeCredentials,
   usage: opencodeUsage,
+  install: opencodeInstall,
 
   launch(opts) {
     const databasePath = opencodeDbPathForSession({

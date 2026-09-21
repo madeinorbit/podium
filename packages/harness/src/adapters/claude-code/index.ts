@@ -25,6 +25,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { claudeCredentials } from './credentials.js'
+import { claudeCodeInstall } from './install.js'
 import { claudeUsage } from './usage.js'
 import { claudeHookAcceptCorrelation, transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
@@ -166,6 +167,7 @@ export const claudeCodeManifest: AgentManifest = {
 
   credentials: supported(claudeCredentials),
   usage: supported(claudeUsage),
+  install: supported(claudeCodeInstall),
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

@@ -21,6 +21,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { grokCredentials } from './credentials.js'
+import { grokInstall } from './install.js'
 import { grokUsage } from './usage.js'
 import { GROK_ACP_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 
@@ -159,6 +160,7 @@ export const grokManifest: AgentManifest = {
 
   credentials: supported(grokCredentials),
   usage: supported(grokUsage),
+  install: supported(grokInstall),
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

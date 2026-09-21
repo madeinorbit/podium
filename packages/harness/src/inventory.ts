@@ -39,9 +39,12 @@ export {
   readPortableCredential,
 } from './inventory/credentials.js'
 export { FileCredentialStore, MAX_CREDENTIAL_BYTES } from './inventory/credential-store.js'
+export type { InstallRequestPorts, InstallTarget } from './inventory/install.js'
+export { installableTargets, installTargetFor, runInstallTarget } from './inventory/install.js'
 export type { QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,
+  quotaAgentLabel,
   scanHostUsage,
   scanHostUsageSources,
   scanQuotaHistory,

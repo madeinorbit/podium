@@ -66,7 +66,7 @@ describe('podium quota', () => {
     const output = await runQuotaCli([], client(), NOW)
 
     expect(output).toContain('workstation (devbox)')
-    expect(output).toContain('Claude Code (max · claude@example.com)')
+    expect(output).toContain('Claude (max · claude@example.com)')
     expect(output).toContain(
       '5-hour: 42.5% used · 57.5% left · resets 2026-07-29T12:15:00.000Z (in 2h 15m)',
     )

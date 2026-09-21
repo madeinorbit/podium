@@ -69,6 +69,7 @@ const DECLARED_FIELDS = [
   'classifyBrowserOpen',
   'credentials',
   'usage',
+  'install',
 ] as const satisfies readonly (keyof AgentManifest)[]
 
 describe('agent manifest registry', () => {

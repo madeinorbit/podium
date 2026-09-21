@@ -32,6 +32,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { codexCredentials } from './credentials.js'
+import { codexInstall } from './install.js'
 import { codexUsage } from './usage.js'
 import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 
@@ -303,6 +304,7 @@ export const codexManifest: AgentManifest = {
 
   credentials: supported(codexCredentials),
   usage: supported(codexUsage),
+  install: supported(codexInstall),
 
   launch(opts) {
     // [spec:SP-fccf] Session identity never enters model-visible instructions.
