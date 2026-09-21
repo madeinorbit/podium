@@ -1445,7 +1445,6 @@ function engineHost(
     engines?: EngineProcessOwner
   } = {},
 ) {
-  const { clientTerminals, supervision, engines, ...rest } = extra
   const attachment: EngineAttachment = {
     ready: Promise.resolve({ lease: true, childPid: 4242 }),
     connection: {
@@ -1463,31 +1462,20 @@ function engineHost(
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => null,
-    // Production always holds the engine under podium-host; the default stub
-    // answers re-attach. Tests that need absence pass `engines: undefined`
-    // explicitly and get the loud refusal.
-    supervision: supervision ?? { scopeUnitFor: () => undefined },
-    engines: engines ?? {
-      startEngine: () => Promise.reject(new Error('no spawn in this test')),
-      reattachEngine: async () => attachment,
-      engineAlive: async () => true,
-      destroyEngine: async () => {},
-    },
-    // POD-4497: adopting the engine re-attaches through the session-owned
-    // `engines` port; the family never spawns its own. The default owner hands
-    // back the attachment built above, so adopt exercises the adopt →
-    // client-terminal path it was written for. Tests that need absence pass
-    // `engines: undefined` explicitly (via `...rest` below) and get the loud
-    // refusal from the ownership guard.
+    // Production always holds the engine under podium-host; the default owner
+    // hands back the attachment built above, so adopt exercises the adopt →
+    // client-terminal path it was written for (POD-4511). Tests that need
+    // absence pass `engines: undefined` explicitly and get the loud refusal
+    // from the ownership guard — spread-last, so an explicit undefined
+    // overrides the default rather than falling back to it.
+    supervision: { scopeUnitFor: () => undefined },
     engines: {
       startEngine: () => Promise.reject(new Error('no spawn in this test')),
       reattachEngine: async () => attachment,
       engineAlive: async () => true,
       destroyEngine: async () => {},
     },
-    // Already narrowed by the caller (engineClientTerminals); passed through.
-    ...(clientTerminals ? { clientTerminals } : {}),
-    ...rest,
+    ...extra,
   })
 }
 

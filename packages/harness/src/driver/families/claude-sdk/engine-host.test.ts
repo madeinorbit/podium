@@ -91,6 +91,7 @@ function fakePorts(hooks: {
 }): {
   supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
   engines: EngineProcessOwner
+  spawned: EngineSpawnRequest[]
 } {
   const spawned: EngineSpawnRequest[] = []
   return {
