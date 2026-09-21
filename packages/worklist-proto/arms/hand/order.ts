@@ -25,6 +25,10 @@ export class OrderModule {
   /** Membership mirror of `ordered` (H4 R-H1: `includes` per dirty row was an
    *  O(visible) scan hiding inside group placement). */
   private readonly members = new Set<string>()
+  /** Last committed rank key per ordered row: a re-rank whose key did not
+   *  move skips the position walk entirely (M2: burst50 paid ~1,100
+   *  indexOf probes for activity-only summary changes that never sort). */
+  private readonly ranks = new Map<string, RankKey>()
 
   constructor(
     private readonly tables: { issues: IssueTable },
@@ -73,6 +77,7 @@ export class OrderModule {
     const at = this.locate(key)
     this.ordered.splice(at, 0, id)
     this.members.add(id)
+    this.ranks.set(id, key)
     return true
   }
 
@@ -81,6 +86,7 @@ export class OrderModule {
     if (at < 0) return false
     this.ordered.splice(at, 1)
     this.members.delete(id)
+    this.ranks.delete(id)
     return true
   }
 
@@ -138,16 +144,20 @@ export class OrderModule {
       }
     }
     for (const id of moves) {
+      const key = this.rankOf(id)
+      if (key === null) continue
+      // Rank inputs are exactly the key fields: an unchanged key cannot
+      // have moved, so skip the position walk (no scan, no splice).
+      if (sameRank(this.ranks.get(id), key)) continue
       const at = this.indexOf(id)
       if (at < 0) {
         changed = this.insert(id) || changed
         continue
       }
-      const key = this.rankOf(id)
-      if (key === null) continue
       this.ordered.splice(at, 1)
       const next = this.locate(key)
       this.ordered.splice(next, 0, id)
+      this.ranks.set(id, key)
       if (next !== at) changed = true
     }
     if (changed) out.push({ kind: 'OrderChanged' })
@@ -158,6 +168,7 @@ export class OrderModule {
   rebuildAll(): void {
     this.ordered.length = 0
     this.members.clear()
+    this.ranks.clear()
     const keys = new Map<string, RankKey>()
     for (const id of this.visible.orderedIds()) {
       const key = this.rankOf(id)
@@ -167,6 +178,21 @@ export class OrderModule {
       compareRank(keys.get(a) as RankKey, keys.get(b) as RankKey),
     )
     this.ordered.push(...sorted)
-    for (const id of sorted) this.members.add(id)
+    for (const id of sorted) {
+      this.members.add(id)
+      const key = keys.get(id)
+      if (key !== undefined) this.ranks.set(id, key)
+    }
   }
+}
+
+/** Rank-key equality over exactly the fields compareRank reads. */
+function sameRank(prev: RankKey | undefined, next: RankKey): boolean {
+  return (
+    prev !== undefined &&
+    prev.band === next.band &&
+    prev.sortKey === next.sortKey &&
+    prev.createdAt === next.createdAt &&
+    prev.seq === next.seq
+  )
 }
