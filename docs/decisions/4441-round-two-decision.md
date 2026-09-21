@@ -70,10 +70,13 @@ with no demonstrated fence to replace the detector, while the MobX wall costs
 are bounded, commit-free, and priced in the winner's downside.
 
 This recommendation survives only with the withheld gaps stated alongside it:
-the named unmeasured cells and the lifecycle walls with no browser method could
+the named unmeasured cells, the lifecycle walls with no browser method, and the
+pending live-corpus re-runs for the keeper-evict steps could
 still change the standing as listed, and the hand arm becomes eligible on a
 demonstrated render-path fence with the same can-say-no proof burden the
-document already places on it.
+document already places on it. Every quoted wall is as-of the measured revision;
+the staleness table in the quiet verdict section says which conclusions survive
+the re-runs and which are probably-stable.
 
 ## Vocabulary on first use
 
@@ -167,8 +170,10 @@ fires at compile time when the new input kind is added unhandled, before any tes
 runs. Second, the eviction row is loud in all three arms only with the corpus-shape
 qualifier: the specced scenario-six evict removes neither a keeper nor a sole asker,
 so the milestone gate stays green on the defect branch in every arm. The methodology
-expectation needs that qualifier, or scenario six needs a keeper-evict variant; the
-open harness issue owns the choice. Third, the render-path row is the one place the
+expectation needed that qualifier until the keeper-evict variant landed and chose
+for it: the variant seeds its own keeper pair with arming proved both directions
+at the small corpus, green identically on all three arms with live-corpus re-runs
+filed separately. Third, the render-path row is the one place the
 three genuinely diverge on safety, verified by planting the defect in each arm: the
 MobX commit set grows, the hand and TanStack checks stay green. The mechanism is
 honest in both directions: the MobX observer subscribes every row to every row read,
@@ -200,7 +205,11 @@ would catch it: FAIL on that item.
 Cells are rows committed at the single-corpus scenario seed. Budgets are the
 methodology scenario budgets. Mount arrivals and departure unmounts are excluded
 from commits by RowShell design; the work behind them is order plus one row
-derivation. The control column shows the legacy behavior the arms replace.
+derivation. The control column shows the legacy behavior the arms replace. The
+eviction row below predates the keeper-evict variant: the live-corpus counts gain
+two steps per arm with re-runs filed separately, and the arming is green
+identically on all three arms at the small corpus with existing steps unchanged
+there.
 
 | Scenario | Budget | Hand | MobX | TanStack | Control |
 |---|---|---|---|---|---|
@@ -264,8 +273,12 @@ cross-arm currency stays rows committed, flat everywhere, per the table above.
 
 The quiet-window re-run measured the same invocations with unchanged flags,
 interleaved across arms and scales with the bench lease held per invocation and
-per-record load and revision recorded in the driver files. The hot-path and
-click walls below are verdicts, not proxies; the lifecycle walls and the named
+per-record load and revision recorded in the driver files. Every number in this
+section is as-of the measured runtime revision: the driver records carry it,
+and the harness change that landed after measurement is not in it. That change
+adds a keeper-evict variant to the eviction scenario in every arm's gate with no
+arm source touched; the re-run of the measurement notes it requires is filed
+separately and is not attempted here. The hot-path and click walls below are verdicts as-of that revision, not proxies; the lifecycle walls and the named
 withheld cells stay provisional as listed.
 
 | Arm | Scenario | actionMs p50 / p95 / max | taskMs p50 / p95 / max | commits | longTasks per twenty | per-record load |
@@ -283,7 +296,8 @@ withheld cells stay provisional as listed.
 | control | stagemove | 192.4 / 330.5 / 434.3 | 204.2 / 341.5 / 522.2 | 346 | 20 | 7.1–8.4 |
 | control | clock | 0.0 / 0.1 / 0.2 | 13.8 / 18.0 / 19.5 | 0 | 0 | 7.1–8.4 |
 
-Sources: quiet-window re-run note with its driver files; pooled across both
+Sources: quiet-window re-run note with its driver files, as-of the measured
+runtime revision named above; pooled across both
 invocations per cell. The stagemove zero-commit shape is the known fold-blocked
 form rotating fresh rows per sample, identical across the milestone notes. The
 control clock pipeline near zero is asymmetric by construction: its tick emits
@@ -383,6 +397,27 @@ conditions with starvation separated from engine cost has become a TanStack
 performance finding rather than a load artifact. Nothing the re-run showed
 changes the safety verdicts or the bundle verdicts: those rest on counts and
 build output, not on walls.
+
+What the later harness change means for the numbers above. The keeper-evict
+variant landed after measurement in harness and methodology scope only, with the
+arming proved at the small corpus identically on all three arms and existing
+steps unchanged there; the live-corpus counts gain two steps per arm and their
+re-runs are filed separately. Which conclusions survive those re-runs and which
+are merely probably-stable is stated plainly rather than left to inference.
+
+| Conclusion | Survives the pending re-runs, or probably-stable | Why |
+|---|---|---|
+| Safety verdicts on every planted mistake | Survives | They rest on planted defects, commit sets, and build output, none of which the harness change alters; the new variant strengthens the eviction row's arming without moving its loud verdicts |
+| Bundle verdicts | Survives | Build output is untouched by a harness-and-methodology change |
+| Fidelity verdicts | Survives | Parity is green on the new steps at the small corpus on all three arms with identical tallies |
+| Rows-committed equality across arms on existing steps | Survives at the small corpus; live-corpus re-runs pending | Existing steps unchanged where measured; the new steps are identical across arms by construction |
+| TanStack clock engine finding | Survives | No arm source was touched and nothing in the harness change reaches the clock path |
+| Relative wall ordering between arms | Probably-stable, not proven | The gaps between arms are multiples and no arm source was touched, but the walls themselves are as-of the measured revision and the re-runs are the proof |
+| Absolute wall verdicts against the budgets | Probably-stable, not proven | Same revision caveat: the misses are by multiples, so crossing a budget on re-run is unlikely, but the quoted tails are as-of the measured revision either way |
+
+Sources: the keeper-evict issue with its arming proof and landed commit; the
+quiet-window re-run note for the measured revision; the milestone notes for the
+existing-step counts.
 
 ## Performance gate: growth slopes across corpus scales
 
@@ -793,8 +828,8 @@ The sixth is the click tail at the stated sample count: with one slow first clic
 per file from cold-list warm-up on every page including the control, the tail
 prices warm-up rather than steady state. The first two are fixed in-tree with
 both-directions guard tests; the third was fixed with an include-list correction;
-the fourth is open, owned by its issue, with the two offered resolutions recorded
-in the safety section; the fifth and sixth are recorded here so a future budget
+the fourth is fixed by the keeper-evict variant with arming proved both directions
+and live-corpus re-runs filed separately; the fifth and sixth are recorded here so a future budget
 revision owns them explicitly. No verdict in this document rests on an instrument that
 cannot fail: the control fails isolation in every co-mount, the exact-commit
 assertions fail on the planted scan in the winner, and the bundle overrun is
@@ -805,12 +840,15 @@ declared by the arm itself.
 Every figure in this document traces to the file named beneath its table. The
 in-repo record is the milestone notes, the shape review, the three exercise
 documents with their diff directories, the three write-path sketches, the harness
-document, the slice spec, the methodology, the stage-zero baseline, and the
+document, the slice spec, the methodology, the stage-zero baseline, the
+keeper-evict change with its arming proof, and the
 quiet-window re-run note with its driver bundle. The
 attached machine record is the per-issue files: the milestone count summaries, the
 browser result files, the growth, lifecycle, and coexistence files, the
 control live-corpus file, and the quiet-window driver files with per-record load
-and revision. Browser walls measured quiet are verdicts wherever they appear;
+and revision. Browser walls measured quiet are verdicts as-of the measured
+revision wherever they appear, with the later harness change and its pending
+re-runs labelled where they matter;
 lifecycle walls and the named withheld cells stay provisional as listed. Terms explained on first use as
 listed above; figures live in tables, never in prose.
 
