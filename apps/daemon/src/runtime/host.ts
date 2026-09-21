@@ -84,22 +84,6 @@ export function daemonRuntimeHost(
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       }),
     launch: (msg, instrumentation) => launchSpawn(ctx, msg, {}, instrumentation, true),
-    readTranscript: async (session, range) => {
-      const source = await sourceForRead(ctx, {
-        sessionId: session.sessionId,
-        agentKind: session.agentKind,
-        cwd: session.cwd,
-        ...(session.resume ? { resume: session.resume } : {}),
-      })
-      const slice = await source.readSlice({
-        ...(range.anchor ? { anchor: range.anchor } : {}),
-        // `before` is the newest window — the same default the on-switch read
-        // uses, and the one a `history({ limit })` with no anchor means.
-        direction: 'before',
-        limit: range.limit,
-      })
-      return slice.items
-    },
     readHistory: async (session, range) => {
       const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
       if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {

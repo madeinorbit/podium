@@ -1,7 +1,6 @@
 import type { AgentKind, MachineId, ResumeRef, TranscriptItem } from '@podium/model'
 import { MirrorService } from '@podium/sync'
-import { fileChainSource, fileIdFor } from '@podium/harness/store'
-import { transcriptRecordMapperFor } from '../../harness-manifest'
+import { fileChainSource, fileIdFor, type TranscriptRecordMapper } from '@podium/harness/store'
 import type { ConversationsRepository } from '../../store/conversations'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 import { TranscriptIndexer } from './transcript-indexer'
@@ -54,6 +53,27 @@ export interface TranscriptLakeDeps {
    * (POD-1175) in the broker, and leaves this owner with just the read.
    */
   daemonRequest: DaemonRequestPort
+  /**
+   * Resolve a session's adapter grammar parse function by harness kind — the
+   * Store's grammar parameter for lake reads (POD-4471). Injected so the lake
+   * imports parsing ONLY from `@podium/harness/store`: the declaration lookup
+   * stays at the composition root, the record→items conversion happens inside
+   * the Store's file-chain reader. SQLite-backed harnesses resolve to undefined
+   * (no JSONL mapper); see readWindow.
+   */
+  parseForAgentKind(agentKind: AgentKind): TranscriptRecordMapper | undefined
+  /**
+   * Find the live session a mirrored segment resumes into, by native id.
+   * Feeds the search indexer its per-segment grammar: lake bytes are
+   * harness-native, and the indexer must parse each segment with its own
+   * harness's grammar rather than assuming one. A segment with no live session
+   * resolves to undefined and is skipped until one appears (a restart retries
+   * everything once, like every other backfill gap here).
+   */
+  findSessionByNativeId(
+    machineId: MachineId,
+    nativeId: string,
+  ): Promise<{ agentKind: AgentKind } | undefined>
 }
 
 /**
@@ -75,6 +95,11 @@ export class TranscriptLake {
     const indexer = new TranscriptIndexer({
       mirror: deps.store.mirror,
       index: deps.store.transcriptIndex,
+      parseFor: async (machineId, nativeId) => {
+        const session = await deps.findSessionByNativeId(machineId, nativeId)
+        if (!session) return undefined
+        return deps.parseForAgentKind(session.agentKind)
+      },
     })
     this.indexer = indexer
     this.mirror = new MirrorService(
@@ -211,7 +236,13 @@ export class TranscriptLake {
             }))
           : []
     if (chain.length === 0) return undefined
-    const recordToItems = transcriptRecordMapperFor(session.agentKind)
+    // The Store's grammar parameter, injected at the composition root: the lake
+    // parses every harness through the same file-chain reader the live path
+    // uses, never a harness's records directly. SQLite-backed sessions (opencode
+    // today) resolve to undefined — HOST-ONLY until their database is mirrored
+    // (open point): the lake serves them live off the machine while it is
+    // reachable, and does not fake a lake copy.
+    const recordToItems = this.deps.parseForAgentKind(session.agentKind)
     if (!recordToItems) return undefined
     const slice = await fileChainSource(chain, recordToItems).readSlice({
       ...(input.anchor ? { anchor: input.anchor } : {}),

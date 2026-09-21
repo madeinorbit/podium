@@ -223,12 +223,10 @@ export interface TerminalRuntimeHost {
     spec: SessionSpec,
   ): Promise<InstalledTerminalInstrumentation>
   launch(msg: SpawnControl, instrumentation?: InstalledTerminalInstrumentation): Promise<void>
-  /** A cursor-anchored transcript slice, via the same source layer the
-   *  `transcriptRead` frame uses. */
-  readTranscript(
-    session: { sessionId: SessionId; agentKind: AgentKind; cwd: string; resume?: ResumeRef },
-    range: { anchor?: string; limit: number },
-  ): Promise<readonly TranscriptItem[]>
+  /** A cursor-anchored transcript slice in the slice shape ({items, head, tail,
+   *  hasMore}) with direction — the Store read over the live source, and the
+   *  only transcript capability the host offers (POD-4471: the items-only
+   *  readTranscript is deleted, every reader goes through history). */
   readHistory(
     session: { sessionId: SessionId; agentKind: AgentKind; cwd: string; resume?: ResumeRef },
     range: Omit<RuntimeHistoryRange, 'direction'> & {
@@ -835,9 +833,10 @@ export function createTerminalRuntime(
     if (interaction.kind === 'question' && interaction.payload.questions.every((q) => q.options.length === 0)) {
       const generation = session.observerGeneration
       const bridge = host.bridge(session.sessionId)
-      void host.readTranscript({ sessionId: session.sessionId, agentKind: session.agentKind,
+      void host.readHistory({ sessionId: session.sessionId, agentKind: session.agentKind,
         cwd: session.cwd, ...(session.resume ? { resume: session.resume } : {}) }, { limit: 50 })
-        .then((items) => {
+        .then((page) => {
+          const items = page.items
           if (session.disposed || session.answerScript || session.observerGeneration !== generation ||
               host.bridge(session.sessionId) !== bridge || session.interactions.get(interaction.id) !== interaction) return
           const item = [...items].reverse().find((i) => i.role === 'tool' && i.toolName === 'AskUserQuestion' && i.toolInputJson)
@@ -1367,15 +1366,17 @@ export function createTerminalRuntime(
     const registration = registrations.get(session.sessionId)
     if (!registration) return
     try {
-      const items = await host.readTranscript(
-        {
-          sessionId: session.sessionId,
-          agentKind: session.agentKind,
-          cwd: registration.cwd,
-          ...(session.resume ? { resume: session.resume } : {}),
-        },
-        { limit: 2000 },
-      )
+      const items = (
+        await host.readHistory(
+          {
+            sessionId: session.sessionId,
+            agentKind: session.agentKind,
+            cwd: registration.cwd,
+            ...(session.resume ? { resume: session.resume } : {}),
+          },
+          { limit: 2000 },
+        )
+      ).items
       if (
         sessions.get(session.sessionId) !== session ||
         session.disposed ||

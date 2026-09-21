@@ -16,6 +16,7 @@ import {
 } from '@podium/sync'
 import type { SessionStore } from '../../store'
 import type { DaemonRequestPort } from '../daemon-request'
+import { transcriptRecordMapperFor } from '../../harness-manifest'
 import { type LakeReadSession, TranscriptLake } from './lake'
 import { MemorySearchService } from './search'
 import type { MemoryReader } from './types'
@@ -95,6 +96,13 @@ export class MemoryService {
         store: deps.store.conversations,
         now: deps.now,
         daemonRequest: deps.daemonRequest,
+        // The Store's grammar parameter (POD-4471): declaration lookup stays
+        // here at the composition root; the lake parses only through the Store.
+        parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
+        findSessionByNativeId: async (_machineId, nativeId) => {
+          const row = (await deps.store.sessions.findSessionsByResumeValues([nativeId])).get(nativeId)
+          return row ? { agentKind: row.agentKind as LakeReadSession['agentKind'] } : undefined
+        },
       },
       options,
     )
