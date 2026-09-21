@@ -10,8 +10,8 @@
 // the last stdout line. The supervisor owns the spawn (in-process child or
 // durable exec); this module owns the invocation shape and the id grammar.
 
-import type { ResolvedHarnessInventory } from '../inventory/build-inventory.js'
-import { resolvedHarnessPath } from '../executable-runtime.js'
+import type { ResolvedHarnessInventory } from '../../inventory/build-inventory.js'
+import { resolvedHarnessPath } from '../../executable-runtime.js'
 
 /** The invocation that pre-allocates a headless chat. Nothing else — no
  *  prompt, no flags: allocation is not a turn. */
