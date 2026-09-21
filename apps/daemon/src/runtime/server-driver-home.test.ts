@@ -47,11 +47,10 @@ import {
 import { stageRuntimeAttachment } from './attachment-staging'
 import {
   composeEngineEnv,
-  createEngineJournal,
   dialEngineSocket,
   engineSocketRoot,
-  supervisionFor,
 } from './host'
+import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import {
   codexAppServerVersionProbe,
@@ -266,10 +265,14 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
 
     const landing = join(root, 'landing-opencode.json')
     const flavor = opencodeFlavor(manifestFor('opencode')!)
+    // Launches go through the session layer's engine hold, as production
+    // wires it; the journal below is the hold's instance.
+    const engines = createSessionEngineScope(engineDurable())
     const host = createOpencodeEngineHost({
       flavor,
-      supervision: supervisionFor(engineDurable()),
-      journal: createEngineJournal<OpencodeJournalEntry>({ namespace: flavor.journalNamespace }),
+      engines,
+      supervision: engines,
+      journal: engines.journalFor<OpencodeJournalEntry>(flavor.journalNamespace),
       stageAttachment: stageRuntimeAttachment,
       resources,
       homeDir: instanceHome,
@@ -308,10 +311,12 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
 
     const landing = join(root, 'landing-codex.json')
     const facts = codexEngineFacts(manifestFor('codex')!)
+    const engines = createSessionEngineScope(engineDurable())
     const host = createCodexEngineHost({
       facts,
-      supervision: supervisionFor(engineDurable()),
-      journal: createEngineJournal<CodexJournalEntry>({ namespace: facts.journalNamespace }),
+      engines,
+      supervision: engines,
+      journal: engines.journalFor<CodexJournalEntry>(facts.journalNamespace),
       stageAttachment: stageRuntimeAttachment,
       resources,
       homeDir: instanceHome,
@@ -354,10 +359,12 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const instanceUuid = '11111111-2222-4333-8444-555555555555'
     const sessionId = asSessionId('grok-stamped-child')
     const facts = grokEngineFacts(manifestFor('grok')!)
+    const engines = createSessionEngineScope(engineDurable())
     const host = createGrokEngineHost({
       facts,
-      supervision: supervisionFor(engineDurable()),
-      journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: facts.journalNamespace }),
+      engines,
+      supervision: engines,
+      journal: engines.journalFor<GrokAcpJournalEntry>(facts.journalNamespace),
       resources,
       homeDir: instanceHome,
       instanceUuid,

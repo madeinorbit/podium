@@ -39,6 +39,7 @@ import {
   engineSocketRoot,
   supervisionFor,
 } from '../runtime/host.js'
+import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from '../runtime/server-teardown-budget.js'
 import {
   codexAppServerVersionProbe,
@@ -50,6 +51,9 @@ const root = process.env.GEN1_ROOT as string
 const workdir = `${root}/work`
 const noResources = () => undefined
 const durable = createDurableProcess('host', { host: true, abduco: false })
+// Gen1 launches through the session layer's engine hold, exactly as the
+// daemon wires it; claude stays on the legacy supervision port.
+const sessionEngines = createSessionEngineScope(durable)
 
 const ready = (engine: string, binding: unknown): void => {
   process.stdout.write(`READY ${engine} ${JSON.stringify(binding)}\n`)
@@ -62,8 +66,9 @@ const flavor = opencodeFlavor(manifestFor('opencode')!)
 
 const codexHost = createCodexEngineHost({
   facts: codexFacts,
-  supervision: supervisionFor(durable),
-  journal: createEngineJournal<CodexJournalEntry>({ namespace: codexFacts.journalNamespace }),
+  engines: sessionEngines,
+  supervision: sessionEngines,
+  journal: sessionEngines.journalFor<CodexJournalEntry>(codexFacts.journalNamespace),
   stageAttachment: stageRuntimeAttachment,
   resources: noResources,
   buildEnv: composeEngineEnv,
@@ -93,8 +98,9 @@ ready('codex', codexHandle.binding)
 
 const opencodeHost = createOpencodeEngineHost({
   flavor,
-  supervision: supervisionFor(durable),
-  journal: createEngineJournal<OpencodeJournalEntry>({ namespace: flavor.journalNamespace }),
+  engines: sessionEngines,
+  supervision: sessionEngines,
+  journal: sessionEngines.journalFor<OpencodeJournalEntry>(flavor.journalNamespace),
   stageAttachment: stageRuntimeAttachment,
   resources: noResources,
   buildEnv: composeEngineEnv,
@@ -120,8 +126,9 @@ ready('opencode', opencodeHandle.binding)
 
 const grokHost = createGrokEngineHost({
   facts: grokFacts,
-  supervision: supervisionFor(durable),
-  journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: grokFacts.journalNamespace }),
+  engines: sessionEngines,
+  supervision: sessionEngines,
+  journal: sessionEngines.journalFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
   resources: noResources,
   buildEnv: composeEngineEnv,
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
