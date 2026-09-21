@@ -97,11 +97,18 @@ decay windows, closed fold, defer bands, pinned lanes).
 
 ### Browser (1x click input-to-paint)
 
-DEFERRED: box 1-minute load 14.78 at 01:31 (budget: no walls above 8).
-Counts carry the verdict; the click path is 2 key-notifies + 0 derivations
-(microtask + one React pass), to be timed under the bench lease when the
-box is quiet. Entry builds (`hand` chunk 44.81 kB / 11.77 kB gzip, under
-the +60 kB budget; shared engine chunk excluded — identical for all arms).
+- Readiness + parity in Chromium (no timing): hand page boots at 1x
+  fixture, `snapshotHash` **matches the control exactly** (`6365b567`,
+  211 rows), 17/211 rows mounted (windowing verified: 1000px viewport,
+  18kpx scroll height).
+- Wall timing: first attempt 01:31 at load 14.78 (refused — above 8);
+  second window 02:05 at load 5.0 but the G4 driver's serve path 404d
+  (fixed: `entries/` fallback in `run.ts`, committed); load then 9.15.
+  p50/p95/max table lands when a quiet window holds — counts above are
+  the verdict meanwhile.
+- Driver note for other arms: `run.ts` `serveDist` did not match vite's
+  `dist/entries/` layout (`/hand.html` 404d, page never ready). Fixed
+  with an `entries/` fallback; control page unaffected.
 
 ## Line count (arm folder, `wc -l`; tests excluded)
 
