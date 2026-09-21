@@ -116,8 +116,8 @@ import {
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
-import type { AbducoSpawnOptions, DurableProcess } from '@podium/process/durable'
 import type { DurableAttachment } from '@podium/process/screen'
+import type { ClientProcessOwner } from '../session/clients.js'
 import type { SessionRegistry } from '../session/registry.js'
 import type { ClientTerminalPolicy } from '../session/daemon-session.js'
 import { Terminal } from '../terminal/terminal.js'
@@ -350,27 +350,14 @@ export interface OpencodeClientTerminalPorts {
   /** Current machine command environment used to resolve the client executable. */
   commandEnvironment?: () => Promise<HarnessEnvironment>
   /**
-   * The daemon's durable host (SPEC-6). Spawn, reclaim and the master probe all
-   * go through IT — so a client terminal under `backend=host` is created, found
-   * and reclaimed in the host's directory, not abduco's. REQUIRED: the only
-   * production call site passes `ctx.durable`, and an omitted one used to fall
-   * back to abduco silently (POD-3917).
+   * THE SESSION LAYER'S CLIENT HOLD (spec §5). Spawn, reclaim and the master
+   * probe all go through IT — the relay never names a process verb itself, so
+   * a client terminal under any backend is created, found and reclaimed where
+   * the session layer put it. REQUIRED: the only production call site passes
+   * the daemon's session-owned scope, and an omitted one used to fall back to
+   * abduco silently (POD-3917).
    */
-  durable: DurableProcess
-  /** Injection seams over `durable`. */
-  spawn?(opts: AbducoSpawnOptions): Promise<DurableAttachment>
-  reclaim?(label: string): Promise<void>
-  /**
-   * Is a durable master still holding this label? A socket-dir read, not an
-   * `abduco` fork — this runs on the session teardown path.
-   *
-   * ONLY FOR THE CALLERS THAT HOLD NO SESSION: `close()`, which reclaims a
-   * parked master nothing is attached to, and `adopt()`, which takes one that
-   * outlived the daemon back under a deadline. The generation reset does NOT
-   * ask this — see `start()` — because a spawn can answer the same question
-   * later and better.
-   */
-  hasMaster?(label: string): boolean
+  clients: ClientProcessOwner
   /**
    * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290).
    *
@@ -424,11 +411,11 @@ export interface OpencodeClientTerminalPorts {
 }
 
 /**
- * NO CLIENT TERMINALS WITHOUT A DURABLE HOST (POD-3917).
+ * NO CLIENT TERMINALS WITHOUT A SESSION CLIENT SCOPE (POD-3917).
  *
  * A `backend=none` daemon holds no durable host for its own sessions, and a
  * client terminal built for it would need a backend substituted silently — the
- * exact fallback the required {@link OpencodeClientTerminalPorts.durable} port
+ * exact fallback the required {@link OpencodeClientTerminalPorts.clients} port
  * exists to forbid. So that daemon builds NOTHING here: the caller leaves
  * `ctx.clientTerminals` unset, the server-family drivers refuse a Native attach
  * with their per-machine wording, and every control frame that reaches for one
@@ -436,53 +423,20 @@ export interface OpencodeClientTerminalPorts {
  * not this daemon's to give.
  */
 export function createClientTerminalsFor(
-  durable: DurableProcess | undefined,
-  ports: Omit<OpencodeClientTerminalPorts, 'durable'>,
+  clients: ClientProcessOwner | undefined,
+  ports: Omit<OpencodeClientTerminalPorts, 'clients'>,
 ): OpencodeClientTerminals | undefined {
-  if (durable === undefined) return undefined
-  return createOpencodeClientTerminals({ ...ports, durable })
+  if (clients === undefined) return undefined
+  return createOpencodeClientTerminals({ ...ports, clients })
 }
 
 export function createOpencodeClientTerminals(
   ports: OpencodeClientTerminalPorts,
 ): OpencodeClientTerminals {
-  if (!ports.durable) throw new Error('createOpencodeClientTerminals requires ports.durable')
+  if (!ports.clients) throw new Error('createOpencodeClientTerminals requires ports.clients')
   if (!ports.sessions) throw new Error('createOpencodeClientTerminals requires ports.sessions')
   const sessions = ports.sessions
-  const durable = ports.durable
-  const spawn = ports.spawn ?? ((opts: AbducoSpawnOptions) => durable.spawn(opts))
-  const reclaim = ports.reclaim ?? ((label: string) => durable.kill(label))
-  /**
-   * THE PROBE MUST LOOK WHERE THE SPAWN PUT IT (POD-2761).
-   *
-   * `abducoSocketDirs` falls back to `$HOME/.abduco` when `ABDUCO_SOCKET_DIR` is
-   * unset, and the master is created against the CLIENT's environment — whose
-   * `HOME` is the instance agent home (`ports.homeDir`), not the daemon's. A
-   * default probe on `process.env` therefore reads a different directory and
-   * answers "no master" for one that is running.
-   *
-   * WHICH CONFIGURATION IS EXPOSED, precisely: a named instance is safe, because
-   * `applyInstanceRuntimeEnv` pins `ABDUCO_SOCKET_DIR` on the daemon's own env
-   * and the child inherits that same value — both sides then resolve one root
-   * and `HOME` never enters it. What is exposed is an agent home that differs
-   * from the daemon's `HOME` with no such pin: `PODIUM_AGENT_HOME` or
-   * `config.agentHome` on the default instance.
-   *
-   * The error is ONE-SIDED toward "absent", so both callers fail open in the
-   * expensive direction: `close()` reclaims nothing and the master leaks until
-   * the machine reboots, and `adopt()` never takes back a client that outlived
-   * the daemon — which is the same orphan by the other road.
-   *
-   * `process.env` is read PER CALL rather than captured, because the instance
-   * env is applied to it during boot and this module is built on that path.
-   */
-  const hasMaster =
-    ports.hasMaster ??
-    ((label: string) =>
-      durable.hasMasterSync(
-        label,
-        ports.homeDir ? { ...process.env, HOME: ports.homeDir } : process.env,
-      ))
+  const clients = ports.clients
   const geometry = ports.geometry ?? DEFAULT_GEOMETRY
   const warmTtlMs = ports.warmTtlMs ?? WARM_TTL_MS
   const setTimer =
@@ -593,7 +547,9 @@ export function createOpencodeClientTerminals(
     // than at `attach()` because this is the only path that creates a terminal:
     // a warm reattach reuses the client that exists and applies nothing.
     const birth = ports.birthGeometry?.(sessionId) ?? geometry
-    const session = await spawn({
+    // THE SESSION SUMMONS, THE RELAY RENDERS: the client open path reaches
+    // the process only through the session-owned owner.
+    const session = await clients.spawnClient({
       // The client TUI is this session's only writer while watched: adopt
       // under another writer and it reads silently. Demand the lease (POD-4434).
       requireLease: true,
@@ -650,10 +606,11 @@ export function createOpencodeClientTerminals(
      * ASK THE SPAWN WHICH CASE THIS WAS — do not sample the socket directory
      * beforehand (POD-2761).
      *
-     * This was `hasMaster(record.label)`, read before `await spawn`, and that
-     * was wrong twice over. It asked under the WRONG ENVIRONMENT, because the
-     * default probe reads the daemon's `HOME` while the master lives under the
-     * agent home (see `hasMaster` above) — one-sided toward "cold", so the reset
+      * This was `hasMaster(record.label)`, read before `await spawn`, and that
+      * was wrong twice over. It asked under the WRONG ENVIRONMENT, because the
+      * default probe reads the daemon's `HOME` while the master lives under the
+      * agent home (see `SessionClientScope.hasClientMaster`, which owns that
+      * environment) — one-sided toward "cold", so the reset
      * fired on an adopted live TUI and `[3J` deleted the very history it was
      * reattaching to. And it asked TOO EARLY: a master exiting inside the spawn
      * window left `reattaching` true while spawn created a new generation, which
@@ -801,13 +758,15 @@ export function createOpencodeClientTerminals(
       : (kind ? [kind] : CLIENT_TERMINAL_HARNESSES)
           .map((candidate) => clientTerminalLabel(sessionId, candidate))
           .filter((label): label is string => label !== undefined)
-          .filter(hasMaster)
+          // The probe is the session's, not the relay's: a caller that holds
+          // no session still asks the session layer whether a master lives.
+          .filter((label) => clients.hasClientMaster(label))
     if (labels.length === 0) return
     // PARK FIRST: drop the Terminal (unwire + detach) while the master still
     // holds the label, then reclaim the master itself. The session entry goes
     // with the close — a later attach starts a fresh generation.
     sessions.get(sessionId)?.park()
-    for (const label of labels) await reclaim(label)
+    for (const label of labels) await clients.reclaimClient(label)
   }
 
   /**
@@ -826,7 +785,8 @@ export function createOpencodeClientTerminals(
     const policy = sessions.get(sessionId)?.client
     if (!policy) {
       const label = clientTerminalLabel(sessionId, kind)
-      if (label !== undefined && hasMaster(label)) await reclaim(label)
+      if (label !== undefined && clients.hasClientMaster(label))
+        await clients.reclaimClient(label)
       return
     }
     if (policy.generation) {
@@ -843,7 +803,7 @@ export function createOpencodeClientTerminals(
     policy.preserveReplayOnRelaunch = true
     policy.suppressNextReplayRedraw = false
     policy.replayRequired = false
-    if (hasMaster(policy.label)) await reclaim(policy.label)
+    if (clients.hasClientMaster(policy.label)) await clients.reclaimClient(policy.label)
     arm(sessionId)
   }
 
@@ -953,7 +913,7 @@ export function createOpencodeClientTerminals(
           started.park()
           const replacement = sessions.get(sessionId)?.client
           const replaced = replacement !== policy
-          if (replacement === undefined) await reclaim(policy.label)
+          if (replacement === undefined) await clients.reclaimClient(policy.label)
           throw new Error(
             replaced
               ? 'the client terminal was closed while it was starting'
@@ -978,7 +938,7 @@ export function createOpencodeClientTerminals(
       const label = clientTerminalLabel(sessionId, kind)
       // No declaration means no label, and no label means there is nothing this
       // daemon could have spawned to adopt.
-      if (label === undefined || !hasMaster(label)) return
+      if (label === undefined || !clients.hasClientMaster(label)) return
       const owned = sessions.ensure(sessionId)
       owned.client = {
         label,

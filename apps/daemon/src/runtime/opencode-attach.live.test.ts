@@ -61,6 +61,7 @@ import { abducoHasSession, createDurable } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
 import { createOpencodeClientTerminals, opencodeAttachLabel } from './opencode-attach'
+import { createSessionClientScope } from '../session/clients.js'
 import { opencodeFlavor, opencodeScopeLabel } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
 import { SessionRegistry } from '../session/registry.js'
@@ -151,8 +152,9 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     // each run would leave a master and a scope behind for the whole warm TTL.
     const terminals = createOpencodeClientTerminals({
       // This re-proof predates the host backend: it asserts abduco masters, so
-      // it states abduco explicitly (POD-3917).
-      durable: createDurable('abduco', { host: false, abduco: true }),
+      // it states abduco explicitly (POD-3917) — through the session-owned
+      // scope, the relay's only process path.
+      clients: createSessionClientScope(createDurable('abduco', { host: false, abduco: true }))!,
       sessions: new SessionRegistry(),
       frames: () => {},
     })
@@ -166,7 +168,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
   ): Promise<{ bytes: string; streamId: string }> => {
     const frames: Uint8Array[] = []
     const terminals = createOpencodeClientTerminals({
-      durable: createDurable('abduco', { host: false, abduco: true }),
+      clients: createSessionClientScope(createDurable('abduco', { host: false, abduco: true }))!,
       sessions: new SessionRegistry(),
       frames: (_streamId, frame) => frames.push(frame),
     })
@@ -257,7 +259,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       // And closing the attachment takes the master with it, rather than leaving
       // a scope resident for the machine's lifetime.
       await createOpencodeClientTerminals({
-        durable: createDurable('abduco', { host: false, abduco: true }),
+        clients: createSessionClientScope(createDurable('abduco', { host: false, abduco: true }))!,
         sessions: new SessionRegistry(),
         frames: () => {},
       }).close(GOOD)
