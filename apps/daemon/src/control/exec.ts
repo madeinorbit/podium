@@ -9,9 +9,8 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
 import { bundleStagePath } from '../handoff-package'
 import { executeBufferedHarnessTurn } from '../buffered-harness.js'
-import { scanQuotaHistory } from '../quota-history-scan'
+import { scanHostUsageSources, scanQuotaHistory, UsageScanCache } from '@podium/harness/inventory'
 import { repoOpCommand } from '../repo-op'
-import { scanHostUsageSources, UsageScanCache } from '../usage-scan'
 import type {
   HarnessManagementContext,
 } from '../harness-management.js'

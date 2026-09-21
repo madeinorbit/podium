@@ -2,13 +2,18 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SecurityResult, SecurityRunner } from './claude-keychain-security'
-import type { DaemonContext } from './context'
+import { claudeKeychainSeams } from '../adapters/claude-code/credentials.js'
+import type { ClaudeStorageLockFactory } from '../adapters/claude-code/keychain-lock.js'
+import type {
+  SecurityResult,
+  SecurityRunner,
+} from '../adapters/claude-code/keychain-security.js'
 import {
   handleCredentialExport,
+  handleCredentialInstall,
   installPortableCredential,
   readPortableCredential,
-} from './credentials'
+} from './credentials.js'
 
 let source: string
 let target: string
@@ -21,6 +26,8 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(source, { recursive: true, force: true })
   rmSync(target, { recursive: true, force: true })
+  delete claudeKeychainSeams.runner
+  delete claudeKeychainSeams.lockFactory
 })
 
 describe('portable native credentials', () => {
@@ -233,17 +240,16 @@ const present = (content: string) =>
 describe('Darwin Claude Keychain routing', () => {
   it('exports a guarded native credential from Keychain instead of the file path', async () => {
     const secret = claudeAuth(200, 'synthetic-access', 'synthetic-refresh')
-    const runner = new FakeSecurityRunner([present(secret)])
+    claudeKeychainSeams.runner = new FakeSecurityRunner([present(secret)])
     const bundle = await readPortableCredential('claude-code', source, {
       platform: 'darwin',
       env: { USER: 'native-user' },
       osUsername: 'fallback-user',
-      securityRunner: runner,
       guarded: true,
       realHome: true,
     })
     expect(Buffer.from(bundle?.contentBase64 ?? '', 'base64').toString()).toBe(secret)
-    expect(runner.calls[0]?.args).toEqual([
+    expect(claudeKeychainSeams.runner.calls[0]?.args).toEqual([
       'find-generic-password',
       '-a',
       'native-user',
@@ -256,7 +262,16 @@ describe('Darwin Claude Keychain routing', () => {
 
   it('installs only after the supported version, second read, stdin write, and readback', async () => {
     const secret = claudeAuth(200, 'synthetic-access', 'synthetic-refresh')
-    const runner = new FakeSecurityRunner([absent(), absent(), result(), present(secret)])
+    claudeKeychainSeams.runner = new FakeSecurityRunner([
+      absent(),
+      absent(),
+      result(),
+      present(secret),
+    ])
+    claudeKeychainSeams.lockFactory = (async () => ({
+      compromised: false,
+      release: vi.fn(async () => {}),
+    })) as ClaudeStorageLockFactory
     expect(
       await installPortableCredential(
         { kind: 'claude-code', contentBase64: Buffer.from(secret).toString('base64') },
@@ -265,52 +280,141 @@ describe('Darwin Claude Keychain routing', () => {
           platform: 'darwin',
           env: { USER: 'native-user' },
           osUsername: 'fallback-user',
-          resolvedClaudeVersion: '2.1.234 (Claude Code)',
-          securityRunner: runner,
-          claudeLockFactory: async () => ({
-            compromised: false,
-            release: vi.fn(async () => {}),
-          }),
+          versions: new Map([['claude-code', '2.1.234 (Claude Code)']]),
           guarded: true,
           realHome: true,
         },
       ),
     ).toBe(true)
-    expect(runner.calls[2]?.args).toEqual(['-i'])
-    expect(runner.calls[2]?.args.join(' ')).not.toContain('synthetic-access')
-    expect(runner.calls[2]?.input).not.toContain('synthetic-access')
+    const calls = (claudeKeychainSeams.runner as FakeSecurityRunner).calls
+    expect(calls[2]?.args).toEqual(['-i'])
+    expect(calls[2]?.args.join(' ')).not.toContain('synthetic-access')
+    expect(calls[2]?.input).not.toContain('synthetic-access')
   })
 })
 
+describe('inventory credential fixtures (fresh / stale / absent / foreign-env)', () => {
+  const FRESH: Record<string, string> = {
+    'claude-code': claudeAuth(200),
+    codex: codexAuth(200),
+    grok: JSON.stringify({ 'default-entry': { key: 'grok-key', email: 'a@b.c' } }),
+  }
+  const STALE: Record<string, string> = {
+    'claude-code': JSON.stringify({ claudeAiOauth: { accessToken: 'orphan' } }),
+    codex: codexAuth(100, 'stale-target', ''),
+    grok: JSON.stringify({ 'default-entry': { email: 'a@b.c' } }),
+  }
+  const LAYOUT: Record<string, { dir: string; file: string; envVar: string }> = {
+    'claude-code': { dir: '.claude', file: '.credentials.json', envVar: 'CLAUDE_CONFIG_DIR' },
+    codex: { dir: '.codex', file: 'auth.json', envVar: 'CODEX_HOME' },
+    grok: { dir: '.grok', file: 'auth.json', envVar: 'GROK_HOME' },
+  }
+
+  it.each(['claude-code', 'codex', 'grok'] as const)(
+    'reads a fresh %s login through the Inventory section',
+    async (kind) => {
+      const { dir, file } = LAYOUT[kind] as { dir: string; file: string }
+      mkdirSync(join(source, dir), { recursive: true })
+      writeFileSync(join(source, dir, file), FRESH[kind] as string)
+      const bundle = await readPortableCredential(kind, source)
+      expect(bundle?.kind).toBe(kind)
+    },
+  )
+
+  it.each(['claude-code', 'codex', 'grok'] as const)(
+    'refuses a stale %s login under the propagation guard',
+    async (kind) => {
+      const { dir, file } = LAYOUT[kind] as { dir: string; file: string }
+      mkdirSync(join(source, dir), { recursive: true })
+      writeFileSync(join(source, dir, file), STALE[kind] as string)
+      await expect(readPortableCredential(kind, source, { guarded: true })).resolves.toBeNull()
+    },
+  )
+
+  it.each(['claude-code', 'codex', 'grok'] as const)(
+    'reports an absent %s credential as null, never as an error',
+    async (kind) => {
+      await expect(readPortableCredential(kind, source)).resolves.toBeNull()
+    },
+  )
+
+  it.each(['claude-code', 'codex', 'grok'] as const)(
+    'honours the %s home redirect, except under a real-home read',
+    async (kind) => {
+      const { dir, file, envVar } = LAYOUT[kind] as {
+        dir: string
+        file: string
+        envVar: string
+      }
+      const redirected = join(source, 'managed-home', dir)
+      mkdirSync(redirected, { recursive: true })
+      writeFileSync(join(redirected, file), FRESH[kind] as string)
+      const env = { [envVar]: redirected }
+      const bundle = await readPortableCredential(kind, source, { env })
+      expect(bundle?.kind).toBe(kind)
+      await expect(readPortableCredential(kind, source, { env, realHome: true })).resolves.toBeNull()
+    },
+  )
+})
+
 describe('credential handlers', () => {
-  it('uses one current runtime snapshot, awaits the stores, and emits one result frame', async () => {
+  it('uses one current runtime snapshot and returns one result payload', async () => {
     mkdirSync(join(source, '.codex'), { recursive: true })
     writeFileSync(join(source, '.codex', 'auth.json'), codexAuth(200))
     const current = vi.fn(async () => ({
-      commandEnvironment: { env: { PATH: '/usr/bin', USER: 'native-user' } },
-      executables: new Map([['claude-code', { version: '2.1.234 (Claude Code)' }]]),
+      env: { PATH: '/usr/bin', USER: 'native-user' },
+      versions: new Map([['claude-code', '2.1.234 (Claude Code)']]),
     }))
-    const send = vi.fn()
-    const ctx = {
-      homeDir: source,
-      harnessRuntime: { current },
-      send,
-    } as unknown as DaemonContext
+    const reportInventory = vi.fn()
+    const ports = { homeDir: source, snapshotRuntime: current, reportInventory }
 
-    await handleCredentialExport(ctx, {
-      type: 'credentialExportRequest',
+    const exported = await handleCredentialExport(ports, {
       requestId: 'request-1',
       kinds: ['codex', 'grok'],
       propagation: true,
     })
 
     expect(current).toHaveBeenCalledOnce()
-    expect(send).toHaveBeenCalledOnce()
-    expect(send).toHaveBeenCalledWith({
+    expect(exported).toEqual({
       type: 'credentialExportResult',
       requestId: 'request-1',
       bundles: [expect.objectContaining({ kind: 'codex' })],
       unavailable: ['grok'],
     })
+
+    const installed = await handleCredentialInstall(ports, {
+      requestId: 'request-2',
+      bundles: exported.bundles,
+      propagation: true,
+    })
+    expect(installed).toEqual({
+      type: 'credentialInstallResult',
+      requestId: 'request-2',
+      installed: [],
+      failed: ['codex'],
+    })
+    // The donor copy is already valid locally, so the guarded install refuses
+    // and no inventory re-probe is requested.
+    expect(reportInventory).not.toHaveBeenCalled()
+  })
+
+  it('re-probes inventory after a fresh install lands', async () => {
+    const reportInventory = vi.fn()
+    const ports = {
+      homeDir: target,
+      snapshotRuntime: async () => undefined,
+      reportInventory,
+    }
+    const candidate = {
+      kind: 'codex' as const,
+      contentBase64: Buffer.from(codexAuth(200, 'donor', 'donor-refresh')).toString('base64'),
+    }
+    const installed = await handleCredentialInstall(ports, {
+      requestId: 'request-3',
+      bundles: [candidate],
+      propagation: true,
+    })
+    expect(installed.installed).toEqual(['codex'])
+    expect(reportInventory).toHaveBeenCalledOnce()
   })
 })
