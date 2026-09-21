@@ -1,0 +1,28 @@
+diff --git a/packages/worklist-proto/arms/mobx/models/issue.ts b/packages/worklist-proto/arms/mobx/models/issue.ts
+index 604a7930a..e98467f8c 100644
+--- a/packages/worklist-proto/arms/mobx/models/issue.ts
++++ b/packages/worklist-proto/arms/mobx/models/issue.ts
+@@ -237,8 +237,23 @@ export class IssueModel {
+       const issue = this.value
+       if (!this.visible) return null
+     const members = this.store.visibleSubtree(issue.id)
++    const memberSet = new Set(members)
+     const ownByMember = new Map<string, SliceSession[]>()
+     const sessions: SliceSession[] = []
++    // K2-C bubbling (exercise only): an ask on ANY formal descendant marks
++    // the root asking — visible children and rolled-up depth alike
++    // (rowWaitingCount). Invisible-but-edged descendants (e.g. `proposed`,
++    // which stays edged while archived/deleted detach at ingest) contribute
++    // their live sessions; the read subscribes this aggregate to them, so a
++    // deep ask re-runs exactly the ancestors until values settle.
++    for (const id of this.store.formalMembers(issue.id)) {
++      if (memberSet.has(id)) continue
++      const member = this.store.issues.get(id)
++      if (!member) continue
++      // Pending decisions stay visible-subtree-only (the legacy attached-row
++      // walk); session asks bubble from the whole branch.
++      sessions.push(...member.retainedLive())
++    }
+     const deciding = new Set<string>()
+     let pending = 0
+     for (const id of members) {

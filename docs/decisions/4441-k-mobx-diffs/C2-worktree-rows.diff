@@ -1,0 +1,446 @@
+diff --git a/packages/worklist-proto/arms/mobx/models/lane.ts b/packages/worklist-proto/arms/mobx/models/lane.ts
+new file mode 100644
+index 000000000..e7dadbeac
+--- /dev/null
++++ b/packages/worklist-proto/arms/mobx/models/lane.ts
+@@ -0,0 +1,121 @@
++/**
++ * K2-C2 worktree lane rows (exercise only): a second row kind in the same
++ * ordered list and groups — a worktree with sessions but no issue.
++ *
++ * One model per lane id, holding the borrowed worktree row behind
++ * `observable.ref`. Lane rows are display-only: no selection, no fold, no
++ * progress — phase/working/asking derive from the lane's resolved sessions
++ * and the row rides the commit exactly like an issue row (JSON-compared
++ * `lastRowJson` counting `rowsDerived`). Field inventions with no spec
++ * behind them, recorded not defended: displayRef `prefix ?? path tail`,
++ * title `repoName`, band 1, rank `createdAt ''` (sorts last in-band).
++ */
++
++import { computed, computedStruct, makeObservable, observableRef } from 'mobx'
++import type { SliceRow, SliceSession } from '../../../shared/src/slice-types'
++import { isSessionWorking, motionPhase, type RankInput } from '../rules'
++import type { MobXStore } from '../store'
++
++/** Row-id namespace: lane rows must never collide with issue ids. */
++export function laneRowId(path: string): string {
++  return `lane:${path}`
++}
++
++export class LaneModel {
++  /** Borrowed immutable stream object; replaced, never mutated. */
++  value: import('../../../shared/src/slice-types').SliceWorktree
++  /** Owning store (buckets, locals, stats). Never reassigned. */
++  readonly store: MobXStore
++  /** Last committed row JSON; rowsDerived counts committed rows only. */
++  private lastRowJson: string | null = null
++
++  constructor(store: MobXStore, value: import('../../../shared/src/slice-types').SliceWorktree) {
++    this.store = store
++    this.value = value
++    makeObservable<LaneModel, 'lastRowJson' | 'laneSessions'>(this, {
++      value: observableRef,
++      store: false,
++      lastRowJson: false,
++      visible: computed,
++      row: computedStruct,
++      rankKey: computedStruct,
++      isSelected: computed,
++      tick: computed,
++      laneSessions: false,
++      repoKey: false,
++    })
++  }
++
++  /** Lonely lanes only: sessions present, no live issue seated at the path. */
++  get visible(): boolean {
++    if (this.laneSessions().length === 0) return false
++    return (this.store.liveIssuesAt(this.value.path).length === 0)
++  }
++
++  /** Resolved (unbound) sessions owned by this lane path (spec §2 R3). */
++  laneSessions(): SliceSession[] {
++    return this.store.laneSessions(this.value.path)
++  }
++
++  /** Group key merges same-repo paths, same as issues (spec §3 R-GROUP). */
++  repoKey(): string {
++    return this.value.repoId ?? this.value.repoPath
++  }
++
++  get rankKey(): RankInput {
++    return { band: 1, sortKey: null, createdAt: '', seq: 0, id: laneRowId(this.value.path) }
++  }
++
++  /** Lanes are never selected (selection names issues; spec §3 R-SEL). */
++  get isSelected(): boolean {
++    return false
++  }
++
++  /** No origin tick on lanes. */
++  get tick(): null {
++    return null
++  }
++
++  /** The committed lane row; identity-stable while inputs settle. */
++  get row(): SliceRow | null {
++    if (!this.visible) {
++      if (this.lastRowJson !== null) {
++        this.lastRowJson = null
++        this.store.stats.rowsDerived += 1
++      }
++      return null
++    }
++    const t0 = performance.now()
++    try {
++      const sessions = this.laneSessions()
++      const kinds = sessions.map((s) => motionPhase(s))
++      let phase: SliceRow['phase']
++      if (kinds.includes('waiting')) phase = 'waiting'
++      else if (kinds.includes('working')) phase = 'working'
++      else if (kinds.length > 0 && kinds.every((k) => k === 'done')) phase = 'done'
++      else phase = 'queued'
++      const tail = this.value.path.split('/').pop() || this.value.path
++      const next: SliceRow = {
++        id: laneRowId(this.value.path),
++        displayRef: this.value.prefix ?? tail,
++        title: this.value.repoName,
++        phase,
++        progressDone: 0,
++        progressTotal: 0,
++        working: sessions.some((s) => isSessionWorking(s)),
++        asking: kinds.includes('waiting'),
++        band: 1,
++        repoKey: this.repoKey(),
++        closed: false,
++      }
++      const json = JSON.stringify(next)
++      if (json !== this.lastRowJson) {
++        this.lastRowJson = json
++        this.store.stats.rowsDerived += 1
++      }
++      return next
++    } finally {
++      this.store.addRowMs(performance.now() - t0)
++    }
++  }
++}
+diff --git a/packages/worklist-proto/arms/mobx/native/list.tsx b/packages/worklist-proto/arms/mobx/native/list.tsx
+index 8bb38e303..d4c253344 100644
+--- a/packages/worklist-proto/arms/mobx/native/list.tsx
++++ b/packages/worklist-proto/arms/mobx/native/list.tsx
+@@ -17,13 +17,17 @@ import { ScrollView, Text, View } from 'react-native'
+ import { RowShell } from '../../../shared/src/row-shell'
+ import type { SliceRow } from '../../../shared/src/slice-types'
+ import type { IssueModel } from '../models/issue'
++import type { LaneModel } from '../models/lane'
+ import type { MobXStore } from '../store'
+ 
++/** K2-C2: rows render from either model kind (issue or lane). */
++type RowModel = IssueModel | LaneModel
++
+ const MobxNativeRowView = observer(function MobxNativeRowView({
+   model,
+   store,
+ }: {
+-  model: IssueModel
++  model: RowModel
+   store: MobXStore
+ }): ReactElement | null {
+   const row = model.row as SliceRow | null
+@@ -49,7 +53,7 @@ const MobxNativeRow = observer(function MobxNativeRow({
+   model,
+   store,
+ }: {
+-  model: IssueModel
++  model: RowModel
+   store: MobXStore
+ }): ReactElement {
+   return <MobxNativeRowView model={model} store={store} />
+@@ -69,7 +73,10 @@ export const MobxNativeList = observer(function MobxNativeList({
+   return (
+     <ScrollView testID="mobx-list">
+       {rows.map((id) => {
+-        const model = store.issues.get(id)
++        // K2-C2: `lane:` ids resolve through the lane models.
++        const model =
++          store.issues.get(id) ??
++          (id.startsWith('lane:') ? store.laneModels.get(id.slice('lane:'.length)) : undefined)
+         if (!model) return null
+         return <MobxNativeRow key={id} model={model} store={store} />
+       })}
+diff --git a/packages/worklist-proto/arms/mobx/react/list.tsx b/packages/worklist-proto/arms/mobx/react/list.tsx
+index ace7df776..db228f468 100644
+--- a/packages/worklist-proto/arms/mobx/react/list.tsx
++++ b/packages/worklist-proto/arms/mobx/react/list.tsx
+@@ -17,8 +17,20 @@ import { observer } from 'mobx-react-lite'
+ import { RowShell } from '../../../shared/src/row-shell'
+ import type { SliceRow } from '../../../shared/src/slice-types'
+ import type { IssueModel } from '../models/issue'
++import type { LaneModel } from '../models/lane'
+ import type { MobXStore } from '../store'
+ 
++/** K2-C2: rows render from either model kind (issue or lane). */
++type RowModel = IssueModel | LaneModel
++
++/** K2-C2: issue ids resolve through the issue table, `lane:` ids through lanes. */
++function rowModelOf(store: MobXStore, id: string): RowModel | undefined {
++  const issue = store.issues.get(id)
++  if (issue) return issue
++  if (!id.startsWith('lane:')) return undefined
++  return store.laneModels.get(id.slice('lane:'.length))
++}
++
+ const ROW_H = 56
+ const HEADER_H = 40
+ 
+@@ -26,7 +38,7 @@ const MobxRowView = observer(function MobxRowView({
+   model,
+   store,
+ }: {
+-  model: IssueModel
++  model: RowModel
+   store: MobXStore
+ }): ReactElement | null {
+   const row = model.row as SliceRow | null
+@@ -51,7 +63,7 @@ const MobxRow = observer(function MobxRow({
+   model,
+   store,
+ }: {
+-  model: IssueModel
++  model: RowModel
+   store: MobXStore
+ }): ReactElement {
+   return <MobxRowView model={model} store={store} />
+@@ -160,7 +172,7 @@ export const MobxList = observer(function MobxList({
+                   height: itemHeight(item),
+                 }
+           if (item.kind === 'row') {
+-            const model = store.issues.get(item.id)
++            const model = rowModelOf(store, item.id)
+             if (!model) return null
+             return (
+               <div key={item.id} style={style}>
+diff --git a/packages/worklist-proto/arms/mobx/store.ts b/packages/worklist-proto/arms/mobx/store.ts
+index 6e4998dd0..411aafc66 100644
+--- a/packages/worklist-proto/arms/mobx/store.ts
++++ b/packages/worklist-proto/arms/mobx/store.ts
+@@ -37,6 +37,7 @@ import {
+   spinOffOriginId,
+ } from './rules'
+ import { IssueModel } from './models/issue'
++import { LaneModel } from './models/lane'
+ import { SessionModel } from './models/session'
+ import { WorktreeModel } from './models/worktree'
+ import { MobxList } from './react/list'
+@@ -87,6 +88,8 @@ export class MobXStore {
+   readonly issues = observable.map<string, IssueModel>({}, { deep: false })
+   readonly sessions = observable.map<string, SessionModel>({}, { deep: false })
+   readonly worktrees = observable.map<string, WorktreeModel>({}, { deep: false })
++  /** K2-C2: one lane-row model per worktree id (lonely lanes render). */
++  readonly laneModels = observable.map<string, LaneModel>({}, { deep: false })
+ 
+   // R1 formal edges (live-child edges only).
+   readonly childrenByParent = observable.map<string, readonly string[]>({}, { deep: false })
+@@ -174,6 +177,7 @@ export class MobXStore {
+       | 'takeResolved'
+       | 'ingestIssue'
+       | 'moveSeat'
++      | 'laneRow'
+       | 'ingestSession'
+       | 'ingestWorktree'
+       | 'resolveAllUnbound'
+@@ -199,6 +203,7 @@ export class MobXStore {
+       issues: false,
+       sessions: false,
+       worktrees: false,
++      laneModels: false,
+       childrenByParent: false,
+       parentOf: false,
+       explicitByIssue: false,
+@@ -224,6 +229,7 @@ export class MobXStore {
+       dropResolved: action,
+       takeResolved: action,
+       moveSeat: action,
++      laneRow: false,
+       resolveAllUnbound: action,
+       setSelection: action,
+       setCoarseNow: action,
+@@ -241,6 +247,8 @@ export class MobXStore {
+       phaseMsTotals: false,
+       membersOf: false,
+       unreadMembersOf: false,
++      laneSessions: false,
++      liveIssuesAt: false,
+       prefixForRepo: false,
+       visibleSubtree: false,
+       hasOpenExplicit: false,
+@@ -274,6 +282,7 @@ export class MobXStore {
+         this.issues.clear()
+         this.sessions.clear()
+         this.worktrees.clear()
++        this.laneModels.clear()
+         this.childrenByParent.clear()
+         this.parentOf.clear()
+         this.explicitByIssue.clear()
+@@ -589,7 +598,13 @@ export class MobXStore {
+         this.stats.indexUpdates += 1
+         this.resolveNeeded = true
+       }
++      // K2-C2: evicting the lane evicts its row model with it.
++      this.laneModels.delete(id)
+     } else {
++      // K2-C2: one row model per lane, created once and mutated like issues.
++      const prev = this.laneModels.get(id)
++      if (prev !== undefined) prev.value = lane
++      else this.laneModels.set(id, new LaneModel(this, lane))
+       if (!this.lanePaths.has(id)) {
+         this.lanePaths.set(id, true)
+         this.stats.indexUpdates += 1
+@@ -689,6 +704,30 @@ export class MobXStore {
+     return out
+   }
+ 
++  /**
++   * K2-C2: unbound sessions resolved at a lane path (explicit seats excluded —
++   * a session owned by an issue never makes a lane lonely). Scans home seats,
++   * not buckets: the per-lane walk is O(sessions) per lane body run, counted
++   * in the slope as `lane-scan` material (removable with a resolved-by-path
++   * bucket; not built in the timebox).
++   */
++  laneSessions(path: string): SliceSession[] {
++    const out: SliceSession[] = []
++    for (const [sid, home] of this.sessionHome) {
++      if (home.explicit !== null || home.resolved !== path) continue
++      const session = this.sessions.get(sid)?.value
++      if (session !== undefined && session.agentKind !== 'shell' && !session.archived) {
++        out.push(session)
++      }
++    }
++    return out
++  }
++
++  /** K2-C2: live issue ids seated at a worktree path (the loneliness check). */
++  liveIssuesAt(path: string): readonly string[] {
++    return this.issuesByWorktree.get(path) ?? []
++  }
++
+   /** Prefix join for `displayRef` (spec §3 R-SUM). */
+   prefixForRepo(repoId: string | null | undefined): string | null {
+     if (repoId === null || repoId === undefined) return null
+@@ -876,12 +915,19 @@ export class MobXStore {
+     // same assembly order as the oracle projection, so the snapshot hash
+     // compares across arms and the control.
+     for (const id of this.worklist.order) {
+-      const row = this.issues.get(id)?.row
++      // K2-C2: lane rows ride the same order under their `lane:` ids.
++      const row = this.issues.get(id)?.row ?? this.laneRow(id)
+       if (row !== undefined && row !== null) rowsById[id] = row
+     }
+     return { order, rowsById }
+   }
+ 
++  /** K2-C2: the committed row of a lane id, or undefined for issue ids. */
++  private laneRow(id: string): import('../../shared/src/slice-types').SliceRow | null | undefined {
++    if (!id.startsWith('lane:')) return undefined
++    return this.laneModels.get(id.slice('lane:'.length))?.row
++  }
++
+   mountWeb(el: Element): () => void {
+     this.webRoot?.unmount()
+     const root = createRoot(el)
+@@ -906,6 +952,7 @@ export class MobXStore {
+     this.issues.clear()
+     this.sessions.clear()
+     this.worktrees.clear()
++    this.laneModels.clear()
+     this.childrenByParent.clear()
+     this.parentOf.clear()
+     this.explicitByIssue.clear()
+diff --git a/packages/worklist-proto/arms/mobx/worklist.ts b/packages/worklist-proto/arms/mobx/worklist.ts
+index 4a82efc50..67a0591ea 100644
+--- a/packages/worklist-proto/arms/mobx/worklist.ts
++++ b/packages/worklist-proto/arms/mobx/worklist.ts
+@@ -12,12 +12,19 @@
+ import { computed, computedStruct, makeObservable } from 'mobx'
+ import type { SliceGroup, SliceOrder } from '../../shared/src/slice-types'
+ import { closedFoldAt, compareRank, groupLabelOf, type RankInput } from './rules'
++import { laneRowId } from './models/lane'
+ import type { MobXStore } from './store'
+ 
+ function shallowIdsEqual(a: readonly string[], b: readonly string[]): boolean {
+   return a.length === b.length && a.every((id, index) => id === b[index])
+ }
+ 
++/** K2-C2: rank input for a lane id, or undefined for issue ids. */
++function laneRankOf(store: MobXStore, id: string): RankInput | undefined {
++  if (!id.startsWith('lane:')) return undefined
++  return store.laneModels.get(id.slice('lane:'.length))?.rankKey
++}
++
+ export type Lane = 'pinned' | 'open' | 'closed'
+ 
+ export class WorklistModel {
+@@ -33,7 +40,7 @@ export class WorklistModel {
+     })
+   }
+ 
+-  /** Every visible issue id (spec §3 R-VIS). The ONE table enumeration. */
++  /** Every visible issue id plus every visible lane id (spec §3 R-VIS). The ONE table enumeration. */
+   get visibleIds(): readonly string[] {
+     const t0 = performance.now()
+     try {
+@@ -44,6 +51,10 @@ export class WorklistModel {
+       for (const [id, model] of this.store.issues) {
+         if (model.visible) out.push(id)
+       }
++      // K2-C2: lonely lanes join the same ordered list under `lane:` ids.
++      for (const [path, model] of this.store.laneModels) {
++        if (model.visible) out.push(laneRowId(path))
++      }
+       return out
+     } finally {
+       this.store.addRollupMs(performance.now() - t0)
+@@ -56,8 +67,9 @@ export class WorklistModel {
+     try {
+       const ranked = new Map<string, RankInput>()
+       for (const id of this.visibleIds) {
+-        const model = this.store.issues.get(id)
+-        if (model) ranked.set(id, model.rankKey)
++        // K2-C2: lane ids resolve through the lane models.
++        const rank = this.store.issues.get(id)?.rankKey ?? laneRankOf(this.store, id)
++        if (rank) ranked.set(id, rank)
+       }
+       this.store.scan('order-sort', ranked.size)
+       return [...this.visibleIds].sort((a, b) =>
+@@ -77,6 +89,18 @@ export class WorklistModel {
+       const order = this.order
+       this.store.scan('groups-bucket', order.length)
+       for (const id of order) {
++        // K2-C2: lane rows bucket with the issues by repo key, always open.
++        const lane = id.startsWith('lane:') ? this.store.laneModels.get(id.slice('lane:'.length)) : undefined
++        if (lane) {
++          const key = lane.repoKey()
++          let bucket = buckets.get(key)
++          if (!bucket) {
++            bucket = { label: lane.value.repoPath.split('/').pop() || lane.value.repoPath, open: [], closed: [] }
++            buckets.set(key, bucket)
++          }
++          bucket.open.push(id)
++          continue
++        }
+         const model = this.store.issues.get(id)
+         if (!model) continue
+         if (model.value.pinned === true) {
+@@ -114,6 +138,11 @@ export class WorklistModel {
+ 
+   /** Placement lane of one row: pinned, open, or closed (spec §3 R-GROUP). */
+   laneOf(id: string): Lane | null {
++    // K2-C2: lane rows sit in the open lane (never pinned, never folded).
++    if (id.startsWith('lane:')) {
++      const lane = this.store.laneModels.get(id.slice('lane:'.length))
++      return lane && lane.visible ? 'open' : null
++    }
+     const model = this.store.issues.get(id)
+     if (!model || !model.visible) return null
+     if (model.value.pinned === true) return 'pinned'

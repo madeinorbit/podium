@@ -1,0 +1,123 @@
+diff --git a/packages/worklist-proto/arms/mobx/k2d-probe.test.tsx b/packages/worklist-proto/arms/mobx/k2d-probe.test.tsx
+new file mode 100644
+index 000000000..2e8a68c81
+--- /dev/null
++++ b/packages/worklist-proto/arms/mobx/k2d-probe.test.tsx
+@@ -0,0 +1,75 @@
++// @vitest-environment happy-dom
++/**
++ * K2-D probe (kept in the diff as firing evidence): omitted bookkeeping in
++ * the MobX idiom — a new input in a plain module variable read by a getter.
++ * Run twice: enforcement ON (the arm's config) and OFF (control).
++ */
++import { configure } from 'mobx'
++import { describe, expect, it } from 'vitest'
++import { act } from 'react'
++import { createReplaySource, mountArmForCounts, runCountScenario } from '../../harness/src/count-harness'
++import type { SliceLocals } from '../../shared/src/slice-types'
++import { mobxArm } from './arm'
++import { issue, LANE, NOW, rec, session, workingState } from './mobx.test'
++import { setK2dSnoozeGate } from './models/issue'
++
++const iso = (ms: number): string => new Date(ms).toISOString()
++
++function mountGateWorld() {
++  const replay = createReplaySource({
++    issues: [
++      rec('issue', 'A', {
++        ...issue({ id: 'A', seq: 10, sortKey: 'a0', worktreePath: '/wt' }),
++        snoozedUntil: iso(NOW + 3600000),
++      } as never),
++    ],
++    sessions: [rec('session', 's1', session({ sessionId: 's1', issueId: 'A', agentState: workingState }))],
++    worktrees: [rec('worktree', '/wt', LANE)],
++  })
++  const locals: SliceLocals = { selectedIssueId: null, coarseNow: NOW }
++  const mounted = mountArmForCounts(mobxArm, replay.source, locals)
++  return { replay, mounted }
++}
++
++async function gateFlipStale(): Promise<{ visibleAfterFlip: string[] }> {
++  setK2dSnoozeGate(false)
++  const { mounted } = mountGateWorld()
++  try {
++    expect(Object.keys(mounted.handle.snapshot().rowsById)).toEqual(['A'])
++    await runCountScenario(mounted, {
++      scenario: 'gateFlip',
++      methodology: '#K2D',
++      apply: () => {
++        act(() => {
++          // Plain-variable flip: no observable moves, so no computed re-runs.
++          setK2dSnoozeGate(true)
++        })
++      },
++      expected: () => mounted.handle.snapshot(),
++    })
++    return { visibleAfterFlip: Object.keys(mounted.handle.snapshot().rowsById).sort() }
++  } finally {
++    mounted.unmount()
++    setK2dSnoozeGate(false)
++  }
++}
++
++describe('K2-D plain-variable gate', () => {
++  it('enforcement ON: flipped gate leaves a stale visible row', async () => {
++    const { visibleAfterFlip } = await gateFlipStale()
++    console.info(`[k2d-ON] visible after flip=${JSON.stringify(visibleAfterFlip)} (intended: [])`)
++    // The row SHOULD hide (gate on + future snooze) but stays: stale screen.
++    expect(visibleAfterFlip).toEqual([])
++  })
++
++  it('enforcement OFF (control): same staleness, no check fires either', async () => {
++    configure({ enforceActions: 'never', computedRequiresReaction: false, observableRequiresReaction: false, reactionRequiresObservable: false })
++    try {
++      const { visibleAfterFlip } = await gateFlipStale()
++      console.info(`[k2d-OFF] visible after flip=${JSON.stringify(visibleAfterFlip)} (intended: [])`)
++      expect(visibleAfterFlip).toEqual([])
++    } finally {
++      configure({ enforceActions: 'always', computedRequiresReaction: true, observableRequiresReaction: true, reactionRequiresObservable: true })
++    }
++  })
++})
+diff --git a/packages/worklist-proto/arms/mobx/models/issue.ts b/packages/worklist-proto/arms/mobx/models/issue.ts
+index 604a7930a..385b7c31a 100644
+--- a/packages/worklist-proto/arms/mobx/models/issue.ts
++++ b/packages/worklist-proto/arms/mobx/models/issue.ts
+@@ -65,6 +65,18 @@ export interface OriginTick {
+   ref: string
+ }
+ 
++/**
++ * K2-D foot-gun (exercise only): a NEW input kept in a plain module variable
++ * and read by a getter. MobX tracks only observables — flipping this flag
++ * invalidates nothing, so rows holding it read stale until some unrelated
++ * observable moves them. There is no input list to forget AND no tracker to
++ * catch it: the mistake is silent by construction.
++ */
++export let k2dSnoozeGate = false
++export function setK2dSnoozeGate(value: boolean): void {
++  k2dSnoozeGate = value
++}
++
+ export class IssueModel {
+   /** Borrowed immutable stream object; replaced, never mutated. */
+   value: SliceIssue
+@@ -156,6 +168,18 @@ export class IssueModel {
+     try {
+       const issue = this.value
+       if (structurallyExcluded(issue)) return false
++      // K2-D: the gate is read here, but it is a plain variable — MobX
++      // subscribes this computed only to `value` and `coarseNow`, never to
++      // the gate. Flipping the gate alone re-runs nothing.
++      if (
++        k2dSnoozeGate &&
++        (issue as SliceIssue & { snoozedUntil?: string | null }).snoozedUntil != null
++      ) {
++        const until = Date.parse(
++          (issue as SliceIssue & { snoozedUntil?: string | null }).snoozedUntil as string,
++        )
++        if (Number.isFinite(until) && until > this.store.locals.coarseNow) return false
++      }
+       if (this.retainedMembers().length > 0) return true
+       return flatSessionless(issue, derivedUnread(issue, this.unreadSeats()), () => this.store.locals.coarseNow)
+     } finally {

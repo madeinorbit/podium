@@ -1,0 +1,87 @@
+diff --git a/packages/worklist-proto/arms/mobx/k2e-probe.test.tsx b/packages/worklist-proto/arms/mobx/k2e-probe.test.tsx
+new file mode 100644
+index 000000000..d02280762
+--- /dev/null
++++ b/packages/worklist-proto/arms/mobx/k2e-probe.test.tsx
+@@ -0,0 +1,47 @@
++// @vitest-environment happy-dom
++/**
++ * K2-E probe (kept in the diff as firing evidence): index not cleaned on
++ * eviction — the orphan + session-seat removal cleanups in `ingestIssue`
++ * are deleted. Run twice: enforcement ON and OFF (control).
++ */
++import { configure } from 'mobx'
++import { describe, expect, it } from 'vitest'
++import { exampleWorld, issue, rec } from './mobx.test'
++import type { MobXStore } from './store'
++
++function evictA(): { parentOfB: string | undefined; rows: string[]; phaseB: string | undefined } {
++  const world = exampleWorld()
++  world.push({ type: 'update', rows: [rec('issue', 'A', undefined)] })
++  const snap = world.store.snapshot()
++  return {
++    parentOfB: (world.store as MobXStore).parentOf.get('B'),
++    rows: Object.keys(snap.rowsById).sort(),
++    phaseB: snap.rowsById['B']?.phase,
++  }
++}
++
++describe('K2-E missing eviction cleanup', () => {
++  it('enforcement ON: orphan edge + seats leak (values stay right)', () => {
++    const after = evictA()
++    console.info(`[k2e-ON] parentOf B=${after.parentOfB} rows=${JSON.stringify(after.rows)} phaseB=${after.phaseB}`)
++    // Values are ghost-free: B surfaces and still waits on s2's offer
++    // (C is the tucked done-top row, unaffected).
++    expect(after.rows).toEqual(['B', 'C'])
++    expect(after.phaseB).toBe('waiting')
++    // But the index leaks: B still claims evicted A as its parent.
++    expect(after.parentOfB).toBeUndefined()
++  })
++
++  it('enforcement OFF (control): identical leak, no check fires either', () => {
++    configure({ enforceActions: 'never', computedRequiresReaction: false, observableRequiresReaction: false, reactionRequiresObservable: false })
++    try {
++      const after = evictA()
++      console.info(`[k2e-OFF] parentOf B=${after.parentOfB} rows=${JSON.stringify(after.rows)} phaseB=${after.phaseB}`)
++      expect(after.rows).toEqual(['B', 'C'])
++      expect(after.phaseB).toBe('waiting')
++      expect(after.parentOfB).toBeUndefined()
++    } finally {
++      configure({ enforceActions: 'always', computedRequiresReaction: true, observableRequiresReaction: true, reactionRequiresObservable: true })
++    }
++  })
++})
+diff --git a/packages/worklist-proto/arms/mobx/store.ts b/packages/worklist-proto/arms/mobx/store.ts
+index 6e4998dd0..980c989a8 100644
+--- a/packages/worklist-proto/arms/mobx/store.ts
++++ b/packages/worklist-proto/arms/mobx/store.ts
+@@ -460,14 +460,10 @@ export class MobXStore {
+       else this.parentOf.delete(id)
+       this.stats.indexUpdates += 1
+     }
+-    if (issue === undefined) {
+-      const orphans = this.childrenByParent.get(id)
+-      if (orphans !== undefined) {
+-        this.childrenByParent.delete(id)
+-        this.stats.indexUpdates += 1
+-        for (const child of orphans) this.parentOf.delete(child)
+-      }
+-    }
++    // K2-E foot-gun (exercise only): the orphan cleanup on removal is
++    // deleted — evicted parents keep their children's parentOf edges and
++    // their session seats. Reads guard on the tables so values stay right;
++    // only bucket assertions and index counts can see it.
+     // R3 target seat + repo seat.
+     if (
+       this.moveSeat(
+@@ -527,10 +523,6 @@ export class MobXStore {
+         }
+       }
+     }
+-    if (issue === undefined) {
+-      this.explicitByIssue.delete(id)
+-      this.resolvedByIssue.delete(id)
+-    }
+   }
+ 
+   private moveSeat(map: Map<string, readonly string[]>, id: string, seat: string | null): boolean {

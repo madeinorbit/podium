@@ -1,0 +1,131 @@
+diff --git a/packages/worklist-proto/arms/mobx/models/issue.ts b/packages/worklist-proto/arms/mobx/models/issue.ts
+index 604a7930a..bcb99f9d6 100644
+--- a/packages/worklist-proto/arms/mobx/models/issue.ts
++++ b/packages/worklist-proto/arms/mobx/models/issue.ts
+@@ -74,6 +74,8 @@ export class IssueModel {
+   private lastRowJson: string | null = null
+   /** Last committed tick JSON; ticks ride the commit without entering the snapshot. */
+   private lastTickJson: string | null = null
++  /** K2-B: last committed continuation line JSON; rides the commit like the tick. */
++  private lastContinuationJson: string | null = null
+ 
+   constructor(store: MobXStore, value: SliceIssue) {
+     this.store = store
+@@ -82,6 +84,7 @@ export class IssueModel {
+       IssueModel,
+       | 'lastRowJson'
+       | 'lastTickJson'
++      | 'lastContinuationJson'
+       | 'retainedMembers'
+       | 'retainedLive'
+       | 'unreadSeats'
+@@ -93,12 +96,14 @@ export class IssueModel {
+       store: false,
+       lastRowJson: false,
+       lastTickJson: false,
++      lastContinuationJson: false,
+       excluded: computed,
+       flat: computed,
+       visible: computed,
+       summary: computedStruct,
+       aggregate: computedStruct,
+       tick: computedStruct,
++      continuation: computedStruct,
+       rankKey: computedStruct,
+       closed: computed,
+       isSelected: computed,
+@@ -312,6 +317,26 @@ export class IssueModel {
+     }
+   }
+ 
++  /**
++   * K2-B continuation line (exercise only): the legacy `issueContinuation`
++   * line (`continued · <ref>` / `duplicate · <ref>`) beside the row. Rides
++   * the commit exactly like the origin tick and never enters `SliceRow`.
++   */
++  get continuation(): string | null {
++    const t0 = performance.now()
++    try {
++      const next = this.store.continuationLineOf(this.value)
++      const json = next === null ? null : JSON.stringify(next)
++      if (json !== this.lastContinuationJson) {
++        this.lastContinuationJson = json
++        this.store.stats.rowsDerived += 1
++      }
++      return next
++    } finally {
++      this.store.addRowMs(performance.now() - t0)
++    }
++  }
++
+   /** Rank inputs for R-ORDER; the clock only for defer carriers. */
+   get rankKey(): RankInput {
+     const issue = this.value
+diff --git a/packages/worklist-proto/arms/mobx/react/list.tsx b/packages/worklist-proto/arms/mobx/react/list.tsx
+index ace7df776..cc17e08a5 100644
+--- a/packages/worklist-proto/arms/mobx/react/list.tsx
++++ b/packages/worklist-proto/arms/mobx/react/list.tsx
+@@ -33,6 +33,7 @@ const MobxRowView = observer(function MobxRowView({
+   const selected = model.isSelected
+   if (row === null) return null
+   const tick = model.tick
++  const continuation = model.continuation
+   return (
+     <RowShell id={row.id}>
+       <div data-issue-row={row.id} data-selected={selected ? 'true' : 'false'}>
+@@ -41,6 +42,7 @@ const MobxRowView = observer(function MobxRowView({
+           {row.working ? '*' : ''}
+           {row.asking ? '?' : ''}] {row.progressDone}/{row.progressTotal}
+           {tick !== null ? ` ⤷${tick.ref}` : ''}
++          {continuation !== null ? ` →${continuation}` : ''}
+         </button>
+       </div>
+     </RowShell>
+diff --git a/packages/worklist-proto/arms/mobx/store.ts b/packages/worklist-proto/arms/mobx/store.ts
+index 6e4998dd0..bf311d16f 100644
+--- a/packages/worklist-proto/arms/mobx/store.ts
++++ b/packages/worklist-proto/arms/mobx/store.ts
+@@ -249,6 +249,7 @@ export class MobXStore {
+       liveDescendants: false,
+       spinOffTip: false,
+       continuationOf: false,
++      continuationLineOf: false,
+       vacatedOrigin: false,
+       formalMembers: false,
+       progressOf: false,
+@@ -796,6 +797,35 @@ export class MobXStore {
+     return this.spinOffTip(issue.id) !== null
+   }
+ 
++  /**
++   * K2-B continuation line (exercise only): the legacy `issueContinuation`
++   * rule (mission.ts:2207) in the arm's idiom — a UI-only string riding the
++   * commit beside the origin tick, never entering frozen `SliceRow`.
++   * `supersededBy`/`duplicateOf` win with `continued · <ref>` /
++   * `duplicate · <ref>`; else a vacated issue with a spin-off tip points at
++   * the tip. Unknown targets read `another task`, exactly like legacy.
++   */
++  continuationLineOf(issue: SliceIssue): string | null {
++    const extra = issue as unknown as { supersededBy?: unknown; duplicateOf?: unknown }
++    const refOf = (targetId: string): string => {
++      const target = this.issues.get(targetId)?.value
++      if (target === undefined) return 'another task'
++      const targetPrefix = this.prefixForRepo(target.repoId)
++      return targetPrefix ? `${targetPrefix}-${target.seq}` : `#${target.seq}`
++    }
++    if (typeof extra.supersededBy === 'string') {
++      return `continued · ${refOf(extra.supersededBy)}`
++    }
++    if (typeof extra.duplicateOf === 'string') {
++      return `duplicate · ${refOf(extra.duplicateOf)}`
++    }
++    if (this.hasOpenExplicit(issue.id)) return null
++    const tip = this.spinOffTip(issue.id)
++    if (tip === null) return null
++    const prefix = this.prefixForRepo(tip.repoId)
++    return `continued · ${prefix ? `${prefix}-${tip.seq}` : `#${tip.seq}`}`
++  }
++
+   /** Sessionless but continued elsewhere: not a mission unit (spec §3 R-ROLL). */
+   vacatedOrigin(issue: SliceIssue): boolean {
+     for (const sid of this.explicitByIssue.get(issue.id) ?? []) {

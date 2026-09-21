@@ -1,0 +1,58 @@
+diff --git a/packages/worklist-proto/arms/mobx/models/issue.ts b/packages/worklist-proto/arms/mobx/models/issue.ts
+index 604a7930a..7e28944ce 100644
+--- a/packages/worklist-proto/arms/mobx/models/issue.ts
++++ b/packages/worklist-proto/arms/mobx/models/issue.ts
+@@ -32,6 +32,7 @@ import {
+   issueFinished,
+   issueFinishedAt,
+   issuePendingDecision,
++  isSnoozed,
+   motionPhase,
+   rescueEligible,
+   sessionFinishedAt,
+@@ -156,6 +157,17 @@ export class IssueModel {
+     try {
+       const issue = this.value
+       if (structurallyExcluded(issue)) return false
++      // K2-A snooze (exercise only): hides the row itself, before the
++      // retained-session check (same as the hand arm). The clock is read
++      // only by rows carrying the field, so unrelated rows never subscribe
++      // and ticks invalidate only carriers. Rescue of a snoozed ancestor by
++      // a visible descendant still applies via `visible` below.
++      if (
++        (issue as SliceIssue & { snoozedUntil?: string | null }).snoozedUntil != null &&
++        isSnoozed(issue, this.store.locals.coarseNow)
++      ) {
++        return false
++      }
+       if (this.retainedMembers().length > 0) return true
+       return flatSessionless(issue, derivedUnread(issue, this.unreadSeats()), () => this.store.locals.coarseNow)
+     } finally {
+diff --git a/packages/worklist-proto/arms/mobx/rules.ts b/packages/worklist-proto/arms/mobx/rules.ts
+index 9b1f76c1e..9cbed539e 100644
+--- a/packages/worklist-proto/arms/mobx/rules.ts
++++ b/packages/worklist-proto/arms/mobx/rules.ts
+@@ -351,6 +351,23 @@ export function returnedFromDefer(issue: SliceIssue, now: number): boolean {
+   return until !== null && until <= now
+ }
+ 
++/**
++ * K2-A snooze (exercise only): an issue carrying a `snoozedUntil` wire field
++ * is hidden while coarseNow is before it. Defensive read — SliceIssue does
++ * not declare the field (same convention as supersededBy/duplicateOf in the
++ * store): absent on every existing corpus row, so legacy parity is unaffected.
++ */
++export function snoozedUntilMs(issue: SliceIssue): number | null {
++  const raw = (issue as SliceIssue & { snoozedUntil?: string | null }).snoozedUntil
++  return parseMs(raw)
++}
++
++/** K2-A: hidden while the snooze timestamp lies in the future. */
++export function isSnoozed(issue: SliceIssue, now: number): boolean {
++  const until = snoozedUntilMs(issue)
++  return until !== null && until > now
++}
++
+ /** Order band: 0 pinned/returned, 1 middle, 2 snoozed (spec §3 R-ORDER). */
+ export function bandOf(issue: SliceIssue, now: number): 0 | 1 | 2 {
+   if (issue.pinned === true || returnedFromDefer(issue, now)) return 0

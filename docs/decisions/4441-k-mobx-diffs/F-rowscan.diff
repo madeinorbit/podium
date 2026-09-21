@@ -1,0 +1,105 @@
+diff --git a/packages/worklist-proto/arms/mobx/k2f-probe.test.tsx b/packages/worklist-proto/arms/mobx/k2f-probe.test.tsx
+new file mode 100644
+index 000000000..78fa0404f
+--- /dev/null
++++ b/packages/worklist-proto/arms/mobx/k2f-probe.test.tsx
+@@ -0,0 +1,78 @@
++// @vitest-environment happy-dom
++/**
++ * K2-F probe (kept in the diff as firing evidence): O(N) read inside the
++ * row component. The depth-3 scenario commits exactly the ancestor chain
++ * without it; with it, the untouched sibling re-renders too. Run twice:
++ * enforcement ON and OFF (control).
++ */
++import { configure } from 'mobx'
++import { describe, expect, it } from 'vitest'
++import { createReplaySource, mountArmForCounts, runCountScenario } from '../../harness/src/count-harness'
++import type { SliceLocals } from '../../shared/src/slice-types'
++import { mobxArm } from './arm'
++import { issue, LANE, NOW, rec, session, waitingOffer, waitingState, workingState } from './mobx.test'
++
++function mountDepth3() {
++  const replay = createReplaySource({
++    issues: [
++      rec('issue', 'R', issue({ id: 'R', seq: 4 })),
++      rec('issue', 'P', issue({ id: 'P', seq: 3, parentId: 'R' })),
++      rec('issue', 'C', issue({ id: 'C', seq: 2, parentId: 'P' })),
++      rec('issue', 'L', issue({ id: 'L', seq: 1, parentId: 'C' })),
++      rec('issue', 'S', issue({ id: 'S', seq: 5, parentId: 'R' })),
++    ],
++    sessions: [
++      rec('session', 'sl', session({ sessionId: 'sl', issueId: 'L', agentState: workingState })),
++      rec('session', 'ss', session({ sessionId: 'ss', issueId: 'S', agentState: workingState })),
++    ],
++    worktrees: [rec('worktree', '/wt', LANE)],
++  })
++  const locals: SliceLocals = { selectedIssueId: null, coarseNow: NOW }
++  return { replay, mounted: mountArmForCounts(mobxArm, replay.source, locals) }
++}
++
++async function depth3Change(): Promise<{ commitsByRow: Record<string, number>; rowsCommitted: number; rowsDerived: number; parity: boolean }> {
++  const { replay, mounted } = mountDepth3()
++  try {
++    const beforeS = mounted.handle.snapshot().rowsById['S']
++    const result = await runCountScenario(mounted, {
++      scenario: 'depth3',
++      methodology: '#K2F',
++      apply: () => {
++        replay.push({
++          type: 'update',
++          rows: [
++            rec('session', 'sl', session({ sessionId: 'sl', issueId: 'L', agentState: waitingState, offer: waitingOffer, lastActiveAt: new Date(NOW).toISOString() })),
++          ],
++        })
++      },
++      expected: () => mounted.handle.snapshot(),
++    })
++    // S's committed VALUE is identical (the scan changes no output).
++    expect(mounted.handle.snapshot().rowsById['S']).toBe(beforeS)
++    return { commitsByRow: result.commitsByRow, rowsCommitted: result.rowsCommitted, rowsDerived: result.stats.rowsDerived, parity: result.parity }
++  } finally {
++    mounted.unmount()
++  }
++}
++
++describe('K2-F O(N) read inside the row', () => {
++  it('enforcement ON: the untouched sibling commits (chain 4 -> 5)', async () => {
++    const after = await depth3Change()
++    console.info(`[k2f-ON] committed=${after.rowsCommitted} rows=${JSON.stringify(after.commitsByRow)} rowsDerived=${after.rowsDerived} parity=${after.parity}`)
++    expect(after.parity).toBe(true)
++    expect(after.commitsByRow).toEqual({ C: 1, L: 1, P: 1, R: 1 })
++  })
++
++  it('enforcement OFF (control): identical amplification, no check fires either', async () => {
++    configure({ enforceActions: 'never', computedRequiresReaction: false, observableRequiresReaction: false, reactionRequiresObservable: false })
++    try {
++      const after = await depth3Change()
++      console.info(`[k2f-OFF] committed=${after.rowsCommitted} rows=${JSON.stringify(after.commitsByRow)} rowsDerived=${after.rowsDerived} parity=${after.parity}`)
++      expect(after.parity).toBe(true)
++      expect(after.commitsByRow).toEqual({ C: 1, L: 1, P: 1, R: 1 })
++    } finally {
++      configure({ enforceActions: 'always', computedRequiresReaction: true, observableRequiresReaction: true, reactionRequiresObservable: true })
++    }
++  })
++})
+diff --git a/packages/worklist-proto/arms/mobx/react/list.tsx b/packages/worklist-proto/arms/mobx/react/list.tsx
+index ace7df776..f2f7b42d7 100644
+--- a/packages/worklist-proto/arms/mobx/react/list.tsx
++++ b/packages/worklist-proto/arms/mobx/react/list.tsx
+@@ -31,6 +31,16 @@ const MobxRowView = observer(function MobxRowView({
+ }): ReactElement | null {
+   const row = model.row as SliceRow | null
+   const selected = model.isSelected
++  // K2-F foot-gun (exercise only): an O(N) read inside the row component —
++  // `for (const i of allIssues) ...` in the brief's words. Every row reads
++  // every other row's committed `row`, so one row's change re-renders all
++  // rows. Output is identical (parity green); the cost hides in commits.
++  let totals = 0
++  for (const [, other] of store.issues) {
++    const otherRow = other.row
++    if (otherRow !== null) totals += otherRow.progressTotal
++  }
++  if (totals < 0) return null
+   if (row === null) return null
+   const tick = model.tick
+   return (
