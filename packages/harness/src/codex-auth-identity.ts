@@ -55,6 +55,43 @@ export function fingerprintForLoginIdentity(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
+/**
+ * Extract the usable OAuth token pair from a Codex auth.json snapshot.
+ * Undefined when either half is missing — the caller maps that to its own
+ * actionable error. Never refreshes: OAuth refresh tokens are single-use, so
+ * a second refresher racing the Codex CLI wedges the login until `codex
+ * login` (openai/codex#10332).
+ */
+export function parseCodexAuthContents(
+  contents: string,
+): { accessToken: string; accountId: string } | undefined {
+  let file: { tokens?: { access_token?: unknown; account_id?: unknown } }
+  try {
+    const parsed: unknown = JSON.parse(contents)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    file = parsed as { tokens?: { access_token?: unknown; account_id?: unknown } }
+  } catch {
+    return undefined
+  }
+  const accessToken = text(file.tokens?.access_token)
+  const accountId = text(file.tokens?.account_id)
+  if (!accessToken || !accountId) return undefined
+  return { accessToken, accountId }
+}
+
+/** Decode a JWT's `exp` (seconds) without verifying — only the clock is needed. */
+export function codexAccessTokenExpiryMs(token: string): number | undefined {
+  const part = token.split('.')[1]
+  if (!part) return undefined
+  try {
+    const json = Buffer.from(part, 'base64url').toString('utf8')
+    const exp = (JSON.parse(json) as { exp?: number }).exp
+    return typeof exp === 'number' ? exp * 1000 : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Extract only provider identity claims from a Codex auth.json snapshot. */
 export function readIdentityFromAuthContents(contents: string): LoginIdentity | undefined {
   let auth: CodexAuthFile

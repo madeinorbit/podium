@@ -1,6 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import {
+  codexAccessTokenExpiryMs,
+  hasValidCodexCredential,
+  parseCodexAuthContents,
+} from '@podium/harness/metadata'
 import { LlmConfigError } from './llm-error'
 
 /**
@@ -8,6 +13,12 @@ import { LlmConfigError } from './llm-error'
  * `~/.codex/auth.json`, instead of shelling out to `codex exec`. The superagent's
  * `codex` API provider calls the Codex backend's Responses API directly with this
  * OAuth access token. We never run the CLI.
+ *
+ * The auth FILE's shape — which fields carry the token pair, how the JWT clock
+ * reads, what counts as a login — is owned by `@podium/harness` (the Codex
+ * adapter's credentials section and its pure readers, via `metadata`). This
+ * module keeps only what is genuinely server-side: reading the SERVER's own
+ * file and the never-refresh policy with its actionable errors.
  *
  * Read-only on purpose. OAuth refresh tokens are single-use (rotated on every
  * refresh), so a second refresher racing the Codex CLI over the same auth.json
@@ -20,18 +31,6 @@ import { LlmConfigError } from './llm-error'
  */
 
 type FetchLike = typeof fetch
-
-interface AuthFile {
-  tokens?: {
-    access_token?: string
-    id_token?: string
-    refresh_token?: string
-    /** UNBRANDED BY DECISION: a provider account id, not a server-minted Podium AccountId. */
-    account_id?: string
-  }
-  last_refresh?: string
-  [k: string]: unknown
-}
 
 export interface CodexAuth {
   accessToken: string
@@ -54,53 +53,20 @@ export function codexAuthPath(): string {
 export function codexLoginPresent(): boolean {
   try {
     if (!existsSync(codexAuthPath())) return false
-    const f = readFileSync(codexAuthPath(), 'utf8')
-    const parsed = JSON.parse(f) as AuthFile
-    return Boolean(parsed.tokens?.access_token && parsed.tokens?.refresh_token)
+    return hasValidCodexCredential(readFileSync(codexAuthPath(), 'utf8'))
   } catch {
     return false
   }
 }
 
-function readAuthFile(): AuthFile {
-  let raw: string
+function readAuthContents(): string {
   try {
-    raw = readFileSync(codexAuthPath(), 'utf8')
+    return readFileSync(codexAuthPath(), 'utf8')
   } catch {
     throw new LlmConfigError(
       `Codex isn't logged in on this server — run \`codex login\` (looked in ${codexAuthPath()}).`,
     )
   }
-  try {
-    return JSON.parse(raw) as AuthFile
-  } catch {
-    throw new LlmConfigError(`Codex auth file is corrupt: ${codexAuthPath()}`)
-  }
-}
-
-/** Decode a JWT's `exp` (seconds) without verifying — we only need the clock. */
-function jwtExpMs(token: string): number | undefined {
-  const part = token.split('.')[1]
-  if (!part) return undefined
-  try {
-    const json = Buffer.from(part, 'base64url').toString('utf8')
-    const exp = (JSON.parse(json) as { exp?: number }).exp
-    return typeof exp === 'number' ? exp * 1000 : undefined
-  } catch {
-    return undefined
-  }
-}
-
-function authFromFile(file: AuthFile): CodexAuth {
-  const accessToken = file.tokens?.access_token
-  const accountId = file.tokens?.account_id
-  if (!accessToken) {
-    throw new LlmConfigError('Codex login has no access token — run `codex login` again.')
-  }
-  if (!accountId) {
-    throw new LlmConfigError('Codex login has no account id — run `codex login` again.')
-  }
-  return { accessToken, accountId }
 }
 
 /**
@@ -119,12 +85,18 @@ export async function resolveCodexAuth(
   _fetchImpl: FetchLike = fetch,
   opts: { rejectedAccessToken?: string } = {},
 ): Promise<CodexAuth> {
-  const file = readAuthFile()
-  const token = file.tokens?.access_token
-  const expMs = token ? jwtExpMs(token) : undefined
+  const contents = readAuthContents()
+  try {
+    JSON.parse(contents)
+  } catch {
+    throw new LlmConfigError(`Codex auth file is corrupt: ${codexAuthPath()}`)
+  }
+  const parsed = parseCodexAuthContents(contents)
+  const token = parsed?.accessToken
+  const expMs = token ? codexAccessTokenExpiryMs(token) : undefined
   const expired = !token || (expMs !== undefined && expMs <= Date.now())
   const rejected = opts.rejectedAccessToken !== undefined && token === opts.rejectedAccessToken
-  if (!expired && !rejected) return authFromFile(file)
+  if (!expired && !rejected && parsed) return parsed
   throw new LlmConfigError(
     "Codex access token is expired and Podium won't refresh it — refresh tokens are " +
       'single-use, and rotating one here would invalidate your Codex CLI sessions. Open a ' +

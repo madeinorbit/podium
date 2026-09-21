@@ -108,10 +108,20 @@ export {
   harnessSupportsInitialPrompt,
   harnessSupportsMcp,
   harnessSupportsNoTools,
+  harnessTranscriptSiblingPaths,
   harnessUsesPromptTitleFallback,
   harnessUsesRawFirstTurn,
   isServerFamilyResumeKind,
   transcriptRecordMapperFor,
 } from './registry.js'
+// Pure vendor file-format readers: what a harness wrote, never an action on a
+// host. The Codex auth shape (token pair, JWT clock, login validity) is owned
+// by the harness package; the server shell keeps only its own file reads and
+// error types.
+export {
+  codexAccessTokenExpiryMs,
+  parseCodexAuthContents,
+} from './codex-auth-identity.js'
+export { hasValidCodexCredential } from './credential-freshness.js'
 
 export { isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from './session-title'
