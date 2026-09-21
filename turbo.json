@@ -68,6 +68,8 @@
         "$TURBO_ROOT$/packages/client-core/src/**",
         "$TURBO_ROOT$/packages/commands/package.json",
         "$TURBO_ROOT$/packages/commands/src/**",
+        "$TURBO_ROOT$/packages/harness/package.json",
+        "$TURBO_ROOT$/packages/harness/src/**",
                 "$TURBO_ROOT$/packages/logger/package.json",
         "$TURBO_ROOT$/packages/logger/src/**",
         "$TURBO_ROOT$/packages/model/package.json",

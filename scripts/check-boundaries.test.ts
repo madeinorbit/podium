@@ -245,7 +245,7 @@ describe('harness classifier manifest boundary', () => {
     ).toEqual(['harness-classifier-boundary'])
     expect(
       checkHarnessClassifierBoundary(
-        'packages/harness/src/manifests/claude-code.ts',
+        'packages/harness/src/adapters/claude-code/index.ts',
         ['im', `port { claudeTranscriptClassifierRules } from './claude-code-classifier.js'`].join(
           '',
         ),
@@ -386,7 +386,7 @@ describe('checkPrincipalFree', () => {
   it('applies only to the principal-free workspaces', () => {
     expect(
       checkPrincipalFree(
-        'packages/transcript/src/slice.ts',
+        'packages/harness/src/store/slice.ts',
         `import type { UserId } from '@podium/model'`,
       ),
     ).toHaveLength(1)
@@ -402,9 +402,11 @@ describe('checkPrincipalFree', () => {
     ).toHaveLength(1)
   })
 
-  it('passes clean against the REAL harness, pty and transcript trees', () => {
+  it('passes clean against the REAL harness and pty trees', () => {
     // The claim the acceptance criterion actually makes. Walks the shipped source
     // rather than a fixture, so reintroducing a principal import fails here.
+    // (The transcript tree dissolved into harness/store in POD-4469, so the
+    // harness walk below already covers those files.)
     const repoRoot = fileURLToPath(new URL('..', import.meta.url))
     const walk = (dir: string): string[] =>
       readdirSync(join(repoRoot, dir), { withFileTypes: true }).flatMap((e) =>
@@ -414,11 +416,7 @@ describe('checkPrincipalFree', () => {
             ? [`${dir}/${e.name}`]
             : [],
       )
-    const files = [
-      ...walk('packages/harness/src'),
-      ...walk('packages/pty/src'),
-      ...walk('packages/transcript/src'),
-    ]
+    const files = [...walk('packages/harness/src'), ...walk('packages/pty/src')]
     expect(files.length).toBeGreaterThan(50)
     const violations = files.flatMap((f) =>
       checkPrincipalFree(f, readFileSync(join(repoRoot, f), 'utf8')),

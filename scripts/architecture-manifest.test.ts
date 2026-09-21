@@ -178,15 +178,15 @@ describe('checkManifestEdge — layer axiom', () => {
   })
 
   it('flags an upward import', () => {
-    // transcript (L2, node-only) -> server (L4, node-only): isolates the layer
+    // pty (L2, node-only) -> server (L4, node-only): isolates the layer
     // rule, since both sides are node-only and platform has nothing to say.
     const v = checkManifestEdge(
-      'packages/transcript/src/x.ts',
-      'packages/transcript',
+      'packages/pty/src/x.ts',
+      'packages/pty',
       'apps/server',
       value('@podium/server'),
     )
-    // BOTH arms fire, and that is right: transcript declares a CLOSED dependency
+    // BOTH arms fire, and that is right: pty declares a CLOSED dependency
     // set (POD-335), so an app is out of the set as well as up the order. The
     // layer message is asserted specifically so this stays a layer test.
     expect(v.map((x) => x.rule)).toEqual(['manifest-layer', 'manifest-deps'])
@@ -194,10 +194,10 @@ describe('checkManifestEdge — layer axiom', () => {
   })
 
   it('flags an UNDECLARED same-layer import', () => {
-    // transcript (L2) -> sync (L2), not in SAME_LAYER_ALLOWED
+    // pty (L2) -> sync (L2), not in SAME_LAYER_ALLOWED
     const v = checkManifestEdge(
-      'packages/transcript/src/x.ts',
-      'packages/transcript',
+      'packages/pty/src/x.ts',
+      'packages/pty',
       'packages/sync',
       value('@podium/sync'),
     )
@@ -267,8 +267,8 @@ describe('checkManifestEdge — layer axiom', () => {
       checkManifestEdge(
         'apps/web/src/x.ts',
         'apps/web',
-        'packages/transcript',
-        typeOnly('@podium/transcript'),
+        'packages/pty',
+        typeOnly('@podium/pty'),
       ).map((v) => v.rule),
     ).not.toContain('manifest-platform')
   })
@@ -318,8 +318,8 @@ describe('checkManifestEdge — test-file exemptions', () => {
       checkManifestEdge(
         'apps/web/src/x.test.ts',
         'apps/web',
-        'packages/transcript',
-        value('@podium/transcript'),
+        'packages/issue-client',
+        value('@podium/issue-client'),
       ),
     ).toEqual([])
   })
@@ -334,8 +334,8 @@ describe('checkManifestEdge — platform', () => {
     const v = checkManifestEdge(
       'apps/web/src/x.ts',
       'apps/web',
-      'packages/transcript',
-      value('@podium/transcript'),
+      'packages/pty',
+      value('@podium/pty'),
     )
     expect(v.map((x) => x.rule)).toContain('manifest-platform')
   })
@@ -364,13 +364,13 @@ describe('checkManifestEdge — platform', () => {
   })
 
   it('allows node-only -> node-only', () => {
-    // daemon (node-only, L4) -> transcript (node-only, L2)
+    // daemon (node-only, L4) -> pty (node-only, L2)
     expect(
       checkManifestEdge(
         'apps/daemon/src/x.ts',
         'apps/daemon',
-        'packages/transcript',
-        value('@podium/transcript'),
+        'packages/pty',
+        value('@podium/pty'),
       ),
     ).toEqual([])
   })
