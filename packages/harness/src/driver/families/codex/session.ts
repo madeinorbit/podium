@@ -269,27 +269,23 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
 
     async adoptFromJournal(sessionId) {
       const entry = deps.engine.journal.read(sessionId)
+      // No entry is "not mine" — every terminal session reaches this path
+      // too, and answering anything else would hijack a PTY session's
+      // reattach. But a JOURNALLED entry whose driver then refuses is
+      // reported, not swallowed: §4.8 needs the cause (unrecoverable protocol
+      // state, a lease held elsewhere) to invalidate pending turns and to
+      // tell the operator why, rather than a generic "could not be rebound".
       if (!entry) return undefined
-      let handle: AgentSessionHandle
-      try {
-        handle = await runtime.driver.adopt({
-          sessionId: entry.sessionId,
-          driver: CODEX_APP_SERVER_DRIVER_ID,
-          family: 'server',
-          harness: deps.facts.harnessKind,
-          workdir: entry.workdir,
-          resume: { kind: 'codex-thread', value: entry.threadId },
-          process: entry.process,
-          bindingVersion: entry.bindingVersion,
-        })
-      } catch {
-        // `adopt()` REJECTS when it cannot rebind — for this family that means
-        // the journal is missing or names a different incarnation, or codex
-        // would not resume the thread. Either way it is "gone" to the caller,
-        // which turns it into an honest reattach failure rather than a fall
-        // through to a PTY path that would go looking for an abduco socket.
-        return undefined
-      }
+      const handle = await runtime.driver.adopt({
+        sessionId: entry.sessionId,
+        driver: CODEX_APP_SERVER_DRIVER_ID,
+        family: 'server',
+        harness: deps.facts.harnessKind,
+        workdir: entry.workdir,
+        resume: { kind: 'codex-thread', value: entry.threadId },
+        process: entry.process,
+        bindingVersion: entry.bindingVersion,
+      })
       pump(sessionId)
       reportResumeRef(sessionId, handle)
       return handle

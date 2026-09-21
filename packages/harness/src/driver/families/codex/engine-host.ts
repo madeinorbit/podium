@@ -72,6 +72,7 @@ import type { CodexTransport } from './client.js'
 import type { CodexVersionDiagnostic } from './version.js'
 import type { CodexEngineFacts } from './engine-facts.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
+import { EngineBindUnrecoverable } from '../engine-supervision.js'
 
 const log = createLogger('harness:codex-engine-host')
 
@@ -682,9 +683,19 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         chmodSync(socketPath, 0o600)
         transport = websocketTransport(socket, held, banner)
       } catch (err) {
-        await terminate(input.sessionId, 'SIGKILL', held)
-        rmSync(socketPath, { force: true })
-        throw err
+        // §4.8: THE ENGINE IS UP BUT THE PROTOCOL WILL NOT BIND. Our hold is
+        // released (engines.delete + dispose) so a later generation can
+        // adopt, but the engine is KEPT — killing a process the supervisor
+        // never journalled would orphan it silently, and killing one it did
+        // would destroy what adopt could still rebind. Report, keep, decide
+        // later; never silently orphaned.
+        engines.delete(input.sessionId)
+        held.session.dispose()
+        log.warn('codex engine is up but its listener did not bind; keeping the engine', {
+          sessionId: input.sessionId,
+          clientAddress,
+        })
+        throw new EngineBindUnrecoverable(input.sessionId, 'launch', clientAddress, err)
       }
       return endpointFor({ sessionId: input.sessionId, socketPath, clientAddress, held, transport })
     },

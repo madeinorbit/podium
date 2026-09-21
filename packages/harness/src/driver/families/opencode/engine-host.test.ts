@@ -11,6 +11,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EngineBindUnrecoverable } from '../engine-supervision.js'
 import { asSessionId } from '@podium/model'
 import {
   type OpencodeEngineHostDeps,
@@ -401,4 +402,43 @@ describe('spec §6 — the secret rides the env', () => {
     expect(serveArgv).toContain('127.0.0.1')
     expect(serveArgv).not.toContain('0.0.0.0')
   })
+})
+
+describe('§4.8 failure ownership — bind failure keeps the engine', () => {
+  it('engine up but server silent: launch rejects typed, kills nothing, journals nothing', async () => {
+    // §4.8 step 4, same shape as the codex family's: the health wait expires
+    // with the engine running. Our hold is released but the engine is KEPT —
+    // killing it would destroy what the lifecycle owner could still adopt
+    // from this error's address and secret. The secret rides a field, never
+    // the message.
+    const killed: string[] = []
+    const written: string[] = []
+    const { session } = fakeEngineSession()
+    const host = engineHost({
+      checkVersion: async () => null,
+      freePort: async () => 41234,
+      journal: {
+        read: () => undefined,
+        write: (entry) => void written.push(entry.sessionId),
+        clear: () => {},
+      },
+      supervision: fakeSupervision({
+        spawnHeadless: async () => session,
+        killed: (label) => void killed.push(label),
+      }),
+    })
+    const error = await host
+      .launch({ sessionId: SESSION, workdir: '/tmp', secret: 's3cret', username: 'podium' })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      )
+    expect(error).toBeInstanceOf(EngineBindUnrecoverable)
+    expect((error as EngineBindUnrecoverable).during).toBe('launch')
+    expect((error as EngineBindUnrecoverable).address).toBe('http://127.0.0.1:41234')
+    expect((error as EngineBindUnrecoverable).secret).toBe('s3cret')
+    expect(String((error as Error).message)).not.toContain('s3cret')
+    expect(killed).toEqual([])
+    expect(written).toEqual([])
+  }, 90_000)
 })

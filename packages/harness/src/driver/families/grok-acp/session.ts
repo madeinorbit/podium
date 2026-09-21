@@ -170,23 +170,21 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
       // replaced; derive the expected key independently and refuse a payload
       // for any other logical incarnation before launching a new child.
       if (entry.sessionId !== sessionId || entry.process.key !== processKey) return undefined
-      try {
-        const handle = await runtime.driver.adopt({
-          sessionId,
-          driver: GROK_ACP_DRIVER_ID,
-          family: 'server',
-          harness: deps.facts.harnessKind,
-          workdir: entry.workdir,
-          resume: { kind: 'grok-session', value: entry.grokSessionId },
-          process: { key: processKey },
-          bindingVersion: entry.bindingVersion,
-        })
-        pump(sessionId)
-        reportResumeRef(sessionId, handle)
-        return handle
-      } catch {
-        return undefined
-      }
+      // A journalled entry whose driver then refuses is reported, not
+      // swallowed (§4.8) — see the codex session for why.
+      const handle = await runtime.driver.adopt({
+        sessionId,
+        driver: GROK_ACP_DRIVER_ID,
+        family: 'server',
+        harness: deps.facts.harnessKind,
+        workdir: entry.workdir,
+        resume: { kind: 'grok-session', value: entry.grokSessionId },
+        process: { key: processKey },
+        bindingVersion: entry.bindingVersion,
+      })
+      pump(sessionId)
+      reportResumeRef(sessionId, handle)
+      return handle
     },
 
     async launch(input) {

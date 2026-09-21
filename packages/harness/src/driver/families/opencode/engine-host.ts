@@ -80,6 +80,7 @@ import type {
 import type { OpencodeClient, OpencodeClientConfig } from './client.js'
 import type { OpencodeEngineFlavor } from './engine-facts.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
+import { EngineBindUnrecoverable } from '../engine-supervision.js'
 
 const log = createLogger('harness:opencode-engine-host')
 
@@ -731,13 +732,26 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       const ready = await waitForReady(health, baseUrl, input.secret, READY_TIMEOUT_MS)
       if (!ready) {
         const banner = held.banner.trim()
+        // §4.8: THE ENGINE IS UP BUT THE PROTOCOL WILL NOT BIND. Our hold is
+        // released (engines.delete + dispose) so a later generation can
+        // adopt, but the engine is KEPT — killing it would destroy what the
+        // lifecycle owner could still adopt from this error's address and
+        // secret, and dropping it unjournalled would be silent orphaning.
+        // (Phase 2 DaemonSession owns kept-engine journalling.)
         engines.delete(input.sessionId)
         held.session.dispose()
-        await adapter.kill(label)
-        throw new Error(
+        log.warn('opencode engine is up but its server did not answer; keeping the engine', {
+          sessionId: input.sessionId,
+          baseUrl,
+        })
+        throw new EngineBindUnrecoverable(
+          input.sessionId,
+          'launch',
+          baseUrl,
           `opencode serve did not answer ${healthPath} on ${baseUrl} within ${READY_TIMEOUT_MS}ms${
             banner ? `: ${banner}` : ''
           }`,
+          input.secret,
         )
       }
       if (process.platform !== 'linux') {

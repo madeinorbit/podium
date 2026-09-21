@@ -98,3 +98,41 @@ export function engineBackendError(sessionId: SessionId, detail: string): Error 
     `engine for ${sessionId} requires the podium-host backend: ${detail}`,
   )
 }
+
+/**
+ * THE ENGINE IS UP BUT THE PROTOCOL WILL NOT BIND (§4.8).
+ *
+ * Thrown (never returned as `undefined`) when the supervisor holds a live
+ * engine whose protocol channel cannot be established: a listener that never
+ * answers, a health endpoint that never becomes ready. `undefined` stays
+ * reserved for "nothing survived" — the case with a recovery fallback (fresh
+ * engine plus resume). Conflating the two would let a wedged engine slip
+ * into the fallback path silently, or strand a recoverable session behind a
+ * refusal.
+ *
+ * FAILURE OWNERSHIP (spec §4.8 step 4): the process is KEPT, never silently
+ * orphaned and never quietly reaped. The supervisor reports `spawnError`
+ * (fresh) or `reattachFailed` (adopt) and keeps the engine for an operator
+ * decision; DaemonSession (phase 2) owns invalidating pending turns and
+ * journalling the kept engine. What is never kept quiet is the address: it
+ * rides the message, so logs name where the live-but-undriveable engine is.
+ * The secret (loopback transports) rides a field, never the message.
+ */
+export class EngineBindUnrecoverable extends Error {
+  override readonly name = 'EngineBindUnrecoverable'
+
+  constructor(
+    readonly sessionId: SessionId,
+    readonly during: 'launch' | 'adopt',
+    readonly address: string | undefined,
+    cause: unknown,
+    /** Loopback credential, when the transport has one. Never logged. */
+    readonly secret?: string,
+  ) {
+    super(
+      `engine for ${sessionId} is up but its protocol did not bind during ${during}` +
+        `${address ? ` at ${address}` : ''}: ` +
+        (cause instanceof Error ? cause.message : String(cause)),
+    )
+  }
+}

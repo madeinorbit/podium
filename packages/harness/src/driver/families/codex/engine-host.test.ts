@@ -26,6 +26,7 @@ import {
   createCodexEngineHost,
   evaluateCodexVersionProbe,
 } from './engine-host.js'
+import { EngineBindUnrecoverable } from '../engine-supervision.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
 
 const FACTS = codexEngineFacts()
@@ -500,4 +501,47 @@ describe('headless engine lifecycle (POD-4433)', () => {
     })
     await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   })
+
+describe('§4.8 failure ownership — bind failure keeps the engine', () => {
+  const SESSION48 = asSessionId('33333333-3333-4333-8333-333333334448')
+
+  it('engine up but listener silent: launch rejects typed, kills nothing, journals nothing', async () => {
+    // §4.8 step 4: an unbuildable driver is a spawnError with the process
+    // kept for an operator decision — never silently orphaned, never quietly
+    // reaped. The address rides the error so the lifecycle owner can adopt
+    // from it; the journal stays untouched because nothing adoptable exists.
+    const root = mkdtempSync(join(tmpdir(), 'pod-4470-cx-48-'))
+    try {
+      const killed: string[] = []
+      const written: string[] = []
+      const { session } = fakeEngineSession()
+      const host = engineHost({
+        socketRoot: root,
+        checkVersion: async () => ({ drivable: true as const }),
+        dialSocket: () => Promise.reject(new Error('listener silent')),
+        journal: {
+          read: () => undefined,
+          write: (entry) => void written.push(entry.sessionId),
+          clear: () => {},
+        },
+        supervision: fakeSupervision({
+          spawnHeadless: async () => session,
+          killed: (label) => void killed.push(label),
+        }),
+      })
+      const error = await host.launch({ sessionId: SESSION48, workdir: '/tmp' }).then(
+        () => null,
+        (err: unknown) => err,
+      )
+      expect(error).toBeInstanceOf(EngineBindUnrecoverable)
+      expect((error as EngineBindUnrecoverable).during).toBe('launch')
+      expect((error as EngineBindUnrecoverable).address).toContain('unix://')
+      // Kept: no SIGTERM, no SIGKILL, no scope sweep, no journal write.
+      expect(killed).toEqual([])
+      expect(written).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
 })
