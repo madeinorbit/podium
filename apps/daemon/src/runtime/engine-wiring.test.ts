@@ -367,14 +367,14 @@ describe('the driver bind fact', () => {
       }
     }
     /**
-     * ELEVEN today: seven daemon `bindFrame` sites — the spawn bind, the
+     * TWELVE today: eight daemon `bindFrame` sites — the spawn bind, the
      * parked-server resume arm, the two headless adopt arms (adopt and resume
-     * fallback), the surviving-server adopt, and the two terminal reattach
-     * arms — plus one `emitBind` per server family (codex, grok-acp, opencode
-     * serving both flavours, claude-sdk). The three port lambdas (two Claude
-     * adopt arms in `control/session.ts`, one supervisor port in
-     * `host-runtime.ts`) forward `input` and state nothing, and are counted
-     * separately.
+     * fallback), the surviving-server adopt, the two terminal reattach arms,
+     * and the stealWriter takeover (POD-4434) — plus one `emitBind` per server
+     * family (codex, grok-acp, opencode serving both flavours, claude-sdk).
+     * The three port lambdas (two Claude adopt arms in `control/session.ts`,
+     * one supervisor port in `host-runtime.ts`) forward `input` and state
+     * nothing, and are counted separately.
      *
      * EVERY ONE STATES `driverId` (outright, or — on the terminal paths — the
      * conditional spread a shell predictably empties), which is what the count
@@ -383,7 +383,7 @@ describe('the driver bind fact', () => {
      * a new bind site cannot be added without coming here and deciding what it
      * reports.
      */
-    expect(bindSites).toBe(11)
+    expect(bindSites).toBe(12)
     expect(portForwarders).toBe(3)
   })
 })

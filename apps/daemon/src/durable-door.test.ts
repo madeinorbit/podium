@@ -35,6 +35,9 @@ const ALLOWED_DURABLE_VALUES = new Set([
   // Availability probes (policy reads them through the door).
   'isHostAvailable',
   'isAbducoAvailable',
+  // Refusal classification (POD-4434): catching the typed lease refusal to
+  // refuse loudly constructs no backend — the same rationale as the probes.
+  'WriterLeaseRefusedError',
   // Systemd scope argv/name helpers (wrap a child, construct no backend).
   'canScopeMaster',
   'scopeUnitName',
