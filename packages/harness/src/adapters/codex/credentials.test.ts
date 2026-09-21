@@ -25,9 +25,8 @@ describe('codexCredentials section', () => {
   })
 
   it('resolves identity from the declared file, nothing else', () => {
-    const idToken = jwt(nowSec() + 3600)
     const contents = JSON.stringify({
-      tokens: { access_token: 'a', refresh_token: 'r', id_token: idToken },
+      tokens: { access_token: 'a', refresh_token: 'r', account_id: 'acct-1' },
     })
     const identity = codexCredentials.identity(() => contents)
     expect(identity?.fingerprint).toMatch(/^[0-9a-f]{64}$/)
