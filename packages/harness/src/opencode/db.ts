@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import type { OpencodeMessagePartRow } from '../store/index.js'
 
-// The row TYPE lives next to the pure part→items mapper in @podium/transcript;
+// The row TYPE lives next to the pure part→items mapper in the store;
 // re-exported here for compatibility (this module is the SQLite producer of it).
 export type { OpencodeMessagePartRow } from '../store/index.js'
 

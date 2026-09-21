@@ -1,7 +1,7 @@
 import { open } from 'node:fs/promises'
 import { stringField } from '../store/index.js'
 
-// Moved to @podium/transcript (the parsers there need them); re-exported for
+// Moved to the store (the parsers there need them); re-exported for
 // this package's discovery providers, which imported them from here.
 export { contentToText, isRecord, stringField } from '../store/index.js'
 

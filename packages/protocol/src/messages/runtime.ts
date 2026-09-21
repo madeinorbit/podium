@@ -31,7 +31,7 @@ export * from './runtime-interactions'
  *   - The driver TAXONOMY (`DriverFamily`, `DriverId`, the `*RuntimeSpec`
  *     shapes, `SelectionContext`). Those are defined once in `@podium/harness`,
  *     beside the manifest that declares them, and re-exported by
- *     `@podium/agent-runtime`. Protocol sits BELOW harness and must not import
+ *     `@podium/harness/driver`. Protocol sits BELOW harness and must not import
  *     it, so a copy here would be a third definition site reconciled by hope.
  *     Nothing on this wire needs them yet.
  *   - ATTACH NEGOTIATION. Its first consumer is W5, and a schema arm nothing can
@@ -39,7 +39,7 @@ export * from './runtime-interactions'
  *   - `SessionBinding`, lease, health and usage — same rule: no producer, no
  *     consumer, no schema.
  *
- * WHY HERE AND NOT IN `packages/agent-runtime`: that package is L2 and depends
+ * WHY HERE AND NOT IN the driver tree: that tree is L2 and depends
  * on this one, and its consumers are restricted to the machine host. A server or
  * client that only needs to PARSE a runtime frame must be able to do so without
  * taking a host capability. `ProviderCursor` in this file's neighbour is the
@@ -295,7 +295,7 @@ export const GitActivity = z.object({
  * rather than a parallel one. It is typed here as an open record because that
  * vocabulary is defined in `packages/harness` (L2), which this package sits
  * below — the same directional constraint that put these schemas here in the
- * first place. `@podium/agent-runtime` re-narrows it to `AgentStateEvent` at its
+ * first place. the driver contract re-narrows it to `AgentStateEvent` at its
  * own boundary, where the import is legal.
  */
 export const SessionMetadataChange = z.discriminatedUnion('kind', [
@@ -659,7 +659,7 @@ export const SessionSnapshot = z.object({
   binding: SessionBinding,
   /** The folded projection. An open record for the same directional reason
    *  `RuntimeEventBody.change` is: `AgentRuntimeState` is `@podium/model`'s and
-   *  is re-narrowed at `@podium/agent-runtime`'s boundary. */
+   *  is re-narrowed at the driver contract boundary. */
   state: z.record(z.string(), z.unknown()),
   cursor: ProviderCursor,
   /** NON-NEGATIVE, matching the contract type exactly (POD-2023 review, 6a).
@@ -758,7 +758,7 @@ export type RuntimeEventAckMessage = z.infer<typeof RuntimeEventAckMessage>
  * The two watch levels, mirrored from the contract's `WatchLevel`.
  *
  * Restated as a zod enum rather than imported because this package sits BELOW
- * `@podium/agent-runtime` — the same directional constraint that put the rest of
+ * `@podium/harness/driver` — the same directional constraint that put the rest of
  * these schemas here. Two values, and the contract's own type is the authority
  * on what they mean.
  */
