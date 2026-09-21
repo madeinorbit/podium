@@ -137,7 +137,7 @@ import {
   type HeadlessTurnSpec,
   runHeadlessTurn,
 } from '../headless-drivers.js'
-import { HeadlessTurnFailure } from '@podium/harness/driver/host'
+import { HeadlessTurnFailure, claudeSdkHarnessKind } from '@podium/harness/driver/host'
 import {
   acknowledgeDurableHeadlessTurn,
   runDurableHeadlessTurn,
@@ -339,7 +339,10 @@ interface HeadlessDriverSession {
  *  turn. Only the Claude Agent SDK exposes a `canUseTool` callback to route;
  *  every child-process driver speaks a non-interactive CLI surface. */
 function headlessSupportsStructuredPermissions(harness: string): boolean {
-  return harness === 'claude-code'
+  // The family's own key, read as a value: only the Claude Agent SDK exposes
+  // a `canUseTool` callback to route; every child-process driver speaks a
+  // non-interactive CLI surface.
+  return harness === claudeSdkHarnessKind
 }
 
 /** Whether this harness declares a locatable harness-native transcript — the
@@ -352,8 +355,8 @@ function headlessArchivable(harness: string): boolean {
 }
 
 export function headlessCapabilities(harness?: string): DriverCapabilities {
-  const permissionHarness = harness ?? 'claude-code'
-  const archivableHarness = harness ?? 'claude-code'
+  const permissionHarness = harness ?? claudeSdkHarnessKind
+  const archivableHarness = harness ?? claudeSdkHarnessKind
   return {
     instrumentation: 'none',
     send: {
