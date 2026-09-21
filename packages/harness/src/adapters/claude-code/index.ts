@@ -8,13 +8,12 @@ import {
 } from '../../agent-state/claude-code.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
 import { createTranscriptClassifier } from '../../agent-state/transcript-classifier.js'
-import { fingerprintForLoginIdentity } from '../../codex-auth-identity.js'
-import { compareClaudeCredentialFreshness } from '../../credential-freshness.js'
 import { createClaudeCodeConversationProvider } from '../../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   type DriverId,
+  credentialFileReader,
   fileTranscript,
   type HarnessEnvironment,
   isSet,
@@ -25,6 +24,8 @@ import {
   type TranscriptSourceInput,
   unsupported,
 } from '../../manifest.js'
+import { claudeCredentials } from './credentials.js'
+import { claudeUsage } from './usage.js'
 import { claudeHookAcceptCorrelation, transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
@@ -115,23 +116,16 @@ export const claudeCodeManifest: AgentManifest = {
     // Claude answering the word "login" and no auth flow ever ran. `claude auth login`
     // is the real sign-in entry point [POD-1307].
     loginCommand: supported({ cmd: 'claude', args: ['auth', 'login'] }),
-    loginIdentity: supported((homeDir) => {
-      try {
-        const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {
-          oauthAccount?: { emailAddress?: unknown }
-        }
-        const email =
-          typeof raw.oauthAccount?.emailAddress === 'string'
-            ? raw.oauthAccount.emailAddress.trim()
-            : ''
-        return email ? { fingerprint: fingerprintForLoginIdentity(email), email } : undefined
-      } catch {
-        return undefined
-      }
-    }),
+    loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
+      claudeCredentials.identity(credentialFileReader(claudeCredentials, homeDir, env)),
+    ),
     portableCredential: supported({
-      files: ['.claude/.credentials.json', '.claude.json'],
-      compareFreshness: compareClaudeCredentialFreshness,
+      // Read off the credentials section: one file layout, two readers would
+      // drift the way the daemon's two Codex credential lists did.
+      files: claudeCredentials.files.map((file) => join(file.dirName, file.fileName)),
+      compareFreshness: (a, b) =>
+        claudeCredentials.files.find((file) => file.propagatable)?.compareFreshness(a, b) ??
+        null,
     }),
     // Either one flips Claude Code off the home's OAuth login and onto API-usage
     // billing; an interactive session first stops at a "Detected a custom API key
@@ -161,23 +155,17 @@ export const claudeCodeManifest: AgentManifest = {
         return { state: 'unknown' }
       }
       if (Object.keys(credentials).length === 0) return { state: 'out' }
-      try {
-        const raw = JSON.parse(readFileSync(join(homeDir, '.claude.json'), 'utf8')) as {
-          oauthAccount?: { emailAddress?: string }
-        }
-        const email = raw.oauthAccount?.emailAddress?.trim()
-        return email
-          ? {
-              state: 'in',
-              account: email,
-              identity: { fingerprint: fingerprintForLoginIdentity(email), email },
-            }
-          : { state: 'in', account: 'Claude login' }
-      } catch {
-        return { state: 'in', account: 'Claude login' }
-      }
+      const identity = claudeCredentials.identity(
+        credentialFileReader(claudeCredentials, homeDir, env),
+      )
+      return identity?.email
+        ? { state: 'in', account: identity.email, identity }
+        : { state: 'in', account: 'Claude login' }
     },
   },
+
+  credentials: supported(claudeCredentials),
+  usage: supported(claudeUsage),
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

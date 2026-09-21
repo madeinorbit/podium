@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { claudeKeychainWriteInput, SECURITY_PATH } from './claude-keychain-security'
+import { claudeKeychainWriteInput, SECURITY_PATH } from './keychain-security'
 
 describe('macOS security process input', () => {
   it('pins the absolute executable path', () => {

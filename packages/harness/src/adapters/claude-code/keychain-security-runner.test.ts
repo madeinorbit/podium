@@ -2,7 +2,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
-import { createSecurityRunner, SECURITY_PATH, type SecuritySpawn } from './claude-keychain-security'
+import { createSecurityRunner, SECURITY_PATH, type SecuritySpawn } from './keychain-security'
 
 function fakeChild(): ChildProcessWithoutNullStreams {
   return Object.assign(new EventEmitter(), {

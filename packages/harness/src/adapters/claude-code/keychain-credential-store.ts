@@ -4,25 +4,25 @@ import {
   CLAUDE_KEYCHAIN_BASE_SERVICE,
   deriveClaudeKeychainCoordinate,
   type ClaudeKeychainCoordinate,
-} from './claude-keychain-coordinate'
+} from './keychain-coordinate'
 import {
   acquireClaudeStorageWriteLock,
   type ClaudeStorageLockFactory,
   type ClaudeStorageWriteLock,
-} from './claude-keychain-lock'
+} from './keychain-lock'
 import {
   claudeKeychainWriteInput,
   productionSecurityRunner,
   type SecurityResult,
   type SecurityRunner,
-} from './claude-keychain-security'
+} from './keychain-security'
 import {
   MAX_CREDENTIAL_BYTES,
   type CredentialReadResult,
   type CredentialStoreFailure,
   type GuardedCredentialPolicy,
   type PortableCredentialStore,
-} from './credential-store'
+} from '../../manifest.js'
 
 const UTF8 = new TextDecoder('utf-8', { fatal: true })
 const ITEM_NOT_FOUND = 'The specified item could not be found in the keychain.'

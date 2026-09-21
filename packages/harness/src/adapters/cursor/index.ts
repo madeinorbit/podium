@@ -17,6 +17,8 @@ import {
   transcriptFileExists,
   unsupported,
 } from '../../manifest.js'
+import { cursorCredentials } from './credentials.js'
+import { cursorUsage } from './usage.js'
 
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
@@ -79,6 +81,9 @@ export const cursorManifest: AgentManifest = {
     foreignCredentialEnv: ['CURSOR_API_KEY'],
     detectLogin: () => ({ state: 'unknown' }),
   },
+
+  credentials: cursorCredentials,
+  usage: cursorUsage,
 
   launch(opts) {
     const args = [
