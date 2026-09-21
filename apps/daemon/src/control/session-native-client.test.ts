@@ -54,12 +54,11 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     clientTerminals,
     nativeClientRequests: new Set([SESSION]),
     nativeClientTransitions: new Map(),
-    pendingResizes: new Map(),
     agentRuntime: {
       handleFor: (id: string) => (id === SESSION ? handle : undefined),
       has: (id: string) => id === SESSION,
     },
-    bridges: new Map(),
+    sessions: testSessions(),
     observers: { recordInputOrigin: vi.fn() },
     composerEngine: { onInputByte: vi.fn(), onResize: vi.fn() },
   } as unknown as DaemonContext
@@ -137,7 +136,7 @@ describe('server-family native client control', () => {
     expect(clientTerminals.input).toHaveBeenCalledWith(SESSION, Buffer.from('hello'))
     expect(clientTerminals.resize).toHaveBeenCalledWith(SESSION, 91, 33)
     expect(clientTerminals.redraw).toHaveBeenCalledWith(SESSION, true)
-    expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 
   it('REPORTS the grid a client terminal applied (POD-3239 B7)', () => {
@@ -159,7 +158,7 @@ describe('server-family native client control', () => {
         cause: 'request',
       },
     ])
-    expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 
   it('does NOT report a resize no client terminal took — it holds it instead', () => {
@@ -171,7 +170,7 @@ describe('server-family native client control', () => {
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 91, rows: 33 })
 
     expect(sent).toEqual([])
-    expect(ctx.pendingResizes.get(SESSION)).toEqual({ cols: 91, rows: 33 })
+    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 91, rows: 33 })
   })
 
   it('drops stale client-terminal input after Chat releases Native', () => {

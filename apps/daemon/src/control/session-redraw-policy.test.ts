@@ -9,7 +9,9 @@
  */
 
 import { asSessionId } from '@podium/model'
+import type { DurableAttachment } from '@podium/process/screen'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { attachTestTerminal, testSessions } from '../session/testing.js'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
 import { sessionScreenFor, trackSessionOutput, trackSessionSize } from '../session-screens'
@@ -30,9 +32,21 @@ function world(opts: { headed: boolean }): {
 } {
   const enqueued: Uint8Array[] = []
   const bridge = {
+    pid: 4321,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: vi.fn(() => {}),
+    writeBytes: vi.fn(() => {}),
     resize: vi.fn(() => {}),
     redraw: vi.fn(() => {}),
     replay: vi.fn(async () => {}),
+    geometry: () => ({ cols: 80, rows: 24 }),
+    dispose: vi.fn(() => {}),
+  } as unknown as DurableAttachment & {
+    resize: ReturnType<typeof vi.fn>
+    redraw: ReturnType<typeof vi.fn>
+    replay: ReturnType<typeof vi.fn>
   }
   const clientTerminals = {
     resize: vi.fn(() => true),
@@ -40,8 +54,7 @@ function world(opts: { headed: boolean }): {
     owns: vi.fn(() => opts.headed),
   }
   const ctx = {
-    bridges: new Map([[SESSION, bridge]]),
-    pendingResizes: new Map(),
+    sessions: testSessions(),
     send: vi.fn(),
     outputScheduler: {
       enqueue: (id: unknown, data: Uint8Array) => enqueued.push(data),
@@ -53,6 +66,7 @@ function world(opts: { headed: boolean }): {
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     ...(opts.headed ? { clientTerminals } : {}),
   } as unknown as DaemonContext
+  attachTestTerminal(ctx, SESSION, bridge)
   return { ctx, bridge, clientTerminals, enqueued }
 }
 
@@ -92,7 +106,7 @@ describe('mode-aware redraw (bridge path)', () => {
   it('alternate at a DIFFERENT viewer size applies the size BEFORE repainting', async () => {
     const { ctx, bridge, enqueued } = world({ headed: false })
     await seedAlt(ctx)
-    ctx.pendingResizes.set(SESSION, { ...VIEWER_SIZE })
+    ctx.sessions.ensure(SESSION).pendingResize = { ...VIEWER_SIZE }
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
     expect(bridge.replay).not.toHaveBeenCalled()
     expect(bridge.resize).toHaveBeenCalledWith(VIEWER_SIZE.cols, VIEWER_SIZE.rows)
@@ -126,7 +140,7 @@ describe('mode-aware redraw (headed path follows the same policy: audit item 6)'
   it('headed alternate at a DIFFERENT viewer size resizes through the client terminal BEFORE redrawing', async () => {
     const { ctx, clientTerminals, enqueued } = world({ headed: true })
     await seedAlt(ctx)
-    ctx.pendingResizes.set(SESSION, { ...VIEWER_SIZE })
+    ctx.sessions.ensure(SESSION).pendingResize = { ...VIEWER_SIZE }
     sessionHandlers.redraw(ctx, { type: 'redraw', sessionId: SESSION, replayRequired: true })
     expect(clientTerminals.resize).toHaveBeenCalledWith(
       SESSION,

@@ -175,10 +175,8 @@ describe('Claude SDK embedded teardown', () => {
     const ctx = {
       backend: 'none',
       settingsDir: '/nonexistent/podium-test-settings',
-      bridges: new Map(),
-      pendingResizes: new Map(),
-      durableLabels: new Map(),
-      durableLabelFor: (sessionId: SessionId) => `podium-${sessionId}`,
+      sessions: testSessions(),
+          durableLabelFor: (sessionId: SessionId) => `podium-${sessionId}`,
       observers: { clearSession: vi.fn() },
       outputScheduler: { remove: vi.fn() },
       portableStateFence: { runSync: (fn: () => void) => fn() },

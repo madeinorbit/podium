@@ -28,6 +28,7 @@ import { createDurableProcess } from '@podium/process/durable'
 import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
+import { attachTestTerminal, testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('s-sizing-reattach')
 
@@ -157,9 +158,7 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
   const ctx = {
     backend: 'abduco',
     settingsDir: join(tmpdir(), 'podium-sizing-claims-reattach'),
-    bridges: new Map<SessionId, DurableAttachment>(),
-    pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
-    durableLabels: new Map<SessionId, string>(),
+    sessions: testSessions(),
     durableLabelFor: (id: SessionId) => `podium-${id}`,
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
@@ -260,7 +259,7 @@ describe('C16: the daemon nudges the reattached session once more after bind', (
     // A viewer asked for a size while this session had no bridge — the daemon
     // parked it. Binding is where it gets applied, so binding is where the daemon
     // has something true to report.
-    ctx.pendingResizes.set(SESSION, { cols: 200, rows: 60 })
+    ctx.sessions.ensure(SESSION).pendingResize = { cols: 200, rows: 60 }
 
     await sessionHandlers.reattach(ctx, reattachMessage())
     await new Promise((r) => setTimeout(r, 0))
@@ -276,7 +275,7 @@ describe('C16: the daemon nudges the reattached session once more after bind', (
     expect(stub.state.resizes).toEqual([[200, 60]])
     expect(bind?.resizesBefore).toBe(1)
     // The held resize is consumed, not left to fire again on the next bind.
-    expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 })
 
@@ -300,8 +299,8 @@ describe('terminal recovery ownership', () => {
     reset()
     const sent: Array<{ type: string; resizesBefore: number }> = []
     const ctx = ctxFor(sent)
-    ctx.bridges.set(SESSION, stub.session as unknown as DurableAttachment)
-    ctx.durableLabels.set(SESSION, 'podium-s-sizing-reattach')
+    attachTestTerminal(ctx, SESSION, stub.session as unknown as DurableAttachment)
+    ctx.sessions.ensure(SESSION).label = 'podium-s-sizing-reattach'
     const init = vi.spyOn(ctx.observers, 'initSessionObservers')
     const msg = {
       ...(reattachMessage() as object),
@@ -355,7 +354,7 @@ describe('terminal recovery ownership', () => {
       reset()
       const sent: Array<{ type: string; resizesBefore: number }> = []
       const ctx = ctxFor(sent)
-      if (wrongIncarnation) ctx.durableLabels.set(SESSION, 'podium-other-incarnation')
+      if (wrongIncarnation) ctx.sessions.ensure(SESSION).label = 'podium-other-incarnation'
       else ctx.durable = { ...createDurableProcess('abduco', { host: false, abduco: true }), locate: async () => undefined }
       sessionHandlers.reattach(ctx, reattachMessage())
       await vi.waitFor(() => expect(sent.some((m) => m.type === 'reattachFailed')).toBe(true))

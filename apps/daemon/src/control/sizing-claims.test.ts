@@ -48,9 +48,7 @@ function daemonContext(over: Partial<DaemonContext> = {}): DaemonContext {
   return {
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-sizing-claims'),
-    bridges: new Map<SessionId, DurableAttachment>(),
-    pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
-    durableLabels: new Map<SessionId, string>(),
+    sessions: testSessions(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {} },
@@ -69,9 +67,9 @@ describe('C7: a pre-bridge resize is held (last-wins) and applied by wireBridge,
   it('holds, last-wins, applies at bind, and reports the applied grid — not the spawn grid', () => {
     const ctx = daemonContext()
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 100, rows: 40 })
-    expect(ctx.pendingResizes.get(SESSION)).toEqual({ cols: 100, rows: 40 })
+    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 100, rows: 40 })
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 132, rows: 43 })
-    expect(ctx.pendingResizes.get(SESSION)).toEqual({ cols: 132, rows: 43 }) // last wins
+    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 132, rows: 43 }) // last wins
 
     const session = fakeSession()
     const geometry = wireBridge(ctx, SESSION, session, 'codex', 'podium-s-sizing', {
@@ -81,7 +79,7 @@ describe('C7: a pre-bridge resize is held (last-wins) and applied by wireBridge,
 
     expect(session.resizes).toEqual([[132, 43]])
     expect(geometry).toEqual({ cols: 132, rows: 43 })
-    expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 
   it('with no pending resize, wireBridge reports the geometry it was given', () => {
@@ -111,7 +109,7 @@ describe('C7: a pre-bridge resize is held (last-wins) and applied by wireBridge,
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 132, rows: 43 })
 
     expect(taken).toEqual([[132, 43]])
-    expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 
   it('bridge.resize() returns nothing — the daemon learns no applied geometry from it', () => {

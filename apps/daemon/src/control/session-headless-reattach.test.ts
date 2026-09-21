@@ -69,8 +69,7 @@ function world(input: {
   const ctx = {
     send: (message: DaemonMessage) => sent.push(message),
     machineId: 'headless-test-machine',
-    bridges: new Map(),
-    durableLabels: new Map(),
+    sessions: testSessions(),
     durableLabelFor: (sessionId: SessionId) => `podium-${sessionId}`,
     sessionBinding: {
       transition: vi.fn(async () => ({

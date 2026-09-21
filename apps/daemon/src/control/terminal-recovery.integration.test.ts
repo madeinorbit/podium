@@ -55,10 +55,8 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
       backend: 'host',
       durable: createDurableProcess('host', { host: true, abduco: false }),
       settingsDir: join(root, 'settings'),
-      bridges: new Map(),
-      pendingResizes: new Map(),
-      durableLabels: new Map(),
-      durableSeqs: new Map(),
+      sessions: testSessions(),
+          durableSeqs: new Map(),
       durableLabelFor: () => label,
       composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
       outputScheduler: {
@@ -105,13 +103,13 @@ it('rebuilds the screen from a durable survivor and redraws an existing bridge',
     await expect
       .poll(() => snapshotLines(ctx!, sessionId)?.lines.join('\n') ?? '', { timeout: 5000 })
       .toContain(painted)
-    const bridge = ctx.bridges.get(sessionId)
+    const bridge = ctx.sessions.get(sessionId)?.terminal
     const before = redrawFrames
     await runtime.recoverWithId(
       { ...msg, observationGeneration: 3, observationBindingVersion: 3 },
       terminalProfileFor('claude-code')!,
     )
-    expect(ctx.bridges.get(sessionId)).toBe(bridge)
+    expect(ctx.sessions.get(sessionId)?.terminal).toBe(bridge)
     await expect.poll(() => redrawFrames, { timeout: 5000 }).toBeGreaterThan(before)
     expect(sent.filter((frame) => frame.type === 'bind')).toHaveLength(2)
     expect((await recovered.snapshot()).observerGeneration).toBe(3)

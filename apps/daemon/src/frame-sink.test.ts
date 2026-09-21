@@ -53,7 +53,6 @@ function world() {
     nativeClientRequests: new Set([SESSION]),
     nativeClientTransitions: new Map(),
     nativeClientRetries: new Map([[SESSION, 1]]),
-    pendingResizes: new Map(),
     clientTerminals: { close: vi.fn(async () => {}), resize: vi.fn(() => false) },
     agentRuntime: { handleFor: (id: string) => (id === SESSION ? handle : undefined) },
   } as unknown as DaemonContext

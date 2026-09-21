@@ -1,5 +1,7 @@
 import { asSessionId } from '@podium/model'
+import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
+import { attachTestTerminal, testSessions } from '../session/testing.js'
 import type { DaemonContext } from './context'
 import { dispatchInputBytes } from './legacy-terminal-input'
 
@@ -8,17 +10,30 @@ const bytes = Buffer.from('prompt\r')
 
 function world(contracted: boolean, bridged: boolean) {
   const writeBytes = vi.fn()
+  const attachment = {
+    pid: 1,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    writeBytes,
+    resize: () => {},
+    redraw: () => {},
+    geometry: () => ({ cols: 80, rows: 24 }),
+    dispose: () => {},
+  } as unknown as DurableAttachment
   const input = vi.fn(() => true)
   const onInputByte = vi.fn()
   const recordInputOrigin = vi.fn()
   const ctx = {
     agentRuntime: { has: () => contracted },
-    bridges: new Map(bridged ? [[sessionId, { writeBytes }]] : []),
+    sessions: testSessions(),
     nativeClientRequests: new Set([sessionId]),
     clientTerminals: { input },
     composerEngine: { onInputByte },
     observers: { recordInputOrigin },
   } as unknown as DaemonContext
+  if (bridged) attachTestTerminal(ctx, sessionId, attachment)
   return { ctx, writeBytes, input, recordInputOrigin, onInputByte }
 }
 

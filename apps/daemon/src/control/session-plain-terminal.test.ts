@@ -8,6 +8,7 @@ import { asSessionId } from '@podium/model'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
+import { attachTestTerminal, testSessions } from '../session/testing.js'
 
 /** Keep any launch artifacts inside a disposable test directory. */
 const settingsDir = mkdtempSync(join(tmpdir(), 'podium-plain-terminal-'))
@@ -62,9 +63,7 @@ function contextForSpawn(): DaemonContext {
       args: [],
       cwd: opts.cwd,
     }),
-    bridges: new Map(),
-    durableLabels: new Map(),
-    pendingResizes: new Map(),
+    sessions: testSessions(),
     durableLabelFor: (id: string) => `podium-${id}`,
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
     composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
@@ -276,7 +275,7 @@ it.each(['throw', 'no-handle', 'wrong-driver'] as const)(
     await launchSpawn(ctx, msg)
     expect(captured).toBeDefined()
     expect(dispose).toHaveBeenCalledOnce()
-    expect(ctx.bridges.has(msg.sessionId)).toBe(false)
+    expect((ctx.sessions.get(msg.sessionId)?.attached ?? false)).toBe(false)
     expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
     expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
   },
@@ -304,7 +303,7 @@ it.each([undefined, 'generic-pty', 'claude-pty'] as const)(
     const { bindTerminal } = installRuntime(ctx)
     const msg = reconnectMessage()
     ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
-    ctx.bridges.set(msg.sessionId, { redraw: vi.fn(), dispose } as never)
+    attachTestTerminal(ctx, msg.sessionId, { redraw: vi.fn(), dispose } as never)
     sessionHandlers.reattach(ctx, { ...msg, ...(requestedDriverId ? { requestedDriverId } : {}) })
     await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
       type: 'bind', driverId: terminalProfileFor('codex')!.driverId,
@@ -319,7 +318,7 @@ it('reports and reaps a reconnect whose handle cannot be constructed', async () 
   installRuntime(ctx, 'throw')
   const msg = reconnectMessage()
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
-  ctx.bridges.set(msg.sessionId, { redraw: vi.fn(), dispose } as never)
+  attachTestTerminal(ctx, msg.sessionId, { redraw: vi.fn(), dispose } as never)
   sessionHandlers.reattach(ctx, msg)
   await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
     type: 'reattachFailed', reason: 'driver binding failed',
@@ -333,7 +332,7 @@ it.each(['codex-app-server', 'codex-pty', 'unknown-driver'])(
   const ctx = contextForSpawn()
   const { bindTerminal } = installRuntime(ctx)
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
-  ctx.bridges.set(reconnectMessage().sessionId, { redraw: vi.fn(), dispose } as never)
+  attachTestTerminal(ctx, reconnectMessage().sessionId, { redraw: vi.fn(), dispose } as never)
   sessionHandlers.reattach(ctx, { ...reconnectMessage(), requestedDriverId: driver })
   await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
     type: 'reattachFailed', reason: expect.stringContaining(driver),

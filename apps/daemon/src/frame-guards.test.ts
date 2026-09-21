@@ -3,11 +3,13 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
 import { controlFrameByteLength, createFrameGuard, MAX_CONTROL_FRAME_BYTES } from './frame-guards'
+import { attachTestTerminal, testSessions } from './session/testing.js'
 
 const context = (): DaemonContext =>
   ({
     agentRelayHub: { onResult: vi.fn() },
     bindingStore: { isQuarantined: vi.fn(() => false) },
+    sessions: testSessions(),
     send: vi.fn(),
   }) as unknown as DaemonContext
 
@@ -125,7 +127,18 @@ it('isolates a quarantined session from unrelated control frames and binary inpu
   const ctx = context()
   ctx.bindingStore.isQuarantined = (id) => id === 'quarantined'
   const write = vi.fn()
-  ctx.bridges = new Map([[asSessionId('good'), { writeBytes: write } as never]])
+  attachTestTerminal(ctx, asSessionId('good'), {
+    pid: 1,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    writeBytes: write,
+    resize: () => {},
+    redraw: () => {},
+    geometry: () => ({ cols: 80, rows: 24 }),
+    dispose: () => {},
+  } as never)
   ctx.composerEngine = { onInputByte: vi.fn() } as never
   const guard = createFrameGuard(ctx)
   // A kill for the unconfirmed binding must never reach the process handler.

@@ -449,8 +449,10 @@ export async function createDaemonHostRuntime(args: {
       else send({ type: 'nativeDraft', sessionId, text })
     },
     {
-      writePty: (sessionId, bytes) =>
-        sessions.get(sessionId)?.terminal?.writeBase64(Buffer.from(bytes, 'utf8').toString('base64')),
+      writePty: (sessionId, bytes) => {
+        const terminal = sessions.get(sessionId)?.terminal
+        if (terminal?.kind === 'headed') terminal.writeBase64(Buffer.from(bytes, 'utf8').toString('base64'))
+      },
       onDemote: (sessionId) => log.warn('draft-sync self-demoted to read-only', { sessionId }),
     },
   )
@@ -1050,6 +1052,7 @@ export async function createDaemonHostRuntime(args: {
    * metrics below report zero reclaimable attachments.
    */
   const clientTerminals = createClientTerminalsFor(ctx.durable, {
+    sessions,
     // The one applied-size record this daemon owns (POD-3290). Opening a client
     // terminal is a real apply, and this is the only wiring that lets that fact
     // reach the frames which report a grid.
@@ -1577,7 +1580,7 @@ export async function createDaemonHostRuntime(args: {
     try {
       await bindingStore.reapQuarantined(async (id) => {
         if (
-          sessions.get(id)?.attached ||
+          sessions.get(id)?.terminal?.kind === 'headed' ||
           [...ctx.runningHeadlessTurns.values()].some(
             (turn) => !turn.identity || turn.identity.sessionId === id,
           )

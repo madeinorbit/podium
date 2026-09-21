@@ -30,7 +30,8 @@ export function dispatchNativeInputBytes(
     return
   }
 
-  const bridge = ctx.sessions.get(metadata.sessionId)?.terminal
+  const terminal = ctx.sessions.get(metadata.sessionId)?.terminal
+  const bridge = terminal?.kind === 'headed' ? terminal : undefined
   if (bridge) {
     bridge.write(bytes)
   } else if (

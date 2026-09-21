@@ -6,6 +6,7 @@ import { spawnAgent, withHardRepaint } from '@podium/process/screen'
 import { expect, it } from 'vitest'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
+import { attachTestTerminal, testSessions } from '../session/testing.js'
 
 it('round-trips human shell bytes without a driver and redraw never submits the line', async () => {
   const root = mkdtempSync(join(tmpdir(), 'native-host-input-'))
@@ -18,9 +19,10 @@ it('round-trips human shell bytes without a driver and redraw never submits the 
   }), true)
   let output = ''
   const unsubscribe = bridge.onFrame((frame) => { output += Buffer.from(frame.data).toString() })
+  const sessions = testSessions()
+  attachTestTerminal({ sessions }, sessionId, bridge)
   const ctx = {
-    bridges: new Map([[sessionId, bridge]]),
-    pendingResizes: new Map(),
+    sessions,
     observers: { recordInputOrigin: () => {} },
     composerEngine: { onInputByte: () => {} },
     outputScheduler: { flushNow: () => {} },

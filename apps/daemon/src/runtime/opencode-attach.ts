@@ -118,6 +118,8 @@ import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { AbducoSpawnOptions, DurableProcess } from '@podium/process/durable'
 import type { DurableAttachment } from '@podium/process/screen'
+import type { SessionRegistry } from '../session/registry.js'
+import { Terminal } from '../terminal/terminal.js'
 import type { AppliedGeometryRecord } from '../control/applied-geometry'
 import {
   harnessChildStripEnv,
@@ -272,10 +274,10 @@ export interface OpencodeClientTerminals {
    * this is exactly the old unconditional teardown.
    *
    * A PARKED CLIENT HAS NO WRITER. `input`, `resize` and `redraw` all answer
-   * from `record.session`, which the park clears, so the lease obligation is
-   * met by there being nothing to type into rather than by ending the process.
-   * The warm clock is (re)armed on the way out, so a parked client is still
-   * reaped rather than resident.
+   * from the session's Terminal, which the park drops, so the lease obligation
+   * is met by there being nothing to type into rather than by ending the
+   * process. The warm clock is (re)armed on the way out, so a parked client is
+   * still reaped rather than resident.
    */
   release(sessionId: SessionId): Promise<void>
   /**
@@ -404,7 +406,15 @@ export interface OpencodeClientTerminalPorts {
   /** The per-daemon last resort, when {@link birthGeometry} knows nothing. */
   geometry?: Geometry
   /**
-   * KEEP THIS CLIENT TERMINAL'S HOST RESUME POINT (POD-3919 audit item 7).
+   /**
+    * THE SESSION REGISTRY (POD-4434). The client TUI is a Terminal with no
+    * driver, keyed by the parent session id — so its surface lives ON the
+    * parent session (`sessions.ensure(id).terminal`), not in this module's own
+    * map. REQUIRED: the only production call site passes `ctx.sessions`.
+    */
+   sessions: SessionRegistry
+   /**
+    * KEEP THIS CLIENT TERMINAL'S HOST RESUME POINT (POD-3919 audit item 7).
    *
    * A client terminal is a host connection with a ring like any bridge
    * session, but it never becomes a bridge — so the bridge path's
@@ -428,17 +438,13 @@ interface ClientTerminalGeneration {
 }
 
 interface Attachment {
-  streamId: SessionId
   label: string
   /** Which harness's client this is — the registry key `release()` asks about
    *  parking. Remembered rather than re-derived, because the record outlives
    *  the attach request that carried the target. */
   kind: ClientTerminalKind
-  /** The client PTY. Absent between the master being adopted and a viewer's
-   *  first attach — and after the client exits while the master lives on. */
-  session?: DurableAttachment
   /** In-flight start, so two concurrent attaches produce ONE client. */
-  starting?: Promise<DurableAttachment>
+  starting?: Promise<Terminal>
   /** The one Native generation allowed to accept input. Replaced on every start. */
   generation?: ClientTerminalGeneration
   /**
@@ -486,6 +492,8 @@ export function createOpencodeClientTerminals(
   ports: OpencodeClientTerminalPorts,
 ): OpencodeClientTerminals {
   if (!ports.durable) throw new Error('createOpencodeClientTerminals requires ports.durable')
+  if (!ports.sessions) throw new Error('createOpencodeClientTerminals requires ports.sessions')
+  const sessions = ports.sessions
   const durable = ports.durable
   const spawn = ports.spawn ?? ((opts: AbducoSpawnOptions) => durable.spawn(opts))
   const reclaim = ports.reclaim ?? ((label: string) => durable.kill(label))
@@ -584,7 +592,17 @@ export function createOpencodeClientTerminals(
     }, warmTtlMs)
   }
 
-  async function start(record: Attachment, target: ClientTerminalTarget): Promise<DurableAttachment> {
+  /**
+   * Open the client TUI and build its surface through the ONE Terminal factory
+   * (POD-4434): a client TUI is a Terminal with no driver, over the process
+   * this spawn opened or adopted. The Session keeps owning the label and the
+   * replay cursor; the Terminal holds the live attachment while watched.
+   */
+  async function start(
+    sessionId: SessionId,
+    record: Attachment,
+    target: ClientTerminalTarget,
+  ): Promise<Terminal> {
     const kind = target.kind
     /**
      * THE HARNESS SAYS WHAT TO RUN; THIS FUNCTION NEVER LEARNS ITS NAME
@@ -632,18 +650,18 @@ export function createOpencodeClientTerminals(
       ...(launch.env ?? {}),
       ...(target.env ?? {}),
       ...(ports.instanceUuid ? { PODIUM_INSTANCE_UUID: ports.instanceUuid } : {}),
-      PODIUM_SESSION_ID: record.streamId,
+      PODIUM_SESSION_ID: sessionId,
       ...harnessCompatEnv(kind),
       ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
       ...harnessInstanceEnv(kind, ports.homeDir),
     }
-    driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_spawn_requested', {
+    driverTiming.nativeCliStage(sessionId, kind, 'native_cli_spawn_requested', {
       command: launch.cmd,
     })
     // BORN AT THE VIEWER'S SIZE WHEN THERE IS ONE (POD-3809). Read here rather
     // than at `attach()` because this is the only path that creates a terminal:
     // a warm reattach reuses the client that exists and applies nothing.
-    const birth = ports.birthGeometry?.(record.streamId) ?? geometry
+    const birth = ports.birthGeometry?.(sessionId) ?? geometry
     const session = await spawn({
       label: record.label,
       cmd: launch.cmd,
@@ -686,14 +704,14 @@ export function createOpencodeClientTerminals(
       // serve half (POD-2247).
       env: spawnEnv({ podiumEnv }),
     })
-    driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_process_started', {
+    driverTiming.nativeCliStage(sessionId, kind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
     // A RESUME POINT FOR A TERMINAL THAT HAS NO BRIDGE (POD-3919 audit item
     // 7). The session is a host connection with a ring; remembering its live
     // `lastSeq` is what lets a later reconnect replay what was missed. A
     // backend with no connection records nothing.
-    ports.rememberDurableSeq?.(record.streamId, session)
+    ports.rememberDurableSeq?.(sessionId, session)
     /**
      * ASK THE SPAWN WHICH CASE THIS WAS — do not sample the socket directory
      * beforehand (POD-2761).
@@ -726,7 +744,7 @@ export function createOpencodeClientTerminals(
      * reset test, so the replay log re-anchors with the browser.
      */
     if (!session.adopted && !record.preserveReplayOnRelaunch) {
-      ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
+      ports.frames(sessionId, Buffer.from(CLIENT_GENERATION_RESET))
     }
     /**
      * AN APPLY SITE (POD-3290), and the only one outside `control/session.ts` —
@@ -753,30 +771,39 @@ export function createOpencodeClientTerminals(
      * terminal is already at it. An adopted abduco master reports nothing and
      * keeps the exclusion above: its size is still unknowable.
      */
-    if (!session.adopted) ports.appliedGeometry?.apply(record.streamId, birth.cols, birth.rows)
+    if (!session.adopted) ports.appliedGeometry?.apply(sessionId, birth.cols, birth.rows)
     else if (session.appliedGeometry)
       ports.appliedGeometry?.apply(
-        record.streamId,
+        sessionId,
         session.appliedGeometry.cols,
         session.appliedGeometry.rows,
       )
     record.preserveReplayOnRelaunch = false
-    session.onFrame((frame) => {
-      driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_first_output', {
-        bytes: frame.data.byteLength,
-      })
-      ports.frames(record.streamId, frame.data)
-    })
-    session.onExit(() => {
-      // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. abduco's master (and the
-      // TUI inside it) survives a client that was disposed, crashed or was killed
-      // by a redeploy — that survival is what "warm" means. Drop the handle and
-      // let the next attach reconnect; the reaper still owns the deadline.
-      if (record.session === session) {
-        record.session = undefined
+    // A client TUI is a Terminal with no driver (POD-4434): the same ONE
+    // factory the headed path uses, over the session's screen, with no
+    // hard repaint — TUIs repaint on resize and would mishandle a stray ^L.
+    const owned = sessions.ensure(sessionId)
+    owned.clientLabel = record.label
+    const terminal = Terminal.attach(session, owned.screen(), {
+      onFrame: (data) => {
+        driverTiming.nativeCliStage(sessionId, kind, 'native_cli_first_output', {
+          bytes: data.byteLength,
+        })
+        ports.frames(sessionId, data)
+      },
+      onExit: () => {
+        // THE CLIENT EXITING IS NOT THE ATTACHMENT ENDING. abduco's master (and the
+        // TUI inside it) survives a client that was disposed, crashed or was killed
+        // by a redeploy — that survival is what "warm" means. Park the Terminal
+        // (unwire + detach) and let the next attach reconnect; the reaper still
+        // owns the deadline.
+        if (owned.terminal === terminal) owned.park()
         if (session.adopted) record.suppressNextReplayRedraw = true
-      }
-    })
+      },
+    },
+    { kind: 'client' })
+    if (!session.adopted) terminal.applied = { ...birth }
+    else if (session.appliedGeometry) terminal.applied = { ...session.appliedGeometry }
     /**
      * SUBSCRIBE, THEN REPLAY THE ATTACH-TIME REDRAW.
      *
@@ -800,10 +827,10 @@ export function createOpencodeClientTerminals(
       const waitForAttach = session.adopted && record.replayRequired
       record.replayRequired = false
       record.suppressNextReplayRedraw = false
-      if (waitForAttach && session.redrawWhenReady) session.redrawWhenReady()
-      else session.redraw()
+      if (waitForAttach) terminal.redrawWhenReady()
+      else terminal.redraw()
     }
-    return session
+    return terminal
   }
 
   async function close(sessionId: SessionId, kind?: ClientTerminalKind): Promise<void> {
@@ -821,7 +848,7 @@ export function createOpencodeClientTerminals(
       disarm(record)
       // The relay keeps a coalescing entry per session stream. Nothing else
       // would ever drop the attachment's pending output after teardown.
-      ports.releaseStream?.(record.streamId)
+      ports.releaseStream?.(sessionId)
     }
     // Nothing of ours, and no master holding the label: do not pay a process
     // spawn per session teardown to reclaim something that was never started.
@@ -838,11 +865,10 @@ export function createOpencodeClientTerminals(
           .filter((label): label is string => label !== undefined)
           .filter(hasMaster)
     if (labels.length === 0) return
-    try {
-      record?.session?.dispose()
-    } catch {
-      // the client is already gone; the master below is the reclaim that matters
-    }
+    // PARK FIRST: drop the Terminal (unwire + detach) while the master still
+    // holds the label, then reclaim the master itself. The session entry goes
+    // with the close — a later attach starts a fresh generation.
+    sessions.get(sessionId)?.park()
     for (const label of labels) await reclaim(label)
   }
 
@@ -872,12 +898,10 @@ export function createOpencodeClientTerminals(
       record.generation = undefined
     }
     disarm(record)
-    try {
-      record.session?.dispose()
-    } catch {
-      // The master reclaim below is authoritative.
-    }
-    record.session = undefined
+    // Retire exactly the obsolete process through the session: park drops the
+    // Terminal while the label stays owned, and the master reclaim below is
+    // authoritative for the process itself.
+    sessions.get(sessionId)?.park()
     record.preserveReplayOnRelaunch = true
     record.suppressNextReplayRedraw = false
     record.replayRequired = false
@@ -902,7 +926,7 @@ export function createOpencodeClientTerminals(
       return
     }
     /**
-     * A START IN FLIGHT IS STILL A CLIENT TO PARK. `record.session` is only set
+     * A START IN FLIGHT IS STILL A CLIENT TO PARK. The Terminal is only set
      * once `start()` returns, so parking around it would leave the finished
      * client attached — streaming a TUI into a browser that has gone back to
      * Chat, with a writer the release was supposed to revoke. The reconcile
@@ -911,7 +935,10 @@ export function createOpencodeClientTerminals(
      */
     if (record.starting) {
       try {
-        await record.starting
+        const started = await record.starting
+        // Park the just-finished Terminal unless this record already owns it —
+        // `attach()` assigns only generations it still holds.
+        if (sessions.get(sessionId)?.terminal !== started) started.park()
       } catch {
         // the client never started: there is nothing attached to park
       }
@@ -919,21 +946,15 @@ export function createOpencodeClientTerminals(
     // A rejected start may have removed this exact generation while release was awaiting it.
     // Never park or arm a record that no longer owns the session id.
     if (attachments.get(sessionId) !== record) return
-    const client = record.session
-    // Cleared BEFORE the dispose, so no input, resize or redraw can find a
-    // handle that is on its way out.
-    record.session = undefined
+    // PARK = drop the Terminal, keep the process. Cleared from the session
+    // BEFORE anything can find a handle that is on its way out, so no input,
+    // resize or redraw reaches a client whose writer was revoked.
+    sessions.get(sessionId)?.park()
     // The master keeps following its provider while parked, but with this relay
     // detached those bytes never enter SessionTerminal's replay. Returning to
     // Native must repaint after subscribing even though spawn reports adoption.
     record.replayRequired = true
     record.suppressNextReplayRedraw = false
-
-    try {
-      client?.dispose()
-    } catch {
-      // the client is already gone; the master it left behind is what parks
-    }
     // Nobody is watching a parked client by definition, so this starts the warm
     // window rather than merely re-arming it.
     arm(sessionId, record)
@@ -947,10 +968,6 @@ export function createOpencodeClientTerminals(
         if (label === undefined)
           throw new Error(`${target.kind} declares no client terminal to attach`)
         record = {
-          // The terminal relay is session-addressed in both directions. The
-          // stream ref remains typed, but its resolvable wire identity is the
-          // parent Podium session rather than an orphan UUID (POD-2108).
-          streamId: sessionId,
           label,
           kind: target.kind,
           // Born knowing whether anyone is looking: see `watchedSessions`.
@@ -961,17 +978,22 @@ export function createOpencodeClientTerminals(
       // Armed BEFORE the spawn: a start that hangs must not leave an unreaped
       // master behind if the caller gives up on it.
       arm(sessionId, record)
-      if (!record.session) {
+      // The surface lives ON the parent session (POD-4434): one Terminal per
+      // session, because the terminal stream is keyed by session id. A client
+      // TUI holds it with no driver; the headed path never runs for these
+      // sessions, so the slot is always this client's while the record lives.
+      const owned = sessions.ensure(sessionId)
+      if (!owned.terminal) {
         let generation = record.generation
         let pending = record.starting
         if (!pending) {
           generation = { acceptingInput: true, pendingInput: [], pendingBytes: 0 }
           record.generation = generation
-          pending = start(record, target)
+          pending = start(sessionId, record, target)
           record.starting = pending
         }
         if (!generation) throw new Error('client terminal start lost its generation')
-        let started: DurableAttachment
+        let started: Terminal
         try {
           started = await pending
         } catch (err) {
@@ -992,7 +1014,7 @@ export function createOpencodeClientTerminals(
           record.generation === generation &&
           generation.acceptingInput
         if (!current) {
-          started.dispose()
+          started.park()
           const replacement = attachments.get(sessionId)
           const replaced = replacement !== record
           if (replacement === undefined) await reclaim(record.label)
@@ -1002,14 +1024,17 @@ export function createOpencodeClientTerminals(
               : 'the client terminal generation was revoked while it was starting',
           )
         }
-        record.session = started
+        owned.terminal = started
         const buffered = generation.pendingInput
         generation.pendingInput = []
         generation.pendingBytes = 0
-        for (const data of buffered) started.writeBytes(data)
+        for (const data of buffered) started.write(data)
       }
       driverTiming.nativeCliStage(sessionId, target.kind, 'native_cli_input_ready')
-      return { streamId: record.streamId, warmTtlMs }
+      // The terminal relay is session-addressed in both directions: the
+      // stream's resolvable wire identity is the parent Podium session rather
+      // than an orphan UUID (POD-2108).
+      return { streamId: sessionId, warmTtlMs }
     },
 
     adopt(sessionId, kind = 'opencode') {
@@ -1019,7 +1044,6 @@ export function createOpencodeClientTerminals(
       // daemon could have spawned to adopt.
       if (label === undefined || !hasMaster(label)) return
       const record: Attachment = {
-        streamId: sessionId,
         label,
         kind,
         watched: watchedSessions.has(sessionId),
@@ -1055,8 +1079,9 @@ export function createOpencodeClientTerminals(
       const record = attachments.get(sessionId)
       const generation = record?.generation
       if (!record || !generation?.acceptingInput) return false
-      if (record.session) {
-        record.session.writeBytes(data)
+      const terminal = sessions.get(sessionId)?.terminal
+      if (terminal?.live) {
+        terminal.write(data)
         return true
       }
       if (!record.starting) return false
@@ -1072,33 +1097,30 @@ export function createOpencodeClientTerminals(
     },
 
     resize(sessionId, cols, rows) {
-      const session = attachments.get(sessionId)?.session
-      if (!session) return false
-      session.resize(cols, rows)
+      const terminal = sessions.get(sessionId)?.terminal
+      if (!terminal?.live) return false
+      terminal.resize(cols, rows)
       return true
     },
 
     owns(sessionId) {
-      return attachments.get(sessionId)?.session !== undefined
+      return attachments.has(sessionId) && (sessions.get(sessionId)?.attached ?? false)
     },
 
     resizeAcknowledged(sessionId, cols, rows) {
-      const session = attachments.get(sessionId)?.session
-      if (!session) return undefined
+      const terminal = sessions.get(sessionId)?.terminal
+      if (!terminal?.live) return undefined
       // No acknowledgement on this backend: the fire-and-forget resize above
       // IS the apply, so the requested size stays the fact — answered now, so
       // the caller keeps its synchronous record.
-      if (!session.resizeAcknowledged) {
-        session.resize(cols, rows)
-        return { cols, rows }
-      }
-      return session.resizeAcknowledged(cols, rows)
+      return terminal.resizeAcknowledged(cols, rows)
     },
 
     redraw(sessionId, replayRequired = false) {
       const record = attachments.get(sessionId)
       if (!record) return false
-      if (replayRequired && !record.session) {
+      const terminal = sessions.get(sessionId)?.terminal
+      if (replayRequired && !terminal) {
         record.replayRequired = true
         record.suppressNextReplayRedraw = false
         return true
@@ -1108,9 +1130,8 @@ export function createOpencodeClientTerminals(
         return true
       }
       record.suppressNextReplayRedraw = false
-      const session = record.session
-      if (!session) return false
-      session.redraw()
+      if (!terminal?.live) return false
+      terminal.redraw()
       return true
     },
 

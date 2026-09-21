@@ -42,9 +42,7 @@ function daemonContext(): DaemonContext {
   return {
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-session-geometry-test'),
-    bridges: new Map<SessionId, DurableAttachment>(),
-    pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
-    durableLabels: new Map<SessionId, string>(),
+    sessions: testSessions(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {} },
@@ -70,7 +68,7 @@ describe('pre-bridge resize', () => {
     // The bind that follows must report the size the PTY is ACTUALLY at, or the
     // server is told 80x24 and its own heal-on-bind has nothing to correct.
     expect(geometry).toEqual({ cols: 38, rows: 35 })
-    expect(ctx.pendingResizes.has(sessionId)).toBe(false)
+    expect((ctx.sessions.get(sessionId)?.pendingResize !== undefined)).toBe(false)
   })
 
   it('keeps only the last pre-bridge resize — a session with no screen has no reflow to replay', () => {
@@ -98,7 +96,7 @@ describe('pre-bridge resize', () => {
 
     expect(geometry).toEqual({ cols: 80, rows: 24 })
     expect(session.resizes).toEqual([[38, 35]])
-    expect(ctx.pendingResizes.has(sessionId)).toBe(false)
+    expect((ctx.sessions.get(sessionId)?.pendingResize !== undefined)).toBe(false)
   })
 
   it('drops a held resize when the session is killed before it ever binds', () => {
@@ -108,7 +106,7 @@ describe('pre-bridge resize', () => {
     sessionHandlers.resize(ctx, { type: 'resize', sessionId, cols: 38, rows: 35 })
     sessionHandlers.kill(ctx, { type: 'kill', sessionId })
 
-    expect(ctx.pendingResizes.has(sessionId)).toBe(false)
+    expect((ctx.sessions.get(sessionId)?.pendingResize !== undefined)).toBe(false)
   })
 })
 
