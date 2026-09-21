@@ -17,7 +17,9 @@ import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import { driverTiming } from './driver-timing'
 import { createMailContinuation, type MailBoundaryContext } from './mail-boundary'
-import { grokAcpProcessKey } from './grok-acp-server.js'
+import { grokAcpProcessKey, grokEngineFacts } from '@podium/harness/driver/host'
+
+const GROK_FACTS = grokEngineFacts()
 import { reportQueueAbandonment } from './queue-abandonment'
 
 const log = createLogger('daemon:grok-driver')
@@ -147,7 +149,7 @@ export function createDaemonGrokRuntime(deps: {
     async adoptFromJournal(sessionId) {
       const entry = deps.host.journal.read(sessionId)
       if (!entry) return undefined
-      const processKey = grokAcpProcessKey(sessionId)
+      const processKey = grokAcpProcessKey(GROK_FACTS, sessionId)
       // The journal is evidence, not authority for identity. Its path is keyed
       // by the requested Podium session, while its payload can be stale or
       // replaced; derive the expected key independently and refuse a payload

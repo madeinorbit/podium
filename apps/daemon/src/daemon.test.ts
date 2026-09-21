@@ -65,9 +65,9 @@ import { parseBackendArg } from './durable-backend'
 import {
   codexAppServerVersionProbe,
   resetCodexAppServerVersionProbe,
-} from './runtime/codex-app-server'
+} from './runtime/version-probe'
 import { createDaemonCodexRuntime } from './runtime/codex-driver'
-import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/grok-acp-server'
+import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/version-probe'
 import { createDaemonGrokRuntime } from './runtime/grok-driver'
 import { runtimeHandlers } from './runtime/handlers'
 import { createDaemonMachineRuntime } from './runtime/machine-runtime'

@@ -6,7 +6,9 @@ import type {
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import { grokAcpProcessKey } from './grok-acp-server'
+import { grokAcpProcessKey, grokEngineFacts } from '@podium/harness/driver/host'
+
+const FACTS = grokEngineFacts()
 import { createDaemonGrokRuntime } from './grok-driver'
 
 function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {}) {
@@ -61,7 +63,7 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
       childCloses.push(() => handler?.closed())
       return {
         transport,
-        process: { key: grokAcpProcessKey(input.sessionId), pid: 10_000 + launches },
+        process: { key: grokAcpProcessKey(FACTS, input.sessionId), pid: 10_000 + launches },
         stop: options.deferStop
           ? () => new Promise<void>((resolve) => void stopWaiters.push(resolve))
           : async () => {},
@@ -98,7 +100,7 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
 
 function journalEntry(
   sessionId: SessionId,
-  processKey = grokAcpProcessKey(sessionId),
+  processKey = grokAcpProcessKey(FACTS, sessionId),
 ): GrokAcpJournalEntry {
   return {
     sessionId,
@@ -116,7 +118,7 @@ describe('Grok ACP daemon restart adoption', () => {
   it('refuses a persisted journal entry naming another incarnation', async () => {
     const world = adoptionWorld()
     const sessionId = 'grok-mismatch' as SessionId
-    world.entries.set(sessionId, journalEntry(sessionId, grokAcpProcessKey('other' as SessionId)))
+    world.entries.set(sessionId, journalEntry(sessionId, grokAcpProcessKey(FACTS, 'other' as SessionId)))
 
     expect(await world.runtime.adoptFromJournal(sessionId)).toBeUndefined()
     expect(world.launches()).toBe(0)
@@ -146,7 +148,7 @@ describe('Grok ACP daemon restart adoption', () => {
       sessionId,
       resume: { kind: 'grok-session', value: `native-${sessionId}` },
       bindingVersion: 2,
-      process: { key: grokAcpProcessKey(sessionId) },
+      process: { key: grokAcpProcessKey(FACTS, sessionId) },
     })
     expect(world.runtime.has(sessionId)).toBe(true)
     world.runtime.dispose()
