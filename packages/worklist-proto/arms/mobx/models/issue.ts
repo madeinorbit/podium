@@ -152,10 +152,15 @@ export class IssueModel {
    */
   get flat(): boolean {
     this.store.stats.rollupsDerived += 1
-    const issue = this.value
-    if (structurallyExcluded(issue)) return false
-    if (this.retainedMembers().length > 0) return true
-    return flatSessionless(issue, derivedUnread(issue, this.unreadSeats()), () => this.store.locals.coarseNow)
+    const t0 = performance.now()
+    try {
+      const issue = this.value
+      if (structurallyExcluded(issue)) return false
+      if (this.retainedMembers().length > 0) return true
+      return flatSessionless(issue, derivedUnread(issue, this.unreadSeats()), () => this.store.locals.coarseNow)
+    } finally {
+      this.store.addRollupMs(performance.now() - t0)
+    }
   }
 
   /**
@@ -191,25 +196,30 @@ export class IssueModel {
    */
   get summary(): OwnSummary | null {
     this.store.stats.rollupsDerived += 1
-    const issue = this.value
-    if (structurallyExcluded(issue)) return null
-    const retained = this.retainedMembers()
-    let peak = 0
-    for (const member of retained) {
-      const active = Date.parse(member.lastActiveAt)
-      if (Number.isFinite(active) && active > peak) peak = active
-    }
-    const members = this.store.membersOf(issue.id)
-    const band =
-      issue.deferUntil === null || issue.deferUntil === undefined
-        ? bandOf(issue, 0)
-        : bandOf(issue, this.store.locals.coarseNow)
-    return {
-      activityAt: peak !== 0 ? peak : (Date.parse(issue.updatedAt) || 0),
-      displayRef: displayRefOf(issue, this.store.prefixForRepo(issue.repoId)),
-      title: displayTitleOf(issue, members[0]),
-      band,
-      repoKey: groupKeyOf(issue),
+    const t0 = performance.now()
+    try {
+      const issue = this.value
+      if (structurallyExcluded(issue)) return null
+      const retained = this.retainedMembers()
+      let peak = 0
+      for (const member of retained) {
+        const active = Date.parse(member.lastActiveAt)
+        if (Number.isFinite(active) && active > peak) peak = active
+      }
+      const members = this.store.membersOf(issue.id)
+      const band =
+        issue.deferUntil === null || issue.deferUntil === undefined
+          ? bandOf(issue, 0)
+          : bandOf(issue, this.store.locals.coarseNow)
+      return {
+        activityAt: peak !== 0 ? peak : (Date.parse(issue.updatedAt) || 0),
+        displayRef: displayRefOf(issue, this.store.prefixForRepo(issue.repoId)),
+        title: displayTitleOf(issue, members[0]),
+        band,
+        repoKey: groupKeyOf(issue),
+      }
+    } finally {
+      this.store.addRollupMs(performance.now() - t0)
     }
   }
 
@@ -222,8 +232,10 @@ export class IssueModel {
    */
   get aggregate(): Aggregate | null {
     this.store.stats.rollupsDerived += 1
-    const issue = this.value
-    if (!this.visible) return null
+    const t0 = performance.now()
+    try {
+      const issue = this.value
+      if (!this.visible) return null
     const members = this.store.visibleSubtree(issue.id)
     const ownByMember = new Map<string, SliceSession[]>()
     const sessions: SliceSession[] = []
@@ -260,36 +272,44 @@ export class IssueModel {
       (s) => !(isOfferOnlyAttention(s) && deciding.has(s.sessionId)),
     )
     const progress = this.store.progressOf(issue.id)
-    return {
-      phase,
-      working: sessions.some((s) => isSessionWorking(s)),
-      asking: extra.length + pending > 0,
-      progressDone: progress.done,
-      progressTotal: progress.total,
+      return {
+        phase,
+        working: sessions.some((s) => isSessionWorking(s)),
+        asking: extra.length + pending > 0,
+        progressDone: progress.done,
+        progressTotal: progress.total,
+      }
+    } finally {
+      this.store.addRollupMs(performance.now() - t0)
     }
   }
 
   /** The origin tick beside the row (spec §3 R-ORIGIN). Rides the commit. */
   get tick(): OriginTick | null {
-    const originId = this.store.originOf.get(this.value.id)
-    const origin = originId === undefined ? undefined : this.store.issues.get(originId)
-    let next: OriginTick | null = null
-    if (origin) {
-      const row = origin.value
-      const prefix = this.store.prefixForRepo(row.repoId)
-      next = {
-        id: row.id,
-        seq: row.seq,
-        title: row.title,
-        ref: prefix ? `${prefix}-${row.seq}` : `#${row.seq}`,
+    const t0 = performance.now()
+    try {
+      const originId = this.store.originOf.get(this.value.id)
+      const origin = originId === undefined ? undefined : this.store.issues.get(originId)
+      let next: OriginTick | null = null
+      if (origin) {
+        const row = origin.value
+        const prefix = this.store.prefixForRepo(row.repoId)
+        next = {
+          id: row.id,
+          seq: row.seq,
+          title: row.title,
+          ref: prefix ? `${prefix}-${row.seq}` : `#${row.seq}`,
+        }
       }
+      const json = next === null ? null : JSON.stringify(next)
+      if (json !== this.lastTickJson) {
+        this.lastTickJson = json
+        this.store.stats.rowsDerived += 1
+      }
+      return next
+    } finally {
+      this.store.addRowMs(performance.now() - t0)
     }
-    const json = next === null ? null : JSON.stringify(next)
-    if (json !== this.lastTickJson) {
-      this.lastTickJson = json
-      this.store.stats.rowsDerived += 1
-    }
-    return next
   }
 
   /** Rank inputs for R-ORDER; the clock only for defer carriers. */
@@ -355,25 +375,32 @@ export class IssueModel {
       }
       return null
     }
-    const next: SliceRow = {
-      id: this.value.id,
-      displayRef: summary.displayRef,
-      title: summary.title,
-      phase: aggregate.phase,
-      progressDone: aggregate.progressDone,
-      progressTotal: aggregate.progressTotal,
-      working: aggregate.working,
-      asking: aggregate.asking,
-      band: summary.band,
-      repoKey: summary.repoKey,
-      closed: this.closed,
+    // Row-assembly tail only: inputs above price themselves as rollup, so
+    // the split stays non-overlapping (M3 stats split, methodology §6.4).
+    const t0 = performance.now()
+    try {
+      const next: SliceRow = {
+        id: this.value.id,
+        displayRef: summary.displayRef,
+        title: summary.title,
+        phase: aggregate.phase,
+        progressDone: aggregate.progressDone,
+        progressTotal: aggregate.progressTotal,
+        working: aggregate.working,
+        asking: aggregate.asking,
+        band: summary.band,
+        repoKey: summary.repoKey,
+        closed: this.closed,
+      }
+      const json = JSON.stringify(next)
+      if (json !== this.lastRowJson) {
+        this.lastRowJson = json
+        this.store.stats.rowsDerived += 1
+      }
+      return next
+    } finally {
+      this.store.addRowMs(performance.now() - t0)
     }
-    const json = JSON.stringify(next)
-    if (json !== this.lastRowJson) {
-      this.lastRowJson = json
-      this.store.stats.rowsDerived += 1
-    }
-    return next
   }
 
   // ------------------------------------------------------- internal helpers

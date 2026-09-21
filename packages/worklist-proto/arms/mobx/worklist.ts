@@ -35,61 +35,76 @@ export class WorklistModel {
 
   /** Every visible issue id (spec §3 R-VIS). The ONE table enumeration. */
   get visibleIds(): readonly string[] {
-    // The enumeration itself is O(issues) per body run (counted; the per-row
-    // reads are cached, so only invalidated rows re-derive).
-    this.store.scan('visible-enumeration', this.store.issues.size)
-    const out: string[] = []
-    for (const [id, model] of this.store.issues) {
-      if (model.visible) out.push(id)
+    const t0 = performance.now()
+    try {
+      // The enumeration itself is O(issues) per body run (counted; the per-row
+      // reads are cached, so only invalidated rows re-derive).
+      this.store.scan('visible-enumeration', this.store.issues.size)
+      const out: string[] = []
+      for (const [id, model] of this.store.issues) {
+        if (model.visible) out.push(id)
+      }
+      return out
+    } finally {
+      this.store.addRollupMs(performance.now() - t0)
     }
-    return out
   }
 
   /** Visible ids in R-ORDER (spec §3 R-ORDER). Closed-fold rows keep position. */
   get order(): readonly string[] {
-    const ranked = new Map<string, RankInput>()
-    for (const id of this.visibleIds) {
-      const model = this.store.issues.get(id)
-      if (model) ranked.set(id, model.rankKey)
+    const t0 = performance.now()
+    try {
+      const ranked = new Map<string, RankInput>()
+      for (const id of this.visibleIds) {
+        const model = this.store.issues.get(id)
+        if (model) ranked.set(id, model.rankKey)
+      }
+      this.store.scan('order-sort', ranked.size)
+      return [...this.visibleIds].sort((a, b) =>
+        compareRank(ranked.get(a) as RankInput, ranked.get(b) as RankInput),
+      )
+    } finally {
+      this.store.addRollupMs(performance.now() - t0)
     }
-    this.store.scan('order-sort', ranked.size)
-    return [...this.visibleIds].sort((a, b) =>
-      compareRank(ranked.get(a) as RankInput, ranked.get(b) as RankInput),
-    )
   }
 
   /** Pinned section plus per-group open lanes and the closed fold (spec §3 R-GROUP). */
   get groups(): { pinnedIds: string[]; groups: SliceGroup[] } {
-    const pinnedIds: string[] = []
-    const buckets = new Map<string, { label: string; open: string[]; closed: string[] }>()
-    const order = this.order
-    this.store.scan('groups-bucket', order.length)
-    for (const id of order) {
-      const model = this.store.issues.get(id)
-      if (!model) continue
-      if (model.value.pinned === true) {
-        pinnedIds.push(id)
-        continue
+    const t0 = performance.now()
+    try {
+      const pinnedIds: string[] = []
+      const buckets = new Map<string, { label: string; open: string[]; closed: string[] }>()
+      const order = this.order
+      this.store.scan('groups-bucket', order.length)
+      for (const id of order) {
+        const model = this.store.issues.get(id)
+        if (!model) continue
+        if (model.value.pinned === true) {
+          pinnedIds.push(id)
+          continue
+        }
+        const key = model.summary?.repoKey ?? model.value.repoId ?? model.value.repoPath
+        let bucket = buckets.get(key)
+        if (!bucket) {
+          bucket = { label: groupLabelOf(model.value), open: [], closed: [] }
+          buckets.set(key, bucket)
+        }
+        if (model.closed) bucket.closed.push(id)
+        else bucket.open.push(id)
       }
-      const key = model.summary?.repoKey ?? model.value.repoId ?? model.value.repoPath
-      let bucket = buckets.get(key)
-      if (!bucket) {
-        bucket = { label: groupLabelOf(model.value), open: [], closed: [] }
-        buckets.set(key, bucket)
+      const groups: SliceGroup[] = []
+      for (const [key, bucket] of buckets) {
+        // Newest tucked (or finished) first; stable for ties (spec §3 R-GROUP).
+        const closedIds = bucket.closed
+          .map((id, index) => ({ id, index, at: this.foldAt(id) }))
+          .sort((a, b) => b.at - a.at || a.index - b.index)
+          .map((entry) => entry.id)
+        groups.push({ key, label: bucket.label, rowIds: [...bucket.open], closedIds })
       }
-      if (model.closed) bucket.closed.push(id)
-      else bucket.open.push(id)
+      return { pinnedIds, groups }
+    } finally {
+      this.store.addRollupMs(performance.now() - t0)
     }
-    const groups: SliceGroup[] = []
-    for (const [key, bucket] of buckets) {
-      // Newest tucked (or finished) first; stable for ties (spec §3 R-GROUP).
-      const closedIds = bucket.closed
-        .map((id, index) => ({ id, index, at: this.foldAt(id) }))
-        .sort((a, b) => b.at - a.at || a.index - b.index)
-        .map((entry) => entry.id)
-      groups.push({ key, label: bucket.label, rowIds: [...bucket.open], closedIds })
-    }
-    return { pinnedIds, groups }
   }
 
   private foldAt(id: string): number {

@@ -126,6 +126,14 @@ export class MobXStore {
   private resolveNeeded = false
   /** Cumulative multi-row walk visits (H4 slope material), beside ArmStats. */
   private readonly scanTotals = new Map<MobxScanName, number>()
+  /**
+   * Cumulative computation-share walls per phase (M3 stats split,
+   * methodology §6.4): index = eager `apply` wall, rollup = derivation body
+   * walls, row = row-assembly tails. Plain totals beside ArmStats (the
+   * `scan()` precedent): mutated from computeds, never observed, cleared by
+   * `stats.reset()`. Happy-dom proxy only — browser walls belong to POD-4489.
+   */
+  private readonly phaseMsTotals = { indexMs: 0, rollupMs: 0, rowMs: 0 }
 
   constructor(source: RowSource, locals: SliceLocals) {
     this.source = source
@@ -140,6 +148,9 @@ export class MobXStore {
         stats.indexUpdates = 0
         stats.notifications = 0
         this.scanTotals.clear()
+        this.phaseMsTotals.indexMs = 0
+        this.phaseMsTotals.rollupMs = 0
+        this.phaseMsTotals.rowMs = 0
       },
     }
     this.stats = stats
@@ -169,6 +180,11 @@ export class MobXStore {
       | 'roots'
       | 'resolveNeeded'
       | 'scanTotals'
+      | 'phaseMsTotals'
+      | 'addIndexMs'
+      | 'addRollupMs'
+      | 'addRowMs'
+      | 'phaseMs'
       | 'scan'
       | 'scanCounts'
     >(this, {
@@ -215,9 +231,14 @@ export class MobXStore {
       mountWeb: false,
       snapshot: false,
       handle: false,
+      addIndexMs: false,
+      addRollupMs: false,
+      addRowMs: false,
+      phaseMs: false,
       scan: false,
       scanCounts: false,
       scanTotals: false,
+      phaseMsTotals: false,
       membersOf: false,
       unreadMembersOf: false,
       prefixForRepo: false,
@@ -245,44 +266,51 @@ export class MobXStore {
 
   /** One publication, one action, one notification pass. */
   apply(event: RowSourceEvent): void {
-    if (event.type === 'replace') {
-      this.issues.clear()
-      this.sessions.clear()
-      this.worktrees.clear()
-      this.childrenByParent.clear()
-      this.parentOf.clear()
-      this.explicitByIssue.clear()
-      this.resolvedByIssue.clear()
-      this.sessionHome.clear()
-      this.issuesByWorktree.clear()
-      this.lanePaths.clear()
-      this.originOf.clear()
-      this.spinOffChildren.clear()
-      this.dependentsOf.clear()
-      this.outgoingDeps.clear()
-      this.prefixByRepoId.clear()
-      this.issuesByRepo.clear()
-      for (const record of event.rows) this.tableApply(record)
-      for (const id of this.issues.keys()) this.ingestIssue(id)
-      for (const id of this.sessions.keys()) this.ingestSession(id)
-      for (const id of this.worktrees.keys()) this.ingestWorktree(id)
-      this.resolveNeeded = true
-      this.resolveAllUnbound()
-      this.stats.notifications += 1
-      return
-    }
-    let touched = false
-    for (const record of event.rows) {
-      if (this.tableApply(record)) touched = true
-    }
-    if (touched) {
-      for (const record of event.rows) this.ingestRecord(record)
-      if (this.resolveNeeded) {
-        this.resolveNeeded = false
+    // Derivations are lazy: everything eager in here is index maintenance,
+    // so the whole wall prices the index phase (M3 stats split).
+    const t0 = performance.now()
+    try {
+      if (event.type === 'replace') {
+        this.issues.clear()
+        this.sessions.clear()
+        this.worktrees.clear()
+        this.childrenByParent.clear()
+        this.parentOf.clear()
+        this.explicitByIssue.clear()
+        this.resolvedByIssue.clear()
+        this.sessionHome.clear()
+        this.issuesByWorktree.clear()
+        this.lanePaths.clear()
+        this.originOf.clear()
+        this.spinOffChildren.clear()
+        this.dependentsOf.clear()
+        this.outgoingDeps.clear()
+        this.prefixByRepoId.clear()
+        this.issuesByRepo.clear()
+        for (const record of event.rows) this.tableApply(record)
+        for (const id of this.issues.keys()) this.ingestIssue(id)
+        for (const id of this.sessions.keys()) this.ingestSession(id)
+        for (const id of this.worktrees.keys()) this.ingestWorktree(id)
+        this.resolveNeeded = true
         this.resolveAllUnbound()
+        this.stats.notifications += 1
+        return
       }
+      let touched = false
+      for (const record of event.rows) {
+        if (this.tableApply(record)) touched = true
+      }
+    if (touched) {
+        for (const record of event.rows) this.ingestRecord(record)
+        if (this.resolveNeeded) {
+          this.resolveNeeded = false
+          this.resolveAllUnbound()
+        }
+      }
+      this.stats.notifications += 1
+    } finally {
+      this.phaseMsTotals.indexMs += performance.now() - t0
     }
-    this.stats.notifications += 1
   }
 
   /** Table ingest: same reference is a no-op; `undefined` evicts. */
@@ -357,6 +385,29 @@ export class MobXStore {
     const out: Record<string, number> = {}
     for (const [name, visits] of this.scanTotals) out[name] = visits
     return out
+  }
+
+  /** Add an index-phase wall (the eager `apply` path prices itself). */
+  addIndexMs(ms: number): void {
+    this.phaseMsTotals.indexMs += ms
+  }
+
+  /** Add a rollup derivation body wall (flat/summary/aggregate/order/groups). */
+  addRollupMs(ms: number): void {
+    this.phaseMsTotals.rollupMs += ms
+  }
+
+  /** Add a row-assembly tail wall (row/tick commit shaping). */
+  addRowMs(ms: number): void {
+    this.phaseMsTotals.rowMs += ms
+  }
+
+  /**
+   * Cumulative computation-share walls since the last `stats.reset()` (M3
+   * stats split, methodology §6.4). Happy-dom proxy only.
+   */
+  phaseMs(): { indexMs: number; rollupMs: number; rowMs: number } {
+    return { ...this.phaseMsTotals }
   }
 
   // --------------------------------------------------------------- indexes
