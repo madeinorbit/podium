@@ -1471,6 +1471,18 @@ function engineHost(
       kill: async () => {},
       scopeUnitFor: () => undefined,
     },
+    // POD-4497: adopting the engine re-attaches through the session-owned
+    // `engines` port; the family never spawns its own. The default owner hands
+    // back the attachment built above, so adopt exercises the adopt →
+    // client-terminal path it was written for. Tests that need absence pass
+    // `engines: undefined` explicitly (via `...rest` below) and get the loud
+    // refusal from the ownership guard.
+    engines: {
+      startEngine: () => Promise.reject(new Error('no spawn in this test')),
+      reattachEngine: async () => attachment,
+      engineAlive: async () => true,
+      destroyEngine: async () => {},
+    },
     // Already narrowed by the caller (engineClientTerminals); passed through.
     ...(clientTerminals ? { clientTerminals } : {}),
     ...rest,
