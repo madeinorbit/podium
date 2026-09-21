@@ -1,0 +1,155 @@
+diff --git a/packages/worklist-proto/arms/tanstack/queries.ts b/packages/worklist-proto/arms/tanstack/queries.ts
+index b1fe5f799..e2286c60c 100644
+--- a/packages/worklist-proto/arms/tanstack/queries.ts
++++ b/packages/worklist-proto/arms/tanstack/queries.ts
+@@ -49,6 +49,7 @@ import {
+   groupLabelOf,
+   inClosedFold,
+   isSessionWorking,
++  isSnoozed,
+   attentionGroup,
+   isOfferOnlyAttention,
+   closedFoldAt,
+@@ -217,6 +218,8 @@ export interface IssuesNRow {
+   repoId: string | null | undefined
+   repoPath: string
+   worktreePath: string | null | undefined
++  /** K3-A: carried for the snooze predicate (absent on every corpus row). */
++  snoozedUntil?: string | null
+   needsHuman: boolean | undefined
+   blocked: boolean | undefined
+   readAt: string | null | undefined
+@@ -547,6 +550,8 @@ export function createBaseQueries(
+           repoId: i.repoId,
+           repoPath: i.repoPath,
+           worktreePath: i.worktreePath,
++          snoozedUntil:
++            (i as unknown as { snoozedUntil?: string | null }).snoozedUntil ?? null,
+           needsHuman: i.needsHuman,
+           blocked: i.blocked,
+           readAt: i.readAt,
+@@ -677,7 +682,12 @@ export function createBaseQueries(
+             Parameters<typeof groupKeyOf>[0]
+           const retained = (agg?.retained ?? 0) + (aggr?.retained ?? 0)
+           const unread = derivedUnreadFromMax(issue, maxMs(agg?.explicitMax))
+-          const flat = retained > 0 || sessionlessKept(issue, now, unread)
++          // K3-A: snooze hides the row itself (rescue of a snoozed ancestor
++          // by a visible descendant still applies — same as any flat row).
++          // The locals join re-runs this fn on every tick, so the row
++          // reappears on the passing tick with no sensitivity bookkeeping.
++          const flat =
++            !isSnoozed(n, now) && (retained > 0 || sessionlessKept(issue, now, unread))
+           const peak = Math.max(maxMs(agg?.retainedLatest), maxMs(aggr?.retainedLatest))
+           const first = parseFirstPick(minPick(agg?.firstPick ?? null, aggr?.firstPick ?? null))
+           const out: SummaryRow = {
+diff --git a/packages/worklist-proto/arms/tanstack/rollup.ts b/packages/worklist-proto/arms/tanstack/rollup.ts
+index 32bd6c57a..43b17a9b5 100644
+--- a/packages/worklist-proto/arms/tanstack/rollup.ts
++++ b/packages/worklist-proto/arms/tanstack/rollup.ts
+@@ -144,6 +144,16 @@ export class RollupSync {
+   private readonly rescue = new Set<string>()
+   private readonly dropped = new Set<string>()
+   private readonly final = new Set<string>()
++  /**
++   * K3-A: ids whose final membership flipped since the last drain. rowsQ's
++   * pure-DSL `where(final)` retraction on a flat-only flip emits no change
++   * event (the M2 silence, now at the top of the graph: the would-be RowsRow
++   * is value-identical, so the summary-side update suppresses too), leaving
++   * state correct everywhere with the commit layer untold. The store drains
++   * this into rowsDirty in finishCycle — the takeRemoved precedent (place
++   * #5), extended from entity removals to membership flips.
++   */
++  private readonly finalFlips = new Set<string>()
+   private readonly aggregates = new Map<string, RollupValue>()
+   private readonly written = new Map<string, string>()
+   private readonly bandById = new Map<string, 0 | 1 | 2>()
+@@ -662,6 +672,14 @@ export class RollupSync {
+     if (keepers.size === 0) this.keptBy.delete(ancestor)
+   }
+ 
++  /** Drain ids whose final membership flipped since the last call. */
++  takeFinalFlips(): string[] {
++    if (this.finalFlips.size === 0) return []
++    const out = [...this.finalFlips]
++    this.finalFlips.clear()
++    return out
++  }
++
+   private reconcile(issueId: string): void {
+     const want =
+       (this.flat.has(issueId) && !this.dropped.has(issueId)) ||
+@@ -669,12 +687,14 @@ export class RollupSync {
+     const has = this.final.has(issueId)
+     if (want && !has) {
+       this.final.add(issueId)
++      this.finalFlips.add(issueId)
+       if (!this.flat.has(issueId)) this.rescue.add(issueId)
+       else this.rescue.delete(issueId)
+       this.dirtyChains.add(issueId)
+       this.chainRow(issueId)
+     } else if (!want && has) {
+       this.final.delete(issueId)
++      this.finalFlips.add(issueId)
+       this.rescue.delete(issueId)
+       const chain = this.chains.get(issueId) ?? []
+       this.chains.delete(issueId)
+@@ -980,6 +1000,7 @@ export class RollupSync {
+         else this.dependentsOf.set(to, kept)
+       }
+       this.final.delete(id)
++      this.finalFlips.add(id)
+       this.flat.delete(id)
+       this.purge(id)
+       this.aggregates.delete(id)
+@@ -1171,6 +1192,9 @@ export class RollupSync {
+     this.dirtyChains.clear()
+     this.fullChains.clear()
+     this.droppedSeats.clear()
++    // Bootstrap seeds rowsDirty explicitly (store.rebuildRows), so flips
++    // recorded mid-build must not leak into the first live cycle.
++    this.finalFlips.clear()
+     this.pendingWrites.splice(0)
+     this.batching = true
+     try {
+diff --git a/packages/worklist-proto/arms/tanstack/rules.ts b/packages/worklist-proto/arms/tanstack/rules.ts
+index f4c5bffdc..36f9c276a 100644
+--- a/packages/worklist-proto/arms/tanstack/rules.ts
++++ b/packages/worklist-proto/arms/tanstack/rules.ts
+@@ -286,6 +286,22 @@ export function returnedFromDefer(issue: Pick<SliceIssue, 'deferUntil'>, now: nu
+   return until !== null && until <= now
+ }
+ 
++/**
++ * K3-A snooze (exercise only): an issue carrying a `snoozedUntil` wire field
++ * is hidden while coarseNow is before it. Defensive read — SliceIssue does
++ * not declare the field (same convention as the rollup's supersededBy read):
++ * absent on every existing corpus row, so legacy parity is unaffected.
++ */
++export function snoozedUntilMs(issue: { snoozedUntil?: string | null }): number | null {
++  return parseMs(issue.snoozedUntil)
++}
++
++/** K3-A: hidden while the snooze timestamp lies in the future. */
++export function isSnoozed(issue: { snoozedUntil?: string | null }, now: number): boolean {
++  const until = snoozedUntilMs(issue)
++  return until !== null && until > now
++}
++
+ /** unifiedRowBand (row-order.ts:16): pinned/returned 0, snoozed 2, else 1. */
+ export function bandOf(issue: Pick<SliceIssue, 'pinned' | 'deferUntil'>, now: number): 0 | 1 | 2 {
+   if (issue.pinned === true || returnedFromDefer(issue, now)) return 0
+diff --git a/packages/worklist-proto/arms/tanstack/store.ts b/packages/worklist-proto/arms/tanstack/store.ts
+index 4744ffbd6..348b894ca 100644
+--- a/packages/worklist-proto/arms/tanstack/store.ts
++++ b/packages/worklist-proto/arms/tanstack/store.ts
+@@ -415,6 +415,10 @@ export class TanStackStore {
+     this.stats.rollupsDerived += this.runs.summary - this.markSummary + (this.runs.rows - this.markRows)
+     this.markSummary = this.runs.summary
+     this.markRows = this.runs.rows
++    // K3-A: final-membership flips the queries went silent on (flat-only
++    // flips: value-equal rowsQ update + silent where-retraction) still need
++    // a commit-layer visit — the takeRemoved precedent for membership.
++    for (const id of this.rollup.takeFinalFlips()) this.rowsDirty.add(id)
+     const tRows = performance.now()
+     this.refreshRows()
+     this.phaseMsTotals.rowMs += performance.now() - tRows
