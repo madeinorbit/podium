@@ -1,4 +1,5 @@
 import { asSessionId, type TranscriptItem } from '@podium/model/browser'
+import { readFileSync } from 'node:fs'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -119,9 +120,21 @@ it('shows an interrupted effect as a failure even with empty output', () => {
 })
 
 it('renders the real recorded Bash edit with identical path, hunk lines and counts', async () => {
-  const { default: records } = await import(
-    '../../../../../packages/harness/src/store/__fixtures__/claude-bash-edit.json'
-  )
+  // Read off the module graph (readFileSync, not import): the fixture is JSON
+  // data, not a capability, and a web test may not take the host barrel to
+  // reach it (POD-4469: the fixture dissolved into `@podium/harness/store`
+  // with the transcript package).
+  const records = JSON.parse(
+    readFileSync(
+      new URL(
+        '../../../../../packages/harness/src/store/__fixtures__/claude-bash-edit.json',
+        import.meta.url,
+      ),
+      'utf8',
+    ),
+  ) as Array<{
+    message: { content: Array<{ input?: { command?: unknown } }> }
+  }>
   const { claudeRecordToItems } = await import('@podium/harness/store')
   const { pairToolResults } = await import('./chat')
   const block = pairToolResults(records.flatMap(claudeRecordToItems))[0]

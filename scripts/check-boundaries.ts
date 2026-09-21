@@ -2954,7 +2954,7 @@ export function checkHarnessClassifierBoundary(file: string, source: string): Vi
     }
     if (
       ref.specifier.includes('claude-code-classifier') &&
-      file !== 'packages/harness/src/manifests/claude-code.ts' &&
+      file !== 'packages/harness/src/adapters/claude-code/index.ts' &&
       file !== 'packages/harness/src/manifests/claude-code-classifier.ts'
     ) {
       violations.push({
