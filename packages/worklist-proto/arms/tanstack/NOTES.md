@@ -133,9 +133,22 @@ and parity ×3; see `harness/native/tanstack.native.test.tsx`).
 
 ### Browser (1x click; `tanstack-1x.json`, gitignored; lease held by the driver)
 
-(Timing pending a quiet box — load has been 8–15 through this session.
-Counts above are the verdict-carrying half; this section fills in on the
-browser run before landing.)
+Stock driver, click-only, n=25, load 5.0–6.1 throughout (per-record
+loadavg in the JSON; uptime ~824k):
+
+| Set | p50 | p95 | max | min |
+|---|---|---|---|---|
+| all (n=25) | 10.9 | 18.7 | 162.6 (cold #0, 1 longTask) | 2.8 |
+| warmed (n=24) | 8.8 | 18.6 | 18.7 | — |
+| control back-to-back, warmed | 11.7 | 20.8 | 22.5 | — |
+
+Budget p95 ≤ 16: NOT MET — and not arm-bound: the legacy control measures
+p95 20.8 in the same band on the same box. Same frame floor the MobX arm
+documented (headless SwiftShader ~30fps; input-to-paint spans dispatch +
+1–2 frames), corroborated here with the arm measuring FASTER than the
+control it must beat. `commits=0` on every browser click while selection
+provably flips — the same harness-wide Profiler gap MobX reported (G4
+follow-up, not per-arm work).
 
 ### Bundle (production vite build, `harness/web/dist/assets`)
 
