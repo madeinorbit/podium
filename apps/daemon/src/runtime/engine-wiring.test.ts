@@ -7,7 +7,7 @@
  * from the families' own facts; this file pins the supervisor's layout.
  */
 
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
@@ -222,40 +222,93 @@ describe('the driver bind fact', () => {
      * tests above and ships the same defect.
      *
      * So this reads the source and asserts the CALL SITES. Since POD-4426 every
-     * bind for a driven session states `driverId` outright — the handle is
-     * registered before that line runs, so a probe could only agree — and a
-     * shell bind states none. A NEW bind site appearing without `driverId`
-     * fails here.
+     * bind for a driven session states `driverId` outright — and a shell bind
+     * states none. A NEW bind site appearing without `driverId` fails here.
      *
-     * THE MARKER IS `bindFrame(` SINCE POD-3290, not `type: 'bind'`. That
-     * literal now appears in exactly one file — the one builder — and
-     * `control/applied-geometry.test.ts` is the gate that keeps it there. So the
+     * SINCE 1.5 THE SITES LIVE IN TWO PLACES. The daemon builds the
+     * terminal/headless binds inline with the one builder (`bindFrame(` in
+     * `control/session.ts`); the four server families state their own binds
+     * through the supervisor's `ServerSessionFramePorts.emitBind`
+     * (`deps.emitBind({` / `ports.emitBind({` in
+     * `packages/harness/src/driver/families/{codex,grok-acp,opencode,
+     * claude-sdk}/session.ts`). The port lambdas in between —
+     * `emitBind: (input) => ctx.send(bindFrame(…, input))` on the Claude adopt
+     * arms and the `emitBind` definition in `host-runtime.ts` — forward `input`
+     * untouched: they are plumbing, not bind sites, and the driver they carry
+     * was stated by the family on the other side of the port. This test
+     * recognises that shape explicitly instead of flagging it.
+     *
+     * The contract pins the same shape at the type level:
+     * `server-family.ts` requires `driverId: string` on the port input, so a
+     * family that omitted it would not compile. This scan is the readable
+     * statement of that fact, and the count below forces every NEW bind site
+     * to come here and decide what it reports.
+     *
+     * SHAPE NOTE (POD-4495): a behavioural pin — launching each family against
+     * a fake engine and asserting on the emitted bind — would couple this file
+     * to the families' constructor shapes, which POD-4494 is actively
+     * changing. The port type plus this scan pins the fact without standing on
+     * that lane's ground; revisit once the family shapes settle.
+     *
+     * THE MARKER IS `bindFrame(` DAEMON-SIDE SINCE POD-3290, not
+     * `type: 'bind'`. That literal still appears in exactly one file — the one
+     * builder — and `control/applied-geometry.test.ts` is the gate that keeps
+     * it there. Family-side the marker is `.emitBind({`: the port call. The
      * two suites together still cover the whole surface: a hand-rolled bind
      * anywhere fails that gate, and a driven bind built here without its driver
      * fails this one.
      */
-    const daemonSrc = join(import.meta.dirname, '..')
-    const files = [
-      join(daemonSrc, 'control', 'session.ts'),
-      join(daemonSrc, 'runtime', 'opencode-driver.ts'),
-      join(daemonSrc, 'runtime', 'codex-driver.ts'),
-      join(daemonSrc, 'runtime', 'grok-driver.ts'),
-      // ADDED WITH THE BUILDER (POD-3290). The embedded Claude bind states the
-      // same fact and was simply never in this list; now that every bind
-      // has one shape there is no reason to leave it out.
-      join(daemonSrc, 'runtime', 'claude-sdk-driver.ts'),
+    const repoRoot = join(import.meta.dirname, '..', '..', '..', '..')
+    const daemonSession = join(repoRoot, 'apps/daemon/src/control/session.ts')
+    const daemonPorts = join(repoRoot, 'apps/daemon/src/host-runtime.ts')
+    const familyDir = join(repoRoot, 'packages/harness/src/driver/families')
+    const familySessions = [
+      join(familyDir, 'codex/session.ts'),
+      join(familyDir, 'grok-acp/session.ts'),
+      // The opencode adapter serves both flavours (opencode/opencode2) through
+      // its flavour parameter, so this one file pins both binds.
+      join(familyDir, 'opencode/session.ts'),
+      join(familyDir, 'claude-sdk/session.ts'),
     ]
+    const serverFamily = join(familyDir, 'server-family.ts')
+    // No path may name a file that does not exist: the four
+    // `runtime/*-driver.ts` paths this list used to carry were deleted by 1.5
+    // while the scan kept naming them. Every path below is asserted first.
+    for (const file of [daemonSession, daemonPorts, ...familySessions, serverFamily]) {
+      expect(existsSync(file), `adoption pin scans a file that does not exist: ${file}`).toBe(true)
+    }
+    // The port every driven bind travels through requires the fact outright.
+    expect(
+      readFileSync(serverFamily, 'utf8').includes('driverId: string'),
+      'ServerSessionFramePorts.emitBind must require driverId: string (server-family.ts)',
+    ).toBe(true)
+    // A driven bind states the fact as a `driverId:` property, or — on the
+    // daemon's terminal paths, where a shell bind is the same site emitting
+    // with no driver — as the `...(driverId ? …)` conditional spread. A bare
+    // `driverId` without either is a comment, not a statement: every
+    // explanatory comment in these bodies backticks the word.
+    const statesDriver = (body: string): boolean =>
+      body.includes('driverId:') || body.includes('...(driverId')
     let bindSites = 0
-    for (const file of files) {
+    let portForwarders = 0
+    for (const file of [daemonSession, daemonPorts]) {
       const source = readFileSync(file, 'utf8')
-      for (const [index, line] of source.split('\n').entries()) {
+      const lines = source.split('\n')
+      for (const [index, line] of lines.entries()) {
         if (!line.includes('bindFrame(')) continue
+        // THE PORT LAMBDAS ARE PLUMBING, NOT SITES: `bindFrame(…, input)`
+        // forwards the family's already-stated bind to the wire. The driver
+        // IS stated — by the `ports.emitBind({ … driverId: … })` call on the
+        // other side of the port, which the family scan below pins.
+        if (`${line}\n${lines[index + 1] ?? ''}`.includes(', input)')) {
+          portForwarders += 1
+          continue
+        }
         bindSites += 1
         // The frame body, from the builder call to its closing `}),`. Taken by
-        // brace rather than by a line count: the opencode driver's bind carries
+        // brace rather than by a line count: the opencode family's bind carries
         // a long comment explaining why it states the fact outright, and a fixed
         // window would have "found" no fact there.
-        const lines = source.split('\n')
         let body = ''
         for (let i = index; i < lines.length; i++) {
           body += `${lines[i]}\n`
@@ -264,9 +317,9 @@ describe('the driver bind fact', () => {
         // Shell binds carry no driver by structure; every other site states the
         // driver outright. A site that states neither is a session the server
         // cannot drive and cannot distinguish from a shell.
-        const isShellBind = body.includes("agentKind: 'shell'") && !body.includes('driverId')
+        const isShellBind = body.includes("agentKind: 'shell'") && !statesDriver(body)
         expect(
-          body.includes('driverId') || isShellBind,
+          statesDriver(body) || isShellBind,
           `bind site at ${file}:${index + 1} states no driver — a driven session there would be indistinguishable from a shell`,
         ).toBe(true)
         // The driven signal is `driverId` presence alone: no other field may
@@ -284,25 +337,53 @@ describe('the driver bind fact', () => {
         ).toBe(false)
       }
     }
+    for (const file of familySessions) {
+      const source = readFileSync(file, 'utf8')
+      const lines = source.split('\n')
+      for (const [index, line] of lines.entries()) {
+        if (!line.includes('.emitBind({')) continue
+        bindSites += 1
+        let body = ''
+        for (let i = index; i < lines.length; i++) {
+          body += `${lines[i]}\n`
+          if (/^\s{0,10}\}\),?$/.test(lines[i] ?? '')) break
+        }
+        // Families are never shells: a family session IS a driven session, so
+        // the conditional spread the daemon's terminal paths use is not
+        // available here — the fact is stated outright, or the site fails.
+        expect(
+          body.includes('driverId:'),
+          `bind site at ${file}:${index + 1} states no driver — a driven session there would be indistinguishable from a shell`,
+        ).toBe(true)
+        expect(
+          body.includes('untimeContract'),
+          `bind site at ${file}:${index + 1} carries a parallel driven fact beside driverId`,
+        ).toBe(false)
+        expect(
+          body.includes('ctx.runtime?.has('),
+          `bind site at ${file}:${index + 1} asks only the terminal registry`,
+        ).toBe(false)
+      }
+    }
     /**
-     * ELEVEN today: launchSpawn, two handleReattach arms, three server-driver
-     * launches, the ADOPT path that rebinds a surviving server after restart,
-     * `resumeJournalledServerSession` (added by `fix(runtime): let a parked
-     * server session come back`), which rebuilds a PARKED server session from
-     * its binding journal — and, counted here since POD-3290, the embedded
-     * Claude driver's `emitClaudeBinding` — plus the two headless adopt arms
-     * (`adoptHeadlessSession` adopt success and its resume fallback), which
-     * rebind a process-per-turn session that holds no server journal and no
-     * PTY.
+     * ELEVEN today: seven daemon `bindFrame` sites — the spawn bind, the
+     * parked-server resume arm, the two headless adopt arms (adopt and resume
+     * fallback), the surviving-server adopt, and the two terminal reattach
+     * arms — plus one `emitBind` per server family (codex, grok-acp, opencode
+     * serving both flavours, claude-sdk). The three port lambdas (two Claude
+     * adopt arms in `control/session.ts`, one supervisor port in
+     * `host-runtime.ts`) forward `input` and state nothing, and are counted
+     * separately.
      *
-     * EVERY ONE STATES `driverId` OUTRIGHT, which is what the count is for:
-     * the handle is registered before each of those lines runs, so stating the
-     * driver is stating a fact rather than asking a question.
-     *
-     * The count is asserted so a new bind site cannot be added without coming
-     * here and deciding what it reports.
+     * EVERY ONE STATES `driverId` (outright, or — on the terminal paths — the
+     * conditional spread a shell predictably empties), which is what the count
+     * is for: the handle is registered before each of those lines runs, so
+     * stating the driver is stating a fact rather than asking a question, and
+     * a new bind site cannot be added without coming here and deciding what it
+     * reports.
      */
     expect(bindSites).toBe(11)
+    expect(portForwarders).toBe(3)
   })
 })
 
