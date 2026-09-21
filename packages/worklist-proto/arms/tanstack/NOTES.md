@@ -80,6 +80,49 @@
 
 ## Count tables
 
+### M2 structural scenarios (POD-4452; 1x engine-backed, strict gate green)
+
+Full table in `docs/measurements/POD-4452-m2.md` (budgets beside each
+number) and `tanstack-m2-counts-1x.json` (attached to the issue).
+Shape: value updates are delta-precise (only the touched chain re-runs,
+every counter scale-invariant); keyspace changes and clock ticks re-run
+the graph's fns broadly with value-equal suppression containing commits
+(#6a: 9,253 summary runs → 2 changes → 0 commits). Commits match both
+finished arms exactly where comparable (#7: 2 [i2,i8]; #10: 21 / 32).
+Query-graph runs per scenario are reported next to the counts in the
+note. Mount record for the Q-T5 fan-out check: verdictQ 3,354,
+verdictR 0 (no R3 fan-out on the scenario corpus — F-seed, see the
+note), max issues per worktree 0.
+
+### M2 mechanism fixes (both inside existing places — no new list entry)
+
+- **Flat via summaryQ, not visibleQ** (place #4; `ingestVisible`
+  deleted). Pure-DSL `where` retractions are silent: no event when an
+  upstream update fails the predicate (verified by subscription tap).
+  `childQ` silence was already backstopped by the issue-row R1
+  reconcile; `visibleQ` silence was not — archived rows stayed
+  committed. The summary row carries (excluded, flat) and notifies on
+  every flip, so the mirror is complete.
+- **rebuildOrder gated on orderDirty** (place #5; H4 residual R-T1).
+  Count-identical; `order-rebuild` scans now only on order-affecting
+  steps.
+- **Scan vocabulary** (slope material, cleared by `stats.reset()`):
+  `order-rebuild`, `move-seat-scan` (500/ingest at 1x — removable,
+  J-phase), `prefix-probe` (1.1M per keyspace change/tick at 1x —
+  inherent short of a trie, J-phase), `dependents-scan` (0 on M2 paths;
+  map empty on the scenario corpus).
+
+### Verified library semantics, M2 additions (all by spike or tap)
+
+13. Sync `update` ops surface to `subscribeChanges` as `insert`
+    (minimal repro: one row, one update, one observed insert). No
+    handler branches insert-vs-update — drive by key, never by type
+    (genuine removals excepted).
+14. Pure-DSL `where` queries emit no change event on predicate-failure
+    retractions driven by upstream updates (state goes correct,
+    subscribers hear nothing). Only `fn` queries notify reliably —
+    every mirrored seat must hang off one.
+
 ### 1x engine-backed (GROWTH_CORPORA.x1; 4,867 issues / 4,304 sessions / 500 repos; 3,230 visible rows)
 
 | Scenario | Rows committed | rowsDerived | rollupsDerived | indexUpdates | notifications | Parity |
@@ -164,6 +207,14 @@ adapter, though that adapter is scheduled for deletion) — but the
 WEIGHT is new for the worklist surface. One input to the decision.
 
 ## Line count (arm folder, `wc -l`; tests excluded)
+
+M1: 3,874 total / 3,270 code-only (table in H4 review §4). M2: **3,919**
+total (`rules` 512, `collections` 396, `queries` 818, `rollup` 1,229,
+`store` 652, `arm` 49, `react/list` 194, `native` 69): +45, all
+instrumentation, comments, and the two M2 fixes — no new query, no new
+collection, one subscription removed. Still the largest of the three
+arms (MobX ~2,420); compression stays deferred to the K-phase change
+exercise per the H4 adjudication.
 
 | Module | Total | Code-only |
 |---|---|---|

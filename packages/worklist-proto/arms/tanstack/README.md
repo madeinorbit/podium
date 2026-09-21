@@ -75,10 +75,16 @@ Example: a `dueSoon` flag on the row, derived from `issue.deferUntil`.
 4. `rollup.ts` — seats (member/child/origin/dependent), rescue/hosted
    bookkeeping, aggregates, ticks, rank/lane denorm, the invalidation
    rule in the file header, explicit removal driving (`dropSession`,
-   removal branch of `ingestIssue`).
+   removal branch of `ingestIssue`). Flat membership is mirrored from
+   `summaryQ` events, never `visibleQ` events (M2: the where-query is
+   silent on retractions — see NOTES.md).
 5. `store.ts` — dispatch order, `takeRemoved` draining, commit-layer
-   compare, order surface bucketing, `graceSensitive`, selection latch,
-   disposal order (reverse topology).
+   compare, order surface bucketing (rebuilt only when `orderDirty` —
+   rowsQ-only changes cannot move it, M2), `graceSensitive`, selection
+   latch, disposal order (reverse topology). Scan counters
+   (`scanCounts()`, cleared by `stats.reset()`) name the H4 slope
+   material: `order-rebuild`, `move-seat-scan`, `prefix-probe`,
+   `dependents-scan`.
 6. `react/list.tsx` + `native.tsx` — components (narrow props only; rows
    read their own key, never arrays).
 7. `tanstack.test.ts` — the worked example (every rule change re-asserts
@@ -89,3 +95,22 @@ Miss 3's counter and H4 fails you for undercounting; miss 4's removal
 branch and an evict goes stale (sync deletes are silent — see NOTES.md);
 miss 5's drain and the same; miss 7 and the next arm can't tell what
 broke.
+
+## M2 (POD-4452)
+
+Two mechanism fixes, no new place to remember (both live inside places
+#4/#5 above):
+
+- Flat membership moved from `visibleQ` events to `summaryQ` events
+  (`rollup.ts`: `ingestVisible` deleted, `ingestSummary` owns the flat
+  set). `visibleQ`'s pure-DSL `where` retractions emit no event — an
+  archived row left `visibleQ` state with no notification and stayed
+  committed (#6b parity FAIL before, green after). A visible change
+  requires a summary value change by construction, so the mirror is
+  complete; `visibleQ` stays as the declared visible set + bootstrap
+  seed, with no subscribers.
+- The order surface rebuilds only when `orderDirty` (`store.ts`:
+  `finishCycle`). The surface reads orderQ + laneQ alone, so rowsQ-only
+  changes (renames, unread flips, band-neutral ticks) skip the full
+  re-bucket + whole-order compare exactly. Count-identical before/after;
+  `order-rebuild` scans now appear only on order-affecting steps.
