@@ -557,6 +557,12 @@ export class MobXStore {
 
   /** Re-resolve every unbound session after lane/target moves (spec §2 R3). */
   private resolveAllUnbound(): void {
+    // Consume the flag here, not only on the gated update path: bootstrap
+    // and replace both resolve unconditionally, and a flag left set by their
+    // ingests would fire one full redundant re-resolve on the NEXT event
+    // (M2 #4 showed 4,304 home visits + 614k root spreads for zero seat
+    // changes). Clearing at the consumer keeps every path consistent.
+    this.resolveNeeded = false
     // Two passes in stable home order. The resolved PATH may be unchanged
     // while its member set moved (an issue gained a worktreePath), so seats
     // rebuild unconditionally; the drop-then-take split preserves bucket
