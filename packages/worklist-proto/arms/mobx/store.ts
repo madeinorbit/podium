@@ -195,7 +195,6 @@ export class MobXStore {
       vacatedOrigin: false,
       formalMembers: false,
       progressOf: false,
-      memberIssuesOfSession: false,
       resolveCwd: false,
       roots: false,
     })
@@ -458,8 +457,10 @@ export class MobXStore {
             this.takeSeat(this.resolvedByIssue, issueId, id)
           }
         }
-        this.sessionHome.set(id, { explicit: nextExplicit, resolved })
       }
+      // Always seated: lanes ingest after sessions at bootstrap, so the home
+      // may not exist yet — resolveAllUnbound (post-lane) seats it then.
+      this.sessionHome.set(id, { explicit: nextExplicit, resolved })
     } else {
       const home = this.sessionHome.get(id)
       if (home?.resolved) {
@@ -582,19 +583,6 @@ export class MobXStore {
   prefixForRepo(repoId: string | null | undefined): string | null {
     if (repoId === null || repoId === undefined) return null
     return this.prefixByRepoId.get(repoId) ?? null
-  }
-
-  memberIssuesOfSession(sid: string): string[] {
-    const home = this.sessionHome.get(sid)
-    if (!home) return []
-    const out: string[] = []
-    if (home.explicit !== null) out.push(home.explicit)
-    if (home.resolved !== null) {
-      for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
-        if (issueId !== home.explicit) out.push(issueId)
-      }
-    }
-    return out
   }
 
   /** Visible formal subtree: self plus visible descendants (spec §3 R-ROLL). */
