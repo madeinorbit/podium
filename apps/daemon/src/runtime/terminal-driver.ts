@@ -126,6 +126,7 @@ import type {
   TranscriptItem,
 } from '@podium/model'
 import { asSessionId } from '@podium/model'
+import type { Terminal } from '../terminal/terminal.js'
 import type { AgentObservation, ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import type { SpawnControl } from '../session-observers'
@@ -193,8 +194,8 @@ export interface TerminalRuntimeHost {
   /** Outbound daemon frames. The driver's only path to the server. */
   send(msg: DaemonMessage): void
   stageAttachment: AttachmentStager
-  /** The live PTY bridge, when this daemon holds one. */
-  bridge(sessionId: SessionId): { write(dataBase64: string): void; pid: number } | undefined
+  /** The live Terminal, when this daemon holds one for the session. */
+  bridge(sessionId: SessionId): Terminal | undefined
   /** The observers' current folded state for a session. */
   trackedState(sessionId: SessionId): AgentRuntimeState | undefined
   /** Whether composer sync is running (Draft Sync v2) for this session. */
@@ -1471,7 +1472,7 @@ export function createTerminalRuntime(
     return createTerminalInjection(
       {
         write: (text) => {
-          host.bridge(session.sessionId)?.write(Buffer.from(text, 'utf8').toString('base64'))
+          host.bridge(session.sessionId)?.writeBase64(Buffer.from(text, 'utf8').toString('base64'))
         },
         running: () => session.alive && host.bridge(session.sessionId) !== undefined,
         live: () => session.live && session.alive && host.bridge(session.sessionId) !== undefined,
@@ -2068,7 +2069,7 @@ export function createTerminalRuntime(
             }
             // Count an attempted write conservatively: a throwing bridge may have written bytes.
             writes += 1
-            try { bridge.write(Buffer.from(key, 'utf8').toString('base64')) }
+            try { bridge.writeBase64(Buffer.from(key, 'utf8').toString('base64')) }
             catch { running.cancel('bridge write failed'); return }
             if (index === script.script.keys.length - 1) finish({ ok: true })
           }

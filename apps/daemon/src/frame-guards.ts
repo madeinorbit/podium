@@ -177,8 +177,8 @@ export function createFrameGuard(
       if (msg.type === 'kill') {
         log.info('session kill received', {
           sessionId: msg.sessionId,
-          hasBridge: ctx.bridges.has(msg.sessionId),
-          hasDurableLabel: ctx.durableLabels.has(msg.sessionId),
+          hasBridge: ctx.sessions.get(msg.sessionId)?.attached ?? false,
+          hasDurableLabel: ctx.sessions.has(msg.sessionId),
         })
       }
       try {

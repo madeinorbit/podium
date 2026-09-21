@@ -2,19 +2,24 @@
  * PER-SESSION SCREEN STATE — one TerminalScreen per session (POD-3922 P2c).
  *
  * The screen belongs to the SESSION; the attachment is merely the current way
- * of reaching it. This module is the daemon's `Map<SessionId, TerminalScreen>`:
- * entries are created on first use (first output byte or first applied size),
- * fed by every output funnel and every apply site, and dropped only when the
- * session's terminal goes away (`forgetSessionScreen` on the bridge-exit path).
- * A detach/reattach cycle never drops one — the next attachment resumes
- * feeding the same screen, which is what makes the reopen policy reconstitute
- * from what the program drew rather than from a fresh emulator.
+ * of reaching it. Since POD-4434 the screen lives ON the DaemonSession
+ * (`apps/daemon/src/session/`): entries are created on first use (first output
+ * byte or first applied size), fed by every output funnel and every apply site,
+ * and dropped only when the session's terminal goes away (`forgetSessionScreen`
+ * on the bridge-exit path). A detach/reattach cycle never drops one — the next
+ * attachment resumes feeding the same screen, which is what makes the reopen
+ * policy reconstitute from what the program drew rather than from a fresh
+ * emulator.
+ *
+ * This module is the call-shape the daemon already speaks: every function
+ * below delegates to the session, so observers, Draft Sync and the reopen
+ * policy keep reading the ONE TerminalScreen with no call-site churn.
  *
  * The per-session VALUE lives in `@podium/process/screen` (`TerminalScreen`:
  * applied size, byte log, one model, 1049 mode, repaint policy) because none
- * of that names a SessionId, a protocol frame or the daemon context. The MAP
- * stays here because it does. `snapshotFirstFrame` is re-exported from the
- * package so the one serialisation has one home.
+ * of that names a SessionId, a protocol frame or the daemon context. The
+ * OWNERSHIP lives on the Session because it does. `snapshotFirstFrame` is
+ * re-exported from the package so the one serialisation has one home.
  */
 
 import type { Geometry, SessionId } from '@podium/model'
@@ -28,40 +33,22 @@ import type { DaemonContext } from './control/context'
 export { snapshotFirstFrame }
 export type { ScreenMode }
 
-/** The size a screen is born at when nothing applied one yet. */
-const DEFAULT_MODEL_SIZE = { cols: 80, rows: 24 } as const
-
 export interface SessionScreenState {
   screen: TerminalScreen
 }
 
-/** This daemon's per-session screens, created on first use. */
-export function sessionScreensFor(ctx: DaemonContext): Map<SessionId, SessionScreenState> {
-  return (ctx.sessionScreens ??= new Map<SessionId, SessionScreenState>())
-}
-
+/** This session's screen state, without creating it. */
 export function sessionScreenFor(
   ctx: DaemonContext,
   sessionId: SessionId,
 ): SessionScreenState | undefined {
-  return ctx.sessionScreens?.get(sessionId)
-}
-
-function stateFor(ctx: DaemonContext, sessionId: SessionId): SessionScreenState {
-  const screens = sessionScreensFor(ctx)
-  let state = screens.get(sessionId)
-  if (!state) {
-    state = {
-      screen: new TerminalScreen({ cols: DEFAULT_MODEL_SIZE.cols, rows: DEFAULT_MODEL_SIZE.rows }),
-    }
-    screens.set(sessionId, state)
-  }
-  return state
+  const screen = ctx.sessions.get(sessionId)?.peekScreen()
+  return screen ? { screen } : undefined
 }
 
 /** This session's screen, creating it at the default size on first use. */
 export function terminalScreenFor(ctx: DaemonContext, sessionId: SessionId): TerminalScreen {
-  return stateFor(ctx, sessionId).screen
+  return ctx.sessions.ensure(sessionId).screen()
 }
 
 /**
@@ -70,7 +57,7 @@ export function terminalScreenFor(ctx: DaemonContext, sessionId: SessionId): Ter
  * feeding the same bytes twice only repaints the same cells.
  */
 export function trackSessionOutput(ctx: DaemonContext, sessionId: SessionId, data: Uint8Array): ScreenMode {
-  return stateFor(ctx, sessionId).screen.push(data)
+  return ctx.sessions.ensure(sessionId).screen().push(data)
 }
 
 /**
@@ -83,7 +70,7 @@ export function trackSessionSize(
   cols: number,
   rows: number,
 ): void {
-  stateFor(ctx, sessionId).screen.setAppliedSize(cols, rows)
+  ctx.sessions.ensure(sessionId).screen().setAppliedSize(cols, rows)
 }
 
 /** Read the model's rendered rows for a first-frame serialisation. */
@@ -98,14 +85,7 @@ export function snapshotLines(
 
 /** The session is gone: its screen died with it (a restart rebuilds approx). */
 export function forgetSessionScreen(ctx: DaemonContext, sessionId: SessionId): void {
-  const state = ctx.sessionScreens?.get(sessionId)
-  if (!state) return
-  try {
-    state.screen.dispose()
-  } catch {
-    // Disposal is best-effort bookkeeping on a teardown path.
-  }
-  ctx.sessionScreens?.delete(sessionId)
+  ctx.sessions.get(sessionId)?.dropScreen()
 }
 
 /** Backwards-compatible alias: the grid the screen's model was fed at. */
