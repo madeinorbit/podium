@@ -10,6 +10,8 @@ import {
   saveConfig,
 } from './config'
 import { decodeJoin } from './join'
+import { accessSync, constants } from 'node:fs'
+import { delimiter, join } from 'node:path'
 
 export type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual'
 
@@ -55,6 +57,96 @@ export function networkOptionCommand(
     case 'manual':
       return { command: '', hint: 'Paste the https:// URL your reverse proxy serves.' }
   }
+}
+
+/**
+ * The external program a reachability option needs ON THIS MACHINE, and how to get it.
+ *
+ * `networkOptionCommand` hands back `tailscale funnel 18787` whether or not tailscale
+ * exists here, which is the one thing an installer must not do: the operator copies a
+ * command that answers `command not found` and has nothing to go on. So the command is
+ * paired with the requirement it assumes, and the caller checks it with
+ * {@link commandExists} before presenting either.
+ *
+ * `install` is OPTIONAL on purpose — on an architecture we have no published binary URL
+ * for, the honest answer is the docs page, not a download that 404s.
+ */
+export interface NetworkTool {
+  /** The executable to look for on PATH. */
+  binary: string
+  /** Ready-to-paste install command(s), one per line. Absent when we cannot name one. */
+  install?: string
+  /** The one-time step between installing and the reachability command working. */
+  signIn?: string
+  /** Where to read about the other ways to install it. */
+  docs: string
+}
+
+/** cloudflared's release assets are named by Go's arch, not Node's. An arch with no
+ *  published asset yields undefined, which drops the download command and leaves the
+ *  docs link — see {@link NetworkTool.install}. */
+function cloudflaredArch(arch: string): string | undefined {
+  const byNodeArch: Record<string, string> = {
+    x64: 'amd64',
+    arm64: 'arm64',
+    arm: 'arm',
+    ia32: '386',
+  }
+  return byNodeArch[arch]
+}
+
+/** What {@link networkOptionCommand}'s command assumes is already installed. `undefined`
+ *  for `manual`, which runs no command of ours. */
+export function networkOptionTool(
+  opt: NetworkOption,
+  arch: string = process.arch,
+): NetworkTool | undefined {
+  switch (opt) {
+    case 'tailscale-funnel':
+    case 'tailscale-serve':
+      return {
+        binary: 'tailscale',
+        install: 'curl -fsSL https://tailscale.com/install.sh | sh',
+        signIn: 'sudo tailscale up',
+        docs: 'https://tailscale.com/kb/1347/installation',
+      }
+    case 'cloudflare-tunnel': {
+      const goArch = cloudflaredArch(arch)
+      return {
+        binary: 'cloudflared',
+        ...(goArch
+          ? {
+              install: [
+                `curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${goArch}`,
+                'sudo install -m 0755 cloudflared /usr/local/bin/cloudflared && rm cloudflared',
+              ].join('\n'),
+            }
+          : {}),
+        docs: 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/',
+      }
+    }
+    case 'manual':
+      return undefined
+  }
+}
+
+/**
+ * Is `binary` runnable from this shell? A PATH walk rather than spawning `which`/`command
+ * -v`: setup asks this while drawing a prompt, and a process spawn per menu entry is both
+ * slower and one more thing that can fail for a reason that has nothing to do with the
+ * answer. `env` is a parameter so a test never has to mutate the real PATH.
+ */
+export function commandExists(binary: string, env: EnvSource = process.env): boolean {
+  for (const dir of (env.PATH ?? '').split(delimiter)) {
+    if (dir === '') continue
+    try {
+      accessSync(join(dir, binary), constants.X_OK)
+      return true
+    } catch {
+      // Not here (or not executable) — keep walking.
+    }
+  }
+  return false
 }
 
 export function validatePublicUrl(

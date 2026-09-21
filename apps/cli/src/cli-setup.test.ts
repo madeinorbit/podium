@@ -16,7 +16,7 @@ import {
   shouldRunCliSetup,
   waitForDaemonEnrollment,
 } from './cli-setup'
-import { scriptedIO } from './setup-ui'
+import { BACK, scriptedIO } from './setup-ui'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -78,6 +78,9 @@ describe('runCliSetup', () => {
         setPassword: setPw,
         startBackend: echoBackend,
         waitForEnrollment: async () => {},
+        // Hermetic: whether THIS box has tailscale/cloudflared must not decide what the
+        // flow prints. The missing-tool path has its own tests below.
+        hasCommand: () => true,
       }),
     }
   }
@@ -85,17 +88,30 @@ describe('runCliSetup', () => {
     start(answers, setPw).done
 
   describe('first run (mode menu)', () => {
-    it.each(['all-in-one', 'server'] as const)('persists the %s setup request and key before starting the backend', async (mode) => {
+    it.each([
+      'all-in-one',
+      'server',
+    ] as const)('persists the %s setup request and key before starting the backend', async (mode) => {
       const { io } = scriptedIO([mode, net(3), 'https://hub.example', 's3cret', true])
       const startBackend = vi.fn(async (options: { persistence: 'systemd' | 'detached' }) => {
         const state = loadSupervisorState(dir)
-        expect(state.setupEnrollment).toMatchObject({ machineId: state.machineId,
-          preauthorized: true, agentExecution: mode === 'all-in-one' })
-        expect(state.setupEnrollment?.publicKey).toBe(machinePublicKeyWire(readMachineCredential(dir)!))
+        expect(state.setupEnrollment).toMatchObject({
+          machineId: state.machineId,
+          preauthorized: true,
+          agentExecution: mode === 'all-in-one',
+        })
+        expect(state.setupEnrollment?.publicKey).toBe(
+          machinePublicKeyWire(readMachineCredential(dir)!),
+        )
         expect(state.enrolledPublicKey).toBeUndefined()
         return { effectivePersistence: options.persistence, message: 'started' }
       })
-      await runCliSetup(io, 18787, { setPassword: vi.fn(async () => {}), startBackend, activateImmediately: true })
+      await runCliSetup(io, 18787, {
+        hasCommand: () => true,
+        setPassword: vi.fn(async () => {}),
+        startBackend,
+        activateImmediately: true,
+      })
       expect(startBackend).toHaveBeenCalled()
     })
 
@@ -106,7 +122,11 @@ describe('runCliSetup', () => {
       }))
       const { io, prompts } = scriptedIO([net(0), 'https://vps.ts.net', 's3cret', true])
 
-      await runVpsSetup(io, 18787, { setPassword: vi.fn(async () => {}), startBackend })
+      await runVpsSetup(io, 18787, {
+        hasCommand: () => true,
+        setPassword: vi.fn(async () => {}),
+        startBackend,
+      })
 
       expect(prompts).not.toContain('What do you want this machine to do?')
       expect(prompts.some((prompt) => prompt.includes('telemetry'))).toBe(false)
@@ -131,6 +151,7 @@ describe('runCliSetup', () => {
 
       const { io } = scriptedIO([net(0), 'https://vps.ts.net', 's3cret', true])
       await runVpsSetup(io, 18787, {
+        hasCommand: () => true,
         setPassword: vi.fn(async () => {}),
         startBackend,
         waitForEnrollment: async () => {},
@@ -166,6 +187,7 @@ describe('runCliSetup', () => {
       })
       const { io } = scriptedIO(['all-in-one', net(3), 'https://hub.example', 's3cret', true])
       await runCliSetup(io, 18787, {
+        hasCommand: () => true,
         setPassword: vi.fn(async () => {}),
         startBackend,
         activateImmediately: true,
@@ -180,7 +202,11 @@ describe('runCliSetup', () => {
         return { effectivePersistence: o.persistence, message: 'started' }
       })
       const { io } = scriptedIO(['all-in-one', net(3), 'https://hub.example', 's3cret', true])
-      await runCliSetup(io, 18787, { setPassword: vi.fn(async () => {}), startBackend })
+      await runCliSetup(io, 18787, {
+        hasCommand: () => true,
+        setPassword: vi.fn(async () => {}),
+        startBackend,
+      })
       expect(persistenceAtBoot).toBeUndefined()
     })
 
@@ -217,6 +243,7 @@ describe('runCliSetup', () => {
       // initialValue (systemd, the recommended option) stands.
       const { io } = scriptedIO(['all-in-one', net(0), 'https://box.ts.net', 's3cret', undefined])
       await runCliSetup(io, 18787, {
+        hasCommand: () => true,
         setPassword: vi.fn(async () => {}),
         startBackend,
         waitForEnrollment: async () => {},
@@ -240,6 +267,7 @@ describe('runCliSetup', () => {
       // Queue ends before the persistence confirm — the scripted stand-in for Ctrl-C.
       const { io } = scriptedIO(['all-in-one', net(0), 'https://box.ts.net', 's3cret'])
       await runCliSetup(io, 18787, {
+        hasCommand: () => true,
         setPassword: vi.fn(async () => {}),
         startBackend,
         waitForEnrollment: async () => {},
@@ -280,6 +308,7 @@ describe('runCliSetup', () => {
       // join, then decline systemd → detached
       const { io } = scriptedIO(['daemon', token, false])
       await runCliSetup(io, 18787, {
+        hasCommand: () => true,
         setPassword: setPw,
         startBackend,
         waitForEnrollment: async () => {},
@@ -337,14 +366,169 @@ describe('runCliSetup', () => {
       expect(loadConfig()).toEqual({})
     })
 
-    it('gives up (bounded) when the URL prompt only ever returns empty', async () => {
-      // Pick all-in-one and a network option, then never paste a URL. The queue drains,
-      // which is the scripted stand-in for Ctrl-C, and the flow must END rather than spin —
-      // the condition readline could only report as '' forever.
-      const { output, done } = start(['all-in-one', net(0), '', '', ''])
+    it('ends (bounded) when every prompt only ever returns empty', async () => {
+      // Pick all-in-one and a network option, then never paste a URL. A blank URL is now
+      // "I picked the wrong option" and returns to the option list; a blank answer at that
+      // SELECT is the scripted stand-in for Ctrl-C. Either way the run must END rather than
+      // spin — the condition readline could only report as '' forever — and write nothing.
+      const { done } = start(['all-in-one', net(0), '', '', ''])
+      await done
+      expect(loadConfig()).toEqual({})
+    })
+
+    it('a cancelled URL prompt still ends the run and says nothing was saved', async () => {
+      const { output, done } = start(['all-in-one', net(0)])
       await done
       expect(loadConfig().publicUrl).toBeUndefined()
       expect(output.join('\n')).toContain('nothing saved')
+    })
+  })
+
+  /**
+   * GOING BACK. Everything between the mode menu and the password is a DECISION that has
+   * not been applied yet, so the only cost of picking wrong is re-answering. The rule the
+   * tests below pin is where that stops: a step is backable only while nothing has been
+   * written, which is why the password step and everything after it is not.
+   */
+  describe('going back through the decision-only steps', () => {
+    const MENU = 'What do you want this machine to do?'
+    const METHODS = 'How can clients reach this machine over the network?'
+    const asked = (prompts: string[], message: string) =>
+      prompts.filter((p) => p === message).length
+
+    it('backs out of the exposure-method list to the mode menu, which is asked again', async () => {
+      const { prompts, done } = start(['all-in-one', BACK, 'daemon'])
+      await done
+      expect(asked(prompts, MENU)).toBe(2)
+      expect(loadConfig()).toEqual({})
+    })
+
+    it('a different mode can then be chosen and carried through', async () => {
+      const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'P1' })
+      await run(['all-in-one', BACK, 'daemon', token, false])
+      expect(loadConfig().mode).toBe('daemon')
+      expect(loadConfig().serverUrl).toBe('wss://relay.example')
+    })
+
+    it('a blank URL returns to the exposure-method list, not out of the flow', async () => {
+      const { prompts, done } = start([
+        'all-in-one',
+        net(0),
+        '',
+        net(3),
+        'https://box.ts.net',
+        's3cret',
+        false,
+        false,
+        false,
+      ])
+      await done
+      expect(asked(prompts, METHODS)).toBe(2)
+      expect(loadConfig().networkOption).toBe('manual')
+      expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+    })
+
+    it('a blank join code returns to the mode menu without writing anything', async () => {
+      const { prompts, done } = start(['daemon', '', 'daemon'])
+      await done
+      expect(asked(prompts, MENU)).toBe(2)
+      expect(loadConfig()).toEqual({})
+    })
+
+    it('the URL edit on a configured host can be backed out of too', async () => {
+      saveConfig({ mode: 'all-in-one', publicUrl: 'https://existing.ts.net' })
+      const { prompts, done } = start(['url', BACK])
+      await done
+      expect(asked(prompts, MENU)).toBe(2)
+      expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
+    })
+
+    it('offers NO way back when this step IS the first one (runVpsSetup)', async () => {
+      // There is no mode menu above it — the VPS is already decided to be an all-in-one —
+      // so a back row there would have nowhere to go.
+      const s = scriptedIO([net(3), 'https://vps.example', 's3cret', true])
+      await runVpsSetup(s.io, 18787, {
+        hasCommand: () => true,
+        setPassword: vi.fn(async () => {}),
+        startBackend: echoBackend,
+      })
+      expect(s.prompts.some((p) => p.includes('Go back'))).toBe(false)
+      expect(loadConfig().publicUrl).toBe('https://vps.example')
+    })
+  })
+
+  /**
+   * THE TOOL THE COMMAND NEEDS. `tailscale funnel 18787` is useless advice on a box with
+   * no tailscale, and that is exactly the box a fresh install runs on.
+   */
+  describe('reachability options whose tool is not installed', () => {
+    /** cloudflared is here, tailscale is not. */
+    const onlyCloudflared = (binary: string) => binary === 'cloudflared'
+    const withProbe = (answers: unknown[], hasCommand: (b: string) => boolean) => {
+      const s = scriptedIO(answers)
+      return {
+        ...s,
+        done: runCliSetup(s.io, 18787, {
+          hasCommand,
+          setPassword: vi.fn(async () => {}),
+          startBackend: echoBackend,
+          waitForEnrollment: async () => {},
+        }),
+      }
+    }
+
+    it('says so on the OPTION, so the choice is informed rather than a surprise after it', async () => {
+      const { prompts, done } = withProbe(['all-in-one'], onlyCloudflared)
+      await done
+      expect(
+        prompts.some((p) =>
+          p.startsWith('Tailscale Funnel (public, recommended) — tailscale is not installed'),
+        ),
+      ).toBe(true)
+      // The one that IS installed carries no such mark.
+      expect(prompts.some((p) => p.startsWith('Cloudflare quick tunnel (no Tailscale) —'))).toBe(
+        true,
+      )
+      expect(prompts.some((p) => p.includes('cloudflared is not installed'))).toBe(false)
+    })
+
+    it('boxes the install command FIRST and the reachability command after it', async () => {
+      const { commands, output, done } = withProbe(
+        ['all-in-one', net(0), 'https://box.ts.net', 's3cret', false, false, false],
+        onlyCloudflared,
+      )
+      await done
+      expect(commands).toContain('curl -fsSL https://tailscale.com/install.sh | sh')
+      expect(commands).toContain('sudo tailscale up')
+      expect(commands).toContain('tailscale funnel 18787')
+      // Order is the point: install, sign in, then the command that needs both.
+      expect(commands.indexOf('curl -fsSL https://tailscale.com/install.sh | sh')).toBeLessThan(
+        commands.indexOf('tailscale funnel 18787'),
+      )
+      expect(output.join('\n')).toContain('https://tailscale.com/kb/1347/installation')
+    })
+
+    it('an installed tool gets the command and nothing else', async () => {
+      const { commands, output, done } = withProbe(
+        ['all-in-one', net(0), 'https://box.ts.net', 's3cret', false, false, false],
+        () => true,
+      )
+      await done
+      expect(commands).toEqual(['tailscale funnel 18787'])
+      expect(output.join('\n')).not.toContain('is not installed')
+    })
+
+    it('a manual reverse proxy needs no tool of ours, so none is demanded', async () => {
+      // Nothing is installed on this box at all, and the manual option must still be
+      // walkable: it runs no command of ours, so it has nothing to require.
+      const { commands, output, done } = withProbe(
+        ['all-in-one', net(3), 'https://proxy.example', 's3cret', false, false, false],
+        () => false,
+      )
+      await done
+      expect(commands).toEqual([])
+      expect(output.join('\n')).not.toContain('is not installed')
+      expect(loadConfig().publicUrl).toBe('https://proxy.example')
     })
   })
 
@@ -498,6 +682,7 @@ describe('runCliSetup', () => {
         },
       }
       await runCliSetup(io, 18787, {
+        hasCommand: () => true,
         setPassword: vi.fn(async () => {}),
         startBackend: async (o) => {
           order.push('startBackend')
@@ -629,6 +814,7 @@ describe('runCliSetup under a deployment that owns the answers', () => {
         setPassword: vi.fn(async () => {}),
         startBackend: echoBackend,
         waitForEnrollment: async () => {},
+        hasCommand: () => true,
         ...deps,
       }),
     }
