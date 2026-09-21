@@ -1,7 +1,9 @@
-# Round-two decision: the MobX tracked object graph is the shape of the rewrite (POD-4459)
+# Round-two decision: the MobX tracked object graph is the shape of the rewrite (POD-4459, re-decided against the quiet numbers)
 
 Status: decision document for POD-4441 · applicants: the three round-two arms on
-`integrate/4441-round-two` · plan of record: methodology rev four.
+`integrate/4441-round-two` · plan of record: methodology rev four · re-decision
+owned by this issue against the quiet-window re-run, which tripped the
+provisional section's own reopen condition and is now folded in.
 
 ## Reading conventions, stated once
 
@@ -11,10 +13,11 @@ it; the prose between tables describes and points but states no figure. Strings 
 digits that do appear in prose are identifiers, not measurements: issue references,
 scenario labels, methodology section numbers, and file pointers. A *pointer* of the
 form `path:line` names evidence; it asserts nothing by itself. *Counts carry the
-verdict; walls are provisional* throughout: nearly every wall-clock figure in this
-tree was measured under box load above the hygiene line and deliberately withheld,
-and the quiet-window re-run owns them. Which conclusions that re-run could change is
-stated where the provisional tables appear.
+verdict; walls are now real where the quiet-window re-run measured them and
+stay provisional only where it names a gap*: the M2 hot-path walls, the growth
+walls except where withheld, and the click walls are verdicts; the lifecycle
+walls and the named withheld cells are not. Which conclusions the remaining gaps
+could still change is stated where the quiet tables appear.
 
 A final convention on counting units. The three arms count different units inside
 their derivations: the TanStack arm counts query-function evaluations, the MobX arm
@@ -28,11 +31,49 @@ not-comparable, never in a cross-arm comparison.
 ## Recommendation
 
 Rewrite the frontend read model as a MobX tracked object graph, following the
-POD-4447 arm as built.
+POD-4447 arm as built — re-affirmed under shared performance failure, not
+restated past it.
 
-It is the only arm that passes all three pre-committed gates, and the safety margin
-is the one that matters: the render-path mistake that made the current application
-slow is loud in this arm and silent in both others.
+The quiet-window re-run tripped the provisional section's own reopen condition:
+every arm exceeds the hot-path and click wall budgets under quiet conditions,
+so every arm fails the performance gate regardless of its counts, and the MobX
+overrun reopened this recommendation. The re-decision below weighs the three
+things now in tension rather than defending the earlier line.
+
+Safety still points at MobX and the re-run touched nothing there: the
+render-path mistake that made the current application slow is loud in this arm
+and silent in both others, verified by planting the defect in each arm, and the
+safety standing does not depend on walls.
+
+Walls now point at the hand-rolled arm, plainly and by a clear margin: it is
+fastest on the hot path in both pipeline and wall-to-paint medians, and it is
+the only arm with no long tasks at all on the rename step. The quiet tables
+name the gap; the winner's downside names what MobX costs in exchange.
+
+No arm passes the performance gate, so a gate that everything fails cannot by
+itself select between the arms — but it can disqualify, and the answer is split.
+The shared absolute miss does not disqualify the two arms inside the bundle
+budget, because the budget was set too tight rather than all three approaches
+being unusable: the legacy control the arms replace misses the same hot-path
+and click lines by a far larger margin while committing the visible set on
+steps the arms commit a single row or nothing, so a line that disqualifies all
+three survivors disqualifies the status quo by an order of magnitude more and
+prices paint, collection, and cold-start shape rather than approach. What does
+disqualify is approach-specific: the TanStack clock finding the document said
+would convert on a quiet reproduction has reproduced — engine re-run cost with
+no commits and no long tasks, against a control tick that pipelines near
+nothing — and it joins the standing bundle overrun and the slowest hot-path
+walls to keep that arm third. Between the remaining two, the constant-factor
+wall lead does not overturn the detector lead: the hand arm buys speed today at
+the cost of silence on exactly the failure class that created the rewrite need,
+with no demonstrated fence to replace the detector, while the MobX wall costs
+are bounded, commit-free, and priced in the winner's downside.
+
+This recommendation survives only with the withheld gaps stated alongside it:
+the named unmeasured cells and the lifecycle walls with no browser method could
+still change the standing as listed, and the hand arm becomes eligible on a
+demonstrated render-path fence with the same can-say-no proof burden the
+document already places on it.
 
 ## Vocabulary on first use
 
@@ -62,13 +103,13 @@ slow is loud in this arm and silent in both others.
 ## Gate table
 
 Sources: foot-gun rows from the three exercise documents; counts and slopes from the
-milestone measurement notes; walls from the browser tables as marked provisional;
+milestone measurement notes; walls from the quiet-window re-run as verdicts;
 bundle from the same-build production bundle comparison.
 
 | Gate | Hand-rolled arm | MobX arm | TanStack DB arm |
 |---|---|---|---|
 | Safety: every planted mistake loud | FAIL: the render-path scan stays silent | PASS | FAIL: the render-path scan stays silent |
-| Performance: budgets at live corpus plus slope | CONDITIONAL PASS: counts and slope pass; walls and heap await the quiet-window re-run | CONDITIONAL PASS: counts and slope pass; walls and heap await the quiet-window re-run | FAIL: bundle over budget, self-declared; walls and heap likewise await the re-run |
+| Performance: budgets at live corpus plus slope | FAIL: hot-path and click walls over budget under quiet conditions; counts and count-slope pass; lifecycle walls and named cells still withheld | FAIL: hot-path and click walls over budget under quiet conditions, which reopens the recommendation and is re-decided here; counts and count-slope pass; lifecycle walls and named cells still withheld | FAIL: bundle over budget, self-declared, plus hot-path and click walls over budget under quiet conditions and the quiet-reproduced clock engine finding; counts and count-slope pass; lifecycle walls and named cells still withheld |
 | Fidelity: parity on all scenarios, lifecycle green | PASS | PASS | PASS |
 
 The failing item is named in each cell. Detail per gate follows in the gate sections.
@@ -77,21 +118,30 @@ the single item that caused it.
 
 ## Ranking table
 
-Source: change-exercise documents for effort, milestone notes for slope and bundle.
+Source: change-exercise documents for effort, milestone notes for slope and bundle,
+quiet-window re-run for walls.
 
 | Rank | Arm | Standing | What decides it |
 |---|---|---|---|
-| First | MobX | Passes all gates, walls provisional | Sole all-gates passer; smallest change diffs on the comparable changes; bundle inside budget |
-| Second | Hand-rolled | One gate failed | The render-path silence; otherwise the cheapest bundle and a compile-time exhaustiveness check the others lack |
-| Third | TanStack DB | Two gates failed | The render-path silence plus the bundle overrun; the fastest large-change time but the largest diffs |
+| First | MobX | Passes safety, fidelity, bundle, counts and count-slope; fails the shared absolute wall budgets | Sole safety passer; smallest change diffs on the comparable changes; bundle inside budget; wall costs bounded and priced against a control far worse still |
+| Second | Hand-rolled | One safety gate failed plus the shared absolute wall miss | The render-path silence; otherwise the cheapest bundle, the fastest quiet walls with the only zero-long-task rename, and a compile-time exhaustiveness check the others lack |
+| Third | TanStack DB | Two gates failed plus the quiet clock engine finding | The render-path silence plus the bundle overrun plus the slowest hot-path walls and the reproduced engine-cost tick; the fastest large-change time but the largest diffs |
 
 The ranking among survivors is decided first by the change exercise, then by growth
 slope, then by bundle and heap. All three arms tie the slope on counts, so the change
-exercise and the bundle decide. If the quiet-window re-run contradicts the
-provisional walls, the performance standing reopens as stated in the provisional
-section; the safety standing does not depend on walls.
+exercise and the bundle decide. The quiet-window re-run has now contradicted the
+withheld walls as the provisional section allowed: the performance standing no
+longer selects on the absolute budgets, which every arm including the control
+misses, but selects on the approach-specific findings — the TanStack engine-cost
+tick and bundle weight against it, the hand wall lead for it, the MobX detector
+lead for the winner; the safety standing never depended on walls.
 
 ## Safety gate: the foot-gun table
+
+The quiet-window re-run touched nothing here: it measured walls and corrected
+commits, planted no defect, and changed no arm. The render-path divergence below
+was verified by planting the defect in each arm, and stands as the safety lead
+the recommendation rests on.
 
 Each planted mistake is described once; the per-arm column states what the screen
 showed and what fired. A *probe* is the intended-behavior test the examiner wrote for
@@ -210,37 +260,129 @@ in the milestone notes lacks a home, and they feed no verdict.
 Sources: the three milestone-two notes and the MobX exercise claims check. The
 cross-arm currency stays rows committed, flat everywhere, per the table above.
 
-## Performance gate, provisional half: walls, lifecycle walls, and heap at live corpus
+## Performance gate, quiet-window verdict: walls, lifecycle walls, and heap at live corpus
 
-Every wall-clock figure in this tree was measured under box load above the hygiene
-line and deliberately withheld by its author. Counts carry the verdict meanwhile.
-The quiet-window re-run owns every figure in this section, including the
-provisional browser p50 tallies tabulated here so the re-run has a baseline to
-supersede.
+The quiet-window re-run measured the same invocations with unchanged flags,
+interleaved across arms and scales with the bench lease held per invocation and
+per-record load and revision recorded in the driver files. The hot-path and
+click walls below are verdicts, not proxies; the lifecycle walls and the named
+withheld cells stay provisional as listed.
 
-| Budget | Hand provisional | MobX provisional | TanStack provisional |
+| Arm | Scenario | actionMs p50 / p95 / max | taskMs p50 / p95 / max | commits | longTasks per twenty | per-record load |
+|---|---|---|---|---|---|---|
+| hand | rename | 9.6 / 22.2 / 23.3 | 21.1 / 39.6 / 40.9 | 1 | 0 | 5.1–6.8 |
+| hand | stagemove | 7.2 / 13.7 / 16.8 | 18.4 / 26.6 / 29.6 | 0–1* | 0 | 5.1–6.8 |
+| hand | clock | 2.2 / 3.4 / 3.5 | 12.6 / 20.6 / 23.0 | 0 | 0 | 5.1–6.8 |
+| mobx | rename | 16.2 / 57.5 / 131.8 | 27.1 / 83.5 / 161.6 | 1 | 3 | 4.8–8.0 |
+| mobx | stagemove | 12.9 / 25.5 / 39.5 | 25.8 / 47.2 / 48.6 | 0–1* | 0 | 4.8–8.0 |
+| mobx | clock | 49.3 / 113.2 / 116.8 | 62.7 / 126.5 / 128.2 | 0 | 0 | 4.8–8.0 |
+| tanstack | rename | 88.3 / 108.2 / 110.4 | 101.6 / 118.4 / 120.1 | 1 | 18 | 5.9–8.2 |
+| tanstack | stagemove | 33.1 / 81.6 / 126.7 | 46.1 / 96.0 / 145.2 | 0–1* | 5 | 5.9–8.2 |
+| tanstack | clock | 1529.5 / 2037.3 / 2196.7 | 1537.5 / 2047.3 / 2210.6 | 0 | 0 | 6.4–8.7 |
+| control | rename | 190.6 / 260.4 / 264.8 | 199.0 / 276.0 / 286.8 | 346 | 20 | 7.1–8.4 |
+| control | stagemove | 192.4 / 330.5 / 434.3 | 204.2 / 341.5 / 522.2 | 346 | 20 | 7.1–8.4 |
+| control | clock | 0.0 / 0.1 / 0.2 | 13.8 / 18.0 / 19.5 | 0 | 0 | 7.1–8.4 |
+
+Sources: quiet-window re-run note with its driver files; pooled across both
+invocations per cell. The stagemove zero-commit shape is the known fold-blocked
+form rotating fresh rows per sample, identical across the milestone notes. The
+control clock pipeline near zero is asymmetric by construction: its tick emits
+no publication and its cost arrives with the next engine write, as the milestone
+notes state.
+
+The per-invocation medians below verify the pooled table against the raw driver
+records rather than transcribing it; each invocation holds the same sample count
+with scenarios rotating round-robin per sample.
+
+| Arm | Rename wall-to-paint median, invocation A | Rename wall-to-paint median, invocation B | Per-record load window |
 |---|---|---|---|
-| Hot-path event within the main-thread budget at live corpus | rename and stage-move action walls recorded under load, contaminated | rename and stage-move action walls recorded under load, contaminated | rename action wall above the control-adjacent range under load, stage-move lower, clock anomalous under load with no long tasks; starvation and engine cost not separated |
-| Row click input-to-paint within budget at live corpus and at the largest corpus | withheld | withheld | withheld |
-| Publish on an unrelated change within budget | withheld | withheld | withheld |
-| Principal switch within twice the control | mechanism proved by counts, wall withheld | mechanism proved by counts, wall withheld | mechanism proved by counts, wall withheld |
-| Cold bootstrap within the control multiple | construction snapshots full once, parity green, wall withheld | construction snapshots full once, parity green, wall withheld | construction snapshots full once, parity green, wall withheld |
-| Retained heap within the control multiple, no growth after rescope | happy-dom table equality as proxy only | happy-dom table equality as proxy only | happy-dom table equality as proxy only |
+| hand | 20.8 | 21.5 | 5.1–6.8 |
+| mobx | 26.4 | 27.1 | 4.8–8.0 |
+| tanstack | 97.8 | 105.8 | 5.9–8.2 |
+| control | 199.0 | 203.5 | 7.1–8.4 |
 
-Sources: hand milestone-two and milestone-three notes, MobX milestone-two and
-milestone-three notes, TanStack milestone-two and milestone-three notes; attached
-browser result files per milestone issue; the quiet-window re-run issue.
+Sources: raw driver records from the quiet-window artifact bundle, checked
+record by record; pooled medians above match their pool. Wall-to-paint is the
+budget's asserted field; the pipeline field beside it separates sync-plus-drain
+cost from paint and collection cost.
 
-What would change which conclusions if the re-run contradicts the withheld
-figures. If any arm exceeds the hot-path or click wall budget under quiet
-conditions, that arm fails the performance gate regardless of its counts, and a
-MobX overrun reopens the recommendation. If any arm's wall slope across corpus
-scales exceeds the budget while its count slope stays flat, that arm fails the
-slope on walls; the count slope alone does not save it. If the TanStack clock
-anomaly reappears under quiet conditions with frame starvation separated from
-engine re-run cost, the anomaly becomes a TanStack performance finding rather than
-a load artifact. Nothing the re-run can show changes the safety verdicts or the
-bundle verdicts: those rest on counts and build output, not on walls.
+The prose between these tables points at them without restating them. On the
+hot path the hand arm is fastest by a clear margin on both pipeline and
+wall-to-paint medians and is the only arm with no long tasks at all on the
+rename step; the MobX arm sits in the middle with a small long-task tail on
+rename and a clock price several times its own rename; the TanStack arm is
+slowest by multiples with most rename records carrying long tasks. The control
+misses the same hot-path line by a far larger margin while deriving the whole
+world per rename and stagemove against a single committed row on the arms, with
+every hot-path record carrying a long task. The TanStack clock with no commits
+and no long tasks separates engine re-run cost from frame starvation and
+converts, by the provisional section's own rule, from a load artifact into a
+TanStack performance finding; against it the control tick pipelines near
+nothing. The MobX clock price with no commits confirms the settled-body
+re-run tag the milestone note priced. The commit correction stands: the stale
+all-zero browser commit tallies are superseded, with the rename committing a
+single row per arm against the control's whole-world tally and the clock
+committing nothing everywhere.
+
+| Budget | Verdict under quiet conditions | What decides it |
+|---|---|---|
+| Hot-path event within the main-thread budget at live corpus, wall-to-paint | NOT MET on any arm for rename and stagemove, including by hand | Every pooled wall-to-paint tail sits above the line by multiples; the only sub-line pipeline number is the hand clock, which the budget's asserted field still fails on paint plus collection |
+| Row click input-to-paint within budget at live corpus and at the largest corpus | NOT MET anywhere at either scale | Medians sit near the single-scale line but every file carries one slow first click from cold-list warm-up, present on all four pages including the control, which single-handedly sets the tail at the stated sample count |
+| Publish on an unrelated change within budget | Carried by counts; wall covered by the heartbeat medians below | Heartbeat commits nothing on every arm against the control's visible-set commit |
+| Principal switch within twice the control | Mechanism proved by counts, wall withheld | No browser-harness method exists for it; happy-dom table-equality proxies stand |
+| Cold bootstrap within the control multiple | Mechanism proved by counts, wall withheld | Same method gap as above |
+| Retained heap within the control multiple, no growth after rescope | Proxy only | Same method gap as above |
+
+Sources: quiet-window re-run note for the hot-path and click verdicts with
+their growth medians; milestone-three notes for the lifecycle mechanism halves;
+harness document for the budget lines as asserted fields.
+
+| Scale | Arm | heartbeat action p50 / p95 | click input-to-paint p50 / p95 | heartbeat commits |
+|---|---|---|---|---|
+| single | hand† | 22.8 / 54.1 | 12.1 / 154.6 | 0 |
+| single | mobx | 21.6 / 29.8 | 11.3 / 45.9 | 0 |
+| single | tanstack | 37.8 / 109.0 | 16.8 / 43.1 | 0 |
+| single | control | 88.8 / 138.6 | 14.0 / 138.1 | 346 |
+| double | hand | 23.7 / 35.1 | 14.4 / 43.2 | 0 |
+| double | mobx | 36.8 / 46.6 | 17.1 / 45.6 | 0 |
+| double | tanstack | 53.1 / 123.5 | 13.6 / 49.1 | 0 |
+| quadruple | hand | 42.6 / 99.6 | 11.5 / 42.0 | 0 |
+| quadruple | tanstack | 93.7 / 200.3 | 12.3 / 48.1 | 0 |
+
+Sources: quiet-window re-run note with its growth driver files. The daggered
+hand single-scale row is a quiet subset of three contaminated attempts,
+provisional with full count withheld; the MobX quadruple event walls and the
+control quadruple walls are withheld as below; the control double row is a thin
+provisional subset.
+
+What stays genuinely withheld even in the quiet window, and what each gap could
+still change, belongs in the record rather than the drawer.
+
+| Withheld cell | Status after the quiet window | What it could still change |
+|---|---|---|
+| MobX event walls at the largest corpus | WITHHELD after two contaminated attempts that self-heat | Could reverse the hand-over-MobX relative wall order at scale or show a superlinear blow; the single-to-double medians give no sign of it but the cell itself is unmeasured |
+| Control walls at the largest corpus and full count at double | WITHHELD and thin provisional respectively | Could move the wall-slope-against-control comparison at scale; the count slope already carries the verdict and the control commits scale exactly with the corpus |
+| Hand single-scale heartbeat and click full count | WITHHELD beyond the quiet subset | Could move the hand click tail but not past the line: the subset already misses by multiples and the cold-first-click shape is present on every page |
+| Lifecycle walls — principal switch, cold bootstrap, retained heap, rescope | STILL WITHHELD — no browser-harness method exists for them; the driver covers event walls only | Could reopen the recommendation on its own if the winner misses the control multiples on bootstrap or heap; the mechanism halves are proved by counts meanwhile |
+| Phase-split timed shares | Unchanged box-load proxies, not browser numbers | Could settle the server-projection question if a largest-corpus browser split shows rollups dominating there too |
+
+Sources: quiet-window re-run note for the withheld list and the method gap;
+milestone-three notes for the happy-dom proxies that stand meanwhile.
+
+What the re-run changed about the conclusions it was allowed to change. Any arm
+exceeding the hot-path or click wall budget under quiet conditions fails the
+performance gate regardless of its counts, and the MobX overrun reopened the
+recommendation: both conditions have now fired on every arm, and the
+recommendation above is the re-decision, not the earlier line carried forward.
+A wall slope across corpus scales exceeding the budget while the count slope
+stays flat would fail the slope on walls; the wall medians scale by low single
+digits for a quadrupled corpus while rows committed stay flat, so the count
+slope carries and the wall slope prices the named inherent per-read rebuilds
+rather than new work. The TanStack clock anomaly reappearing under quiet
+conditions with starvation separated from engine cost has become a TanStack
+performance finding rather than a load artifact. Nothing the re-run showed
+changes the safety verdicts or the bundle verdicts: those rest on counts and
+build output, not on walls.
 
 ## Performance gate: growth slopes across corpus scales
 
@@ -266,9 +408,13 @@ corpus-scale cached walks that commit nothing and are therefore invisible to thi
 table: the hand arm rebuilds the order snapshot per snapshot read; the MobX arm
 re-buckets groups per affected change and scans seat maps per ingest; the TanStack
 arm rebuilds the order surface per affecting cycle and scans seat maps per ingest.
-These are processor-only costs whose wall-slope verdict needs the leased browser
-re-run. Second, the per-event wall columns at three scales are withheld for the
-re-run in all three arms; the slope verdict above is on counts.
+These processor-only costs now have quiet wall medians beside them in the verdict
+section above: walls scale by low single digits for a quadrupled corpus while rows
+committed stay flat, which prices the named inherent per-read rebuilds rather than
+new work. The slope verdict above stays on counts; the wall slope is stated
+alongside it, not withheld for a later run. Second, the MobX largest-corpus wall
+cells and parts of the control and hand single-scale cells remain withheld as
+listed above; the slope verdict on counts does not need them.
 
 ## Performance gate: lifecycle mechanism
 
@@ -283,7 +429,8 @@ Sources: hand milestone-three note, MobX milestone-three note, TanStack mileston
 note; native lane tests per arm.
 
 Lifecycle verdicts are mechanism PASS in all three arms; the wall and heap halves
-are withheld as stated above. Corpus notes sit in the table below rather than in
+are still withheld with no browser method, as listed in the quiet verdict section
+above. Corpus notes sit in the table below rather than in
 prose; none of them changes a verdict.
 
 | Corpus note | Detail |
@@ -303,12 +450,15 @@ the shared engine-plus-harness chunk is common to all pages and is not arm cost.
 | Native compatibility | mounts in the native lane | mounts in the native lane | mounts in the native lane | mounts in the native lane |
 | Dependency status | no new dependency | new production dependency | already a production dependency; the weight is new for this surface | not applicable |
 
-Sources: the three milestone-three notes from the same production build.
+Sources: the three milestone-three notes from the same production build,
+reproduced by the quiet-window build with byte-matching chunks.
 
 The TanStack budget verdict is unchanged since the first milestone and is reported
 as a finding, not a fix: adopting it ships the incremental-view-maintenance engine
-plus the query compiler. The MobX cost is a new dependency; the hand cost is none.
-No arm is penalized twice: dependency novelty is recorded here and not re-counted
+plus the query compiler, and the quiet window now joins it with the slowest
+hot-path walls and the engine-cost clock finding. The MobX cost is a new dependency
+plus the quiet-priced wall and clock overhead named in the winner's downside; the hand cost is none
+plus the uncovered render path. No arm is penalized twice: dependency novelty is recorded here and not re-counted
 in the ranking.
 
 ## Fidelity gate
@@ -472,10 +622,12 @@ millisecond shares are in the milestone phase-split tables.
 
 The methodology's settlement rule says server-side projections are the next lever
 if rollups dominate at the largest corpus. The count splits already clear that bar
-at every scale in every arm, but the timed shares are load-contaminated proxies.
-What would settle it: the leased browser re-run's phase splits at the largest
-corpus. If rollups dominate there too, the rewrite plan prices server-side
-projections; if not, the question closes with the re-run's numbers.
+at every scale in every arm, but the timed shares are still load-contaminated proxies:
+the quiet window did not collect browser phase splits, so the browser half of the
+settlement is unmeasured. What would settle it: a largest-corpus browser phase split
+from a future lane with a method for it. If rollups dominate there too, the rewrite plan prices server-side
+projections; if not, the question closes with those numbers. The quiet verdict
+section lists this gap alongside the lifecycle walls.
 
 ## Enforcement checklist for the rewrite
 
@@ -563,7 +715,11 @@ corpus, with no automated signal and no check named in-arm. Its performance coun
 are identical to the winner's on every scenario with a flat slope, its bundle is
 the cheapest of the three inside budget, its fidelity is green with the rebuild
 oracle as an extra proof no other arm carries, and its change-exercise large change
-caught two real defects through that oracle. Its strengths are real: the
+caught two real defects through that oracle. On the quiet walls it is fastest by a
+clear margin on the hot path and the only arm with no long tasks at all on the
+rename step — and it still exceeds the hot-path and click budgets under quiet
+conditions, so the shared absolute miss sits beside its relative lead rather than
+erasing it. Its strengths are real: the
 exhaustiveness check fires at compile time when a new input kind is added
 unhandled, the dataflow topology is explicit, and it adds no dependency. Its
 lasting costs are the reader burden of its hand-maintained lists, the union-list
@@ -574,7 +730,11 @@ demonstrated render-path fence; nothing else in its record blocks it.
 
 The TanStack arm fails safety on the same render-path item with every tally
 identical and fails performance on bundle, over budget by a margin it declared
-itself, unchanged since the first milestone. Its performance counts are otherwise
+itself, unchanged since the first milestone. The quiet window adds two
+approach-specific wall findings beside the shared absolute miss: the slowest
+hot-path walls by multiples with most rename records carrying long tasks, and
+the reproduced clock tick that spends engine re-run cost with no commits and no
+long tasks against a control tick that pipelines near nothing. Its performance counts are otherwise
 identical to the winner's on every scenario with a flat slope, its fidelity is
 green, its write-path sketch is the most elegant of the three with transaction
 self-rollback and no restore code, and it adds no new dependency. Its lasting
@@ -583,14 +743,22 @@ traps that bit its own examiner twice — silent retractions on flat-only flips 
 bootstrap ordering — the rescope teardown-rebuild workaround for the join-layer
 throw, the restoring commit on rollback, and the omission behavior with no
 self-healing, worse than the MobX equivalent. To become eligible it needs the same
-demonstrated render-path coverage plus a bundle diet or a changed budget; nothing
+demonstrated render-path coverage plus a bundle diet or a changed budget, and now
+an engine-cost answer for the clock path; nothing
 less reopens it.
 
 ## The winner's downside, stated plainly
 
 A recommendation without its cost named is not acceptable, so the MobX costs are
-listed with the same care as the losers'. The tick re-runs settled bodies while
-committing nothing on a boundary-free tick: correct by construction, bounded,
+listed with the same care as the losers'. The quiet walls miss the hot-path and
+click budgets under quiet conditions, which fails the performance gate on the
+same absolute line that fails both losers: the rename wall-to-paint sits well
+above the line with a small long-task tail, the stagemove follows it, and the
+click tail misses at both scales on the cold-first-click shape every page shows.
+The wall lead belongs to the hand arm, plainly, and the only zero-long-task
+rename belongs to it as well. The tick re-runs settled bodies while
+committing nothing on a boundary-free tick, now quiet-confirmed at several times
+the arm's own rename pipeline: correct by construction, bounded,
 processor-only, but the single largest behavioral cost the comparison found, and
 unsubscribing would mean hand-maintained sensitivity sets, which is becoming the
 hand arm. Seat maintenance walks relation buckets per ingest and group bucketing
@@ -600,13 +768,14 @@ again becoming the hand arm. Inputs that arrive as plain values have no framewor
 signal: the enforcement flags warn about observable reads outside reactions, and a
 plain variable is not an observable read, so the testing convention in the
 checklist carries that case entirely. The annotation discipline is load-bearing
-rather than ceremonial, and the library is a new production dependency. None of
-these fails a gate; all of them are permanent residents of the rewrite, priced
+rather than ceremonial, and the library is a new production dependency. The wall
+miss is shared and does not select; the detector lead is sole and does. All of
+these are permanent residents of the rewrite, priced
 above.
 
 ## What the harness got wrong, for the record
 
-Four instruments in this tree could not fail until someone checked. A Stage 0
+Six instruments in this tree could not fail until someone checked. A Stage 0
 guard was tested in one direction: a fix with two mechanisms kept every test green
 when the faster one was removed. The isolation assertion was asserted only to
 throw until a follow-up test proved it can pass; every arm would otherwise have
@@ -615,10 +784,18 @@ noticing. The hand arm was missing from the typecheck file list, leaving its cor
 compile-time claim unverified by the gate until the review caught it. And the
 eviction expectation cannot trigger on its corpus: the specced scenario-six evict
 removes no keeper and no sole asker, so the milestone gate stays green on a branch
-carrying a real eviction defect in every arm. The first two are fixed in-tree with
+carrying a real eviction defect in every arm. The fifth is the hot-path budget as
+an absolute usability line: asserted on wall-to-paint, which prices paint and
+collection beside the pipeline, it disqualifies the status quo by an order of
+magnitude more than any survivor, so the shared miss reads as calibration rather
+than approach failure — the approach-specific findings beside it still select.
+The sixth is the click tail at the stated sample count: with one slow first click
+per file from cold-list warm-up on every page including the control, the tail
+prices warm-up rather than steady state. The first two are fixed in-tree with
 both-directions guard tests; the third was fixed with an include-list correction;
 the fourth is open, owned by its issue, with the two offered resolutions recorded
-in the safety section. No verdict in this document rests on an instrument that
+in the safety section; the fifth and sixth are recorded here so a future budget
+revision owns them explicitly. No verdict in this document rests on an instrument that
 cannot fail: the control fails isolation in every co-mount, the exact-commit
 assertions fail on the planted scan in the winner, and the bundle overrun is
 declared by the arm itself.
@@ -628,16 +805,19 @@ declared by the arm itself.
 Every figure in this document traces to the file named beneath its table. The
 in-repo record is the milestone notes, the shape review, the three exercise
 documents with their diff directories, the three write-path sketches, the harness
-document, the slice spec, the methodology, and the stage-zero baseline. The
+document, the slice spec, the methodology, the stage-zero baseline, and the
+quiet-window re-run note with its driver bundle. The
 attached machine record is the per-issue files: the milestone count summaries, the
-browser result files, the growth, lifecycle, and coexistence files, and the
-control live-corpus file. Browser walls and heap figures are cited as withheld for
-the quiet-window re-run wherever they appear. Terms explained on first use as
+browser result files, the growth, lifecycle, and coexistence files, the
+control live-corpus file, and the quiet-window driver files with per-record load
+and revision. Browser walls measured quiet are verdicts wherever they appear;
+lifecycle walls and the named withheld cells stay provisional as listed. Terms explained on first use as
 listed above; figures live in tables, never in prose.
 
 ## Attachments and routing
 
 This document attaches to this issue and to the round-two parent; the parent moves
-to review with an offer naming the MobX recommendation; the coordinator is mailed
-with the same summary; and the summary posts as a comment on this issue. The
+to review with an offer naming the re-affirmed MobX recommendation against the
+quiet numbers; the summary posts as a comment on this issue, since the mail
+listing is capped and hides recent coordinator messages. The
 rewrite itself is not started here.
