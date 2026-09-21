@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { type StatTick, scheduleStatPoll } from '../store/index.js'
-import { withEventTime } from './reducer.js'
+import { withEventTime } from '../driver/families/terminal/observer.js'
 import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 
 /** An opencode row's `time_updated` (epoch ms) as ISO event-time, or undefined. */

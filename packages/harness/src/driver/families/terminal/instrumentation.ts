@@ -1,14 +1,44 @@
-import { chmod, mkdir, rm } from 'node:fs/promises'
+/**
+ * THE TERMINAL FAMILY'S INSTRUMENTATION MECHANISM (POD-4472): install + ingest.
+ *
+ * Hook install layouts, payload codecs and transports live in
+ * `adapters/<h>/instrumentation.ts`, one authoritative definition per harness
+ * (spec §4). This module keeps only the mechanism — the install gate (a
+ * required install that fails is a spawn REFUSAL, not a warning), the
+ * per-home serialization, the loopback ingest server hooks post to, and the
+ * degradation report — and never names a harness: every install resolves the
+ * session adapter's instrumentation section and calls through it. The payload
+ * shape is adapter knowledge; the transport is family machinery.
+ *
+ * Re-homed from the daemon's `runtime/terminal-instrumentation.ts` (gate +
+ * host-side installer) and `hook-ingest.ts` (loopback server), with the
+ * harness switch replaced by section dispatch — which is what deletes the
+ * `harness-branching` violations those files carried.
+ */
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { createConnection } from 'node:net'
-import { dirname } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
+import type { DaemonMessage } from '@podium/protocol/daemon'
+import type { DriverCapabilities, SessionSpec } from '../../host.js'
+import {
+  declaredValue,
+  type InstalledInstrumentation,
+  type InstrumentationDestination,
+} from '../../../manifest.js'
+import { harnessInstanceHomeEnv, manifestFor } from '../../../registry.js'
 import {
   HOOK_INGEST_ENDPOINT,
   listenStableLoopbackPort,
   type StablePortConflict,
-} from './loopback-listen'
+} from './loopback-listen.js'
+
+/** The daemon-side name for an install result. Alias, not a second type. */
+export type InstalledTerminalInstrumentation = InstalledInstrumentation
+
 
 /**
  * Receives Claude Code `type: "http"` hook POSTs at /hooks/<podiumSessionId>.
@@ -269,4 +299,144 @@ async function prepareSocketPath(path: string): Promise<void> {
     throw err
   }
   await rm(path, { force: true })
+}
+
+// ---------------------------------------------------------------------------
+// Install gate + host-side installer.
+// ---------------------------------------------------------------------------
+
+/** Both driver create/resume and wire-originated terminal creation use this gate. */
+export async function prepareTerminalInstrumentation(
+  capabilities: Pick<DriverCapabilities, 'instrumentation'>,
+  spec: Pick<SessionSpec, 'instrumentation'>,
+  install: () => Promise<InstalledTerminalInstrumentation>,
+): Promise<InstalledTerminalInstrumentation> {
+  if (capabilities.instrumentation === 'none') return { args: [] }
+  if (!spec.instrumentation?.endpointUrl.trim()) {
+    throw new Error('driver requires a per-session instrumentation endpoint')
+  }
+  return install()
+}
+
+// The global installers use atomic replacement with a fixed temporary path.
+// Serialize sessions sharing a home; a failed install must not poison retries.
+const installations = new Map<string, Promise<unknown>>()
+async function serialized<T>(key: string, install: () => Promise<T>): Promise<T> {
+  const previous = installations.get(key) ?? Promise.resolve()
+  const next = previous.catch(() => {}).then(install)
+  installations.set(key, next)
+  try {
+    return await next
+  } finally {
+    if (installations.get(key) === next) installations.delete(key)
+  }
+}
+
+/** The terminal driver's host-side installer. No daemon-boot prerequisite. */
+export async function installTerminalInstrumentation(input: {
+  sessionId: SessionId
+  spec: SessionSpec
+  settingsDir: string
+  homeDir?: string
+  /** Host telemetry plumbing for the harness version probe (best-effort). */
+  reportVersionProbe?: (harness: string, output: string) => void
+}): Promise<InstalledTerminalInstrumentation> {
+  const { spec } = input
+  const channel = spec.instrumentation
+  if (!channel) throw new Error('missing terminal instrumentation channel')
+  const manifest = manifestFor(spec.harness)
+  const instrumentation = manifest ? declaredValue(manifest.instrumentation) : undefined
+  if (!manifest || !instrumentation || manifest.capabilities.hookInstall === 'none') {
+    throw new Error(`no instrumentation installer for ${spec.harness}`)
+  }
+  const destination: InstrumentationDestination = {
+    sessionId: input.sessionId,
+    endpointUrl: channel.endpointUrl,
+    ...(channel.socketPath ? { socketPath: channel.socketPath } : {}),
+    ...(channel.seedTheme !== undefined ? { seedTheme: channel.seedTheme } : {}),
+    settingsDir: input.settingsDir,
+    ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+    ...(spec.env ? { env: spec.env } : {}),
+    ...(input.reportVersionProbe ? { reportVersionProbe: input.reportVersionProbe } : {}),
+  }
+  let wiring: InstalledInstrumentation
+  if (manifest.capabilities.hookInstall === 'global-env') {
+    // Match the child environment: instance-owned homes override session values.
+    const selector = manifest.environment.instanceHome
+    const env = {
+      ...process.env,
+      ...spec.env,
+      ...harnessInstanceHomeEnv(spec.harness, input.homeDir),
+    }
+    const homeDir = input.homeDir ?? env.HOME ?? homedir()
+    const harnessHome = selector
+      ? env[selector.variable]?.trim() || join(homeDir, selector.relativeDir)
+      : homeDir
+    destination.harnessHome = harnessHome
+    wiring = await serialized(`${spec.harness}:${harnessHome}`, () =>
+      instrumentation.install(destination),
+    )
+  } else {
+    wiring = await instrumentation.install(destination)
+  }
+  if (wiring.file) {
+    try {
+      await mkdir(dirname(wiring.file.path), { recursive: true })
+      await writeFile(wiring.file.path, wiring.file.contents)
+    } catch (error) {
+      // A missing per-session settings file must not become a fatal CLI argument.
+      return {
+        args: [],
+        ...(wiring.env ? { env: wiring.env } : {}),
+        degradedReason: error instanceof Error ? error.message : String(error),
+        degradedKind: 'error',
+      }
+    }
+  }
+  return {
+    args: wiring.args,
+    ...(wiring.env ? { env: wiring.env } : {}),
+    ...(wiring.degradedReason
+      ? {
+          degradedReason: wiring.degradedReason,
+          ...(wiring.degradedKind ? { degradedKind: wiring.degradedKind } : {}),
+        }
+      : {}),
+  }
+}
+
+const warnings = new WeakMap<object, Set<string>>()
+
+/** The owner is machine-scoped, never session-scoped. Server dedupe uses code. */
+export function reportInstrumentationDegradation(
+  owner: object,
+  harness: string,
+  installation: InstalledTerminalInstrumentation,
+  send: (message: DaemonMessage) => void,
+): void {
+  const reason = installation.degradedReason
+  if (!reason) return
+  const kind = installation.degradedKind ?? 'error'
+  const code = `${harness}-hooks-${kind}`
+  let seen = warnings.get(owner)
+  if (!seen) {
+    seen = new Set()
+    warnings.set(owner, seen)
+  }
+  if (seen.has(code)) return
+  seen.add(code)
+  // POD-4076: the untrusted arm is installed-but-dead, not failed-to-install.
+  // Name the /hooks remedy in the description the attention item shows first;
+  // the generic "installation failed" sentence would be a lie for it.
+  const description =
+    kind === 'untrusted'
+      ? `${harness} hooks are installed but Codex has not trusted them; approve them in Codex's /hooks flow. Sessions run poll-only until then.`
+      : `${harness} hook installation failed; sessions can still start.`
+  send({
+    type: 'machineDiagnostic',
+    code,
+    title: `${harness} hooks unavailable`,
+    description,
+    body: `${harness} instrumentation unavailable: ${reason}. The session will start; hook observations may be missing.`,
+  })
 }

@@ -4,7 +4,7 @@ import {
   type BoundaryContextOperation,
 } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
-import { hookEventName, hookString } from './hook-payload'
+import { hookEventName, hookString } from '@podium/harness/adapters/shared/hook-fields'
 
 /** Legacy responder retained until every provider has demonstrated boundary parity. */
 export function createPrimeInjector(

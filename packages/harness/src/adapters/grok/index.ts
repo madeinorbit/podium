@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
-import { grokSessionPaths, grokStateProvider, observeGrokState } from '../../agent-state/grok.js'
+import { grokStateProvider, observeGrokState } from '../../agent-state/grok.js'
+import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
 import { locateGrokChatHistory } from '../../agent-state/grok-locate.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { createGrokConversationProvider } from '../../discovery/providers/grok.js'
@@ -291,6 +292,7 @@ export const grokManifest: AgentManifest = {
   }),
 
   state: supported(grokStateProvider),
+  instrumentation: supported(grokInstrumentation),
   stateChannels: [
     {
       source: 'poll',

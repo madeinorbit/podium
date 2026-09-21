@@ -54,7 +54,10 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
   const interrupt = harnessInterrupt(agentKind)
   return {
     driverId: terminal.driverId,
-    instrumentationRequired: manifest.capabilities.hookInstall !== 'none',
+    // Read off the instrumentation SECTION, not the hookInstall capability: a
+    // required install that fails is a spawn refusal, and the section is what
+    // the family installs through (POD-4472).
+    instrumentationRequired: declaredValue(manifest.instrumentation) !== undefined,
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,

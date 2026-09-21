@@ -9,23 +9,41 @@ import { fileMtimeIso } from './boot-time.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
 import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
 import { locateGrokSessionPaths } from './grok-locate.js'
-import { withEventTime } from './reducer.js'
+import { withEventTime } from '../driver/families/terminal/observer.js'
 import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
+import {
+  type GrokSessionPaths,
+  PODIUM_GROK_HOOK_URL_ENV,
+  classifyGrokProviderFailure,
+  classifyStopPayload,
+  grokHookEventName,
+  grokInstrumentation,
+  grokRoot,
+  grokSessionPaths,
+  readGrokChatHistoryTail,
+  normalizeGrokProviderTimestamp,
+  translateGrokUpdatePayload,
+} from '../adapters/grok/instrumentation.js'
+import {
+  type GrokPlanState,
+  classifyGrokIdleTranscript,
+  withGrokOpenTodos,
+} from '../adapters/grok/state.js'
+
+export {
+  type GrokSessionPaths,
+  PODIUM_GROK_HOOK_URL_ENV,
+  classifyGrokIdleTranscript,
+  classifyGrokProviderFailure,
+  grokSessionPaths,
+  normalizeGrokProviderTimestamp,
+  translateGrokUpdatePayload,
+  withGrokOpenTodos,
+}
+export type { GrokPlanState }
 
 const POLL_MS = 700
-const TAIL_BYTES = 128 * 1024
 
-/** Env-gated callback used by the global Grok Build hook install. */
-export const PODIUM_GROK_HOOK_URL_ENV = 'PODIUM_GROK_HOOK_URL'
-
-export interface GrokSessionPaths {
-  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-  sessionId: string
-  sessionDir: string
-  summaryPath: string
-  updatesPath: string
-  chatHistoryPath: string
-}
 
 export interface GrokStateObserver {
   readonly path: string | undefined
@@ -46,170 +64,15 @@ export const grokStateProvider: AgentStateProvider = {
   instrumentation({ endpointUrl }) {
     return { args: [], env: { [PODIUM_GROK_HOOK_URL_ENV]: endpointUrl } }
   },
-  translate: async (payload) => withStateChannel(await translateGrokUpdatePayload(payload), 'poll'),
+  translate: (payload) => grokInstrumentation.payloadCodec.decode(payload),
   bootEvents: async (opts) => withStateChannel(await grokBootEvents(opts), 'poll'),
 }
 
-export function grokSessionPaths(opts: {
-  cwd: string
-  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-  sessionId: string
-  homeDir?: string
-}): GrokSessionPaths {
-  const sessionDir = join(
-    grokRoot(opts.homeDir),
-    'sessions',
-    encodeURIComponent(opts.cwd),
-    opts.sessionId,
-  )
-  return {
-    sessionId: opts.sessionId,
-    sessionDir,
-    summaryPath: join(sessionDir, 'summary.json'),
-    updatesPath: join(sessionDir, 'updates.jsonl'),
-    chatHistoryPath: join(sessionDir, 'chat_history.jsonl'),
-  }
-}
-
-interface GrokTranslationOptions {
-  classifyIdleVerdict?: boolean
-  onVerdictRead?: () => void
-  planState?: GrokPlanState
-}
 
 type GrokIdleVerdict = NonNullable<Extract<AgentStateEvent, { kind: 'turn_completed' }>['verdict']>
 
-interface GrokPlanState {
-  /** Undefined means no trustworthy full snapshot is available. */
-  openTodoCount?: number
-  /** Undefined is Grok's ordinary/default mode; null means a malformed mode update. */
-  currentMode?: string | null
-  /** A structured question/permission always outranks the quiet todo verdict. */
-  requiredUserAction: boolean
-  /** Used only when reconstructing a resumed session's last idle boundary. */
-  cleanEndTurn: boolean
-}
 
-export async function translateGrokUpdatePayload(
-  payload: unknown,
-  options: GrokTranslationOptions = {},
-): Promise<AgentStateEvent[]> {
-  if (!isRecord(payload)) return []
-  const directEvent = grokHookEventName(payload)
-  if (directEvent) return grokLifecycleEvents(directEvent, payload, payload, options)
 
-  const method = stringField(payload, 'method')
-  if (
-    method !== 'session/update' &&
-    method !== '_x.ai/session/update' &&
-    method !== '_x.ai/session_notification'
-  )
-    return []
-  const params = recordField(payload, 'params')
-  const update = recordField(params, 'update')
-  if (!update) return []
-
-  // The update record's own timestamp is the event-time. The observer seeks to the
-  // tail on reattach and replays recent records; stamping `at` keeps those replays
-  // carrying their original time so recency isn't restamped to "now".
-  const at = normalizeGrokProviderTimestamp(payload.timestamp)
-  const sessionUpdate = normalizeName(stringField(update, 'sessionUpdate'))
-  switch (sessionUpdate) {
-    case 'user_message_chunk':
-      return withEventTime([{ kind: 'prompt_submitted' }], at)
-    case 'tool_call':
-    case 'agent_thought_chunk':
-    case 'agent_message_chunk':
-    case 'tool_call_update':
-    case 'tool_result_update':
-      return withEventTime([{ kind: 'activity' }], at)
-    case 'turn_completed': {
-      const stopReason = normalizeName(stringField(update, 'stop_reason'))
-      if (stopReason === 'error') {
-        return withEventTime([classifyGrokProviderFailure(update)], at)
-      }
-      // Grok's authoritative end-of-turn signal (stop_reason: end_turn). It lands
-      // AFTER the Stop hook and the final agent_message_chunk, so it is the record
-      // that must settle the phase — without it that trailing chunk (→ activity →
-      // 'working') leaves the session stuck 'working' once the turn ends. This is
-      // the provider owning its run-state verdict; the reducer only transports it.
-      // [spec:SP-8b0e]
-      const classified =
-        options.classifyIdleVerdict === false
-          ? undefined
-          : await classifyStopPayload(payload, options.onVerdictRead)
-      const verdict = withGrokOpenTodos(classified, options.planState, stopReason === 'end_turn')
-      return withEventTime([{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }], at)
-    }
-    case 'retry_state': {
-      const retryState = normalizeName(stringField(update, 'type'))
-      if (retryState === 'retrying') return withEventTime([{ kind: 'activity' }], at)
-      if (retryState === 'failed' || retryState === 'exhausted') {
-        return withEventTime([classifyGrokProviderFailure(update)], at)
-      }
-      return []
-    }
-    case 'task_backgrounded':
-    case 'task_completed':
-      // The lifecycle of a detached shell command that runs alongside the turn.
-      // It has no bearing on the turn's phase: backgrounding must not extend
-      // 'working' past the real turn boundary, and a background task finishing
-      // after turn_completed must not resurrect an idle session.
-      return []
-    case 'hook_execution':
-      return withEventTime(await grokHookEvents(update, payload, options), at)
-    default:
-      return []
-  }
-}
-
-export function classifyGrokIdleTranscript(
-  records: unknown[],
-): { kind: 'done' | 'question' | 'approval'; summary?: string } | undefined {
-  const floor = Math.max(0, records.length - GROK_IDLE_CLASSIFICATION_RECORDS)
-  for (let i = records.length - 1; i >= floor; i--) {
-    const record = records[i]
-    if (!isRecord(record) || record.type !== 'assistant') continue
-    const text =
-      grokContentText(record.content) || grokContentText(recordField(record, 'message')?.content)
-    if (!text) continue
-    if (QUESTIONISH.test(text.slice(-400))) {
-      const summary =
-        text
-          .split('\n')
-          .filter((line) => line.trim())
-          .at(-1) ?? text
-      return { kind: 'question', summary: summary.trim().slice(0, 140) }
-    }
-    return { kind: 'done' }
-  }
-  return undefined
-}
-
-function withGrokOpenTodos(
-  classified: GrokIdleVerdict | undefined,
-  state: GrokPlanState | undefined,
-  eligibleBoundary: boolean,
-): GrokIdleVerdict | undefined {
-  if (
-    !eligibleBoundary ||
-    !state ||
-    state.openTodoCount === undefined ||
-    state.openTodoCount < 1 ||
-    state.currentMode === null ||
-    isGrokPlanMode(state.currentMode) ||
-    state.requiredUserAction ||
-    (classified !== undefined && classified.kind !== 'done')
-  ) {
-    return classified
-  }
-  return { kind: 'open_todos' }
-}
-
-function isGrokPlanMode(mode: string | undefined): boolean {
-  const normalized = normalizeName(mode)
-  return normalized === 'plan' || normalized === 'plan_mode'
-}
 
 function emptyGrokPlanState(): GrokPlanState {
   return { requiredUserAction: false, cleanEndTurn: false }
@@ -298,26 +161,6 @@ function normalizeGrokPlanStatus(value: string | undefined): string | undefined 
   return value ? normalizeName(value.replace(/\s+/g, '_')) : undefined
 }
 
-/** Grok writes both ISO strings and Unix epochs. Retain the provider's instant;
- * receipt time is never a substitute for missing or invalid source time.
- * [spec:SP-cdb2] */
-export function normalizeGrokProviderTimestamp(value: unknown): string | undefined {
-  let epochMs: number
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) return undefined
-    epochMs = Math.abs(value) < 1_000_000_000_000 ? value * 1000 : value
-  } else if (typeof value === 'string' && value.trim()) {
-    epochMs = Date.parse(value)
-  } else {
-    return undefined
-  }
-  if (!Number.isFinite(epochMs)) return undefined
-  try {
-    return new Date(epochMs).toISOString()
-  } catch {
-    return undefined
-  }
-}
 
 export async function findLatestGrokSessionPaths(opts: {
   cwd: string
@@ -528,90 +371,6 @@ async function readGrokPlanState(path: string): Promise<GrokPlanState> {
   }
 }
 
-async function grokHookEvents(
-  update: Record<string, unknown>,
-  payload: Record<string, unknown>,
-  options: GrokTranslationOptions,
-): Promise<AgentStateEvent[]> {
-  const event = normalizeName(
-    stringField(update, 'event_name') ?? stringField(update, 'hook_event_name'),
-  )
-  return event ? grokLifecycleEvents(event, update, payload, options) : []
-}
-
-function grokHookEventName(payload: Record<string, unknown>): string | undefined {
-  return normalizeName(
-    stringField(payload, 'hookEventName') ?? stringField(payload, 'hook_event_name'),
-  )
-}
-
-async function grokLifecycleEvents(
-  event: string,
-  fields: Record<string, unknown>,
-  payload: Record<string, unknown>,
-  options: GrokTranslationOptions,
-): Promise<AgentStateEvent[]> {
-  switch (event) {
-    case 'session_start':
-      return [{ kind: 'session_started' }]
-    case 'user_prompt_submit':
-      return [{ kind: 'prompt_submitted' }]
-    case 'pre_tool_use': {
-      const tool = stringField(fields, 'toolName') ?? stringField(fields, 'tool_name')
-      if (tool && ['ask_user', 'ask_user_question'].includes(normalizeName(tool) ?? '')) {
-        const summary = grokQuestionSummary(fields)
-        return [{ kind: 'needs_user', need: 'question', ...(summary ? { summary } : {}) }]
-      }
-      return [{ kind: 'activity' }]
-    }
-    case 'post_tool_use':
-    case 'post_tool_use_failure':
-    case 'notification':
-      return [{ kind: 'activity' }]
-    case 'permission_denied': {
-      const summary = stringField(fields, 'toolName') ?? stringField(fields, 'tool_name')
-      return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
-    }
-    case 'stop': {
-      const verdict =
-        options.classifyIdleVerdict === false
-          ? undefined
-          : await classifyStopPayload(payload, options.onVerdictRead)
-      return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
-    }
-    case 'stop_failure': {
-      const failure = classifyGrokProviderFailure(fields)
-      // Grok emits this hook as a lifecycle marker even when it carries no
-      // provider error. The live marker is `{ errorClass: 'unknown', detail:
-      // 'unknown' }` if classified; emitting that synthetic failure after the
-      // real retry_state/turn_completed records would clobber the 402 reason.
-      return failure.errorClass === 'unknown' && failure.detail === 'unknown' ? [] : [failure]
-    }
-    case 'pre_compact':
-      return [{ kind: 'compaction', phase: 'start' }]
-    case 'post_compact':
-      return [{ kind: 'compaction', phase: 'end' }]
-    case 'task_created':
-    case 'subagent_start':
-      return [{ kind: 'task_delta', delta: 1 }]
-    case 'task_completed':
-    case 'subagent_stop':
-      return [{ kind: 'task_delta', delta: -1 }]
-    case 'session_end':
-      return [{ kind: 'session_ended' }]
-    default:
-      return []
-  }
-}
-
-function grokQuestionSummary(fields: Record<string, unknown>): string | undefined {
-  const input = recordField(fields, 'toolInput') ?? recordField(fields, 'tool_input')
-  const direct = stringField(input, 'question') ?? stringField(input, 'prompt')
-  if (direct) return direct
-  const questions = input?.questions
-  const first = Array.isArray(questions) && isRecord(questions[0]) ? questions[0] : undefined
-  return stringField(first, 'question') ?? stringField(first, 'prompt')
-}
 
 function tailGrokUpdates(
   paths: GrokSessionPaths,
@@ -1193,79 +952,7 @@ function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {
   }
 }
 
-async function classifyStopPayload(
-  payload: Record<string, unknown>,
-  onVerdictRead?: () => void,
-): Promise<{ kind: 'done' | 'question' | 'approval'; summary?: string } | undefined> {
-  const path =
-    stringField(payload, 'chat_history_path') ??
-    stringField(payload, 'chatHistoryPath') ??
-    grokHookChatHistoryPath(payload)
-  if (!path) return undefined
-  onVerdictRead?.()
-  try {
-    return classifyGrokIdleTranscript(await readGrokChatHistoryTail(path))
-  } catch {
-    return undefined
-  }
-}
 
-function grokHookChatHistoryPath(payload: Record<string, unknown>): string | undefined {
-  const sessionId = stringField(payload, 'sessionId') ?? stringField(payload, 'session_id')
-  const cwd =
-    stringField(payload, 'cwd') ??
-    stringField(payload, 'workspaceRoot') ??
-    stringField(payload, 'workspace_root')
-  if (!sessionId || !cwd) return undefined
-  return grokSessionPaths({ cwd, sessionId }).chatHistoryPath
-}
-
-async function readGrokChatHistoryTail(path: string): Promise<unknown[]> {
-  const handle = await open(path, 'r')
-  try {
-    const { size } = await handle.stat()
-    const start = Math.max(0, size - TAIL_BYTES)
-    const buffer = Buffer.alloc(Math.min(size, TAIL_BYTES))
-    await handle.read(buffer, 0, buffer.length, start)
-    let text = buffer.toString('utf8')
-    if (start > 0) {
-      const firstBreak = text.indexOf('\n')
-      text = firstBreak >= 0 ? text.slice(firstBreak + 1) : ''
-    }
-    const records: unknown[] = []
-    for (const line of text.split(/\r?\n/)) {
-      const trimmed = line.trim()
-      if (!trimmed) continue
-      try {
-        records.push(JSON.parse(trimmed) as unknown)
-      } catch {
-        // Skip torn final writes.
-      }
-    }
-    return records
-  } finally {
-    await handle.close()
-  }
-}
-
-function grokRoot(homeDir: string | undefined): string {
-  if (homeDir) return join(homeDir, '.grok')
-  return process.env.GROK_HOME || join(homedir(), '.grok')
-}
-
-function grokContentText(content: unknown): string {
-  if (typeof content === 'string') return content.trim()
-  if (!Array.isArray(content)) return ''
-  return content
-    .map((block) => {
-      if (typeof block === 'string') return block
-      if (isRecord(block) && typeof block.text === 'string') return block.text
-      return ''
-    })
-    .filter(Boolean)
-    .join('\n')
-    .trim()
-}
 
 function normalizeName(value: string | undefined): string | undefined {
   return value
@@ -1290,98 +977,3 @@ function stringField(value: unknown, key: string): string | undefined {
   return typeof field === 'string' && field.length > 0 ? field : undefined
 }
 
-/** Grok reports provider failures in retry_state and in the authoritative
- * turn_completed record. Keep the provider-specific vocabulary here and emit
- * only the normalized failure event to shared layers. [spec:SP-8b0e] */
-export function classifyGrokProviderFailure(
-  fields: Record<string, unknown>,
-): Extract<AgentStateEvent, { kind: 'turn_failed' }> {
-  const message =
-    stringField(fields, 'agent_result') ??
-    stringField(fields, 'message') ??
-    stringField(fields, 'reason') ??
-    ''
-  const errorType =
-    stringField(fields, 'error_type') ?? stringField(fields, 'errorType') ?? 'unknown'
-  const providerDetail = String(message || errorType)
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 1000)
-  const detail = providerDetail.toLowerCase()
-
-  if (/\b(?:usage (?:balance )?(?:exhausted|limit)|quota (?:exhausted|limit))\b/.test(detail)) {
-    return {
-      kind: 'turn_failed',
-      errorClass: 'usage_limit',
-      retryable: false,
-      detail: providerDetail,
-    }
-  }
-  if (fields.is_rate_limited === true || /\b(?:status )?429\b|too many requests/.test(detail)) {
-    return {
-      kind: 'turn_failed',
-      errorClass: 'rate_limit',
-      retryable: true,
-      detail: providerDetail,
-    }
-  }
-  if (/\b(?:overloaded|temporarily at capacity)\b/.test(detail)) {
-    return {
-      kind: 'turn_failed',
-      errorClass: 'overloaded',
-      retryable: true,
-      detail: providerDetail,
-    }
-  }
-  if (/\b(?:status )?5\d\d\b|server error/.test(detail)) {
-    return {
-      kind: 'turn_failed',
-      errorClass: 'server_error',
-      retryable: true,
-      detail: providerDetail,
-    }
-  }
-  if (/\b(?:status )?(?:401|403)\b|unauthori[sz]ed|authentication/.test(detail)) {
-    return {
-      kind: 'turn_failed',
-      errorClass: 'authentication',
-      retryable: false,
-      detail: providerDetail,
-    }
-  }
-  if (/\b(?:status )?402\b|payment required|billing|insufficient credits/.test(detail)) {
-    return {
-      kind: 'turn_failed',
-      errorClass: 'billing_error',
-      retryable: false,
-      detail: providerDetail,
-    }
-  }
-  if (/\b(?:network|transport|connection|timeout)\b/.test(detail)) {
-    return {
-      kind: 'turn_failed',
-      errorClass: 'network_error',
-      retryable: true,
-      detail: providerDetail,
-    }
-  }
-
-  const errorClass = normalizeName(errorType) ?? 'unknown'
-  return {
-    kind: 'turn_failed',
-    errorClass,
-    retryable: errorClass === 'api' || RETRYABLE.has(errorClass),
-    detail: providerDetail,
-  }
-}
-
-const QUESTIONISH =
-  /(\?\s*$)|\b(should i|shall i|want me to|would you like|let me know|which (one|option|approach)|do you want)\b/i
-
-const RETRYABLE = new Set([
-  'rate_limit',
-  'overloaded',
-  'server_error',
-  'max_output_tokens',
-  'unknown',
-])

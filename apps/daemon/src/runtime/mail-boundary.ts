@@ -1,6 +1,6 @@
 import type { AgentSessionHandle, RuntimeEvent, SendOptions } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
-import { hookBoolean, hookEventName, isGrokHookPayload } from '../hook-payload'
+import { hookBoolean, hookEventName, isGrokHookPayload } from '@podium/harness/adapters/shared/hook-fields'
 
 export type MailBoundaryContext = (
   sessionId: SessionId,

@@ -7,7 +7,7 @@ import {
   AGENT_RELAY_ENDPOINT,
   listenStableLoopbackPort,
   type StablePortConflict,
-} from './loopback-listen'
+} from '@podium/harness/driver/families/terminal/loopback-listen'
 
 /** Procs that legitimately BLOCK server-side longer than a normal RPC, so the hub
  *  must hold their request open past the 30s default or the CLI throws before the

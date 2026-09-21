@@ -9,8 +9,8 @@ import { createBoundaryContext } from '@podium/harness/driver/host'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { asSessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
-import { startHookIngest } from './hook-ingest'
-import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from './grok-hooks'
+import { startHookIngest } from '@podium/harness/driver/families/terminal/instrumentation'
+import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from '@podium/harness/adapters/grok/instrumentation'
 import { primeHookResponse } from './prime-injector'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's

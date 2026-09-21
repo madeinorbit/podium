@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { HOOK_BODY_MAX_BYTES, type HookIngest, startHookIngest } from './hook-ingest'
+import { HOOK_BODY_MAX_BYTES, type HookIngest, startHookIngest } from '@podium/harness/driver/families/terminal/instrumentation'
 
 describe('hook ingest', () => {
   let ingest: HookIngest

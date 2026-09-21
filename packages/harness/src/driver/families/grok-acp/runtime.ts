@@ -10,7 +10,7 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  */
 import { type AgentStateEvent } from '../../../agent-state/types.js'
 import { classifyGrokProviderFailure, translateGrokUpdatePayload } from '../../../agent-state/grok.js'
-import { initialAgentState, reduceAgentState } from '../../../agent-state/reducer.js'
+import { initialAgentState, reduceAgentState } from '../terminal/observer.js'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'

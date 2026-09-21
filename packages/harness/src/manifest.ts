@@ -808,6 +808,96 @@ export function fileTranscript(
 }
 
 // ---------------------------------------------------------------------------
+// Hook instrumentation: install layout, payload codec, transport (POD-4472).
+//
+// One authoritative definition per harness (spec §4): how Podium's state hooks
+// reach the CLI (install), how a hook POST body reads back (payloadCodec), and
+// which transport carries it (hookTransport). The terminal family's install +
+// ingest mechanism (`driver/families/terminal/instrumentation.ts`) receives
+// this section as a narrow typed SUBSET of the adapter, never the whole
+// Adapter — the same reader-takes-grammar shape as the transcript Store
+// (POD-4471).
+// ---------------------------------------------------------------------------
+
+/** Where an instrumentation install lands: the per-session loopback callback
+ *  plus the filesystem homes the harness reads. */
+export interface InstrumentationDestination {
+  /** Stable Podium row identity — names the per-session settings file. */
+  sessionId: SessionId
+  /** Per-session loopback callback the harness posts hook payloads to. */
+  endpointUrl: string
+  /** Instance-scoped stable socket, when the harness's hook command posts over one. */
+  socketPath?: string
+  /** Seed the harness theme for issue-tinted terminal colours [spec:SP-a04d]. */
+  seedTheme?: boolean
+  /** Directory holding the per-session settings file the install writes. */
+  settingsDir: string
+  /** The harness's own state home (CODEX_HOME / GROK_HOME / …), resolved for
+   *  the child environment. Absent for settings-args installs, which touch no
+   *  global home. */
+  harnessHome?: string
+  /** Instance agent home override, for harness-home resolution. */
+  homeDir?: string
+  /** Effective spawn env, merged when matching the child environment. */
+  env?: Readonly<Record<string, string>>
+  /** Host telemetry plumbing: report one harness `--version` probe's raw output.
+   *  Best-effort observations only, never an admission requirement. */
+  reportVersionProbe?: (harness: string, output: string) => void
+}
+
+/** What an install produced: CLI wiring plus how degraded the global part is.
+ *  A required install that fails is a spawn REFUSAL, not a warning — the
+ *  family gate (`prepareTerminalInstrumentation`) owns that meaning. */
+export interface InstalledInstrumentation {
+  /** Extra argv appended to the agent CLI. */
+  args: string[]
+  /** Per-session environment for globally-installed, env-gated hooks. */
+  env?: Record<string, string>
+  /** File the host must write before spawning (hook/settings config). */
+  file?: { path: string; contents: string }
+  degradedReason?: string
+  degradedKind?: InstrumentationDegradedKind
+}
+
+export type InstrumentationDegradedKind =
+  | 'no-home'
+  | 'unreadable-hooks-json'
+  | 'not-an-object'
+  | 'unsupported-version'
+  | 'untrusted'
+  | 'error'
+
+/**
+ * One harness's wire spelling + event semantics for hook payloads.
+ *
+ * The shape knowledge: which field spelling this harness posts (`session_id`
+ * vs `sessionId`, …) and what its events mean (the moved translate). Daemon
+ * services that must handle ANY harness without naming one keep the
+ * spelling-union readers in `adapters/shared/hook-fields.ts`; session-scoped
+ * routing with the adapter in hand reads through here.
+ */
+export interface HookPayloadCodec {
+  /** This harness's spelling of the hook event name. */
+  eventName(raw: unknown): string | undefined
+  /** This harness's spelling of the harness-native session id. */
+  sessionId(raw: unknown): string | undefined
+  /** This harness's spelling of the transcript path. */
+  transcriptPath(raw: unknown): string | undefined
+  /** The moved translate, verbatim: raw payload → normalized events. */
+  decode(raw: unknown): Promise<ProviderAgentStateEvent[]>
+}
+
+export interface HarnessInstrumentation {
+  /** Install the hook wiring for one session: global layout (where the
+   *  harness has one) plus the per-session callback wiring. */
+  install(destination: InstrumentationDestination): Promise<InstalledInstrumentation>
+  payloadCodec: HookPayloadCodec
+  /** How hook payloads reach the daemon. `none` ⇒ this harness posts nothing;
+   *  the family starts no per-session wiring for it. */
+  hookTransport: 'loopback-http' | 'none'
+}
+
+// ---------------------------------------------------------------------------
 // The runtime axis — how this CLI can be DRIVEN (POD-1761 W1).
 // docs/2026-08-07-agent-runtime-architecture.html §2, §3 "Manifest integration".
 // ---------------------------------------------------------------------------
@@ -1329,6 +1419,10 @@ export interface AgentManifest {
   /** Hook/observer state provider. Unsupported ⇒ phase stays 'unknown' rather
    *  than being guessed from another harness's output conventions. */
   state: Declared<AgentStateProvider>
+  /** Hook install layout, payload codec and transport (POD-4472). Unsupported ⇒
+   *  this harness posts no hook payloads; observation is poll/classifier only
+   *  and the family installs no per-session hook wiring. */
+  instrumentation: Declared<HarnessInstrumentation>
   /** State channels in strict preference order; software provenance only. */
   stateChannels: readonly StateChannelDeclaration[]
   /** Per-session native-store observation (state observer + live tail setup).

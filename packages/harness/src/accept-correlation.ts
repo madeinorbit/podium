@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
-import { claudePromptHookFingerprint } from './agent-state/claude-code.js'
+import { claudePromptHookFingerprint } from './adapters/claude-code/state.js'
 import type { TerminalAcceptCorrelation } from './manifest.js'
 
 /** The same signal session-observers uses to anchor Claude turn epochs.

@@ -4,13 +4,13 @@ import { join } from 'node:path'
 import type { SessionSpec } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as codexHooks from '../codex-hooks'
+import * as codexHooks from '@podium/harness/adapters/codex/instrumentation'
 import { terminalProfileFor } from './registry'
 import {
   installTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
-} from './terminal-instrumentation'
+} from '@podium/harness/driver/families/terminal/instrumentation'
 
 const directories: string[] = []
 async function directory() {
@@ -107,9 +107,11 @@ describe('terminal instrumentation installation', () => {
   it('deduplicates changing exception details and keeps them out of the code', async () => {
     const owner = {}
     const send = vi.fn()
-    const ensure = vi.spyOn(codexHooks, 'ensurePodiumCodexHooks')
+    // The family installs through the adapter section: stub the section's
+    // install, the way the old test stubbed the daemon's ensure call.
+    const install = vi.spyOn(codexHooks.codexInstrumentation, 'install')
     for (const message of ['EACCES /home/one/hooks.json', 'EIO /home/two/hooks.json']) {
-      ensure.mockRejectedValueOnce(new Error(message))
+      install.mockRejectedValueOnce(new Error(message))
       const result = await installTerminalInstrumentation({
         sessionId: asSessionId('failure'),
         spec: spec('codex'),
@@ -128,9 +130,9 @@ describe('terminal instrumentation installation', () => {
   })
 
   it('keeps successful already-installed hooks silent', async () => {
-    vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockResolvedValue({
-      installed: true,
-      changed: false,
+    vi.spyOn(codexHooks.codexInstrumentation, 'install').mockResolvedValue({
+      args: [],
+      env: { PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1234/hooks/installed' },
     })
     const send = vi.fn()
     const result = await installTerminalInstrumentation({
@@ -183,10 +185,11 @@ describe('terminal instrumentation installation', () => {
 
   it('uses the instance Codex home over inherited or session overrides and returns degradation', async () => {
     const homeDir = await directory()
-    const ensure = vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockResolvedValue({
-      installed: false,
-      changed: false,
-      reason: 'unsupported codex version',
+    const install = vi.spyOn(codexHooks.codexInstrumentation, 'install').mockResolvedValue({
+      args: [],
+      env: { PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1234/hooks/codex' },
+      degradedReason: 'unsupported codex version',
+      degradedKind: 'unsupported-version',
     })
     await expect(
       installTerminalInstrumentation({
@@ -199,18 +202,19 @@ describe('terminal instrumentation installation', () => {
       degradedReason: 'unsupported codex version',
       env: expect.any(Object),
     })
-    expect(ensure).toHaveBeenCalledWith({ codexHome: join(homeDir, '.codex') })
+    // The instance home (not the session's CODEX_HOME override) reaches the section.
+    expect(install).toHaveBeenCalledWith(
+      expect.objectContaining({ harnessHome: join(homeDir, '.codex') }),
+    )
   })
 
   it('degrades an installed-but-untrusted Codex home as poll-only with the /hooks remedy', async () => {
     const homeDir = await directory()
-    vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockResolvedValue({
-      installed: true,
-      changed: true,
-      degraded: true,
-      reason: 'untrusted codex hooks (missing trust for: Stop); approve in Codex /hooks',
-      trusted: false,
-      untrustedEvents: ['Stop'],
+    vi.spyOn(codexHooks.codexInstrumentation, 'install').mockResolvedValue({
+      args: [],
+      env: { PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1234/hooks/codex-untrusted' },
+      degradedReason: 'untrusted codex hooks (missing trust for: Stop); approve in Codex /hooks',
+      degradedKind: 'untrusted',
     })
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('codex-untrusted'),
@@ -238,11 +242,9 @@ describe('terminal instrumentation installation', () => {
 
   it('keeps a trusted Codex install silent', async () => {
     const homeDir = await directory()
-    vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockResolvedValue({
-      installed: true,
-      changed: false,
-      trusted: true,
-      untrustedEvents: [],
+    vi.spyOn(codexHooks.codexInstrumentation, 'install').mockResolvedValue({
+      args: [],
+      env: { PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1234/hooks/codex-trusted' },
     })
     const send = vi.fn()
     const result = await installTerminalInstrumentation({

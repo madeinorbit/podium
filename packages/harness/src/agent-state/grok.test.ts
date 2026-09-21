@@ -20,7 +20,7 @@ function declaredObserver(manifest: AgentManifest): HarnessObserver {
   return manifest.observer.value
 }
 
-import { acceptAgentObservation, type ObservationLease } from './causal'
+import { acceptAgentObservation, type ObservationLease } from '../driver/families/terminal/observer.js'
 import {
   classifyGrokIdleTranscript,
   grokSessionPaths,
@@ -30,7 +30,7 @@ import {
   translateGrokUpdatePayload,
 } from './grok'
 import { GrokCausalObserver } from './grok-causal'
-import { initialAgentState, reduceAgentState } from './reducer'
+import { initialAgentState, reduceAgentState } from '../driver/families/terminal/observer.js'
 import type { AgentStateEvent } from './types'
 
 const text = (value: string) => ({ type: 'text', text: value })

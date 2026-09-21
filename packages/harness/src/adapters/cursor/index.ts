@@ -166,6 +166,7 @@ export const cursorManifest: AgentManifest = {
   }),
 
   state: supported(cursorStateProvider),
+  instrumentation: unsupported('Cursor posts no hook payloads; observation is poll-only over its transcript'),
   stateChannels: [
     {
       source: 'poll',

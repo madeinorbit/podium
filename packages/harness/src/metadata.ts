@@ -49,11 +49,11 @@
 // version, terminal fence). Harness-AGNOSTIC — its only imports are types from
 // `@podium/protocol` — and merely FILED in this package; the boundary-allowlist
 // entry it replaces said exactly that.
-export { acceptAgentObservation, compareProviderCursor } from './agent-state/causal.js'
+export { acceptAgentObservation, compareProviderCursor } from './driver/families/terminal/observer.js'
 
 // The AGENT-STATE FOLD, and the event shape it folds (POD-2820). Same argument
 // as `compareProviderCursor` directly above, applied to the module beside it:
-// `agent-state/reducer.ts` imports two TYPES from `@podium/model` and nothing
+// `driver/families/terminal/observer.ts` imports two TYPES from `@podium/model` and nothing
 // else, and `agent-state/types.ts` imports three. Both are total functions over
 // plain data — `(state, event, now) -> state` — that name no process, touch no
 // filesystem and cannot observe a host. What made them look like a capability
@@ -68,7 +68,7 @@ export { acceptAgentObservation, compareProviderCursor } from './agent-state/cau
 // server's re-derived over there — and the two would not have stayed the same
 // function. That drift renders as a session whose phase depends on which side
 // you asked, which is the bug the single named reducer exists to prevent.
-export { initialAgentState, reduceAgentState } from './agent-state/reducer.js'
+export { initialAgentState, reduceAgentState } from './driver/families/terminal/observer.js'
 export type { AgentStateEvent } from './agent-state/types.js'
 
 // Two prompt-pointer string constants. Data the server renders into agent

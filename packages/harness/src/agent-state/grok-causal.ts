@@ -6,7 +6,7 @@ import type {
   ProviderCursor,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { initialAgentState, reduceAgentState } from './reducer.js'
+import { initialAgentState, reduceAgentState } from '../driver/families/terminal/observer.js'
 import { type AgentStateEvent, withStateChannelEvent } from './types.js'
 
 export interface GrokObservationLease {

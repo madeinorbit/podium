@@ -20,7 +20,7 @@ import {
   parseCodexVersion,
   podiumHookPositions,
   supportsCodexHooks,
-} from './codex-hooks.js'
+} from './instrumentation.js'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.

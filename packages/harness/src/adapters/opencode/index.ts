@@ -339,6 +339,7 @@ export const opencodeManifest: AgentManifest = {
   }),
 
   state: supported(opencodeStateProvider),
+  instrumentation: unsupported('opencode posts no hook payloads; observation is poll-only over its event stream and store'),
   stateChannels: [
     {
       source: 'poll',
