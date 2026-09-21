@@ -1,5 +1,5 @@
 import { loadSupervisorState } from './machine-supervisor'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,7 +16,9 @@ import {
   fetchRemoteAppUrl,
   fetchTargetAppUrl,
   getUpdateChannel,
+  commandExists,
   networkOptionCommand,
+  networkOptionTool,
   setUpdateChannel,
   validatePublicUrl,
   wssFrom,
@@ -325,7 +327,10 @@ describe('setup core', () => {
   it('applyLocalSetupDefault persists all-in-one on a fresh box and preserves config', () => {
     saveConfig({ updateChannel: 'edge' })
     expect(applyLocalSetupDefault()).toBe('applied')
-    expect(loadSupervisorState(process.env.PODIUM_STATE_DIR!).setupEnrollment).toMatchObject({ preauthorized: true, agentExecution: true })
+    expect(loadSupervisorState(process.env.PODIUM_STATE_DIR!).setupEnrollment).toMatchObject({
+      preauthorized: true,
+      agentExecution: true,
+    })
     expect(loadConfig()).toMatchObject({ mode: 'all-in-one', updateChannel: 'edge' })
   })
   it('applyLocalSetupDefault never replaces an explicit advanced choice', () => {
@@ -505,5 +510,62 @@ describe('the deployment owns mode and public URL (PDM-26)', () => {
   it('confirmUrlChange is a flag, never a config key', () => {
     applySetup({ publicUrl: 'https://a.example', confirmUrlChange: true })
     expect(loadConfig()).not.toHaveProperty('confirmUrlChange')
+  })
+})
+
+/**
+ * What a reachability command ASSUMES is already on the box. The pre-check exists because
+ * the old flow handed an operator `tailscale funnel 18787` on a machine with no tailscale:
+ * a copy-paste step whose only possible outcome was `command not found`.
+ */
+describe('networkOptionTool / commandExists', () => {
+  it('names tailscale for both tailscale options, with the sign-in step they also need', () => {
+    for (const opt of ['tailscale-funnel', 'tailscale-serve'] as const) {
+      expect(networkOptionTool(opt)).toMatchObject({
+        binary: 'tailscale',
+        install: 'curl -fsSL https://tailscale.com/install.sh | sh',
+        signIn: 'sudo tailscale up',
+      })
+    }
+  })
+
+  it('names cloudflared with the asset for THIS architecture, not a fixed one', () => {
+    expect(networkOptionTool('cloudflare-tunnel', 'arm64')?.install).toContain(
+      'cloudflared-linux-arm64',
+    )
+    expect(networkOptionTool('cloudflare-tunnel', 'x64')?.install).toContain(
+      'cloudflared-linux-amd64',
+    )
+  })
+
+  it('gives the docs and NO download command on an architecture with no published asset', () => {
+    // A wrong URL is worse than no URL: it 404s after the operator has already run it.
+    const tool = networkOptionTool('cloudflare-tunnel', 'riscv64')
+    expect(tool?.install).toBeUndefined()
+    expect(tool?.docs).toContain('cloudflare.com')
+  })
+
+  it('has no tool for a manual reverse proxy — we hand out no command there', () => {
+    expect(networkOptionTool('manual')).toBeUndefined()
+  })
+
+  it('commandExists finds an executable on the supplied PATH and ignores a non-executable one', () => {
+    const bin = mkdtempSync(join(tmpdir(), 'podium-path-'))
+    try {
+      writeFileSync(join(bin, 'tailscale'), '#!/bin/sh\n')
+      chmodSync(join(bin, 'tailscale'), 0o755)
+      writeFileSync(join(bin, 'cloudflared'), 'not executable')
+      chmodSync(join(bin, 'cloudflared'), 0o644)
+      expect(commandExists('tailscale', { PATH: bin })).toBe(true)
+      expect(commandExists('cloudflared', { PATH: bin })).toBe(false)
+      expect(commandExists('nothing-here', { PATH: bin })).toBe(false)
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+    }
+  })
+
+  it('commandExists answers false rather than throwing on an empty or absent PATH', () => {
+    expect(commandExists('tailscale', {})).toBe(false)
+    expect(commandExists('tailscale', { PATH: '' })).toBe(false)
   })
 })
