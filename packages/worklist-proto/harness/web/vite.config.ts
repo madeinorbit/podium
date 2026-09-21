@@ -35,6 +35,26 @@ export default defineConfig({
           new URL('../../node_modules/react-native-web/dist/index.js', import.meta.url),
         ),
       },
+      // Commit logging rides React.Profiler, whose onRender is a no-op in a
+      // production react-dom-client (every browser page logged zero commits
+      // on all arms while counts stayed exact). The profiling bundle
+      // re-enables it; all pages share it, so walls stay comparable.
+      //
+      // Alias ONLY react-dom/client, never bare react-dom: the profiling CJS
+      // requires bare react-dom for its shared internals at module init. A
+      // prior alias matching both re-resolved that inner require to the
+      // profiling bundle itself (a CJS cycle), leaving
+      // __DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE
+      // undefined and breaking page boot with a TypeError at init. Every
+      // proto source imports createRoot from react-dom/client and nothing
+      // from bare react-dom, so the client-only alias covers all pages while
+      // the inner require keeps resolving to the normal main bundle.
+      {
+        find: /^react-dom\/client$/,
+        replacement: fileURLToPath(
+          new URL('../../node_modules/react-dom/profiling.js', import.meta.url),
+        ),
+      },
     ],
   },
   build: {
