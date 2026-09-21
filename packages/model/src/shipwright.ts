@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { HarnessAgent } from './entities/agent'
 import { AccountIdField } from './ids'
 
 /** The bounded escalation ladder used only after deterministic shipping has
@@ -97,7 +98,7 @@ export type ShipwrightModelContract = z.infer<typeof ShipwrightModelContract>
 export const ShipwrightRoute = z
   .object({
     level: ShipwrightLevel,
-    agent: z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi']),
+    agent: HarnessAgent,
     model: z.string().min(1),
     effort: z.string().min(1),
     family: z.string().min(1),

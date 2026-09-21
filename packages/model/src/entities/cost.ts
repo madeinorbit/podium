@@ -45,9 +45,11 @@
 
 import { z } from 'zod'
 import { IssueIdField, MachineIdField, SessionIdField } from '../ids/brands'
+import { COST_FULL_ATTRIBUTION_HARNESS, COST_HARNESS_KINDS } from './agent'
 
-/** Which harness wrote a transcript. Same three the usage scan knows. */
-export const CostHarness = z.enum(['claude-code', 'codex', 'grok'])
+/** Which harness wrote a transcript. Derived from {@link COST_HARNESS_KINDS} —
+ *  the same three the usage scan knows. */
+export const CostHarness = z.enum(COST_HARNESS_KINDS)
 export type CostHarness = z.infer<typeof CostHarness>
 
 /** Token totals for one model, the unit every figure below is built from. */
@@ -292,7 +294,7 @@ export function floorOf(
   uncostedSessionCount = 0,
 ): CostFloor {
   if (uncostedSessionCount > 0) return 'partial'
-  for (const h of harnesses) if (h !== 'claude-code') return 'partial'
+  for (const h of harnesses) if (h !== COST_FULL_ATTRIBUTION_HARNESS) return 'partial'
   return 'none'
 }
 

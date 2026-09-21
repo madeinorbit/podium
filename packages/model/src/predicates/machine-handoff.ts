@@ -6,6 +6,7 @@
  * module preserves that existing lazy boundary.
  */
 import type { z } from 'zod'
+import { HANDOFF_HARNESS_KINDS } from '../entities/agent'
 import type { IssueWorkspace } from '../fields/issue'
 import { worktreeForCwd, worktreeSubpath } from '../identity/worktree'
 import type { MachineId, RepoId } from '../ids/brands'
@@ -156,8 +157,9 @@ export interface HandoffAvailability<M> {
  * repo list went unnoticed after a successful handoff.
  */
 /** Data-driven picker exception: browser-safe model code cannot import the
- * node-only harness manifest, so the handoff menu carries its closed choices as data. */
-const HANDOFF_CAPABLE_HARNESSES: ReadonlySet<string> = new Set(['claude-code', 'codex'])
+ * node-only harness manifest, so the handoff menu carries its closed choices as
+ * data — derived from {@link HANDOFF_HARNESS_KINDS}, not restated. */
+const HANDOFF_CAPABLE_HARNESSES: ReadonlySet<string> = new Set(HANDOFF_HARNESS_KINDS)
 
 export function handoffAvailability<M extends HandoffMachine>(
   session: HandoffSession,

@@ -181,6 +181,7 @@
  */
 
 import { z } from 'zod'
+import { HANDOFF_HARNESS_KINDS } from './agent'
 import { StampedAttribution } from '../fields/attribution'
 import { IssueIdentity, IssueWorkspace } from '../fields/issue'
 import { Ownership } from '../fields/ownership'
@@ -237,7 +238,7 @@ import { MachineIdField } from '../ids'
 //      present on v1 and missing on v2.
 const HANDOFF_BUNDLE_CORE = {
   sessionId: SessionIdentity.shape.sessionId,
-  agentKind: z.enum(['claude-code', 'codex']),
+  agentKind: z.enum(HANDOFF_HARNESS_KINDS),
   resume: SessionResume.shape.resume.unwrap(),
   transcriptFilename: z.string(),
   transcriptRelativeDir: z.string().optional(),

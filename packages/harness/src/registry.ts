@@ -51,6 +51,19 @@ export const AGENT_MANIFESTS: Record<BuiltinHarnessKind, AgentManifest> = {
 }
 
 /**
+ * The closed set of harness names, DERIVED from the manifests (POD-4414 §5,
+ * issue 4.2) — `Object.keys` over the total record, so adding a harness to the
+ * table grows this with no second list to update. The definition itself lives
+ * at L0 (`BuiltinHarnessKind` in `@podium/model`, which this package must not
+ * invert into a cycle); this is the registry's own reader over it, for
+ * consumers that already hold the registry and need the set as values rather
+ * than as a type.
+ */
+export const HARNESS_KINDS: readonly BuiltinHarnessKind[] = Object.keys(
+  AGENT_MANIFESTS,
+) as BuiltinHarnessKind[]
+
+/**
  * Manifest lookup over an OPEN harness id (a wire `HarnessId`, an `AgentKind`, or
  * any string from an older or newer peer). Returns `undefined` for 'shell' (not a
  * harness) and for unknown harness names — callers MUST branch on that and

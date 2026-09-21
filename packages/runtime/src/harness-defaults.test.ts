@@ -1,4 +1,4 @@
-import { asAccountId } from '@podium/model'
+import { asAccountId, BUILTIN_HARNESS_KINDS, HarnessAgent } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   type HarnessCandidate,
@@ -7,6 +7,7 @@ import {
   SUPERAGENT_HARNESS_PRIORITY,
   superagentBackendIsUnset,
   superagentDefaultFor,
+  validateSuperagentPriority,
 } from './harness-defaults'
 import { normalizeSettings } from './settings'
 
@@ -82,6 +83,25 @@ describe('superagent harness priority', () => {
 
   it('names the native account of the harness it picked', () => {
     expect(superagentDefaultFor('grok').accountId).toBe('native:grok')
+  })
+
+  // Issue 4.2: the ORDER is product policy and stays here, but every entry
+  // must name a harness the registry knows — a name nobody ships would seed a
+  // role no machine can run.
+  it('keeps every priority entry inside the closed harness set', () => {
+    expect(() =>
+      validateSuperagentPriority(SUPERAGENT_HARNESS_PRIORITY, new Set(BUILTIN_HARNESS_KINDS)),
+    ).not.toThrow()
+  })
+
+  it('refuses a priority entry outside the closed set', () => {
+    expect(() =>
+      validateSuperagentPriority(['codex', 'no-such-harness'], new Set(BUILTIN_HARNESS_KINDS)),
+    ).toThrow(/unknown superagent harness: no-such-harness/)
+  })
+
+  it('answers every closed-set harness in the defaults table', () => {
+    expect(Object.keys(SUPERAGENT_HARNESS_DEFAULTS).sort()).toEqual([...HarnessAgent.options].sort())
   })
 })
 

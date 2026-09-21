@@ -123,3 +123,65 @@ export const BUILTIN_HARNESS_KINDS: readonly BuiltinHarnessKind[] = HarnessAgent
 export function isBuiltinHarnessKind(id: string): id is BuiltinHarnessKind {
   return (BUILTIN_HARNESS_KINDS as readonly string[]).includes(id)
 }
+
+// ---------------------------------------------------------------------------
+// Derived closed subsets (POD-4414 §5, issue 4.2).
+//
+// `HarnessAgent` above is the ONE closed set of harness names. The schemas
+// below used to restate its members — or a slice of them — as their own
+// `z.enum([...])` literals, which is how a seventh harness silently passes one
+// gate and fails another. Each slice now lives here, beside the definition,
+// and every schema derives via `z.enum(SLICE)` so the wire is byte-identical
+// and the membership has exactly one home.
+//
+// Slices that coincide today stay separate consts: capability membership
+// evolves per concern (a harness gains usage harvest before it gains handoff),
+// and sharing one const would couple unrelated wire compat.
+// ---------------------------------------------------------------------------
+
+/** Harnesses with token-usage cost transcripts. Read by `CostHarness`
+ *  (entities/cost.ts) and the usage-harvest wire (entities/machine.ts). */
+export const COST_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
+
+/**
+ * The harness whose cost attribution is complete — every transcript that
+ * carries usage has a conversation-segment row, including `subagents/` files.
+ * `floorOf` (entities/cost.ts) hedges to `partial` for any other harness.
+ */
+export const COST_FULL_ATTRIBUTION_HARNESS: BuiltinHarnessKind = 'claude-code'
+
+/** Harnesses whose sessions can be exported and resumed elsewhere. Read by
+ *  the handoff manifest (entities/handoff.ts) and the handoff-availability
+ *  predicate (predicates/machine-handoff.ts). */
+export const HANDOFF_HARNESS_KINDS = ['claude-code', 'codex'] as const
+
+/** Harnesses the usage harvest reads. Read by `UsageSourceWire`
+ *  (entities/machine.ts). */
+export const USAGE_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
+
+/** Harnesses with a causal observation provider. Read by
+ *  `ObservationProvider` (protocol/messages/runtime-state.ts). */
+export const OBSERVATION_PROVIDER_KINDS = ['claude-code', 'codex', 'grok'] as const
+
+/**
+ * The harness members of the portable-credential bundle kinds. Read by
+ * `PortableCredentialKind` (protocol/messages/credentials.ts), which appends
+ * its own `'claude-code-state'` bundle suffix — a bundle name, not a harness,
+ * so it stays local to the protocol file.
+ */
+export const PORTABLE_CREDENTIAL_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
+
+/**
+ * Harnesses offered by the "which harness starts a generic new agent"
+ * preference (runtime settings.ts `AgentChoice`: `'auto'` plus these). `pi`
+ * is deliberately NOT offered yet — adding it here is a product decision, not
+ * a registry sync, so this slice must never be rebuilt as "auto plus the full
+ * closed set" without answering that.
+ */
+export const AGENT_CHOICE_HARNESS_KINDS = [
+  'claude-code',
+  'codex',
+  'grok',
+  'opencode',
+  'cursor',
+] as const

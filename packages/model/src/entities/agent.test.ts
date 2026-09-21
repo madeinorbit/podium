@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AGENT_CHOICE_HARNESS_KINDS,
   AgentKind,
   BUILTIN_HARNESS_KINDS,
   type BuiltinHarnessKind,
+  COST_FULL_ATTRIBUTION_HARNESS,
+  COST_HARNESS_KINDS,
+  HANDOFF_HARNESS_KINDS,
   HarnessAgent,
   HarnessId,
   isAgentKind,
   isBuiltinHarnessKind,
+  OBSERVATION_PROVIDER_KINDS,
+  PORTABLE_CREDENTIAL_HARNESS_KINDS,
+  USAGE_HARNESS_KINDS,
 } from './agent'
 
 /**
@@ -74,5 +81,48 @@ describe('BuiltinHarnessKind — closed in-repo (POD-303)', () => {
     expect(typeof parsed).toBe('string')
     expect(parsed).toBe('claude-code')
     expect(JSON.stringify({ harness: parsed })).toBe('{"harness":"claude-code"}')
+  })
+})
+
+/**
+ * Derived closed subsets (POD-4414 §5, issue 4.2). Each slice below is the ONE
+ * home for one schema's membership; the schemas derive via `z.enum(SLICE)`.
+ * These tests pin the contract both ways: every slice stays inside the closed
+ * set (a bogus member fails here, not at a distant gate), and the wire members
+ * stay exactly what they were (a silent widening or narrowing fails here).
+ */
+describe('derived harness subsets (4.2)', () => {
+  const SLICES: readonly (readonly string[])[] = [
+    COST_HARNESS_KINDS,
+    HANDOFF_HARNESS_KINDS,
+    USAGE_HARNESS_KINDS,
+    OBSERVATION_PROVIDER_KINDS,
+    PORTABLE_CREDENTIAL_HARNESS_KINDS,
+    AGENT_CHOICE_HARNESS_KINDS,
+  ]
+
+  it('keeps every slice inside the closed set', () => {
+    const closed = new Set<string>(HarnessAgent.options)
+    for (const slice of SLICES) for (const kind of slice) expect(closed.has(kind)).toBe(true)
+    expect(isBuiltinHarnessKind(COST_FULL_ATTRIBUTION_HARNESS)).toBe(true)
+  })
+
+  it('pins the cost/usage/observation wire members', () => {
+    expect([...COST_HARNESS_KINDS]).toEqual(['claude-code', 'codex', 'grok'])
+    expect([...USAGE_HARNESS_KINDS]).toEqual(['claude-code', 'codex', 'grok'])
+    expect([...OBSERVATION_PROVIDER_KINDS]).toEqual(['claude-code', 'codex', 'grok'])
+    expect([...PORTABLE_CREDENTIAL_HARNESS_KINDS]).toEqual(['claude-code', 'codex', 'grok'])
+    expect(COST_FULL_ATTRIBUTION_HARNESS).toBe('claude-code')
+  })
+
+  it('pins the handoff members and the spawn-choice offer (pi stays unoffered)', () => {
+    expect([...HANDOFF_HARNESS_KINDS]).toEqual(['claude-code', 'codex'])
+    expect([...AGENT_CHOICE_HARNESS_KINDS]).toEqual([
+      'claude-code',
+      'codex',
+      'grok',
+      'opencode',
+      'cursor',
+    ])
   })
 })
