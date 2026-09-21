@@ -14,8 +14,8 @@
  * intermediary identity ever propagates spuriously.
  */
 
-import { computed, makeObservable, observable } from 'mobx'
-import type { SliceIssue, SlicePhase, SliceRow, SliceSession } from '../../shared/src/slice-types'
+import { computed, computedStruct, makeObservable, observableRef } from 'mobx'
+import type { SliceIssue, SlicePhase, SliceRow, SliceSession } from '../../../shared/src/slice-types'
 import {
   SIDEBAR_FINISHED_GRACE_MS,
   bandOf,
@@ -79,20 +79,20 @@ export class IssueModel {
     this.store = store
     this.value = value
     makeObservable(this, {
-      value: observable.ref,
+      value: observableRef,
       store: false,
       lastRowJson: false,
       lastTickJson: false,
       excluded: computed,
       flat: computed,
       visible: computed,
-      summary: computed.struct,
-      aggregate: computed.struct,
-      tick: computed.struct,
-      rankKey: computed.struct,
+      summary: computedStruct,
+      aggregate: computedStruct,
+      tick: computedStruct,
+      rankKey: computedStruct,
       closed: computed,
       isSelected: computed,
-      row: computed.struct,
+      row: computedStruct,
       parent: false,
       children: false,
       sessions: false,

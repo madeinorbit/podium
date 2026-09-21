@@ -98,11 +98,10 @@ export class MobXStore {
 
   private off: (() => void) | null = null
   private webRoot: { unmount(): void } | null = null
+  private readonly source: RowSource
 
-  constructor(
-    private readonly source: RowSource,
-    locals: SliceLocals,
-  ) {
+  constructor(source: RowSource, locals: SliceLocals) {
+    this.source = source
     const stats: ArmStats = {
       rowsDerived: 0,
       rollupsDerived: 0,

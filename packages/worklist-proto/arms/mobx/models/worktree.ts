@@ -4,8 +4,8 @@
  * rendered (spec §6). Like sessions: a leaf box around the borrowed row.
  */
 
-import { makeObservable, observable } from 'mobx'
-import type { SliceWorktree } from '../../shared/src/slice-types'
+import { makeObservable, observableRef } from 'mobx'
+import type { SliceWorktree } from '../../../shared/src/slice-types'
 
 export class WorktreeModel {
   /** Borrowed immutable stream object; replaced, never mutated. */
@@ -14,7 +14,7 @@ export class WorktreeModel {
   constructor(value: SliceWorktree) {
     this.value = value
     makeObservable(this, {
-      value: observable.ref,
+      value: observableRef,
     })
   }
 }

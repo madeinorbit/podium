@@ -5,8 +5,8 @@
  * change invalidates exactly the issues that read that session.
  */
 
-import { makeObservable, observable } from 'mobx'
-import type { SliceSession } from '../../shared/src/slice-types'
+import { makeObservable, observableRef } from 'mobx'
+import type { SliceSession } from '../../../shared/src/slice-types'
 
 export class SessionModel {
   /** Borrowed immutable stream object; replaced, never mutated. */
@@ -15,7 +15,7 @@ export class SessionModel {
   constructor(value: SliceSession) {
     this.value = value
     makeObservable(this, {
-      value: observable.ref,
+      value: observableRef,
     })
   }
 }

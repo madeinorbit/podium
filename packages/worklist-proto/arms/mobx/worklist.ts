@@ -9,7 +9,7 @@
  * changes from invalidating anything.
  */
 
-import { computed, makeObservable } from 'mobx'
+import { computed, computedStruct, makeObservable } from 'mobx'
 import type { SliceGroup, SliceOrder } from '../../shared/src/slice-types'
 import { closedFoldAt, compareRank, groupLabelOf, type RankInput } from './rules'
 import type { MobXStore } from './store'
@@ -26,7 +26,7 @@ export class WorklistModel {
       store: false,
       visibleIds: computed({ equals: shallowIdsEqual }),
       order: computed({ equals: shallowIdsEqual }),
-      groups: computed.struct,
+      groups: computedStruct,
       foldAt: false,
       laneOf: false,
       snapshotOrder: false,
