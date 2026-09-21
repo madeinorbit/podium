@@ -1,0 +1,98 @@
+diff --git a/packages/worklist-proto/arms/tanstack/k3d-probe.test.ts b/packages/worklist-proto/arms/tanstack/k3d-probe.test.ts
+new file mode 100644
+index 000000000..a204bd96a
+--- /dev/null
++++ b/packages/worklist-proto/arms/tanstack/k3d-probe.test.ts
+@@ -0,0 +1,29 @@
++/**
++ * K3-D probe (KEPT in the diff as the firing evidence): a snoozed row must
++ * hide. On the foot-gun branch the input never reaches any collection, so the
++ * row stays visible and this test FAILS — while typecheck, fixture parity
++ * and every other arm test stay green. On the clean tree (or the fixed A
++ * branch) it passes.
++ */
++
++import { describe, expect, it } from 'vitest'
++import type { SliceIssue } from '../../shared/src/slice-types'
++import { issue, row, testWorld, workedExample, NOW } from './tanstack.test'
++
++const iso = (ms: number): string => new Date(ms).toISOString()
++
++describe('k3d omitted-input probe', () => {
++  it('a snoozed row hides until the passing tick', () => {
++    const world = testWorld(workedExample())
++    const before = world.store.entities.issues.collection.get('A') as SliceIssue
++    world.push({
++      type: 'update',
++      rows: [row('issue', 'A', { ...before, snoozedUntil: iso(NOW + 3600000) } as SliceIssue)],
++    })
++    // Intended: A hides while coarseNow is before snoozedUntil.
++    expect(world.store.snapshot().rowsById['A']).toBeUndefined()
++    world.store.setCoarseNow(NOW + 2 * 3600000)
++    expect(world.store.snapshot().rowsById['A']).toMatchObject({ id: 'A' })
++    world.store.dispose()
++  })
++})
+diff --git a/packages/worklist-proto/arms/tanstack/queries.ts b/packages/worklist-proto/arms/tanstack/queries.ts
+index b1fe5f799..544c6d8f6 100644
+--- a/packages/worklist-proto/arms/tanstack/queries.ts
++++ b/packages/worklist-proto/arms/tanstack/queries.ts
+@@ -49,6 +49,7 @@ import {
+   groupLabelOf,
+   inClosedFold,
+   isSessionWorking,
++  isSnoozed,
+   attentionGroup,
+   isOfferOnlyAttention,
+   closedFoldAt,
+@@ -217,6 +218,9 @@ export interface IssuesNRow {
+   repoId: string | null | undefined
+   repoPath: string
+   worktreePath: string | null | undefined
++  /** K3-D: declared for the snooze predicate — but the select below never
++   *  carries it, so the sync routing never writes it into any collection. */
++  snoozedUntil?: string | null
+   needsHuman: boolean | undefined
+   blocked: boolean | undefined
+   readAt: string | null | undefined
+@@ -677,7 +681,10 @@ export function createBaseQueries(
+             Parameters<typeof groupKeyOf>[0]
+           const retained = (agg?.retained ?? 0) + (aggr?.retained ?? 0)
+           const unread = derivedUnreadFromMax(issue, maxMs(agg?.explicitMax))
+-          const flat = retained > 0 || sessionlessKept(issue, now, unread)
++          // K3-D: the gate is wired — but `n.snoozedUntil` is always undefined
++          // (the issuesN select above never carries it), so this never fires.
++          const flat =
++            !isSnoozed(n, now) && (retained > 0 || sessionlessKept(issue, now, unread))
+           const peak = Math.max(maxMs(agg?.retainedLatest), maxMs(aggr?.retainedLatest))
+           const first = parseFirstPick(minPick(agg?.firstPick ?? null, aggr?.firstPick ?? null))
+           const out: SummaryRow = {
+diff --git a/packages/worklist-proto/arms/tanstack/rules.ts b/packages/worklist-proto/arms/tanstack/rules.ts
+index f4c5bffdc..5259bf831 100644
+--- a/packages/worklist-proto/arms/tanstack/rules.ts
++++ b/packages/worklist-proto/arms/tanstack/rules.ts
+@@ -286,6 +286,24 @@ export function returnedFromDefer(issue: Pick<SliceIssue, 'deferUntil'>, now: nu
+   return until !== null && until <= now
+ }
+ 
++/**
++ * K3-D (foot-gun, exercise only): an issue carrying a `snoozedUntil` wire
++ * field is hidden while coarseNow is before it. The predicate and the fold
++ * below are wired — but the issuesN select never carries the field, so the
++ * input the sync routing never writes into any collection reads undefined
++ * forever and the row never hides. Typecheck, parity and every arm test stay
++ * green: nothing declares that a carried input must arrive.
++ */
++export function snoozedUntilMs(issue: { snoozedUntil?: string | null }): number | null {
++  return parseMs(issue.snoozedUntil)
++}
++
++/** K3-D: hidden while the snooze timestamp lies in the future. */
++export function isSnoozed(issue: { snoozedUntil?: string | null }, now: number): boolean {
++  const until = snoozedUntilMs(issue)
++  return until !== null && until > now
++}
++
+ /** unifiedRowBand (row-order.ts:16): pinned/returned 0, snoozed 2, else 1. */
+ export function bandOf(issue: Pick<SliceIssue, 'pinned' | 'deferUntil'>, now: number): 0 | 1 | 2 {
+   if (issue.pinned === true || returnedFromDefer(issue, now)) return 0
