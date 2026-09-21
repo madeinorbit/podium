@@ -59,18 +59,18 @@ describe('engine lifecycle ownership (§4.8: the session summons, the family bin
       },
       dispose: () => {},
     }
+    const hostAdapter = {
+      kind: 'host',
+      spawnHeadless: async (opts: { label: string; cmd: string }) => {
+        spawned.push({ label: opts.label, cmd: opts.cmd })
+        return attachment
+      },
+    }
     const recordingDurable = {
       backend: 'host',
-      primary: {
-        kind: 'host',
-        spawnHeadless: async (opts: { label: string; cmd: string }) => {
-          spawned.push({ label: opts.label, cmd: opts.cmd })
-          return attachment
-        },
-      },
-      all: [],
+      primary: hostAdapter,
+      all: [hostAdapter],
     } as unknown as DurableProcess
-    recordingDurable.all = [recordingDurable.primary] as DurableProcess['all']
 
     const sessions = new SessionRegistry()
     sessions.bindEngines(createSessionEngineScope(recordingDurable))
