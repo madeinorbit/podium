@@ -642,6 +642,11 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         ...forgottenPanes(patch, st, tabId),
         ...(fileTabs.length !== st.fileTabs.length ? { fileTabs } : {}),
       })
+      // TAB RELEASE (POD-4435): a session tab actually closed (not a file tab,
+      // which carries no session). The server answers it through the shell
+      // lifetime policy — an untouched shell dies, a used one stays. Only when
+      // the tab held a session: file tabs report nothing.
+      if (!isFile) rt.hub.reportTabRelease(tabId as SessionId)
     },
     moveWorkspaceTab: (tabId, toPaneId, toIndex) =>
       editWorkspace((ws) => moveTab(ws, tabId, toPaneId, toIndex)),

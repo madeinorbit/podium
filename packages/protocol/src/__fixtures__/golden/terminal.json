@@ -2343,6 +2343,30 @@
       "encoded": "{\"type\":\"spawn\",\"sessionId\":\"sessionId\",\"durableLabel\":\"durableLabel\",\"agentKind\":\"cursor\",\"loginHarness\":\"cursor\",\"cwd\":\"cwd\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"geometry\":{\"cols\":5,\"rows\":5},\"binding\":{\"delegation\":{\"actor\":\"binding.delegation.actor\",\"onBehalfOf\":\"binding.delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"binding.delegation.grantedScope.userId\"},\"parentBindingId\":\"binding.delegation.parentBindingId\",\"revision\":5},\"transitionId\":\"binding.transitionId\",\"machineAccess\":\"unreachable\",\"principal\":{\"kind\":\"system\",\"job\":\"binding.principal.job\"},\"issueId\":\"binding.issueId\",\"requestedScope\":{\"kind\":\"self\",\"userId\":\"binding.requestedScope.userId\"},\"scopeOverrideConfirmed\":true,\"relaunch\":true},\"adoptedBinding\":{\"transitionId\":\"adoptedBinding.transitionId\",\"machineAccess\":\"unreachable\",\"transferId\":\"adoptedBinding.transferId\",\"role\":\"target\",\"fromMachineId\":\"adoptedBinding.fromMachineId\",\"toMachineId\":\"adoptedBinding.toMachineId\"},\"model\":\"model\",\"subagentModel\":\"subagentModel\",\"effort\":\"effort\",\"initialPrompt\":\"initialPrompt\",\"instructions\":[{\"source\":\"instructions[0].source\",\"content\":\"instructions[0].content\"}],\"env\":{\"env.key\":\"env.env.key\"},\"seedCliTheme\":true,\"draftSync\":true,\"observationGeneration\":5,\"observationBindingVersion\":5,\"observationProviderSessionId\":\"observationProviderSessionId\",\"observationCheckpoint\":{\"unknownFixture\":\"observationCheckpoint\"},\"requestedDriverId\":\"requestedDriverId\"}"
     },
     {
+      "schema": "TabReleaseMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "tabRelease",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"tabRelease\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "TabReleaseMessage",
+      "variant": "full",
+      "wire": {
+        "type": "tabRelease",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"tabRelease\",\"sessionId\":\"sessionId\"}"
+    },
+    {
       "schema": "TerminalOutcomeMessage",
       "variant": "minimal",
       "wire": {
