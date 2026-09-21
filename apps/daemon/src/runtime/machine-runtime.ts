@@ -17,6 +17,7 @@ import {
   createAgentRuntime,
   type DriverCapabilities,
   type DriverId,
+  EngineBindUnrecoverable,
   type MachineAgentRuntime,
   type RuntimeDriver,
   type SessionBinding,
@@ -57,6 +58,17 @@ export type JournalledAdoption =
        *  reach — but the operator gets told which of the driver's refusals it
        *  was rather than a generic "could not be resumed" (POD-2775, review 1). */
       reason?: string
+      /**
+       * THE TYPED §4.8 SIGNAL, when the adopt failed that way (POD-4490).
+       *
+       * The engine is up, its protocol is dead, and the family KEPT the
+       * process with the journal untouched. Carried beside `reason` (which
+       * stays the human sentence) so the lifecycle owner can tell "kept,
+       * invalidate pending turns and record the survivor" apart from every
+       * other refusal — which keeps its existing reap-and-report path. Absent
+       * for every non-bind failure, exactly as before.
+       */
+      bindFailure?: EngineBindUnrecoverable
     }
 
 export type DaemonDriverResolution =
@@ -392,11 +404,13 @@ export function createDaemonMachineRuntime(input: {
       }
       let handle: AgentSessionHandle | undefined
       let reason: string | undefined
+      let bindFailure: EngineBindUnrecoverable | undefined
       try {
         handle = await runtime.adopt(binding)
       } catch (error) {
         handle = undefined
         reason = error instanceof Error ? error.message : String(error)
+        if (error instanceof EngineBindUnrecoverable) bindFailure = error
       }
       return {
         found: true,
@@ -404,6 +418,7 @@ export function createDaemonMachineRuntime(input: {
         workdir: entry.workdir,
         ...(handle ? { handle } : {}),
         ...(reason ? { reason } : {}),
+        ...(bindFailure ? { bindFailure } : {}),
       }
     },
     serverHandleFor(sessionId) {
