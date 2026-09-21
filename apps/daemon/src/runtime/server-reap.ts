@@ -68,11 +68,11 @@ import { spawn } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import type { AgentSessionHandle } from '@podium/harness/driver/host'
+import { probeHealth } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs } from '@podium/process/durable'
 import type { DaemonContext } from '../control/context'
-import { probeHealth } from './opencode-server'
 import { SERVER_HANDLE_VERB_TIMEOUT_MS } from './server-teardown-budget'
 
 const log = createLogger('daemon:server-reap')

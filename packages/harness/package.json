@@ -82,7 +82,9 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
+    "@types/ws": "^8.5.13",
     "tsup": "^8.5.1",
-    "vitest": "5.0.0-beta.6"
+    "vitest": "5.0.0-beta.6",
+    "ws": "^8.18.0"
   }
 }

@@ -36,9 +36,9 @@ import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
-import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
+import { codexAppServerVersionProbe } from '../runtime/version-probe'
 import { driverTiming } from '../runtime/driver-timing'
-import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
+import { grokAcpVersionProbe } from '../runtime/version-probe'
 import { handleFor, runtimeDriverIdFor } from '../runtime/handlers'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
 import {
@@ -46,7 +46,7 @@ import {
   opencode2VersionProbeForExecutable,
   opencodeVersionProbe,
   opencodeVersionProbeForExecutable,
-} from '../runtime/opencode-server'
+} from '../runtime/version-probe'
 import {
   availableDriverIds,
   droppedDriverPreference,

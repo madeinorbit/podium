@@ -9,7 +9,7 @@ import {
   resolveManagementCredentialHome,
   type HarnessManagementContext,
 } from '../harness-management.js'
-import { opencode2VersionProbeForExecutable } from '../runtime/opencode-server'
+import { opencode2VersionProbeForExecutable } from '../runtime/version-probe'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')

@@ -26,4 +26,13 @@ export {
   GROK_ACP_DRIVER_ID,
   GROK_ACP_EVENT_LOG_LIMIT,
 } from './runtime.js'
+export {
+  type GrokAcpProbeVerdict,
+  type GrokEngineHostDeps,
+  createGrokEngineHost,
+  evaluateGrokAcpVersionProbe,
+  grokAcpProcessKey,
+  GrokEngineLeaseRefused,
+} from './engine-host.js'
+export { type GrokEngineFacts, grokEngineFacts } from './engine-facts.js'
 export * from './version.js'

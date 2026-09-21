@@ -6,6 +6,18 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { createOpencode2Client, DriverRefusalError } from '@podium/harness/driver/host'
 import {
+  type CodexJournalEntry,
+  codexEngineFacts,
+  createCodexEngineHost,
+  createGrokEngineHost,
+  createOpencodeEngineHost,
+  type GrokAcpJournalEntry,
+  grokEngineFacts,
+  type OpencodeJournalEntry,
+  opencode2Flavor,
+  opencodeFlavor,
+} from '@podium/harness/driver/host'
+import {
   agentLaunchCommand,
   buildMachineInventory,
   buildResolvedInventory,
@@ -105,16 +117,28 @@ import {
   createDaemonClaudeSdkRuntime,
   type DaemonClaudeSdkRuntime,
 } from './runtime/claude-sdk-driver'
-import { createCodexHost } from './runtime/codex-app-server'
 import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
-import { createGrokAcpHost } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
-import { daemonRuntimeHost } from './runtime/host'
+import {
+  composeEngineEnv,
+  createEngineJournal,
+  daemonRuntimeHost,
+  dialEngineSocket,
+  engineSocketRoot,
+  supervisionFor,
+} from './runtime/host'
+import type { ClientTerminalKind } from './runtime/opencode-attach'
+import { SERVER_GRACEFUL_EXIT_MS } from './runtime/server-teardown-budget'
+import {
+  codexAppServerVersionProbe,
+  grokAcpVersionProbe,
+  opencode2VersionProbeForExecutable,
+  opencodeVersionProbeForExecutable,
+} from './runtime/version-probe'
 import { createHeadlessRuntime, type HeadlessRuntime } from './runtime/headless-driver'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
-import { createOpencodeHost, opencode2VersionDiagnostic } from './runtime/opencode-server'
 import { createScopeMonitor } from './runtime/scope-monitor'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
@@ -1106,7 +1130,17 @@ export async function createDaemonHostRuntime(args: {
   const contractHost = { ...daemonRuntimeHost(ctx, send, stageAttachment), boundaryContext: mailContext.pendingContext }
   terminalRuntime = createTerminalRuntime(contractHost, primeSource)
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
-  const opencode2Executable = generationInventory?.commandEnvironment.resolve('opencode2')
+  // Engine-family facts: every harness-shaped value below (argv stems, scope
+  // tokens, strip lists, journal namespaces) is read off the adapters through
+  // these, never restated here — this file stays wiring-only (1.5).
+  const codexFacts = codexEngineFacts()
+  const grokFacts = grokEngineFacts()
+  const ocFacts = opencodeFlavor()
+  const oc2Facts = opencode2Flavor()
+  // The engine's durable owner (POD-4433): podium-host under the hood. One
+  // supervision implementation drives every engine family.
+  const engineSupervision = supervisionFor(engineDurable)
+  const opencode2Executable = generationInventory?.commandEnvironment.resolve(oc2Facts.executableName)
   claudeRuntime = createDaemonClaudeSdkRuntime({
     send,
     boundaryContext: mailContext.pendingContext,
@@ -1138,11 +1172,18 @@ export async function createDaemonHostRuntime(args: {
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
-    host: createOpencodeHost({
+    host: createOpencodeEngineHost({
+      flavor: ocFacts,
+      supervision: engineSupervision,
+      journal: createEngineJournal<OpencodeJournalEntry>({ namespace: ocFacts.journalNamespace }),
       resources: (subject) => scopeMonitor.resources(subject),
       stageAttachment,
-      // The engine's durable owner (POD-4433): podium-host under the hood.
-      durable: engineDurable,
+      buildEnv: composeEngineEnv,
+      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+      checkVersion: ({ executable }) =>
+        opencodeVersionProbeForExecutable(executable).then((verdict) =>
+          verdict.drivable ? null : verdict.diagnostic,
+        ),
       /**
        * `attach()`'s client terminal (POD-2059), on the frames path this daemon
        * already runs. The stream id is the key, exactly as the engine variant's
@@ -1153,8 +1194,8 @@ export async function createDaemonHostRuntime(args: {
        * per-machine refusal instead.
        */
       ...(clientTerminals ? { clientTerminals } : {}),
-      ...(generationInventory?.executables.has('opencode')
-        ? { executablePath: resolvedHarnessPath(generationInventory, 'opencode') }
+      ...(generationInventory?.executables.has(ocFacts.executableName)
+        ? { executablePath: resolvedHarnessPath(generationInventory, ocFacts.executableName) }
         : {}),
       // The instance agent home: a server-driver child's HOME must be the
       // instance's, exactly as the PTY path's children get it (POD-2247).
@@ -1169,35 +1210,28 @@ export async function createDaemonHostRuntime(args: {
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
     host: {
-      ...createOpencodeHost({
+      ...createOpencodeEngineHost({
+        flavor: oc2Facts,
+        supervision: engineSupervision,
+        journal: createEngineJournal<OpencodeJournalEntry>({ namespace: oc2Facts.journalNamespace }),
         resources: (subject) => scopeMonitor.resources(subject),
         // Absent on a backend=none daemon (POD-3917): no terminal host, so the
         // opencode host refuses a Native attach with its per-machine wording.
         ...(clientTerminals ? { clientTerminals } : {}),
         stageAttachment,
-        // The engine's durable owner (POD-4433): podium-host under the hood.
-        durable: engineDurable,
+        buildEnv: composeEngineEnv,
+        gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+        checkVersion: ({ executable }) =>
+          opencode2VersionProbeForExecutable(executable).then((verdict) =>
+            verdict.drivable ? null : verdict.diagnostic,
+          ),
         ...(opencode2Executable ? { executablePath: opencode2Executable } : {}),
         ...(homeDir ? { homeDir } : {}),
         instanceUuid: instance.instanceUuid,
-        variant: {
-          driverId: 'opencode2-server',
-          executable: 'opencode2',
-          username: 'opencode',
-          healthPath: '/api/health',
-          scopeToken: 'oc2',
-          journalNamespace: 'opencode2-servers',
-          // V2 currently migrates the stable CLI's default database to an incompatible schema.
-          // Isolate only the database so v1 and v2 can coexist while both still read the
-          // instance's shared OpenCode credentials and configuration.
-          env: {
-            OPENCODE_DB: join(stateDir(), 'opencode2.db'),
-            // Preview servers self-update in the background. Keep the admitted API build
-            // stable for the lifetime of the installed Podium driver.
-            OPENCODE_DISABLE_AUTOUPDATE: '1',
-          },
-          versionDiagnostic: opencode2VersionDiagnostic,
-        },
+        // V2 migrates the stable CLI's default database to an incompatible
+        // schema: isolate only the database (supervisor layout) so both still
+        // read the instance's shared credentials and configuration.
+        flavorEnv: { OPENCODE_DB: join(stateDir(), 'opencode2.db') },
       }),
       makeClient: createOpencode2Client,
     },
@@ -1214,11 +1248,17 @@ export async function createDaemonHostRuntime(args: {
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
-    host: createCodexHost({
+    host: createCodexEngineHost({
+      facts: codexFacts,
+      supervision: engineSupervision,
+      journal: createEngineJournal<CodexJournalEntry>({ namespace: codexFacts.journalNamespace }),
       resources: (subject) => scopeMonitor.resources(subject),
       stageAttachment,
-      // The engine's durable owner (POD-4433): podium-host under the hood.
-      durable: engineDurable,
+      buildEnv: composeEngineEnv,
+      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+      checkVersion: () => codexAppServerVersionProbe(),
+      socketRoot: engineSocketRoot(),
+      dialSocket: dialEngineSocket,
       // Omitted outright on a backend=none daemon (POD-3917): without a
       // terminal host the codex host reports it cannot host one, rather than
       // reaching a backend this daemon never selected.
@@ -1230,8 +1270,9 @@ export async function createDaemonHostRuntime(args: {
                   sessionId,
                   // The 0600 Unix listener the stock TUI dials directly; filesystem
                   // permission is the authentication, so there is no secret with it.
+                  // The attach kind is the family's own token, read as a value.
                   target: {
-                    kind: 'codex',
+                    kind: codexFacts.attachKind as ClientTerminalKind,
                     conversation: threadId,
                     endpoint: { address: clientAddress },
                     workdir,
@@ -1242,7 +1283,8 @@ export async function createDaemonHostRuntime(args: {
                 return undefined
               }
             },
-            detachClient: ({ sessionId }) => clientTerminals.close(sessionId, 'codex'),
+            detachClient: ({ sessionId }) =>
+              clientTerminals.close(sessionId, codexFacts.attachKind as ClientTerminalKind),
           }
         : {}),
       // Same instance-home rule as the opencode host above (POD-2247).
@@ -1256,10 +1298,14 @@ export async function createDaemonHostRuntime(args: {
     // Every bind this driver sends is built by the one builder, which reads
     // this record and nothing else (POD-3290).
     appliedGeometry: appliedGeometryFor(ctx),
-    host: createGrokAcpHost({
+    host: createGrokEngineHost({
+      facts: grokFacts,
+      supervision: engineSupervision,
+      journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: grokFacts.journalNamespace }),
       resources: (subject) => scopeMonitor.resources(subject),
-      // The engine's durable owner (POD-4433): podium-host under the hood.
-      durable: engineDurable,
+      buildEnv: composeEngineEnv,
+      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+      checkVersion: () => grokAcpVersionProbe(),
       // Omitted outright on a backend=none daemon (POD-3917): same rule as the
       // codex host above — no terminal host, no attach arm.
       ...(clientTerminals
@@ -1270,7 +1316,13 @@ export async function createDaemonHostRuntime(args: {
                   sessionId,
                   // A stdio engine has nothing to address: the client comes back
                   // through grok's own native store, so the endpoint is empty.
-                  target: { kind: 'grok', conversation: grokSessionId, endpoint: {}, workdir },
+                  // The attach kind is the family's own token, read as a value.
+                  target: {
+                    kind: grokFacts.attachKind as ClientTerminalKind,
+                    conversation: grokSessionId,
+                    endpoint: {},
+                    workdir,
+                  },
                 })
               } catch (err) {
                 log.warn('could not host a Grok client terminal', { err, sessionId })

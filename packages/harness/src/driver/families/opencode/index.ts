@@ -63,6 +63,21 @@ export {
   type OpencodeServerEndpoint,
 } from './runtime.js'
 export {
+  type OpencodeEngineClientTerminals,
+  type OpencodeEngineHostDeps,
+  type OpencodeProbeVerdict,
+  createOpencodeEngineHost,
+  evaluateOpencode2VersionProbe,
+  evaluateOpencodeVersionProbe,
+  opencodeScopeLabel,
+  probeHealth,
+} from './engine-host.js'
+export {
+  type OpencodeEngineFlavor,
+  opencode2Flavor,
+  opencodeFlavor,
+} from './engine-facts.js'
+export {
   gateOpencodeVersion,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type OpencodeVersion,

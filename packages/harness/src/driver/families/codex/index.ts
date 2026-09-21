@@ -95,6 +95,21 @@ export {
   createCodexRuntime,
 } from './runtime.js'
 export {
+  type CodexEngineHostDeps,
+  type CodexProbeVerdict,
+  type CodexRawSocket,
+  CodexAppServerLaunchRefused,
+  CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS,
+  codexClientSocketPath,
+  CodexEngineLeaseRefused,
+  codexScopeLabel,
+  connectCodexWebSocket,
+  createCodexEngineHost,
+  evaluateCodexVersionProbe,
+} from './engine-host.js'
+export { type CodexChildLiveness } from './engine-host.js'
+export { type CodexEngineFacts, codexEngineFacts } from './engine-facts.js'
+export {
   STRIPPED_CODEX_CREDENTIALS,
   type CodexVersion,
   type CodexVersionDiagnostic,

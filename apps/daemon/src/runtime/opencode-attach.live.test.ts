@@ -61,7 +61,7 @@ import { abducoHasSession, createDurable } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
 import { createOpencodeClientTerminals, opencodeAttachLabel } from './opencode-attach'
-import { opencodeScopeLabel } from './opencode-server'
+import { opencodeFlavor, opencodeScopeLabel } from '@podium/harness/driver/host'
 
 const LIVE = process.env.PODIUM_OPENCODE_LIVE === '1'
 /** Two sessions, two attachments, ONE server — booting the binary twice would
@@ -242,7 +242,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
         [
           {
             sessionId: GOOD,
-            label: opencodeScopeLabel(GOOD),
+            label: opencodeScopeLabel(opencodeFlavor(), GOOD),
             ...(server.pid !== undefined ? { pid: server.pid } : {}),
           },
         ],

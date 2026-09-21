@@ -1,4 +1,15 @@
 import { execFile } from 'node:child_process'
+import {
+  type CodexProbeVerdict,
+  evaluateCodexVersionProbe,
+  evaluateGrokAcpVersionProbe,
+  type GrokAcpProbeVerdict,
+  evaluateOpencode2VersionProbe,
+  evaluateOpencodeVersionProbe,
+  type OpencodeProbeVerdict,
+  type OpencodeVersionDiagnostic,
+  OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+} from '@podium/harness/driver/host'
 import { reportHarnessProbe } from '../harness-version-reporting'
 
 export interface VersionProbeOutput {
@@ -93,4 +104,117 @@ export function execVersionProbe(command: string, timeoutMs: number): Promise<Ve
       },
     )
   })
+}
+
+// ---------------------------------------------------------------------------
+// Per-harness admission gates (moved from the engine hosts in 1.5).
+//
+// The supervisor owns the probe budget, the memo and the fork (above); each
+// driver family owns what the output MEANS (the `evaluate*` functions, beside
+// the version policy they read). These compositions keep the names the spawn
+// path and the tests already call, so the move changes addresses, not calls.
+// The default probes ask "what can this MACHINE run" in the daemon's own env,
+// reading no per-user state.
+// ---------------------------------------------------------------------------
+
+/** The shared probe budget — one constant for all three probe sites, because
+ *  POD-2056 established what two numbers for one concept cost. */
+const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
+
+const codexProbeCache = createVersionProbeCache<CodexProbeVerdict>({
+  evaluate: ({ output, ok }) => evaluateCodexVersionProbe(output, ok),
+})
+
+export function codexAppServerVersionProbe(
+  probe: VersionProbe = () => execVersionProbe('codex', VERSION_PROBE_TIMEOUT_MS),
+  policy?: VersionProbePolicy,
+): Promise<CodexProbeVerdict> {
+  return codexProbeCache.probe(probe, policy)
+}
+
+/** Reset the memo. Tests only — a daemon never needs it. */
+export function resetCodexAppServerVersionProbe(): void {
+  codexProbeCache.reset()
+}
+
+const grokProbeCache = createVersionProbeCache<GrokAcpProbeVerdict>({
+  evaluate: ({ output, ok }) => evaluateGrokAcpVersionProbe(output, ok),
+})
+
+export function grokAcpVersionProbe(
+  probe: VersionProbe = () => execVersionProbe('grok', VERSION_PROBE_TIMEOUT_MS),
+  policy?: VersionProbePolicy,
+): Promise<GrokAcpProbeVerdict> {
+  return grokProbeCache.probe(probe, policy)
+}
+
+export function resetGrokAcpVersionProbe(): void {
+  grokProbeCache.reset()
+}
+
+const opencodeProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
+  evaluate: ({ output, ok }) => evaluateOpencodeVersionProbe(output, ok),
+})
+
+export function opencodeVersionProbe(
+  probe: VersionProbe = () => execVersionProbe('opencode', VERSION_PROBE_TIMEOUT_MS),
+  policy?: VersionProbePolicy,
+): Promise<OpencodeProbeVerdict> {
+  return opencodeProbeCache.probe(probe, policy)
+}
+
+export function opencodeVersionProbeForExecutable(
+  executablePath: string,
+  policy?: VersionProbePolicy,
+): Promise<OpencodeProbeVerdict> {
+  return opencodeVersionProbe(
+    () => execVersionProbe(executablePath, VERSION_PROBE_TIMEOUT_MS),
+    policy,
+  )
+}
+
+const opencode2ProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
+  evaluate: ({ output, ok }) => evaluateOpencode2VersionProbe(output, ok),
+})
+
+export function opencode2VersionProbe(
+  probe: VersionProbe = () => execVersionProbe('opencode2', VERSION_PROBE_TIMEOUT_MS),
+  policy?: VersionProbePolicy,
+): Promise<OpencodeProbeVerdict> {
+  return opencode2ProbeCache.probe(probe, policy)
+}
+
+export function opencode2VersionProbeForExecutable(
+  executablePath: string,
+  policy?: VersionProbePolicy,
+): Promise<OpencodeProbeVerdict> {
+  return opencode2VersionProbe(
+    () => execVersionProbe(executablePath, VERSION_PROBE_TIMEOUT_MS),
+    policy,
+  )
+}
+
+export function opencode2VersionDiagnostic(
+  probe?: VersionProbe,
+): Promise<OpencodeVersionDiagnostic | null> {
+  return opencode2VersionProbe(probe).then((verdict) =>
+    verdict.drivable ? null : verdict.diagnostic,
+  )
+}
+
+export function opencodeVersionDiagnostic(
+  probe?: VersionProbe,
+): Promise<OpencodeVersionDiagnostic | null> {
+  return (probe ? opencodeVersionProbe(probe) : opencodeVersionProbe()).then((verdict) =>
+    verdict.drivable ? null : verdict.diagnostic,
+  )
+}
+
+export function resetOpencode2VersionProbe(): void {
+  opencode2ProbeCache.reset()
+}
+
+/** Reset the memo. Tests only — a daemon never needs it. */
+export function resetOpencodeVersionProbe(): void {
+  opencodeProbeCache.reset()
 }

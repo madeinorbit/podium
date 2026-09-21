@@ -40,7 +40,12 @@ import {
   opencodeAttachLabel,
   WARM_TTL_MS,
 } from './opencode-attach'
-import { createOpencodeHost, opencodeScopeLabel, STRIPPED_PROVIDER_KEYS } from './opencode-server'
+import {
+  createOpencodeEngineHost,
+  type OpencodeEngineHostDeps,
+  opencodeFlavor,
+  opencodeScopeLabel,
+} from '@podium/harness/driver/host'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface'
@@ -257,7 +262,7 @@ describe('the client terminal a server-family attach produces', () => {
   })
 
   it('puts it in a scope SIBLING to the session’s, never inside or under it', () => {
-    const sessionLabel = opencodeScopeLabel(SESSION)
+    const sessionLabel = opencodeScopeLabel(OC_FLAVOR, SESSION)
     const attachLabel = opencodeAttachLabel(SESSION)
     // Two distinct units, so either can be reclaimed without touching the other.
     expect(scopeUnitName(attachLabel)).not.toBe(scopeUnitName(sessionLabel))
@@ -273,7 +278,7 @@ describe('the client terminal a server-family attach produces', () => {
     const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
     // REMOVED, not blanked: an empty ANTHROPIC_API_KEY is still a set one, and
     // the point is that the client resolves as if the daemon never carried it.
-    expect(spawn.stripEnv).toEqual(STRIPPED_PROVIDER_KEYS)
+    expect(spawn.stripEnv).toEqual(AGENT_MANIFESTS.opencode.inventory.foreignCredentialEnv)
     expect(spawn.env?.ANTHROPIC_API_KEY).toBeUndefined()
   })
 
@@ -293,7 +298,7 @@ describe('the client terminal a server-family attach produces', () => {
    * whole client TUI.
    */
   it('NEVER lets the client’s memory count against the agent’s budget', () => {
-    const sessionLabel = opencodeScopeLabel(SESSION)
+    const sessionLabel = opencodeScopeLabel(OC_FLAVOR, SESSION)
     const attachLabel = opencodeAttachLabel(SESSION)
     const procs: ProcSample[] = [
       {
@@ -1408,6 +1413,21 @@ describe('what a machine can give back under pressure (spec §5)', () => {
 // The host port: when the daemon answers `attach` at all
 // ---------------------------------------------------------------------------
 
+const OC_FLAVOR = opencodeFlavor()
+
+function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
+  return createOpencodeEngineHost({
+    flavor: OC_FLAVOR,
+    journal: memoryJournal(),
+    stageAttachment: async () => ({ staged: [], refused: [] }),
+    resources: () => undefined,
+    buildEnv: () => ({}),
+    gracefulExitMs: 1,
+    checkVersion: async () => null,
+    ...extra,
+  })
+}
+
 const journalEntry = (over: Partial<OpencodeJournalEntry> = {}): OpencodeJournalEntry => ({
   sessionId: SESSION,
   opencodeSessionId: 'ses_abc123' as OpencodeJournalEntry['opencodeSessionId'],
@@ -1415,7 +1435,7 @@ const journalEntry = (over: Partial<OpencodeJournalEntry> = {}): OpencodeJournal
   username: 'podium',
   secret: SECRET,
   workdir: target.workdir,
-  process: { key: opencodeScopeLabel(SESSION), pid: 100 },
+  process: { key: opencodeScopeLabel(OC_FLAVOR, SESSION), pid: 100 },
   seq: 3,
   turnEpoch: 1,
   bindingVersion: 1,
@@ -1437,7 +1457,7 @@ function memoryJournal(entry?: OpencodeJournalEntry): OpencodeJournal {
 
 describe('the daemon’s answer to “host a client terminal”', () => {
   it('refuses on a machine that hosts none — an honest per-machine answer', async () => {
-    const host = createOpencodeHost({
+    const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
     })
@@ -1448,7 +1468,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
 
   it('refuses before the session has a conversation, rather than opening a DIFFERENT one', async () => {
     const { terminals, state } = harness()
-    const host = createOpencodeHost({
+    const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(),
       clientTerminals: terminals,
@@ -1461,7 +1481,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
 
   it('hands the client the live url and the journalled conversation + credential', async () => {
     const { terminals, state } = harness()
-    const host = createOpencodeHost({
+    const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: terminals,
@@ -1479,7 +1499,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
   })
 
   it('answers “this machine cannot host one” when the client will not start', async () => {
-    const host = createOpencodeHost({
+    const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: {
@@ -1514,7 +1534,7 @@ describe('the session’s lifecycle owns its attachment', () => {
     harness: 'opencode',
     workdir: target.workdir,
     resume: null,
-    process: { key: opencodeScopeLabel(SESSION), pid: 100 },
+    process: { key: opencodeScopeLabel(OC_FLAVOR, SESSION), pid: 100 },
     bindingVersion: 1,
   }
 
@@ -1532,7 +1552,7 @@ describe('the session’s lifecycle owns its attachment', () => {
 
   it('re-adopts a surviving client when the daemon rebinds the session', async () => {
     const { terminals, state } = harness({ hasMaster: () => true })
-    const host = createOpencodeHost({
+    const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: terminals,
@@ -1556,7 +1576,7 @@ describe('the session’s lifecycle owns its attachment', () => {
     ],
   ])('abandons the client when %s', async (_name, journal) => {
     const { terminals, state } = harness({ hasMaster: () => true })
-    const host = createOpencodeHost({
+    const host = engineHost({
       resources: () => undefined,
       journal: journal(),
       clientTerminals: terminals,
@@ -1568,7 +1588,7 @@ describe('the session’s lifecycle owns its attachment', () => {
   it('abandons the client when the journalled server does not answer', async () => {
     globalThis.fetch = (async () => new Response('nope', { status: 401 })) as typeof fetch
     const { terminals, state } = harness({ hasMaster: () => true })
-    const host = createOpencodeHost({
+    const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: terminals,
@@ -1579,7 +1599,7 @@ describe('the session’s lifecycle owns its attachment', () => {
 
   it('kills the client when the session is killed', async () => {
     const { terminals, state } = harness({ hasMaster: () => true })
-    const host = createOpencodeHost({
+    const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
       clientTerminals: terminals,
