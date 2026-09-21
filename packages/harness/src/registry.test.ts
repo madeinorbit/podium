@@ -752,6 +752,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       state: unsupported('no state instrumentation yet'),
       credentials: unsupported('no credential files yet'),
       usage: unsupported('no quota or usage layouts yet'),
+      install: unsupported('no installer yet'),
       stateChannels: [],
       observer: unsupported('no native store to observe yet'),
       transcript: unsupported('no transcript reader yet'),

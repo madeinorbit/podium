@@ -24,12 +24,13 @@ describe('installTargetFor', () => {
     expect(() => installTargetFor('emacs')).toThrow("unsupported agent 'emacs'")
   })
 
-  it.each(['opencode', 'cursor', 'pi'])(
-    'refuses %s with the section reason — no guessed vendor URL',
-    (kind) => {
-      expect(() => installTargetFor(kind)).toThrow('no verified unattended installer')
-    },
-  )
+  it.each([
+    ['opencode', 'no single vendor install script'],
+    ['cursor', "Cursor's own installer"],
+    ['pi', 'no single vendor install script'],
+  ])('refuses %s with the section reason — no guessed vendor URL', (kind, reason) => {
+    expect(() => installTargetFor(kind)).toThrow(reason)
+  })
 })
 
 describe('runInstallTarget — steps come from the adapter', () => {
@@ -99,10 +100,7 @@ describe('runInstallTarget — steps come from the adapter', () => {
     try {
       mkdirSync(join(rel, version, 'linux-x64'), { recursive: true })
       writeFileSync(join(rel, 'latest'), `${version}\n`)
-      writeFileSync(
-        join(rel, 'latest-manifest'),
-        JSON.stringify({ platforms: { 'linux-x64': { checksum: sha } } }),
-      )
+      writeFileSync(join(rel, version, 'linux-x64', 'claude'), body)
       const noted: string[] = []
       const p = ports({
         env: { PODIUM_CLAUDE_RELEASE_BASE_URL: rel } as NodeJS.ProcessEnv,

@@ -120,7 +120,8 @@ export function runInstallTarget(
   binDir: string,
   request: InstallRequestPorts = {},
 ): void {
-  const section = declaredValue(manifestFor(target.kind)?.install)
+  const manifest = manifestFor(target.kind)
+  const section = manifest ? declaredValue(manifest.install) : undefined
   if (!section) throw new Error(`podium install: unsupported agent '${target.kind}'`)
   const ports = resolvePorts(request)
   const tmp = mkdtempSync(join(tmpdir(), `podium-${target.kind}-`))
