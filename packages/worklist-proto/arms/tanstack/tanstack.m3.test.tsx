@@ -21,6 +21,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
 import {
@@ -495,10 +496,38 @@ describe('tanstack arm milestone 3: lifecycle, growth, coexistence', () => {
           await new Promise<void>((resolve) => setTimeout(resolve, 0))
         })
         const expected = snapshotFromStore(ctx.engine.getSnapshot(), locals)
-        const armParity =
-          JSON.stringify(armMounted.handle.snapshot()) === JSON.stringify(expected)
-        const controlParity =
-          JSON.stringify(controlMounted.handle.snapshot()) === JSON.stringify(expected)
+        const armSnap = armMounted.handle.snapshot()
+        const controlSnap = controlMounted.handle.snapshot()
+        // Order-insensitive like the harness (`isDeepStrictEqual`): row-map
+        // insertion order is not observable state.
+        const armParity = isDeepStrictEqual(armSnap, expected)
+        const controlParity = isDeepStrictEqual(controlSnap, expected)
+        if (!armParity || !controlParity) {
+          const diffSide = (actual: SliceSnapshot, name: string): void => {
+            const aRows = actual.rowsById
+            const eRows = expected.rowsById
+            const keys = new Set([...Object.keys(aRows), ...Object.keys(eRows)])
+            let shown = 0
+            for (const id of keys) {
+              if (JSON.stringify(aRows[id] ?? null) !== JSON.stringify(eRows[id] ?? null)) {
+                if (shown < 3) {
+                  console.info(
+                    `[tanstack-m3] co-${scenario} ${name} row ${id}:\n  actual   ${JSON.stringify(aRows[id])}\n  expected ${JSON.stringify(eRows[id])}`,
+                  )
+                }
+                shown += 1
+              }
+            }
+            if (JSON.stringify(actual.order) !== JSON.stringify(expected.order)) {
+              console.info(
+                `[tanstack-m3] co-${scenario} ${name} ORDER differs:\n  actual   ${JSON.stringify(actual.order).slice(0, 300)}\n  expected ${JSON.stringify(expected.order).slice(0, 300)}`,
+              )
+            }
+            console.info(`[tanstack-m3] co-${scenario} ${name} differing rows: ${shown}`)
+          }
+          if (!armParity) diffSide(armSnap, 'arm')
+          if (!controlParity) diffSide(controlSnap, 'control')
+        }
         const armRows = armMounted.log.total()
         const controlRows = controlMounted.log.total()
         const armStats = armMounted.handle.stats
