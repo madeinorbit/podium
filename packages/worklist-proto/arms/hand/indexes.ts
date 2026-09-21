@@ -334,14 +334,16 @@ export class IndexSet {
     return out
   }
 
-  /** Issues holding a session id in either membership bucket. */
+  /** Issues holding a session id (explicit home + resolved worktree seats). */
   memberIssuesOfSession(sessionId: string): string[] {
+    const home = this.sessionHome.get(sessionId)
+    if (home === undefined) return []
     const out: string[] = []
-    for (const [issueId, bucket] of this.explicitByIssue) {
-      if (bucket.has(sessionId)) out.push(issueId)
-    }
-    for (const [issueId, bucket] of this.resolvedByIssue) {
-      if (bucket.has(sessionId)) out.push(issueId)
+    if (home.explicit !== null) out.push(home.explicit)
+    if (home.resolved !== null) {
+      for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
+        if (issueId !== home.explicit) out.push(issueId)
+      }
     }
     return out
   }

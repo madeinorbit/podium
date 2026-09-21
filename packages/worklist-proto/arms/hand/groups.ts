@@ -182,8 +182,9 @@ export class GroupsModule {
       out.push({ kind: 'GroupChanged', key: '' })
     }
     const next: GroupView[] = []
+    const prevByKey = new Map(this.groups.map((g) => [g.key, g]))
     for (const [key, bucket] of buckets) {
-      const prev = this.groups.find((g) => g.key === key)
+      const prev = prevByKey.get(key)
       const isTouched = touched.has(key) || prev === undefined
       if (
         isTouched ||
