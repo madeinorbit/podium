@@ -10,7 +10,7 @@ import {
   SessionObservationCheckpointV1 as SessionObservationCheckpointSchema,
 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { acceptAgentObservation, compareProviderCursor, type ObservationLease } from './causal.js'
+import { acceptAgentObservation, compareProviderCursor, type ObservationLease } from '../driver/families/terminal/observer.js'
 
 const at = '2026-07-18T12:00:00.000Z'
 const lease: ObservationLease = {

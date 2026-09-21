@@ -1,7 +1,7 @@
 import type { Server } from 'node:http'
 import { createLogger } from '@podium/logger'
 
-const log = createLogger('daemon')
+const log = createLogger('harness:loopback')
 
 /**
  * Loopback bind for the daemon's two agent-facing endpoints (hook ingest and

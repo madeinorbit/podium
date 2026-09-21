@@ -39,7 +39,7 @@ import {
   tailTranscript,
 } from '@podium/harness/store'
 import { createGitCapture } from './git-capture'
-import { hookString } from './hook-payload'
+import { hookString } from '@podium/harness/adapters/shared/hook-fields'
 import { countTail, timeTask } from './loop-attribution'
 import type { SessionBinding } from './session-binding'
 import {
@@ -703,10 +703,15 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   ): SessionObservationCheckpointV1 | null => {
     const lease = causalLeases.get(sessionId)
     const checkpoint = msg.checkpoint
+    // The family, not the name: only the claude-causal protocol mints
+    // checkpoints this observer reboots from ('claude-code' is its sole
+    // declarer, so this reads the same fact through the capability).
+    const causalProtocol =
+      observations.get(sessionId)?.adapter.capabilities.observationProtocol === 'claude-causal'
     return lease &&
       checkpoint &&
       checkpoint.podiumSessionId === sessionId &&
-      checkpoint.provider === 'claude-code' &&
+      causalProtocol &&
       checkpoint.providerSessionId === causal.providerSessionId &&
       checkpoint.bindingVersion === lease.bindingVersion &&
       checkpoint.lifecycleObservationGeneration <= lease.observerGeneration
@@ -1534,7 +1539,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       // never a buffered live effect; real hooks racing reattach queue behind the
       // bootstrap acknowledgement through claudeStarting.
       if (
-        observationLease?.provider === 'claude-code' &&
+        adapter.capabilities.observationProtocol === 'claude-causal' &&
+        observationLease !== undefined &&
         observationLease.providerSessionId !== null &&
         survivingClaudeBinding !== undefined &&
         survivingClaudeBinding.providerSessionId === observationLease.providerSessionId

@@ -29,6 +29,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { codexTranscript } from './transcript.js'
+import { codexInstrumentation } from './instrumentation.js'
 import { codexCredentials } from './credentials.js'
 import { codexInstall } from './install.js'
 import { codexUsage } from './usage.js'
@@ -483,6 +484,7 @@ export const codexManifest: AgentManifest = {
   }),
 
   state: supported(codexStateProvider),
+  instrumentation: supported(codexInstrumentation),
   stateChannels: [
     {
       source: 'hook',

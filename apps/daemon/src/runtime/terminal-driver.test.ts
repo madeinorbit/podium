@@ -1,13 +1,12 @@
 import { composeMailContext, createMailInjector, createAckReminderInjector } from '../mail-injector'
-import { startHookIngest } from '../hook-ingest'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { startHookIngest } from '@podium/harness/driver/families/terminal/instrumentation'
+import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { pageHistory } from '@podium/harness/driver/host'
-import * as codexHooks from '../codex-hooks'
 import { primeHookResponse } from '../prime-injector'
-import { installTerminalInstrumentation } from './terminal-instrumentation'
+import { installTerminalInstrumentation } from '@podium/harness/driver/families/terminal/instrumentation'
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
  *
@@ -555,14 +554,17 @@ describe('instrumented terminal creation', () => {
   ])('starts Codex with %s and emits one reason-specific diagnostic', async (scenario, reason, slug) => {
     const homeDir = await mkdtemp(join(tmpdir(), 'codex-spawn-'))
     const world = makeWorld()
-    const actualEnsure = codexHooks.ensurePodiumCodexHooks
-    const ensure = vi.spyOn(codexHooks, 'ensurePodiumCodexHooks').mockImplementation((opts) =>
-      actualEnsure({
-        ...opts,
-        versionProbe: async () =>
-          scenario === 'garbage version' ? 'garbage banner' : 'codex-cli 0.142.0',
-      }),
+    // A fake `codex` ahead on PATH pins the version gate deterministically:
+    // the section install shells out to `codex --version`, and the real binary
+    // (or its absence) must not decide this test's outcome.
+    const binDir = await mkdtemp(join(tmpdir(), 'codex-bin-'))
+    await writeFile(
+      join(binDir, 'codex'),
+      `#!/bin/sh\nprintf "${scenario === 'garbage version' ? 'garbage banner' : 'codex-cli 0.142.0'}\\n"\n`,
     )
+    await chmod(join(binDir, 'codex'), 0o755)
+    const previousPath = process.env.PATH
+    process.env.PATH = `${binDir}${delimiter}${previousPath ?? ''}`
     try {
       const codexHome = join(homeDir, '.codex')
       if (scenario !== 'missing home') await mkdir(codexHome)
@@ -597,9 +599,10 @@ describe('instrumented terminal creation', () => {
         body: expect.stringContaining(reason),
       })
     } finally {
-      ensure.mockRestore()
+      process.env.PATH = previousPath
       world.runtime.dispose()
       await rm(homeDir, { recursive: true, force: true })
+      await rm(binDir, { recursive: true, force: true })
     }
   })
 

@@ -1,3 +1,13 @@
+/**
+ * SHARED HOOK FIELD READERS (POD-4472): the spelling-union accessors for hook
+ * payloads, re-homed unchanged from the daemon's `hook-payload.ts`.
+ *
+ * Claude/Codex post snake_case; Grok Build native hooks post camelCase. These
+ * readers accept both spellings for the core routing fields. They are generic
+ * daemon services' tool — session-observers' per-session routing reads the
+ * adapter's own codec (`adapters/<h>/instrumentation.ts`) instead — and they
+ * name no harness: which spelling a harness posts is the adapter's knowledge.
+ */
 function record(payload: unknown): Record<string, unknown> | undefined {
   return typeof payload === 'object' && payload !== null
     ? (payload as Record<string, unknown>)

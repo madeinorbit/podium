@@ -10,7 +10,7 @@ import {
 } from '../opencode/db.js'
 import { agentStateProviderFor } from '../registry.js'
 import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
-import { initialAgentState, reduceAgentState } from './reducer.js'
+import { initialAgentState, reduceAgentState } from '../driver/families/terminal/observer.js'
 import type { AgentStateEvent } from './types.js'
 
 // Mock the opencode DB module so the gate test can (a) count handle opens and the

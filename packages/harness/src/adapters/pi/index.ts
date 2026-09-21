@@ -270,6 +270,7 @@ export const piManifest: AgentManifest = {
   }),
 
   state: supported(piStateProvider),
+  instrumentation: unsupported('pi posts no hook payloads; observation is poll-only over its stream'),
   stateChannels: [
     {
       source: 'poll',

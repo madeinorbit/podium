@@ -3,7 +3,7 @@ import {
   CLAUDE_AUTO_MODE_PROMPT,
   CLAUDE_TRANSCRIPT_DISABLED,
   classifyClaudeScreen,
-} from './claude-screen.js'
+} from './state.js'
 
 describe('Claude terminal screen classifier', () => {
   it('materializes the auto-mode onboarding prompt as an answerable question', () => {

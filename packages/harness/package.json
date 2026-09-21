@@ -58,6 +58,41 @@
       "@podium/source": "./src/driver/families/terminal/prompt-extract.ts",
       "types": "./dist/driver/families/terminal/prompt-extract.d.ts",
       "import": "./dist/driver/families/terminal/prompt-extract.js"
+    },
+    "./driver/families/terminal/instrumentation": {
+      "@podium/source": "./src/driver/families/terminal/instrumentation.ts",
+      "import": "./dist/driver/families/terminal/instrumentation.js",
+      "types": "./dist/driver/families/terminal/instrumentation.d.ts"
+    },
+    "./driver/families/terminal/loopback-listen": {
+      "@podium/source": "./src/driver/families/terminal/loopback-listen.ts",
+      "import": "./dist/driver/families/terminal/loopback-listen.js",
+      "types": "./dist/driver/families/terminal/loopback-listen.d.ts"
+    },
+    "./driver/families/terminal/observer": {
+      "@podium/source": "./src/driver/families/terminal/observer.ts",
+      "import": "./dist/driver/families/terminal/observer.js",
+      "types": "./dist/driver/families/terminal/observer.d.ts"
+    },
+    "./adapters/shared/hook-fields": {
+      "@podium/source": "./src/adapters/shared/hook-fields.ts",
+      "import": "./dist/adapters/shared/hook-fields.js",
+      "types": "./dist/adapters/shared/hook-fields.d.ts"
+    },
+    "./adapters/claude-code/instrumentation": {
+      "@podium/source": "./src/adapters/claude-code/instrumentation.ts",
+      "import": "./dist/adapters/claude-code/instrumentation.js",
+      "types": "./dist/adapters/claude-code/instrumentation.d.ts"
+    },
+    "./adapters/codex/instrumentation": {
+      "@podium/source": "./src/adapters/codex/instrumentation.ts",
+      "import": "./dist/adapters/codex/instrumentation.js",
+      "types": "./dist/adapters/codex/instrumentation.d.ts"
+    },
+    "./adapters/grok/instrumentation": {
+      "@podium/source": "./src/adapters/grok/instrumentation.ts",
+      "import": "./dist/adapters/grok/instrumentation.js",
+      "types": "./dist/adapters/grok/instrumentation.d.ts"
     }
   },
   "files": [

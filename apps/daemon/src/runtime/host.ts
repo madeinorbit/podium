@@ -37,8 +37,9 @@ import { launchSpawn, recoverTerminalHost, stopSessionProcess } from '../control
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { stageRuntimeAttachment } from './attachment-staging'
+import { reportHarnessProbe } from '../harness-version-reporting'
 import type { TerminalRuntimeHost } from './terminal-driver'
-import { installTerminalInstrumentation } from './terminal-instrumentation'
+import { installTerminalInstrumentation } from '@podium/harness/driver/families/terminal/instrumentation'
 
 /**
  * Adapt one daemon context into the driver's host port.
@@ -73,6 +74,7 @@ export function daemonRuntimeHost(
         spec,
         settingsDir: ctx.settingsDir,
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+        reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
       }),
     launch: (msg, instrumentation) => launchSpawn(ctx, msg, {}, instrumentation, true),
     readHistory: async (session, range) => {

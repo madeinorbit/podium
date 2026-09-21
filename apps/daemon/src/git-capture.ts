@@ -1,6 +1,6 @@
 import type { SessionId } from '@podium/model'
 import { execFile } from 'node:child_process'
-import { hookEventName, hookString } from './hook-payload'
+import { hookEventName, hookString } from '@podium/harness/adapters/shared/hook-fields'
 
 /**
  * Per-session git attribution capture [POD-98] — the daemon half of "did THIS

@@ -1,4 +1,5 @@
 import { seedRuntimeHistory } from '../runtime/history-seed'
+import { reportHarnessProbe } from '../harness-version-reporting'
 import { randomUUID } from 'node:crypto'
 import { dispatchInputBytes } from './legacy-terminal-input'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -77,7 +78,7 @@ import {
   installTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
-} from '../runtime/terminal-instrumentation'
+} from '@podium/harness/driver/families/terminal/instrumentation'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import { appliedGeometryFor, bindFrame } from './applied-geometry'
@@ -969,6 +970,7 @@ export async function launchSpawn(
             spec,
             settingsDir: ctx.settingsDir,
             ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+            reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
           }),
       )
       reportInstrumentationDegradation(ctx, spec.harness, instrumentation, ctx.send)

@@ -1,18 +1,50 @@
+/**
+ * THE CODEX HOOK INSTRUMENTATION (POD-4472): the one authoritative
+ * hook-install + payload-codec definition for this harness (spec §4).
+ *
+ * The install layout (global `hooks.json` upsert + trust detection, per-session
+ * socket/URL env wiring) and the payload codec (snake_case field readers plus
+ * the moved translate) live here — re-homed unchanged from the daemon's
+ * `codex-hooks.ts` and `agent-state/codex.ts`. The terminal family's install +
+ * ingest mechanism (`driver/families/terminal/instrumentation.ts`) receives
+ * this section as a narrow typed SUBSET of the adapter, never the whole
+ * Adapter — the same reader-takes-grammar shape as the transcript Store
+ * (POD-4471).
+ */
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import {
-  AGENT_VERSION_PROBE_TIMEOUT_MS,
-  PODIUM_CODEX_HOOK_SOCKET_ENV,
-  PODIUM_CODEX_HOOK_URL_ENV,
-} from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import { reportHarnessProbe } from './harness-version-reporting'
+import {
+  type HarnessInstrumentation,
+  type InstalledInstrumentation,
+  type InstrumentationDestination,
+} from '../../manifest.js'
+import { withStateChannel } from '../../agent-state/types.js'
+import type { AgentStateEvent, ProviderAgentStateEvent } from '../../agent-state/types.js'
+import { withEventTime } from '../../driver/families/terminal/observer.js'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../../version-probe.js'
+import { classifyCodexVerdict } from './state.js'
 
-const log = createLogger('daemon:codex-hooks')
+const log = createLogger('harness:codex-instrumentation')
+
+/** Legacy rolling-upgrade callback used when no stable socket was injected. */
+export const PODIUM_CODEX_HOOK_URL_ENV = 'PODIUM_CODEX_HOOK_URL'
+/** Stable, instance-scoped Unix socket used by new Codex hook commands. */
+export const PODIUM_CODEX_HOOK_SOCKET_ENV = 'PODIUM_CODEX_HOOK_SOCKET'
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function strField(v: unknown, k: string): string | undefined {
+  if (!isRecord(v)) return undefined
+  const f = v[k]
+  return typeof f === 'string' && f.length > 0 ? f : undefined
+}
 
 /**
  * Install Podium's Codex native-hook instrumentation (Orca-style).
@@ -81,12 +113,12 @@ export function supportsCodexHooks(version: CodexVersion): boolean {
   return version.minor >= MINIMUM_CODEX_HOOKS_MINOR
 }
 
-export async function detectCodexVersion(): Promise<string> {
+export async function detectCodexVersion(report?: (output: string) => void): Promise<string> {
   const { stdout, stderr } = await execFileAsync('codex', ['--version'], {
     timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
   })
   const output = `${stdout}${stderr}`.trim()
-  reportHarnessProbe('codex', output)
+  report?.(output)
   return output
 }
 
@@ -307,6 +339,8 @@ export async function ensurePodiumCodexHooks(opts?: {
   codexHome?: string
   versionProbe?: CodexVersionProbe
   onDegraded?: (diagnostic: CodexHookDiagnostic) => void
+  /** Host telemetry plumbing for the default version probe (best-effort). */
+  reportVersionProbe?: (output: string) => void
 }): Promise<{
   installed: boolean
   changed: boolean
@@ -321,7 +355,8 @@ export async function ensurePodiumCodexHooks(opts?: {
 
   let observedVersion: string
   try {
-    observedVersion = await (opts?.versionProbe ?? detectCodexVersion)()
+    observedVersion = await (opts?.versionProbe ??
+      (() => detectCodexVersion(opts?.reportVersionProbe)))()
   } catch (error) {
     observedVersion = `unavailable (${error instanceof Error ? error.message : String(error)})`
   }
@@ -408,6 +443,330 @@ export async function ensurePodiumCodexHooks(opts?: {
   return { installed: true, changed: upserted.changed, trusted: true, untrustedEvents: [] }
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v)
+type CodexApprovalsReviewer = 'user' | 'auto_review' | 'guardian_subagent'
+
+function approvalsReviewerField(value: unknown, key: string): CodexApprovalsReviewer | undefined {
+  const reviewer = strField(value, key)
+  return reviewer === 'user' || reviewer === 'auto_review' || reviewer === 'guardian_subagent'
+    ? reviewer
+    : undefined
+}
+
+function codexToolName(payload: Record<string, unknown>): string | undefined {
+  return strField(payload, 'tool_name') ?? strField(payload, 'name')
+}
+
+export function isCodexQuestionTool(payload: Record<string, unknown>): boolean {
+  return codexToolName(payload) === 'request_user_input'
+}
+
+function parseCodexToolInput(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const raw = payload.tool_input ?? payload.arguments ?? payload.input
+  if (isRecord(raw)) return raw
+  if (typeof raw !== 'string') return undefined
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return isRecord(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function codexQuestionSummary(payload: Record<string, unknown>): string | undefined {
+  const input = parseCodexToolInput(payload)
+  if (!input) return undefined
+  if (Array.isArray(input.questions)) {
+    for (const question of input.questions) {
+      const text = strField(question, 'question')
+      if (text) return text
+    }
+  }
+  return strField(input, 'question') ?? strField(input, 'prompt')
+}
+
+function codexQuestionEvent(payload: Record<string, unknown>, at?: string): AgentStateEvent[] {
+  const summary = codexQuestionSummary(payload)
+  return withEventTime(
+    [{ kind: 'needs_user', need: 'question', ...(summary ? { summary } : {}) }],
+    at,
+  )
+}
+
+export function codexApprovalsReviewerFromTranscript(
+  jsonl: string,
+): CodexApprovalsReviewer | undefined {
+  let reviewer: CodexApprovalsReviewer | undefined
+  for (const line of jsonl.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    let record: unknown
+    try {
+      record = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!isRecord(record)) continue
+    if (strField(record, 'type') === 'turn_context') {
+      const current = approvalsReviewerField(record.payload, 'approvals_reviewer')
+      if (current) reviewer = current
+      continue
+    }
+    if (strField(record, 'type') !== 'response_item') continue
+    const payload = isRecord(record.payload) ? record.payload : undefined
+    if (
+      !payload ||
+      strField(payload, 'type') !== 'message' ||
+      strField(payload, 'role') !== 'developer' ||
+      !Array.isArray(payload.content)
+    ) {
+      continue
+    }
+    for (const block of payload.content) {
+      const text = strField(block, 'text')
+      if (!text?.includes('<permissions instructions>')) continue
+      const match = /`approvals_reviewer`\s+is\s+`(user|auto_review|guardian_subagent)`/.exec(text)
+      if (match?.[1]) reviewer = match[1] as CodexApprovalsReviewer
+    }
+  }
+  return reviewer
+}
+
+// PermissionRequest hooks do not say whether the request is routed to the user
+// or Codex's automatic reviewer. The effective reviewer lives in the rollout.
+// Bound the one-off prefix + tail reads so a long-running session never gets
+// slurped just to classify an approval.
+const SESSION_CONTEXT_BYTES = 1024 * 1024
+
+async function permissionRequestIsAutoReviewed(payload: Record<string, unknown>): Promise<boolean> {
+  const transcriptPath = strField(payload, 'transcript_path')
+  if (!transcriptPath) return false
+  try {
+    const handle = await open(transcriptPath, 'r')
+    try {
+      const { size } = await handle.stat()
+      const prefix = Buffer.alloc(Math.min(size, SESSION_CONTEXT_BYTES))
+      const { bytesRead: prefixBytes } = await handle.read(prefix, 0, prefix.length, 0)
+      let context = prefix.toString('utf8', 0, prefixBytes)
+      if (size > SESSION_CONTEXT_BYTES) {
+        const tail = Buffer.alloc(SESSION_CONTEXT_BYTES)
+        const { bytesRead: tailBytes } = await handle.read(
+          tail,
+          0,
+          tail.length,
+          size - SESSION_CONTEXT_BYTES,
+        )
+        // The first tail line can be partial JSON; the parser deliberately
+        // ignores it. A later per-turn context overrides the prefix fallback.
+        context += `\n${tail.toString('utf8', 0, tailBytes)}`
+      }
+      const reviewer = codexApprovalsReviewerFromTranscript(context)
+      return reviewer === 'auto_review' || reviewer === 'guardian_subagent'
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    // Missing/unreadable/old transcript: conservatively preserve the manual
+    // approval signal rather than hiding a real prompt from the user.
+    return false
+  }
+}
+
+/**
+ * One Codex native-hook POST (payload carries `hook_event_name`, Claude-style) →
+ * state events. Codex ≥0.142 fires shell-command hooks with a JSON payload on
+ * stdin carrying session_id + transcript_path + event fields; the daemon's hook
+ * ingest forwards the parsed payload here. Hooks are the only source for
+ * PermissionRequest — codex pauses WITHOUT writing to the rollout while waiting
+ * for approval, so the file observer can never see that state.
+ */
+async function translateCodexHookEvent(
+  payload: Record<string, unknown>,
+): Promise<AgentStateEvent[]> {
+  switch (strField(payload, 'hook_event_name')) {
+    case 'SessionStart':
+      return [{ kind: 'session_started' }]
+    case 'UserPromptSubmit':
+      return [{ kind: 'prompt_submitted' }]
+    case 'SessionEnd':
+      return [{ kind: 'session_ended' }]
+    case 'PreToolUse':
+      if (isCodexQuestionTool(payload)) return codexQuestionEvent(payload)
+      return [{ kind: 'activity' }]
+    case 'PostToolUse':
+      return [{ kind: 'activity' }]
+    case 'PermissionRequest': {
+      // Codex fires this before routing the request. With auto-review, the
+      // guardian is actively computing and the user has no prompt to answer.
+      // Explicit user review (or missing context, conservatively) needs input.
+      if (await permissionRequestIsAutoReviewed(payload)) return [{ kind: 'activity' }]
+      const summary = strField(payload, 'tool_name')
+      return [{ kind: 'needs_user', need: 'permission', ...(summary ? { summary } : {}) }]
+    }
+    case 'Stop':
+      return [
+        {
+          kind: 'turn_completed',
+          verdict: classifyCodexVerdict(strField(payload, 'last_assistant_message')),
+        },
+      ]
+    default:
+      return []
+  }
+}
+
+/** One Codex rollout record (`event_msg` / `response_item`) or native hook
+ * payload (`{hook_event_name,…}`) → state events. */
+export async function translateCodexEvent(record: unknown): Promise<AgentStateEvent[]> {
+  if (isRecord(record) && strField(record, 'hook_event_name')) {
+    return await translateCodexHookEvent(record)
+  }
+  if (isRecord(record) && strField(record, 'type') === 'response_item') {
+    const payload = isRecord(record.payload) ? record.payload : undefined
+    if (!payload) return []
+    const at = strField(record, 'timestamp')
+    switch (strField(payload, 'type')) {
+      case 'function_call':
+      case 'custom_tool_call':
+        return isCodexQuestionTool(payload) ? codexQuestionEvent(payload, at) : []
+      case 'function_call_output':
+      case 'custom_tool_call_output':
+        return withEventTime([{ kind: 'activity' }], at)
+      default:
+        return []
+    }
+  }
+  if (!isRecord(record) || strField(record, 'type') !== 'event_msg') return []
+  const payload = isRecord(record.payload) ? record.payload : undefined
+  if (!payload) return []
+  // The rollout record's own timestamp is the event-time. The state observer seeks
+  // to the tail on reattach and replays the recent records — stamping `at` keeps
+  // those replays carrying their original time so recency isn't restamped to "now".
+  const at = strField(record, 'timestamp')
+  switch (strField(payload, 'type')) {
+    case 'user_message':
+    case 'task_started':
+      return withEventTime([{ kind: 'prompt_submitted' }], at)
+    case 'agent_message':
+    case 'token_count':
+    case 'patch_apply_end':
+      return withEventTime([{ kind: 'activity' }], at)
+    // Older guardian implementations persisted their auto-review lifecycle in
+    // the parent rollout. Every status (in_progress/approved/denied/timed_out)
+    // means Codex, not the user, owns the next step; it is therefore activity.
+    case 'guardian_assessment':
+      return withEventTime([{ kind: 'activity' }], at)
+    case 'task_complete':
+      return withEventTime(
+        [
+          {
+            kind: 'turn_completed',
+            verdict: classifyCodexVerdict(strField(payload, 'last_agent_message')),
+          },
+        ],
+        at,
+      )
+    case 'turn_aborted':
+      return withEventTime(
+        [
+          {
+            kind: 'turn_completed',
+            verdict: { kind: 'interrupted', summary: 'turn aborted' },
+          },
+        ],
+        at,
+      )
+    default:
+      return []
+  }
+}
+// ---------------------------------------------------------------------------
+// Payload codec: snake_case shape readers + decode (POD-4472).
+// ---------------------------------------------------------------------------
+
+async function decodeCodexHookPayload(payload: unknown): Promise<ProviderAgentStateEvent[]> {
+  return withStateChannel(
+    await translateCodexEvent(payload),
+    typeof payload === 'object' &&
+      payload !== null &&
+      typeof (payload as Record<string, unknown>).hook_event_name === 'string'
+      ? 'hook'
+      : 'poll',
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Install: global hooks.json layout + per-session env wiring (POD-4472).
+// ---------------------------------------------------------------------------
+
+async function installCodexInstrumentation(
+  destination: InstrumentationDestination,
+): Promise<InstalledInstrumentation> {
+  const codexHome =
+    destination.harnessHome ??
+    join(destination.homeDir ?? homedir(), '.codex')
+  const result = await ensurePodiumCodexHooks({
+    codexHome,
+    ...(destination.reportVersionProbe
+      ? { reportVersionProbe: (output) => destination.reportVersionProbe?.('codex', output) }
+      : {}),
+  })
+  const degradedReason = !result.installed
+    ? (result.reason ?? 'hook installation failed')
+    : 'trusted' in result && result.trusted === false
+      ? (result.reason ?? 'untrusted codex hooks')
+      : undefined
+  return {
+    args: destination.seedTheme ? ['-c', 'tui.theme=ansi'] : [],
+    env: {
+      [PODIUM_CODEX_HOOK_URL_ENV]: destination.endpointUrl,
+      ...(destination.socketPath ? { [PODIUM_CODEX_HOOK_SOCKET_ENV]: destination.socketPath } : {}),
+    },
+    ...(degradedReason
+      ? {
+          degradedReason,
+          degradedKind: installerDegradedKind(result.reason) as InstalledInstrumentation['degradedKind'],
+        }
+      : {}),
+  }
+}
+
+/** Classify installer refusals. Exceptions always use error, regardless of text. */
+function installerDegradedKind(
+  reason: string | undefined,
+): 'no-home' | 'unreadable-hooks-json' | 'not-an-object' | 'unsupported-version' | 'untrusted' | 'error' {
+  if (
+    reason === 'untrusted' ||
+    reason?.startsWith('untrusted codex hooks') ||
+    reason?.includes('hook trust')
+  )
+    return 'untrusted'
+  switch (reason) {
+    case 'no ~/.codex':
+      return 'no-home'
+    case 'unreadable hooks.json':
+      return 'unreadable-hooks-json'
+    case 'hooks.json not an object':
+      return 'not-an-object'
+    default:
+      return reason === 'unsupported codex version' ||
+        reason?.startsWith('unsupported codex version:')
+        ? 'unsupported-version'
+        : 'error'
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Section: the ONE authoritative instrumentation definition (spec §4).
+// ---------------------------------------------------------------------------
+
+export const codexInstrumentation: HarnessInstrumentation = {
+  install: installCodexInstrumentation,
+  payloadCodec: {
+    eventName: (raw) => strField(raw, 'hook_event_name'),
+    sessionId: (raw) => strField(raw, 'session_id'),
+    transcriptPath: (raw) => strField(raw, 'transcript_path'),
+    decode: decodeCodexHookPayload,
+  },
+  hookTransport: 'loopback-http',
 }

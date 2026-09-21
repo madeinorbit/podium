@@ -3,10 +3,10 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   claudeCodeStateProvider,
-  configureClaudeTranscriptClassifier,
 } from '../../agent-state/claude-code.js'
+import { configureClaudeTranscriptClassifier } from './instrumentation.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
-import { createTranscriptClassifier } from '../../agent-state/transcript-classifier.js'
+import { createTranscriptClassifier } from '../../driver/families/terminal/observer.js'
 import { createClaudeCodeConversationProvider } from '../../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
@@ -22,6 +22,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { claudeChainPaths, claudeCodeTranscript } from './transcript.js'
+import { claudeCodeInstrumentation } from './instrumentation.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeInstall } from './install.js'
 import { claudeUsage } from './usage.js'
@@ -237,6 +238,7 @@ export const claudeCodeManifest: AgentManifest = {
   }),
 
   state: supported(claudeCodeStateProvider),
+  instrumentation: supported(claudeCodeInstrumentation),
   stateChannels: [
     {
       source: 'hook',
