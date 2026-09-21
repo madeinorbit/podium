@@ -298,8 +298,14 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       if (name !== 'clock') await waitForNotifications(handle, notificationsBefore, 3000)
       await doubleRaf()
     })
+    const commitsEarly = log.total()
+    // TEMP DIAGNOSTIC (POD-4450): is the commit log late or dead?
+    await new Promise<void>((resolve) => setTimeout(resolve, 500))
+    const commitsLate = log.total()
+    // eslint-disable-next-line no-console
+    console.info(`[proto-debug] ${name}: early=${commitsEarly} late=${commitsLate}`)
     return {
-      commits: log.total(),
+      commits: commitsLate,
       stats: statsOf(),
       taskMs: performance.now() - start,
       longTasks: [...longTasks],
