@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises'
-import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentQuotaWire, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type {
   AgentInstruction,
   AgentObservation,
@@ -7,9 +7,13 @@ import type {
   AgentObservationRebindAckMessage,
   BuiltinHarnessKind,
   ObservationProvider,
+  PortableCredentialKind,
   ProviderCursor,
+  QuotaHistorySampleWire,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
+import { fileChainSource, fileIdFor, type StatTick, type TranscriptRecordMapper, type TranscriptRuntimeReader, type TranscriptSource } from './store/index.js'
+import type { UsageFileScan, UsageScanCache } from './usage-records.js'
 import { fileChainSource, fileIdFor, type StatTick, type TranscriptRecordMapper, type TranscriptRuntimeReader, type TranscriptSource } from './store/index.js'
 import type {
   AgentStateEventSource,
@@ -263,6 +267,179 @@ export function accountIdentity(name: unknown, email: unknown): string | undefin
   const cleanEmail = typeof email === 'string' ? email.trim() : ''
   if (cleanName && cleanEmail && cleanName !== cleanEmail) return `${cleanName} · ${cleanEmail}`
   return cleanEmail || cleanName || undefined
+}
+
+// ---------------------------------------------------------------------------
+// Credentials + quota/usage — the Inventory axis (POD-4414 §4.4, issue 3.3).
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE portable credential file this harness keeps under the credential home.
+ *
+ * The inventory mechanism (`inventory/credentials.ts`) resolves the absolute
+ * path, reads and writes with the generic safeguards (0600 modes, guarded
+ * writes) and never names a harness: kinds flow as values and file choice is a
+ * lookup over these declarations. Everything vendor-specific — which files,
+ * which env var redirects them, what counts as valid, what orders two copies —
+ * is declared here, once, by the harness that owns it.
+ */
+export interface CredentialFileLayout {
+  /** Which portable bundle this file backs. */
+  kind: PortableCredentialKind
+  /** Directory relative to the credential home (`.codex`; `''` = the home itself). */
+  dirName: string
+  /** File name inside that directory (`auth.json`). */
+  fileName: string
+  /**
+   * Env var selecting an alternate directory (`CODEX_HOME`); ignored under a
+   * real-home read, which always addresses the credential home itself — that is
+   * what makes propagation reads immune to a managed redirect.
+   */
+  homeEnvVar?: string
+  /** Guarded machine-to-machine propagation allowed for this file. */
+  propagatable: boolean
+  /**
+   * Merge incoming keys over the local file instead of replacing it (Claude's
+   * onboarding state: machine ids and project paths must never cross machines).
+   */
+  mergeInstall?: boolean
+  /** Native-login validity — both halves of the refresh lineage present. */
+  validate(contents: string): boolean
+  /** Non-secret ordering marker, for propagation freshness. */
+  freshness(contents: string): number | undefined
+  /** `null` means ordering is unprovable and therefore must never overwrite. */
+  compareFreshness(a: string, b: string): -1 | 0 | 1 | null
+}
+
+/**
+ * Read one declared file by `(dirName, fileName)`; `undefined` when absent or
+ * unreadable. Plain file reads only — identity is a file fact and never
+ * touches the keychain.
+ */
+export type CredentialFileReader = (dirName: string, fileName: string) => string | undefined
+
+/**
+ * THE PORT the credential stores implement (file backend in
+ * `inventory/credential-store.ts`, harness-local strategies in
+ * `adapters/<harness>/`). Declared beside the Adapter sections that reference
+ * it so adapters implement it without importing the mechanism and the mechanism
+ * consumes it without importing an adapter (spec §5).
+ */
+export type CredentialStoreFailure =
+  | 'keychain-unavailable'
+  | 'locked-or-denied'
+  | 'malformed-output'
+  | 'output-overflow'
+  | 'timeout'
+  | 'tool-failure'
+  | 'unreadable'
+
+export type CredentialReadResult =
+  | { readonly state: 'absent' }
+  | { readonly state: 'present'; readonly contents: Buffer; readonly revision: string }
+  | { readonly state: 'unavailable'; readonly reason: CredentialStoreFailure }
+
+export interface GuardedCredentialPolicy {
+  readonly valid: (contents: string) => boolean
+  readonly compareFreshness?: (candidate: string, current: string) => number | null
+}
+
+export interface PortableCredentialStore {
+  read(): Promise<CredentialReadResult>
+  install(content: Buffer): Promise<boolean>
+  guardedInstall(content: Buffer, policy: GuardedCredentialPolicy): Promise<boolean>
+}
+
+/**
+ * Harness-local credential access that a file path cannot express (spec
+ * principle 4): the macOS keychain branch for Claude. A small strategy behind
+ * the section interface — the mechanism asks for a store and otherwise never
+ * knows it exists.
+ */
+export interface CredentialTransferContext {
+  readonly platform: NodeJS.Platform
+  readonly home: string
+  readonly env: HarnessEnvironment
+  readonly osUsername?: string
+  /**
+   * Resolved CLI versions by harness kind. Keys flow as values — the strategy
+   * names its own kind (it lives in the exempt home); the mechanism never does.
+   */
+  readonly versions: ReadonlyMap<string, string | undefined>
+  /** The declared file this store is for, resolved to an absolute path. */
+  readonly file: CredentialFileLayout
+  readonly fileAbsolutePath: string
+}
+
+export interface HarnessCredentialTransfer {
+  /** The harness-local store for this file, or `undefined` when the file backend applies. */
+  createStore(ctx: CredentialTransferContext): PortableCredentialStore | undefined
+}
+
+export interface HarnessCredentials {
+  /**
+   * Portable bundles this section serves. The inventory mechanism finds the
+   * section whose `kinds` includes the requested bundle — a lookup, never a
+   * comparison, per the harness axiom.
+   */
+  kinds: readonly PortableCredentialKind[]
+  files: readonly CredentialFileLayout[]
+  /** Best-effort login identity from already-read file contents. */
+  identity(read: CredentialFileReader): LoginIdentity | undefined
+  /** Harness-local access (keychain); unsupported means files only. */
+  transfer: Declared<HarnessCredentialTransfer>
+}
+
+/** Options for a live quota probe — the same seam the daemon tests pin. */
+export interface QuotaProbeOptions {
+  homeDir?: string
+  now?: number
+  fetchImpl?: typeof fetch
+}
+
+/**
+ * The live vendor usage endpoint behind this harness's quota panel: which
+ * credential it reads, which endpoint it asks, how it parses the answer. A
+ * small harness-local strategy (spec principle 4) — the endpoint shape, header
+ * auth and expiry policy are vendor behaviour, and declaring them would build
+ * an HTTP interpreter. The TTL memo around it is the generic mechanism
+ * (`inventory/usage.ts`) and stays harness-free.
+ */
+export interface HarnessQuotaProbe {
+  fetchQuota(opts?: QuotaProbeOptions): Promise<AgentQuotaWire>
+}
+
+/** File-based recovery of past quota windows on this machine (POD-1571). */
+export interface HarnessQuotaHistory {
+  scan(opts: {
+    sinceMs: number
+    machineId: string
+    homeDir?: string
+  }): Promise<QuotaHistorySampleWire[]>
+}
+
+/** Token-usage harvest from this harness's session store (ccusage-style). */
+export interface HarnessUsageTranscripts {
+  scan(opts: {
+    sinceMs: number
+    homeDir?: string
+    cache: UsageScanCache
+  }): Promise<UsageFileScan[]>
+  /**
+   * Sibling paths the server resolves alongside a harvested path — Grok's
+   * session snapshot reads `signals.json` while the registry indexes its
+   * sibling `summary.json`. Absent means the path resolves alone.
+   */
+  siblingPaths?(path: string): string[]
+}
+
+export interface HarnessUsage {
+  /** Live quota endpoint probe. */
+  quota: Declared<HarnessQuotaProbe>
+  /** File-based quota-history recovery. */
+  history: Declared<HarnessQuotaHistory>
+  /** Token-usage harvest layout. */
+  transcripts: Declared<HarnessUsageTranscripts>
 }
 
 // ---------------------------------------------------------------------------
@@ -1004,6 +1181,10 @@ export interface AgentManifest {
   }
   /** Machine-local installation and account discovery owned by this harness. */
   inventory: HarnessInventory
+  /** Credential files, freshness, identity and harness-local transfer (keychain). */
+  credentials: Declared<HarnessCredentials>
+  /** Quota endpoint probe, quota-history recovery and token-usage harvest layouts. */
+  usage: Declared<HarnessUsage>
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
   launch(opts: HarnessLaunchOptions): LaunchSpec
   /** Native-conversation discovery provider. */
