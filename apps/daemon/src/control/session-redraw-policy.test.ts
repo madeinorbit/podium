@@ -51,7 +51,6 @@ function world(opts: { headed: boolean }): {
   const clientTerminals = {
     resize: vi.fn(() => true),
     redraw: vi.fn(() => true),
-    owns: vi.fn(() => opts.headed),
   }
   const ctx = {
     sessions: testSessions(),
@@ -66,7 +65,7 @@ function world(opts: { headed: boolean }): {
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     ...(opts.headed ? { clientTerminals } : {}),
   } as unknown as DaemonContext
-  attachTestTerminal(ctx, SESSION, bridge)
+  attachTestTerminal(ctx, SESSION, bridge, opts.headed ? 'client' : 'headed')
   return { ctx, bridge, clientTerminals, enqueued }
 }
 

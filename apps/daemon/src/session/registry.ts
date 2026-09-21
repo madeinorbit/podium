@@ -14,6 +14,13 @@ import { DaemonSession } from './daemon-session.js'
 
 export class SessionRegistry {
   private readonly sessions = new Map<SessionId, DaemonSession>()
+  /**
+   * Viewer-signal memory, WITHOUT an entry. The "somebody opened this
+   * session" frame usually arrives before its client terminal exists (and is
+   * sent only on change), so the relay seeds from here at open/adopt time.
+   * Only watched ids are stored; nothing here mints entries.
+   */
+  private readonly watchedSessions = new Set<SessionId>()
 
   /**
    * The session, creating it on first use. Created UNLABELLED: the label is
@@ -48,6 +55,17 @@ export class SessionRegistry {
 
   get size(): number {
     return this.sessions.size
+  }
+
+  /** Record the viewer signal for a session, whether or not it has an entry. */
+  noteWatched(sessionId: SessionId, watched: boolean): void {
+    if (watched) this.watchedSessions.add(sessionId)
+    else this.watchedSessions.delete(sessionId)
+  }
+
+  /** Whether the viewer signal currently marks this session watched. */
+  isWatched(sessionId: SessionId): boolean {
+    return this.watchedSessions.has(sessionId)
   }
 
   entries(): IterableIterator<[SessionId, DaemonSession]> {
