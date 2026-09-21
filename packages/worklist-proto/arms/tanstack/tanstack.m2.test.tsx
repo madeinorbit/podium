@@ -167,6 +167,21 @@ describe('tanstack arm milestone 2: structural scenarios', () => {
       const atMount = mounted.handle.snapshot()
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
       expect(atMount).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), locals))
+      // Mount record for the Q-T5 fan-out check: verdictR rows and the max
+      // issues sharing one worktree path (the fan-out bound).
+      const verdictRows = store.base.verdictQ.toArray as Array<{ owner: string }>
+      const verdictRRows = store.base.verdictR.toArray as Array<{ owner: string }>
+      const sharing = new Map<string, number>()
+      for (const row of verdictRRows) {
+        sharing.set(row.owner, (sharing.get(row.owner) ?? 0) + 1)
+      }
+      const mountRecord = {
+        visibleRows: Object.keys(atMount.rowsById).length,
+        verdictQ: verdictRows.length,
+        verdictR: verdictRRows.length,
+        maxIssuesPerWorktree: Math.max(0, ...sharing.values()),
+      }
+      console.info(`[tanstack-m2] mount: ${JSON.stringify(mountRecord)}`)
 
       const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx))
       const stageMove = await step('stageMoveAcrossGroups', '#5', () => writeStageMove(ctx))
@@ -294,6 +309,7 @@ describe('tanstack arm milestone 2: structural scenarios', () => {
             }).trim(),
             capturedAt: new Date().toISOString(),
             elapsedMs: Math.round(elapsedMs),
+            mount: mountRecord,
             steps: records,
           },
           null,
