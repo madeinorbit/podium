@@ -29,6 +29,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { grokSessionPaths } from '@podium/harness'
+import { manifestFor } from '@podium/harness'
 import { asSessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -264,7 +265,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     )
 
     const landing = join(root, 'landing-opencode.json')
-    const flavor = opencodeFlavor()
+    const flavor = opencodeFlavor(manifestFor('opencode')!)
     const host = createOpencodeEngineHost({
       flavor,
       supervision: supervisionFor(engineDurable()),
@@ -306,7 +307,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     ).toBe(true)
 
     const landing = join(root, 'landing-codex.json')
-    const facts = codexEngineFacts()
+    const facts = codexEngineFacts(manifestFor('codex')!)
     const host = createCodexEngineHost({
       facts,
       supervision: supervisionFor(engineDurable()),
@@ -352,7 +353,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const landing = join(root, 'landing-grok.json')
     const instanceUuid = '11111111-2222-4333-8444-555555555555'
     const sessionId = asSessionId('grok-stamped-child')
-    const facts = grokEngineFacts()
+    const facts = grokEngineFacts(manifestFor('grok')!)
     const host = createGrokEngineHost({
       facts,
       supervision: supervisionFor(engineDurable()),
@@ -401,7 +402,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     writeFileSync(paths.updatesPath, first + second)
 
     const host = createGrokEngineHost({
-      facts: grokEngineFacts(),
+      facts: grokEngineFacts(manifestFor('grok')!),
       journal: { read: () => undefined, write: () => {}, clear: () => {} },
       resources,
       homeDir: instanceHome,

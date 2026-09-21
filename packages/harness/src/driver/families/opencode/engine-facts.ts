@@ -15,6 +15,15 @@
 import type { HarnessAgent } from '@podium/model'
 import { declaredValue, type AgentManifest } from '../../../manifest.js'
 
+/**
+ * The harness kind both flavors' facts are read for, as a VALUE for the
+ * composition root (same shape as `claudeSdkHarnessKind`): the daemon hands
+ * `opencodeFlavor`/`opencode2Flavor` the sections of THIS adapter without
+ * writing the name itself — identifiers may flow as values, literals may not
+ * (vendor lint).
+ */
+export const opencodeHarnessKind = 'opencode' as const
+
 /** One speaker of the opencode HTTP protocol. */
 export interface OpencodeEngineFlavor {
   driverId: 'opencode-server' | 'opencode2-server'

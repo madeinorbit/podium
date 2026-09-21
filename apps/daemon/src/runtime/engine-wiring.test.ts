@@ -21,11 +21,12 @@ import {
   opencodeFlavor,
 } from '@podium/harness/driver/host'
 import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
+import { manifestFor } from '@podium/harness'
 import { createEngineJournal, engineSocketRoot } from './host'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
-const OC_FLAVOR = opencodeFlavor()
-const CX_FACTS = codexEngineFacts()
+const OC_FLAVOR = opencodeFlavor(manifestFor('opencode')!)
+const CX_FACTS = codexEngineFacts(manifestFor('codex')!)
 
 const LEGACY_SOCKET_ROOT = '/home/mgw/.local/state/podium'
 const CODEX_SOCKET_DIR = 'runtime/codex-app-server-sockets'

@@ -9,7 +9,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { STRIPPED_CODEX_CREDENTIALS } from './version.js'
+import { manifestFor } from '../../../registry.js'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -29,7 +29,10 @@ import {
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
 
-const FACTS = codexEngineFacts()
+const FACTS = codexEngineFacts(manifestFor('codex')!)
+// Tests read the manifest directly (they are not mechanisms); production code
+// reads the same array through the handed facts above.
+const STRIPPED_CODEX_CREDENTIALS = manifestFor('codex')!.inventory.foreignCredentialEnv
 
 function engineHost(extra: Partial<CodexEngineHostDeps> = {}) {
   return createCodexEngineHost({

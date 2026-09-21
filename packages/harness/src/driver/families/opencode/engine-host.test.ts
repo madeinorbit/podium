@@ -23,11 +23,12 @@ import {
   probeHealth,
 } from './engine-host.js'
 import { opencode2Flavor, opencodeFlavor } from './engine-facts.js'
+import { manifestFor } from '../../../registry.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
-const FLAVOR = opencodeFlavor()
-const FLAVOR2 = opencode2Flavor()
+const FLAVOR = opencodeFlavor(manifestFor('opencode')!)
+const FLAVOR2 = opencode2Flavor(manifestFor('opencode')!)
 
 function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
   return createOpencodeEngineHost({

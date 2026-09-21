@@ -14,12 +14,13 @@ import { addSink, type LogRecord } from '@podium/logger'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { startFakeAppServer } from './test-support/fake-app-server'
+import { manifestFor } from '../../../registry.js'
 import { codexEngineFacts } from './engine-facts.js'
 import { createCodexSessionRuntime } from './session.js'
 import type { CodexRuntimeHost } from './runtime.js'
 import type { CodexTransport } from './client.js'
 
-const FACTS = codexEngineFacts()
+const FACTS = codexEngineFacts(manifestFor('codex')!)
 
 /** Just enough app-server to complete a handshake and resume a thread. */
 function stubTransport(): { transport: CodexTransport; resumedThreads: string[] } {

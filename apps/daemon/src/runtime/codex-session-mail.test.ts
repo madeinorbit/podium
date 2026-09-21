@@ -13,6 +13,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { startFakeAppServer } from '../../../../packages/harness/src/driver/families/codex/test-support/fake-app-server'
 import { codexEngineFacts } from '@podium/harness/driver/host'
+import { manifestFor } from '@podium/harness'
 import { createCodexSessionRuntime } from '@podium/harness/driver/host'
 import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
 import { createMailContinuation } from './mail-boundary'
@@ -111,7 +112,7 @@ function world(options: { sendThrows?: boolean } = {}) {
     resumed,
     launches: () => launches,
     runtime: createCodexSessionRuntime({
-      facts: codexEngineFacts(),
+      facts: codexEngineFacts(manifestFor('codex')!),
       engine: host,
       send: (msg) => {
         sent.push(msg)
@@ -142,7 +143,7 @@ describe('issue mail without terminal callbacks', () => {
     const ack = createAckReminderInjector(async () => ({ ok: true, result:
       mode === 'reminder' ? [{ id: 'msg_reply', from: 'coordinator' }] : [] }), () => now)
     const runtime = createCodexSessionRuntime({
-      facts: codexEngineFacts(),
+      facts: codexEngineFacts(manifestFor('codex')!),
       engine: {
         ...base.host,
         launch: async () => ({

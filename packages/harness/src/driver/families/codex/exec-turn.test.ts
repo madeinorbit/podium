@@ -12,6 +12,12 @@ import { describe, expect, it } from 'vitest'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
 import { buildCodexExecTurn, runCodexExecTurn } from './exec-turn.js'
+import { manifestFor } from '../../../registry.js'
+
+/** The real headless section, handed in (tests may read the registry). */
+function headlessSections() {
+  return { headless: manifestFor('codex')!.headless }
+}
 
 function snapshot(): ResolvedHarnessInventory {
   return {
@@ -32,7 +38,7 @@ function snapshot(): ResolvedHarnessInventory {
 
 describe('buildCodexExecTurn argv shapes', () => {
   it('first turn: exec --json with positional prompt, no resume subcommand', () => {
-    const { cmd, args } = buildCodexExecTurn({ prompt: 'hi there' }, snapshot())
+    const { cmd, args } = buildCodexExecTurn({ prompt: 'hi there' }, snapshot(), headlessSections())
     expect(cmd).toBe('/opt/codex')
     expect(args).toEqual(['exec', '--json', '--skip-git-repo-check', 'hi there'])
   })
@@ -41,6 +47,7 @@ describe('buildCodexExecTurn argv shapes', () => {
     const { args } = buildCodexExecTurn(
       { prompt: 'go on', resumeValue: '019f-abc', model: 'gpt-5.2-codex' },
       snapshot(),
+      headlessSections(),
     )
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', '019f-abc'])
   })
@@ -66,6 +73,7 @@ describe('runCodexExecTurn against a stand-in binary', () => {
       cwd: '/tmp',
       timeoutMs: 10_000,
       env: {},
+      sections: headlessSections(),
       snapshot: snapshot(),
       emit: (event) => events.push(event),
       spawnChild: (cmd, args, opts) => {
@@ -102,6 +110,7 @@ describe('runCodexExecTurn against a stand-in binary', () => {
       cwd: '/tmp',
       timeoutMs: 10_000,
       env: {},
+      sections: headlessSections(),
       snapshot: snapshot(),
       emit: (event) => events.push(event),
       spawnChild: () => {

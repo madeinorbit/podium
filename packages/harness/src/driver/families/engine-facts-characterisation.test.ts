@@ -23,7 +23,7 @@ function sectionsOf(kind: 'codex' | 'grok' | 'opencode') {
 
 describe('production engine facts are byte-identical through the handover', () => {
   it('codex', () => {
-    const facts = codexEngineFacts()
+    const facts = codexEngineFacts(sectionsOf('codex'))
     expect(facts).toEqual({
       harnessKind: 'codex',
       command: 'codex',
@@ -44,7 +44,7 @@ describe('production engine facts are byte-identical through the handover', () =
   })
 
   it('grok', () => {
-    const facts = grokEngineFacts()
+    const facts = grokEngineFacts(sectionsOf('grok'))
     expect(facts).toEqual({
       harnessKind: 'grok',
       command: 'grok',
@@ -58,7 +58,7 @@ describe('production engine facts are byte-identical through the handover', () =
   })
 
   it('opencode stable speaker', () => {
-    const flavor = opencodeFlavor()
+    const flavor = opencodeFlavor(sectionsOf('opencode'))
     const { serveArgs, extraEnv, ...rest } = flavor
     expect(rest).toEqual({
       driverId: 'opencode-server',
@@ -94,7 +94,7 @@ describe('production engine facts are byte-identical through the handover', () =
   })
 
   it('opencode preview speaker', () => {
-    const flavor = opencode2Flavor()
+    const flavor = opencode2Flavor(sectionsOf('opencode'))
     const { serveArgs, extraEnv, ...rest } = flavor
     expect(rest).toEqual({
       driverId: 'opencode2-server',

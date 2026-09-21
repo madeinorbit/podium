@@ -33,6 +33,7 @@ vi.mock('./runtime.js', async (importOriginal) => {
 
 import { createOpencodeSessionRuntime } from './session.js'
 import { opencodeFlavor } from './engine-facts.js'
+import { manifestFor } from '../../../registry.js'
 
 function world() {
   const sessionId = 'opencode-status-test' as SessionId
@@ -93,7 +94,7 @@ function world() {
   mocks.createOpencodeRuntime.mockReturnValue(runtime)
 
   const daemon = createOpencodeSessionRuntime({
-    flavor: opencodeFlavor(),
+    flavor: opencodeFlavor(manifestFor('opencode')!),
     engine: {} as OpencodeRuntimeHost,
     send: (message) => sent.push(message),
     emitBind: (bind) => {
@@ -160,7 +161,7 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
       },
     })
     const daemon = createOpencodeSessionRuntime({
-      flavor: opencodeFlavor(),
+      flavor: opencodeFlavor(manifestFor('opencode')!),
       engine: {
         journal: { read: () => entry, write: () => {}, clear: () => {} },
       } as unknown as OpencodeRuntimeHost,
@@ -185,7 +186,7 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
       },
     })
     const daemon = createOpencodeSessionRuntime({
-      flavor: opencodeFlavor(),
+      flavor: opencodeFlavor(manifestFor('opencode')!),
       engine: { journal: { read: () => undefined } } as unknown as OpencodeRuntimeHost,
       send: () => {},
       emitBind: () => {},

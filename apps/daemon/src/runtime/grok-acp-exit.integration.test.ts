@@ -22,6 +22,7 @@ vi.mock('@podium/process/durable', async () => {
 })
 
 import { createGrokEngineHost, grokEngineFacts } from '@podium/harness/driver/host'
+import { manifestFor } from '@podium/harness'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './version-probe'
 import { composeEngineEnv, createEngineJournal, supervisionFor } from './host'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
@@ -131,7 +132,7 @@ describe('Grok ACP real scoped child boundary', () => {
 
       expect(await grokAcpVersionProbe()).toEqual({ drivable: true })
       const sent: DaemonMessage[] = []
-      const facts = grokEngineFacts()
+      const facts = grokEngineFacts(manifestFor('grok')!)
       const durable = createDurableProcess('host', { host: true, abduco: false })
       const host = createGrokEngineHost({
         facts,
