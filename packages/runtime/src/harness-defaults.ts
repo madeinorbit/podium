@@ -26,6 +26,7 @@
  * with a heuristic.
  */
 import type { AccountId, HarnessAgent, RoleBackend } from '@podium/model'
+import { BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { nativeAccountId } from './settings'
 
 /**
@@ -40,6 +41,28 @@ import { nativeAccountId } from './settings'
  * overwritten.
  */
 export const SUPERAGENT_HARNESS_PRIORITY: readonly HarnessAgent[] = ['codex', 'grok', 'claude-code']
+
+/**
+ * Load-time invariant: every preferred harness is a member of the closed set
+ * the registry is total over (POD-4414 §5, issue 4.2). The ORDER stays here —
+ * it is product policy, not adapter knowledge — but a name no manifest ships
+ * must fail at import, not seed a role no machine can run. Takes the known set
+ * as a parameter (rather than importing the registry, which would cycle
+ * harness → runtime → harness) so the harness layer can re-check it against
+ * its own manifests; the module-load call below checks it against the closed
+ * set, which the registry's `Record<BuiltinHarnessKind, AgentManifest>`
+ * totality keeps identical to the manifests.
+ */
+export function validateSuperagentPriority(
+  priority: readonly string[],
+  known: ReadonlySet<string>,
+): void {
+  for (const harness of priority) {
+    if (!known.has(harness)) throw new Error(`unknown superagent harness: ${harness}`)
+  }
+}
+
+validateSuperagentPriority(SUPERAGENT_HARNESS_PRIORITY, new Set<string>(BUILTIN_HARNESS_KINDS))
 
 /** The model + reasoning effort a picked harness rides with. */
 export interface HarnessRunDefault {

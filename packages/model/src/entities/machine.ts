@@ -95,7 +95,7 @@
 
 import { z } from 'zod'
 import { MachineIdField, RepoIdField, SessionIdField } from '../ids'
-import { AgentKind, HarnessAgent } from './agent'
+import { AgentKind, HarnessAgent, USAGE_HARNESS_KINDS } from './agent'
 import { LoopMinuteWire } from './loop'
 
 // ---------------------------------------------------------------------------
@@ -633,8 +633,9 @@ export type UsageModelTotalWire = z.infer<typeof UsageModelTotalWire>
 export const UsageSourceWire = z.object({
   /** Absolute path of the transcript this usage was read from. */
   path: z.string(),
-  /** Which harness wrote it. The FLOOR mark keys off this and nothing else. */
-  harness: z.enum(['claude-code', 'codex', 'grok']),
+  /** Which harness wrote it. Derived from {@link USAGE_HARNESS_KINDS} — the
+   *  FLOOR mark keys off this and nothing else. */
+  harness: z.enum(USAGE_HARNESS_KINDS),
   /** Bytes of this file consumed so far — the incremental cursor, exact. */
   scannedBytes: z.number().int().nonnegative(),
   firstTsMs: z.number().int().nonnegative(),

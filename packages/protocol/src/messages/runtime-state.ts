@@ -1,4 +1,4 @@
-import { AgentPhase, AgentRuntimeState, SessionIdField, SessionMeta } from '@podium/model'
+import { AgentPhase, AgentRuntimeState, OBSERVATION_PROVIDER_KINDS, SessionIdField, SessionMeta } from '@podium/model'
 import { z } from 'zod'
 
 // The session aggregate and the agent-runtime-state family it embeds live in
@@ -9,7 +9,7 @@ import { z } from 'zod'
 // ---- Causal observation protocol [spec:SP-cdb2] ----
 // Provider history restores one snapshot. Only a fenced, cursor-new live
 // observation is eligible to become a transition with downstream effects.
-export const ObservationProvider = z.enum(['claude-code', 'codex', 'grok'])
+export const ObservationProvider = z.enum(OBSERVATION_PROVIDER_KINDS)
 export type ObservationProvider = z.infer<typeof ObservationProvider>
 
 /**

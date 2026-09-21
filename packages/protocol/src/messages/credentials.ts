@@ -1,7 +1,19 @@
+import { PORTABLE_CREDENTIAL_HARNESS_KINDS } from '@podium/model'
 import { z } from 'zod'
 
-/** Native single-user CLI logins Podium can explicitly copy to another owned machine. */
-export const PortableCredentialKind = z.enum(['claude-code', 'claude-code-state', 'codex', 'grok'])
+/**
+ * Native single-user CLI logins Podium can explicitly copy to another owned machine.
+ *
+ * Derived from {@link PORTABLE_CREDENTIAL_HARNESS_KINDS}: the harness members
+ * come from the closed set, and `'claude-code-state'` — a bundle name, not a
+ * harness — stays local here. Same members, same order, same wire.
+ */
+export const PortableCredentialKind = z.enum([
+  PORTABLE_CREDENTIAL_HARNESS_KINDS[0],
+  'claude-code-state',
+  PORTABLE_CREDENTIAL_HARNESS_KINDS[1],
+  PORTABLE_CREDENTIAL_HARNESS_KINDS[2],
+] as const)
 export type PortableCredentialKind = z.infer<typeof PortableCredentialKind>
 
 // A native auth file is tiny in practice. The hard cap bounds both websocket

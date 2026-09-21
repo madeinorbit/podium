@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CostHarness,
   type CostModelTotalWire,
   descendantsOf,
   floorOf,
@@ -152,5 +153,17 @@ describe('the rollup walk', () => {
       ['b', 'epic'],
     ])
     expect(descendantsOf('epic', children).sort()).toEqual(['a', 'b'])
+  })
+})
+
+describe('CostHarness derivation (4.2)', () => {
+  it('accepts exactly the three usage-bearing harnesses, on the same wire', () => {
+    expect([...CostHarness.options]).toEqual(['claude-code', 'codex', 'grok'])
+    for (const kind of ['claude-code', 'codex', 'grok'] as const) {
+      expect(CostHarness.safeParse(kind).success).toBe(true)
+    }
+    for (const kind of ['opencode', 'cursor', 'pi', 'shell', '']) {
+      expect(CostHarness.safeParse(kind).success).toBe(false)
+    }
   })
 })

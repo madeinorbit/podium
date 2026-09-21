@@ -5,6 +5,7 @@ import {
   HarnessId,
   isBuiltinHarnessKind,
 } from '@podium/protocol'
+import { SUPERAGENT_HARNESS_PRIORITY } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
 import {
   type AgentManifest,
@@ -23,6 +24,7 @@ import {
   harnessCapabilitiesFor,
   harnessComposerReadiness,
   harnessDisplayName,
+  HARNESS_KINDS,
   harnessInterrupt,
   harnessLoginNeedsInteractive,
   harnessResumeKind,
@@ -696,6 +698,21 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
     // test is where that divergence has to be made deliberate.
     expect([...BUILTIN_HARNESS_KINDS]).toEqual([...HarnessAgent.options])
     expect(Object.keys(AGENT_MANIFESTS).sort()).toEqual([...BUILTIN_HARNESS_KINDS].sort())
+  })
+
+  it('derives HARNESS_KINDS from the manifests with no second list (4.2)', () => {
+    // The closed set as values, read off the total record: adding a manifest
+    // entry grows this with no list to update, and narrowing the record breaks
+    // it at compile time.
+    expect([...HARNESS_KINDS].sort()).toEqual([...BUILTIN_HARNESS_KINDS].sort())
+    for (const kind of HARNESS_KINDS) expect(manifestFor(kind)).toBe(AGENT_MANIFESTS[kind])
+  })
+
+  it('resolves every superagent policy pick through the registry (4.2)', () => {
+    // The ORDER is product policy (packages/runtime/src/harness-defaults.ts)
+    // and stays there; validity is the registry's answer. An entry with no
+    // manifest would seed a role no machine can run.
+    for (const harness of SUPERAGENT_HARNESS_PRIORITY) expect(manifestFor(harness)).toBeDefined()
   })
 
   it('accepts a minimal manifest — launch and discovery only — and degrades the rest', () => {

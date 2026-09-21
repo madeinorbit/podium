@@ -1,6 +1,7 @@
 import {
   type AccountId,
   AccountIdField,
+  AGENT_CHOICE_HARNESS_KINDS,
   ApiKeySecrets,
   AutoContinuePreferences,
   asAccountId,
@@ -128,11 +129,22 @@ export {
  *     rendering one empty list for both.
  *
  * Consequence for spawn UI: resolve the offer per (choice, machine) through that
- * projection. Reading this enum alone can never express a refusal, so a surface
- * that offers harnesses straight from it will silently offer machines the
- * principal may not use.
+ *  projection. Reading this enum alone can never express a refusal, so a surface
+ *  that offers harnesses straight from it will silently offer machines the
+ *  principal may not use.
+ *
+ * Derived from {@link AGENT_CHOICE_HARNESS_KINDS} (POD-4414 §5, issue 4.2):
+ * `'auto'` plus the offered harnesses — same members, same order, same wire.
+ * The `'codex'` literals elsewhere in this file are the PROVIDER namespace
+ * (`ApiProvider`), not this set; the axiom note on that collision stands.
  */
-export const AgentChoice = z.enum(['auto', 'claude-code', 'codex', 'grok', 'opencode', 'cursor'])
+
+/** The harness assumed when no account names one. The single home for the
+ *  default (issue 4.2) — every `nativeAccountId('claude-code')` fallback and
+ *  decode fallback below reads this, so changing the default is one edit. */
+const DEFAULT_HARNESS_KIND: HarnessAgent = 'claude-code'
+
+export const AgentChoice = z.enum(['auto', ...AGENT_CHOICE_HARNESS_KINDS] as const)
 export type AgentChoice = z.infer<typeof AgentChoice>
 
 export const SessionDefaults = z.object({
@@ -178,7 +190,7 @@ export type ApiProvider = z.infer<typeof ApiProvider>
  */
 export const LlmBackend = z.object({
   kind: z.enum(['harness', 'api']).default('api'),
-  harnessAgent: HarnessAgent.default('claude-code'),
+  harnessAgent: HarnessAgent.default(DEFAULT_HARNESS_KIND),
   harnessModel: z.string().default('auto'),
   /** This backend's reasoning effort ('auto' = provider/CLI default). For a
    *  harness it maps to each CLI's effort flag at spawn (like
@@ -415,7 +427,7 @@ function migrateRoles(raw: Record<string, unknown>): Roles | undefined {
   const sd = SessionDefaults.parse(raw.sessionDefaults ?? {})
   return Roles.parse({
     coding: {
-      accountId: nativeAccountId(sd.agent === 'auto' ? 'claude-code' : sd.agent),
+      accountId: nativeAccountId(sd.agent === 'auto' ? DEFAULT_HARNESS_KIND : sd.agent),
       model: sd.model,
       effort: sd.effort,
       subagentModel: sd.subagentModel,
@@ -488,12 +500,12 @@ export interface ResolvedRole {
 }
 
 const DEFAULT_ACCOUNT: Record<RoleName, AccountId> = {
-  coding: nativeAccountId('claude-code'),
+  coding: nativeAccountId(DEFAULT_HARNESS_KIND),
   // The orchestrator always runs a real harness with Podium's MCP tools. Keep its
   // empty/default account aligned with what the settings UI displays.
-  superagent: nativeAccountId('claude-code'),
+  superagent: nativeAccountId(DEFAULT_HARNESS_KIND),
   background: managedAccountId('openrouter'),
-  shipwright: nativeAccountId('claude-code'),
+  shipwright: nativeAccountId(DEFAULT_HARNESS_KIND),
 }
 
 const BACKGROUND_API_PROVIDERS: Partial<Record<HarnessAgent, ApiProvider>> = {
@@ -512,7 +524,7 @@ function decodeAccount(
     const harnessRaw = raw.split(':', 1)[0]
     const harness = HarnessAgent.safeParse(harnessRaw).success
       ? (harnessRaw as HarnessAgent)
-      : 'claude-code'
+      : DEFAULT_HARNESS_KIND
     const backgroundProvider = BACKGROUND_API_PROVIDERS[harness]
     if (role === 'background' && backgroundProvider) {
       return { execution: 'api', harness, provider: backgroundProvider }
@@ -526,12 +538,12 @@ function decodeAccount(
     // fails the ApiProvider parse and falls back to 'openrouter', quietly turning
     // the Claude subscription into an OpenRouter backend.
     if (raw === MANAGED_CLAUDE_OAUTH) {
-      return { execution: 'api', harness: 'claude-code', provider: 'anthropic' }
+      return { execution: 'api', harness: DEFAULT_HARNESS_KIND, provider: 'anthropic' }
     }
     const provider = ApiProvider.safeParse(raw).success ? (raw as ApiProvider) : 'openrouter'
-    return { execution: 'api', harness: 'claude-code', provider }
+    return { execution: 'api', harness: DEFAULT_HARNESS_KIND, provider }
   }
-  return { execution: 'harness', harness: 'claude-code' }
+  return { execution: 'harness', harness: DEFAULT_HARNESS_KIND }
 }
 
 /** The single read path for a role's backend (SP-6454 B3): resolves the role's
