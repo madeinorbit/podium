@@ -7,8 +7,15 @@
  * the only imperative derivation in the arm.
  *
  * Inputs (all subscribed, so no silent staleness): issues rows, childQ
- * edges, verdictQ member verdicts, visibleQ flat flags, summaryQ band +
- * repoKey, and prefix bumps via notePrefixChanged(). Outputs: one RollupRow
+ * edges, verdictQ member verdicts, summaryQ flat flags + band + repoKey,
+ * and prefix bumps via notePrefixChanged(). Flat membership is read off
+ * summaryQ events, NOT visibleQ events: visibleQ's pure-DSL `where`
+ * retractions emit no change event when an upstream update makes a row
+ * fail the predicate (verified M2 — state goes correct, subscribers hear
+ * nothing), while summaryQ's `fn` re-runs and notifies on every
+ * (excluded, flat) flip. visibleQ remains the graph's declared visible
+ * set (bootstrap seeds from it), but nothing subscribes to it.
+ * Outputs: one RollupRow
  * per issue with the subtree aggregate, the final visibility flag, the
  * tick, and denormalized rank/lane inputs (band, sortKeyEnc, createdAt,
  * seq, pinned, repoKey, fold inputs) so orderQ/laneQ stay single-source
@@ -17,12 +24,12 @@
  * Invalidation rule: a member-verdict change recomputes its owner's chain
  * up to the root, stopping at the first value-unchanged ancestor; a child
  * edge move recomputes the full chains above both ends (shape changed, no
- * early stop); a flat flip reconciles keeper chains (which can flip further
- * ancestors) and seeds the affected chains; an issue change reseats
- * origin/dependent/tick/rank inputs and seeds its own chain; summary
- * changes rewrite denormalized band/repoKey only (aggregates never read
- * them); prefix bumps re-tick named rows. Every recompute is value-compared
- * — unchanged values write nothing downstream.
+ * early stop); a flat flip (seen on summaryQ) reconciles keeper chains
+ * (which can flip further ancestors) and seeds the affected chains; an
+ * issue change reseats origin/dependent/tick/rank inputs and seeds its own
+ * chain; summary band/repoKey-only changes rewrite denormalized denorm
+ * without chains; prefix bumps re-tick named rows. Every recompute is
+ * value-compared — unchanged values write nothing downstream.
  */
 
 import type { Collection } from '@tanstack/db'
@@ -113,7 +120,6 @@ export interface RollupInputs {
   childQ: LiveQuery
   verdictQ: LiveQuery
   verdictR: LiveQuery
-  visibleQ: LiveQuery
   summaryQ: LiveQuery
   prefix: PrefixIndex
 }
@@ -201,7 +207,6 @@ export class RollupSync {
       this.inputs.childQ.subscribeChanges((changes) => this.ingestChild(changes)),
       this.inputs.verdictQ.subscribeChanges((changes) => this.ingestVerdict(changes)),
       this.inputs.verdictR.subscribeChanges((changes) => this.ingestVerdict(changes)),
-      this.inputs.visibleQ.subscribeChanges((changes) => this.ingestVisible(changes)),
       this.inputs.summaryQ.subscribeChanges((changes) => this.ingestSummary(changes)),
     ]
     for (const sub of subs) this.unsubs.push(() => sub.unsubscribe())
@@ -835,36 +840,40 @@ export class RollupSync {
     this.flushBatch()
   }
 
-  private ingestVisible(changes: QueryChange[]): void {
-    for (const c of changes) {
-      const id = String(c.key)
-      const crow = c.value as SummaryRow | undefined
-      const flat = c.type !== 'delete' && crow !== undefined && !crow.excluded && crow.flat
-      const had = this.flat.has(id)
-      if (flat && !had) {
-        this.flat.add(id)
-        this.reconcile(id)
-        this.recheckAgent(id)
-      } else if (!flat && had) {
-        this.flat.delete(id)
-        this.purge(id)
-        this.reconcile(id)
-        this.recheckAgent(id)
-      }
-    }
-    this.flushBatch()
-  }
-
   private ingestSummary(changes: QueryChange[]): void {
-    // Aggregates never read summary values — only the denormalized
-    // band/repoKey ride the row. Rewrite affected rows without chains.
+    // Flat membership lives here, NOT on visibleQ events: every flat flip
+    // changes the SummaryRow value, and summaryQ's fn re-runs and notifies
+    // on each one — while visibleQ's pure-DSL where retractions are silent
+    // (M2 archive finding: the archived row left visibleQ state with no
+    // event, and final stayed true). Aggregates never read summary values —
+    // only the denormalized band/repoKey ride the row, rewritten below
+    // without chains.
     for (const c of changes) {
       const id = String(c.key)
       const srow = c.value as SummaryRow | undefined
       if (c.type === 'delete' || srow === undefined) {
         this.bandById.delete(id)
         this.repoKeyById.delete(id)
+        // A summary retraction is a membership loss (issue deletes are
+        // also driven explicitly, idempotently, via ingestIssue).
+        if (this.flat.delete(id)) {
+          this.purge(id)
+          this.reconcile(id)
+          this.recheckAgent(id)
+        }
       } else {
+        const flat = !srow.excluded && srow.flat
+        const had = this.flat.has(id)
+        if (flat && !had) {
+          this.flat.add(id)
+          this.reconcile(id)
+          this.recheckAgent(id)
+        } else if (!flat && had) {
+          this.flat.delete(id)
+          this.purge(id)
+          this.reconcile(id)
+          this.recheckAgent(id)
+        }
         const prevBand = this.bandById.get(id)
         const prevKey = this.repoKeyById.get(id)
         if (prevBand !== srow.band || prevKey !== srow.repoKey) {

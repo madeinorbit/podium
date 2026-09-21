@@ -166,7 +166,6 @@ export class TanStackStore {
         childQ: this.base.childQ,
         verdictR: this.base.verdictR,
         verdictQ: this.base.verdictQ,
-        visibleQ: this.base.visibleQ,
         summaryQ: this.base.summaryQ,
         prefix: this.prefix,
       },
@@ -298,7 +297,12 @@ export class TanStackStore {
     this.markSummary = this.runs.summary
     this.markRows = this.runs.rows
     this.refreshRows()
-    this.rebuildOrder()
+    // H4 residual R-T1: the order surface is rebuilt ONLY when an
+    // order-affecting collection moved (orderDirty). rowsQ-only changes
+    // (title renames, unread flips, band-neutral ticks) cannot move the
+    // surface — it is built from orderQ + laneQ alone — so skipping the
+    // full re-bucket + whole-order compare is exact, not lossy.
+    if (this.orderDirty) this.rebuildOrder()
     this.rowsDirty.clear()
     this.orderDirty = false
     this.stats.notifications += 1
