@@ -208,8 +208,14 @@ jobs:
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
       - uses: dtolnay/rust-toolchain@stable
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
-      - name: Install checkout-local proof dependencies
-        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+      # EVERY CHANNEL, not just stable (POD-4507). This step used to be the stable
+      # proof's prerequisite and carried that `if:`. But the publish step below is
+      # `bun scripts/release.ts`, and that import graph reaches `zod` through
+      # packages/protocol/src/update/target.ts, so on edge and dev it ran with no
+      # node_modules at all and died before it opened a single artifact. Nobody saw
+      # it because `publish` needs ab-check, and ab-check had failed on every run
+      # since v0.1.0 — the job was skipped, not passing.
+      - name: Install the release toolchain's own dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Ensure the real-release base image is available
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
