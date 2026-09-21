@@ -37,7 +37,7 @@ const PENDING_TITLE = 'Renamed visible row'
 /** The spike's whole write API: optimistic staging + the commit flush. */
 class PendingTitles {
   private readonly gates = new Map<string, { resolve(): void; reject(reason?: unknown): void }>()
-  private readonly txs = new Map<string, { isPersisted: Promise<unknown> }>()
+  private readonly txs = new Map<string, { isPersisted: { promise: Promise<unknown> } }>()
   constructor(
     private readonly store: TanStackStore,
     private readonly flush: () => void,
@@ -67,7 +67,7 @@ class PendingTitles {
       mutationFn: () => gate,
     })
     const tx = action({ bid: id, btitle: title })
-    this.txs.set(id, tx as unknown as { isPersisted: Promise<unknown> })
+    this.txs.set(id, tx as unknown as { isPersisted: { promise: Promise<unknown> } })
     // Derivations followed the staging and the rowsQ subscription marked
     // the row dirty (verified by probe); flush commits it.
     this.flush()
