@@ -15,8 +15,11 @@ import {
   burst50,
   clockTick,
   coldBootstrap,
+  evictKeeperWithoutRevision,
   evictWithoutRevision,
   GROWTH_CORPORA,
+  KEEPER_LEAF_ID,
+  KEEPER_PARENT_ID,
   measureHeartbeat,
   newIssue,
   optimisticEchoAndRejection,
@@ -50,6 +53,7 @@ describe('scenario registry', () => {
       '#6a',
       '#6b',
       '#6c',
+      '#6d',
       '#7',
       '#8',
       '#9',
@@ -128,6 +132,19 @@ describe('scenarios at functional scale', () => {
     expect(result.events[0]?.rows[0]).toEqual({ kind: 'issue', id: 'i5', value: undefined })
     expect(result.after.issues.some((i) => i.id === 'i5')).toBe(false)
     expect(result.before.issues.some((i) => i.id === 'i5')).toBe(true)
+  }, 30_000)
+
+  it('#6d evictKeeperWithoutRevision: one update, keeper leaf gone; parent seeded', async () => {
+    const result = await evictKeeperWithoutRevision(SMALL_CORPUS)
+    expect(summarize(result)).toBe('#6d evictKeeperWithoutRevision: 1 events, rows [update:1]')
+    expect(result.events[0]?.rows[0]).toEqual({ kind: 'issue', id: KEEPER_LEAF_ID, value: undefined })
+    expect(result.after.issues.some((i) => i.id === KEEPER_LEAF_ID)).toBe(false)
+    expect(result.before.issues.some((i) => i.id === KEEPER_LEAF_ID)).toBe(true)
+    // The rescue parent is seeded before the evict and survives it as a
+    // kernel row (it only leaves the VISIBLE set — asserted via parity in
+    // the arm gates, not here).
+    expect(result.before.issues.some((i) => i.id === KEEPER_PARENT_ID)).toBe(true)
+    expect(result.after.issues.some((i) => i.id === KEEPER_PARENT_ID)).toBe(true)
   }, 30_000)
 
   it('#7 parentReassignment: one update, one row', async () => {

@@ -319,6 +319,7 @@ Those are where the three approaches differ; without them the comparison is book
 | 4 | Title rename on a visible row | 1 | 1 | ≤ 8 ms |
 | 5 | Stage change moving a row across groups | affected rows + order | chain + order | ≤ 16 ms |
 | 6 | New issue / archive / authority evict without revision | order + row | bounded | ≤ 16 ms |
+| 6d | Keeper evict: seed a rescue pair, then evict the keeper leaf (POD-4503) | 0 (both unmount) | bounded | ≤ 16 ms |
 | 7 | Parent reassignment | both chains | both chains | ≤ 16 ms |
 | 8 | Coarse clock tick | rows whose band moved | bands | ≤ 8 ms |
 | 9 | Optimistic echo and rejection | as 2 | as 2 | no full rebuild |
@@ -347,7 +348,16 @@ control, counting files, lines and places-to-remember and recording what the scr
   `sourceEqual`; candidate: store the input in a plain variable). Expected: control silent;
   candidate throws under `observableRequiresReaction` / the isolation fence fails.
 - E: forget to remove a row from an index on evict. Expected: candidate's parity oracle fails on
-  scenario 6.
+  scenario #6d (keeper evict). The plain #6c evict cannot fail this way: the seed corpus carries
+  no rescue rows and `i5` keeps nothing, so #6c stays green on the defect branch (POD-4503). #6d
+  seeds its own keeper pair (a sessionless `backlog` parent kept visible only by a visible child)
+  and then evicts the child; the oracle drops the parent with it. Chosen over a qualifier alone
+  because the decision document cites scenario 6 as covering eviction safety — a qualifier would
+  leave that citation vacuous, while #6d keeps the evidence. MobX eviction leaks stay
+  parity-green by design (every bucket read guards on its table; the bucket-disposal unit test
+  is the detector there). A TanStack session-evict ghost needs a sole-asker session shape, not
+  an issue evict — #6d runs on every arm for parity, but it is the E detector only for the
+  keeper-seat shape.
 - F: write an O(N) read inside a row component. Expected: isolation fence fails.
 
 The decision document leads with this table, not with walls.

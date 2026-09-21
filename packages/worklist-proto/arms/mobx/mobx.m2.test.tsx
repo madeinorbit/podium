@@ -4,11 +4,12 @@
  * G4 count harness at live corpus (1x), with oracle parity after every step.
  *
  * One engine, methodology order (#4 rename, #5 stage move, #6a new, #6b
- * archive, #6c evict, #7 reparent, #8 clock, #9 optimism in four steps, #10
- * burst50). Each step records rows committed, arm stats, scans, and parity
- * into a table; budget assertions run when `PROTO_M2_STRICT=1` (the gate),
- * otherwise the table is printed for the before/after record. Corpus scale
- * via `PROTO_M2_SPEC=small` (iteration) or the default 1x (the record).
+ * archive, #6c evict, #6d keeper setup + keeper evict, #7 reparent, #8
+ * clock, #9 optimism in four steps, #10 burst50). Each step records rows
+ * committed, arm stats, scans, and parity into a table; budget assertions
+ * run when `PROTO_M2_STRICT=1` (the gate), otherwise the table is printed
+ * for the before/after record. Corpus scale via `PROTO_M2_SPEC=small`
+ * (iteration) or the default 1x (the record).
  *
  * MobX has no rebuild oracle (H4: one computed path instead of incremental +
  * from-scratch); parity against `snapshotFromStore` plus the over-commit
@@ -40,6 +41,8 @@ import {
   writeArchiveIssue,
   writeBurst50,
   writeEvictIssue,
+  writeEvictKeeperIssue,
+  writeKeeperPair,
   writeNewIssue,
   writeOptimisticEcho,
   writeOptimisticPress,
@@ -141,6 +144,13 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       const newIssue = await step('newIssue', '#6a', () => writeNewIssue(ctx, SPEC))
       const archive = await step('archiveIssue', '#6b', () => writeArchiveIssue(ctx))
       const evict = await step('evictWithoutRevision', '#6c', () => writeEvictIssue(ctx))
+      // #6d — keeper setup seeds the rescue pair (POD-4503: the seed corpus
+      // carries no rescue rows), then the keeper leaf is evicted and its
+      // rescue parent must leave with it.
+      const keeperSetup = await step('keeperPairSetup', '#6d setup', () => writeKeeperPair(ctx, SPEC))
+      const keeperEvict = await step('evictKeeperWithoutRevision', '#6d', () =>
+        writeEvictKeeperIssue(ctx),
+      )
       const reparent = await step('parentReassignment', '#7', () => writeParentReassignment(ctx))
 
       // #8 — the coarse clock ticks with no row change: time is a local.
@@ -229,6 +239,13 @@ describe('mobx arm milestone 2: structural scenarios', () => {
         expect(archive.stats.notifications).toBe(1)
         expect(evict.rowsCommitted).toBe(0)
         expect(evict.stats.notifications).toBe(1)
+        // #6d setup: two arrivals mount (commits stay 0); #6d evict: the
+        // keeper leaf unmounts and its rescue parent leaves with it
+        // (POD-4503: the armed eviction check).
+        expect(keeperSetup.rowsCommitted).toBe(0)
+        expect(keeperSetup.stats.notifications).toBe(1)
+        expect(keeperEvict.rowsCommitted).toBe(0)
+        expect(keeperEvict.stats.notifications).toBe(1)
         // #7: both chains (old parent, new parent); the moved row itself is
         // value-stable (its subtree did not change).
         expect(reparent.rowsCommitted).toBe(2)

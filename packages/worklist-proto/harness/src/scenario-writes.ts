@@ -15,7 +15,12 @@
  */
 
 import { asIssueId } from '@podium/model'
-import { startScenarioEngine } from '../../shared/src/scenarios'
+import {
+  evictKeeperLeaf,
+  KEEPER_LEAF_ID,
+  seedKeeperPair,
+  startScenarioEngine,
+} from '../../shared/src/scenarios'
 
 export type ScenarioEngine = Awaited<ReturnType<typeof startScenarioEngine>>
 
@@ -228,6 +233,43 @@ export async function writeEvictIssue(ctx: ScenarioEngine, id = 'i5'): Promise<s
       entityId: id,
     } as never)
   })
+  await settle(ctx)
+  return id
+}
+
+/** #6d setup — seed the keeper pair (mirrors G3 `evictKeeperWithoutRevision`
+ *  setup: a sessionless `backlog` parent kept visible only by its visible
+ *  child). POD-4503: the seed corpus carries no rescue rows, so without this
+ *  setup no evict can exercise the keeper-seat cleanup. */
+export async function writeKeeperPair(
+  ctx: ScenarioEngine,
+  spec: { issues: number },
+): Promise<string[]> {
+  seedKeeperPair(ctx, spec)
+  await settle(ctx)
+  return ['i-keeper-parent', 'i-keeper-leaf']
+}
+
+/** #6d — evict the keeper leaf (mirrors G3 `evictKeeperWithoutRevision`:
+ *  the rescue parent must leave the oracle with it). */
+export async function writeEvictKeeperIssue(
+  ctx: ScenarioEngine,
+  id: string = KEEPER_LEAF_ID,
+): Promise<string> {
+  if (id === KEEPER_LEAF_ID) {
+    evictKeeperLeaf(ctx)
+  } else {
+    ctx.replica.batch(() => {
+      ctx.cache.drop('issue', id)
+      ctx.replica.onKernelEvent({ type: 'evicted', entity: 'issue', entityId: id } as never)
+      ctx.cache.drop('issueProjection', id)
+      ctx.replica.onKernelEvent({
+        type: 'evicted',
+        entity: 'issueProjection',
+        entityId: id,
+      } as never)
+    })
+  }
   await settle(ctx)
   return id
 }

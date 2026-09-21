@@ -31,6 +31,7 @@
  * | newIssue | #6a | order + row | 1 update, 2 rows |
  * | archiveIssue | #6b | order + row | 1 update, 1 row |
  * | evictWithoutRevision | #6c | order + row | 1 update, 1 row gone |
+ * | evictKeeperWithoutRevision | #6d | rescue parent + row | 1 update, 1 row gone |
  * | parentReassignment | #7 | both chains | 1 update, 1 row |
  * | clockTick | #8 | bands | 0 (time is a local) |
  * | optimisticEchoAndRejection | #9 | as #2 | press, echo, press, rollback |
@@ -48,6 +49,15 @@
  * `evicted` (not `removed`): an authority snapshot omitting the row. Evict
  * and delete look the same to the arm (row gone) and that is intended
  * (spec §2).
+ *
+ * KEEPER EVICT (POD-4503). The seed corpus carries no rescue rows (every
+ * unfinished human issue is `planning`/`in_progress`/`review`, hence
+ * flat-visible; `keptBy` is empty), and `#6c` evicts `i5`, a root that keeps
+ * nothing — so a missing keeper-seat cleanup stays parity-green. `#6d`
+ * (`evictKeeperWithoutRevision`) seeds its own keeper pair first (a
+ * sessionless `backlog` parent kept visible only by a visible child), then
+ * evicts the child: the oracle drops the parent with it, and an arm that
+ * forgot the keeper-seat cleanup keeps a ghost parent and fails parity.
  *
  * CLOCK AND SELECTION are locals (`SliceLocals`), never rows. `clockTick`
  * advances the local clock without touching the kernel and yields no events;
@@ -576,6 +586,136 @@ function upsertIssue(
   })
 }
 
+// ----------------------------------------------- keeper pair (POD-4503 #6d)
+
+export const KEEPER_PARENT_ID = 'i-keeper-parent'
+export const KEEPER_LEAF_ID = 'i-keeper-leaf'
+export const KEEPER_SESSION_ID = 's-keeper'
+
+/** Seed the #6d keeper pair: a sessionless `backlog` parent kept visible
+ *  only by its visible `in_progress` child (one live working session).
+ *  No settle here; callers settle the way their lane does. */
+export function seedKeeperPair(
+  ctx: Pick<ScenarioEngine, 'cache' | 'replica'>,
+  spec: { issues: number },
+): void {
+  const now = new Date().toISOString()
+  const parentWire = {
+    id: KEEPER_PARENT_ID,
+    seq: spec.issues + 100,
+    title: 'Keeper parent (rescue)',
+    stage: 'backlog',
+    parentId: null,
+    createdAt: now,
+    updatedAt: now,
+    archived: false,
+    pinned: false,
+    repoId: 'r0',
+    repoPath: repoPath(0),
+    readAt: now,
+    unread: false,
+    needsHuman: false,
+    blocked: false,
+    audience: 'human',
+  }
+  const parentProjection = {
+    id: KEEPER_PARENT_ID,
+    seq: spec.issues + 100,
+    title: 'Keeper parent (rescue)',
+    stage: 'backlog',
+    repoId: 'r0',
+    description: { value: '' },
+    createdAt: now,
+    updatedAt: now,
+    archived: false,
+    priority: 2,
+    type: 'task',
+    audience: 'human',
+  }
+  const leafWire = {
+    id: KEEPER_LEAF_ID,
+    seq: spec.issues + 101,
+    title: 'Keeper leaf (visible child)',
+    stage: 'in_progress',
+    parentId: KEEPER_PARENT_ID,
+    createdAt: now,
+    updatedAt: now,
+    archived: false,
+    pinned: false,
+    repoId: 'r0',
+    repoPath: repoPath(0),
+    readAt: null,
+    unread: true,
+    needsHuman: false,
+    blocked: false,
+    audience: 'human',
+  }
+  const leafProjection = {
+    id: KEEPER_LEAF_ID,
+    seq: spec.issues + 101,
+    title: 'Keeper leaf (visible child)',
+    stage: 'in_progress',
+    repoId: 'r0',
+    description: { value: '' },
+    createdAt: now,
+    updatedAt: now,
+    archived: false,
+    priority: 2,
+    type: 'task',
+    audience: 'human',
+  }
+  const session = {
+    sessionId: KEEPER_SESSION_ID,
+    issueId: KEEPER_LEAF_ID,
+    agentKind: 'codex',
+    cwd: repoPath(0),
+    title: 'Keeper session',
+    status: 'live',
+    controllerId: 'c-keeper',
+    geometry: { cols: 80, rows: 24 },
+    epoch: 1,
+    clientCount: 1,
+    createdAt: now,
+    lastActiveAt: now,
+    origin: { kind: 'spawn' },
+    archived: false,
+    readAt: now,
+    unread: false,
+    agentState: { phase: 'working', since: now },
+  }
+  ctx.replica.batch(() => {
+    for (const [entity, entityId, value] of [
+      ['issue', KEEPER_PARENT_ID, parentWire],
+      ['issueProjection', KEEPER_PARENT_ID, parentProjection],
+      ['issue', KEEPER_LEAF_ID, leafWire],
+      ['issueProjection', KEEPER_LEAF_ID, leafProjection],
+      ['session', KEEPER_SESSION_ID, session],
+    ] as const) {
+      ctx.cache.put(entity, entityId, value)
+      ctx.replica.onKernelEvent({
+        type: 'upserted',
+        record: { entity, entityId, value, provenance: { seq: 2 } },
+        readmitted: false,
+      } as never)
+    }
+  })
+}
+
+/** Evict the #6d keeper leaf (issue + projection; its session orphans like
+ *  #6c). No settle here; callers settle the way their lane does. */
+export function evictKeeperLeaf(ctx: Pick<ScenarioEngine, 'cache' | 'replica'>): void {
+  ctx.replica.batch(() => {
+    ctx.cache.drop('issue', KEEPER_LEAF_ID)
+    ctx.replica.onKernelEvent({ type: 'evicted', entity: 'issue', entityId: KEEPER_LEAF_ID } as never)
+    ctx.cache.drop('issueProjection', KEEPER_LEAF_ID)
+    ctx.replica.onKernelEvent({
+      type: 'evicted',
+      entity: 'issueProjection',
+      entityId: KEEPER_LEAF_ID,
+    } as never)
+  })
+}
+
 // --------------------------------------------------------------- scenarios
 
 /** #1 — a heartbeat on a session of an archived (invisible) issue. */
@@ -772,6 +912,24 @@ export async function evictWithoutRevision(
           entityId: 'i5',
         } as never)
       })
+    })
+  } finally {
+    ctx.engine.destroy()
+  }
+}
+
+/** #6d — keeper evict (POD-4503): the seeded keeper leaf is evicted, so its
+ *  rescue parent must leave the oracle with it. A missing keeper-seat
+ *  cleanup keeps a ghost parent and fails parity; #6c cannot fail that way. */
+export async function evictKeeperWithoutRevision(
+  spec: CorpusSpec = SMALL_CORPUS,
+): Promise<ScenarioResult> {
+  const ctx = await startScenarioEngine(spec)
+  try {
+    seedKeeperPair(ctx, spec)
+    await new Promise<void>((resolve) => setTimeout(resolve, ctx.settleMs))
+    return await runWithSource('#6d evictKeeperWithoutRevision', '#6d', ctx, () => {
+      evictKeeperLeaf(ctx)
     })
   } finally {
     ctx.engine.destroy()
@@ -1150,7 +1308,7 @@ export interface ScenarioEntry {
   run: (spec?: CorpusSpec) => Promise<ScenarioResult>
 }
 
-/** All thirteen methodology scenarios in order (the #6 set expands to three
+/** All thirteen methodology scenarios in order (the #6 set expands to four
  *  functions, #9 covers echo and rejection in one replay). The G4 harness
  *  (POD-4445) drives this registry in Chromium for walls; CI asserts counts
  *  on happy-dom. */
@@ -1163,6 +1321,7 @@ export const SCENARIOS: ScenarioEntry[] = [
   { name: 'newIssue', methodology: '#6a', run: newIssue },
   { name: 'archiveIssue', methodology: '#6b', run: archiveIssue },
   { name: 'evictWithoutRevision', methodology: '#6c', run: evictWithoutRevision },
+  { name: 'evictKeeperWithoutRevision', methodology: '#6d', run: evictKeeperWithoutRevision },
   { name: 'parentReassignment', methodology: '#7', run: parentReassignment },
   { name: 'clockTick', methodology: '#8', run: clockTick },
   { name: 'optimisticEchoAndRejection', methodology: '#9', run: optimisticEchoAndRejection },
