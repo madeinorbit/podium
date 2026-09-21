@@ -61,7 +61,12 @@ import type { RollupRow } from './rollup'
 
 /** Per-scenario query-graph run counts. fn bodies bump these; pure-DSL
  *  maintenance (groupBy/orderBy/where/select) is IVM-internal and reported
- *  as change events on the collections, never invented here. */
+ *  as change events on the collections, never invented here.
+ *
+ *  `ms` accumulates per-query fn-body walls by query name (M3 stats split,
+ *  methodology §6.4): the store reads deltas per event and attributes them
+ *  to rollup work. Happy-dom proxy only — browser walls belong to POD-4489.
+ *  Recording a wall never changes derivation behavior. */
 export interface GraphRuns {
   narrow: number
   resolve: number
@@ -72,6 +77,7 @@ export interface GraphRuns {
   lane: number
   rows: number
   changes: Record<string, number>
+  ms: Record<string, number>
   reset(): void
 }
 
@@ -86,6 +92,7 @@ export function createGraphRuns(): GraphRuns {
     lane: 0,
     rows: 0,
     changes: {},
+    ms: {},
     reset() {
       runs.narrow = 0
       runs.resolve = 0
@@ -96,9 +103,20 @@ export function createGraphRuns(): GraphRuns {
       runs.lane = 0
       runs.rows = 0
       runs.changes = {}
+      runs.ms = {}
     },
   }
   return runs
+}
+
+/**
+ * Close one timed fn evaluation (M3 stats split). Each query fn opens with
+ * `const t0 = performance.now()` and records here before returning (every
+ * return path — the summary fn has two). Walls only; counts stay in the
+ * `runs.*` counters above.
+ */
+export function endFnMs(runs: GraphRuns, name: string, t0: number): void {
+  runs.ms[name] = (runs.ms[name] ?? 0) + (performance.now() - t0)
 }
 
 /** narrowQ output: raw session inputs with the explicit issueId still
@@ -408,6 +426,7 @@ export function createBaseQueries(
         .fn.where((row) => row.s.headless !== true && row.s.agentKind !== 'shell')
         .fn.select((row) => {
           runs.narrow += 1
+          const t0 = performance.now()
           const s = row.s
           const out: NarrowRow = {
             sid: s.sessionId,
@@ -430,6 +449,7 @@ export function createBaseQueries(
             agentName: (s as { name?: string }).name ?? null,
             cwd: s.cwd,
           }
+          endFnMs(runs, 'narrow', t0)
           return out
         }),
   })
@@ -451,6 +471,7 @@ export function createBaseQueries(
         )
         .fn.select((row) => {
           runs.resolve += 1
+          const t0 = performance.now()
           const m = row.s as unknown as NarrowRow
           const out: ResolveRow = {
             sid: m.sid,
@@ -471,6 +492,7 @@ export function createBaseQueries(
             endedSince: m.endedSince,
             agentName: m.agentName,
           }
+          endFnMs(runs, 'resolve', t0)
           return out
         }),
   })
@@ -486,10 +508,13 @@ export function createBaseQueries(
         .join({ l: locals.collection }, ({ m, l }) => eq((m as unknown as { marker: 1 }).marker, l.marker), 'inner')
         .fn.select((row) => {
           runs.verdict += 1
+          const t0 = performance.now()
           const m = row.m as unknown as ResolveRow
           const owner = row.i
           const now = (row.l as unknown as LocalsRow).now
-          return foldVerdict(m, owner as unknown as FoldOwner, owner.id, true, now)
+          const out = foldVerdict(m, owner as unknown as FoldOwner, owner.id, true, now)
+          endFnMs(runs, 'verdict', t0)
+          return out
         }),
   })
 
@@ -500,6 +525,7 @@ export function createBaseQueries(
     query: (q) =>
       q.from({ i: issues.collection }).fn.select((row) => {
         runs.issuesNarrow += 1
+        const t0 = performance.now()
         const i = row.i
         const out: IssuesNRow = {
           id: i.id,
@@ -527,6 +553,7 @@ export function createBaseQueries(
           title: i.title,
           marker: 1,
         }
+        endFnMs(runs, 'issuesNarrow', t0)
         return out
       }),
   })
@@ -546,10 +573,13 @@ export function createBaseQueries(
         .join({ l: locals.collection }, ({ m, l }) => eq((m as unknown as { marker: 1 }).marker, l.marker), 'inner')
         .fn.select((row) => {
           runs.verdict += 1
+          const t0 = performance.now()
           const m = row.m as unknown as ResolveRow
           const owner = row.n as unknown as IssuesNRow
           const now = (row.l as unknown as LocalsRow).now
-          return foldVerdict(m, owner as unknown as FoldOwner, owner.id, false, now)
+          const out = foldVerdict(m, owner as unknown as FoldOwner, owner.id, false, now)
+          endFnMs(runs, 'verdictR', t0)
+          return out
         }),
   })
 
@@ -596,8 +626,11 @@ export function createBaseQueries(
         .from({ i: issues.collection })
         .fn.where((row) => {
           runs.child += 1
+          const t0 = performance.now()
           const i = row.i
-          return i.archived !== true && i.deletedAt == null && i.parentId != null
+          const out = i.archived !== true && i.deletedAt == null && i.parentId != null
+          endFnMs(runs, 'child', t0)
+          return out
         })
         .select(({ i }) => ({ id: i.id, parentId: i.parentId as string })),
   })
@@ -617,6 +650,7 @@ export function createBaseQueries(
           const agg = row.a as unknown as AggRow | undefined
           const aggr = row.g as unknown as AggRow | undefined
           const now = (row.l as unknown as LocalsRow).now
+          const t0 = performance.now()
           const sentinel = (): SummaryRow => ({
             id: n.id,
             excluded: true,
@@ -631,6 +665,7 @@ export function createBaseQueries(
           // Structurally excluded issues hold no summary: sessions on them
           // recompute nothing downstream (the heartbeat short-circuit).
           if (structurallyExcluded(n as unknown as Parameters<typeof structurallyExcluded>[0])) {
+            endFnMs(runs, 'summary', t0)
             return sentinel()
           }
           runs.summary += 1
@@ -656,6 +691,7 @@ export function createBaseQueries(
             repoKey: groupKeyOf(issue),
             unread,
           }
+          endFnMs(runs, 'summary', t0)
           return out
         }),
   })
@@ -734,6 +770,7 @@ export function createTopQueries(
         .join({ l: locals.collection }, ({ r, l }) => eq(r.marker, l.marker), 'inner')
         .fn.select((row) => {
           runs.lane += 1
+          const t0 = performance.now()
           const r = row.r as unknown as RollupRow
           const now = (row.l as unknown as LocalsRow).now
           const issue = r as unknown as Parameters<typeof inClosedFold>[0]['issue']
@@ -760,6 +797,7 @@ export function createTopQueries(
             lane,
             foldAt: closedFoldAt(issue),
           }
+          endFnMs(runs, 'lane', t0)
           return out
         }),
   })
@@ -792,6 +830,7 @@ export function createTopQueries(
         .where(({ r }) => eq(r.final, true))
         .fn.select((row) => {
           runs.rows += 1
+          const t0 = performance.now()
           const s = row.s as unknown as SummaryRow
           const r = row.r as unknown as RollupRow
           const out: RowsRow = {
@@ -810,6 +849,7 @@ export function createTopQueries(
             tickTitle: r.tickTitle,
             tickRef: r.tickRef,
           }
+          endFnMs(runs, 'rows', t0)
           return out
         }),
   })

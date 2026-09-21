@@ -86,6 +86,19 @@ export class TanStackStore {
    * changes derivation behavior.
    */
   private readonly scanTotals = new Map<string, number>()
+  /**
+   * Cumulative computation-share walls per phase (M3 stats split,
+   * methodology §6.4): index = sync-write + prefix + version-bump walls
+   * EXCLUSIVE of the query-graph and rollup work they synchronously drive
+   * (TanStack pushes eagerly inside writes — inseparable at this boundary,
+   * so the exclusive wall is the section wall minus the fn/rollup deltas
+   * inside it); rollup = query fn bodies + RollupSync entries + order
+   * rebuild; row = commit shaping (refreshRows). Plain totals beside
+   * ArmStats (the `scan()` precedent): mutated from callbacks, never
+   * observed, cleared by `stats.reset()`. Happy-dom proxy only — browser
+   * walls belong to POD-4489.
+   */
+  private readonly phaseMsTotals = { indexMs: 0, rollupMs: 0, rowMs: 0 }
 
   constructor(
     private readonly source: RowSource,
@@ -103,6 +116,9 @@ export class TanStackStore {
         stats.indexUpdates = 0
         stats.notifications = 0
         this.scanTotals.clear()
+        this.phaseMsTotals.indexMs = 0
+        this.phaseMsTotals.rollupMs = 0
+        this.phaseMsTotals.rowMs = 0
       },
     }
     this.stats = stats
@@ -172,6 +188,9 @@ export class TanStackStore {
       countRollup,
       countIndex,
       (name, visits) => this.scan(name, visits),
+      (ms) => {
+        this.phaseMsTotals.rollupMs += ms
+      },
     )
     this.rollup.subscribe()
     this.rollup.rebuildAll({
@@ -224,31 +243,53 @@ export class TanStackStore {
   // ------------------------------------------------------------ dispatch
 
   dispatch(event: RowSourceEvent): void {
-    this.rollup.batchDuring(() => {
-      if (event.type === 'replace') {
-        this.replace(event)
-      } else {
-        const { prefixMoved } = applyEventRows(this.entities, event.rows, this.prefix)
-        if (prefixMoved) {
-          this.bumpWtVersion()
-          // Prefix seats moved: displayRef joins (summaryQ) re-run via the
-          // version bump; origin ticks re-read the prefix map here.
-          this.rollup.notePrefixChanged()
+    this.timedWrite(() => {
+      this.rollup.batchDuring(() => {
+        if (event.type === 'replace') {
+          this.replace(event)
+        } else {
+          const { prefixMoved } = applyEventRows(this.entities, event.rows, this.prefix)
+          if (prefixMoved) {
+            this.bumpWtVersion()
+            // Prefix seats moved: displayRef joins (summaryQ) re-run via the
+            // version bump; origin ticks re-read the prefix map here.
+            this.rollup.notePrefixChanged()
+          }
+          // Sync deletes apply silently (verified): drive removals explicitly.
+          const issueRemovals = this.entities.issues.takeRemoved()
+          for (const id of issueRemovals) {
+            this.rollup.ingestIssue(id, undefined)
+            this.rowsDirty.add(id)
+          }
+          if (issueRemovals.length > 0) this.orderDirty = true
+          for (const sid of this.entities.sessions.takeRemoved()) {
+            this.rollup.dropSession(sid)
+          }
+          this.entities.worktrees.takeRemoved()
         }
-        // Sync deletes apply silently (verified): drive removals explicitly.
-        const issueRemovals = this.entities.issues.takeRemoved()
-        for (const id of issueRemovals) {
-          this.rollup.ingestIssue(id, undefined)
-          this.rowsDirty.add(id)
-        }
-        if (issueRemovals.length > 0) this.orderDirty = true
-        for (const sid of this.entities.sessions.takeRemoved()) {
-          this.rollup.dropSession(sid)
-        }
-        this.entities.worktrees.takeRemoved()
-      }
+      })
     })
     this.finishCycle()
+  }
+
+  /**
+   * Time one kernel-driven write section (M3 stats split). The section wall
+   * contains synchronous query-graph propagation (eager IVM) plus the
+   * RollupSync entries it drives; both are timed at their own level
+   * (`runs.ms`, the rollup `addMs` callback), so the exclusive index wall is
+   * the section wall minus those deltas: sync-write overhead + IVM
+   * internals + prefix + version bump + explicit removal driving.
+   */
+  private timedWrite(section: () => void): void {
+    const fnBefore = totalFnMs(this.runs)
+    const rollupBefore = this.phaseMsTotals.rollupMs
+    const t0 = performance.now()
+    section()
+    const wall = performance.now() - t0
+    const fnDelta = totalFnMs(this.runs) - fnBefore
+    const rollupDelta = this.phaseMsTotals.rollupMs - rollupBefore
+    this.phaseMsTotals.rollupMs += fnDelta
+    this.phaseMsTotals.indexMs += Math.max(0, wall - fnDelta - rollupDelta)
   }
 
   private replace(event: RowSourceEvent): void {
@@ -296,13 +337,19 @@ export class TanStackStore {
     this.stats.rollupsDerived += this.runs.summary - this.markSummary + (this.runs.rows - this.markRows)
     this.markSummary = this.runs.summary
     this.markRows = this.runs.rows
+    const tRows = performance.now()
     this.refreshRows()
+    this.phaseMsTotals.rowMs += performance.now() - tRows
     // H4 residual R-T1: the order surface is rebuilt ONLY when an
     // order-affecting collection moved (orderDirty). rowsQ-only changes
     // (title renames, unread flips, band-neutral ticks) cannot move the
     // surface — it is built from orderQ + laneQ alone — so skipping the
     // full re-bucket + whole-order compare is exact, not lossy.
-    if (this.orderDirty) this.rebuildOrder()
+    if (this.orderDirty) {
+      const tOrder = performance.now()
+      this.rebuildOrder()
+      this.phaseMsTotals.rollupMs += performance.now() - tOrder
+    }
     this.rowsDirty.clear()
     this.orderDirty = false
     this.stats.notifications += 1
@@ -484,9 +531,13 @@ export class TanStackStore {
     }
     this.rowsDirty.add(id)
     this.emit(`selected:${id}`)
+    const tRows = performance.now()
     this.refreshRows()
+    this.phaseMsTotals.rowMs += performance.now() - tRows
     this.rowsDirty.clear()
+    const tOrder = performance.now()
     this.rebuildOrder()
+    this.phaseMsTotals.rollupMs += performance.now() - tOrder
     this.stats.notifications += 1
   }
 
@@ -496,8 +547,10 @@ export class TanStackStore {
     this.locals.coarseNow = now
     const current = this.entities.locals.collection.get('locals') as LocalsRow | undefined
     if (current !== undefined) {
-      this.rollup.batchDuring(() => {
-        this.entities.locals.write([{ op: 'upsert', key: 'locals', value: { ...current, now } }])
+      this.timedWrite(() => {
+        this.rollup.batchDuring(() => {
+          this.entities.locals.write([{ op: 'upsert', key: 'locals', value: { ...current, now } }])
+        })
       })
     }
     for (const id of this.graceSensitive) this.rowsDirty.add(id)
@@ -549,6 +602,14 @@ export class TanStackStore {
     const out: Record<string, number> = {}
     for (const [name, visits] of this.scanTotals) out[name] = visits
     return out
+  }
+
+  /**
+   * Cumulative computation-share walls since the last `stats.reset()` (M3
+   * stats split, methodology §6.4). Happy-dom proxy only.
+   */
+  phaseMs(): { indexMs: number; rollupMs: number; rowMs: number } {
+    return { ...this.phaseMsTotals }
   }
 
   /** Test hook: outstanding subscription count (dispose leaves zero). */
@@ -649,4 +710,11 @@ function sameIds(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false
   return true
+}
+
+/** Total query-fn wall accumulated in `runs.ms` (M3 stats split input). */
+function totalFnMs(runs: GraphRuns): number {
+  let total = 0
+  for (const ms of Object.values(runs.ms)) total += ms
+  return total
 }

@@ -166,6 +166,7 @@ export class RollupSync {
     private readonly countRollup: () => void,
     private readonly countIndex: () => void,
     private readonly countScan?: (name: string, visits: number) => void,
+    private readonly addMs?: (ms: number) => void,
   ) {
     this.sync = new EntitySync<RollupRow>('tanstack-arm.rollup', [], (row) => row.id)
     this.collection = this.sync.collection as unknown as Collection<
@@ -173,6 +174,21 @@ export class RollupSync {
       string,
       Record<string, never>
     >
+  }
+
+  /**
+   * Time one rollup entry body (M3 stats split, methodology §6.4). Entries
+   * never nest (subscriptions and the store call entries; entries call only
+   * private helpers), so one wall per entry is exact. Happy-dom proxy only.
+   */
+  private timed<R>(body: () => R): R {
+    if (this.addMs === undefined) return body()
+    const t0 = performance.now()
+    try {
+      return body()
+    } finally {
+      this.addMs(performance.now() - t0)
+    }
   }
 
   subscribe(): void {
@@ -748,6 +764,10 @@ export class RollupSync {
   // ---------------------------------------------------------- ingest
 
   private ingestChild(changes: QueryChange[]): void {
+    this.timed(() => this.ingestChildBody(changes))
+  }
+
+  private ingestChildBody(changes: QueryChange[]): void {
     for (const c of changes) {
       const key = String(c.key)
       if (c.type === 'delete' || c.value === undefined) {
@@ -774,6 +794,10 @@ export class RollupSync {
   }
 
   private ingestVerdict(changes: QueryChange[]): void {
+    this.timed(() => this.ingestVerdictBody(changes))
+  }
+
+  private ingestVerdictBody(changes: QueryChange[]): void {
     for (const c of changes) {
       const v = c.value as VerdictRow | undefined
       if (c.type === 'delete' || v === undefined) {
@@ -841,6 +865,10 @@ export class RollupSync {
   }
 
   private ingestSummary(changes: QueryChange[]): void {
+    this.timed(() => this.ingestSummaryBody(changes))
+  }
+
+  private ingestSummaryBody(changes: QueryChange[]): void {
     // Flat membership lives here, NOT on visibleQ events: every flat flip
     // changes the SummaryRow value, and summaryQ's fn re-runs and notifies
     // on each one — while visibleQ's pure-DSL where retractions are silent
@@ -888,6 +916,10 @@ export class RollupSync {
 
   /** Issue rows drive origin/dependent seats, tick inputs and rank denorm. */
   ingestIssue(id: string, issue: SliceIssue | undefined): void {
+    this.timed(() => this.ingestIssueBody(id, issue))
+  }
+
+  private ingestIssueBody(id: string, issue: SliceIssue | undefined): void {
     const prevOrigin = this.originOf.get(id) ?? null
     const nextOrigin = issue === undefined ? null : spinOffOriginId(issue)
     const liveSeat =
@@ -990,6 +1022,10 @@ export class RollupSync {
    *  resolveKey stays: it tracks the last-seen join key, not seat presence
    *  (clearing it would make the next resolveQ update look like a move). */
   dropSession(sid: string): void {
+    this.timed(() => this.dropSessionBody(sid))
+  }
+
+  private dropSessionBody(sid: string): void {
     const owners = this.sidOwner.get(sid)
     if (owners === undefined) return
     this.sidOwner.delete(sid)
@@ -1045,6 +1081,10 @@ export class RollupSync {
 
   /** Prefix bumps re-tick named rows (displayRef join moved). */
   notePrefixChanged(): void {
+    this.timed(() => this.notePrefixChangedBody())
+  }
+
+  private notePrefixChangedBody(): void {
     for (const id of this.originOf.keys()) {
       if (this.final.has(id)) this.rewrite(id)
     }
@@ -1094,6 +1134,15 @@ export class RollupSync {
 
   /** Full build for bootstrap/replace: seats from current collections. */
   rebuildAll(inputs: {
+    children: ChildRow[]
+    verdicts: VerdictRow[]
+    flatIds: string[]
+    issues: Iterable<string>
+  }): void {
+    this.timed(() => this.rebuildAllBody(inputs))
+  }
+
+  private rebuildAllBody(inputs: {
     children: ChildRow[]
     verdicts: VerdictRow[]
     flatIds: string[]
