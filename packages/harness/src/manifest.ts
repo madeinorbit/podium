@@ -1,4 +1,5 @@
 import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { AgentQuotaWire, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type {
   AgentInstruction,
@@ -269,6 +270,22 @@ export function accountIdentity(name: unknown, email: unknown): string | undefin
   return cleanEmail || cleanName || undefined
 }
 
+/**
+ * Resolve a declared credential file to an absolute path. Shared neutrally
+ * (not a mechanism): the inventory mechanism and the adapters' own identity
+ * readers resolve the same declaration the same way, so the two can never
+ * disagree about where a harness keeps a credential.
+ */
+export function resolveCredentialFilePath(
+  file: Pick<CredentialFileLayout, 'dirName' | 'fileName' | 'homeEnvVar'>,
+  home: string,
+  opts: { env?: HarnessEnvironment; realHome?: boolean } = {},
+): string {
+  const override =
+    !opts.realHome && file.homeEnvVar ? opts.env?.[file.homeEnvVar]?.trim() : undefined
+  return join(override ? override : join(home, file.dirName), file.fileName)
+}
+
 // ---------------------------------------------------------------------------
 // Credentials + quota/usage — the Inventory axis (POD-4414 §4.4, issue 3.3).
 // ---------------------------------------------------------------------------
@@ -309,6 +326,12 @@ export interface CredentialFileLayout {
   freshness(contents: string): number | undefined
   /** `null` means ordering is unprovable and therefore must never overwrite. */
   compareFreshness(a: string, b: string): -1 | 0 | 1 | null
+  /**
+   * Project file contents down to the portable subset (Claude's onboarding
+   * markers: machine ids and project paths must never cross machines). Required
+   * exactly when `mergeInstall` is set; throwing rejects the payload.
+   */
+  sanitize?: (parsed: unknown) => Record<string, boolean | string>
 }
 
 /**
@@ -423,7 +446,7 @@ export interface HarnessUsageTranscripts {
   scan(opts: {
     sinceMs: number
     homeDir?: string
-    cache: UsageScanCache
+    cache?: UsageScanCache
   }): Promise<UsageFileScan[]>
   /**
    * Sibling paths the server resolves alongside a harvested path — Grok's

@@ -9,33 +9,13 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname } from 'node:path'
+import type {
+  CredentialReadResult,
+  GuardedCredentialPolicy,
+  PortableCredentialStore,
+} from '../manifest.js'
 
 export const MAX_CREDENTIAL_BYTES = 1_000_000
-
-export type CredentialStoreFailure =
-  | 'keychain-unavailable'
-  | 'locked-or-denied'
-  | 'malformed-output'
-  | 'output-overflow'
-  | 'timeout'
-  | 'tool-failure'
-  | 'unreadable'
-
-export type CredentialReadResult =
-  | { readonly state: 'absent' }
-  | { readonly state: 'present'; readonly contents: Buffer; readonly revision: string }
-  | { readonly state: 'unavailable'; readonly reason: CredentialStoreFailure }
-
-export interface GuardedCredentialPolicy {
-  readonly valid: (contents: string) => boolean
-  readonly compareFreshness?: (candidate: string, current: string) => number | null
-}
-
-export interface PortableCredentialStore {
-  read(): Promise<CredentialReadResult>
-  install(content: Buffer): Promise<boolean>
-  guardedInstall(content: Buffer, policy: GuardedCredentialPolicy): Promise<boolean>
-}
 
 function isMissingPath(error: unknown): boolean {
   return (
