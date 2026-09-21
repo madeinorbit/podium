@@ -1,24 +1,40 @@
 import { asSessionId } from '@podium/model'
+import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
+import { attachTestTerminal, testSessions } from '../session/testing.js'
 import type { DaemonContext } from './context'
 import { dispatchNativeInputBytes } from './native-terminal-input'
 
 const sessionId = asSessionId('native-input')
 const bytes = Buffer.from('echo hello\r')
 function world(contracted: boolean, bridged: boolean) {
-  const bridge = { writeBytes: vi.fn() }
+  const writeBytes = vi.fn()
+  const bridge = {
+    pid: 1,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    writeBytes,
+    resize: () => {},
+    redraw: () => {},
+    geometry: () => ({ cols: 80, rows: 24 }),
+    dispose: () => {},
+  } as unknown as DurableAttachment
   const input = vi.fn(() => true)
   const recordInputOrigin = vi.fn()
   const onInputByte = vi.fn()
+  const sessions = testSessions()
   const ctx = {
     agentRuntime: { has: () => contracted },
-    bridges: new Map(bridged ? [[sessionId, bridge]] : []),
+    sessions,
     nativeClientRequests: new Set([sessionId]),
     clientTerminals: { input },
     observers: { recordInputOrigin },
     composerEngine: { onInputByte },
   } as unknown as DaemonContext
-  return { ctx, bridge, input, recordInputOrigin, onInputByte }
+  if (bridged) attachTestTerminal(ctx, sessionId, bridge)
+  return { ctx, bridge: { writeBytes }, input, recordInputOrigin, onInputByte }
 }
 
 describe('native host byte boundary', () => {

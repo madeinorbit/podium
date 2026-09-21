@@ -26,6 +26,7 @@ import { OutputScheduler } from '../output-scheduler'
 import { appliedGeometryFor } from './applied-geometry'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
+import { attachTestTerminal, testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('s-report')
 
@@ -73,9 +74,7 @@ function harness(over: Partial<DaemonContext> = {}): {
   const ctx = {
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-geometry-report'),
-    bridges: new Map<SessionId, DurableAttachment>(),
-    pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
-    durableLabels: new Map<SessionId, string>(),
+    sessions: testSessions(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler,
     observers: { clearSession: () => {} },
@@ -95,7 +94,7 @@ describe('T2: with the scheduler holding bytes, the geometry report follows the 
   it('flushes what it was holding, dispatches the resize, then reports — in that order', () => {
     const { ctx, timeline } = harness()
     const session = fakeSession()
-    ctx.bridges.set(SESSION, session)
+    attachTestTerminal(ctx, SESSION, session)
     // P2 = attached but not focused: the tier that actually coalesces.
     ctx.outputScheduler.setPriority(SESSION, 2)
 
@@ -113,7 +112,7 @@ describe('T2: with the scheduler holding bytes, the geometry report follows the 
   it('reports SYNCHRONOUSLY, so output produced after the resize cannot overtake it', () => {
     const { ctx, timeline } = harness()
     const session = fakeSession()
-    ctx.bridges.set(SESSION, session)
+    attachTestTerminal(ctx, SESSION, session)
     ctx.outputScheduler.setPriority(SESSION, 2)
 
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 100, rows: 30 })
@@ -132,7 +131,7 @@ describe('T2: with the scheduler holding bytes, the geometry report follows the 
 
     // There is no applied grid to report — `wireBridge` applies this at bind and
     // `bind` carries the effective geometry, which is that session's report.
-    expect(ctx.pendingResizes.get(SESSION)).toEqual({ cols: 132, rows: 43 })
+    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 132, rows: 43 })
     expect(sent.filter((m) => m.type === 'geometryApplied')).toEqual([])
   })
 
@@ -156,7 +155,7 @@ describe('T2: with the scheduler holding bytes, the geometry report follows the 
     // still never touches pendingResizes (0b C7's narrowing).
     expect(taken).toEqual([[90, 28]])
     expect(timeline).toEqual(['output:5', 'report:90x28'])
-    expect(ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect((ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 })
 
@@ -171,7 +170,7 @@ describe('T2: with the scheduler holding bytes, the geometry report follows the 
 describe('the resize handler records what it dispatched, and only that', () => {
   it('records the grid a bridged session was dispatched', () => {
     const { ctx } = harness()
-    ctx.bridges.set(SESSION, fakeSession())
+    attachTestTerminal(ctx, SESSION, fakeSession())
 
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 120, rows: 40 })
 
@@ -195,13 +194,13 @@ describe('the resize handler records what it dispatched, and only that', () => {
 
     // The pty this belongs to does not exist yet. `wireBridge` dispatches it at
     // bind and records it there; until then there is nothing true to say.
-    expect(ctx.pendingResizes.get(SESSION)).toEqual({ cols: 132, rows: 43 })
+    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual({ cols: 132, rows: 43 })
     expect(appliedGeometryFor(ctx).applied(SESSION)).toBeUndefined()
   })
 
   it('holds the LAST grid dispatched, which is what a later bind would report', () => {
     const { ctx } = harness()
-    ctx.bridges.set(SESSION, fakeSession())
+    attachTestTerminal(ctx, SESSION, fakeSession())
 
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 100, rows: 30 })
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, cols: 200, rows: 60 })

@@ -39,6 +39,7 @@ import {
   opencodeAttachLabel,
   WARM_TTL_MS,
 } from './opencode-attach'
+import { SessionRegistry } from '../session/registry.js'
 import {
   createOpencodeEngineHost,
   type EngineAttachment,
@@ -194,6 +195,7 @@ interface Harness {
 }
 
 function harness(opts: HarnessOptions = {}) {
+  const sessions = new SessionRegistry({ labelFor: () => 'podium-test-label' })
   const state: Harness = {
     spawns: [],
     reclaimed: [],
@@ -206,6 +208,7 @@ function harness(opts: HarnessOptions = {}) {
   }
   const terminals = createOpencodeClientTerminals({
     durable: abducoOnly,
+    sessions,
     ...(opts.appliedGeometry ? { appliedGeometry: opts.appliedGeometry } : {}),
     ...(opts.birthGeometry ? { birthGeometry: opts.birthGeometry } : {}),
     ...(opts.rememberDurableSeq ? { rememberDurableSeq: opts.rememberDurableSeq } : {}),
@@ -247,7 +250,7 @@ function harness(opts: HarnessOptions = {}) {
       state.cleared += 1
     },
   })
-  return { terminals, state }
+  return { terminals, state, sessions }
 }
 
 describe('the client terminal a server-family attach produces', () => {

@@ -677,7 +677,7 @@ export function wireBridge(
         })()
       },
     },
-    { hardRepaint: agentKind === 'shell' },
+    { kind: 'headed', hardRepaint: agentKind === 'shell' },
   )
   owned.terminal = terminal
   if (pending) terminal.applied = { cols: pending.cols, rows: pending.rows }
@@ -2802,7 +2802,10 @@ export const sessionHandlers: Pick<
     ),
   resize: (ctx, msg) => {
     const owned = ctx.sessions.ensure(msg.sessionId)
-    const bridge = owned.terminal
+    // The arm follows the surface kind, never the other way round: a headed
+    // surface applies synchronously exactly as a bridge always did, while a
+    // client TUI acknowledges through the client-terminal host (audit item 4).
+    const bridge = owned.terminal?.kind === 'headed' ? owned.terminal : undefined
     // THE DAEMON APPLIES, THEN REPORTS (POD-3239 B7 / MODEL rule 5) — and since
     // POD-3809 those are ONE operation, `record.apply`, which flushes,
     // dispatches, records and reports in that order before it returns. This
@@ -2920,7 +2923,7 @@ export const sessionHandlers: Pick<
     const owned = ctx.sessions.get(msg.sessionId)
     const viewer =
       owned?.pendingResize ?? record.applied(msg.sessionId) ?? undefined
-    const bridge = owned?.terminal
+    const bridge = owned?.terminal?.kind === 'headed' ? owned.terminal : undefined
     const decision = decideReopenScreen({
       mode: screen?.mode ?? 'normal',
       modelSize: screen?.modelSize ?? record.applied(msg.sessionId) ?? undefined,

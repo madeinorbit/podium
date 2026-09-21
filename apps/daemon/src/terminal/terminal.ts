@@ -41,7 +41,20 @@ export interface TerminalEvents {
   onExit?(code: number): void
 }
 
+/**
+ * Which surface this Terminal is: the headed agent/shell pty, or the native
+ * client TUI of a server-family session. Exactly one Terminal per session, and
+ * the kind tells the resize/redraw/input handlers which arm a live surface
+ * takes: a headed surface applies synchronously like a bridge always did, a
+ * client surface acknowledges through the client-terminal host. The input
+ * paths likewise only ever take a headed surface for automation bytes — a
+ * client TUI accepts human keystrokes only.
+ */
+export type TerminalKind = 'headed' | 'client'
+
 export interface TerminalOptions {
+  /** Which surface this is. Defaults to the headed agent/shell pty. */
+  kind?: TerminalKind
   /**
    * Reattaching a shell: `redraw()` defaults to the hard Ctrl-L repaint (idle
    * shells ignore the SIGWINCH nudge). TUIs repaint on resize and must not get
@@ -64,6 +77,7 @@ export interface TerminalOptions {
 export class Terminal {
   readonly attachment: DurableAttachment
   readonly screen: TerminalScreen
+  readonly kind: TerminalKind
   /** The grid this surface put the program at, when it put it at one. */
   applied: Geometry | undefined
 
@@ -74,7 +88,9 @@ export class Terminal {
     attachment: DurableAttachment,
     screen: TerminalScreen,
     events: TerminalEvents,
+    kind: TerminalKind,
   ) {
+    this.kind = kind
     this.attachment = attachment
     this.screen = screen
     this.unwire.push(
@@ -108,7 +124,7 @@ export class Terminal {
     opts: TerminalOptions = {},
   ): Terminal {
     const live = opts.hardRepaint ? withHardRepaint(attachment, true) : attachment
-    return new Terminal(live, screen, events)
+    return new Terminal(live, screen, events, opts.kind ?? 'headed')
   }
 
   get pid(): number {

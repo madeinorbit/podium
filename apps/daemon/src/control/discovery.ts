@@ -288,7 +288,7 @@ async function memoryBreakdown(
     try {
       const result = (await ctx.workerClient.runJob('memoryBreakdown', {
         sessions: [...ctx.sessions.entries()]
-          .filter(([, owned]) => owned.terminal !== undefined)
+          .filter(([, owned]) => owned.terminal?.kind === 'headed')
           .map(([sessionId, owned]) => ({
             sessionId,
             label: `podium-${sessionId}`,

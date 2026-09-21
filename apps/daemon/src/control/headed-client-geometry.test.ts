@@ -98,9 +98,7 @@ function harness(
   const ctx = {
     backend: 'none',
     settingsDir: join(tmpdir(), 'podium-headed-client-geometry'),
-    bridges: new Map<SessionId, DurableAttachment>(),
-    pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
-    durableLabels: new Map<SessionId, string>(),
+    sessions: testSessions(),
     composerEngine: { has: () => false, onData: () => {}, onResize: () => {}, detach: () => {} },
     outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {}, onResize: () => {} },
@@ -129,7 +127,7 @@ function harness(
       ? {}
       : {
           birthGeometry: (sessionId) =>
-            ctx.pendingResizes.get(sessionId) ?? appliedGeometryFor(ctx).applied(sessionId),
+            ctx.sessions.get(sessionId)?.pendingResize ?? appliedGeometryFor(ctx).applied(sessionId),
         }),
     frames: () => {},
     releaseStream: () => {},
@@ -196,7 +194,7 @@ describe('an ask that arrives before the terminal exists', () => {
 
     sessionHandlers.resize(ctx, { type: 'resize', sessionId: SESSION, ...ASKED })
 
-    expect(ctx.pendingResizes.get(SESSION)).toEqual(ASKED)
+    expect(ctx.sessions.get(SESSION)?.pendingResize).toEqual(ASKED)
     // A held request is not an applied grid, and reporting one would be the lie
     // stage 5 removed. Silence here is correct; silence AFTER the attach is not.
     expect(reports(sent)).toEqual([])
@@ -227,7 +225,7 @@ describe('an ask that arrives before the terminal exists', () => {
     ])
 
     // The request is consumed, not left to fire on the next reconcile.
-    expect(h.ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect(h.(ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 
   it('ARMED: with the report suppressed the daemon looks identical and the server hears nothing', async () => {
@@ -261,7 +259,7 @@ describe('a later ask, once the client terminal exists', () => {
     expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual({ cols: 96, rows: 27 })
     expect(reports(h.sent)).toEqual([ASKED, { cols: 96, rows: 27 }])
     // Nothing is held: it was applied, so it is not a pending request.
-    expect(h.ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect(h.(ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 })
 
@@ -294,7 +292,7 @@ describe('audit item 4: the record holds the acknowledged size', () => {
     // told that size — never the requested one.
     expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ACKED)
     expect(reports(h.sent)).toEqual([{ cols: 120, rows: 40 }, ACKED])
-    expect(h.ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect(h.(ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 
   it('a later ask records what the host acknowledged', async () => {
@@ -309,6 +307,6 @@ describe('audit item 4: the record holds the acknowledged size', () => {
     expect(h.clients[0]?.sizes).toEqual([[96, 27]])
     expect(appliedGeometryFor(h.ctx).applied(SESSION)).toEqual(ACKED)
     expect(reports(h.sent)).toEqual([ASKED, ACKED])
-    expect(h.ctx.pendingResizes.has(SESSION)).toBe(false)
+    expect(h.(ctx.sessions.get(SESSION)?.pendingResize !== undefined)).toBe(false)
   })
 })

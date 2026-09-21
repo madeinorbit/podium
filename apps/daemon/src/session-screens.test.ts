@@ -26,8 +26,7 @@ const ENTER_ALT = '\x1b[?1049h'
 
 function ctxWith(): DaemonContext {
   return {
-    bridges: new Map(),
-    pendingResizes: new Map(),
+    sessions: testSessions(),
     send: vi.fn(),
     outputScheduler: {
       enqueue: vi.fn(),
