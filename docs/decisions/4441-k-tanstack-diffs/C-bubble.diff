@@ -1,0 +1,56 @@
+diff --git a/packages/worklist-proto/arms/tanstack/rollup.ts b/packages/worklist-proto/arms/tanstack/rollup.ts
+index 32bd6c57a..b826f0b38 100644
+--- a/packages/worklist-proto/arms/tanstack/rollup.ts
++++ b/packages/worklist-proto/arms/tanstack/rollup.ts
+@@ -495,11 +495,50 @@ export class RollupSync {
+         }) === 'waiting',
+     )
+     const extra = waiting.filter((v) => !(v.offerOnly && deciding.has(v.sid)))
++    // K3-C: an ask on ANY formal descendant marks the root asking — the
++    // legacy pill sums "visible children and rolled-up depth alike"
++    // (row-attention.ts:100-106), while the walk above covers only the
++    // visible subtree. The extra walk runs only while nothing visible asks.
++    // Archived children detach from the formal tree at ingest (liveEdge skips
++    // them, like the legacy parent edge), so their asks stay unreachable by
++    // construction; proposed/system children stay edged and invisible — the
++    // shape that bubbles.
++    let deepAsking = false
++    if (extra.length + pending === 0) {
++      const seen = new Set(members)
++      for (const id of this.formalMembers(issueId)) {
++        if (seen.has(id)) continue
++        seen.add(id)
++        const member = this.inputs.issues.get(id)
++        if (member === undefined) continue
++        const own = this.ownLive(id)
++        const memberWaiting = own.filter(
++          (v) =>
++            motionPhaseFromParts({
++              needsYou: v.needsYou,
++              offerOnly: v.offerOnly,
++              endedDone: v.endedDone,
++              workingNow: v.workingNow,
++              finished: rootFinished,
++            }) === 'waiting',
++        )
++        const memberExtra = memberWaiting.filter((v) => !(v.offerOnly && deciding.has(v.sid)))
++        if (memberExtra.length > 0) {
++          deepAsking = true
++          break
++        }
++        if (issuePendingDecision(member) === null) continue
++        if (!issueFinished(member) && own.some((v) => v.workingNow)) continue
++        if (issuePendingDecision(member) === 'review' && this.continuationOf(member)) continue
++        deepAsking = true
++        break
++      }
++    }
+     const progress = this.progressOf(issueId)
+     return {
+       phase,
+       working,
+-      asking: extra.length + pending > 0,
++      asking: extra.length + pending > 0 || deepAsking,
+       progressDone: progress.done,
+       progressTotal: progress.total,
+     }
