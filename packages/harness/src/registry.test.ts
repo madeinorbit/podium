@@ -67,6 +67,8 @@ const DECLARED_FIELDS = [
   'observer',
   'transcript',
   'classifyBrowserOpen',
+  'credentials',
+  'usage',
 ] as const satisfies readonly (keyof AgentManifest)[]
 
 describe('agent manifest registry', () => {
@@ -399,6 +401,47 @@ describe('agent manifest registry', () => {
     }
   })
 
+  it('declares credentials and usage per harness — files where portable, reasons where not', () => {
+    // The Inventory axis totality (issue 3.3): a supported credentials section
+    // names every portable file with its validators, and a supported usage
+    // section declares each probe or says why there is none.
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const manifest = AGENT_MANIFESTS[kind]
+      const credentials = declaredValue(manifest.credentials)
+      if (credentials) {
+        expect(credentials.kinds.length, `${kind}.credentials.kinds`).toBeGreaterThan(0)
+        expect(credentials.files.length, `${kind}.credentials.files`).toBeGreaterThan(0)
+        for (const file of credentials.files) {
+          expect(credentials.kinds, `${kind}.credentials file kind`).toContain(file.kind)
+          expect(typeof file.validate, `${kind}.credentials validate`).toBe('function')
+          expect(typeof file.compareFreshness, `${kind}.credentials compareFreshness`).toBe(
+            'function',
+          )
+        }
+        expect(typeof credentials.identity, `${kind}.credentials identity`).toBe('function')
+      }
+      const usage = declaredValue(manifest.usage)
+      if (usage) {
+        for (const [name, section] of [
+          ['quota', usage.quota],
+          ['history', usage.history],
+          ['transcripts', usage.transcripts],
+        ] as const) {
+          expect(typeof section.supported, `${kind}.usage.${name}.supported`).toBe('boolean')
+          if (!section.supported)
+            expect(section.reason.length, `${kind}.usage.${name}.reason`).toBeGreaterThan(0)
+        }
+      }
+    }
+    // The harnesses with portable credentials and live quota probes today.
+    expect(
+      BUILTIN_HARNESS_KINDS.filter((kind) => declaredValue(AGENT_MANIFESTS[kind].credentials)),
+    ).toEqual(['claude-code', 'codex', 'grok'])
+    expect(
+      BUILTIN_HARNESS_KINDS.filter((kind) => declaredValue(AGENT_MANIFESTS[kind].usage)),
+    ).toEqual(['claude-code', 'codex', 'grok'])
+  })
+
   it('declares chainPaths on the file-chain harnesses and unsupported on the sqlite one', () => {
     for (const kind of BUILTIN_HARNESS_KINDS) {
       const transcript = declaredValue(AGENT_MANIFESTS[kind].transcript)
@@ -706,6 +749,8 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
         select: () => 'generic-pty',
       },
       state: unsupported('no state instrumentation yet'),
+      credentials: unsupported('no credential files yet'),
+      usage: unsupported('no quota or usage layouts yet'),
       stateChannels: [],
       observer: unsupported('no native store to observe yet'),
       transcript: unsupported('no transcript reader yet'),

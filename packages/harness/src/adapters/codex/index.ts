@@ -11,7 +11,6 @@ import {
 } from '../../agent-state/codex.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import {
-  compareCodexAuthFreshness,
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
 } from '../../codex-auth-identity.js'
@@ -21,6 +20,7 @@ import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
+  credentialFileReader,
   fileTranscript,
   type HarnessEnvironment,
   type HarnessObservationLease,
@@ -31,6 +31,8 @@ import {
   type TranscriptSourceInput,
   unsupported,
 } from '../../manifest.js'
+import { codexCredentials } from './credentials.js'
+import { codexUsage } from './usage.js'
 import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 
 const log = createLogger('harness:codex')
@@ -213,16 +215,16 @@ export const codexManifest: AgentManifest = {
     executable: { names: ['codex'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Codex login detection still uses its guarded local auth file'),
     loginCommand: supported({ cmd: 'codex', args: ['login'] }),
-    loginIdentity: supported((homeDir, env?: HarnessEnvironment) => {
-      try {
-        return readIdentityFromAuthContents(readFileSync(codexAuthPath(homeDir, env), 'utf8'))
-      } catch {
-        return undefined
-      }
-    }),
+    loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
+      codexCredentials.identity(credentialFileReader(codexCredentials, homeDir, env)),
+    ),
     portableCredential: supported({
-      files: ['.codex/auth.json'],
-      compareFreshness: compareCodexAuthFreshness,
+      // Read off the credentials section: one file layout, two readers would
+      // drift the way the daemon's two Codex credential lists did.
+      files: codexCredentials.files.map((file) => join(file.dirName, file.fileName)),
+      compareFreshness: (a, b) =>
+        codexCredentials.files.find((file) => file.propagatable)?.compareFreshness(a, b) ??
+        null,
     }),
     // Codex's own precedence, in order: OPENAI_API_KEY, CODEX_API_KEY,
     // CODEX_ACCESS_TOKEN — each ahead of the ChatGPT login in `auth.json`.
@@ -298,6 +300,9 @@ export const codexManifest: AgentManifest = {
       })
     },
   },
+
+  credentials: supported(codexCredentials),
+  usage: supported(codexUsage),
 
   launch(opts) {
     // [spec:SP-fccf] Session identity never enters model-visible instructions.

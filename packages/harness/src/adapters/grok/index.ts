@@ -5,12 +5,12 @@ import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../../agent-state/grok.js'
 import { locateGrokChatHistory } from '../../agent-state/grok-locate.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { fingerprintForLoginIdentity } from '../../codex-auth-identity.js'
 import { createGrokConversationProvider } from '../../discovery/providers/grok.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
+  credentialFileReader,
   fileTranscript,
   type HarnessEnvironment,
   isSet,
@@ -20,6 +20,8 @@ import {
   type TranscriptSourceInput,
   unsupported,
 } from '../../manifest.js'
+import { grokCredentials } from './credentials.js'
+import { grokUsage } from './usage.js'
 import { GROK_ACP_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 
 interface GrokAuthRecord {
@@ -61,33 +63,6 @@ function grokProfile(path: string): string | undefined {
   return undefined
 }
 
-function grokIdentity(path: string) {
-  try {
-    const file = JSON.parse(readFileSync(join(path, 'auth.json'), 'utf8')) as Record<
-      string,
-      GrokAuthRecord
-    >
-    const records = Object.values(file).filter(
-      (record) => record && (record.key || record.refresh_token),
-    )
-    const record = records.sort((left, right) =>
-      String(right.create_time ?? '').localeCompare(String(left.create_time ?? '')),
-    )[0]
-    if (!record) return undefined
-    const email = typeof record.email === 'string' ? record.email.trim() : ''
-    const providerAccountId = typeof record.account_id === 'string' ? record.account_id.trim() : ''
-    const source = providerAccountId || email
-    return source
-      ? {
-          fingerprint: fingerprintForLoginIdentity(source),
-          ...(email ? { email } : {}),
-          ...(providerAccountId ? { providerAccountId } : {}),
-        }
-      : undefined
-  } catch {
-    return undefined
-  }
-}
 async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
   // Locate, don't derive: Grok buckets by the creation-time cwd, while
@@ -147,8 +122,13 @@ export const grokManifest: AgentManifest = {
     executable: { names: ['grok'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Grok login detection still uses its local credential file'),
     loginCommand: supported({ cmd: 'grok', args: ['login'] }),
-    loginIdentity: supported((homeDir, env) => grokIdentity(grokHome(homeDir, env))),
-    portableCredential: supported({ files: ['.grok/auth.json'], compareFreshness: () => null }),
+    loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
+      grokCredentials.identity(credentialFileReader(grokCredentials, homeDir, env)),
+    ),
+    portableCredential: supported({
+      files: grokCredentials.files.map((file) => join(file.dirName, file.fileName)),
+      compareFreshness: () => null,
+    }),
     // Its presence flips grok from the OIDC session in `auth.json` to
     // API-key/custom-endpoint auth.
     foreignCredentialEnv: ['XAI_API_KEY'],
@@ -163,7 +143,9 @@ export const grokManifest: AgentManifest = {
           (record) => record && (record.key || record.refresh_token),
         )
         if (!hasCredential) return { state: 'out' }
-        const identity = grokIdentity(path)
+        const identity = grokCredentials.identity(
+          credentialFileReader(grokCredentials, homeDir, env),
+        )
         return {
           state: 'in',
           account: grokProfile(path) ?? 'Grok login',
@@ -174,6 +156,9 @@ export const grokManifest: AgentManifest = {
       }
     },
   },
+
+  credentials: supported(grokCredentials),
+  usage: supported(grokUsage),
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

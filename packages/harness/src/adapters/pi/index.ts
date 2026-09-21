@@ -19,6 +19,8 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { locatePiSessionFile, piAgentDir } from '../../pi/paths.js'
+import { piCredentials } from './credentials.js'
+import { piUsage } from './usage.js'
 
 /**
  * Pi (`pi`, @earendil-works/pi-coding-agent). Everything below was verified
@@ -207,6 +209,9 @@ export const piManifest: AgentManifest = {
       }
     },
   },
+
+  credentials: piCredentials,
+  usage: piUsage,
 
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)

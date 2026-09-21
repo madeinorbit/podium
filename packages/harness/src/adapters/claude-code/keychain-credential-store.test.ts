@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   ClaudeKeychainCredentialStore,
   supportsClaudeKeychainMutation,
-} from './claude-keychain-credential-store'
-import type { ClaudeStorageWriteLock } from './claude-keychain-lock'
-import type { SecurityResult, SecurityRunner } from './claude-keychain-security'
-import type { GuardedCredentialPolicy } from './credential-store'
+} from './keychain-credential-store'
+import type { ClaudeStorageWriteLock } from './keychain-lock'
+import type { SecurityResult, SecurityRunner } from './keychain-security'
+import type { GuardedCredentialPolicy } from '../../manifest.js'
 
 interface SecurityCall {
   readonly args: readonly string[]

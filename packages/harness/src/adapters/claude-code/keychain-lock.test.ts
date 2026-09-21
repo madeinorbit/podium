@@ -17,7 +17,7 @@ import {
   CLAUDE_STORAGE_LOCK_CONTRACT,
   createClaudeStorageLockFactory,
   type ClaudeStorageWriteLock,
-} from './claude-keychain-lock'
+} from './keychain-lock'
 
 const temporaryDirectories: string[] = []
 

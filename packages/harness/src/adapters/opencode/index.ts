@@ -21,6 +21,8 @@ import {
   openOpencodeDb,
 } from '../../opencode/db.js'
 import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
+import { opencodeCredentials } from './credentials.js'
+import { opencodeUsage } from './usage.js'
 
 /**
  * Source for opencode. opencode stores transcript "parts" in SQLite ordered by
@@ -128,6 +130,9 @@ export const opencodeManifest: AgentManifest = {
     ],
     detectLogin: detectOpencodeLogin,
   },
+
+  credentials: opencodeCredentials,
+  usage: opencodeUsage,
 
   launch(opts) {
     const databasePath = opencodeDbPathForSession({

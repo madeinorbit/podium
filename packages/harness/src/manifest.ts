@@ -1,4 +1,5 @@
 import { stat } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentQuotaWire, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type {
@@ -286,6 +287,40 @@ export function resolveCredentialFilePath(
   return join(override ? override : join(home, file.dirName), file.fileName)
 }
 
+/**
+ * Plain file reader over one credential home for identity resolution —
+ * `section.identity`'s other half. Resolves through the section's own
+ * declarations, so an adapter's login-identity reader and the inventory
+ * mechanism can never disagree about where a credential lives.
+ */
+export function credentialFileReader(
+  section: Pick<HarnessCredentials, 'files'>,
+  homeDir: string,
+  env?: HarnessEnvironment,
+): CredentialFileReader {
+  return (dirName, fileName) => {
+    const declaration = section.files.find(
+      (file) => file.dirName === dirName && file.fileName === fileName,
+    )
+    try {
+      return readFileSync(
+        resolveCredentialFilePath(
+          {
+            dirName,
+            fileName,
+            ...(declaration?.homeEnvVar ? { homeEnvVar: declaration.homeEnvVar } : {}),
+          },
+          homeDir,
+          { ...(env !== undefined ? { env } : {}) },
+        ),
+        'utf8',
+      )
+    } catch {
+      return undefined
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Credentials + quota/usage — the Inventory axis (POD-4414 §4.4, issue 3.3).
 // ---------------------------------------------------------------------------
@@ -348,6 +383,7 @@ export type CredentialFileReader = (dirName: string, fileName: string) => string
  * it so adapters implement it without importing the mechanism and the mechanism
  * consumes it without importing an adapter (spec §5).
  */
+export const MAX_CREDENTIAL_BYTES = 1_000_000
 export type CredentialStoreFailure =
   | 'keychain-unavailable'
   | 'locked-or-denied'

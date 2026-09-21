@@ -14,8 +14,9 @@ import type {
   GuardedCredentialPolicy,
   PortableCredentialStore,
 } from '../manifest.js'
+import { MAX_CREDENTIAL_BYTES } from '../manifest.js'
 
-export const MAX_CREDENTIAL_BYTES = 1_000_000
+export { MAX_CREDENTIAL_BYTES }
 
 function isMissingPath(error: unknown): boolean {
   return (

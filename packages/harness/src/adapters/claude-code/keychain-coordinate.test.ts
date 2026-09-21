@@ -7,8 +7,8 @@ import {
   claudeKeychainAccount,
   claudeKeychainService,
   deriveClaudeKeychainCoordinate,
-} from './claude-keychain-coordinate'
-import { acquireClaudeStorageWriteLock, CLAUDE_STORAGE_LOCK_CONTRACT } from './claude-keychain-lock'
+} from './keychain-coordinate'
+import { acquireClaudeStorageWriteLock, CLAUDE_STORAGE_LOCK_CONTRACT } from './keychain-lock'
 
 const temporaryDirectories: string[] = []
 
