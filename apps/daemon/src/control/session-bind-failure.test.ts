@@ -12,7 +12,10 @@ import { beginServerDriverReap } from '../runtime/server-reap'
 const LAUNCH_SESSION = asSessionId('bind-failure-launch')
 const ADOPT_SESSION = asSessionId('bind-failure-adopt')
 
-function launchWorld(create: (spec: unknown, sessionId: SessionId) => Promise<unknown>) {
+function launchWorld(
+  create: (spec: unknown, sessionId: SessionId) => Promise<unknown>,
+  adoptJournalled: () => Promise<unknown> = async () => ({ found: false }),
+) {
   const sent: DaemonMessage[] = []
   const sessions = testSessions()
   const ctx = {
@@ -27,7 +30,7 @@ function launchWorld(create: (spec: unknown, sessionId: SessionId) => Promise<un
       }),
       serverHandleFor: () => undefined,
       handleFor: () => undefined,
-      adoptJournalled: async () => ({ found: false }),
+      adoptJournalled,
       create,
     },
   } as unknown as DaemonContext
@@ -74,6 +77,56 @@ describe('§4.8 bind failure on the launch path (POD-4490)', () => {
     // No generic second error beside the owned one.
     expect(sent.filter((msg) => msg.type === 'spawnError')).toHaveLength(1)
     // Cold launch took custody of nothing: no abandonment frame, only the error.
+    expect(sent.some((msg) => msg.type === 'runtimeQueueDrainAbandoned')).toBe(false)
+  })
+
+  it('a journalled resume whose adoption reports a bind failure records the kept engine', async () => {
+    // THE RESUME ARM (POD-4490 review): a spawn frame carrying the row's
+    // resume ref reaches resumeJournalledServerSession, whose adoption fails
+    // with the typed §4.8 signal. The same three duties hold as on the other
+    // arms — the error's own message on spawnError, the kept-engine record
+    // written, no abandonment frame for a queue this daemon never held.
+    const sessionId = asSessionId('bind-failure-resume')
+    const failure = new EngineBindUnrecoverable(
+      sessionId,
+      'launch',
+      'unix:///tmp/kept-resume.sock',
+      new Error('fallback child did not bind'),
+    )
+    const create = vi.fn(async () => {})
+    const { ctx, sent, sessions } = launchWorld(create, async () => ({
+      found: true,
+      what: 'codex app-server',
+      workdir: '/project',
+      reason: failure.message,
+      bindFailure: failure,
+    }))
+
+    const result = await launchServerDriverSession(
+      ctx,
+      {
+        type: 'spawn',
+        sessionId,
+        agentKind: 'codex',
+        cwd: '/project',
+        geometry: { cols: 80, rows: 24 },
+        requestedDriverId: 'codex-app-server',
+      } as never,
+      drivableProbe as never,
+    )
+
+    expect(result).toEqual({ handled: true })
+    // The resume arm handled it: no fresh create was attempted.
+    expect(create).not.toHaveBeenCalled()
+    const spawnError = sent.find((msg) => msg.type === 'spawnError')
+    expect(spawnError).toMatchObject({ type: 'spawnError', sessionId })
+    expect((spawnError as { message: string }).message).toContain('did not bind during launch')
+    expect((spawnError as { message: string }).message).toContain('unix:///tmp/kept-resume.sock')
+    expect(sessions.get(sessionId)?.keptEngine).toMatchObject({
+      address: 'unix:///tmp/kept-resume.sock',
+      during: 'launch',
+    })
+    expect(sent.filter((msg) => msg.type === 'spawnError')).toHaveLength(1)
     expect(sent.some((msg) => msg.type === 'runtimeQueueDrainAbandoned')).toBe(false)
   })
 })
