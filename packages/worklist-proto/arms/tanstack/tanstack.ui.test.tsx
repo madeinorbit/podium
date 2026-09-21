@@ -14,7 +14,7 @@ import { createLiveQueryCollection, eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { RowShell, createCommitLog, withCommitLog } from '../../shared/src/row-shell'
 import { GC_TIME_MS } from './collections'
-import type { RowsRow } from './queries'
+import { asSource, type RowsRow } from './queries'
 import { testWorld, workedExample, row, issue, NOW } from './tanstack.test'
 import { useTanStackKey } from './react/list'
 
@@ -93,17 +93,19 @@ describe('tanstack arm: bindings (keyed vs findOne)', () => {
             gcTime: GC_TIME_MS,
             query: (q) =>
               q
-                .from({ r: store.top.rowsQ })
+                .from({ r: asSource<RowsRow>(store.top.rowsQ) })
                 .where(({ r }) => eq(r.id, id))
-                .select(({ r }) => ({ id: r.id, title: r.title })),
+                .select(({ r }) => ({ id: r.id as string, title: r.title as string })),
           }),
         [id],
       )
       const { data } = useLiveQuery(query)
-      const current = Array.isArray(data) ? data[0] : data
+      const current = (Array.isArray(data) ? data[0] : data) as
+        | { title?: string }
+        | undefined
       return createElement(
         RowShell,
-        { id, children: `findone:${id}:${(current as { title?: string } | undefined)?.title ?? 'gone'}` },
+        { id, children: `findone:${id}:${current?.title ?? 'gone'}` },
       )
     })
 

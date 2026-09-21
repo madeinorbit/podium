@@ -52,14 +52,10 @@ import {
   attentionGroup,
   isOfferOnlyAttention,
   closedFoldAt,
-  issueFinished,
   parseFirstPick,
   parseMs,
   sessionlessKept,
-  sessionLive,
-  sessionRetains,
   structurallyExcluded,
-  openSession,
 } from './rules'
 import type { RollupRow } from './rollup'
 
@@ -105,12 +101,14 @@ export function createGraphRuns(): GraphRuns {
   return runs
 }
 
-export interface MemberRow {
+/** narrowQ output: raw session inputs with the explicit issueId still
+ *  attached and the owner unresolved (null). */
+export interface NarrowRow {
   sid: string
-  /** Explicit issueId, or the R3-resolved owner, or null (orphan). */
-  owner: string | null
+  owner: null
   marker: 1
   explicit: boolean
+  explicitId: string | null
   phase: string | null | undefined
   idleKind: string | undefined
   hasOffer: boolean
@@ -125,13 +123,6 @@ export interface MemberRow {
   endedSince: string | null | undefined
   agentName: string | null | undefined
   cwd: string
-}
-
-/** narrowQ output: MemberRow with the explicit issueId still attached and
- *  the owner unresolved (null). */
-export interface NarrowRow extends Omit<MemberRow, 'owner'> {
-  owner: null
-  explicitId: string | null
 }
 
 /**
@@ -286,7 +277,7 @@ export interface LiveQuery {
  * runtime object is the real collection, so this cast restores precise
  * refs. Used ONLY at source positions, never to bypass value typing.
  */
-function asSource<T extends object>(query: LiveQuery): Collection<T, string, Record<string, never>> {
+export function asSource<T extends object>(query: LiveQuery): Collection<T, string, Record<string, never>> {
   return query as unknown as Collection<T, string, Record<string, never>>
 }
 

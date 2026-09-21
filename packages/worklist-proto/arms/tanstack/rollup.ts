@@ -31,7 +31,6 @@ import { EntitySync, type PrefixIndex } from './collections'
 import type { ChildRow, LiveQuery, QueryChange, SummaryRow, VerdictRow } from './queries'
 import type { ResolveRow } from './queries'
 import {
-  closedFoldAt,
   displayRefOf,
   plainDeps,
   encodeSortKey,

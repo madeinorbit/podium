@@ -221,7 +221,12 @@ export class TanStackStore {
         this.replace(event)
       } else {
         const { prefixMoved } = applyEventRows(this.entities, event.rows, this.prefix)
-        if (prefixMoved) this.bumpWtVersion()
+        if (prefixMoved) {
+          this.bumpWtVersion()
+          // Prefix seats moved: displayRef joins (summaryQ) re-run via the
+          // version bump; origin ticks re-read the prefix map here.
+          this.rollup.notePrefixChanged()
+        }
         // Sync deletes apply silently (verified): drive removals explicitly.
         const issueRemovals = this.entities.issues.takeRemoved()
         for (const id of issueRemovals) {
