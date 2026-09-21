@@ -50,6 +50,13 @@ interface FileGrammar {
   records: () => unknown[]
   /** One more record of the same conversation, appended for the replay case. */
   extra: () => unknown
+  /** Distinctive text of extra(), for generation-membership checks. */
+  extraText: string
+  /** True when every item id is generation-distinct (provider/record uuids),
+   *  so a stale anchor can additionally assert id-disjointness. False for
+   *  purely positional identities, where a new record at an old offset
+   *  legitimately reuses the retired cursor. */
+  uuidStableIds: boolean
 }
 
 const ts = '2026-09-21T12:00:00.000Z'
@@ -57,8 +64,7 @@ const ts = '2026-09-21T12:00:00.000Z'
 const grammars: FileGrammar[] = [
   {
     name: 'claude',
-    parse: claudeRecordToItems,
-    records: () => [
+    parse: claudeRecordToItems,    records: () => [
       { type: 'user', uuid: 'gold-u1', sessionId: 'gold', message: { role: 'user', content: 'hello' } },
       {
         type: 'assistant',
@@ -73,6 +79,8 @@ const grammars: FileGrammar[] = [
       sessionId: 'gold',
       message: { role: 'user', content: 'again' },
     }),
+    extraText: 'again',
+    uuidStableIds: true,
   },
   {
     name: 'codex',
@@ -89,6 +97,8 @@ const grammars: FileGrammar[] = [
       },
     ],
     extra: () => ({ timestamp: ts, type: 'event_msg', payload: { type: 'user_message', message: 'more' } }),
+    extraText: 'more',
+    uuidStableIds: false,
   },
   {
     name: 'cursor',
@@ -101,6 +111,8 @@ const grammars: FileGrammar[] = [
       role: 'assistant',
       message: { content: [{ type: 'text', text: 'After.' }] },
     }),
+    extraText: 'After.',
+    uuidStableIds: false,
   },
   {
     name: 'grok',
@@ -110,6 +122,8 @@ const grammars: FileGrammar[] = [
       { type: 'assistant', id: 'gold-g1', timestamp: ts, content: 'hi there' },
     ],
     extra: () => ({ type: 'assistant', id: 'gold-g2', timestamp: ts, content: 'later' }),
+    extraText: 'later',
+    uuidStableIds: true,
   },
   {
     name: 'pi',
@@ -131,6 +145,8 @@ const grammars: FileGrammar[] = [
       timestamp: ts,
       message: { role: 'user', content: [{ type: 'text', text: 'more' }] },
     }),
+    extraText: 'more',
+    uuidStableIds: true,
   },
 ]
 
@@ -163,25 +179,41 @@ describe('transcript identity goldens (POD-4471)', () => {
       expect(movedSlice.items.map((i) => [i.id, i.cursor])).toEqual(liveIds)
     })
 
-    it('truncation: the old anchor misses exactly, the new generation serves whole', async () => {
+    it('truncation: the new generation serves whole, the old anchor never blends', async () => {
       const path = join(dir, 'session.jsonl')
       const fileId = fileIdFor('gold-truncate')
       await writeFile(path, toJsonl(grammar.records()))
       const before = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
       expect(before.items.length).toBeGreaterThan(0)
       const oldTail = before.tail
+      const beforeIds = new Set(before.items.map((i) => i.id))
       await writeFile(path, toJsonl([grammar.extra()]))
-      const after = await readTranscriptSlice(
+      // The re-seed path reads WITHOUT an anchor: the new generation serves whole.
+      const reseeded = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+      expect(reseeded.items.length).toBeGreaterThan(0)
+      expect(JSON.stringify(reseeded.items)).toContain(grammar.extraText)
+      // A control file holding only the new record reads identically — no ghosts
+      // from the retired generation linger in the window.
+      const control = join(dir, 'control.jsonl')
+      await writeFile(control, toJsonl([grammar.extra()]))
+      const controlSlice = await readTranscriptSlice([{ path: control, fileId }], grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
+      const controlKeys = controlSlice.items.map((i) => [i.id, i.cursor])
+      expect(reseeded.items.map((i) => [i.id, i.cursor])).toEqual(controlKeys)
+      // The stale anchor either misses exactly (empty) or lands the new window —
+      // every item it returns belongs to the new generation.
+      const stale = await readTranscriptSlice(
         [{ path, fileId }],
         grammar.parse,
         { ...(oldTail ? { anchor: oldTail } : {}), direction: 'before', limit: 100 },
       )
-      // The replacement generation is one record; the stale anchor either misses
-      // (full newest window) or still resolves inside the new bytes — either way
-      // no item from the retired generation may survive.
-      const beforeIds = new Set(before.items.map((i) => i.id))
-      for (const item of after.items) expect(beforeIds.has(item.id)).toBe(false)
-      expect(after.items.length).toBeGreaterThan(0)
+      const controlIds = new Set(controlSlice.items.map((i) => i.id))
+      for (const item of stale.items) expect(controlIds.has(item.id)).toBe(true)
+      if (grammar.uuidStableIds) {
+        for (const item of stale.items) expect(beforeIds.has(item.id)).toBe(false)
+      }
     })
 
     it('archived incarnations: predecessor namespace is stable and distinct', async () => {
@@ -207,14 +239,17 @@ describe('transcript identity goldens (POD-4471)', () => {
       expect(first.items.slice(-liveActive.items.length).map((i) => [i.id, i.cursor])).toEqual(
         liveActive.items.map((i) => [i.id, i.cursor]),
       )
-      // The same archived bytes under the ACTIVE namespace read differently —
-      // the incarnation is part of the identity, so generations never collide.
+      // The same archived bytes under the ACTIVE namespace read with DISJOINT
+      // cursors — the incarnation is part of the identity, so generations never
+      // share a position. (Item ids stay stable when the record carries its own
+      // uuid: that stability across incarnations is the point of uuids.)
       const liveArchived = await readTranscriptSlice([{ path: archived, fileId: fileIdFor(ns) }], grammar.parse, {
         direction: 'before',
         limit: 100,
       })
-      const archivedIds = new Set(first.items.slice(0, liveArchived.items.length).map((i) => i.id))
-      for (const item of liveArchived.items) expect(archivedIds.has(item.id)).toBe(false)
+      const archivedCursors = new Set(first.items.slice(0, liveArchived.items.length).map((i) => i.cursor))
+      expect(liveArchived.items.length).toBeGreaterThan(0)
+      for (const item of liveArchived.items) expect(archivedCursors.has(item.cursor)).toBe(false)
     })
 
     it('partial records: unterminated reads stable, torn lines skipped', async () => {
@@ -232,13 +267,9 @@ describe('transcript identity goldens (POD-4471)', () => {
       // A torn line between two good records is skipped but consumed.
       await writeFile(path, `${JSON.stringify(first)}\n{not json\n${JSON.stringify(second)}\n`)
       const torn = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
-      const clean = await readTranscriptSlice(
-        [{ path: join(dir, 'clean.jsonl'), fileId }],
-        grammar.parse,
-        { direction: 'before', limit: 100 },
-      )
-      await writeFile(join(dir, 'clean.jsonl'), `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`)
-      const cleanAfter = await readTranscriptSlice([{ path: join(dir, 'clean.jsonl'), fileId }], grammar.parse, {
+      const cleanPath = join(dir, 'clean.jsonl')
+      await writeFile(cleanPath, `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`)
+      const cleanAfter = await readTranscriptSlice([{ path: cleanPath, fileId }], grammar.parse, {
         direction: 'before',
         limit: 100,
       })
@@ -246,7 +277,6 @@ describe('transcript identity goldens (POD-4471)', () => {
       // follows it — so compare COUNT and the first record's identity only.
       expect(torn.items.length).toEqual(cleanAfter.items.length)
       expect(torn.items[0]?.id).toEqual(cleanAfter.items[0]?.id)
-      void clean
     })
 
     it('reconnect replay: old ids stable, paging from the old tail yields only the new', async () => {
