@@ -1,12 +1,12 @@
 /**
  * `codex app-server`, ONE PER SESSION, UNDER A PODIUM-HOST (`--no-pty`) OWNED
- * BY THE SUPERVISOR'S DURABLE PROCESS (POD-1761 W6; plan §1; POD-4433).
+ * BY THE SESSION LAYER'S DURABLE PROCESS (POD-1761 W6; plan §1; POD-4433).
  *
  * (Moved from apps/daemon/src/runtime/codex-app-server.ts in 1.5: the daemon
  * stops knowing this headless harness. The family is handed the engine
- * address through injected supervision ports and never spawns, journals or
- * kills the engine itself; argv/env compose here off the adapter's sections,
- * read through {@link CodexEngineFacts}.)
+ * attachment by the session layer through the injected `engines` port and
+ * never spawns, journals or kills the engine itself; argv/env compose here
+ * off the adapter's sections, read through {@link CodexEngineFacts}.)
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS FILE OWNS, AND WHY IT IS THE ONLY PART IN THE DAEMON
@@ -15,19 +15,20 @@
  * The driver itself — the JSON-RPC client, the mapping, the receipts, the
  * approval inversion — is in `@podium/harness/driver/host`, testable in-process. What
  * could not go there is everything below: composing the engine's argv and env
- * off the adapter's sections, binding the supervisor-held engine over its
+ * off the adapter's sections, binding the session-held engine over its
  * Unix listener, and re-attaching to the survivor after a restart. This is
  * the `CodexRuntimeHost` implementation and it is deliberately nothing but
  * that.
  *
- * THIS FAMILY NEVER FORKS, JOURNALS OR KILLS. Every process act — spawn,
- * re-attach, kill — goes through the injected `EngineSupervisor`, whose host
- * adapter owns the child; the binding journal arrives as a port the
- * supervisor persists. The engine outlives a supervisor restart, so `adopt()`
- * rebinds to the survivor — the in-flight turn is no longer abandoned — and
- * only falls back to a fresh engine plus `thread/resume` when nothing
- * survived. `grep child_process` in this file must stay empty; process
- * mechanics live behind the supervision port.
+ * THIS FAMILY NEVER FORKS, JOURNALS OR KILLS. Every process act — start,
+ * re-attach, destroy — goes through the injected `EngineProcessOwner`, which
+ * the session layer implements over its durable process; the binding journal
+ * arrives as a port the session layer holds. The engine outlives a supervisor
+ * restart, so `adopt()` rebinds to the survivor — the in-flight turn is no
+ * longer abandoned — and only falls back to a fresh engine plus
+ * `thread/resume` when nothing survived. `grep child_process` in this file
+ * must stay empty; process mechanics live behind the session-owned `engines`
+ * port.
  *
  * ---------------------------------------------------------------------------
  * THE TRANSPORT IS A PER-SESSION UNIX LISTENER (spec §§5–6)
@@ -71,7 +72,7 @@ import type {
 import type { CodexTransport } from './client.js'
 import type { CodexVersionDiagnostic } from './version.js'
 import type { CodexEngineFacts } from './engine-facts.js'
-import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
+import type { EngineAttachment, EngineProcessOwner, EngineSupervisor } from '../engine-supervision.js'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
 
 const log = createLogger('harness:codex-engine-host')
@@ -224,11 +225,19 @@ export function codexAppServerConfigArgs(input: {
  */
 export interface CodexEngineHostDeps {
   facts: CodexEngineFacts
-  /** The durable owner of every engine: spawn, re-attach and kill go through
-   *  it; this family composes argv/env and binds protocol, never forks.
-   *  Absent (tests that never launch) = launch/adopt/stop/kill refuse loudly
-   *  rather than forking a child no restart could re-adopt. */
-  supervision?: EngineSupervisor
+  /**
+   * The session layer's ownership of every engine: start, re-attach and
+   * destroy go through it; this family composes argv/env and binds protocol,
+   * never forks. Absent (tests that never launch) = launch/adopt/stop/kill
+   * refuse loudly rather than forking a child no restart could re-adopt.
+   */
+  engines?: EngineProcessOwner
+  /**
+   * The session's transient scope unit, where the platform has one. Only
+   * `scopeUnitFor` is read here — never a process verb: spawning, attaching
+   * and killing are the session owner's job, delivered through `engines`.
+   */
+  supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
   /** The binding journal, persisted by the supervisor (0600, sync). */
   journal: CodexJournal
   stageAttachment: AttachmentStager
@@ -323,16 +332,31 @@ export class CodexEngineLeaseRefused extends Error {
 }
 
 /**
- * Pick the host adapter out of the daemon's durable object. Engines are never
- * terminal sessions, so they never follow the terminal backend: abduco has no
- * pty-less mode, and a daemon without a host adapter cannot own an engine at
- * all. Loud, naming the session — a refused launch beats a child no restart
- * could re-adopt.
+ * The session layer's ownership of this session's engine. Engines are never
+ * terminal sessions and never follow the terminal backend; a family without
+ * an owner cannot summon one at all. Loud, naming the session — a refused
+ * launch beats a child no restart could re-adopt.
  */
-function engineAdapter(supervision: EngineSupervisor | undefined, sessionId: SessionId): EngineSupervisor {
+function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+  if (!engines) {
+    throw new Error(
+      `codex engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
+    )
+  }
+  return engines
+}
+
+/**
+ * The session's transient scope unit, where the platform has one. Only the
+ * scope answer is read here — never a process verb.
+ */
+function engineScope(
+  supervision: Pick<EngineSupervisor, 'scopeUnitFor'> | undefined,
+  sessionId: SessionId,
+): Pick<EngineSupervisor, 'scopeUnitFor'> {
   if (!supervision) {
     throw new Error(
-      `codex engine for ${sessionId} requires the podium-host backend: this supervisor runs with no durable backend`,
+      `codex engine for ${sessionId} requires the session scope port: this family never spawns its own engine`,
     )
   }
   return supervision
@@ -368,8 +392,8 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
    */
   const engines = new Map<SessionId, HeldEngine>()
 
-  const adapterFor = (sessionId: SessionId): EngineSupervisor =>
-    engineAdapter(deps.supervision, sessionId)
+  const adapterFor = (sessionId: SessionId): EngineProcessOwner =>
+    engineOwner(deps.engines, sessionId)
 
   /**
    * Tap a host attachment: the merged stdout/stderr ring feeds the launch
@@ -403,13 +427,13 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
    * loudly rather than driving half of an engine.
    */
   async function attachEngine(
-    adapter: EngineSupervisor,
+    owner: EngineProcessOwner,
     sessionId: SessionId,
     label: string,
   ): Promise<HeldEngine | undefined> {
     let session: EngineAttachment
     try {
-      session = await adapter.attachHeadless({ label, fromSeq: 'tail' })
+      session = await owner.reattachEngine({ label, fromSeq: 'tail' })
     } catch (err) {
       log.warn('could not re-attach to the codex engine host', { err, sessionId, label })
       return undefined
@@ -499,7 +523,9 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
    *
    * There is no stdin-EOF graceful stop any more: the host owns the child's
    * stdin, so SIGTERM carries the grace the old EOF attempt used to spend,
-   * bounded by the shared budget. It matters for this family specifically —
+   * bounded by the shared budget. The sweep itself is the session owner's:
+   * this family signals its held attachment and releases it, and the owner
+   * ends the process. It matters for this family specifically —
    * the thing the engine writes on its way out is the rollout JSONL, the only
    * thing `resume()` and `adopt()` have to work from — and the rollout is
    * flushed incrementally during turns, not only at exit.
@@ -517,7 +543,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       }
       held.session.dispose()
     }
-    await adapterFor(sessionId).kill(codexScopeLabel(deps.facts, sessionId))
+    await adapterFor(sessionId).destroyEngine(codexScopeLabel(deps.facts, sessionId))
   }
 
   /**
@@ -535,7 +561,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
   }): CodexServerEndpoint => {
     const pid = input.held.childPid
     const label = codexScopeLabel(deps.facts, input.sessionId)
-    const scopeUnit = engineAdapter(deps.supervision, input.sessionId).scopeUnitFor(label)
+    const scopeUnit = engineScope(deps.supervision, input.sessionId).scopeUnitFor(label)
     return {
       transport: input.transport,
       clientAddress: input.clientAddress,
@@ -598,7 +624,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       }
 
       const label = codexScopeLabel(deps.facts, input.sessionId)
-      const adapter = adapterFor(input.sessionId)
+      const owner = adapterFor(input.sessionId)
 
       const config = codexAppServerConfigArgs({
         ...(input.mcpServers ? { mcpServers: input.mcpServers } : {}),
@@ -639,19 +665,21 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       })
 
       /**
-       * THE ENGINE, UNDER THE HOST. `spawnHeadless` puts `codex app-server`
+       * THE ENGINE, UNDER THE HOST. The session owner starts `codex app-server`
        * under podium-host `--no-pty` in the session's transient scope: the host
        * — not this daemon — holds the child's stdin, so a daemon restart no
        * longer closes the lifetime tether and the engine survives. JSON-RPC
        * still rides WebSocket text frames over the Unix listener; the merged
-       * stdout/stderr ring feeds the startup banner below.
+       * stdout/stderr ring feeds the startup banner below. This family hands
+       * the owner its composed spec and binds the attachment it gets back;
+       * summoning the process is the owner's job, never this family's.
        */
       let held: HeldEngine | undefined
       try {
         held = await claimEngine(
           input.sessionId,
           label,
-          await adapter.spawnHeadless({
+          await owner.startEngine({
             label,
             cmd: command ?? deps.facts.command,
             args,
@@ -715,10 +743,10 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       // Entries written before the socket address was journalled predate
       // durable engines: nothing to rebind to, fall back to fresh-start.
       if (!entry.clientAddress) return undefined
-      const adapter = adapterFor(binding.sessionId)
+      const owner = adapterFor(binding.sessionId)
       const label = codexScopeLabel(deps.facts, binding.sessionId)
-      if (!(await adapter.has(label))) return undefined
-      const held = await attachEngine(adapter, binding.sessionId, label)
+      if (!(await owner.engineAlive(label))) return undefined
+      const held = await attachEngine(owner, binding.sessionId, label)
       if (!held) return undefined
       const socketPath = entry.clientAddress.slice('unix://'.length)
       const banner = (): string => held.banner

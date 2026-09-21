@@ -1,20 +1,21 @@
 /**
- * Supervisor-owned process host for the Grok ACP driver.
+ * Session-owned process host for the Grok ACP driver.
  *
  * (Moved from apps/daemon/src/runtime/grok-acp-server.ts in 1.5: the daemon
  * stops knowing this headless harness. The family is handed the engine
- * address through injected supervision ports and never spawns, journals or
- * kills the engine itself; argv/env compose here off the adapter's sections,
- * read through {@link GrokEngineFacts}.)
+ * attachment by the session layer through the injected `engines` port and
+ * never spawns, journals or kills the engine itself; argv/env compose here
+ * off the adapter's sections, read through {@link GrokEngineFacts}.)
  *
- * THE ENGINE RUNS UNDER PODIUM-HOST (`--no-pty`), OWNED BY THE SUPERVISOR'S
- * DURABLE PROCESS (POD-4433). The host's pipe mode carries the ACP stdio: the
- * merged ring IS the child's stdout, stdin arrives via WRITE, and a supervisor
- * restart re-attaches to the same pipes instead of replacing the child. The
- * driver then `session/load`s the native session named by the binding journal
- * over a FRESH stdio channel to the SURVIVING engine — durable, not faked.
+ * THE ENGINE RUNS UNDER PODIUM-HOST (`--no-pty`), OWNED BY THE SESSION
+ * LAYER'S DURABLE PROCESS (POD-4433). The host's pipe mode carries the ACP
+ * stdio: the merged ring IS the child's stdout, stdin arrives via WRITE, and
+ * a supervisor restart re-attaches to the same pipes instead of replacing the
+ * child. The driver then `session/load`s the native session named by the
+ * binding journal over a FRESH stdio channel to the SURVIVING engine —
+ * durable, not faked.
  * `grep child_process` in this file must stay empty; process mechanics live
- * behind the supervision port.
+ * behind the session-owned `engines` port.
  */
 import {
   closeSync,
@@ -41,7 +42,7 @@ import type {
 import type { GrokAcpTransport } from './client.js'
 import type { GrokVersionDiagnostic } from './version.js'
 import type { GrokEngineFacts } from './engine-facts.js'
-import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
+import type { EngineAttachment, EngineProcessOwner, EngineSupervisor } from '../engine-supervision.js'
 
 const log = createLogger('harness:grok-acp-engine-host')
 
@@ -71,17 +72,26 @@ export function evaluateGrokAcpVersionProbe(output: string, ok: boolean): GrokAc
 
 /**
  * What the grok engine host needs from whoever owns processes and disks.
- * Facts arrive as values (adapter sections, read by the family);
- * supervision arrives as ports the supervisor implements.
+ * Facts arrive as values (adapter sections, read by the family); engine
+ * ownership arrives as the session layer's port, the scope answer as the
+ * supervisor's.
  */
 export interface GrokEngineHostDeps {
   facts: GrokEngineFacts
-  /** The durable owner of every engine: spawn, re-attach and kill go through
-   *  it; this family composes argv/env and binds protocol, never forks.
-   *  Absent (tests that never launch) = launch/stop/kill refuse loudly rather
-   *  than forking a child no restart could re-adopt. */
-  supervision?: EngineSupervisor
-  /** The binding journal, persisted by the supervisor (0600, sync). */
+  /**
+   * The session layer's ownership of every engine: start, re-attach and
+   * destroy go through it; this family composes argv/env and binds protocol,
+   * never forks. Absent (tests that never launch) = launch/stop/kill refuse
+   * loudly rather than forking a child no restart could re-adopt.
+   */
+  engines?: EngineProcessOwner
+  /**
+   * The session's transient scope unit, where the platform has one. Only
+   * `scopeUnitFor` is read here — never a process verb: spawning, attaching
+   * and killing are the session owner's job, delivered through `engines`.
+   */
+  supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
+  /** The binding journal, created and held by the session layer (0600, sync). */
   journal: GrokAcpJournal
   /** Resource truth for a session's scope — memory, tasks and the kernel's own
    *  OOM-kill counter, from the supervisor's one cgroup observer. */
@@ -158,16 +168,31 @@ export class GrokEngineLeaseRefused extends Error {
 }
 
 /**
- * Pick the host adapter out of the daemon's durable object. Engines are never
- * terminal sessions, so they never follow the terminal backend: abduco has no
- * pty-less mode, and a daemon without a host adapter cannot own an engine at
- * all. Loud, naming the session — a refused launch beats a child no restart
- * could re-adopt.
+ * The session layer's ownership of this session's engine. Engines are never
+ * terminal sessions and never follow the terminal backend; a family without
+ * an owner cannot summon one at all. Loud, naming the session — a refused
+ * launch beats a child no restart could re-adopt.
  */
-function engineAdapter(supervision: EngineSupervisor | undefined, sessionId: SessionId): EngineSupervisor {
+function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+  if (!engines) {
+    throw new Error(
+      `grok engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
+    )
+  }
+  return engines
+}
+
+/**
+ * The session's transient scope unit, where the platform has one. Only the
+ * scope answer is read here — never a process verb.
+ */
+function engineScope(
+  supervision: Pick<EngineSupervisor, 'scopeUnitFor'> | undefined,
+  sessionId: SessionId,
+): Pick<EngineSupervisor, 'scopeUnitFor'> {
   if (!supervision) {
     throw new Error(
-      `grok engine for ${sessionId} requires the podium-host backend: this supervisor runs with no durable backend`,
+      `grok engine for ${sessionId} requires the session scope port: this family never spawns its own engine`,
     )
   }
   return supervision
@@ -191,8 +216,11 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
    *  live host instead of spawning beside it. */
   const engines = new Map<SessionId, HeldEngine>()
 
-  const adapterFor = (sessionId: SessionId): EngineSupervisor =>
-    engineAdapter(deps.supervision, sessionId)
+  const adapterFor = (sessionId: SessionId): EngineProcessOwner =>
+    engineOwner(deps.engines, sessionId)
+
+  const scopeFor = (sessionId: SessionId): Pick<EngineSupervisor, 'scopeUnitFor'> =>
+    engineScope(deps.supervision, sessionId)
 
   /**
    * Tap a host attachment: the merged stdout/stderr ring feeds the launch
@@ -274,7 +302,9 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
   /**
    * End ONE engine — the one this endpoint owns — and sweep its scope. There
    * is no stdin-EOF graceful stop any more: the host owns the child's stdin,
-   * so SIGTERM carries the grace, bounded by the shared budget.
+   * so SIGTERM carries the grace, bounded by the shared budget. The sweep
+   * itself is the session owner's: this family signals its held attachment
+   * and releases it, and the owner ends the process.
    */
   async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL', held: HeldEngine | undefined): Promise<void> {
     engines.delete(sessionId)
@@ -289,7 +319,7 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
       }
       held.session.dispose()
     }
-    await adapterFor(sessionId).kill(grokAcpProcessKey(deps.facts, sessionId))
+    await adapterFor(sessionId).destroyEngine(grokAcpProcessKey(deps.facts, sessionId))
   }
 
   return {
@@ -310,7 +340,7 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
       }
 
       const label = grokAcpProcessKey(deps.facts, input.sessionId)
-      const adapter = adapterFor(input.sessionId)
+      const owner = adapterFor(input.sessionId)
       // The ACP server receives cwd in session/new and session/load. A native
       // --worktree would create a second nested worktree; no SessionSpec sandbox
       // field exists, so GROK_SANDBOX/config remains authoritative.
@@ -326,20 +356,23 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
 
       /**
        * THE ENGINE, UNDER THE HOST — ADOPTED WHEN IT IS ALREADY THERE.
-       * `spawnHeadless` puts `grok agent stdio` under podium-host `--no-pty`
-       * in the session's transient scope, and adopts the live host when this
-       * label already owns one — which is exactly the daemon-restart case, so
-       * the driver's adopt (which loads the journalled native session over the
-       * fresh transport below) rebinds to the survivor instead of replacing it.
-       * An inherited API key is stripped by the host after the merge: it would
-       * silently replace the user's subscription either way.
+       * The session owner starts `grok agent stdio` under podium-host
+       * `--no-pty` in the session's transient scope, and adopts the live host
+       * when this label already owns one — which is exactly the daemon-restart
+       * case, so the driver's adopt (which loads the journalled native session
+       * over the fresh transport below) rebinds to the survivor instead of
+       * replacing it. An inherited API key is stripped by the host after the
+       * merge: it would silently replace the user's subscription either way.
+       * This family hands the owner its composed spec and binds the attachment
+       * it gets back; summoning the process is the owner's job, never this
+       * family's.
        */
       let held: HeldEngine | undefined
       try {
         held = await claimEngine(
           input.sessionId,
           label,
-          await adapter.spawnHeadless({
+          await owner.startEngine({
             label,
             cmd: command ?? deps.facts.command,
             args,
@@ -360,7 +393,7 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
         log.warn('Grok ACP session is running unscoped', { sessionId: input.sessionId })
       }
 
-      const scopeUnit = adapter.scopeUnitFor(label)
+      const scopeUnit = scopeFor(input.sessionId).scopeUnitFor(label)
       const endpoint: GrokAcpEndpoint = {
         transport: hostTransport(input.sessionId, held),
         process: {
