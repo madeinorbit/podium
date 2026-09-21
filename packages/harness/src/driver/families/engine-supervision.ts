@@ -78,6 +78,30 @@ export interface EngineSupervisor {
   scopeUnitFor(label: string): string | undefined
 }
 
+/**
+ * THE SESSION-OWNED PROCESS VERBS (spec §4.8 steps 2 and 6).
+ *
+ * The driver families compose argv/env and bind protocol; they never summon,
+ * re-attach, probe or reap a process. Every process act happens in the daemon's
+ * session layer (`apps/daemon/src/session/engines.ts`), delivered here as the
+ * port the migrated families consume: the session object calls
+ * `DurableProcess.spawnHeadless` / `attachHeadless` / `kill`, owns the binding
+ * journals, and hands the family a live `EngineAttachment` the family only
+ * binds. Method names are fresh on purpose: `spawnHeadless` / `attachHeadless`
+ * / `has` / `kill` in a family file after this lands is the decision sitting
+ * in the wrong place, and the grep in the issue's DONE WHEN says so.
+ */
+export interface EngineProcessOwner {
+  /** Create-or-adopt the engine's process (spec §4.8 step 2). */
+  startEngine(req: EngineSpawnRequest): Promise<EngineAttachment>
+  /** Re-attach to the surviving engine as the writer. */
+  reattachEngine(input: { label: string; fromSeq: 'tail' }): Promise<EngineAttachment>
+  /** A live host owns the label AND its program is still running. */
+  engineAlive(label: string): Promise<boolean>
+  /** Detach-or-terminate the engine's process (spec §4.8 step 6). */
+  destroyEngine(label: string): Promise<void>
+}
+
 /** Convenience for families: the label-derived scope unit with the platform
  *  honesty rule applied once, in one place. */
 export function engineScopeUnit(
