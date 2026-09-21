@@ -9,9 +9,9 @@ import type { DaemonContext } from '../control/context'
 import { Terminal, type TerminalKind } from '../terminal/terminal.js'
 import { SessionRegistry } from './registry.js'
 
-/** A registry whose labels are fixed strings — tests never route the daemon's label function. */
-export function testSessions(label = 'podium-test-label'): SessionRegistry {
-  return new SessionRegistry({ labelFor: () => label })
+/** A bare registry — entries start unlabelled, exactly as in production. */
+export function testSessions(): SessionRegistry {
+  return new SessionRegistry()
 }
 
 /**

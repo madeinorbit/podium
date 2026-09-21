@@ -100,7 +100,7 @@ function makeHarness(settingsDir: string): Harness {
     machineId: 'local',
     instanceId: 'blue',
     durableLabelFor: (id: string) => `podium-blue-${id}`,
-    sessions: new SessionRegistry({ labelFor: (id: string) => `podium-blue-${id}` }),
+    sessions: new SessionRegistry(),
     homeDir: home,
     backend: 'none',
     // The REAL launch table: agentKind 'shell' -> $SHELL, no args.

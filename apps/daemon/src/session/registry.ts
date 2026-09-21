@@ -12,24 +12,19 @@
 import type { SessionId } from '@podium/model'
 import { DaemonSession } from './daemon-session.js'
 
-export interface SessionRegistryPorts {
-  /** The durable label for a session nobody has labelled yet. */
-  labelFor(sessionId: SessionId): string
-}
-
 export class SessionRegistry {
   private readonly sessions = new Map<SessionId, DaemonSession>()
-  private readonly labelFor: (sessionId: SessionId) => string
 
-  constructor(ports: SessionRegistryPorts) {
-    this.labelFor = ports.labelFor
-  }
-
-  /** The session, creating and labelling it on first use. */
+  /**
+   * The session, creating it on first use. Created UNLABELLED: the label is
+   * the process identity and only spawn/reattach/steal know it. A held resize
+   * or a viewer signal must never mint one — a stamped default would trip the
+   * reattach identity guard for a session this daemon never owned.
+   */
   ensure(sessionId: SessionId): DaemonSession {
     let session = this.sessions.get(sessionId)
     if (!session) {
-      session = new DaemonSession({ sessionId, label: this.labelFor(sessionId) })
+      session = new DaemonSession({ sessionId })
       this.sessions.set(sessionId, session)
     }
     return session
