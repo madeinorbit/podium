@@ -1,7 +1,8 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeRecordToItems, decodeCursor, fileIdFor } from './store/index'
+import { claudeRecordToItems } from './adapters/claude-code/transcript.js'
+import { decodeCursor, fileIdFor } from './store/index'
 import { expect, it } from 'vitest'
 import { fileTranscript } from './manifest'
 

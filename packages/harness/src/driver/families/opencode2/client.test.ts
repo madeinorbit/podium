@@ -1,4 +1,4 @@
-import { opencodePartToItems } from '../../../store/index.js'
+import { opencodePartToItems } from '../../../adapters/opencode/transcript.js'
 import { describe, expect, it, vi } from 'vitest'
 import { deltaItemIdForPart, partToItems } from '../opencode/map.js'
 import { createOpencode2Client } from './client.js'

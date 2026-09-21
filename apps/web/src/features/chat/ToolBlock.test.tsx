@@ -123,8 +123,9 @@ it('shows an interrupted effect as a failure even with empty output', () => {
 it('renders the real recorded Bash edit with identical path, hunk lines and counts', async () => {
   // Read off the module graph (readFileSync, not import): the fixture is JSON
   // data, not a capability, and a web test may not take the host barrel to
-  // reach it (POD-4469: the fixture dissolved into `@podium/harness/store`
-  // with the transcript package).
+  // reach it (POD-4471: fixtures stay under the store as test-only data while
+  // the grammar lives in the claude adapter, resolved here through the static
+  // metadata projection).
   const records = JSON.parse(
     readFileSync(
       join(
@@ -141,7 +142,9 @@ it('renders the real recorded Bash edit with identical path, hunk lines and coun
       }
     }
   }>
-  const { claudeRecordToItems } = await import('@podium/harness/store')
+  const { transcriptRecordMapperFor } = await import('@podium/harness/metadata')
+  const claudeRecordToItems = transcriptRecordMapperFor('claude-code')
+  if (!claudeRecordToItems) throw new Error('claude-code grammar missing')
   const { pairToolResults } = await import('./chat')
   const block = pairToolResults(records.flatMap(claudeRecordToItems))[0]
   if (!block) throw new Error('Missing recorded Bash call')
@@ -213,12 +216,19 @@ describe('retained Bash command disclosure', () => {
   })
 
   it('shows the retained prefix and loss notice when the mapper budget is exceeded', async () => {
-    const { claudeToolCallItem } = await import('@podium/harness/store')
-    const item = claudeToolCallItem({
-      id: 'large',
-      toolName: 'Bash',
-      input: { command: `echo ${'x'.repeat(100_000)}` },
-    })
+    const { transcriptRecordMapperFor } = await import('@podium/harness/metadata')
+    const parse = transcriptRecordMapperFor('claude-code')
+    if (!parse) throw new Error('claude-code grammar missing')
+    // Build through the adapter grammar (not the item constructor): the mapper
+    // applies the same input budgets the live tail does.
+    const item = parse({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'large', name: 'Bash', input: { command: `echo ${'x'.repeat(100_000)}` } }],
+      },
+    }).find((i) => i.role === 'tool')
+    if (!item) throw new Error('Missing mapped Bash call')
     const payload = JSON.parse(item.toolInputJson ?? 'null')
     expect(payload.truncated).toBe(true)
     mount(item)

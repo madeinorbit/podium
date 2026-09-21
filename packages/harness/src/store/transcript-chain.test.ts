@@ -15,12 +15,15 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { claudeProjectSlug } from '../agent-state/claude-locate.js'
 import { grokSessionPaths } from '../agent-state/grok.js'
 import { declaredValue, type TranscriptSourceInput } from '../manifest.js'
 import { manifestFor } from '../registry.js'
+import { decodeCursor } from './cursor-codec.js'
 import { fileIdFor, type ChainEntry } from './file-chain.js'
+import type { SliceResult } from './slice.js'
 import { transcriptSourceFromGrammar } from './store.js'
 
 /** Resolve the ordered oldest→newest chain for a harness through its adapter
@@ -42,10 +45,10 @@ async function resolveChain(
   }))
 }
 
-async function readThroughGrammar(agentKind: string, input: TranscriptSourceInput) {
+async function readThroughGrammar(agentKind: string, input: TranscriptSourceInput): Promise<SliceResult> {
   const transcript = manifestFor(agentKind)?.transcript
   const grammar = transcript ? declaredValue(transcript) : undefined
-  if (!grammar) return { items: [] as { text: string }[], hasMore: false }
+  if (!grammar) return { items: [] as TranscriptItem[], hasMore: false }
   const source = await transcriptSourceFromGrammar(grammar, input)
   return source.readSlice({ direction: 'before', limit: 50 })
 }
@@ -334,5 +337,34 @@ describe('Grok transcript read when cwd and session bucket disagree', () => {
       ['current-user-id', 'current authority user'],
       ['current-assistant-id', 'current authority assistant'],
     ])
+  })
+})
+
+describe('Store routing by agentKind', () => {
+  it('routes a file-based harness (claude-code) to a file-chain source', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'src-route-claude-'))
+    const bucketDir = join(
+      home,
+      '.claude',
+      'projects',
+      // claudeProjectSlug('/repo/x') — replicate the slug shape: leading dash, slashes→dashes.
+      '-repo-x',
+    )
+    await mkdir(bucketDir, { recursive: true })
+    const rec = (uuid: string, text: string) =>
+      JSON.stringify({ uuid, type: 'user', message: { role: 'user', content: text } })
+    await writeFile(join(bucketDir, 'conv.jsonl'), `${[5, 6, 7, 8, 9].map((i) => rec(`u${i}`, String(i))).join('\n')}\n`)
+    const page = await readThroughGrammar('claude-code', {
+      cwd: '/repo/x',
+      resumeValue: 'conv', // resolves <bucket>/conv.jsonl (claude resolves by resume value, not bucket-glob)
+      homeDir: home,
+    })
+    // The file-chain source serves the harness's own grammar: assert it is NOT
+    // the opencode source by checking the cursor fileId is the conversation
+    // namespace id, not 'opencode:...'.
+    expect(page.items.length).toBeGreaterThan(0)
+    const fid = decodeCursor(page.items[0]?.cursor ?? '')?.fileId
+    expect(fid).not.toMatch(/^opencode:/)
+    expect(page.items.map((i) => i.text)).toEqual(['5', '6', '7', '8', '9'])
   })
 })

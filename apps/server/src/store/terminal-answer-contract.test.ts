@@ -31,7 +31,7 @@ describe('production terminal answer identity', () => {
       send, bridge: () => bridge, now: () => Date.now(),
       durableLabel: (id: SessionId) => `answer-test-${id}`, scopeUnit: () => undefined,
       trackedState: () => undefined, draftSyncing: () => false,
-      readTranscript: async () => [],
+      readHistory: async () => ({ items: [], hasMore: false }),
       setTimer: (fn: () => void, delay: number) => setTimeout(fn, delay),
       clearTimer: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
     } as unknown as TerminalRuntimeHost
@@ -105,10 +105,10 @@ describe('production terminal answer identity', () => {
       }, { sessionId, answer: 'Two', principal: inboxPrincipalFromCommand(principal) })
       expect(result).toMatchObject({ ok: true, via: 'menu' })
       expect(writes).toEqual(['1', '\r', '2', '\r'])
-      host.readTranscript = async () => [{ id: 'tool-ask', role: 'tool', toolName: 'AskUserQuestion',
+      host.readHistory = async () => ({ items: [{ id: 'tool-ask', role: 'tool', toolName: 'AskUserQuestion',
         ts: new Date().toISOString(), text: '', toolInputJson: JSON.stringify({ questions: [
           { question: 'Pick', multiSelect: true, options: [{ label: 'One' }, { label: 'Two' }] },
-        ] }) }]
+        ] }) }], hasMore: false })
       const enrichedObservation = observation('enriched')
       enrichedObservation.state.need = { kind: 'question', summary: 'Pick' }
       runtime.observe({ type: 'agentObservation', observation: enrichedObservation })

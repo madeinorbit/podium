@@ -445,22 +445,22 @@ describe('agent manifest registry', () => {
     ).toEqual(['claude-code', 'codex', 'grok'])
   })
 
-  it('declares chainPaths on the file-chain harnesses and unsupported on the sqlite one', () => {
+  it('declares chainPaths on the file harnesses and unsupported on the sqlite one', () => {
     for (const kind of BUILTIN_HARNESS_KINDS) {
       const transcript = declaredValue(AGENT_MANIFESTS[kind].transcript)
       if (!transcript) continue
-      expect(transcript.storage, kind).toMatch(/^(file-chain|sqlite)$/)
+      expect(transcript.storage, kind).toMatch(/^(file|sqlite|stream)$/)
       expect(typeof transcript.sourceFor, kind).toBe('function')
       // The declaration must AGREE with the storage kind: file chains have files
       // to chain, the SQLite store does not.
       expect(transcript.chainPaths.supported, `${kind} chainPaths vs storage`).toBe(
-        transcript.storage === 'file-chain',
+        transcript.storage === 'file',
       )
       expect(transcript.recordToItems.supported, `${kind} record mapper vs storage`).toBe(
-        transcript.storage === 'file-chain',
+        transcript.storage === 'file',
       )
       expect(typeof transcriptRecordMapperFor(kind), kind).toBe(
-        transcript.storage === 'file-chain' ? 'function' : 'undefined',
+        transcript.storage === 'file' ? 'function' : 'undefined',
       )
     }
   })

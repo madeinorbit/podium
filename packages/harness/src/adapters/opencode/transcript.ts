@@ -5,7 +5,13 @@ import {
   openOpencodeDb,
 } from '../../opencode/db.js'
 import { sliceItemsByAnchor, type TranscriptSource } from '../../store/source.js'
-import { supported, unsupported, type TranscriptSourceInput } from '../../manifest.js'
+import {
+  type Declared,
+  type HarnessTranscript,
+  supported,
+  unsupported,
+  type TranscriptSourceInput,
+} from '../../manifest.js'
 /**
  * One row of opencode's SQLite `part` join (message + part payloads). The type
  * lives here — next to the pure part→items mapper — so the parser package needs
@@ -265,7 +271,7 @@ export function opencodeDbSource(input: {
   }
 }
 
-export const opencodeTranscript = supported({
+export const opencodeTranscript: Declared<HarnessTranscript> = supported({
   // SQLite-backed — no file chain; the DB source serves the same cursor
   // contract as the chain reader.
   storage: 'sqlite',
