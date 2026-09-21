@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { forceFeature } from '../../test-support/features'
 import { openTestStore } from '../../test-support/open-test-store'
 import { DaemonRequestBroker } from '../daemon-request'
+import { transcriptRecordMapperFor } from '../../harness-manifest'
 import { TranscriptLake } from './lake'
 import { TranscriptIndexer } from './transcript-indexer'
 
@@ -30,6 +31,8 @@ describe('TranscriptLake mirror fence', () => {
         store: store.conversations,
         now: Date.now,
         daemonRequest,
+        parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
+        findSessionByNativeId: async () => undefined,
       },
       { mirrorLakeDir: lakeDir },
     )
@@ -126,7 +129,12 @@ describe('a lake the deployment turned off', () => {
       defaultMachine: () => asMachineId('m1'),
     })
     const lake = new TranscriptLake(
-      { store: store.conversations, now: Date.now, daemonRequest },
+      {
+        store: store.conversations,
+        now: Date.now,
+        daemonRequest,
+        parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
+        findSessionByNativeId: async () => undefined,
       {},
     )
     try {
@@ -145,7 +153,12 @@ describe('a lake the deployment turned off', () => {
       defaultMachine: () => asMachineId('m1'),
     })
     const lake = new TranscriptLake(
-      { store: store.conversations, now: Date.now, daemonRequest },
+      {
+        store: store.conversations,
+        now: Date.now,
+        daemonRequest,
+        parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
+        findSessionByNativeId: async () => undefined,
       { mirrorLakeDir: lakeDir },
     )
     try {
@@ -201,6 +214,7 @@ describe('the transcript indexer follows the search flag', () => {
     const idle = new TranscriptIndexer({
       mirror: off.conversations.mirror,
       index: off.conversations.transcriptIndex,
+      parseFor: async () => transcriptRecordMapperFor('claude-code'),
     })
     await idle.onBytes(machineId, 'native-a', lakePath)
     await idle.settled()
@@ -215,6 +229,7 @@ describe('the transcript indexer follows the search flag', () => {
     const indexer = new TranscriptIndexer({
       mirror: on.conversations.mirror,
       index: on.conversations.transcriptIndex,
+      parseFor: async () => transcriptRecordMapperFor('claude-code'),
     })
     await indexer.onBytes(machineId, 'native-a', lakePath)
     await indexer.settled()
@@ -235,9 +250,9 @@ it.each([
   'active',
   'archived',
 ] as const)('lake %s namespaces match live bytes only for the active incarnation', async (mode) => {
-  const { claudeRecordToItems, decodeCursor, fileIdFor, readFileItems } = await import(
-    '@podium/harness/store'
-  )
+  const { decodeCursor, fileIdFor, readFileItems } = await import('@podium/harness/store')
+  const claudeRecordToItems = transcriptRecordMapperFor('claude-code')
+  if (!claudeRecordToItems) throw new Error('claude-code grammar missing')
   const store = await openTestStore(':memory:')
   const dir = mkdtempSync(join(tmpdir(), 'lake-namespace-'))
   const machineId = asMachineId('namespace-machine')
@@ -247,7 +262,12 @@ it.each([
     defaultMachine: () => machineId,
   })
   const lake = new TranscriptLake(
-    { store: store.conversations, now: Date.now, daemonRequest },
+    {
+      store: store.conversations,
+      now: Date.now,
+      daemonRequest,
+      parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
+      findSessionByNativeId: async () => undefined,
     { mirrorLakeDir: dir },
   )
   try {

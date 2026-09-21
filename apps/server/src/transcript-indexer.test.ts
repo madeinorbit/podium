@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import { type MirrorReadResult, MirrorService } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { transcriptRecordMapperFor } from './harness-manifest'
 import { TranscriptIndexer } from './modules/memory/transcript-indexer'
 import type { SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
@@ -68,6 +69,7 @@ describe('TranscriptIndexer', () => {
     const indexer = new TranscriptIndexer({
       mirror: store.conversations.mirror,
       index: store.conversations.transcriptIndex,
+      parseFor: async () => transcriptRecordMapperFor('claude-code'),
     })
     const mirror = new MirrorService(store.conversations.mirror, lakeDir, fs.read, Date.now, {
       chunkDelayMs: 0,
@@ -196,6 +198,7 @@ describe('TranscriptIndexer', () => {
     const indexer = new TranscriptIndexer({
       mirror: store.conversations.mirror,
       index: store.conversations.transcriptIndex,
+      parseFor: async () => transcriptRecordMapperFor('claude-code'),
     })
     await seed(store, 'nofts')
     await store.conversations.mirror.setMirrorCursor(
@@ -241,7 +244,7 @@ describe('TranscriptIndexer', () => {
       )
     }
     const indexer = new TranscriptIndexer(
-      { mirror: store.conversations.mirror, index: store.conversations.transcriptIndex },
+      { mirror: store.conversations.mirror, index: store.conversations.transcriptIndex, parseFor: async () => transcriptRecordMapperFor('claude-code') },
       { chunkDelayMs: 0, ...options },
     )
     const lakePathFor = (nativeId: string) => join(lakeDir, 'm1', `${nativeId}.jsonl`)
