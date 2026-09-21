@@ -77,10 +77,15 @@ export interface HarnessBoundaryAllowlistEntry {
  * un-named the harness in cost/service + login-propagation: leak 487 → 461.
  * POD-4478 (4.4) moved the CLI install steps into adapter install sections
  * and reads quota labels off the Inventory: leak 461 → 438.
+ * POD-4476 (4.2) derived every retyped harness-name enum from the single
+ * definition (slices in model/entities/agent.ts, HARNESS_KINDS off the
+ * registry): removed the seven 4.2 entries at zero literals and lowered
+ * runtime/settings.ts 19 → 6 (provider-namespace 'codex' + one local default
+ * remain): leak 438 → 402.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 438
+export const HARNESS_BASELINE_LEAK_COUNT = 402
 export const HARNESS_BASELINE_POLICY_COUNT = 30
-export const HARNESS_BASELINE_TOTAL = 468
+export const HARNESS_BASELINE_TOTAL = 432
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -185,15 +190,8 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/harness/src/registry.ts', count: 7, category: 'policy', reason: 'registry is the allowed closed-set home; lookups degrade for unknown harnesses', policy: 'packages/harness/src/registry.ts' },
   { file: 'packages/harness/src/session-title.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/janitor/src/janitor.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/model/src/entities/cost.ts', count: 4, category: 'leak', reason: 'retyped harness enum; derive from AgentKind instead (4.2 enums)', issue: 'POD-4414/4.2' },
-  { file: 'packages/model/src/entities/handoff.ts', count: 2, category: 'leak', reason: 'retyped harness enum; derive from AgentKind instead (4.2 enums)', issue: 'POD-4414/4.2' },
-  { file: 'packages/model/src/entities/machine.ts', count: 3, category: 'leak', reason: 'retyped harness/machine enum; derive instead (4.2 enums)', issue: 'POD-4414/4.2' },
-  { file: 'packages/model/src/predicates/machine-handoff.ts', count: 2, category: 'leak', reason: 'harness branching in predicate; move into adapter/family (4.2)', issue: 'POD-4414/4.2' },
-  { file: 'packages/model/src/shipwright.ts', count: 6, category: 'leak', reason: 'retyped harness enum; derive instead (4.2 enums)', issue: 'POD-4414/4.2' },
-  { file: 'packages/protocol/src/messages/credentials.ts', count: 3, category: 'leak', reason: 'retyped harness enum; derive from model instead (4.2 enums)', issue: 'POD-4414/4.2' },
-  { file: 'packages/protocol/src/messages/runtime-state.ts', count: 3, category: 'leak', reason: 'retyped harness enum; derive instead (4.2 enums)', issue: 'POD-4414/4.2' },
   { file: 'packages/runtime/src/harness-defaults.ts', count: 4, category: 'policy', reason: 'superagent harness order is Podium policy, stays; must not move into an adapter (spec §5)', policy: 'packages/runtime/src/harness-defaults.ts' },
-  { file: 'packages/runtime/src/settings.ts', count: 19, category: 'leak', reason: 'retyped harness enum/defaults; derive instead (4.2 enums)', issue: 'POD-4414/4.2' },
+  { file: 'packages/runtime/src/settings.ts', count: 6, category: 'leak', reason: 'remaining harness default + provider-namespace literals; AgentChoice derived (4.2 enums)', issue: 'POD-4414/4.2' },
   { file: 'packages/sync/src/adapters/indexeddb/schema.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/sync/src/adapters/mobile-sqlite/schema.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/sync/src/conformance/suite.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
