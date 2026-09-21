@@ -28,6 +28,9 @@ import {
   claudeSdkHostLaunch,
   type ClaudeSdkHostTurnSpec,
 } from './host-protocol.js'
+import { HeadlessTurnFailure } from '../turn-error.js'
+
+export { HeadlessTurnFailure }
 
 const log = createLogger('harness:claude-sdk-turn')
 
@@ -43,30 +46,6 @@ const INTERRUPT_GRACE_MS = 15_000
  * the full grace to say "we do not know" would only make the silence longer.
  */
 const INTERRUPT_ACK_MS = 5_000
-
-/**
- * A TURN THAT FAILED AFTER THE HARNESS MINTED ITS SESSION.
- *
- * The conversation exists on disk, so the caller must still learn its id —
- * otherwise one interrupted/errored turn orphans the whole thread: no resume
- * ref, no transcript binding, and the next turn silently starts a new
- * conversation.
- *
- * This is the BASE the supervisor's own turn error extends: daemon callers
- * matching on their subclass keep working, and callers matching on this base
- * see family-thrown failures too (a subclass check alone would miss a turn the
- * family failed but the supervisor did not).
- */
-export class HeadlessTurnFailure extends Error {
-  constructor(
-    message: string,
-    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    readonly harnessSessionId?: string,
-  ) {
-    super(message)
-    this.name = 'HeadlessTurnError'
-  }
-}
 
 export interface ClaudeSdkTurnOutcome {
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */

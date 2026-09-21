@@ -48,6 +48,8 @@ export * from './families/terminal/index.js'
 export * from './families/engine-supervision.js'
 /** The shared lost-queue reporter every server-family session adapter wires. */
 export { reportQueueAbandonment } from './families/queue-report.js'
+/** The turn failure every one-shot turn implementation throws. */
+export { HeadlessTurnFailure } from './families/turn-error.js'
 /** The uniform server-family shape the supervisor composes (1.5). */
 export type {
   ServerFamilyJournalEntry,
@@ -59,3 +61,8 @@ export type {
  *  driver family, so its turn grammar lives with its adapter; re-exported here
  *  for the supervisor's headless machinery, which stays daemon-owned). */
 export * from '../adapters/pi/stream.js'
+/** Cursor's headless chat allocation (`create-chat`), for the same machinery. */
+export {
+  cursorCreateChatInvocation,
+  parseCursorChatId,
+} from '../cursor/chat.js'

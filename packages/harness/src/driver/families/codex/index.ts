@@ -110,6 +110,12 @@ export {
 export { type CodexChildLiveness } from './engine-host.js'
 export { type CodexEngineFacts, codexEngineFacts } from './engine-facts.js'
 export {
+  buildCodexExecTurn,
+  type CodexExecTurnInput,
+  type CodexExecTurnOutcome,
+  runCodexExecTurn,
+} from './exec-turn.js'
+export {
   type CodexSessionDeps,
   createCodexSessionRuntime,
   type DaemonCodexRuntime,
