@@ -9,7 +9,7 @@ import { fileMtimeIso } from './boot-time.js'
 import { chooseGrokSessionDir } from './grok-binding.js'
 import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
 import { locateGrokSessionPaths } from './grok-locate.js'
-import { withEventTime } from '../driver/families/terminal/observer.js'
+import { withEventTime } from '../observer.js'
 import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
 import {
   type GrokSessionPaths,

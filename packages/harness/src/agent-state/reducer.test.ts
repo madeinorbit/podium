@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { carryAcrossRebuild, initialAgentState, reduceAgentState, withEventTime } from '../driver/families/terminal/observer.js'
+import { carryAcrossRebuild, initialAgentState, reduceAgentState, withEventTime } from '../observer.js'
 
 const T0 = '2026-06-12T10:00:00.000Z'
 const T1 = '2026-06-12T10:00:01.000Z'

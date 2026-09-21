@@ -1,7 +1,7 @@
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { withDeliveryQueue } from '../../delivery-queue.js'
 import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { reduceAgentState } from '../terminal/observer.js'
+import { reduceAgentState } from '../../../observer.js'
 import {
   type AgentRuntimeState,
   formatAgentError,

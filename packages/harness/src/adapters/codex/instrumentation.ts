@@ -25,7 +25,7 @@ import {
 } from '../../manifest.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import type { AgentStateEvent, ProviderAgentStateEvent } from '../../agent-state/types.js'
-import { withEventTime } from '../../driver/families/terminal/observer.js'
+import { withEventTime } from '../../observer.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../../version-probe.js'
 import { classifyCodexVerdict } from './state.js'
 

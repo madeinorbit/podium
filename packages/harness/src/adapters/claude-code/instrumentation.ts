@@ -28,7 +28,7 @@ import type {
 } from '../../agent-state/types.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import type { DeterministicAgentState } from '../../agent-state/deterministic.js'
-import type { TranscriptClassifier } from '../../driver/families/terminal/observer.js'
+import type { TranscriptClassifier } from '../../observer.js'
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
 // ingest server), so injecting these can never block or steer the agent.

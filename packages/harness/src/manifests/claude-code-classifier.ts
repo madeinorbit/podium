@@ -4,7 +4,7 @@ import type {
   GlobalAgentStateLabel,
 } from '../agent-state/deterministic.js'
 import { resolvedState, semanticState } from '../agent-state/deterministic.js'
-import type { TranscriptClassifierRuleSet } from '../driver/families/terminal/observer.js'
+import type { TranscriptClassifierRuleSet } from '../observer.js'
 
 type RecordLike = Record<string, unknown>
 

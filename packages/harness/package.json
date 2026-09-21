@@ -69,11 +69,6 @@
       "import": "./dist/driver/families/terminal/loopback-listen.js",
       "types": "./dist/driver/families/terminal/loopback-listen.d.ts"
     },
-    "./driver/families/terminal/observer": {
-      "@podium/source": "./src/driver/families/terminal/observer.ts",
-      "import": "./dist/driver/families/terminal/observer.js",
-      "types": "./dist/driver/families/terminal/observer.d.ts"
-    },
     "./adapters/shared/hook-fields": {
       "@podium/source": "./src/adapters/shared/hook-fields.ts",
       "import": "./dist/adapters/shared/hook-fields.js",

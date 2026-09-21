@@ -1,5 +1,5 @@
 /**
- * THE TERMINAL FAMILY'S GENERIC OBSERVER MACHINERY (POD-4472): the harness-free
+ * THE GENERIC OBSERVER MACHINERY (POD-4472): the harness-free
  * reduction every terminal observation folds through.
  *
  * Per-harness hook/screen rules live in `adapters/<h>/state.ts` and
@@ -261,7 +261,7 @@ export function acceptAgentObservation(
 // ---------------------------------------------------------------------------
 
 import type { AgentNeed, AgentRuntimeState } from '@podium/model'
-import type { AgentStateEvent } from '../../../agent-state/types.js'
+import type { AgentStateEvent } from './agent-state/types.js'
 
 /**
  * Is this the same wait, restated? A harness may announce one wait on several

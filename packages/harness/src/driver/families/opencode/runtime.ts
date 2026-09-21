@@ -40,7 +40,7 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  */
 
 import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { reduceAgentState } from '../terminal/observer.js'
+import { reduceAgentState } from '../../../observer.js'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
