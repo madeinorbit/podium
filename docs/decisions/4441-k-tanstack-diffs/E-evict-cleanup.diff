@@ -1,0 +1,67 @@
+diff --git a/packages/worklist-proto/arms/tanstack/k3e-probe.test.ts b/packages/worklist-proto/arms/tanstack/k3e-probe.test.ts
+new file mode 100644
+index 000000000..0e30675a6
+--- /dev/null
++++ b/packages/worklist-proto/arms/tanstack/k3e-probe.test.ts
+@@ -0,0 +1,42 @@
++/**
++ * K3-E probe (KEPT in the diff as the firing evidence): evicting an issue's
++ * only session must clear its ask. On the foot-gun branch the evicted
++ * session's seats are never dropped (sync deletes are silent), so the row
++ * stays waiting/asking — a ghost ask with no session behind it. Only this
++ * behavior test fires; typecheck, parity and the rest of the suite stay
++ * green.
++ */
++
++import { describe, expect, it } from 'vitest'
++import { issue, lane, row, session, testWorld, NOW } from './tanstack.test'
++
++const iso = (ms: number): string => new Date(ms).toISOString()
++
++describe('k3e evict-cleanup probe', () => {
++  it('evicting the sole asking session quiets the row', () => {
++    const world = testWorld([
++      row('worktree', '/podium', lane({ path: '/podium' })),
++      row(
++        'issue',
++        'R',
++        issue({ id: 'R', seq: 2, stage: 'in_progress', audience: 'human', title: 'Root' }),
++      ),
++      row(
++        'session',
++        'sR',
++        session({
++          sessionId: 'sR',
++          issueId: 'R',
++          agentState: { phase: 'idle', since: iso(NOW - 60000) },
++          offer: { createdAt: iso(NOW - 60000) },
++        }),
++      ),
++    ])
++    expect(world.store.snapshot().rowsById['R']).toMatchObject({ phase: 'waiting', asking: true })
++    world.push({ type: 'update', rows: [row('session', 'sR', undefined)] })
++    // Intended: no sessions left — the row falls back to queued and quiet
++    // (sessionless active-human stays visible).
++    expect(world.store.snapshot().rowsById['R']).toMatchObject({ phase: 'queued', asking: false })
++    world.store.dispose()
++  })
++})
+diff --git a/packages/worklist-proto/arms/tanstack/store.ts b/packages/worklist-proto/arms/tanstack/store.ts
+index 4744ffbd6..d3b7a9530 100644
+--- a/packages/worklist-proto/arms/tanstack/store.ts
++++ b/packages/worklist-proto/arms/tanstack/store.ts
+@@ -343,8 +343,13 @@ export class TanStackStore {
+             this.rowsDirty.add(id)
+           }
+           if (issueRemovals.length > 0) this.orderDirty = true
++          // K3-E (foot-gun, exercise only): session removals drained but NOT
++          // driven — dropSession never runs, so the evicted session's verdict
++          // seats linger (sync deletes are silent upstream) and the aggregate
++          // stays waiting/asking forever. Nothing fires: the seats are read
++          // through live guards nowhere, and no test evicts a sole asker.
+           for (const sid of this.entities.sessions.takeRemoved()) {
+-            this.rollup.dropSession(sid)
++            void sid
+           }
+           this.entities.worktrees.takeRemoved()
+         })
