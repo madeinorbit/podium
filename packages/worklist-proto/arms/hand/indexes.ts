@@ -112,8 +112,34 @@ export class IndexSet {
         ? issue.worktreePath
         : null
     if ((seats?.worktree ?? null) !== nextWorktree) {
-      if (seats?.worktree != null) this.dropSeat(this.issuesByWorktree, seats.worktree, id)
-      if (nextWorktree !== null) this.takeSeat(this.issuesByWorktree, nextWorktree, id)
+      if (seats?.worktree != null) {
+        this.dropSeat(this.issuesByWorktree, seats.worktree, id)
+        // Late-arrival fix (POD-4502, from docs/decisions/4441-k-hand-diffs/
+        // C2-worktree-rows.diff §128): sessions already resolving at the old
+        // root keep their stored seat when the root survives (lane or
+        // co-seated issue), so resolveAllUnbound below — root-change only —
+        // leaves this issue's bucket stale while the bulk rebuild drops it.
+        // Drop directly; idempotent with that loop.
+        for (const [sid, home] of this.sessionHome) {
+          if (home.resolved === seats.worktree) {
+            if (this.dropSeat(this.resolvedByIssue, id, sid)) {
+              out.push({ kind: 'MembershipChanged', issueId: id })
+            }
+          }
+        }
+      }
+      if (nextWorktree !== null) {
+        this.takeSeat(this.issuesByWorktree, nextWorktree, id)
+        // Same-root attach for the new seat: sessions waiting at this root
+        // join the issue now, not on their next move.
+        for (const [sid, home] of this.sessionHome) {
+          if (home.resolved === nextWorktree) {
+            if (this.takeSeat(this.resolvedByIssue, id, sid)) {
+              out.push({ kind: 'MembershipChanged', issueId: id })
+            }
+          }
+        }
+      }
       this.rebuildRoots()
       out.push(...this.resolveAllUnbound((sid) => this.tables.sessions.rows.get(sid)))
     }

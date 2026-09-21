@@ -311,6 +311,36 @@ describe('hand-rolled arm: indexes', () => {
     world.oracle()
   })
 
+  it('late-arriving issue attaches sessions already resolved at its path (R3)', () => {
+    // POD-4502: an issue arriving AFTER unbound sessions have already
+    // resolved at its path never attached them — resolveAllUnbound only moves
+    // sessions whose root changed, so same-root arrivals (lane or co-seated
+    // issue keeps the root alive) left resolvedByIssue stale while the bulk
+    // rebuild attached them. From C2-worktree-rows.diff §128, lane rows
+    // excluded.
+    const lane = { path: '/w/alpha', repoId: 'r1', repoPath: '/repo', repoName: 'repo', prefix: 'POD' }
+    const world = testWorld([
+      rec('worktree', '/w/alpha', lane),
+      rec('session', 'su', session({ sessionId: 'su', cwd: '/w/alpha/sub', agentState: workingState })),
+    ])
+    // Late arrival at the lane path: without the same-root attach this stays
+    // [] while the rebuild oracle attaches ['su'].
+    world.push({ type: 'update', rows: [rec('issue', 'A', issue({ id: 'A', worktreePath: '/w/alpha' }))] })
+    expect(world.store.summary.membersOf('A').map((s) => s.sessionId)).toEqual(['su'])
+    world.oracle()
+    // Co-seated second issue at the same path attaches the same session.
+    world.push({ type: 'update', rows: [rec('issue', 'B', issue({ id: 'B', worktreePath: '/w/alpha' }))] })
+    expect(world.store.summary.membersOf('B').map((s) => s.sessionId)).toEqual(['su'])
+    expect(world.store.summary.membersOf('A').map((s) => s.sessionId)).toEqual(['su'])
+    world.oracle()
+    // Leaving issue drops its bucket even though the root survives via the
+    // lane and the co-seated issue.
+    world.push({ type: 'update', rows: [rec('issue', 'A', issue({ id: 'A', worktreePath: null }))] })
+    expect(world.store.summary.membersOf('A')).toEqual([])
+    expect(world.store.summary.membersOf('B').map((s) => s.sessionId)).toEqual(['su'])
+    world.oracle()
+  })
+
   it('re-buckets children on parent moves, orphans surface as roots', () => {
     const world = exampleWorld()
     world.push({
