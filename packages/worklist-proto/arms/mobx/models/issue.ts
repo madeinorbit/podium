@@ -108,6 +108,7 @@ export class IssueModel {
       sessions: false,
       origin: false,
       retainedMembers: false,
+      retainedLive: false,
       unreadSeats: false,
       hostedBy: false,
       keptByDescendant: false,
