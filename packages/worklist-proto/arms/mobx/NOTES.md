@@ -102,9 +102,34 @@ click 0 + 0/3, parity green throughout.
 211 visible rows — full-snapshot deep-equal with `snapshotFromStore` (rows,
 order, groups). The corpus the browser pages measure.
 
-### Browser (1x click input-to-paint)
+### Browser (1x click; `mobx-1x.json`, gitignored; lease held by the driver)
 
-(Table lands with the bench lease; counts above are the verdict meanwhile.)
+- Readiness + parity in Chromium: the mobx page boots at 1x fixture and
+  `snapshotHash` **matches the control exactly** (`f2b677f0`, 211 rows each,
+  same session — hashes drift with wall-clock `coarseNow` across boots, so
+  the comparison is only meaningful back-to-back).
+- Stock driver, same-row clicks, n=25, load 6.36–6.40 throughout:
+  p50 10.0 / p95 24.8 / max 34.5 (cold #0 210.1 with the single longTask;
+  warmed n=24: p50 10.0 / p95 24.8 / max 34.5). Budget p95 ≤ 16: NOT MET —
+  and not meetable here by any arm (see below).
+- Alternating real-flip clicks (i300↔i2, selection verified 0→1 in-page):
+  19–35ms input-to-paint, n=24, load ≤7.1.
+- Frame floor: no-op double-rAF in-page measures 12–34ms (~30fps headless
+  SwiftShader); the control's no-op clicks measure 15–19ms. Input-to-paint
+  is frame-bound in this harness — every arm and the control share the
+  floor, so the 16ms budget cannot discriminate arms here. It needs a 60fps
+  environment (or a frame-excluded task metric) to be meaningful.
+- The arm's own work per flip, measured synchronously in-page (dispatch
+  only, no rAF): 3.9ms cold → 0.4–0.8ms warmed. Sub-millisecond warmed;
+  frames and 211-row paint own the rest.
+- Two harness-wide observations (all arms + control, not arm defects):
+  1. `commits=0` on every browser click while the DOM provably flips
+     selection — the production Profiler/log path records nothing in
+     Chromium (happy-dom counts are unaffected and exact). Likely a G4
+     follow-up, not per-arm work.
+  2. Full 211-row mount on load (windowing engages on first scroll) —
+     identical on the hand page in this environment; effect-vs-layout race
+     at mount, harness-wide.
 
 ## Line count (arm folder, `wc -l`; tests excluded)
 
