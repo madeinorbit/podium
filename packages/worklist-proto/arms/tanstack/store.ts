@@ -152,6 +152,7 @@ export class TanStackStore {
           keys: () => this.entities.issues.keys(),
         },
         issuesEvents: this.entities.issues.collection,
+        memberQ: this.base.memberQ,
         childQ: this.base.childQ,
         verdictQ: this.base.verdictQ,
         visibleQ: this.base.visibleQ,
@@ -215,6 +216,17 @@ export class TanStackStore {
       } else {
         const { prefixMoved } = applyEventRows(this.entities, event.rows, this.prefix)
         if (prefixMoved) this.bumpWtVersion()
+        // Sync deletes apply silently (verified): drive removals explicitly.
+        const issueRemovals = this.entities.issues.takeRemoved()
+        for (const id of issueRemovals) {
+          this.rollup.ingestIssue(id, undefined)
+          this.rowsDirty.add(id)
+        }
+        if (issueRemovals.length > 0) this.orderDirty = true
+        for (const sid of this.entities.sessions.takeRemoved()) {
+          this.rollup.dropSession(sid)
+        }
+        this.entities.worktrees.takeRemoved()
       }
     })
     this.finishCycle()

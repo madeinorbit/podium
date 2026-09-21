@@ -30,6 +30,9 @@ type SyncParams<T extends object> = Parameters<SyncConfig<T, string>['sync']>[0]
 export class EntitySync<T extends object> {
   private params: SyncParams<T> | null = null
   private readonly known = new Set<string>()
+  /** Keys removed since the last drain. Sync deletes apply silently (no
+   *  subscriber event), so removals are driven explicitly from here. */
+  private readonly removedKeys = new Set<string>()
   readonly collection
 
   constructor(
@@ -89,6 +92,7 @@ export class EntitySync<T extends object> {
         if (!this.known.has(op.key)) continue
         tx.write({ type: 'delete', key: op.key })
         this.known.delete(op.key)
+        this.removedKeys.add(op.key)
         moved = true
         continue
       }
@@ -113,11 +117,20 @@ export class EntitySync<T extends object> {
     tx.begin()
     tx.truncate()
     this.known.clear()
+    this.removedKeys.clear()
     for (const row of rows) {
       tx.write({ type: 'insert', value: row.value })
       this.known.add(row.key)
     }
     tx.commit()
+  }
+
+  /** Drain keys removed since the last call (explicit removal driving). */
+  takeRemoved(): string[] {
+    if (this.removedKeys.size === 0) return []
+    const out = [...this.removedKeys]
+    this.removedKeys.clear()
+    return out
   }
 
   get size(): number {

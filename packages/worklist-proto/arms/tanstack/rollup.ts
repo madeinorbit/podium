@@ -29,6 +29,7 @@ import type { Collection } from '@tanstack/db'
 import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
 import { EntitySync, type PrefixIndex } from './collections'
 import type { ChildRow, LiveQuery, QueryChange, SummaryRow, VerdictRow } from './queries'
+import type { MemberRow } from './queries'
 import {
   closedFoldAt,
   displayRefOf,
@@ -109,6 +110,7 @@ interface Change<T> {
 export interface RollupInputs {
   issues: IssueRead
   issuesEvents: LiveQuery
+  memberQ: LiveQuery
   childQ: LiveQuery
   verdictQ: LiveQuery
   visibleQ: LiveQuery
@@ -168,6 +170,23 @@ export class RollupSync {
           const id = String(c.key)
           const irow = c.value as SliceIssue | undefined
           this.ingestIssue(id, c.type === 'delete' ? undefined : irow)
+        }
+      }),
+      // Owner moves arrive here first (memberQ is upstream of verdictQ):
+      // drop the stale seat when the verdict row's owner no longer matches.
+      // Value-only member changes share the verdict owner and are ignored.
+      // Deletes are silent upstream — session removals arrive explicitly via
+      // dropSession, issue removals via ingestIssue.
+      this.inputs.memberQ.subscribeChanges((changes) => {
+        for (const c of changes) {
+          if (c.type === 'delete') continue
+          const v = c.value as MemberRow | undefined
+          if (v === undefined) continue
+          // New sessions have no seat yet (the verdict insert seats them);
+          // owner moves drop the stale seat (the verdict update re-seats).
+          if (this.sidOwner.has(v.sid) && this.sidOwner.get(v.sid) !== v.owner) {
+            this.dropSession(v.sid)
+          }
         }
       }),
       this.inputs.childQ.subscribeChanges((changes) => this.ingestChild(changes)),
@@ -876,19 +895,96 @@ export class RollupSync {
       this.outgoingDeps.delete(id)
     }
     if (issue === undefined) {
+      this.dropOwnerSeats(id)
+      this.dropChildEdge(id)
+      this.originOf.delete(id)
+      this.outgoingDeps.delete(id)
+      for (const [to, edges] of [...this.dependentsOf]) {
+        const kept = edges.filter((entry) => entry.id !== id)
+        if (kept.length === 0) this.dependentsOf.delete(to)
+        else this.dependentsOf.set(to, kept)
+      }
       this.final.delete(id)
       this.flat.delete(id)
       this.purge(id)
       this.aggregates.delete(id)
+      this.bandById.delete(id)
+      this.repoKeyById.delete(id)
       this.rewrite(id)
       this.flushBatch()
       return
+    }
+    // R1 edge from the issue row itself: childQ drops archived rows
+    // silently, so the edge is reconciled here (childQ events dedup
+    // against this — a live move arrives twice and the second is a no-op).
+    const liveEdge =
+      issue.archived !== true && issue.deletedAt == null && issue.parentId != null
+        ? issue.parentId
+        : null
+    const prevEdge = this.parentOf.get(id) ?? null
+    if (prevEdge !== liveEdge) {
+      if (prevEdge !== null) {
+        this.dropSeat(this.childrenByParent, prevEdge, id)
+        this.fullChains.add(prevEdge)
+      }
+      if (liveEdge !== null) {
+        this.takeSeat(this.childrenByParent, liveEdge, id)
+        this.parentOf.set(id, liveEdge)
+        this.fullChains.add(liveEdge)
+      } else {
+        this.parentOf.delete(id)
+      }
     }
     // Stage/blocked/needsHuman/closedReason/tick/rank inputs may move the
     // aggregate, the tick and the denormalized row: seed the own chain.
     this.dirtyChains.add(id)
     this.rewrite(id)
     this.flushBatch()
+  }
+
+  /** Drop one session's seat (explicit removal driving — verdict deletes
+   *  are silent). No-ops when the session holds no seat. */
+  dropSession(sid: string): void {
+    const owner = this.sidOwner.get(sid)
+    if (owner === undefined) return
+    this.sidOwner.delete(sid)
+    const seats = this.memberSeats.get(owner)
+    if (seats !== undefined) {
+      seats.delete(sid)
+      if (seats.size === 0) this.memberSeats.delete(owner)
+      this.countIndex()
+    }
+    this.dirtyChains.add(owner)
+    this.flushBatch()
+  }
+
+  /** Drop every member seat of a removed owner. */
+  private dropOwnerSeats(owner: string): void {
+    const seats = this.memberSeats.get(owner)
+    if (seats === undefined) return
+    for (const sid of seats.keys()) this.sidOwner.delete(sid)
+    this.memberSeats.delete(owner)
+    this.countIndex()
+    this.dirtyChains.add(owner)
+  }
+
+  /** Drop one node's R1 edge; orphaned children surface as roots. */
+  private dropChildEdge(id: string): void {
+    const prev = this.parentOf.get(id)
+    if (prev !== undefined) {
+      this.parentOf.delete(id)
+      this.dropSeat(this.childrenByParent, prev, id)
+      this.fullChains.add(prev)
+    }
+    const orphans = this.childrenByParent.get(id)
+    if (orphans !== undefined) {
+      this.childrenByParent.delete(id)
+      this.countIndex()
+      for (const child of orphans) {
+        this.parentOf.delete(child)
+        this.dirtyChains.add(child)
+      }
+    }
   }
 
   /** Prefix bumps re-tick named rows (displayRef join moved). */
