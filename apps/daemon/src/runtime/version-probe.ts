@@ -1,14 +1,18 @@
 import { execFile } from 'node:child_process'
 import {
   type CodexProbeVerdict,
+  codexEngineFacts,
   evaluateCodexVersionProbe,
   evaluateGrokAcpVersionProbe,
   type GrokAcpProbeVerdict,
+  grokEngineFacts,
   evaluateOpencode2VersionProbe,
   evaluateOpencodeVersionProbe,
   type OpencodeProbeVerdict,
   type OpencodeVersionDiagnostic,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
+  opencode2Flavor,
+  opencodeFlavor,
 } from '@podium/harness/driver/host'
 import { reportHarnessProbe } from '../harness-version-reporting'
 
@@ -126,7 +130,8 @@ const codexProbeCache = createVersionProbeCache<CodexProbeVerdict>({
 })
 
 export function codexAppServerVersionProbe(
-  probe: VersionProbe = () => execVersionProbe('codex', VERSION_PROBE_TIMEOUT_MS),
+  probe: VersionProbe = () =>
+    execVersionProbe(codexEngineFacts().executableName, VERSION_PROBE_TIMEOUT_MS),
   policy?: VersionProbePolicy,
 ): Promise<CodexProbeVerdict> {
   return codexProbeCache.probe(probe, policy)
@@ -142,7 +147,8 @@ const grokProbeCache = createVersionProbeCache<GrokAcpProbeVerdict>({
 })
 
 export function grokAcpVersionProbe(
-  probe: VersionProbe = () => execVersionProbe('grok', VERSION_PROBE_TIMEOUT_MS),
+  probe: VersionProbe = () =>
+    execVersionProbe(grokEngineFacts().executableName, VERSION_PROBE_TIMEOUT_MS),
   policy?: VersionProbePolicy,
 ): Promise<GrokAcpProbeVerdict> {
   return grokProbeCache.probe(probe, policy)
@@ -157,7 +163,8 @@ const opencodeProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
 })
 
 export function opencodeVersionProbe(
-  probe: VersionProbe = () => execVersionProbe('opencode', VERSION_PROBE_TIMEOUT_MS),
+  probe: VersionProbe = () =>
+    execVersionProbe(opencodeFlavor().executableName, VERSION_PROBE_TIMEOUT_MS),
   policy?: VersionProbePolicy,
 ): Promise<OpencodeProbeVerdict> {
   return opencodeProbeCache.probe(probe, policy)
@@ -178,7 +185,8 @@ const opencode2ProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
 })
 
 export function opencode2VersionProbe(
-  probe: VersionProbe = () => execVersionProbe('opencode2', VERSION_PROBE_TIMEOUT_MS),
+  probe: VersionProbe = () =>
+    execVersionProbe(opencode2Flavor().executableName, VERSION_PROBE_TIMEOUT_MS),
   policy?: VersionProbePolicy,
 ): Promise<OpencodeProbeVerdict> {
   return opencode2ProbeCache.probe(probe, policy)

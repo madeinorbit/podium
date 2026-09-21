@@ -197,7 +197,15 @@ export function selectionAuthForLogin(
   state: 'in' | 'out' | 'unknown' | undefined,
   env?: Readonly<Record<string, string | undefined>>,
 ): SelectionContext['auth'] {
-  if (agentKind === 'claude-code') {
+  // Keyed off the embedded declaration, not a harness name: today only the
+  // Claude manifest declares an embeddable SDK, which is exactly what makes
+  // its stored OAuth login (and its frame env) subscription auth for
+  // selection. The day a second harness declares one, its own login-to-auth
+  // mapping belongs in its adapter, and this branch must split — the env
+  // decoding below reads Claude-shaped variables.
+  const manifest = manifestFor(agentKind)
+  const embedded = manifest ? declaredValue(manifest.runtime.embedded) : undefined
+  if (embedded) {
     const fromEnv = claudeAuthFromEnv(env)
     if (fromEnv) return fromEnv
     if (state === 'in') return 'subscription'

@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ResolvedHarnessInventory } from '../inventory/build-inventory.js'
+import type { ResolvedHarnessInventory } from '../../inventory/build-inventory.js'
 import { cursorCreateChatInvocation, parseCursorChatId } from './chat.js'
 
 function snapshot(): ResolvedHarnessInventory {

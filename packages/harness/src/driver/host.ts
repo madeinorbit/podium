@@ -65,4 +65,4 @@ export * from '../adapters/pi/stream.js'
 export {
   cursorCreateChatInvocation,
   parseCursorChatId,
-} from '../cursor/chat.js'
+} from '../adapters/cursor/chat.js'

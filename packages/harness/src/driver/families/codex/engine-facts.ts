@@ -20,6 +20,8 @@ export interface CodexEngineFacts {
   /** `runtime.server.spawn` stem: the command that starts the engine. */
   command: string
   serverArgs: string[]
+  /** Bare executable name, resolved to a path by the supervisor's inventory. */
+  executableName: string
   /** Env vars that override the stored login and must not reach the child. */
   stripEnv: readonly string[]
   /** `podium-<token>-<sessionId>`: the scope label, from the client-terminal
@@ -43,6 +45,8 @@ export function codexEngineFacts(): CodexEngineFacts {
   if (!manifest) throw new Error("no harness adapter for 'codex'")
   const server = required(declaredValue(manifest.runtime.server), 'runtime.server')
   const [command, ...serverArgs] = server.spawn
+  const executableName =
+    manifest.inventory.executable.names[0] ?? required(command, 'runtime.server.spawn[0]')
   const clientTerminal = required(
     declaredValue(server.clientTerminal),
     'runtime.server.clientTerminal',
@@ -51,6 +55,7 @@ export function codexEngineFacts(): CodexEngineFacts {
     harnessKind: manifest.kind,
     command: required(command, 'runtime.server.spawn[0]'),
     serverArgs,
+    executableName,
     stripEnv: manifest.inventory.foreignCredentialEnv,
     scopeToken: clientTerminal.labelToken,
     journalNamespace: 'codex-app-servers',
