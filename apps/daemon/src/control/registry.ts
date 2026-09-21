@@ -1,15 +1,15 @@
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { handleCredentialExport, handleCredentialInstall } from '@podium/harness/inventory'
 import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
 import type { ControlHandlers, DaemonContext } from './context'
-import { credentialHandlers } from './credentials'
 import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
 import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
 import { headlessHandlers } from './headless'
-import { inventoryHandlers } from './inventory'
+import { inventoryHandlers, reportInventory } from './inventory'
 import { serverEndpointHandlers } from './server-endpoint'
 import { logHandlers } from './logs'
 import { sessionHandlers } from './session'
@@ -17,6 +17,44 @@ import { shippingHandlers } from './shipping'
 import { transcriptHandlers } from './transcripts'
 import { updateHandlers } from './update'
 import { workspaceHandlers } from './workspace'
+
+/**
+ * Credential export/install frames are served by the harness Inventory
+ * mechanism (`@podium/harness/inventory`), which reads adapter credential
+ * sections — the daemon only injects its ports (home, runtime snapshot for
+ * the read environment, inventory re-probe after an install) and sends the
+ * resulting frame. No harness is named here; kinds flow as values.
+ */
+function credentialPorts(ctx: DaemonContext) {
+  return {
+    ...(ctx.homeDir !== undefined ? { homeDir: ctx.homeDir } : {}),
+    snapshotRuntime: async () => {
+      const snapshot = await ctx.harnessRuntime?.current().catch(() => undefined)
+      if (!snapshot) return undefined
+      return {
+        env: snapshot.commandEnvironment.env,
+        versions: new Map(
+          [...snapshot.executables].map(
+            ([kind, executable]) => [kind, executable.version] as const,
+          ),
+        ),
+      }
+    },
+    reportInventory: () => reportInventory(ctx, { rebuild: true }),
+  }
+}
+
+const credentialHandlers: Pick<
+  ControlHandlers,
+  'credentialExportRequest' | 'credentialInstallRequest'
+> = {
+  credentialExportRequest: (ctx, msg) => {
+    void handleCredentialExport(credentialPorts(ctx), msg).then((result) => ctx.send(result))
+  },
+  credentialInstallRequest: (ctx, msg) => {
+    void handleCredentialInstall(credentialPorts(ctx), msg).then((result) => ctx.send(result))
+  },
+}
 
 /**
  * THE control-frame registry (#195): one handler per frame type, grouped into

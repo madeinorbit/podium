@@ -17,6 +17,20 @@ import {
 } from '../../credential-freshness.js'
 import { supported, type HarnessCredentials } from '../../manifest.js'
 import { ClaudeKeychainCredentialStore } from './keychain-credential-store.js'
+import type { ClaudeStorageLockFactory } from './keychain-lock.js'
+import type { SecurityRunner } from './keychain-security.js'
+
+/**
+ * Test seam for the keychain transfer: overrides the production `security`
+ * runner / storage lock factory. Module-global by necessity — the transfer
+ * strategy is constructed by the inventory mechanism, which forwards no
+ * harness-local options. Tests that set this must reset it in `afterEach`;
+ * production never sets it.
+ */
+export const claudeKeychainSeams: {
+  runner?: SecurityRunner
+  lockFactory?: ClaudeStorageLockFactory
+} = {}
 
 /**
  * Project Claude's onboarding state down to the portable subset.
@@ -94,6 +108,12 @@ export const claudeCredentials: HarnessCredentials = {
         ...(ctx.osUsername !== undefined ? { osUsername: ctx.osUsername } : {}),
         ...(ctx.versions.get('claude-code') !== undefined
           ? { resolvedClaudeVersion: ctx.versions.get('claude-code') as string }
+          : {}),
+        ...(claudeKeychainSeams.runner !== undefined
+          ? { runner: claudeKeychainSeams.runner }
+          : {}),
+        ...(claudeKeychainSeams.lockFactory !== undefined
+          ? { lockFactory: claudeKeychainSeams.lockFactory }
           : {}),
       })
     },

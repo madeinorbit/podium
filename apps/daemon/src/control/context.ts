@@ -193,7 +193,7 @@ export interface DaemonContext {
       buckets: UsageBucketWire[]
       sources: import('@podium/model').UsageSourceWire[]
     }
-    cache?: import('../usage-scan').UsageScanCache
+    cache?: import('@podium/harness/inventory').UsageScanCache
   }
 
   /** Process-wide admission/drain fence for daemon-owned portable-state mutations. */

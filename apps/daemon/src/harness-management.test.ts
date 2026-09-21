@@ -52,8 +52,7 @@ import {
   reportInventory,
   runtimeDriverInventory,
 } from './control/inventory.js'
-import { scanQuotaHistory } from './quota-history-scan.js'
-import { scanHostUsageSources } from './usage-scan.js'
+import { scanHostUsageSources, scanQuotaHistory } from '@podium/harness/inventory'
 
 describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
   describe('resolveManagementCredentialHome prefers the provisioned account home', () => {
