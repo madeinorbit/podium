@@ -246,13 +246,35 @@ function seedCorpus(cache: ScenarioCache, spec: CorpusSpec): void {
   // Issues: wire + projection dual-written. Every 5th is a formal child of
   // its predecessor (R1); every 20th archived (invisible); every 25th done +
   // tucked (closed fold); two pinned; three snoozed (band 2); a few
-  // discovered-from edges (R4) on the first issues.
+  // discovered-from edges (R4) on the first issues; one worktreePath per repo
+  // (R3 prefix ownership targets for the unbound sessions below).
+  //
+  // R4 NOTE (POD-4491): the `issueDep` rows below are NOT enough on their own.
+  // The engine's `Store.issues` are raw `IssueWire` rows and the row source
+  // passes them through unchanged, so arms only see an edge when the wire
+  // itself carries `deps` (the way the authority derives `wire.deps` from
+  // `issue_deps` and the way the G2 fixture seeds both spellings). The seed
+  // therefore dual-carries each edge: the normalized `issueDep` row for the
+  // kernel mapping, and the derived `deps` array on the owner's wire for the
+  // arms. Without the latter `originOf` stays empty and ticks stay null.
+  //
+  // R3 NOTE (POD-4491): unbound sessions resolve against issues by
+  // longest-prefix containment on `worktreePath`. Lanes alone are not enough;
+  // without an issue carrying the lane's path `issuesByWorktree` stays empty
+  // and every unbound session stays orphaned (`verdictR` 0).
   for (let i = 0; i < spec.issues; i += 1) {
     const id = `i${i}`
     const repo = i % spec.repos
     const archived = i % 20 === 19
     const done = i % 25 === 24
     const stage = archived ? 'in_progress' : done ? 'done' : i % 3 === 0 ? 'review' : 'in_progress'
+    // Outgoing discovered-from edge (R4): i1->i0, i2->i1, ... i5->i4, mirroring
+    // the `issueDep` rows seeded below. Kept in one place so the two spellings
+    // cannot drift: the edge list below is derived from this same predicate.
+    const origin = i >= 1 && i <= 5 ? `i${i - 1}` : null
+    // R3 anchor: the first issue of each repo claims that repo's wt-0 lane, so
+    // the unbound sessions (cwd `<repo>/wt-0/sub`) resolve to a live issue.
+    const worktreePath = i < spec.repos ? `${repoPath(repo)}/wt-0` : null
     const wire = {
       id,
       seq: i + 1,
@@ -268,6 +290,8 @@ function seedCorpus(cache: ScenarioCache, spec: CorpusSpec): void {
       ...(i % 9 === 8 ? { deferUntil: iso(T0 + 3600_000, 0) } : {}),
       repoId: `r${repo}`,
       repoPath: repoPath(repo),
+      ...(worktreePath !== null ? { worktreePath } : {}),
+      ...(origin !== null ? { deps: [{ id: origin, type: 'discovered-from' }] } : {}),
       readAt: i % 4 === 0 ? null : iso(T0, i * 1000),
       unread: i % 4 === 0,
       needsHuman: i % 7 === 6,
@@ -289,8 +313,12 @@ function seedCorpus(cache: ScenarioCache, spec: CorpusSpec): void {
     put('issue', id, wire)
     put('issueProjection', id, projection)
   }
-  for (let d = 0; d < Math.min(5, spec.issues - 1); d += 1) {
-    put('issueDep', `dep${d}`, { id: `dep${d}`, fromId: `i${d + 1}`, toId: `i${d}`, type: 'discovered-from' })
+  // Normalized edge rows (R4): the same 1..5 predicate as the wire `deps`
+  // above, so the two spellings cannot drift. The kernel maps `issueDep` to
+  // the `issueDeps` collection (kinds.ts); the wire array above is what the
+  // arms actually read (Store.issues pass through the row source unchanged).
+  for (let i = 1; i <= Math.min(5, spec.issues - 1); i += 1) {
+    put('issueDep', `dep${i - 1}`, { id: `dep${i - 1}`, fromId: `i${i}`, toId: `i${i - 1}`, type: 'discovered-from' })
   }
   // Sessions: most bound to an issue (R2); every 7th unbound but cwd under a
   // worktree (R3 prefix ownership); every 11th a shell (excluded from
