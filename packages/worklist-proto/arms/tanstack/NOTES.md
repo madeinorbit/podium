@@ -130,6 +130,25 @@ and parity ×3; see `harness/native/tanstack.native.test.tsx`).
 
 211 visible rows — full-snapshot deep-equal with `snapshotFromStore`.
 
+### Browser (1x click; `tanstack-1x.json`, gitignored; lease held by the driver)
+
+(Timing pending a quiet box — load has been 8–15 through this session.
+Counts above are the verdict-carrying half; this section fills in on the
+browser run before landing.)
+
+### Bundle (production vite build, `harness/web/dist/assets`)
+
+| Entry | JS | gzip |
+|---|---|---|
+| tanstack arm chunk | 312 KB | 86 KB |
+| hand arm chunk | 46 KB | 12 KB |
+| mobx arm chunk | 74 KB | 21 KB |
+
+Adopting TanStack DB ships the IVM + query compiler (~240 KB over the
+hand arm). No new dependency (already used by the legacy replica
+adapter, though that adapter is scheduled for deletion) — but the
+WEIGHT is new for the worklist surface. One input to the decision.
+
 ## Line count (arm folder, `wc -l`; tests excluded)
 
 | Module | Total | Code-only |
@@ -156,7 +175,6 @@ criteria require to be separate — deferred to H4 review (open question
 — grep clean).
 
 ## Open questions for H4
-
 1. Line budget vs fidelity (shared with both arms): is ~3,300 acceptable
    for a parity-exact TanStack slice, or should M2 compress (and what may
    be dropped — queries, denorm, or rule fidelity)?
