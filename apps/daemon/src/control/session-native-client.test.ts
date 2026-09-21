@@ -46,6 +46,8 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     lease: { release },
   }
   const sent: unknown[] = []
+  const sessions = testSessions()
+  sessions.ensure(SESSION).nativeRequested = true
   const ctx = {
     outputScheduler: { setPriority: vi.fn(), flushNow: vi.fn() },
     // POD-3239: a driver-owned session that takes a resize reports the grid it
@@ -53,13 +55,11 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     // outbound channel.
     send: (msg: unknown) => sent.push(msg),
     clientTerminals,
-    nativeClientRequests: new Set([SESSION]),
-    nativeClientTransitions: new Map(),
     agentRuntime: {
       handleFor: (id: string) => (id === SESSION ? handle : undefined),
       has: (id: string) => id === SESSION,
     },
-    sessions: testSessions(),
+    sessions,
     observers: { recordInputOrigin: vi.fn() },
     composerEngine: { onInputByte: vi.fn(), onResize: vi.fn() },
   } as unknown as DaemonContext
@@ -76,7 +76,7 @@ const stateOf = (phase: AgentPhase): AgentRuntimeState => ({
 /** Let the in-flight attach/release transition finish before asserting on what
  *  it recorded — the reconcile calls `attach()` before it takes its own slot. */
 const settled = (ctx: DaemonContext) =>
-  vi.waitFor(() => expect(ctx.nativeClientTransitions?.size).toBe(0))
+  vi.waitFor(() => expect(ctx.sessions.get(SESSION)?.nativeTransition).toBeUndefined())
 
 /** Open Native on this session, exactly as the browser's view switch does. */
 function openNative(ctx: DaemonContext, nativeView = true): void {
@@ -176,7 +176,7 @@ describe('server-family native client control', () => {
 
   it('drops stale client-terminal input after Chat releases Native', () => {
     const { ctx, clientTerminals } = world()
-    ctx.nativeClientRequests?.delete(SESSION)
+    ctx.sessions.get(SESSION)!.nativeRequested = false
     sessionHandlers.input(ctx, {
       type: 'input',
       sessionId: SESSION,
@@ -203,18 +203,18 @@ describe('a native attach the session refused', () => {
     expect(attach).toHaveBeenCalledTimes(1)
     expect(clientTerminals.viewers).toHaveBeenLastCalledWith(SESSION, true)
     // Refused, but owed: the request is still live and recorded as such.
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
 
     // Mid-turn states are the refusal restated — spending the small budget on
     // them would exhaust it before the session ever became attachable. `errored`
     // and `unknown` are not retried either: only a codex session can be in this
-    // map, and the codex driver assigns neither phase, so an arm for them would
+    // count, and the codex driver assigns neither phase, so an arm for them would
     // be a claim no reachable session can take.
     for (const phase of ['working', 'compacting', 'needs_user', 'errored', 'unknown'] as const) {
       nativeClientStateObserved(ctx, SESSION, stateOf(phase))
     }
     expect(attach).toHaveBeenCalledTimes(1)
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
 
     // The turn ends. NO USER ACTION: the same frame the badge already rides.
     nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
@@ -225,7 +225,7 @@ describe('a native attach the session refused', () => {
       holder: `podium-native:${SESSION}`,
     })
     // Attached: nothing is owed, so a later idle does not re-attach.
-    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBeUndefined()
     nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
     expect(attach).toHaveBeenCalledTimes(2)
   })
@@ -240,7 +240,7 @@ describe('a native attach the session refused', () => {
     // `lease_held` names another human-controller: retrying against it is the
     // interleaving the lease exists to prevent. Same for a machine that cannot
     // host a client terminal at all.
-    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBeUndefined()
 
     nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
     nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
@@ -260,7 +260,7 @@ describe('a native attach the session refused', () => {
       await settled(ctx)
     }
     expect(attach).toHaveBeenCalledTimes(4)
-    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBeUndefined()
   })
 
   it('drops the pending retry when the user goes back to Chat', async () => {
@@ -269,12 +269,12 @@ describe('a native attach the session refused', () => {
 
     openNative(ctx)
     await settled(ctx)
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
 
     openNative(ctx, false)
     await vi.waitFor(() => expect(release).toHaveBeenCalledWith(`podium-native:${SESSION}`))
     // Firing the retry now would take the lease behind the user's back.
-    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBeUndefined()
     nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
     expect(attach).toHaveBeenCalledTimes(1)
   })
@@ -285,7 +285,7 @@ describe('a native attach the session refused', () => {
 
     openNative(ctx)
     await settled(ctx)
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
 
     // THE PHASE CANNOT CARRY THIS ONE. A session with an open ask reports
     // `needs_user`, which is the refusal restated, and codex emits no state event
@@ -301,7 +301,7 @@ describe('a native attach the session refused', () => {
 
   it('ignores an answer for a session that never asked for Native', async () => {
     const { ctx, attach, release, clientTerminals } = world(CODEX)
-    ctx.nativeClientRequests?.delete(SESSION)
+    ctx.sessions.get(SESSION)!.nativeRequested = false
 
     // No refused request, nothing owed: an answer is just an answer. WITHOUT the
     // guard the reconcile would take its RELEASE arm instead of returning —
@@ -330,7 +330,7 @@ describe('a native attach the session refused', () => {
 
     openNative(ctx)
     await settled(ctx)
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
 
     // Three approvals answered, three attaches refused `busy` because each answer
     // restarted the turn. None of them may cost an attempt.
@@ -340,14 +340,14 @@ describe('a native attach the session refused', () => {
       await settled(ctx)
     }
     expect(attach).toHaveBeenCalledTimes(4)
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
 
     // The turn ends. This is the frame the whole issue is about.
     attach.mockResolvedValue({ kind: 'client', stream: { id: SESSION } } as never)
     nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
     await settled(ctx)
     expect(attach).toHaveBeenCalledTimes(5)
-    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBeUndefined()
   })
 
   it('still caps the state frames an answer did not pay for', async () => {
@@ -360,15 +360,15 @@ describe('a native attach the session refused', () => {
     // the flapping cap the answers bypassed is still exactly three deep.
     nativeClientInteractionAnswered(ctx, SESSION)
     await settled(ctx)
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
 
     for (let i = 0; i < 5; i += 1) {
       nativeClientStateObserved(ctx, SESSION, stateOf('idle'))
       await settled(ctx)
     }
-    // 1 open + 1 free answer + 3 charged state frames, then the entry is gone.
+    // 1 open + 1 free answer + 3 charged state frames, then the count is gone.
     expect(attach).toHaveBeenCalledTimes(5)
-    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBeUndefined()
   })
 
   /**
@@ -418,10 +418,10 @@ describe('a native attach the session refused', () => {
 
     openNative(ctx)
     await settled(ctx)
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
 
     nativeClientStateObserved(ctx, SESSION, stateOf('ended'))
-    expect(ctx.nativeClientRetries?.has(SESSION)).toBe(false)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBeUndefined()
     expect(attach).toHaveBeenCalledTimes(1)
   })
 })

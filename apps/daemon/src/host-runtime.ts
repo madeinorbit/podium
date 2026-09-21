@@ -1003,9 +1003,6 @@ export async function createDaemonHostRuntime(args: {
     // server cache.
     ...daemonHarnessLoginContext(homeDir, credentialHome),
     instanceUuid: instance.instanceUuid,
-    nativeClientRequests: new Set<SessionId>(),
-    nativeClientTransitions: new Map<SessionId, Promise<void>>(),
-    nativeClientRetries: new Map<SessionId, number>(),
     composerEngine,
     outputScheduler,
     observers,

@@ -185,6 +185,12 @@ export class DaemonSession {
   /** The client-terminal policy, while a native client is attached, parked
    *  warm, or starting. Undefined otherwise; the relay disarms its timer first. */
   client: ClientTerminalPolicy | undefined = undefined
+  /** Whether Native is requested (admission: a stream descriptor alone grants no input). */
+  nativeRequested = false
+  /** In-flight attach/release transition, so concurrent reconciles produce ONE. */
+  nativeTransition: Promise<void> | undefined = undefined
+  /** Transient refusals spent (POD-2489); undefined = nothing owed. */
+  nativeRetryCount: number | undefined = undefined
 
   /**
    * THE §4.8 ENGINE HOLD (this issue): the session layer's verbs over the
@@ -266,6 +272,8 @@ export class DaemonSession {
     this.clientLabel = undefined
     this.client = undefined
     this.keptEngine = undefined
+    this.nativeRequested = false
+    this.nativeRetryCount = undefined
   }
 
   /**

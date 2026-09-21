@@ -188,10 +188,10 @@ export function nativeClientStateObserved(
   sessionId: SessionId,
   state: AgentRuntimeState,
 ): void {
-  const retries = ctx.nativeClientRetries
-  if (!retries?.has(sessionId)) return
+  const entry = ctx.sessions.get(sessionId)
+  if (entry?.nativeRetryCount === undefined) return
   if (state.phase === 'ended') {
-    retries.delete(sessionId)
+    entry.nativeRetryCount = undefined
     return
   }
   if (state.phase !== 'idle') return
@@ -231,7 +231,7 @@ export function nativeClientStateObserved(
  * server session.
  */
 export function nativeClientInteractionAnswered(ctx: DaemonContext, sessionId: SessionId): void {
-  if (!ctx.nativeClientRetries?.has(sessionId)) return
+  if (ctx.sessions.get(sessionId)?.nativeRetryCount === undefined) return
   reconcileNativeClientTerminal(ctx, sessionId, { spendBudget: false })
 }
 
@@ -276,21 +276,20 @@ export function reconcileNativeClientTerminal(
   sessionId: SessionId,
   { spendBudget = true }: { spendBudget?: boolean } = {},
 ): void {
-  const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
-  const transitions = (ctx.nativeClientTransitions ??= new Map<SessionId, Promise<void>>())
-  if (transitions.has(sessionId)) return
+  const entry = ctx.sessions.get(sessionId)
+  if (!entry || entry.nativeTransition) return
   let applied: boolean | undefined
   /**
    * A REFUSAL RETURNS WITHOUT SETTING `applied`, so the `.finally` re-run guard
    * below declines and a request the user cancelled DURING a refusing attach
-   * leaves its map entry behind. It self-heals: the entry is only ever read by
+   * leaves its retry count behind. It self-heals: the count is only ever read by
    * the two re-arm functions above, both of which route into this reconcile,
-   * which re-reads the request set and takes the release arm. The same window
+   * which re-reads the entry flag and takes the release arm. The same window
    * used to leave the lease unreleased with nothing to notice.
    */
   const transition = (async () => {
     for (;;) {
-      const wanted = requests.has(sessionId)
+      const wanted = ctx.sessions.get(sessionId)?.nativeRequested === true
       const handle = handleFor(ctx, sessionId)
       if (!handle || handle.binding.family !== 'server') return
       if (wanted) {
@@ -301,16 +300,15 @@ export function reconcileNativeClientTerminal(
         })
         driverTiming.attachResult(handle.binding, result)
         if ('reason' in result) {
-          const retries = (ctx.nativeClientRetries ??= new Map<SessionId, number>())
-          const held = retries.get(sessionId) ?? 0
+          const owned = ctx.sessions.get(sessionId)
+          const held = owned?.nativeRetryCount ?? 0
           const transient = TRANSIENT_ATTACH_REFUSALS.has(result.reason)
           // A free attempt still leaves the request armed at the count it had:
           // an answered ask neither proves the session unreachable nor costs one
           // of the three tries the flapping cap is there to ration.
           const spent = spendBudget ? held + 1 : held
           const rearmed = transient && spent <= NATIVE_ATTACH_RETRY_LIMIT
-          if (rearmed) retries.set(sessionId, spent)
-          else retries.delete(sessionId)
+          if (owned) owned.nativeRetryCount = rearmed ? spent : undefined
           log.warn('could not attach the native client terminal', {
             sessionId,
             reason: result.reason,
@@ -324,8 +322,8 @@ export function reconcileNativeClientTerminal(
           return
         }
         // Attached: the request is honoured, so nothing is owed a retry.
-        ctx.nativeClientRetries?.delete(sessionId)
         const owned = ctx.sessions.get(sessionId)
+        if (owned) owned.nativeRetryCount = undefined
         const pending = owned?.pendingResize
         if (pending && owned) {
           const record = appliedGeometryFor(ctx)
@@ -365,7 +363,8 @@ export function reconcileNativeClientTerminal(
         // LEAVING NATIVE RETIRES A PENDING RETRY. The bounded re-arm above exists
         // to honour a request the user still has open; firing it after they went
         // back to Chat would take the lease behind their back.
-        ctx.nativeClientRetries?.delete(sessionId)
+        const leaving = ctx.sessions.get(sessionId)
+        if (leaving) leaving.nativeRetryCount = undefined
         /**
          * REVOKING THE WRITER IS THE OBLIGATION; KILLING THE CLIENT WAS ONE WAY
          * OF MEETING IT (POD-2823, POD-3045).
@@ -395,18 +394,18 @@ export function reconcileNativeClientTerminal(
         await handle.lease.release(nativeClientHolder(sessionId))
       }
       applied = wanted
-      if (wanted === requests.has(sessionId)) return
+      if (wanted === (ctx.sessions.get(sessionId)?.nativeRequested === true)) return
     }
   })()
     .catch((err) => log.warn('native client terminal transition failed', { err, sessionId }))
     .finally(() => {
-      transitions.delete(sessionId)
+      entry.nativeTransition = undefined
       // A request can change after the final equality check but before cleanup.
       // Re-run once the slot is free; attach and release are both idempotent.
-      if (applied !== undefined && requests.has(sessionId) !== applied)
+      if (applied !== undefined && (ctx.sessions.get(sessionId)?.nativeRequested === true) !== applied)
         reconcileNativeClientTerminal(ctx, sessionId)
     })
-  transitions.set(sessionId, transition)
+  entry.nativeTransition = transition
 }
 
 /**
@@ -2769,11 +2768,13 @@ async function stopSessionProcessOnce(
   const runtimeHandle = ctx.agentRuntime?.handleFor(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
   ctx.agentRuntime?.clearTerminal(msg.sessionId)
-  if (owned) owned.pendingResize = undefined
-  ctx.nativeClientRequests?.delete(msg.sessionId)
-  // The request is gone, so the retry it was owed is too — there is no session
-  // left to become idle, and a stale entry would outlive the id.
-  ctx.nativeClientRetries?.delete(msg.sessionId)
+  if (owned) {
+    owned.pendingResize = undefined
+    owned.nativeRequested = false
+    // The request is gone, so the retry it was owed is too — there is no session
+    // left to become idle, and a stale count would outlive the id.
+    owned.nativeRetryCount = undefined
+  }
   void ctx.clientTerminals?.close(msg.sessionId)
   if (owned?.terminal) {
     // CLOSE is park plus forgetting: the attachment detaches here and the
@@ -3263,9 +3264,11 @@ export const sessionHandlers: Pick<
      */
     const nativeView = msg.nativeView === true
     ctx.clientTerminals?.viewers(msg.sessionId, nativeView)
-    const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
-    if (nativeView) requests.add(msg.sessionId)
-    else requests.delete(msg.sessionId)
+    if (nativeView) ctx.sessions.ensure(msg.sessionId).nativeRequested = true
+    else {
+      const existing = ctx.sessions.get(msg.sessionId)
+      if (existing) existing.nativeRequested = false
+    }
     reconcileNativeClientTerminal(ctx, msg.sessionId)
   },
   reclaimAttachments: (ctx) => {
