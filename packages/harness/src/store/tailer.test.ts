@@ -6,6 +6,12 @@ import type { TranscriptItem } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { decodeCursor } from './cursor-codec'
 import { fileIdFor } from './file-chain'
+import {
+  claudeRecordColor,
+  claudeRecordEffort,
+  claudeRecordModel,
+  claudeRecordToItems,
+} from '../adapters/claude-code/transcript.js'
 import { grokRecordToItems } from '../adapters/grok/transcript.js'
 import { type TranscriptTailOptions, tailTranscript } from './tailer'
 
@@ -62,7 +68,15 @@ function makeTailHarness(path: string, pollMs = 10, opts: Partial<TranscriptTail
     (items, meta) => {
       emissions.push({ items, reset: meta.reset, tail: meta.tail })
     },
-    { resumeValue: 'native-session', pollMs, ...opts },
+    {
+      resumeValue: 'native-session',
+      pollMs,
+      recordToItems: claudeRecordToItems,
+      recordColor: claudeRecordColor,
+      recordModel: claudeRecordModel,
+      recordEffort: claudeRecordEffort,
+      ...opts,
+    },
   )
   let drained = 0
   const tick = async (): Promise<Emission[]> => {
@@ -94,6 +108,7 @@ describe('tailTranscript — cursor stamping + flush (B4)', () => {
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
       {
         resumeValue: 'native-session',
+        recordToItems: claudeRecordToItems,
         statTick: {
           subscribe(next) {
             watcher = next
@@ -440,6 +455,7 @@ describe('tailTranscript — seedGate (POD-612)', () => {
       {
         resumeValue: 'native-session',
         pollMs: 5,
+        recordToItems: claudeRecordToItems,
         seedGate: async (fn) => {
           await held
           await fn()
@@ -474,7 +490,15 @@ describe('tailTranscript — chunked backfill + boot-seed window (POD-613)', () 
     const tailer = tailTranscript(
       path,
       (items, meta) => emissions.push({ items, reset: meta.reset, tail: meta.tail }),
-      { resumeValue: 'native-session', pollMs: 10, ...opts },
+      {
+        resumeValue: 'native-session',
+        pollMs: 10,
+        recordToItems: claudeRecordToItems,
+        recordColor: claudeRecordColor,
+        recordModel: claudeRecordModel,
+        recordEffort: claudeRecordEffort,
+        ...opts,
+      },
     )
     return { emissions, tailer }
   }
