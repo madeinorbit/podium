@@ -15,13 +15,13 @@ function trackTmp(prefix: string): string {
 }
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
 
 /** Fold section scans the way the inventory mechanism does (file fold, window, merge). */
 async function scanBuckets(opts: { sinceMs: number; homeDir: string }) {
   const scans = await scanClaudeUsage(opts)
   return mergeBuckets(scans.flatMap((scan) => windowBuckets(fileBuckets(scan), opts.sinceMs)))
 }
-})
 
 const assistantLine = (
   ts: string,
