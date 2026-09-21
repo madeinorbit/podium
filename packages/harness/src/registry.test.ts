@@ -422,7 +422,7 @@ describe('agent manifest registry', () => {
   /**
    * THE MANIFEST, NOT A SWITCH, PICKS THE RUNTIME READER (POD-1598).
    *
-   * `recordRuntimeForKind` used to switch on agentKind inside @podium/transcript to
+   * `recordRuntimeForKind` used to switch on agentKind inside the transcript package to
    * choose which parser read a record's model/effort/context — behaviour keyed on a
    * harness, living outside that harness's adapter. Each manifest now declares its
    * own reader and this accessor routes to it, so the routing itself is what has to

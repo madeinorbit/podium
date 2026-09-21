@@ -28,7 +28,7 @@ describe('harness fixture freshness lint', () => {
     )
     expect(probe).toHaveBeenCalledWith(name, AGENT_VERSION_PROBE_TIMEOUT_MS)
     expect(warn).toHaveBeenCalledExactlyOnceWith(
-      `WARNING: ${name} ${installed} installed, verified through ${policy.verifiedThrough} - re-record fixtures in packages/agent-runtime/src/drivers/${name === 'grok' ? 'grok-acp' : name}/__fixtures__ when convenient${name === 'codex' ? ' (codex app-server generate-ts --out DIR)' : ''}`,
+      `WARNING: ${name} ${installed} installed, verified through ${policy.verifiedThrough} - re-record fixtures in packages/harness/src/driver/families/${name === 'grok' ? 'grok-acp' : name}/__fixtures__ when convenient${name === 'codex' ? ' (codex app-server generate-ts --out DIR)' : ''}`,
     )
   })
 

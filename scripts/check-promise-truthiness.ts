@@ -202,10 +202,8 @@ const PROJECTS = [
   'apps/daemon',
   'apps/cli',
   'apps/web',
-  'packages/agent-runtime',
   'packages/client-core',
   'packages/commands',
-  'packages/composer',
   'packages/harness',
   'packages/issue-client',
   'packages/janitor',
@@ -216,7 +214,6 @@ const PROJECTS = [
   'packages/sync',
   'packages/telemetry',
   'packages/terminal-client',
-  'packages/transcript',
 ] as const
 
 /** Only findings under these prefixes are reported. */

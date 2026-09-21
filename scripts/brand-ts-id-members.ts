@@ -134,7 +134,6 @@ function foreignReason(site: ReturnType<typeof entityIdSites>[number]): string |
     return 'a provider/harness-native session id, not a Podium SessionId'
   }
   if (
-    site.file.startsWith('packages/transcript/') ||
     site.file === 'apps/daemon/src/durable-headless.ts' ||
     /^(?:providerSessionId|harnessSessionId|terminalSessionId|nextProviderSessionId|fromProviderSessionId|toProviderSessionId|newSessionId|knownSessionId)$/.test(
       site.key,

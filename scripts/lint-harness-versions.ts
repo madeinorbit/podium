@@ -32,7 +32,7 @@ export async function lintHarnessVersions(
         const directory = fixtureDirectories[name as Harness]
         const command = name === 'codex' ? ' (codex app-server generate-ts --out DIR)' : ''
         warn(
-          `WARNING: ${name} ${version.major}.${version.minor}.${version.patch} installed, verified through ${policy.verifiedThrough} - re-record fixtures in packages/agent-runtime/src/drivers/${directory}/__fixtures__ when convenient${command}`,
+          `WARNING: ${name} ${version.major}.${version.minor}.${version.patch} installed, verified through ${policy.verifiedThrough} - re-record fixtures in packages/harness/src/driver/families/${directory}/__fixtures__ when convenient${command}`,
         )
       } catch {
         // Missing binaries, timed-out probes and other inconclusive results are silent.
