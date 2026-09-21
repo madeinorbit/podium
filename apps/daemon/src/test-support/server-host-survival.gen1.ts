@@ -176,11 +176,16 @@ const claudeHandle = await claudeRuntime.launch({
   initialPrompt: 'survive this',
 })
 const claudeReadySince = Date.now()
-while (!claudeEngine.journal.read('claude-surv-1' as SessionId)) {
+let claudeEntry = claudeEngine.journal.read('claude-surv-1' as SessionId)
+while (!claudeEntry?.process.pid) {
   if (Date.now() - claudeReadySince > 60_000) throw new Error('claude engine never bound')
   await new Promise<void>((resolve) => setTimeout(resolve, 100))
+  claudeEntry = claudeEngine.journal.read('claude-surv-1' as SessionId)
 }
-ready('claude', claudeHandle.binding)
+// The READY line carries the ENGINE identity (journal process key + pid),
+// not the contract core's embedded placeholder: generation 2 adopts by
+// journal and must prove the SAME child serves it.
+ready('claude', { ...claudeHandle.binding, process: claudeEntry.process })
 
 // Idle until the test kills us. The engines belong to podium-host, not to us.
 await new Promise(() => {})

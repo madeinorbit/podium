@@ -244,8 +244,9 @@ function requirerViolations(file: string, source: string): string[] {
     ) {
       out.push(
         `${file} names '${spec}' as a string literal. Nothing in the daemon's graph ` +
-          `should need to: it is loaded only by packages/harness/src/driver/families/claude-sdk/claude-sdk-host.ts, ` +
-          `in a child process. A literal here is how a borrowed or re-parked module ` +
+          `should need to: since POD-4499 nothing loads it anywhere — the family ` +
+          `speaks the CLI's stream-json wire directly and the SDK dependency is ` +
+          `gone. A literal here is how a borrowed or re-parked module ` +
           `loader gets told what to fetch.`,
       )
     }
@@ -484,8 +485,8 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
         ? `${importer} pulls ${SDK} back into a process that hosts the daemon. That package ` +
             `is third-party code driving a long-running agent: in-process, its crashes are ` +
             `the daemon's crashes and its memory is the daemon's memory, so one bad turn ` +
-            `takes down every session on the machine. It belongs in the child process ` +
-            `behind packages/harness/src/driver/families/claude-sdk/child-turn.ts.`
+            `takes down every session on the machine. Since POD-4499 nothing loads it ` +
+            `anywhere — the family speaks the CLI's stream-json wire directly.`
         : '',
     ).toBeUndefined()
   })
