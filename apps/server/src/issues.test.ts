@@ -3514,6 +3514,22 @@ describe('IssueService.prime (P1a)', () => {
     expect(out).toContain('docs/agents/delegating.md')
   })
 
+  it('prime example refs use the repo prefix and fall back to POD', async () => {
+    const { svc, store } = await harness()
+    const unbound = await svc.prime({ repoPath: '/nowhere', boundIssueId: null })
+    expect(unbound).toContain('`POD-557`')
+    expect(unbound).toContain('only `POD-…` linkifies')
+
+    await store.repos.addRepo('/home/u/other', store.hostMachineId, undefined, 'OTH')
+    const issue = await svc.create({ repoPath: '/home/u/other', title: 'Bound', startNow: false })
+    const bound = await svc.prime({ repoPath: '/home/u/other', boundIssueId: issue.id })
+    expect(bound).toContain('`OTH-557`')
+    expect(bound).toContain('only `OTH-…` linkifies')
+    expect(bound).not.toContain('`POD-557`')
+    const lobby = await svc.prime({ repoPath: '/home/u/other', boundIssueId: null })
+    expect(lobby).toContain('`OTH-557`')
+  })
+
   it('prime does not restate always-on system-pointer policy (POD-789)', async () => {
     const { svc } = await harness()
     const out = await svc.prime({ repoPath: '/r', boundIssueId: null })

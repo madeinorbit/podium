@@ -15,8 +15,12 @@ import {
   parseIssueRef,
   parseSessionRef,
   resolveSessionIdentifier,
+  FALLBACK_ISSUE_PREFIX,
+  OTHER_REF_RULE,
+  otherRefRule,
   SELF_REF_RULE,
   selfRefNudge,
+  selfRefRule,
   truncateTitle,
 } from './refs'
 
@@ -237,6 +241,17 @@ describe('SELF_REF_RULE', () => {
     expect(SELF_REF_RULE).toContain('this issue')
     expect(SELF_REF_RULE).toContain('could not')
     expect(SELF_REF_RULE).not.toContain('reports')
+  })
+
+  it('the default form is the POD fallback; prime can swap in another prefix', () => {
+    expect(FALLBACK_ISSUE_PREFIX).toBe('POD')
+    expect(SELF_REF_RULE).toBe(selfRefRule('POD'))
+    expect(SELF_REF_RULE).toContain('`POD-557`')
+    expect(selfRefRule('OTH')).toContain('`OTH-557`')
+    expect(selfRefRule('OTH')).not.toContain('`POD-557`')
+    expect(OTHER_REF_RULE).toBe(otherRefRule('POD'))
+    expect(otherRefRule('OTH')).toContain('`OTH-557`')
+    expect(otherRefRule('OTH')).toContain('only `OTH-…` linkifies')
   })
 
   // The guide quotes the rule verbatim; the drift test that holds it to that

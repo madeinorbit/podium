@@ -261,6 +261,28 @@ export function formatLong(
 // ---------------------------------------------------------------------------
 
 /**
+ * Prefix used in agent-facing example refs (`POD-557`) when the current repo
+ * has none. Prime substitutes the real repo prefix when it can.
+ */
+export const FALLBACK_ISSUE_PREFIX = 'POD'
+
+/** Example seq in prime/guide ref instructions — pedagogical, not a real issue. */
+const EXAMPLE_ISSUE_SEQ = 557
+
+/**
+ * How an agent names any *other* issue or session. Prime interpolates the
+ * current repo prefix so the example is a copyable token for this repo.
+ */
+export function otherRefRule(prefix: string = FALLBACK_ISSUE_PREFIX): string {
+  const example = formatIssueRef(prefix, EXAMPLE_ISSUE_SEQ)
+  return (
+    `Reference OTHER issues and sessions as \`${example}\` (or \`${example} (Title)\` on first mention). ` +
+    `Never \`#${EXAMPLE_ISSUE_SEQ}\` or \`iss_…\` — only \`${prefix}-…\` linkifies. ` +
+    'The issue YOU are on is the exception — next rule.'
+  )
+}
+
+/**
  * How an agent names the issue it is working on. Single-sourced here (like
  * TITLE_RULE / SPINOFF_RULE / LOCK_RULE) so the prime, the committed agent
  * guide, and the CLI nudges cannot drift apart.
@@ -271,13 +293,21 @@ export function formatLong(
  * as blanket permission for every handoff — and it covers the agent as well as
  * the issue, since "POD-557 merged it" is the same tic as naming the issue.
  */
-export const SELF_REF_RULE =
-  'The issue this session is on is "this issue", and what you did on it is "I" — never a bare ' +
-  "`POD-557`. In prose the user reads (chat, offer messages, handoffs, this issue's own state " +
-  'paragraph) they already know which issue you mean, so a bare ref only makes them stop and ' +
-  'check whether you mean a different one. Write the ref ONLY where the reader could not ' +
-  'otherwise know which issue it is — another issue, mail to another agent, a commit trailer, a ' +
-  'filename — and where you need both, "this issue (`POD-557`)".'
+export function selfRefRule(prefix: string = FALLBACK_ISSUE_PREFIX): string {
+  const example = formatIssueRef(prefix, EXAMPLE_ISSUE_SEQ)
+  return (
+    'The issue this session is on is "this issue", and what you did on it is "I" — never a bare ' +
+    `\`${example}\`. In prose the user reads (chat, offer messages, handoffs, this issue's own state ` +
+    'paragraph) they already know which issue you mean, so a bare ref only makes them stop and ' +
+    'check whether you mean a different one. Write the ref ONLY where the reader could not ' +
+    'otherwise know which issue it is — another issue, mail to another agent, a commit trailer, a ' +
+    `filename — and where you need both, "this issue (\`${example}\`)".`
+  )
+}
+
+/** POD-prefixed form quoted by the committed agent guide (this repo's prefix). */
+export const SELF_REF_RULE = selfRefRule()
+export const OTHER_REF_RULE = otherRefRule()
 
 /** One-line reminder for the CLI nudges. `surface` names what was written. */
 export function selfRefNudge(ref: string, surface: string): string {
