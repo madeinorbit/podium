@@ -431,6 +431,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
       editDraft: vi.fn(),
       sessionOwner: async () => ({ owner: OWNER, grants: [] }),
       machineUseFor: async () => 'granted',
+      onTabRelease: vi.fn(),
     })
 
     // Forged payload half — must never reach the inbox as a fifth argument.
@@ -521,6 +522,7 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
       // after a revoke, so it grants both — but it has to SAY so.
       sessionOwner: async () => ({ owner: OWNER, grants: [] }),
       machineUseFor: async () => 'granted',
+      onTabRelease: vi.fn(),
     })
 
     // Still authorized — input lands.

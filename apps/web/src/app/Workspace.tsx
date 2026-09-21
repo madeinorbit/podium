@@ -884,9 +884,11 @@ export function Workspace({
     .filter((x): x is SessionId => x != null)
   const warm = useWarmSet(warmUniverse, activeIds)
 
-  // Closing a tab closes the VIEW. A session tab's session is never killed,
-  // archived or otherwise touched — that lives in the flight deck now. A file
-  // tab goes through `closeFileTab`, which drops the `fileTabs` record AND the
+  // Closing a tab closes the VIEW. A session tab's session is never archived or
+  // otherwise touched by the close itself — that lives in the flight deck now —
+  // with one exception: closing the last tab on an untouched shell reports a
+  // tab release, and the server's shell lifetime policy kills it (POD-4435). A
+  // file tab goes through `closeFileTab`, which drops the `fileTabs` record AND the
   // layout entry: leaving the record behind would keep the file listed as open
   // with nothing rendering it.
   const closeTab = (tabId: string): void => {

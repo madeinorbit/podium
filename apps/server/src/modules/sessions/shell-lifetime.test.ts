@@ -9,8 +9,8 @@
  *   attach-grade authorization (silence otherwise).
  */
 
-import { asSessionId, firstAdminMemberId } from '@podium/model'
-import type { ServerMessage, SessionId } from '@podium/protocol'
+import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
+import type { ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { testClientPrincipal } from '../../test-support/client-principal'
@@ -287,7 +287,9 @@ describe('tabRelease client frame', () => {
       // No resolvable owner: absent and invisible share one denial.
       sessionOwner: async () => undefined,
       machineUseFor: async () => 'granted' as const,
-      onTabRelease: (id) => seen.push(id),
+      onTabRelease: (id) => {
+        seen.push(id)
+      },
     })
 
     await ctl.onFrame(client.principal, client, { type: 'tabRelease', sessionId })
