@@ -1,20 +1,19 @@
 /**
- * THE CLAUDE SDK SESSION ADAPTER (moved from
- * apps/daemon/src/runtime/claude-sdk-driver.test.ts in 1.5 with the code it
- * pins: launch/resume/transcript/turn/env translation at the session layer.
+ * THE CLAUDE SDK SESSION ADAPTER (POD-4499): launch/resume/transcript/turn
+ * translation at the session layer, over the stream engine host.
+ *
+ * The engine (one long-lived `claude` child per session under podium-host)
+ * arrives as an injected port; this file pins that the adapter starts turns
+ * through it, publishes the bind once, reads the same conversation witness,
+ * and adopts from the journal after a restart.
  */
 import { pageHistory } from '../../history.js'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import type { ClaudeSdkChildHandle, ClaudeSdkChildTurnInput } from './child-turn.js'
-import { runClaudeSdkChildTurn } from './child-turn.js'
+import type { ClaudeSdkTurnHandle } from './runtime.js'
+import type { ClaudeEngineHost } from './engine-host.js'
 import { createClaudeSdkSessionRuntime, type ClaudeSdkSessionDeps } from './session.js'
-
-vi.mock('./child-turn.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./child-turn.js')>()),
-  runClaudeSdkChildTurn: vi.fn(),
-}))
 
 const SESSION_ID = 'claude-adapter-session' as SessionId
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-native-thread' }
@@ -48,9 +47,34 @@ function transcript(reads: Array<{ resumeValue: string; limit: number }>) {
   }
 }
 
+type StartTurnInput = Parameters<ClaudeEngineHost['startTurn']>[0]
+
+function fakeEngine(
+  impl: (input: StartTurnInput) => ClaudeSdkTurnHandle = () => ({
+    done: Promise.resolve({
+      resumeValue: RESUME.value,
+      output: 'the next answer',
+      observedModel: 'claude-opus-5',
+      observedEffort: 'max',
+    }),
+    interrupt: vi.fn(),
+    requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
+    answerPermission: vi.fn(),
+    dispose: vi.fn(),
+  }),
+): ClaudeEngineHost & { startTurn: ReturnType<typeof vi.fn> } {
+  return {
+    journal: { read: () => undefined, write: vi.fn(), clear: vi.fn() },
+    startTurn: vi.fn(impl),
+    stopEngine: vi.fn(async () => {}),
+    releaseEngines: vi.fn(),
+  }
+}
+
 function sessionWorld(
   sent: DaemonMessage[],
   reads: Array<{ resumeValue: string; limit: number }>,
+  engine: ClaudeEngineHost,
   extra: Partial<ClaudeSdkSessionDeps> = {},
 ) {
   return createClaudeSdkSessionRuntime({
@@ -61,39 +85,30 @@ function sessionWorld(
     sessionReady: () => {},
     traceRuntimeEvent: () => {},
     startMailContinuation: () => () => {},
+    facts: {
+      harnessKind: 'claude-code',
+      command: 'claude',
+      stripEnv: [],
+      scopeToken: 'cl',
+      journalNamespace: 'claude-engines',
+      attachKind: 'claude-code',
+    },
+    engine,
     transcript: transcript(reads),
-    composeChildEnv: (_agent, explicit) => ({ ...explicit }),
     ...extra,
   })
-}
-
-function serverRuntime(id: string, harness: string) {
-  return {
-    driver: {
-      id,
-      harness,
-      family: 'server',
-      capabilities: () => ({ placement: 'dedicated' as const }),
-    },
-    handleFor: () => undefined,
-    bindings: () => [],
-    journal: { read: () => undefined, clear: vi.fn() },
-    launch: vi.fn(async () => {}),
-    adoptFromJournal: vi.fn(async () => undefined),
-    dispose: vi.fn(),
-  }
 }
 
 describe('Claude SDK daemon host adapter', () => {
   it('resumes under the exact Podium id and reads the same conversation witness', async () => {
     const sent: DaemonMessage[] = []
     const reads: Array<{ resumeValue: string; limit: number }> = []
-    const childSpecs: ClaudeSdkChildTurnInput[] = []
-    vi.mocked(runClaudeSdkChildTurn).mockImplementation((spec) => {
-      childSpecs.push(spec)
+    const turnInputs: StartTurnInput[] = []
+    const engine = fakeEngine((input) => {
+      turnInputs.push(input)
       return {
         done: Promise.resolve({
-          harnessSessionId: spec.resumeValue ?? spec.sessionUuid ?? RESUME.value,
+          resumeValue: input.resumeValue,
           output: 'the next answer',
           observedModel: 'claude-opus-5',
           observedEffort: 'max',
@@ -102,10 +117,10 @@ describe('Claude SDK daemon host adapter', () => {
         requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
         answerPermission: vi.fn(),
         dispose: vi.fn(),
-      } satisfies ClaudeSdkChildHandle
+      }
     })
 
-    const runtime = sessionWorld(sent, reads, { executablePath: '/opt/claude/2.1.236/claude' })
+    const runtime = sessionWorld(sent, reads, engine)
     const handle = await runtime.launch({
       sessionId: SESSION_ID,
       cwd: '/project',
@@ -140,16 +155,12 @@ describe('Claude SDK daemon host adapter', () => {
       { origin: 'human', delivery: 'when-ready' },
     )
     expect(receipt.outcome).toBe('accepted')
-    expect(childSpecs).toHaveLength(1)
-    expect(childSpecs[0]).toMatchObject({
-      cwd: '/project',
-      prompt: 'continue the existing conversation',
-      resumeValue: RESUME.value,
-      model: 'claude-opus-5',
-      effort: 'max',
-      executablePath: '/opt/claude/2.1.236/claude',
-    })
-    expect(childSpecs[0]).not.toHaveProperty('sessionUuid')
+    expect(turnInputs).toHaveLength(1)
+    // The resumed conversation continues on its harness session id — never a
+    // minted one — and the turn carries the session's model policy.
+    expect(turnInputs[0]?.resumeValue).toBe(RESUME.value)
+    expect(turnInputs[0]?.newConversation).toBe(false)
+    expect(turnInputs[0]?.spec.workdir).toBe('/project')
     await vi.waitFor(() =>
       expect(sent).toContainEqual({
         type: 'agentModel',
@@ -164,7 +175,7 @@ describe('Claude SDK daemon host adapter', () => {
 
   it('forwards queued teardown loss once through the durable daemon contract', async () => {
     const sent: DaemonMessage[] = []
-    vi.mocked(runClaudeSdkChildTurn).mockImplementation(
+    const engine = fakeEngine(
       () =>
         ({
           done: new Promise(() => {}),
@@ -172,10 +183,10 @@ describe('Claude SDK daemon host adapter', () => {
           requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
           dispose: vi.fn(),
-        }) satisfies ClaudeSdkChildHandle,
+        }) satisfies ClaudeSdkTurnHandle,
     )
 
-    const runtime = sessionWorld(sent, [])
+    const runtime = sessionWorld(sent, [], engine)
     const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project', resume: RESUME })
     await handle.send({ id: 'active', text: 'active' }, { origin: 'human', delivery: 'when-ready' })
     await handle.send(
@@ -203,7 +214,7 @@ describe('Claude SDK daemon host adapter', () => {
 
   it('publishes classified turn failures onto agentState and the transcript before closing the epoch', async () => {
     const sent: DaemonMessage[] = []
-    vi.mocked(runClaudeSdkChildTurn).mockImplementation(
+    const engine = fakeEngine(
       () =>
         ({
           done: Promise.reject(new Error('not logged in — run /login')),
@@ -211,10 +222,10 @@ describe('Claude SDK daemon host adapter', () => {
           requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
           dispose: vi.fn(),
-        }) satisfies ClaudeSdkChildHandle,
+        }) satisfies ClaudeSdkTurnHandle,
     )
 
-    const runtime = sessionWorld(sent, [])
+    const runtime = sessionWorld(sent, [], engine)
     const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
     await handle.send({ id: 'prompt', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 
@@ -262,9 +273,9 @@ describe('Claude SDK daemon host adapter', () => {
     runtime.dispose()
   })
 
-  it('publishes host death as its own class, not auth or quota', async () => {
+  it('publishes engine death as its own class, not auth or quota', async () => {
     const sent: DaemonMessage[] = []
-    vi.mocked(runClaudeSdkChildTurn).mockImplementation(
+    const engine = fakeEngine(
       () =>
         ({
           done: Promise.reject(
@@ -274,10 +285,10 @@ describe('Claude SDK daemon host adapter', () => {
           requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
           answerPermission: vi.fn(),
           dispose: vi.fn(),
-        }) satisfies ClaudeSdkChildHandle,
+        }) satisfies ClaudeSdkTurnHandle,
     )
 
-    const runtime = sessionWorld(sent, [])
+    const runtime = sessionWorld(sent, [], engine)
     const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
     await handle.send({ id: 'prompt', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 
@@ -304,73 +315,147 @@ describe('Claude SDK daemon host adapter', () => {
     await handle.stop()
     runtime.dispose()
   })
+
   /**
-   * POD-3057. `readTranscript` above resolves the session's JSONL under the
-   * daemon's agent home; the child writes it under its own `HOME`. When those
-   * two are different homes the reader addresses a file nobody wrote and
-   * `sessions.read` answers `items: []` for a conversation that really happened.
-   * So the home is asserted where the child receives it — on the turn spec that
-   * becomes its environment — including against a spawn frame that names one.
+   * POD-3057, KEPT AT THE SESSION LAYER AS ENV PLUMBING. The reader resolves
+   * the session's JSONL under the daemon's agent home; the engine child must
+   * run under the same HOME. The overlay itself is the engine host's job
+   * (pinned in engine-host.test.ts); what stays here is that the spawn
+   * frame's env reaches the engine untouched — including against a spawn
+   * frame that names the machine home.
    */
-  it('runs the SDK child under the instance agent home, over the spawn frame env', async () => {
-    const childSpecs: ClaudeSdkChildTurnInput[] = []
-    vi.mocked(runClaudeSdkChildTurn).mockImplementation((spec) => {
-      childSpecs.push(spec)
+  it('hands the spawn frame env to the engine over the session spec', async () => {
+    const turnInputs: StartTurnInput[] = []
+    const engine = fakeEngine((input) => {
+      turnInputs.push(input)
       return {
         done: Promise.resolve({ harnessSessionId: 'sdk-thread', output: 'answered' }),
         interrupt: vi.fn(),
         requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
         answerPermission: vi.fn(),
         dispose: vi.fn(),
-      } satisfies ClaudeSdkChildHandle
+      }
     })
 
-    const runtime = sessionWorld([], [], {
-      send: () => {},
-      homeDir: '/state/p3057/agent-home',
-    })
+    const runtime = sessionWorld([], [], engine)
     const handle = await runtime.launch({
       sessionId: SESSION_ID,
       cwd: '/project',
-      // The machine home, arriving the way it really arrives: as the spawn
-      // frame's server-resolved env. The instance's own home outranks it.
       env: { HOME: '/home/operator', PODIUM_SESSION_ID: SESSION_ID },
     })
     await handle.send({ id: 'first', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 
-    expect(childSpecs).toHaveLength(1)
-    expect(childSpecs[0]?.env).toMatchObject({
-      HOME: '/state/p3057/agent-home',
-      CLAUDE_CONFIG_DIR: '/state/p3057/agent-home/.claude',
+    expect(turnInputs).toHaveLength(1)
+    expect(turnInputs[0]?.spec.env).toMatchObject({
+      HOME: '/home/operator',
       PODIUM_SESSION_ID: SESSION_ID,
     })
     await handle.stop()
     runtime.dispose()
   })
 
-  /** The default instance has no agent home of its own: reader and child both
-   *  use the ambient one, and the daemon must not invent a different answer. */
-  it('leaves the child on the daemon home when the instance has none', async () => {
-    const childSpecs: ClaudeSdkChildTurnInput[] = []
-    vi.mocked(runClaudeSdkChildTurn).mockImplementation((spec) => {
-      childSpecs.push(spec)
-      return {
-        done: Promise.resolve({ harnessSessionId: 'sdk-thread', output: 'answered' }),
-        interrupt: vi.fn(),
-        requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
-        answerPermission: vi.fn(),
-        dispose: vi.fn(),
-      } satisfies ClaudeSdkChildHandle
+  it('ends the engine when the session stops, and detaches it on dispose', async () => {
+    const engine = fakeEngine()
+    const runtime = sessionWorld([], [], engine)
+    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+    await handle.stop()
+    expect(engine.stopEngine).toHaveBeenCalledWith(SESSION_ID, true)
+    runtime.dispose()
+    expect(engine.releaseEngines).toHaveBeenCalled()
+  })
+
+  it('hibernates the engine without retiring the journal', async () => {
+    const engine = fakeEngine()
+    const runtime = sessionWorld([], [], engine)
+    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project', resume: RESUME })
+    await expect(handle.hibernate()).resolves.toEqual({ ok: true })
+    expect(engine.stopEngine).toHaveBeenCalledWith(SESSION_ID, false)
+    runtime.dispose()
+  })
+
+  describe('adoptFromJournal', () => {
+    it('resumes the journalled conversation under the exact Podium id', async () => {
+      const sent: DaemonMessage[] = []
+      const engine = fakeEngine()
+      const journal = {
+        read: () => ({
+          sessionId: SESSION_ID,
+          claudeSessionId: 'claude-native-9',
+          workdir: '/project',
+          process: { key: 'podium-cl-claude-adapter-session' },
+          model: 'claude-opus-5',
+          bindingVersion: 1,
+        }),
+        write: vi.fn(),
+        clear: vi.fn(),
+      }
+      const runtime = sessionWorld(sent, [], { ...engine, journal })
+      const handle = await runtime.adoptFromJournal(SESSION_ID)
+      expect(handle?.binding).toMatchObject({
+        sessionId: SESSION_ID,
+        driver: 'claude-sdk',
+        resume: { kind: 'claude-session', value: 'claude-native-9' },
+      })
+      // The bind goes out for the adopted handle too.
+      expect(sent).toContainEqual(
+        expect.objectContaining({ type: 'bind', sessionId: SESSION_ID, driverId: 'claude-sdk' }),
+      )
+      expect(sent).toContainEqual({
+        type: 'sessionResumeRef',
+        sessionId: SESSION_ID,
+        resume: { kind: 'claude-session', value: 'claude-native-9' },
+        confidence: 'exact',
+      })
+      runtime.dispose()
     })
 
-    const runtime = sessionWorld([], [], { send: () => {} })
-    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
-    await handle.send({ id: 'first', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+    it('answers undefined when no journal names the session', async () => {
+      const runtime = sessionWorld([], [], fakeEngine())
+      await expect(runtime.adoptFromJournal(SESSION_ID)).resolves.toBeUndefined()
+      runtime.dispose()
+    })
 
-    expect(childSpecs).toHaveLength(1)
-    expect(childSpecs[0]?.env?.HOME).toBeUndefined()
-    expect(childSpecs[0]?.env?.CLAUDE_CONFIG_DIR).toBeUndefined()
-    await handle.stop()
-    runtime.dispose()
+    it('refuses a journal entry for another process key', async () => {
+      const engine = fakeEngine()
+      const journal = {
+        read: () => ({
+          sessionId: SESSION_ID,
+          claudeSessionId: 'claude-native-9',
+          workdir: '/project',
+          process: { key: 'podium-cx-something-else' },
+          bindingVersion: 1,
+        }),
+        write: vi.fn(),
+        clear: vi.fn(),
+      }
+      const runtime = sessionWorld([], [], { ...engine, journal })
+      await expect(runtime.adoptFromJournal(SESSION_ID)).resolves.toBeUndefined()
+      runtime.dispose()
+    })
+
+    it('exposes the journal projection and clears it on demand', async () => {
+      const engine = fakeEngine()
+      const journal = {
+        read: () => ({
+          sessionId: SESSION_ID,
+          claudeSessionId: 'claude-native-9',
+          workdir: '/work',
+          process: { key: 'podium-cl-claude-adapter-session', pid: 4242 },
+          bindingVersion: 1,
+        }),
+        write: vi.fn(),
+        clear: vi.fn(),
+      }
+      const runtime = sessionWorld([], [], { ...engine, journal })
+      expect(runtime.journalEntry(SESSION_ID)).toEqual({
+        workdir: '/work',
+        process: { key: 'podium-cl-claude-adapter-session', pid: 4242 },
+        bindingVersion: 1,
+      })
+      expect(runtime.journalEntry('no-such-session' as SessionId)).toBeUndefined()
+      runtime.clearJournal(SESSION_ID)
+      expect(journal.clear).toHaveBeenCalledWith(SESSION_ID)
+      runtime.dispose()
+    })
   })
 })
