@@ -160,6 +160,10 @@ export const CLIENT_PLANE_CLASS = {
   // lost one must be retried by the viewer's next ask, not silently tolerated.
   viewportRequest: 'control.command',
   redrawRequest: 'control.command',
+  // POD-4435: the client's tab-close report. A command: it asks the server to
+  // run the shell lifetime policy for the session, and a lost one is simply a
+  // missed release (the reaper's unheld grace still applies) — never retried.
+  tabRelease: 'control.command',
   ping: 'stream.live',
   // Today's anonymous page-visibility bit. ADR 7 Amendment 1 D9.5: it maps
   // FORWARD as a reserved field on the identity-carrying presence record and is
