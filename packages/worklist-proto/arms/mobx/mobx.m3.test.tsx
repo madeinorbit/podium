@@ -192,9 +192,9 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       )
 
       const backRows = [
-        ...source.snapshot('issue'),
-        ...source.snapshot('session'),
-        ...source.snapshot('worktree'),
+        ...source.source.snapshot('issue'),
+        ...source.source.snapshot('session'),
+        ...source.source.snapshot('worktree'),
       ]
       await act(async () => {
         store.apply({ type: 'replace', rows: backRows })
