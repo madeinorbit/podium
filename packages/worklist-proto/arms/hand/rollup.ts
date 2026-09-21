@@ -56,7 +56,25 @@ export class RollupModule {
   readonly aggregates = new Map<string, RollupValue>()
   /** Origin tick per visible row (R-ORIGIN renders beside the row). */
   readonly ticks = new Map<string, OriginTick | null>()
-  private cache: BatchCache | null = null
+  /**
+   * J1 (POD-4453): the old `batch()` rebuilt these three seats from scratch
+   * on every computing dispatch (~2× session seats + staffed ancestor steps,
+   * ~11.2k visits at 1x — the M2 note's REMOVABLE slope item). They are now
+   * maintained incrementally: per-issue open counts + lastActive maxima
+   * recomputed from the touched issue's bucket only (O(bucket), typically 1
+   * session), staffed as ancestor refcounts adjusted on open flips and parent
+   * moves (O(depth)). Reads below are O(1); no `rollup-batch` scan remains
+   * on the event path. Bootstrap/replace still build once (cold path).
+   */
+  readonly openExplicit = new Set<string>()
+  readonly staffed = new Set<string>()
+  readonly lastActive = new Map<string, string>()
+  private readonly openCounts = new Map<string, number>()
+  private readonly staffedCounts = new Map<string, number>()
+  private readonly sessionSnaps = new Map<
+    string,
+    { issue: string | null; open: boolean; lastActiveAt: string; archived: boolean }
+  >
 
   constructor(
     private readonly tables: { issues: IssueTable; sessions: SessionTable },
@@ -67,43 +85,166 @@ export class RollupModule {
     private readonly stats: DerivationStats = nullStats,
   ) {}
 
-  // ---------------------------------------------------------- batch cache
+  // ---------------------------------------------------------- seat maintenance
 
+  /**
+   * Seats read by every compute, maintained incrementally (see the field
+   * comment). Semantics mirror the old from-scratch build exactly: open counts
+   * sessions with `openSession` in the issue's explicit bucket, lastActive
+   * takes the max non-archived lastActiveAt, staffed is the ancestor closure
+   * of open issues through `parentOf`.
+   */
   private batch(): BatchCache {
-    if (this.cache !== null) return this.cache
-    const openExplicit = new Set<string>()
-    const lastActive = new Map<string, string>()
+    return { openExplicit: this.openExplicit, staffed: this.staffed, lastActive: this.lastActive }
+  }
+
+  /** Recompute one issue's open/lastActive seat from its bucket only. */
+  private refreshIssueSeat(issueId: string): void {
+    const bucket = this.indexes.explicitByIssue.get(issueId)
+    let open = 0
+    let best: string | undefined
+    if (bucket !== undefined) {
+      for (const sid of bucket) {
+        const s = this.tables.sessions.rows.get(sid)
+        if (s === undefined) continue
+        if (!s.archived && (best === undefined || s.lastActiveAt > best)) best = s.lastActiveAt
+        if (openSession(s)) open += 1
+      }
+    }
+    const prevBest = this.lastActive.get(issueId)
+    if (best === undefined) {
+      if (prevBest !== undefined) this.lastActive.delete(issueId)
+    } else if (prevBest !== best) {
+      this.lastActive.set(issueId, best)
+    }
+    const wasOpen = this.openExplicit.has(issueId)
+    if (open > 0) this.openCounts.set(issueId, open)
+    else this.openCounts.delete(issueId)
+    if (wasOpen === open > 0) return
+    if (open > 0) {
+      this.openExplicit.add(issueId)
+      this.staffUp(issueId)
+    } else {
+      this.openExplicit.delete(issueId)
+      this.staffDown(issueId)
+    }
+  }
+
+  /** +1 along the issue and its formal ancestors (cycle-safe). */
+  private staffUp(issueId: string): void {
+    let current: string | undefined = issueId
+    const walked = new Set<string>()
+    while (current !== undefined && !walked.has(current)) {
+      walked.add(current)
+      this.staffedCounts.set(current, (this.staffedCounts.get(current) ?? 0) + 1)
+      this.staffed.add(current)
+      current = this.indexes.parentOf.get(current)
+    }
+  }
+
+  /** −1 along the issue and its formal ancestors (cycle-safe). */
+  private staffDown(issueId: string): void {
+    let current: string | undefined = issueId
+    const walked = new Set<string>()
+    while (current !== undefined && !walked.has(current)) {
+      walked.add(current)
+      const next = (this.staffedCounts.get(current) ?? 1) - 1
+      if (next <= 0) {
+        this.staffedCounts.delete(current)
+        this.staffed.delete(current)
+      } else {
+        this.staffedCounts.set(current, next)
+      }
+      current = this.indexes.parentOf.get(current)
+    }
+  }
+
+  private chainUp(start: string | null): void {
+    let current: string | undefined = start ?? undefined
+    const walked = new Set<string>()
+    while (current !== undefined && !walked.has(current)) {
+      walked.add(current)
+      this.staffedCounts.set(current, (this.staffedCounts.get(current) ?? 0) + 1)
+      this.staffed.add(current)
+      current = this.indexes.parentOf.get(current)
+    }
+  }
+
+  private chainDown(start: string | null): void {
+    let current: string | undefined = start ?? undefined
+    const walked = new Set<string>()
+    while (current !== undefined && !walked.has(current)) {
+      walked.add(current)
+      const next = (this.staffedCounts.get(current) ?? 1) - 1
+      if (next <= 0) {
+        this.staffedCounts.delete(current)
+        this.staffed.delete(current)
+      } else {
+        this.staffedCounts.set(current, next)
+      }
+      current = this.indexes.parentOf.get(current)
+    }
+  }
+
+  /** Open issues in the formal subtree rooted at `rootId` (self included). */
+  private openInSubtree(rootId: string): string[] {
+    const out: string[] = []
+    if (this.openExplicit.has(rootId)) out.push(rootId)
+    const stack = [rootId]
+    const seen = new Set<string>([rootId])
     let visits = 0
-    for (const [issueId, bucket] of this.indexes.explicitByIssue) {
-      for (const sid of bucket) {
+    while (stack.length > 0) {
+      const id = stack.pop() as string
+      for (const child of this.indexes.childrenByParent.get(id) ?? []) {
         visits += 1
-        const s = this.tables.sessions.rows.get(sid)
-        if (s === undefined || s.archived) continue
-        const seen = lastActive.get(issueId)
-        if (seen === undefined || s.lastActiveAt > seen) lastActive.set(issueId, s.lastActiveAt)
-        if (openSession(s)) openExplicit.add(issueId)
+        if (seen.has(child)) continue
+        seen.add(child)
+        if (this.openExplicit.has(child)) out.push(child)
+        stack.push(child)
       }
     }
-    const staffed = new Set<string>()
-    for (const [issueId, bucket] of this.indexes.explicitByIssue) {
-      for (const sid of bucket) {
-        visits += 1
-        const s = this.tables.sessions.rows.get(sid)
-        if (s === undefined || s.issueId == null || !openSession(s)) continue
-        let id: string | undefined = s.issueId
-        while (id !== undefined && !staffed.has(id)) {
-          visits += 1
-          staffed.add(id)
-          id = this.indexes.parentOf.get(id)
-        }
+    this.stats.scan('rollup-walk', visits)
+    return out
+  }
+
+  /** A parent edge moved: re-hang the moved subtree's open issues. */
+  private rehangStaffing(childId: string, from: string | null, to: string | null): void {
+    if (from === to) return
+    const open = this.openInSubtree(childId)
+    if (open.length === 0) return
+    for (let i = 0; i < open.length; i += 1) {
+      this.chainDown(from)
+      this.chainUp(to)
+    }
+  }
+
+  /** Diff one session row against its snapshot; refresh touched seats. */
+  private noteSession(sessionId: string): void {
+    const s = this.tables.sessions.rows.get(sessionId)
+    const prev = this.sessionSnaps.get(sessionId)
+    const home = s !== undefined && s.headless !== true && s.issueId != null ? s.issueId : null
+    if (s === undefined) {
+      if (prev?.issue != null) this.refreshIssueSeat(prev.issue)
+      this.sessionSnaps.delete(sessionId)
+      return
+    }
+    const snap = { issue: home, open: openSession(s), lastActiveAt: s.lastActiveAt, archived: s.archived }
+    this.sessionSnaps.set(sessionId, snap)
+    if ((prev?.issue ?? null) !== home) {
+      if (prev?.issue != null) this.refreshIssueSeat(prev.issue)
+      if (home !== null) this.refreshIssueSeat(home)
+      return
+    }
+    if (home !== null) {
+      if (
+        prev === undefined ||
+        prev.open !== snap.open ||
+        prev.lastActiveAt !== snap.lastActiveAt ||
+        prev.archived !== snap.archived
+      ) {
+        this.refreshIssueSeat(home)
       }
     }
-    // One build per dispatch (H4 slope material): every session seat plus
-    // every staffed ancestor step, counted so the M2 note can price the
-    // batch cache against incremental seats.
-    this.stats.scan('rollup-batch', visits)
-    this.cache = { openExplicit, staffed, lastActive }
-    return this.cache
   }
 
   // ---------------------------------------------------------- spin-off tips
@@ -402,7 +543,44 @@ export class RollupModule {
 
   apply(batch: Delta[]): Delta[] {
     const out: Delta[] = []
-    try {
+    // Seat maintenance first (indexes already applied): session diffs refresh
+    // touched buckets, parent moves re-hang the moved subtree. Reads in the
+    // chain phase below then see current seats.
+    for (const delta of batch) {
+      switch (delta.kind) {
+        case 'SessionChanged':
+          this.noteSession(delta.id)
+          break
+        case 'SessionRemoved':
+          this.noteSession(delta.id)
+          break
+        case 'IssueRemoved':
+          this.refreshIssueSeat(delta.id)
+          break
+        case 'MembershipChanged':
+          this.refreshIssueSeat(delta.issueId)
+          break
+        case 'ChildrenChanged':
+          this.rehangStaffing(delta.childId, delta.from, delta.to)
+          break
+        case 'IssueChanged':
+        case 'WorktreeChanged':
+        case 'WorktreeRemoved':
+        case 'OriginChanged':
+        case 'SummaryChanged':
+        case 'RollupChanged':
+        case 'VisibilityChanged':
+        case 'OrderChanged':
+        case 'GroupChanged':
+        case 'RowChanged':
+        case 'SelectionChanged':
+        case 'ClockChanged':
+          break
+        default:
+          assertNever(delta)
+      }
+    }
+    {
       const seeds = new Set<string>()
       const chains = new Set<string>()
       for (const delta of batch) {
@@ -460,8 +638,6 @@ export class RollupModule {
         }
       }
       return out
-    } finally {
-      this.cache = null
     }
   }
 
@@ -469,16 +645,47 @@ export class RollupModule {
   rebuildAll(): void {
     this.aggregates.clear()
     this.ticks.clear()
-    try {
-      for (const id of this.visible.orderedIds()) {
-        const next = this.compute(id)
-        if (next !== null) {
-          this.aggregates.set(id, next)
-          this.ticks.set(id, this.tickOf(id))
-        }
+    this.buildSeats()
+    for (const id of this.visible.orderedIds()) {
+      const next = this.compute(id)
+      if (next !== null) {
+        this.aggregates.set(id, next)
+        this.ticks.set(id, this.tickOf(id))
       }
-    } finally {
-      this.cache = null
     }
+  }
+
+  /** Cold-path seat build (bootstrap/replace only): one pass, no scans. */
+  private buildSeats(): void {
+    this.openExplicit.clear()
+    this.staffed.clear()
+    this.lastActive.clear()
+    this.openCounts.clear()
+    this.staffedCounts.clear()
+    this.sessionSnaps.clear()
+    for (const [issueId, bucket] of this.indexes.explicitByIssue) {
+      let open = 0
+      let best: string | undefined
+      for (const sid of bucket) {
+        const s = this.tables.sessions.rows.get(sid)
+        if (s === undefined) continue
+        if (!s.archived && (best === undefined || s.lastActiveAt > best)) best = s.lastActiveAt
+        if (openSession(s)) open += 1
+      }
+      if (best !== undefined) this.lastActive.set(issueId, best)
+      if (open > 0) {
+        this.openCounts.set(issueId, open)
+        this.openExplicit.add(issueId)
+      }
+    }
+    for (const [sid, s] of this.tables.sessions.rows) {
+      this.sessionSnaps.set(sid, {
+        issue: s.headless !== true && s.issueId != null ? s.issueId : null,
+        open: openSession(s),
+        lastActiveAt: s.lastActiveAt,
+        archived: s.archived,
+      })
+    }
+    for (const issueId of this.openExplicit) this.staffUp(issueId)
   }
 }

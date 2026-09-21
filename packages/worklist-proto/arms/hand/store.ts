@@ -25,6 +25,18 @@ import { VisibleModule } from './visible'
 
 type Listener = () => void
 
+/**
+ * J1 (POD-4453) computation share (methodology §6.4): per-event main-thread
+ * milliseconds split into index maintenance vs rollup vs row assembly. Kept
+ * beside `ArmStats` on the arm's own stats object (optional fields — the
+ * shared interface and the harness's four-field readers are untouched).
+ */
+export interface HandStats extends ArmStats {
+  indexMs: number
+  rollupMs: number
+  rowMs: number
+}
+
 export class HandStore {
   readonly issues = new IssueTable()
   readonly sessions = new SessionTable()
@@ -51,19 +63,25 @@ export class HandStore {
     locals: SliceLocals,
   ) {
     this.locals = { ...locals }
-    const stats: ArmStats = {
+    const stats = {
       rowsDerived: 0,
       rollupsDerived: 0,
       indexUpdates: 0,
       notifications: 0,
+      indexMs: 0,
+      rollupMs: 0,
+      rowMs: 0,
       reset: () => {
         stats.rowsDerived = 0
         stats.rollupsDerived = 0
         stats.indexUpdates = 0
         stats.notifications = 0
+        stats.indexMs = 0
+        stats.rollupMs = 0
+        stats.rowMs = 0
         this.scanTotals.clear()
       },
-    }
+    } satisfies HandStats
     this.stats = stats
     const sink: DerivationStats = {
       summaries: () => {
@@ -136,6 +154,12 @@ export class HandStore {
     return out
   }
 
+  /** Computation share since the last `stats.reset()` (methodology §6.4). */
+  phaseMs(): { indexMs: number; rollupMs: number; rowMs: number } {
+    const stats = this.stats as HandStats
+    return { indexMs: stats.indexMs, rollupMs: stats.rollupMs, rowMs: stats.rowMs }
+  }
+
   private bootstrap(): void {
     for (const record of this.source.snapshot('issue')) this.issues.apply(record)
     for (const record of this.source.snapshot('session')) this.sessions.apply(record)
@@ -203,19 +227,26 @@ export class HandStore {
       return
     }
     const indexOut: Delta[] = []
+    const indexStart = performance.now()
     for (const delta of batch) indexOut.push(...this.indexes.apply(delta))
+    ;(this.stats as HandStats).indexMs += performance.now() - indexStart
     batch.push(...indexOut)
     this.notifyBatch(this.runLevels(batch))
   }
 
   /** Dataflow levels in topology order; each sees the batch so far. */
   private runLevels(batch: Delta[]): Delta[] {
+    const hand = this.stats as HandStats
+    const rollupStart = performance.now()
     batch.push(...this.summary.apply(batch))
     batch.push(...this.visible.apply(batch))
     batch.push(...this.rollup.apply(batch))
+    hand.rollupMs += performance.now() - rollupStart
+    const rowStart = performance.now()
     batch.push(...this.order.apply(batch))
     batch.push(...this.groups.apply(batch))
     batch.push(...this.rows.apply(batch))
+    hand.rowMs += performance.now() - rowStart
     this.orderCache = null
     return batch
   }
