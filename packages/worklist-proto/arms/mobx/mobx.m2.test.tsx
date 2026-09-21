@@ -158,9 +158,12 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       const target = 'i6'
       const prePressModel = store.issues.get(target)
       expect(prePressModel, 'optimism target exists').toBeDefined()
-      const prePressValue = JSON.parse(JSON.stringify(prePressModel?.value))
       const press1 = await step('optimisticPress', '#9a', () => writeOptimisticPress(ctx, target))
       const echo = await step('optimisticEcho', '#9b', () => writeOptimisticEcho(ctx, target))
+      // The rollback restores the ECHO value (the confirmed server state),
+      // not the pre-press value — the echo is a genuine kernel write in
+      // between. That is the baseline the rejection must settle back to.
+      const echoValue = JSON.parse(JSON.stringify(store.issues.get(target)?.value))
       armMarkReadRejection(ctx)
       const press2 = await step('optimisticPressRejected', '#9c', () =>
         writeOptimisticPress(ctx, target),
@@ -169,7 +172,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       const finalModel = store.issues.get(target)
       console.info(
         `[mobx-m2] #9 identity: modelKept=${finalModel === prePressModel} ` +
-          `valueRestored=${JSON.stringify(finalModel?.value) === JSON.stringify(prePressValue)}`,
+          `valueRestored=${JSON.stringify(finalModel?.value) === JSON.stringify(echoValue)}`,
       )
 
       // #9 supplement (not a G3 scenario): the same optimistic press on a
@@ -225,9 +228,11 @@ describe('mobx arm milestone 2: structural scenarios', () => {
         expect(reparent.stats.notifications).toBe(1)
         // #8: no band boundary crosses on +60s at 1x, so nothing commits —
         // and the over-commit check above already proves every commit would
-        // have to be oracle-changed.
+        // have to be oracle-changed. Locals dispatch no row-source event, so
+        // notifications stay 0 by construction (the arm commits via MobX
+        // reactions, not via a dispatch counter).
         expect(tick.rowsCommitted).toBe(0)
-        expect(tick.stats.notifications).toBe(1)
+        expect(tick.stats.notifications).toBe(0)
         // #9: every step bounded like a phase change; the model survives all
         // four steps and the value settles back; never a full rebuild.
         for (const [name, r] of [
@@ -241,7 +246,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
         expect(rejected.rowsCommitted, 'rollback').toBe(0)
         expect(rejected.stats.notifications, 'rollback quiet').toBe(0)
         expect(finalModel, 'rollback keeps the model').toBe(prePressModel)
-        expect(finalModel?.value, 'rollback restores the value').toEqual(prePressValue)
+        expect(finalModel?.value, 'rollback restores the echo value').toEqual(echoValue)
         expect(pressVisible.rowsCommitted, 'visible press').toBe(0)
         expect(visibleAfter, 'visible press keeps the model').toBe(visibleBefore)
         // #10: one event, work bounded by the burst size plus chains.
@@ -281,4 +286,4 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       ctx.engine.destroy()
     }
   }, 600_000)
-}
+})
