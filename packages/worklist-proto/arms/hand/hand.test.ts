@@ -429,12 +429,14 @@ describe('hand-rolled arm: clock sensitivity sets', () => {
   it('decaySensitive: a sessionless finished row leaves past its window', () => {
     const finishedAt = iso(NOW - 23 * 3600000)
     const world = testWorld([
+      rec('issue', 'P', issue({ id: 'P', audience: 'human' })),
       rec(
         'issue',
         'old',
         issue({
           id: 'old',
           audience: 'human',
+          parentId: 'P',
           stage: 'done',
           closedReason: null,
           closedAt: finishedAt,
@@ -442,6 +444,7 @@ describe('hand-rolled arm: clock sensitivity sets', () => {
           readAt: finishedAt,
         }),
       ),
+      rec('session', 'sp', session({ sessionId: 'sp', issueId: 'P', agentState: workingState })),
       rec('worktree', '/wt', LANE),
     ])
     expect(world.store.snapshot().rowsById['old']).toBeDefined()
@@ -449,7 +452,45 @@ describe('hand-rolled arm: clock sensitivity sets', () => {
     world.store.stats.reset()
     world.store.setCoarseNow(NOW + 2 * 3600000)
     expect(world.store.snapshot().rowsById['old']).toBeUndefined()
+    // The parent's aggregate reads the visible subtree, but the formal
+    // progress behind it did not move — only the leaving row commits.
+    expect(world.store.snapshot().rowsById['P']).toBeDefined()
     expect(world.store.stats.rowsDerived).toBe(1)
+    world.oracle()
+  })
+
+  it('finished-review rows do not decay: stage keeps them active', () => {
+    // A finished row in review stage holds a pending decision AND is kept
+    // by the activeHuman clause (stage, not finished-ness, decides) — so a
+    // tick past its decay window moves nothing. This is the shape the
+    // decay test above excludes, pinned so a rule change fails loudly.
+    const finishedAt = iso(NOW - 23 * 3600000)
+    const world = testWorld([
+      rec('issue', 'P', issue({ id: 'P', audience: 'human' })),
+      rec(
+        'issue',
+        'C',
+        issue({
+          id: 'C',
+          audience: 'human',
+          parentId: 'P',
+          stage: 'review',
+          closedReason: 'done',
+          closedAt: finishedAt,
+          updatedAt: finishedAt,
+          readAt: finishedAt,
+        }),
+      ),
+      rec('session', 'sp', session({ sessionId: 'sp', issueId: 'P', agentState: workingState })),
+      rec('worktree', '/wt', LANE),
+    ])
+    // The finished-review child holds a pending decision: the parent waits.
+    expect(world.store.snapshot().rowsById['P']).toMatchObject({ phase: 'waiting', asking: true })
+    world.store.stats.reset()
+    world.store.setCoarseNow(NOW + 2 * 3600000)
+    expect(world.store.snapshot().rowsById['C']).toBeDefined()
+    expect(world.store.snapshot().rowsById['P']).toMatchObject({ phase: 'waiting', asking: true })
+    expect(world.store.stats.rowsDerived).toBe(0)
     world.oracle()
   })
 
@@ -481,7 +522,8 @@ describe('hand-rolled arm: clock sensitivity sets', () => {
   })
 })
 
-describe('hand-rolled arm: locals + lifecycle', () => {  it('selection notifies exactly two keys with zero derivations', () => {
+describe('hand-rolled arm: locals + lifecycle', () => {
+  it('selection notifies exactly two keys with zero derivations', () => {
     const world = exampleWorld()
     world.store.setSelection('A')
     const seen: string[] = []
