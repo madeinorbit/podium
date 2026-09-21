@@ -129,9 +129,9 @@ export {
  *     rendering one empty list for both.
  *
  * Consequence for spawn UI: resolve the offer per (choice, machine) through that
- *  projection. Reading this enum alone can never express a refusal, so a surface
- *  that offers harnesses straight from it will silently offer machines the
- *  principal may not use.
+ * projection. Reading this enum alone can never express a refusal, so a surface
+ * that offers harnesses straight from it will silently offer machines the
+ * principal may not use.
  *
  * Derived from {@link AGENT_CHOICE_HARNESS_KINDS} (POD-4414 §5, issue 4.2):
  * `'auto'` plus the offered harnesses — same members, same order, same wire.

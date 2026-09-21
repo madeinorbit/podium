@@ -140,7 +140,7 @@ export function isBuiltinHarnessKind(id: string): id is BuiltinHarnessKind {
 // ---------------------------------------------------------------------------
 
 /** Harnesses with token-usage cost transcripts. Read by `CostHarness`
- *  (entities/cost.ts) and the usage-harvest wire (entities/machine.ts). */
+ *  (entities/cost.ts). */
 export const COST_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
 
 /**
