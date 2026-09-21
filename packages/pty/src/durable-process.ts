@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import type { Geometry } from '@podium/model'
-import type { AgentSession } from './session.js'
+import type { DurableAttachment } from './session.js'
 import {
   type AbducoSpawnOptions,
   abducoHasSession,
@@ -59,8 +59,16 @@ export interface DurableAttachOptions {
   lastSeq?: bigint
 }
 
-export interface DurableAttachment {
-  session: AgentSession
+/**
+ * What locating a live master and attaching to it returns (POD-4434): the new
+ * attachment over the surviving process, plus what only the attach knows — the
+ * display command, whether the program must be asked to repaint, and the
+ * kernel size when the host can report it. Formerly `DurableAttachment`; that
+ * name is the attachment handle itself (`DurableAttachment` in `./session.js`),
+ * and this struct is the reattach result that carries one.
+ */
+export interface DurableReattach {
+  attachment: DurableAttachment
   /** The display command the bind reports for the attach. */
   cmd: string
   /**
