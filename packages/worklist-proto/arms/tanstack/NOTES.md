@@ -242,6 +242,43 @@ criteria require to be separate — deferred to H4 review (open question
 1). No forbidden imports (legacy view-model/slice/mission/presentation
 — grep clean).
 
+## M3 (POD-4455; full tables in `docs/measurements/POD-4455-m3.md`)
+
+- **Rebuild-on-replace.** Bulk reseeds through the live graph throw
+  `Query contributors with the same row key are not congruent` out of the
+  0.9.2 join canonicalization (bisected: not per-tx volume, not kind
+  order — transient same-key contributors mid-drain). `replace` now tears
+  the graph down (`teardownGraph`, dependent-first — which also silenced
+  the old `issuesN`-before-`verdictR` disposal errors) and rebuilds it
+  over the new corpus via the extracted `buildGraph` (the bootstrap path);
+  the retained commit layer transitions incrementally. Lifecycle pin:
+  1x→2x→1x with exact table return and parity at every state.
+- **Sync-write dedup.** `EntitySync.write` is last-writer-wins per key:
+  one flush can rewrite the same id twice with different values, and two
+  same-key upserts in one transaction read as incongruent contributors
+  downstream. Net effect is the last op; earlier ones are dropped.
+- **Stats split.** `runs.ms` (per-query fn walls) + rollup-entry walls via
+  a `timed` delegate + `store.phaseMs()` (index exclusive / rollup / row).
+  No shared/ change (the MobX precedent). Findings: row assembly ~0.1 ms
+  at every scale; `indexMs` contains eager propagation (stated); `fnMs`
+  subdivides it load-independently (µs per evaluation, flat across
+  scales); `order-rebuild` + `move-seat-scan` are the two named O(N)
+  cached walks (zero commits).
+- **Q-T5 runnable at last.** R3 corpus: verdictR 559 over 465 anchors at
+  the 1x mount. Anchor archive re-evaluates the R3 join (verdictR fn
+  walls) with zero downstream events and zero over-commits.
+- **Counts flat across 1x/2x/4x** (#1 0/0, #2 1/1+7, #3 0/0+5, #5 1/1+5;
+  slopes 0.25/flat ≤ 1.2 on counts); coexistence byte-equal solo→co both
+  sides with the control still saying NO (33 commits); native lane green;
+  bundle FAIL (+84.76 KB gzip — the M1 weight, unchanged verdict);
+  write-path spike through `createOptimisticAction` (pending 1, echo 0,
+  rollback 1 restoring commit; needs a public flush; see
+  `docs/plans/POD-4455-write-path.md`).
+- **Line count: 4,127** (arm 49, collections 404, queries 858, rollup
+  1278, rules 512, store 763, react/list 194, native 69): +208 over M2,
+  all instrumentation + the rescope fix. No compression (the M1 breakdown
+  stands).
+
 ## Open questions for H4
 1. Line budget vs fidelity (shared with both arms): is ~3,300 acceptable
    for a parity-exact TanStack slice, or should M2 compress (and what may
