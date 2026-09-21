@@ -11,9 +11,17 @@
 
 import type { SessionId } from '@podium/model'
 import { DaemonSession } from './daemon-session.js'
+import type { SessionEngineScope } from './engines.js'
 
 export class SessionRegistry {
   private readonly sessions = new Map<SessionId, DaemonSession>()
+  /**
+   * The session layer's engine hold (spec §4.8 steps 2–6), bound once by the
+   * composition root over the daemon's engine durable. Sessions created after
+   * the bind route their engine delegates through it; entries already held
+   * pick it up on their next `ensure`.
+   */
+  private engineScope: SessionEngineScope | undefined = undefined
   /**
    * Viewer-signal memory, WITHOUT an entry. The "somebody opened this
    * session" frame usually arrives before its client terminal exists (and is
@@ -34,7 +42,17 @@ export class SessionRegistry {
       session = new DaemonSession({ sessionId })
       this.sessions.set(sessionId, session)
     }
+    if (this.engineScope) session.engines ??= this.engineScope
     return session
+  }
+
+  /**
+   * Bind the session layer's engine hold. Called once by the composition root
+   * with the scope over the daemon's engine durable; every session delegate
+   * (`spawnEngine`, `killEngine`, `journalFor`, …) routes through it.
+   */
+  bindEngines(scope: SessionEngineScope): void {
+    this.engineScope = scope
   }
 
   get(sessionId: SessionId): DaemonSession | undefined {

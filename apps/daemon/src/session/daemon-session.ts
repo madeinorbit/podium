@@ -24,12 +24,18 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { AbandonedQueuedTurn, EngineBindUnrecoverable } from '@podium/harness/driver/host'
+import type {
+  AbandonedQueuedTurn,
+  EngineAttachment,
+  EngineBindUnrecoverable,
+  EngineSpawnRequest,
+} from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { TerminalScreen } from '@podium/process/screen'
 import type { Terminal } from '../terminal/terminal.js'
+import type { EngineJournal, SessionEngineScope } from './engines.js'
 
 const log = createLogger('daemon:session')
 
@@ -180,6 +186,17 @@ export class DaemonSession {
    *  warm, or starting. Undefined otherwise; the relay disarms its timer first. */
   client: ClientTerminalPolicy | undefined = undefined
 
+  /**
+   * THE §4.8 ENGINE HOLD (this issue): the session layer's verbs over the
+   * daemon's engine durable, bound by the composition root through the
+   * registry. The driver families never call `DurableProcess` themselves —
+   * they consume this scope as their `EngineProcessOwner`, and these delegate
+   * methods are the session object calling the verbs the spec assigns it.
+   * Absent until bound (unit entries that never launch): every delegate
+   * refuses loudly, naming the session.
+   */
+  engines: SessionEngineScope | undefined = undefined
+
   private screenState: TerminalScreen | undefined = undefined
 
   constructor(init: DaemonSessionInit) {
@@ -249,6 +266,48 @@ export class DaemonSession {
     this.clientLabel = undefined
     this.client = undefined
     this.keptEngine = undefined
+  }
+
+  /**
+   * THE SESSION'S ENGINE VERBS (spec §4.8 steps 2 and 6): create-or-adopt,
+   * re-attach, probe and terminate the engine's process, plus the binding
+   * journal the lifecycle owns. Each routes through the bound scope; an
+   * unbound session refuses loudly rather than forking a child no restart
+   * could re-adopt.
+   */
+  private engineOwner(): SessionEngineScope {
+    const scope = this.engines
+    if (!scope) {
+      throw new Error(
+        `engine for ${this.sessionId} has no session engine scope: the daemon never bound its engine durable`,
+      )
+    }
+    return scope
+  }
+
+  /** Create-or-adopt this session's engine process (spec §4.8 step 2). */
+  spawnEngine(req: EngineSpawnRequest): Promise<EngineAttachment> {
+    return this.engineOwner().startEngine(req)
+  }
+
+  /** Re-attach to this session's surviving engine as the writer. */
+  reattachEngine(label: string): Promise<EngineAttachment> {
+    return this.engineOwner().reattachEngine({ label, fromSeq: 'tail' })
+  }
+
+  /** Whether a live host still owns the label and its program runs. */
+  engineAlive(label: string): Promise<boolean> {
+    return this.engineOwner().engineAlive(label)
+  }
+
+  /** Detach-or-terminate this session's engine process (spec §4.8 step 6). */
+  killEngine(label: string): Promise<void> {
+    return this.engineOwner().destroyEngine(label)
+  }
+
+  /** The binding journal for one family namespace, owned by the session layer. */
+  journalFor<TEntry extends { sessionId: SessionId }>(namespace: string): EngineJournal<TEntry> {
+    return this.engineOwner().journalFor<TEntry>(namespace)
   }
 
   /**
