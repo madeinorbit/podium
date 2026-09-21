@@ -52,7 +52,28 @@ Correctness comes from two mechanisms, not from input lists (there are none):
   per scenario. The oracle does not cover counts — the M2 run's exact
   derivation assertions do.
 
-## Write path
+## M3 (POD-4453): what the lifecycle phase changed
+
+- **Rollup seats are incremental; the batch build is gone.** `openExplicit`
+  (issues with ≥1 open explicit session), `lastActive` (per-issue max over
+  non-archived explicit sessions) and `staffed` (ancestor closure of open
+  issues) are maintained, not rebuilt: session diffs against a per-session
+  snapshot refresh the touched issue's bucket only (O(bucket), typically one
+  session), open flips walk the ancestor chain (O(depth)), parent moves
+  re-hang the moved subtree's open issues (O(open-in-subtree × depth)).
+  Semantics mirror the old build exactly (same predicates, same walks), so the
+  rebuild oracle covers the maintenance. The `rollup-batch` scan (~11.2k
+  visits per computing dispatch at 1x) is zero on every scenario; the M2
+  strict gate passes with identical rows/derivations.
+- **Computation share is timed.** `HandStore` accumulates `indexMs`
+  (index maintenance), `rollupMs` (summary + visible + rollup) and `rowMs`
+  (order + groups + rows) per dispatch, exposed via `store.phaseMs()`.
+  Arm-local optional fields on the arm's own stats object — the shared
+  `ArmStats` interface and the harness's four-field readers are untouched.
+- **Write idiom (sketch only).** A pending delta is a synthetic `update`
+  through `dispatch` plus a side mark; echo clears the mark, rejection
+  re-applies the saved prior row. See `docs/plans/POD-4453-write-path.md`;
+  the spike lives in `spike/` and is never imported by the production path.
 
 `RowSourceEvent` → `HandStore.dispatch` → table deltas → `IndexSet.apply`
 → `SummaryModule` → `VisibleModule` → `RollupModule` → `OrderModule` +
