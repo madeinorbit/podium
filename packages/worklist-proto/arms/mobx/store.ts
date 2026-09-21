@@ -499,6 +499,10 @@ export class MobXStore {
 
   /** Re-resolve every unbound session after lane/target moves (spec §2 R3). */
   private resolveAllUnbound(): void {
+    // Unconditional drop+retake in stable home order: the resolved PATH may
+    // be unchanged while its member set moved (an issue gained a
+    // worktreePath), so a path-equality skip would leave stale seats behind.
+    // Per-session drop-then-take in insertion order preserves bucket order.
     for (const [id, home] of [...this.sessionHome]) {
       if (home.explicit !== null) continue
       const session = this.sessions.get(id)?.value
@@ -512,7 +516,6 @@ export class MobXStore {
         continue
       }
       const resolved = this.resolveCwd(session.cwd)
-      if (resolved === home.resolved) continue
       if (home.resolved !== null) {
         for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
           this.dropSeat(this.resolvedByIssue, issueId, id)
@@ -523,7 +526,9 @@ export class MobXStore {
           this.takeSeat(this.resolvedByIssue, issueId, id)
         }
       }
-      this.sessionHome.set(id, { explicit: home.explicit, resolved })
+      if ((home.resolved ?? null) !== resolved) {
+        this.sessionHome.set(id, { explicit: home.explicit, resolved })
+      }
     }
   }
 
