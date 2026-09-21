@@ -29,6 +29,7 @@ import {
   type DurableProcess,
   type DurableReattach,
   durableProcessFor,
+  WriterLeaseRefusedError,
 } from '@podium/process/durable'
 import { spawnAgent } from '@podium/process/screen'
 import { Terminal } from '../terminal/terminal.js'
@@ -812,6 +813,10 @@ export async function launchSpawn(
     }
     const launch = async (instrumentation: InstalledTerminalInstrumentation) => {
       const spawnOpts = {
+        // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
+        // while another writer holds it is the update-overlap symptom: two
+        // daemons, one host, and a session that looks live and swallows input.
+        requireLease: true,
         label,
         cmd: cmd.cmd,
         args: instrumentedLaunchArgs(cmd.args, instrumentation.args),
@@ -969,7 +974,17 @@ export async function launchSpawn(
   } catch (err) {
     // A process may already exist when handle construction fails. Use the shared
     // reaper before reporting failure; never acknowledge a driverless agent.
-    if (ctx.sessions.get(msg.sessionId)?.attached) stopSessionProcess(ctx, msg)
+    // A refused writer lease belongs to another/newer owner: nothing was
+    // acquired, so there is nothing to reap — and the log names the session,
+    // because a silent spawnError is the old symptom wearing a new frame.
+    if (err instanceof WriterLeaseRefusedError) {
+      log.warn('spawn refused: another writer holds the host lease', {
+        sessionId: msg.sessionId,
+        label: err.label,
+        writers: err.writers,
+        readers: err.readers,
+      })
+    } else if (ctx.sessions.get(msg.sessionId)?.attached) stopSessionProcess(ctx, msg)
     removeSessionInstructions(ctx, msg.sessionId)
     // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
     // must not be applied to whatever is spawned for this id next.
@@ -2430,6 +2445,10 @@ export async function recoverTerminalHost(
           found = await located.adapter.attach({
             label: msg.durableLabel,
             socketPath: located.socketPath,
+            // DEMAND THE WRITER LEASE (POD-4434): a reattach that lands while
+            // a stale daemon still holds the host's one writer must refuse
+            // with reattachFailed, never read along silently.
+            requireLease: true,
             lastKnownGeometry: msg.lastKnownGeometry,
             ...(resumeFrom !== undefined ? { lastSeq: resumeFrom } : {}),
           })
@@ -2549,6 +2568,91 @@ export async function recoverTerminalHost(
     // DurableReattach.redrawOnReattach).
     if (found.redrawOnReattach) terminal?.redraw()
   })
+}
+
+/**
+ * Deliberate writer-lease takeover (POD-4434): the explicit operator verb that
+ * pairs with the lease refusal above. Refusal says "another writer holds it, I
+ * will not read silently"; steal says "take it anyway, on purpose".
+ *
+ * Locate the master, take the lease over a fresh attachment (the revoked
+ * holder hears LEASE_LOST on its own connection), and wire the stolen surface
+ * through the same ONE construction site as spawn and reattach. The session
+ * never changes owner; only the attachment is replaced. Abduco has no lease
+ * and refuses the steal loudly; a missing master answers 'session not found'.
+ * Success reports a bind (the attach applied nothing, so it carries no
+ * geometry); failure answers reattachFailed with the reason named.
+ */
+export async function stealTerminalWriter(
+  ctx: DaemonContext,
+  msg: Extract<ControlMessage, { type: 'stealWriter' }>,
+): Promise<void> {
+  const owned = ctx.sessions.ensure(msg.sessionId)
+  const label = msg.durableLabel ?? owned.label
+  owned.label = label
+  // Park first: the losing attachment detaches while the master, the screen,
+  // the held resize and the replay cursor stay owned. The stolen attachment
+  // replaces the surface below; nothing is reaped.
+  owned.park()
+  const durable = durableProcessFor(ctx)
+  if (!durable) throw new Error('durable backend unavailable')
+  const env = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
+  const located = await durable.locate(label, env, { waitMs: 1500 })
+  if (!located) throw new Error('session not found')
+  const resumeFrom = owned.seqReader?.()
+  const modelSize = owned.peekScreen()?.modelSize
+  const found = await located.adapter.steal({
+    label,
+    socketPath: located.socketPath,
+    lastKnownGeometry: msg.lastKnownGeometry ?? modelSize ?? { cols: 80, rows: 24 },
+    ...(resumeFrom !== undefined ? { lastSeq: resumeFrom } : {}),
+  })
+  log.warn('writer lease stolen on operator action', { sessionId: msg.sessionId, label })
+  wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, label, undefined)
+  const downgraded = found.readGeometry ?? found.attachment.appliedGeometry
+  if (downgraded) {
+    appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
+    trackSessionSize(ctx, msg.sessionId, downgraded.cols, downgraded.rows)
+  }
+  rememberDurableSeq(ctx, msg.sessionId, found.attachment)
+  // The observers were subscribed to the parked attachment: re-subscribe them
+  // to the stolen one through the same path spawn and reattach use. The
+  // synthetic reattach carries only daemon-held or operator-authored facts —
+  // no binding or resume fencing, which the live row never lost.
+  const observerMsg = {
+    type: 'reattach',
+    sessionId: msg.sessionId,
+    durableLabel: label,
+    agentKind: msg.agentKind,
+    cwd: msg.cwd,
+    lastKnownGeometry: msg.lastKnownGeometry ?? modelSize ?? { cols: 80, rows: 24 },
+  } as const
+  ctx.observers.initSessionObservers(
+    observerMsg,
+    found.attachment,
+    agentStateProviderFor(msg.agentKind),
+    { seedOnFrame: false },
+  )
+  const screens = downgraded ?? observerMsg.lastKnownGeometry
+  ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
+  const recoveryProfile = terminalProfileFor(msg.agentKind)
+  if (recoveryProfile) requireTerminalHandle(ctx, observerMsg, recoveryProfile)
+  const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
+  ctx.send(
+    bindFrame(appliedGeometryFor(ctx), {
+      sessionId: msg.sessionId,
+      cmd: found.cmd,
+      cwd: msg.cwd,
+      agentKind: msg.agentKind,
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
+    }),
+  )
 }
 
 /**
@@ -2722,6 +2826,7 @@ export const sessionHandlers: Pick<
   ControlHandlers,
   | 'spawn'
   | 'reattach'
+  | 'stealWriter'
   | 'kill'
   | 'sessionBindingRetire'
   | 'sessionResumeRefConflict'
@@ -2746,11 +2851,32 @@ export const sessionHandlers: Pick<
       })
     })
   },
+  stealWriter: (ctx, msg) => {
+    void stealTerminalWriter(ctx, msg).catch((error) => {
+      ctx.send({
+        type: 'reattachFailed',
+        sessionId: msg.sessionId,
+        reason: error instanceof Error ? error.message : String(error),
+      })
+    })
+  },
   reattach: (ctx, msg) => {
     void handleReattach(ctx, msg).catch((error) => {
-      // A refused lease belongs to another/newer owner. Only a composition
-      // failure may reap an acquired bridge, as required by agent admission.
-      if (!(error instanceof TerminalRecoveryRefusal) && ctx.sessions.get(msg.sessionId)?.attached) {
+      // A refused writer lease belongs to another/newer owner: nothing was
+      // acquired, so nothing is reaped — and the log names the session, so a
+      // live-looking silent reader can never come back. The reattachFailed
+      // frame below carries the label and the holder census; the server shows
+      // the row refused instead of live.
+      if (error instanceof WriterLeaseRefusedError) {
+        log.warn('reattach refused: another writer holds the host lease', {
+          sessionId: msg.sessionId,
+          label: error.label,
+          writers: error.writers,
+          readers: error.readers,
+        })
+        // A refused lease belongs to another/newer owner. Only a composition
+        // failure may reap an acquired bridge, as required by agent admission.
+      } else if (!(error instanceof TerminalRecoveryRefusal) && ctx.sessions.get(msg.sessionId)?.attached) {
         stopSessionProcess(ctx, msg)
       }
       ctx.send({

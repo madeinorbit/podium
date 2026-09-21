@@ -63,6 +63,11 @@ enum {
   C_DETACH = 0x07,
   C_KILL = 0x08,
   C_REPLAY = 0x09,
+  /* Deliberate takeover (POD-4434): revoke the current writer's lease and
+   * grant it to the sender. The daemon sends this only on an explicit
+   * operator action — never as a retry — so a second writer is always a
+   * decision, never an accident. */
+  C_STEAL = 0x0A,
 
   H_WELCOME = 0x81,
   H_DATA = 0x82,
@@ -75,6 +80,9 @@ enum {
   H_LEASE_LOST = 0x89,
   H_REPLAYING = 0x8A,
   H_REPLAYED = 0x8B,
+  /* Ack for C_STEAL: the sender now holds the writer lease. The revoked
+   * holder got H_LEASE_LOST on its own connection at the same moment. */
+  H_STOLEN = 0x8C,
   H_ERR = 0x8F,
 };
 
@@ -583,6 +591,27 @@ static void handle_frame(client_t *c, uint8_t type, const uint8_t *p, uint32_t n
       }
       request_kill();
       return;
+    case C_STEAL: {
+      /* A deliberate takeover: the sender takes the lease even when it is
+       * held. The holder keeps its connection (it still reads) but loses the
+       * lease, and hears H_LEASE_LOST so it never mistakes a swallowed write
+       * for a delivered one. Stealing from nobody is a no-op success. */
+      if (n != 0) goto bad;
+      if (H.writer && H.writer != c) {
+        size_t at = frame_begin(&H.writer->out, H_LEASE_LOST);
+        frame_end(&H.writer->out, at);
+        client_release_lease(H.writer);
+      }
+      if (H.writer == NULL) {
+        H.writer = c;
+        c->writer = true;
+      }
+      {
+        size_t at = frame_begin(&c->out, H_STOLEN);
+        frame_end(&c->out, at);
+      }
+      return;
+    }
     default:
       goto bad;
   }

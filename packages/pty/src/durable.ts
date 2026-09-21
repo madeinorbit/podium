@@ -114,6 +114,7 @@ export {
   killHostSession,
   type HostAttachOptions,
   type HostDurableAttachment,
+  WriterLeaseRefusedError,
   attachHostAgent,
   spawnHostAgent,
 } from './host.js'

@@ -911,6 +911,13 @@ export interface AbducoSpawnOptions {
    * pressure. Default `'session'`: the agent's own process tree.
    */
   scopeRole?: ScopeRole
+  /**
+   * Refuse when the host grants no writer lease (POD-4434). Honoured by the
+   * podium-host backend only: abduco has no writer lease (every attach client
+   * writes), so it ignores this. Headless engine spawns leave it off and judge
+   * the lease themselves (POD-4433).
+   */
+  requireLease?: boolean
 }
 
 /**

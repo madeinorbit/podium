@@ -583,6 +583,30 @@ export const KillMessage = z.object({
   sessionId: SessionIdField,
   durableLabel: z.string().optional(),
 })
+/**
+ * Server→daemon: deliberately take the host's writer lease for this session
+ * (POD-4434).
+ *
+ * The host grants exactly one writer; a reattach that lands while a stale
+ * daemon still holds it REFUSES with reattachFailed rather than reading
+ * silently. This verb is the deliberate counterpart: an explicit operator
+ * action that revokes the holder (it hears LEASE_LOST) and wires this
+ * daemon's fresh attachment as the writer. Never sent as a retry — a second
+ * writer is always a decision, never an accident.
+ */
+export const StealWriterMessage = z.object({
+  type: z.literal('stealWriter'),
+  sessionId: SessionIdField,
+  durableLabel: z.string().optional(),
+  /** The row's harness kind — the daemon needs it for the surface it wires. */
+  agentKind: AgentKind,
+  /** The row's persisted cwd — observer wiring reads it, and the daemon never invents one. */
+  cwd: z.string(),
+  /** The server's last-known grid, a hint only (see ReattachMessage). Absent:
+   * the daemon falls back to the screen model's grid. Never reaches the pty. */
+  lastKnownGeometry: Geometry.optional(),
+})
+export type StealWriterMessage = z.infer<typeof StealWriterMessage>
 /** Terminal Session deletion. Unlike `kill`, this ends the binding delegation
  * after the server has durably tombstoned the Session row. */
 export const SessionBindingRetireMessage = z.object({

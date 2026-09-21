@@ -663,6 +663,9 @@ export function createOpencodeClientTerminals(
     // a warm reattach reuses the client that exists and applies nothing.
     const birth = ports.birthGeometry?.(sessionId) ?? geometry
     const session = await spawn({
+      // The client TUI is this session's only writer while watched: adopt
+      // under another writer and it reads silently. Demand the lease (POD-4434).
+      requireLease: true,
       label: record.label,
       cmd: launch.cmd,
       args: launch.args,
