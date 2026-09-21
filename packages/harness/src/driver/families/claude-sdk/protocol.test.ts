@@ -188,9 +188,18 @@ describe('the stream client', () => {
       emit: () => {},
     })
     completeTurn(fake, 'sess-1')
-    // The user line goes out only once the handshake is answered.
+    // The user line goes out once the handshake is answered — a microtask
+    // after the answer lands, so the handshake settles first.
+    await client.ready
     const user = fake.writes.map((line) => JSON.parse(line)).find((msg) => msg.type === 'user')
     expect(user.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    fake.emitLine(
+      frame({
+        type: 'stream_event',
+        uuid: 'msg-1',
+        event: { type: 'message_start' },
+      }),
+    )
     fake.emitLine(
       frame({
         type: 'stream_event',
@@ -237,6 +246,7 @@ describe('the stream client', () => {
       emit: () => {},
     })
     completeTurn(fake, 'sess-2')
+    await client.ready
     fake.emitLine(
       frame({
         type: 'control_request',
@@ -358,7 +368,7 @@ describe('the stream client', () => {
     })
     completeTurn(fake, 'sess-6')
     fake.emitLine(frame({ type: 'result', subtype: 'error', errors: ['boom'] }))
-    const failure = await turn.done.catch((error: Error) => error)
+    const failure = (await turn.done.catch((error: unknown) => error)) as Error
     expect(failure.message).toContain('boom')
     expect(failure).toMatchObject({ harnessSessionId: 'sess-6' })
   })

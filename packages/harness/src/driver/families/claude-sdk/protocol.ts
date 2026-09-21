@@ -103,7 +103,7 @@ export interface ClaudeStreamTurnSpec {
  * and setting sources rather than merely declining to mount them.
  */
 export function buildClaudeStreamInvocation(
-  spec: Omit<ClaudeStreamTurnSpec, 'prompt' | 'cwd' | 'env' | 'timeoutMs'>,
+  spec: ClaudeStreamTurnSpec,
   executable: string,
 ): { cmd: string; args: string[] } {
   const mode: string =
@@ -328,6 +328,10 @@ export interface ClaudeStreamClient {
 }
 
 interface PendingPermission {
+  /** The CLI's own `request_id`: what the `control_response` must echo. Kept
+   *  apart from the interaction id Podium answers with — the SDK keeps the
+   *  same two identities, and conflating them answers a question nobody asked. */
+  cliRequestId: string
   input: Record<string, unknown>
   suggestions?: readonly unknown[]
   toolUseId: string
@@ -389,7 +393,7 @@ export function createClaudeStreamClient(
   const denyPendingPermissions = (): void => {
     for (const [id, pending] of pendingPermissions) {
       pendingPermissions.delete(id)
-      writeControlResponse(id, {
+      writeControlResponse(pending.cliRequestId, {
         behavior: 'deny',
         message: 'client stopped before permission was answered',
         interrupt: true,
@@ -398,10 +402,15 @@ export function createClaudeStreamClient(
     }
   }
 
+  const clearOpenTurn = (turn: NonNullable<typeof openTurn>): void => {
+    if (openTurn === turn) openTurn = undefined
+  }
+
   const failOpenTurn = (message: string): void => {
     const turn = openTurn
     if (!turn || turn.settled) return
     turn.settled = true
+    clearOpenTurn(turn)
     clearTimeout(turn.timer)
     if (turn.killTimer) clearTimeout(turn.killTimer)
     turn.reject(new HeadlessTurnFailure(message, sessionId || undefined))
@@ -411,6 +420,7 @@ export function createClaudeStreamClient(
     const turn = openTurn
     if (!turn || turn.settled) return
     turn.settled = true
+    clearOpenTurn(turn)
     clearTimeout(turn.timer)
     if (turn.killTimer) clearTimeout(turn.killTimer)
     if (!sessionId) {
@@ -527,6 +537,7 @@ export function createClaudeStreamClient(
         }
         const interactionId = randomUUID()
         pendingPermissions.set(interactionId, {
+          cliRequestId: typeof requestId === 'string' ? requestId : '',
           input: req.input ?? {},
           ...(req.permission_suggestions ? { suggestions: req.permission_suggestions } : {}),
           toolUseId: typeof req.tool_use_id === 'string' ? req.tool_use_id : '',
@@ -685,14 +696,14 @@ export function createClaudeStreamClient(
     if (!pending) return
     pendingPermissions.delete(interactionId)
     if (answer.decision === 'deny') {
-      writeControlResponse(interactionId, {
+      writeControlResponse(pending.cliRequestId, {
         behavior: 'deny',
         message: answer.feedback?.trim() || 'Denied by the Podium operator',
         interrupt: false,
         toolUseID: pending.toolUseId,
       })
     } else {
-      writeControlResponse(interactionId, {
+      writeControlResponse(pending.cliRequestId, {
         behavior: 'allow',
         updatedInput: pending.input,
         ...(answer.decision === 'allow-always' && pending.suggestions

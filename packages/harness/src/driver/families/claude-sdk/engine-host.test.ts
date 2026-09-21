@@ -232,6 +232,13 @@ describe('the claude stream engine host', () => {
     await expect(first.done).resolves.toMatchObject({ output: 'first' })
 
     const second = host.startTurn(turnInput('two', 'claude-native-1', false))
+    // The second turn binds asynchronously (even to a held engine); its
+    // result can only complete a turn the engine has received.
+    await vi.waitFor(() =>
+      expect(
+        attachment.writes.map((line) => JSON.parse(line)).filter((msg) => msg.type === 'user'),
+      ).toHaveLength(2),
+    )
     endTurn(attachment, 'second')
     await expect(second.done).resolves.toMatchObject({
       resumeValue: 'claude-native-1',
@@ -259,8 +266,15 @@ describe('the claude stream engine host', () => {
     )
     // Adopted, not spawned: the child predates this generation.
     expect(spawned).toHaveLength(0)
-    // The survivor reports its own session; the in-flight turn completes.
+    // The survivor reports its own session; the turn sent after adopt
+    // completes on it. The user line goes out asynchronously once the fresh
+    // handshake is answered — the completion must wait for it.
     answerHandshake(attachment, 'claude-native-1')
+    await vi.waitFor(() =>
+      expect(
+        attachment.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user'),
+      ).toBe(true),
+    )
     endTurn(attachment, 'survived')
     await expect(handle.done).resolves.toMatchObject({
       resumeValue: 'claude-native-1',
@@ -380,7 +394,9 @@ describe('the claude stream engine host', () => {
         if (users.length > 0) break
         await vi.advanceTimersByTimeAsync(10)
       }
-      const ack = handle.requestInterrupt()
+      const interrupt = handle.requestInterrupt
+      if (!interrupt) throw new Error('the engine turn owes an interrupt answer')
+      const ack = interrupt()
       await vi.advanceTimersByTimeAsync(5_000)
       await expect(ack).resolves.toMatchObject({ outcome: 'unconfirmed' })
       expect(attachment.signals).toContain(2)

@@ -329,7 +329,7 @@ describe('Claude SDK daemon host adapter', () => {
     const engine = fakeEngine((input) => {
       turnInputs.push(input)
       return {
-        done: Promise.resolve({ harnessSessionId: 'sdk-thread', output: 'answered' }),
+        done: Promise.resolve({ resumeValue: 'sdk-thread', output: 'answered' }),
         interrupt: vi.fn(),
         requestInterrupt: vi.fn(async () => ({ outcome: 'accepted' as const })),
         answerPermission: vi.fn(),
@@ -396,10 +396,10 @@ describe('Claude SDK daemon host adapter', () => {
         driver: 'claude-sdk',
         resume: { kind: 'claude-session', value: 'claude-native-9' },
       })
-      // The bind goes out for the adopted handle too.
-      expect(sent).toContainEqual(
-        expect.objectContaining({ type: 'bind', sessionId: SESSION_ID, driverId: 'claude-sdk' }),
-      )
+      // No fresh bind: the session was bound at launch, and adopt only
+      // re-arms the contract core (pump) and re-reports the resume ref —
+      // the same shape the codex/grok adopts keep.
+      expect(sent.filter((message) => message.type === 'bind')).toEqual([])
       expect(sent).toContainEqual({
         type: 'sessionResumeRef',
         sessionId: SESSION_ID,
@@ -435,14 +435,15 @@ describe('Claude SDK daemon host adapter', () => {
 
     it('exposes the journal projection and clears it on demand', async () => {
       const engine = fakeEngine()
+      const stored = {
+        sessionId: SESSION_ID,
+        claudeSessionId: 'claude-native-9',
+        workdir: '/work',
+        process: { key: 'podium-cl-claude-adapter-session', pid: 4242 },
+        bindingVersion: 1,
+      }
       const journal = {
-        read: () => ({
-          sessionId: SESSION_ID,
-          claudeSessionId: 'claude-native-9',
-          workdir: '/work',
-          process: { key: 'podium-cl-claude-adapter-session', pid: 4242 },
-          bindingVersion: 1,
-        }),
+        read: (sessionId: SessionId) => (sessionId === SESSION_ID ? stored : undefined),
         write: vi.fn(),
         clear: vi.fn(),
       }
