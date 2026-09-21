@@ -329,15 +329,14 @@ describe('mobx arm: visible, order, groups', () => {
 })
 
 describe('mobx arm: locals + lifecycle', () => {
-  it('selection flips two rows with zero derivations (mounted: see ui test)', () => {
+  it('selection latches the clicked lane (counts: see ui test)', () => {
     const world = exampleWorld()
-    world.store.stats.reset()
     world.store.setSelection('B')
     expect(world.store.locals.selectedIssueId).toBe('B')
-    // Bare store: no observers, so nothing recomputes yet; the UI click test
-    // pins the mounted 2-rows-0-derivations contract.
-    expect(world.store.stats.rowsDerived).toBe(0)
-    expect(world.store.stats.rollupsDerived).toBe(0)
+    expect(world.store.locals.selectedIssueWasFolded).toBe(false)
+    // Bare store: laneOf reads unobserved computeds, so bodies execute here.
+    // The mounted 2-rows-0-derivations contract lives in mobx.ui.test.tsx,
+    // where the list observes everything and laneOf reads cached values.
   })
 
   it('replace reseeds atomically: one pass, snapshot equals fresh', () => {
