@@ -3112,7 +3112,11 @@ export const sessionHandlers: Pick<
       if (owned) owned.pendingResize = undefined
     }
     const terminals = ctx.clientTerminals
-    if (terminals?.owns?.(msg.sessionId)) {
+    // A LIVE client surface answers from the Terminal itself (POD-3918 P1b):
+    // the mode-aware policy must decide (size-first, snapshot) BEFORE any
+    // repaint is nudged, and `redraw()` both decides and nudges in one call.
+    // False while starting, parked, or absent — those keep the bookkeeping path.
+    if (ctx.sessions.get(msg.sessionId)?.terminal?.kind === 'client' && terminals) {
       switch (decision.kind) {
         case 'snapshot-then-live':
           enqueueSnapshot()

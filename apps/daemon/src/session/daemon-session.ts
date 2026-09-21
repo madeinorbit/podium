@@ -36,6 +36,33 @@ export interface DaemonSessionInit {
   label?: string
 }
 
+/**
+ * Client-terminal policy for a server-family session (POD-4505): what the
+ * native-client relay remembers between calls. Lives ON the entry so the
+ * relay holds no per-session map; `watched`/`clientLabel` alongside it are
+ * the pre-existing shared fields. `kind` stays a string so this layer takes
+ * no harness dependency; the relay narrows it at its one use.
+ */
+export interface ClientTerminalPolicy {
+  /** Durable label of this session's client master. Mirrored onto the entry's
+   *  `clientLabel`; read here so teardown still names the master after the
+   *  policy is retired. */
+  label: string
+  kind: string
+  /** In-flight start, so two concurrent attaches produce ONE client. */
+  starting?: Promise<Terminal>
+  /** The one Native generation allowed to accept input, plus what arrived
+   *  while its process was starting. Replaced on every start. */
+  generation?: { acceptingInput: boolean; pendingInput: Uint8Array[]; pendingBytes: number }
+  timer?: unknown
+  /** An adopted master must ACK one replay redraw without forwarding it. */
+  suppressNextReplayRedraw?: boolean
+  /** The parked master evolved while no relay was attached: repaint on return. */
+  replayRequired?: boolean
+  /** The next client continues the same surface: no scrollback-clear anchor. */
+  preserveReplayOnRelaunch?: boolean
+}
+
 export class DaemonSession {
   readonly sessionId: SessionId
   /**
@@ -72,6 +99,10 @@ export class DaemonSession {
    * under pressure.
    */
   watched = false
+
+  /** The client-terminal policy, while a native client is attached, parked
+   *  warm, or starting. Undefined otherwise; the relay disarms its timer first. */
+  client: ClientTerminalPolicy | undefined = undefined
 
   private screenState: TerminalScreen | undefined = undefined
 
@@ -140,5 +171,6 @@ export class DaemonSession {
     this.pendingResize = undefined
     this.seqReader = undefined
     this.clientLabel = undefined
+    this.client = undefined
   }
 }

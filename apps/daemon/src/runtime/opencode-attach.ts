@@ -119,6 +119,7 @@ import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { AbducoSpawnOptions, DurableProcess } from '@podium/process/durable'
 import type { DurableAttachment } from '@podium/process/screen'
 import type { SessionRegistry } from '../session/registry.js'
+import type { ClientTerminalPolicy } from '../session/daemon-session.js'
 import { Terminal } from '../terminal/terminal.js'
 import type { AppliedGeometryRecord } from '../control/applied-geometry'
 import {
@@ -312,15 +313,6 @@ export interface OpencodeClientTerminals {
   ): Geometry | Promise<Geometry | undefined> | undefined
   redraw(sessionId: SessionId, replayRequired?: boolean): boolean
   /**
-   * Whether a LIVE client terminal is attached right now (POD-3918 P1b).
-   *
-   * A non-mutating peek for the mode-aware reopen policy: it must decide
-   * (size-first, snapshot) BEFORE any repaint is nudged, and `redraw()` both
-   * decides and nudges in one call. False while starting, parked, or absent —
-   * those keep today's `redraw()` bookkeeping path.
-   */
-  owns?(sessionId: SessionId): boolean
-  /**
    * What could be reclaimed right now WITHOUT touching a session (spec §5:
    * attachments are the first thing reclaimed under pressure, because they are
    * pure convenience and the session engine is untouched).
@@ -406,13 +398,13 @@ export interface OpencodeClientTerminalPorts {
   /** The per-daemon last resort, when {@link birthGeometry} knows nothing. */
   geometry?: Geometry
   /**
-   /**
-    * THE SESSION REGISTRY (POD-4434). The client TUI is a Terminal with no
-    * driver, keyed by the parent session id — so its surface lives ON the
-    * parent session (`sessions.ensure(id).terminal`), not in this module's own
-    * map. REQUIRED: the only production call site passes `ctx.sessions`.
-    */
-   sessions: SessionRegistry
+  /**
+   * THE SESSION REGISTRY (POD-4434). The client TUI is a Terminal with no
+   * driver, keyed by the parent session id — so its policy lives ON the
+   * parent session entry, not in this module. REQUIRED: the only production
+   * call site passes `ctx.sessions`.
+   */
+  sessions: SessionRegistry
    /**
     * KEEP THIS CLIENT TERMINAL'S HOST RESUME POINT (POD-3919 audit item 7).
    *
@@ -429,43 +421,6 @@ export interface OpencodeClientTerminalPorts {
   warmTtlMs?: number
   setTimer?(fn: () => void, ms: number): unknown
   clearTimer?(handle: unknown): void
-}
-
-interface ClientTerminalGeneration {
-  acceptingInput: boolean
-  pendingInput: Uint8Array[]
-  pendingBytes: number
-}
-
-interface Attachment {
-  label: string
-  /** Which harness's client this is — the registry key `release()` asks about
-   *  parking. Remembered rather than re-derived, because the record outlives
-   *  the attach request that carried the target. */
-  kind: ClientTerminalKind
-  /** In-flight start, so two concurrent attaches produce ONE client. */
-  starting?: Promise<Terminal>
-  /** The one Native generation allowed to accept input. Replaced on every start. */
-  generation?: ClientTerminalGeneration
-  /**
-   * The browser's full-replay attach asks for one redraw after receiving the
-   * retained byte log. An adopted master must acknowledge that request without
-   * forwarding it: its viewport-clearing repaint would replace the replay that
-   * still contains older Native content. Consumed once, so later explicit
-   * redraws remain real.
-   */
-  suppressNextReplayRedraw?: boolean
-  /** The server replay cannot rebuild the surviving TUI: either the server
-   *  restarted empty, or the parked master evolved while no attach client was
-   *  relaying frames. Survives the race with recreating the adopted handle. */
-  replayRequired?: boolean
-  /** The next client is a new process continuing the same Native surface. Its
-   * first paint must not clear retained scrollback. */
-  preserveReplayOnRelaunch?: boolean
-  timer?: unknown
-  /** Does a client have this session open? Drives the idle clock, and keeps a
-   *  watched terminal out of the reclaim inventory. */
-  watched?: boolean
 }
 
 /**
@@ -540,36 +495,9 @@ export function createOpencodeClientTerminals(
   const clearTimer =
     ports.clearTimer ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>))
 
-  const attachments = new Map<SessionId, Attachment>()
-
-  /**
-   * SESSIONS A VIEWER CURRENTLY HAS OPEN, remembered whether or not they have an
-   * attachment yet.
-   *
-   * Without this the seeding is backwards in the one case that matters. Viewer
-   * state arrives as `sessionPriority`, which the server sends ONLY ON CHANGE —
-   * so a session already on screen when its terminal is attached produces no
-   * frame at all, `watched` stays unset, and the attachment is born armed and
-   * counted as reclaimable. Under host pressure that is a terminal closed while
-   * somebody is looking at it: the exact guarantee the reclaim-first design was
-   * accepted on.
-   *
-   * SEEDED FROM THIS SET, NEVER FROM THE OUTPUT SCHEDULER's priority. That map
-   * defaults a session it has never heard of to tier 1, so an unopened session
-   * would read as watched and its terminal would never arm at all — a leak
-   * dressed as caution.
-   *
-   * Only the watched are stored, so a viewer leaving REMOVES the entry and the
-   * set stays the size of what is on screen. A session that ends while watched
-   * can leave one behind; session ids are never reused, so a stale entry can
-   * only ever describe the session it was recorded for, and no later attachment
-   * can inherit it.
-   */
-  const watchedSessions = new Set<SessionId>()
-
-  const disarm = (record: Attachment): void => {
-    if (record.timer !== undefined) clearTimer(record.timer)
-    record.timer = undefined
+  const disarm = (policy: ClientTerminalPolicy): void => {
+    if (policy.timer !== undefined) clearTimer(policy.timer)
+    policy.timer = undefined
   }
 
   /**
@@ -580,13 +508,16 @@ export function createOpencodeClientTerminals(
    * which is what makes this an idle TTL and not a lifetime — the alternative
    * kills a terminal out from under someone at the thirty-minute mark.
    */
-  const arm = (sessionId: SessionId, record: Attachment): void => {
-    disarm(record)
-    if (record.watched) return
-    record.timer = setTimer(() => {
+  const arm = (sessionId: SessionId): void => {
+    const owned = sessions.get(sessionId)
+    const policy = owned?.client
+    if (!owned || !policy) return
+    disarm(policy)
+    if (owned.watched) return
+    policy.timer = setTimer(() => {
       log.info('reaping a client terminal whose warm window closed', {
         sessionId,
-        label: record.label,
+        label: policy.label,
       })
       void close(sessionId)
     }, warmTtlMs)
@@ -600,7 +531,7 @@ export function createOpencodeClientTerminals(
    */
   async function start(
     sessionId: SessionId,
-    record: Attachment,
+    policy: ClientTerminalPolicy,
     target: ClientTerminalTarget,
   ): Promise<Terminal> {
     const kind = target.kind
@@ -666,7 +597,7 @@ export function createOpencodeClientTerminals(
       // The client TUI is this session's only writer while watched: adopt
       // under another writer and it reads silently. Demand the lease (POD-4434).
       requireLease: true,
-      label: record.label,
+      label: policy.label,
       cmd: launch.cmd,
       args: launch.args,
       cwd: launch.cwd,
@@ -746,7 +677,7 @@ export function createOpencodeClientTerminals(
      * new generation follows its anchor. The pair also matches the server's
      * reset test, so the replay log re-anchors with the browser.
      */
-    if (!session.adopted && !record.preserveReplayOnRelaunch) {
+    if (!session.adopted && !policy.preserveReplayOnRelaunch) {
       ports.frames(sessionId, Buffer.from(CLIENT_GENERATION_RESET))
     }
     /**
@@ -781,12 +712,12 @@ export function createOpencodeClientTerminals(
         session.appliedGeometry.cols,
         session.appliedGeometry.rows,
       )
-    record.preserveReplayOnRelaunch = false
+    policy.preserveReplayOnRelaunch = false
     // A client TUI is a Terminal with no driver (POD-4434): the same ONE
     // factory the headed path uses, over the session's screen, with no
     // hard repaint — TUIs repaint on resize and would mishandle a stray ^L.
     const owned = sessions.ensure(sessionId)
-    owned.clientLabel = record.label
+    owned.clientLabel = policy.label
     const terminal = Terminal.attach(session, owned.screen(), {
       onFrame: (data) => {
         driverTiming.nativeCliStage(sessionId, kind, 'native_cli_first_output', {
@@ -801,7 +732,7 @@ export function createOpencodeClientTerminals(
         // (unwire + detach) and let the next attach reconnect; the reaper still
         // owns the deadline.
         if (owned.terminal === terminal) owned.park()
-        if (session.adopted) record.suppressNextReplayRedraw = true
+        if (session.adopted) policy.suppressNextReplayRedraw = true
       },
     },
     { kind: 'client' })
@@ -826,10 +757,10 @@ export function createOpencodeClientTerminals(
      * port after the master create race, so both sides of this RuntimeDriver
      * attach seam agree on whether this is continuity or a new client.
      */
-    if (!session.adopted || record.replayRequired) {
-      const waitForAttach = session.adopted && record.replayRequired
-      record.replayRequired = false
-      record.suppressNextReplayRedraw = false
+    if (!session.adopted || policy.replayRequired) {
+      const waitForAttach = session.adopted && policy.replayRequired
+      policy.replayRequired = false
+      policy.suppressNextReplayRedraw = false
       if (waitForAttach) terminal.redrawWhenReady()
       else terminal.redraw()
     }
@@ -837,18 +768,22 @@ export function createOpencodeClientTerminals(
   }
 
   async function close(sessionId: SessionId, kind?: ClientTerminalKind): Promise<void> {
-    const record = attachments.get(sessionId)
-    if (record?.generation) {
-      record.generation.acceptingInput = false
-      record.generation.pendingInput = []
-      record.generation.pendingBytes = 0
+    const owned = sessions.get(sessionId)
+    const policy = owned?.client
+    const generation = policy?.generation
+    if (generation) {
+      generation.acceptingInput = false
+      generation.pendingInput = []
+      generation.pendingBytes = 0
     }
-    attachments.delete(sessionId)
+    // Retire the policy, not the entry: the session's screen, held resize and
+    // viewer flag belong to the session lifecycle, which outlives its client.
+    if (owned) owned.client = undefined
     // THE TERMINAL THAT WAS AT THAT SIZE IS GONE (POD-3290), so the daemon holds
     // no applied grid for this session any more.
     ports.appliedGeometry?.forget(sessionId)
-    if (record) {
-      disarm(record)
+    if (policy) {
+      disarm(policy)
       // The relay keeps a coalescing entry per session stream. Nothing else
       // would ever drop the attachment's pending output after teardown.
       ports.releaseStream?.(sessionId)
@@ -861,8 +796,8 @@ export function createOpencodeClientTerminals(
     // every harness that declares a client terminal, so a fourth driver's parked
     // master is reclaimed by declaring itself rather than by somebody
     // remembering this line.
-    const labels = record
-      ? [record.label]
+    const labels = policy
+      ? [policy.label]
       : (kind ? [kind] : CLIENT_TERMINAL_HARNESSES)
           .map((candidate) => clientTerminalLabel(sessionId, candidate))
           .filter((label): label is string => label !== undefined)
@@ -888,28 +823,28 @@ export function createOpencodeClientTerminals(
    * the cold-generation clear-scrollback anchor.
    */
   async function relaunch(sessionId: SessionId, kind: ClientTerminalKind): Promise<void> {
-    let record = attachments.get(sessionId)
-    if (!record) {
+    const policy = sessions.get(sessionId)?.client
+    if (!policy) {
       const label = clientTerminalLabel(sessionId, kind)
       if (label !== undefined && hasMaster(label)) await reclaim(label)
       return
     }
-    if (record.generation) {
-      record.generation.acceptingInput = false
-      record.generation.pendingInput = []
-      record.generation.pendingBytes = 0
-      record.generation = undefined
+    if (policy.generation) {
+      policy.generation.acceptingInput = false
+      policy.generation.pendingInput = []
+      policy.generation.pendingBytes = 0
+      policy.generation = undefined
     }
-    disarm(record)
+    disarm(policy)
     // Retire exactly the obsolete process through the session: park drops the
     // Terminal while the label stays owned, and the master reclaim below is
     // authoritative for the process itself.
     sessions.get(sessionId)?.park()
-    record.preserveReplayOnRelaunch = true
-    record.suppressNextReplayRedraw = false
-    record.replayRequired = false
-    if (hasMaster(record.label)) await reclaim(record.label)
-    arm(sessionId, record)
+    policy.preserveReplayOnRelaunch = true
+    policy.suppressNextReplayRedraw = false
+    policy.replayRequired = false
+    if (hasMaster(policy.label)) await reclaim(policy.label)
+    arm(sessionId)
   }
 
   /**
@@ -917,14 +852,16 @@ export function createOpencodeClientTerminals(
    * this is not `close()` for every harness.
    */
   async function release(sessionId: SessionId): Promise<void> {
-    const record = attachments.get(sessionId)
-    if (record?.generation) {
+    const policy = sessions.get(sessionId)?.client
+    const generation = policy?.generation
+    if (generation) {
       // Revoke BEFORE awaiting a start: input racing this release must refuse.
-      record.generation.acceptingInput = false
-      record.generation.pendingInput = []
-      record.generation.pendingBytes = 0
+      generation.acceptingInput = false
+      generation.pendingInput = []
+      generation.pendingBytes = 0
     }
-    if (!record || clientTerminalFor(record.kind)?.parkOnRelease !== true) {
+    // The policy remembers its own harness key; `release()` never re-derives it.
+    if (!policy || clientTerminalFor(policy.kind as ClientTerminalKind)?.parkOnRelease !== true) {
       await close(sessionId)
       return
     }
@@ -936,19 +873,19 @@ export function createOpencodeClientTerminals(
      * serialises attach against release for one session, so this normally does
      * not wait at all; a rejected start needs nothing parked.
      */
-    if (record.starting) {
+    if (policy.starting) {
       try {
-        const started = await record.starting
-        // Park the just-finished Terminal unless this record already owns it —
+        const started = await policy.starting
+        // Park the just-finished Terminal unless this policy already owns it —
         // `attach()` assigns only generations it still holds.
         if (sessions.get(sessionId)?.terminal !== started) started.park()
       } catch {
         // the client never started: there is nothing attached to park
       }
     }
-    // A rejected start may have removed this exact generation while release was awaiting it.
-    // Never park or arm a record that no longer owns the session id.
-    if (attachments.get(sessionId) !== record) return
+    // A rejected start may have removed this exact policy while release was awaiting it.
+    // Never park or arm a policy that no longer owns the session id.
+    if (sessions.get(sessionId)?.client !== policy) return
     // PARK = drop the Terminal, keep the process. Cleared from the session
     // BEFORE anything can find a handle that is on its way out, so no input,
     // resize or redraw reaches a client whose writer was revoked.
@@ -956,71 +893,67 @@ export function createOpencodeClientTerminals(
     // The master keeps following its provider while parked, but with this relay
     // detached those bytes never enter SessionTerminal's replay. Returning to
     // Native must repaint after subscribing even though spawn reports adoption.
-    record.replayRequired = true
-    record.suppressNextReplayRedraw = false
+    policy.replayRequired = true
+    policy.suppressNextReplayRedraw = false
     // Nobody is watching a parked client by definition, so this starts the warm
     // window rather than merely re-arming it.
-    arm(sessionId, record)
+    arm(sessionId)
   }
 
   return {
     async attach({ sessionId, target }) {
-      let record = attachments.get(sessionId)
-      if (!record) {
+      let owned = sessions.get(sessionId)
+      let policy = owned?.client
+      if (!owned || !policy) {
         const label = clientTerminalLabel(sessionId, target.kind, target.driverId)
         if (label === undefined)
           throw new Error(`${target.kind} declares no client terminal to attach`)
-        record = {
-          label,
-          kind: target.kind,
-          // Born knowing whether anyone is looking: see `watchedSessions`.
-          watched: watchedSessions.has(sessionId),
-        }
-        attachments.set(sessionId, record)
+        owned = sessions.ensure(sessionId)
+        policy = { label, kind: target.kind }
+        owned.client = policy
+        // Born knowing whether anyone is looking: the viewer frame usually
+        // arrives before the entry, so the registry remembers it entry-free.
+        owned.watched = owned.watched || sessions.isWatched(sessionId)
       }
       // Armed BEFORE the spawn: a start that hangs must not leave an unreaped
       // master behind if the caller gives up on it.
-      arm(sessionId, record)
-      // The surface lives ON the parent session (POD-4434): one Terminal per
-      // session, because the terminal stream is keyed by session id. A client
-      // TUI holds it with no driver; the headed path never runs for these
-      // sessions, so the slot is always this client's while the record lives.
-      const owned = sessions.ensure(sessionId)
+      arm(sessionId)
       if (!owned.terminal) {
-        let generation = record.generation
-        let pending = record.starting
+        let generation = policy.generation
+        let pending = policy.starting
         if (!pending) {
           generation = { acceptingInput: true, pendingInput: [], pendingBytes: 0 }
-          record.generation = generation
-          pending = start(sessionId, record, target)
-          record.starting = pending
+          policy.generation = generation
+          pending = start(sessionId, policy, target)
+          policy.starting = pending
         }
         if (!generation) throw new Error('client terminal start lost its generation')
         let started: Terminal
         try {
           started = await pending
         } catch (err) {
-          if (attachments.get(sessionId) === record && record.generation === generation) {
+          const failed = sessions.get(sessionId)
+          if (failed?.client === policy && policy.generation === generation) {
             generation.acceptingInput = false
             generation.pendingInput = []
             generation.pendingBytes = 0
-            record.generation = undefined
-            disarm(record)
-            attachments.delete(sessionId)
+            policy.generation = undefined
+            disarm(policy)
+            failed.client = undefined
           }
           throw err
         } finally {
-          if (record.starting === pending) record.starting = undefined
+          if (policy.starting === pending) policy.starting = undefined
         }
         const current =
-          attachments.get(sessionId) === record &&
-          record.generation === generation &&
+          sessions.get(sessionId)?.client === policy &&
+          policy.generation === generation &&
           generation.acceptingInput
         if (!current) {
           started.park()
-          const replacement = attachments.get(sessionId)
-          const replaced = replacement !== record
-          if (replacement === undefined) await reclaim(record.label)
+          const replacement = sessions.get(sessionId)?.client
+          const replaced = replacement !== policy
+          if (replacement === undefined) await reclaim(policy.label)
           throw new Error(
             replaced
               ? 'the client terminal was closed while it was starting'
@@ -1041,19 +974,20 @@ export function createOpencodeClientTerminals(
     },
 
     adopt(sessionId, kind = 'opencode') {
-      if (attachments.has(sessionId)) return
+      if (sessions.get(sessionId)?.client) return
       const label = clientTerminalLabel(sessionId, kind)
       // No declaration means no label, and no label means there is nothing this
       // daemon could have spawned to adopt.
       if (label === undefined || !hasMaster(label)) return
-      const record: Attachment = {
+      const owned = sessions.ensure(sessionId)
+      owned.client = {
         label,
         kind,
-        watched: watchedSessions.has(sessionId),
         suppressNextReplayRedraw: true,
       }
-      attachments.set(sessionId, record)
-      arm(sessionId, record)
+      // Born knowing whether anyone is looking: see `viewers` below.
+      owned.watched = owned.watched || sessions.isWatched(sessionId)
+      arm(sessionId)
       log.info('adopted a client terminal that outlived the daemon', { sessionId, label })
     },
 
@@ -1064,30 +998,31 @@ export function createOpencodeClientTerminals(
     release,
 
     viewers(sessionId, watched) {
-      // RECORDED FIRST, AND WHETHER OR NOT THERE IS AN ATTACHMENT. The frame
+      // RECORDED FIRST, AND WHETHER OR NOT THERE IS AN ENTRY. The frame
       // that says "somebody opened this session" usually arrives BEFORE anyone
       // asks for its terminal, and it is sent only on change — so a return here
-      // would throw away the only notice this module ever gets.
-      if (watched) watchedSessions.add(sessionId)
-      else watchedSessions.delete(sessionId)
-      const record = attachments.get(sessionId)
-      if (!record || record.watched === watched) return
-      record.watched = watched
+      // would throw away the only notice this module ever gets. The registry
+      // remembers it entry-free; a later open seeds the entry flag from it.
+      sessions.noteWatched(sessionId, watched)
+      const owned = sessions.get(sessionId)
+      if (!owned || owned.watched === watched) return
+      owned.watched = watched
       // Both directions run through `arm`, which knows that watched means no
       // timer: arriving holds the window off, leaving starts it from now.
-      arm(sessionId, record)
+      if (owned.client) arm(sessionId)
     },
 
     input(sessionId, data) {
-      const record = attachments.get(sessionId)
-      const generation = record?.generation
-      if (!record || !generation?.acceptingInput) return false
-      const terminal = sessions.get(sessionId)?.terminal
+      const owned = sessions.get(sessionId)
+      const policy = owned?.client
+      const generation = policy?.generation
+      if (!owned || !policy || !generation?.acceptingInput) return false
+      const terminal = owned.terminal
       if (terminal?.live) {
         terminal.write(data)
         return true
       }
-      if (!record.starting) return false
+      if (!policy.starting) return false
       if (
         generation.pendingInput.length >= CLIENT_TERMINAL_INPUT_MAX_MESSAGES ||
         generation.pendingBytes + data.byteLength > CLIENT_TERMINAL_INPUT_MAX_BYTES
@@ -1106,10 +1041,6 @@ export function createOpencodeClientTerminals(
       return true
     },
 
-    owns(sessionId) {
-      return attachments.has(sessionId) && (sessions.get(sessionId)?.attached ?? false)
-    },
-
     resizeAcknowledged(sessionId, cols, rows) {
       const terminal = sessions.get(sessionId)?.terminal
       if (!terminal?.live) return undefined
@@ -1120,19 +1051,20 @@ export function createOpencodeClientTerminals(
     },
 
     redraw(sessionId, replayRequired = false) {
-      const record = attachments.get(sessionId)
-      if (!record) return false
-      const terminal = sessions.get(sessionId)?.terminal
+      const owned = sessions.get(sessionId)
+      const policy = owned?.client
+      if (!owned || !policy) return false
+      const terminal = owned.terminal
       if (replayRequired && !terminal) {
-        record.replayRequired = true
-        record.suppressNextReplayRedraw = false
+        policy.replayRequired = true
+        policy.suppressNextReplayRedraw = false
         return true
       }
-      if (record.suppressNextReplayRedraw && !replayRequired) {
-        record.suppressNextReplayRedraw = false
+      if (policy.suppressNextReplayRedraw && !replayRequired) {
+        policy.suppressNextReplayRedraw = false
         return true
       }
-      record.suppressNextReplayRedraw = false
+      policy.suppressNextReplayRedraw = false
       if (!terminal?.live) return false
       terminal.redraw()
       return true
@@ -1140,16 +1072,18 @@ export function createOpencodeClientTerminals(
 
     reclaimable() {
       let count = 0
-      for (const record of attachments.values()) if (!record.watched) count += 1
+      for (const [, owned] of sessions.entries()) {
+        if (owned.client && !owned.watched) count += 1
+      }
       return count
     },
 
     async reclaimUnwatched() {
-      // Snapshot first: `close` mutates the map, and a watched attachment must
+      // Snapshot first: `close` retires the policy, and a watched attachment must
       // survive the sweep — reclaiming the terminal someone is looking at is not
       // a cheaper trade than parking an idle agent, it is a worse one.
-      const targets = [...attachments.entries()]
-        .filter(([, record]) => !record.watched)
+      const targets = [...sessions.entries()]
+        .filter(([, owned]) => owned.client && !owned.watched)
         .map(([sessionId]) => sessionId)
       for (const sessionId of targets) await close(sessionId)
       if (targets.length > 0) {
