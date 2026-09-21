@@ -27,7 +27,15 @@ export interface AgentFrame {
   data: Uint8Array
 }
 
-export interface AgentSession {
+/**
+ * THE ATTACHMENT HANDLE (POD-4434): one live connection to a durable process.
+ *
+ * Formerly `AgentSession`; renamed because it never was a session — it is the
+ * one attachment a {@link Terminal} owns over the process its Session owns.
+ * The host and abduco adapters both implement it (via {@link wrapPty}); the
+ * daemon's Terminal is the only thing that holds one.
+ */
+export interface DurableAttachment {
   readonly pid: number
   onFrame(cb: (frame: AgentFrame) => void): () => void
   /** Live terminal title (OSC 0/1/2) the agent set, emitted on each change. */
@@ -87,7 +95,7 @@ export interface AgentSession {
  * the soft nudge alone leaves a blank screen after reattach. A no-op when `hard` is
  * false, so TUIs keep the soft path. An explicit `redraw({ hard })` still wins.
  */
-export function withHardRepaint(session: AgentSession, hard: boolean): AgentSession {
+export function withHardRepaint(session: DurableAttachment, hard: boolean): DurableAttachment {
   if (!hard) return session
   return { ...session, redraw: (opts) => session.redraw({ hard: opts?.hard ?? true }) }
 }
@@ -95,7 +103,7 @@ export function withHardRepaint(session: AgentSession, hard: boolean): AgentSess
 export function spawnAgent(
   opts: SpawnOptions,
   backend: PtyBackend = defaultPtyBackend(),
-): AgentSession {
+): DurableAttachment {
   const childEnv = {
     ...process.env,
     TERM: 'xterm-256color',
@@ -138,7 +146,7 @@ export function wrapPty(
      */
     sizeNeutral?: boolean
   },
-): AgentSession {
+): DurableAttachment {
   let cols = init.cols
   let rows = init.rows
   let seq = 0
