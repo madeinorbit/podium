@@ -15,13 +15,13 @@ function trackTmp(prefix: string): string {
 }
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+})
 
 /** Fold section scans the way the inventory mechanism does (file fold, window, merge). */
 async function scanBuckets(opts: { sinceMs: number; homeDir: string }) {
   const scans = await scanCodexUsage(opts)
   return mergeBuckets(scans.flatMap((scan) => windowBuckets(fileBuckets(scan), opts.sinceMs)))
 }
-})
 
 // ── Codex (POD-570). Shapes below are copied from real
 // ~/.codex/sessions/**/rollout-*.jsonl records (codex-cli 0.146.1).
