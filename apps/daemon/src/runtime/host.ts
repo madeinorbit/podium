@@ -21,16 +21,11 @@ import { join } from 'node:path'
 import type {
   AttachmentStager,
   CodexRawSocket,
-  EngineAttachment,
-  EngineSupervisor,
   OpencodeEngineClientTerminals,
 } from '@podium/harness/driver/host'
 import {
   durableProcessFor,
   scopeUnitName,
-  type DurableAdapter,
-  type DurableProcess,
-  type HostDurableAttachment,
 } from '@podium/process/durable'
 import { instanceRuntimeSocketRoot } from '@podium/runtime/abduco-socket'
 import { resolveInstanceId } from '@podium/runtime/instance'
@@ -139,84 +134,19 @@ export function daemonRuntimeHost(
 }
 
 // ---------------------------------------------------------------------------
-// Engine supervision wiring (1.5, spec §4.8).
+// Engine binding journals (1.5, spec §4.8).
 //
 // The driver families never spawn, journal or kill their engines: process
-// supervision is owned here, behind the `EngineSupervisor` port the families
-// consume. Every line below is still "the driver asks for X, X is over
-// there" — the addresses (socket root, journal namespaces, env composition)
-// are daemon layout, while every harness-shaped value (argv stems, scope
-// tokens, strip lists) arrives inside the families' own facts, never as a
-// literal here.
+// acts go through the session layer's `EngineProcessOwner`, and the binding
+// journals are created and held there too (`apps/daemon/src/session/`
+// `engines.ts`). What remains here is the journal store itself — the file
+// per session the session layer instantiates per family namespace.
 // ---------------------------------------------------------------------------
 
 const engineLog = createLogger('daemon:engine-supervision')
 
 /**
- * Pick the host adapter out of the daemon's durable object. Engines are never
- * terminal sessions, so they never follow the terminal backend: abduco has no
- * pty-less mode, and a daemon without a host adapter cannot own an engine at
- * all. Loud — a refused launch beats a child no restart could re-adopt.
- */
-function engineAdapter(
-  durable: DurableProcess | undefined,
-  what: string,
-): DurableAdapter {
-  const found = durable?.all.find((a) => a.kind === 'host') ?? durable?.primary
-  if (!found || found.kind !== 'host') {
-    throw new Error(
-      `engine supervision for '${what}' requires the podium-host backend: this daemon runs ${
-        durable ? `backend '${durable.backend}' with no host adapter` : 'with no durable backend'
-      }`,
-    )
-  }
-  return found
-}
-
-function attachEngineAttachment(session: HostDurableAttachment): EngineAttachment {
-  return {
-    ready: session.ready.then((welcome) => ({
-      lease: welcome.lease,
-      ...(welcome.childPid !== undefined ? { childPid: welcome.childPid } : {}),
-    })),
-    connection: {
-      onData: (cb) => session.connection.onData(cb),
-      onExit: (cb) => session.connection.onExit(cb),
-      signal: (signum) => session.connection.signal(signum),
-      write: (data) => session.connection.write(data),
-    },
-    dispose: () => session.dispose(),
-  }
-}
-
-/**
- * The ONE supervision implementation every engine family drives. The durable
- * process owns spawn/re-attach/kill; the families own argv/env composition
- * and protocol binding. `durable` undefined (tests that never launch) = every
- * verb refuses loudly rather than forking a child no restart could re-adopt.
- */
-export function supervisionFor(durable: DurableProcess | undefined): EngineSupervisor {
-  return {
-    async spawnHeadless(req) {
-      const adapter = engineAdapter(durable, req.label)
-      return attachEngineAttachment(await adapter.spawnHeadless(req))
-    },
-    async attachHeadless(input) {
-      const adapter = engineAdapter(durable, input.label)
-      return attachEngineAttachment(await adapter.attachHeadless(input))
-    },
-    async has(label) {
-      return engineAdapter(durable, label).has(label)
-    },
-    async kill(label) {
-      await engineAdapter(durable, label).kill(label)
-    },
-    scopeUnitFor: (label) => (process.platform === 'linux' ? scopeUnitName(label) : undefined),
-  }
-}
-
-/**
- * The binding journal, persisted by the supervisor: a file per session, 0600,
+ * The binding journal, persisted by the session layer: a file per session, 0600,
  * under the daemon's own state dir (so it moves with the instance and is
  * swept with it). Synchronous on purpose — it is written on the turn-open
  * path, where the value it protects is the monotonic turn epoch.

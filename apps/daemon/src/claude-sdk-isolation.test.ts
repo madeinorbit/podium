@@ -42,7 +42,7 @@ import {
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
 const SDK = '@anthropic-ai/claude-agent-sdk'
 
-/** The claude stream engine host: the family's supervision-driven spawn path. */
+/** The claude stream engine host: the family's session-owned spawn path. */
 const ENGINE_HOST = 'packages/harness/src/driver/families/claude-sdk/engine-host.ts'
 /** The stream-json wire the family speaks to the CLI directly. */
 const ENGINE_WIRE = 'packages/harness/src/driver/families/claude-sdk/protocol.ts'
@@ -828,11 +828,17 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
     expect(violations, violations.join('\n')).toEqual([])
   })
 
-  it('the engine host takes supervision rather than a spawn mechanism', () => {
+  it('the engine host takes the session owner rather than a spawn mechanism', () => {
     // The structural half of the fork ban: the claude engine host's deps
-    // carry the supervision port, so there is no second spawn path to audit.
+    // carry the session-owned process verbs (`engines`) and a scope-only
+    // supervision port, so there is no second spawn path to audit. The old
+    // supervision verbs are gone with the migration — a family file naming
+    // them is the lifecycle decision sitting in the wrong place.
     const source = readFileSync(join(repoRoot, ENGINE_HOST), 'utf8')
-    expect(source).toContain('supervision?: EngineSupervisor')
-    expect(source).toContain('spawnHeadless')
+    expect(source).toContain('engines?: EngineProcessOwner')
+    expect(source).toContain('startEngine')
+    expect(source).toContain("supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>")
+    expect(source).not.toContain('spawnHeadless')
+    expect(source).not.toContain('attachHeadless')
   })
 })

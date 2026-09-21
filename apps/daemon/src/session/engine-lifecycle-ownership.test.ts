@@ -1,15 +1,19 @@
 /**
- * ARMED OWNERSHIP GUARD (this issue, spec §4.8 steps 2 and 6): the driver
- * family must never summon a process — the session layer does.
+ * ARMED OWNERSHIP GUARD (spec §4.8 steps 2 and 6): the driver family must
+ * never summon a process — the session layer does.
  *
- * The grok family is constructed with a supervision port whose every process
- * verb throws, and a session-owned engine owner over a recording durable. A
- * launch driven through the `DaemonSession` must succeed WITHOUT touching
- * the throwing port.
+ * The grok family is constructed with a scope-only supervision port and a
+ * session-owned engine owner over a recording durable. A launch driven
+ * through the `DaemonSession` must succeed, summoning exactly one engine
+ * through the session owner into the durable — the family only binds
+ * protocol.
  *
  * RED before the migration (the family called `supervision.spawnHeadless`
  * and blew up on the throwing port); GREEN after (the spawn flows through
- * the session owner into the durable, the family only binds protocol).
+ * the session owner into the durable, the family only binds protocol). With
+ * the old verbs deleted from `EngineSupervisor`, no family CAN reach a
+ * process through supervision any more — the port carries no such verb — so
+ * this pins the positive half: the launch still flows through the session.
  */
 
 import { asSessionId } from '@podium/model'
@@ -26,25 +30,10 @@ const SESSION = asSessionId('33333333-3333-4333-8333-333333333333')
 const FACTS = grokEngineFacts(manifestFor('grok')!)
 
 describe('engine lifecycle ownership (§4.8: the session summons, the family binds)', () => {
-  it('a family launch driven through DaemonSession never touches supervision verbs', async () => {
-    const supervisionCalls: string[] = []
-    const throwing: EngineSupervisor = {
-      spawnHeadless: async () => {
-        supervisionCalls.push('spawnHeadless')
-        throw new Error('the family must not spawn: the session owns the engine')
-      },
-      attachHeadless: async () => {
-        supervisionCalls.push('attachHeadless')
-        throw new Error('the family must not re-attach: the session owns the engine')
-      },
-      has: async () => {
-        supervisionCalls.push('has')
-        throw new Error('the family must not probe: the session owns the engine')
-      },
-      kill: async () => {
-        supervisionCalls.push('kill')
-        throw new Error('the family must not reap: the session owns the engine')
-      },
+  it('a family launch driven through DaemonSession summons through the session owner', async () => {
+    // Scope-only: the supervision port carries no process verb any more, so
+    // there is nothing here FOR the family to summon through.
+    const supervision: EngineSupervisor = {
       scopeUnitFor: () => undefined,
     }
 
@@ -91,9 +80,9 @@ describe('engine lifecycle ownership (§4.8: the session summons, the family bin
       buildEnv: () => ({}),
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
-      supervision: throwing,
-      // Ignored until the family migrates off supervision verbs; then this is
-      // the only process path the family may use.
+      supervision,
+      // The only process path the family may use: the session owner's verbs,
+      // driven through the DaemonSession delegates below.
       engines,
     } as unknown as Parameters<typeof createGrokEngineHost>[0]
     const host = createGrokEngineHost(deps)
@@ -107,7 +96,5 @@ describe('engine lifecycle ownership (§4.8: the session summons, the family bin
       label: grokAcpProcessKey(FACTS, SESSION),
       cmd: 'grok',
     })
-    // …and the family's own supervision verbs were never consulted.
-    expect(supervisionCalls).toEqual([])
   })
 })

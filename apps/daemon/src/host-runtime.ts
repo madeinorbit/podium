@@ -134,12 +134,10 @@ import type { DaemonCodexRuntime } from '@podium/harness/driver/host'
 import type { DaemonGrokRuntime } from '@podium/harness/driver/host'
 import {
   composeEngineEnv,
-  createEngineJournal,
   daemonRuntimeHost,
   dialEngineSocket,
   engineClientTerminals,
   engineSocketRoot,
-  supervisionFor,
 } from './runtime/host'
 import type { ClientTerminalKind } from './runtime/opencode-attach'
 import { SERVER_GRACEFUL_EXIT_MS } from './runtime/server-teardown-budget'
@@ -1163,13 +1161,11 @@ export async function createDaemonHostRuntime(args: {
   const claudeFacts = claudeEngineFacts(engineSections(claudeSdkHarnessKind))
   const ocFacts = opencodeFlavor(engineSections(opencodeHarnessKind))
   const oc2Facts = opencode2Flavor(engineSections(opencodeHarnessKind))
-  // The engine's durable owner (POD-4433): podium-host under the hood. The
-  // claude family still drives the legacy supervision port; the codex,
-  // opencode and grok families drive the session layer's engine hold.
-  const engineSupervision = supervisionFor(engineDurable)
+  // The engine's durable owner (POD-4433): podium-host under the hood. All
+  // four engine families drive the session layer's engine hold.
   /**
-   * THE SESSION LAYER'S ENGINE HOLD (this issue, spec §4.8 steps 2–6): the
-   * `EngineProcessOwner` the migrated families consume, plus the journal
+   * THE SESSION LAYER'S ENGINE HOLD (spec §4.8 steps 2–6): the
+   * `EngineProcessOwner` the families consume, plus the journal
    * store. Bound onto the session registry so every `DaemonSession` delegate
    * routes through it. (For POD-4506: this edit touches nothing near the
    * native-client maps at ~1003-1005; their construction is unchanged.)
@@ -1204,16 +1200,16 @@ export async function createDaemonHostRuntime(args: {
   /**
    * THE CLAUDE STREAM ENGINE (POD-4499), composed like every other engine:
    * one long-lived `claude` stream-json child per session under podium-host,
-   * owned by the same supervision. The session adapter translates the
-   * contract onto it; `machine-runtime` still routes claude sessions through
-   * the embedded source until POD-4497 moves the routing — the family already
-   * speaks the server-family shape (journal, adopt, describe) so that move
-   * is mechanical.
+   * owned by the session layer's engine hold. The session adapter translates
+   * the contract onto it; `machine-runtime` routes claude sessions through
+   * the embedded source, and the family already speaks the server-family
+   * shape (journal, adopt, describe).
    */
   const claudeEngine = createClaudeEngineHost({
     facts: claudeFacts,
-    supervision: engineSupervision,
-    journal: createEngineJournal<ClaudeEngineJournalEntry>({ namespace: claudeFacts.journalNamespace }),
+    engines: sessionEngines,
+    supervision: sessionEngines,
+    journal: sessionEngines.journalFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
     buildEnv: composeEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
     // The instance agent home the transcript reader already resolves against
