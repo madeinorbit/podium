@@ -1,13 +1,13 @@
 /**
  * `opencode serve`, ONE PER SESSION, UNDER A PODIUM-HOST (`--no-pty`) OWNED BY
- * THE SUPERVISOR'S DURABLE PROCESS (POD-1761 W5; plan §1; POD-4433).
+ * THE SESSION LAYER'S DURABLE PROCESS (POD-1761 W5; plan §1; POD-4433).
  *
  * (Moved from apps/daemon/src/runtime/opencode-server.ts in 1.5: the daemon
  * stops knowing this headless harness. The family is handed the engine
- * address through injected supervision ports and never spawns, journals or
- * kills the engine itself; argv/env compose here off the adapter's sections,
- * read through {@link OpencodeEngineFlavor}. The same host drives the preview
- * speaker with different flavor facts, no edits.)
+ * attachment by the session layer through the injected `engines` port and
+ * never spawns, journals or kills the engine itself; argv/env compose here
+ * off the adapter's sections, read through {@link OpencodeEngineFlavor}. The
+ * same host drives the preview speaker with different flavor facts, no edits.)
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS FILE OWNS, AND WHY IT IS THE ONLY PART IN THE DAEMON
@@ -16,18 +16,18 @@
  * The driver itself — client, SSE, receipts, interactions, events — is in
  * `./runtime.js`, testable in-process. What could not go there is everything
  * below: composing the engine's argv and env off the adapter's sections,
- * binding the supervisor-held engine over its loopback port, and re-attaching
+ * binding the session-held engine over its loopback port, and re-attaching
  * to the survivor after a restart. This is the `OpencodeRuntimeHost`
  * implementation, and it is deliberately nothing but that.
  *
- * THIS FAMILY NEVER FORKS, JOURNALS OR KILLS. Every process act — spawn,
- * re-attach, kill — goes through the injected `EngineSupervisor`, whose host
- * adapter owns the child; the binding journal arrives as a port the
- * supervisor persists. That is what makes a supervisor restart leave the
- * server running: the child is the HOST's, not the supervisor's, so the
- * driver's `adopt()` rebinds to the survivor instead of starting over. `grep
- * child_process` in this file must stay empty; process mechanics live behind
- * the supervision port.
+ * THIS FAMILY NEVER FORKS, JOURNALS OR KILLS. Every process act — start,
+ * re-attach, destroy — goes through the injected `EngineProcessOwner`, which
+ * the session layer implements over its durable process; the binding journal
+ * arrives as a port the session layer holds. That is what makes a supervisor
+ * restart leave the server running: the child is the HOST's, not the
+ * supervisor's, so the driver's `adopt()` rebinds to the survivor instead of
+ * starting over. `grep child_process` in this file must stay empty; process
+ * mechanics live behind the session-owned `engines` port.
  *
  * ---------------------------------------------------------------------------
  * THE SECRET (spec §6) — THREE RULES, ALL LOAD-BEARING
@@ -79,7 +79,7 @@ import type {
 } from './runtime.js'
 import type { OpencodeClient, OpencodeClientConfig } from './client.js'
 import type { OpencodeEngineFlavor } from './engine-facts.js'
-import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
+import type { EngineAttachment, EngineProcessOwner, EngineSupervisor } from '../engine-supervision.js'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
 
 const log = createLogger('harness:opencode-engine-host')
@@ -285,18 +285,26 @@ export interface OpencodeEngineClientTerminals {
 
 /**
  * What the opencode engine host needs from whoever owns processes and disks.
- * The flavor (stable vs preview facts) selects the speaker; everything else
- * is supervision ports the supervisor implements.
+ * The flavor (stable vs preview facts) selects the speaker; engine ownership
+ * arrives as the session layer's port, the scope answer as the supervisor's.
  */
 export interface OpencodeEngineHostDeps {
   /** Which speaker of this protocol to drive. Same host, different facts. */
   flavor: OpencodeEngineFlavor
-  /** The durable owner of every engine: spawn, re-attach and kill go through
-   *  it; this family composes argv/env and binds protocol, never forks.
-   *  Absent (tests that never launch) = launch/adopt/stop/kill refuse loudly
-   *  rather than forking a child no restart could re-adopt. */
-  supervision?: EngineSupervisor
-  /** The binding journal, persisted by the supervisor (0600, sync). */
+  /**
+   * The session layer's ownership of every engine: start, re-attach and
+   * destroy go through it; this family composes argv/env and binds protocol,
+   * never forks. Absent (tests that never launch) = launch/adopt/stop/kill
+   * refuse loudly rather than forking a child no restart could re-adopt.
+   */
+  engines?: EngineProcessOwner
+  /**
+   * The session's transient scope unit, where the platform has one. Only
+   * `scopeUnitFor` is read here — never a process verb: spawning, attaching
+   * and killing are the session owner's job, delivered through `engines`.
+   */
+  supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
+  /** The binding journal, created and held by the session layer (0600, sync). */
   journal: OpencodeJournal
   stageAttachment: AttachmentStager
   /** Resource truth for a session's scope — memory, tasks and the kernel's own
@@ -376,16 +384,31 @@ export class OpencodeEngineLeaseRefused extends Error {
 }
 
 /**
- * Pick the host adapter out of the daemon's durable object. Engines are never
- * terminal sessions, so they never follow the terminal backend: abduco has no
- * pty-less mode, and a daemon without a host adapter cannot own an engine at
- * all. Loud, naming the session — a refused launch beats a child no restart
- * could re-adopt.
+ * The session layer's ownership of this session's engine. Engines are never
+ * terminal sessions and never follow the terminal backend; a family without
+ * an owner cannot summon one at all. Loud, naming the session — a refused
+ * launch beats a child no restart could re-adopt.
  */
-function engineAdapter(supervision: EngineSupervisor | undefined, sessionId: SessionId): EngineSupervisor {
+function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+  if (!engines) {
+    throw new Error(
+      `opencode engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
+    )
+  }
+  return engines
+}
+
+/**
+ * The session's transient scope unit, where the platform has one. Only the
+ * scope answer is read here — never a process verb.
+ */
+function engineScope(
+  supervision: Pick<EngineSupervisor, 'scopeUnitFor'> | undefined,
+  sessionId: SessionId,
+): Pick<EngineSupervisor, 'scopeUnitFor'> {
   if (!supervision) {
     throw new Error(
-      `opencode engine for ${sessionId} requires the podium-host backend: this supervisor runs with no durable backend`,
+      `opencode engine for ${sessionId} requires the session scope port: this family never spawns its own engine`,
     )
   }
   return supervision
@@ -459,13 +482,13 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
    * loudly rather than driving half of an engine.
    */
   async function attachEngine(
-    adapter: EngineSupervisor,
+    owner: EngineProcessOwner,
     sessionId: SessionId,
     label: string,
   ): Promise<HeldEngine | undefined> {
     let session: EngineAttachment
     try {
-      session = await adapter.attachHeadless({ label, fromSeq: 'tail' })
+      session = await owner.reattachEngine({ label, fromSeq: 'tail' })
     } catch (err) {
       log.warn('could not re-attach to the opencode engine host', { err, sessionId, label })
       return undefined
@@ -528,10 +551,10 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       })
     })
 
-  const adapterFor = (sessionId: SessionId): EngineSupervisor =>
-    engineAdapter(deps.supervision, sessionId)
+  const adapterFor = (sessionId: SessionId): EngineProcessOwner =>
+    engineOwner(deps.engines, sessionId)
   const scopeFor = (sessionId: SessionId, label: string): string | undefined =>
-    adapterFor(sessionId).scopeUnitFor(label)
+    engineScope(deps.supervision, sessionId).scopeUnitFor(label)
 
   const endpointFor = (input: {
     sessionId: SessionId
@@ -580,15 +603,15 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       await deps.clientTerminals?.close(input.sessionId, flavor.attachKind)
       // AND THE SCOPE. On an exited engine this only sweeps the lingering host
       // and the squatted unit name; on a wedged one the host escalates past
-      // SIGTERM on its own.
-      await adapterFor(input.sessionId).kill(scopeLabel(input.sessionId))
+      // SIGTERM on its own. The sweep is the session owner's act.
+      await adapterFor(input.sessionId).destroyEngine(scopeLabel(input.sessionId))
     },
     kill: async () => {
       const held = input.held ?? engines.get(input.sessionId)
       engines.delete(input.sessionId)
       held?.session.dispose()
       await deps.clientTerminals?.close(input.sessionId, flavor.attachKind)
-      await adapterFor(input.sessionId).kill(scopeLabel(input.sessionId))
+      await adapterFor(input.sessionId).destroyEngine(scopeLabel(input.sessionId))
       journal.clear(input.sessionId)
     },
     resources: () =>
@@ -632,7 +655,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       const port = await (deps.freePort ?? freeLoopbackPort)()
       const baseUrl = `http://127.0.0.1:${port}`
       const label = scopeLabel(input.sessionId)
-      const adapter = adapterFor(input.sessionId)
+      const owner = adapterFor(input.sessionId)
 
       /**
        * A journalled server that still answers IS this session's engine.
@@ -649,7 +672,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         // A lease held elsewhere throws out of here: spawning a second server
         // beside one another daemon drives would be a split brain, so the
         // refusal propagates instead of falling through to a fresh spawn.
-        const held = await attachEngine(adapter, input.sessionId, label)
+        const held = await attachEngine(owner, input.sessionId, label)
         if (held) {
           return endpointFor({
             sessionId: input.sessionId,
@@ -698,12 +721,14 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       env.OPENCODE_ENABLE_QUESTION_TOOL = env.OPENCODE_ENABLE_QUESTION_TOOL ?? '1'
 
       /**
-       * THE ENGINE, UNDER THE HOST. `spawnHeadless` puts `opencode serve` under
-       * podium-host `--no-pty` in the session's transient scope: pipes, not a
-       * pty, and the host — not this daemon — holds the child's stdin. Provider
-       * keys are stripped by the host AFTER the env merge, the same removal the
-       * old `delete` loop did, so the session uses exactly the credential
-       * `opencode auth login` stored.
+       * THE ENGINE, UNDER THE HOST. The session owner starts `opencode serve`
+       * under podium-host `--no-pty` in the session's transient scope: pipes,
+       * not a pty, and the host — not this daemon — holds the child's stdin.
+       * Provider keys are stripped by the host AFTER the env merge, the same
+       * removal the old `delete` loop did, so the session uses exactly the
+       * credential `opencode auth login` stored. This family hands the owner
+       * its composed spec and binds the attachment it gets back; summoning the
+       * process is the owner's job, never this family's.
        */
       const [command, ...args] = serveArgv
       let held: HeldEngine | undefined
@@ -711,7 +736,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         held = await claimEngine(
           input.sessionId,
           label,
-          await adapter.spawnHeadless({
+          await owner.startEngine({
             label,
             cmd: command ?? executablePath,
             args,
