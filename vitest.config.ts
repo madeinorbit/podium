@@ -119,6 +119,16 @@ export const sharedVitestConfig = {
         find: /^@podium\/harness\/metadata$/,
         replacement: fileURLToPath(new URL('./packages/harness/src/metadata.ts', import.meta.url)),
       },
+      // The machine-inventory entry the daemon reads credentials, quota and
+      // usage through (issue 3.3). Same anchored shape as every entry above:
+      // without it the subpath falls through to node_modules resolution and
+      // the unbuilt dist.
+      {
+        find: /^@podium\/harness\/inventory$/,
+        replacement: fileURLToPath(
+          new URL('./packages/harness/src/inventory.ts', import.meta.url),
+        ),
+      },
       // Anchored RegExp, not a bare string: model is the L0 root every lane resolves,
       // and the prefix-match hazard described above is not worth re-learning if it
       // ever grows a subpath export.
