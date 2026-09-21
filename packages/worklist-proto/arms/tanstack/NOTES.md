@@ -95,8 +95,9 @@ retraction+assertion pair per touched row):
   verdicts re-run and settle equal; the archived owner's summary short-
   circuits at the structural gate (0 summary runs); nothing downstream.
 - Phase change: +summary 2 (i0 del+ins), +lane 2, +rows 4 (summary-driven
-  del+ins, then rollup-driven del+ins), rollup chain 1 (i0; no ancestor
-  rollup moved). Total rollupsDerived 7 = 2 + 4 + 1.
+  del+ins, then rollup-driven del+ins), rollup recomputes 1 (i0; the
+  ancestor walk found nothing else to recompute). Total rollupsDerived
+  7 = 2 + 4 + 1.
 - Click (mark-read row): +issuesNarrow 2, +child 2, +summary 2 (derived
   unread flips true→false — a real derivation), +verdict 2 (join side
   moved), +rows 2, rollup chain 1 (value-equal). Total 5.
