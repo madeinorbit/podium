@@ -76,11 +76,19 @@ describe('mobx arm on the engine (SMALL)', () => {
       )
       expect(phase.parityDiff).toBeNull()
       expect(phase.parity).toBe(true)
-      // i0 is a root: its flat + summary + aggregate re-run (the chain is
-      // the row itself), exactly it commits, nothing else moves.
-      expect(phase.rowsCommitted).toBe(1)
-      expect(phase.commitsByRow).toEqual({ i0: 1 })
-      expect(phase.stats.rowsDerived).toBe(1)
+      // POD-4496: SMALL #2 now commits nothing. writePhaseChange flips s0
+      // (bound to i0) working→idle, but i0 keeps two working R3 sessions
+      // (s6, s48: unbound, cwd under i0's /repo-0/wt-0 anchor, phase
+      // working) now that the seed dual-carries the anchor on the
+      // projection (legacy reads projection, issue-view-models.ts:88).
+      // i0's SliceRow never moves, so the oracle changes 0 rows and the
+      // arm commits 0 — parity green with an empty commit set. The three
+      // derivation bodies still execute (flat + summary + aggregate input
+      // checks on the replaced session object) and prove zero value
+      // change, hence rollupsDerived stays 3.
+      expect(phase.rowsCommitted).toBe(0)
+      expect(phase.commitsByRow).toEqual({})
+      expect(phase.stats.rowsDerived).toBe(0)
       expect(phase.stats.rollupsDerived).toBe(3)
       expect(phase.stats.indexUpdates).toBe(0)
 

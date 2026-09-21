@@ -94,8 +94,10 @@ flat + summary + aggregate plus one aggregate per ancestor.
 
 ### SMALL engine-backed
 
-Identical shape at 37 visible rows: heartbeat 0/0/0/0, phase 1 (i0) + 1/3,
-click 0 + 0/3, parity green throughout.
+Identical shape at 37 visible rows: heartbeat 0/0/0/0, phase 0 + 0/3
+(POD-4496: s0 flips but i0 stays working via R3 s6/s48 — oracle changes
+0 rows, arm commits 0; the 3 input checks still execute), click 0 + 0/3,
+parity green throughout.
 
 ### G2 fixture at 1x (engine-booted, `mobx.fixture.test.ts`)
 

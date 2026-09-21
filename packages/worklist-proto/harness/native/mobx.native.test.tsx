@@ -69,8 +69,12 @@ describe('mobx arm on the native renderer', () => {
         `[mobx-native] phase committed ${phase.rowsCommitted}/${phase.visibleRows}; ` +
           `stats=${JSON.stringify(phase.stats)}`,
       )
-      expect(phase.rowsCommitted).toBe(1)
-      expect(phase.stats.rowsDerived).toBe(1)
+      // POD-4496: SMALL #2 now commits nothing — s0 flips working→idle but
+      // i0 stays working via its R3 sessions s6/s48 (seed dual-carries the
+      // anchor on the projection; legacy reads projection,
+      // issue-view-models.ts:88). Oracle changes 0 rows, arm commits 0.
+      expect(phase.rowsCommitted).toBe(0)
+      expect(phase.stats.rowsDerived).toBe(0)
 
       const click = await runCountScenario(mounted, {
         scenario: 'selectionClick',
