@@ -32,7 +32,7 @@ import { chromium } from '@playwright/test'
 const ARMS = ['control', 'hand', 'mobx', 'tanstack'] as const
 type ArmName = (typeof ARMS)[number]
 type Scale = 1 | 2 | 4
-const SCENARIOS = ['heartbeat', 'rename', 'click'] as const
+const SCENARIOS = ['heartbeat', 'rename', 'stagemove', 'clock', 'click'] as const
 type ScenarioName = (typeof SCENARIOS)[number]
 
 interface Args {

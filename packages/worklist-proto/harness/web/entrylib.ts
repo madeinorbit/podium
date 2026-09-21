@@ -8,6 +8,10 @@
  * scenarios; walls in Chromium cover the hot path):
  * - `heartbeat`: lastActiveAt bump on the first session (methodology #1).
  * - `rename`: title dual-write on the first visible row (#4).
+ * - `stagemove`: stage dual-write (open → done/tucked) on the first
+ *   non-closed visible row, a fresh row per sample (#5).
+ * - `clock`: advance the slice clock 60 s with no row change; arms re-derive
+ *   bands from the new now, the control follows its locals (#8).
  * - `click`: select the first visible row via `clickRow` (#3, input-to-paint).
  */
 
@@ -44,7 +48,9 @@ export interface ProtoPage {
   scale: 1 | 2 | 4
   corpus: ProtoCorpusCounts
   runtimeSha: string
-  runScenario(name: 'heartbeat' | 'rename' | 'click'): Promise<ProtoScenarioResult>
+  runScenario(
+    name: 'heartbeat' | 'rename' | 'stagemove' | 'clock' | 'click',
+  ): Promise<ProtoScenarioResult>
   clickRow(id?: string): Promise<{ inputMs: number; paintMs: number; longTasks: { startTime: number; duration: number }[]; commits: number }>
   snapshotHash(): string
   stats(): ProtoScenarioResult['stats']
@@ -182,6 +188,53 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     })
   }
 
+  /** First visible row that is not in the closed fold: every sample moves a
+   *  fresh row, so every sample measures a real group move (reusing a row
+   *  would measure a redundant done-write instead). */
+  function firstOpenId(): string {
+    const rows = handle.snapshot().rowsById
+    for (const id of Object.keys(rows)) {
+      if (rows[id]?.closed === false) return id
+    }
+    throw new Error('[proto] no open row for stagemove')
+  }
+
+  async function stagemove(): Promise<void> {
+    const id = firstOpenId()
+    const snap = engine.getSnapshot()
+    const wire = snap.issues.find((issue) => issue.id === id)
+    if (!wire) throw new Error(`[proto] issue ${id} missing`)
+    const now = new Date().toISOString()
+    const nextWire = { ...wire, stage: 'done', closedAt: now, closedReason: 'shipped', tuckedAt: now }
+    const projection = cache.read('issueProjection', id)
+    const nextProjection = { ...((projection as { value?: object } | undefined)?.value ?? {}), stage: 'done' }
+    replica.batch(() => {
+      cache.put('issue', id, nextWire)
+      replica.onKernelEvent({
+        type: 'upserted',
+        record: { entity: 'issue', entityId: id, value: nextWire, provenance: { seq: 2 } },
+        readmitted: false,
+      } as never)
+      cache.put('issueProjection', id, nextProjection)
+      replica.onKernelEvent({
+        type: 'upserted',
+        record: { entity: 'issueProjection', entityId: id, value: nextProjection, provenance: { seq: 2 } },
+        readmitted: false,
+      } as never)
+    })
+  }
+
+  /** The page clock: arms tick through their store hook, the control follows
+   *  the locals object its snapshot reads. No row changes — bands and folds
+   *  re-derive from the new now. */
+  let pageNow = locals.coarseNow
+  async function clock(): Promise<void> {
+    pageNow += 60_000
+    locals.coarseNow = pageNow
+    const store = (handle as unknown as { store?: { setCoarseNow?: (now: number) => void } }).store
+    if (store?.setCoarseNow !== undefined) store.setCoarseNow(pageNow)
+  }
+
   function clickRowInPage(
     id?: string,
   ): Promise<{ inputMs: number; paintMs: number; longTasks: { startTime: number; duration: number }[]; commits: number }> {
@@ -201,7 +254,9 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     })
   }
 
-  async function runScenario(name: 'heartbeat' | 'rename' | 'click'): Promise<ProtoScenarioResult> {
+  async function runScenario(
+    name: 'heartbeat' | 'rename' | 'stagemove' | 'clock' | 'click',
+  ): Promise<ProtoScenarioResult> {
     handle.stats.reset()
     log.reset()
     longTasks.length = 0
@@ -210,11 +265,17 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     await withCommitLogAsync(log, async () => {
       if (name === 'heartbeat') await heartbeat()
       else if (name === 'rename') await rename()
+      else if (name === 'stagemove') await stagemove()
+      else if (name === 'clock') await clock()
       else {
         const rowId = firstVisibleId()
         engine.getSnapshot().setSelectedIssueId(asIssueId(rowId))
       }
-      await waitForNotifications(handle, notificationsBefore, 3000)
+      // The clock tick is locals-only by design (no row event, and the
+      // control emits no publication for it either): nothing to wait for —
+      // the arm pipeline runs synchronously inside setCoarseNow and the
+      // paint settles below.
+      if (name !== 'clock') await waitForNotifications(handle, notificationsBefore, 3000)
       await doubleRaf()
     })
     return {
