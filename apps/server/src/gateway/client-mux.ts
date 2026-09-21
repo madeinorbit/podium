@@ -99,6 +99,7 @@ const DISPATCH: Dispatcher = {
   requestControl: toSessions,
   viewportRequest: toSessions,
   redrawRequest: toSessions,
+  tabRelease: toSessions,
   transcriptSubscribe: toSessions,
   transcriptUnsubscribe: toSessions,
   presence: (mux, conn, msg) => mux.presence.setVisible(conn, msg.visible),

@@ -144,6 +144,13 @@ export const AttachMessage = z.object({
   sinceSeq: z.number().int().nonnegative().optional(),
 })
 export const DetachMessage = z.object({ type: z.literal('detach'), sessionId: SessionIdField })
+/**
+ * TAB RELEASE (POD-4435): the client closed its last tab for this session.
+ * The shell lifetime policy answers it — an untouched shell dies, a used one
+ * stays. Explicit only: a dropped WebSocket sends nothing, so a network blip
+ * is never a release (and a release never replays on reconnect).
+ */
+export const TabReleaseMessage = z.object({ type: z.literal('tabRelease'), sessionId: SessionIdField })
 export const InputMessage = z.object({
   type: z.literal('input'),
   sessionId: SessionIdField,

@@ -198,6 +198,14 @@ export class SessionStateService {
   private draftSyncEnabled_ = false
 
   private readonly lastPriority = new Map<SessionId, string>()
+  /**
+   * THE LAST TIME ANYTHING HELD A SESSION (POD-4435): the newest pass at which
+   * some connected client rendered it (viewVisible) or streamed it (attached).
+   * Ephemeral, never persisted — the shell policy's unheld grace reads it, and
+   * absent means "never seen held", which disables the grace rather than
+   * arming it (a network blip must never look like abandonment).
+   */
+  private readonly lastHeldAt = new Map<SessionId, number>()
 
   constructor(private readonly ports: SessionStatePorts) {}
 
@@ -280,6 +288,7 @@ export class SessionStateService {
     this.draftDocs.delete(sessionId)
     this.draftTimes.delete(sessionId)
     this.lastPriority.delete(sessionId)
+    this.lastHeldAt.delete(sessionId)
     this.draftSendSuppressUntil.delete(sessionId)
     const versioned = this.draftDocWriteTimers.get(sessionId)
     if (versioned) clearTimeout(versioned)
@@ -552,8 +561,59 @@ export class SessionStateService {
     this.lastPriority.clear()
   }
 
+  /**
+   * Whether any connected client still holds the session — rendering it on
+   * screen (viewState `visible`) or streaming its terminal output (attached).
+   * The shell lifetime policy reads this as its "any tab holds it" level.
+   *
+   * `excludeClientId` drops one connection from the answer: the tab-release
+   * path reports for the client that just closed, whose own sets may not have
+   * caught up with the close yet. A disconnect never consults this — a dropped
+   * WebSocket sends no release, so nothing it held is ever evaluated.
+   */
+  isHeld(sessionId: SessionId, excludeClientId?: string): boolean {
+    for (const client of this.ports.clients()) {
+      if (excludeClientId !== undefined && client.id === excludeClientId) continue
+      if (client.viewVisible.has(sessionId)) return true
+      if (client.attached.has(sessionId)) return true
+    }
+    return false
+  }
+
+  /**
+   * When anything last held the session (see {@link isHeld}), or undefined
+   * when nothing has since boot. The shell policy's unheld grace measures from
+   * here; undefined disables it.
+   */
+  lastHeldAtMs(sessionId: SessionId): number | undefined {
+    return this.lastHeldAt.get(sessionId)
+  }
+
+  /**
+   * Whether any connected client renders the session in native mode right now
+   * (the shell policy's viewer input for attach TUIs). Same exclusion contract
+   * as {@link isHeld}.
+   */
+  isWatched(sessionId: SessionId, excludeClientId?: string): boolean {
+    for (const client of this.ports.clients()) {
+      if (excludeClientId !== undefined && client.id === excludeClientId) continue
+      if (
+        client.viewVisible.has(sessionId) &&
+        (client.viewModes[sessionId] ?? 'native') === 'native'
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
   pushPriorities(): void {
     const clients = [...this.ports.clients()]
+    const heldAt = this.ports.now()
+    for (const client of clients) {
+      for (const sessionId of client.viewVisible) this.lastHeldAt.set(sessionId, heldAt)
+      for (const sessionId of client.attached) this.lastHeldAt.set(sessionId, heldAt)
+    }
     const priorities = computePriorities(clients, this.ports.sessionIds())
     for (const [sessionId, priority] of priorities) {
       const nativeView = clients.some(

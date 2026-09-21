@@ -32,6 +32,7 @@
  */
 
 import type { SessionId, SessionMeta, MachineId, IssueId, UserId } from '@podium/model'
+import { isIssueClosed } from '@podium/model'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
@@ -50,6 +51,7 @@ import type { SessionRepository } from './repository'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
+import { decideShellLifetime } from './terminal-lifetime'
 import type { SessionView } from './view'
 
 /** Only the ledger face killSession needs — avoids importing lifecycle for a type. */
@@ -80,6 +82,10 @@ export interface SessionTeardownPorts {
   rearmUnread(sessionId: SessionId): Promise<void>
   toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
+  /** Row-tombstone kill for the shell policy's kill verdict (POD-4435). The
+   *  teardown owns the trigger (issue close / worktree free); the kill verb
+   *  stays in SessionKill — this port is the only line between them. */
+  killSession(input: { sessionId: SessionId }): Promise<void>
   /** Issue meta / cwd ownership for stop/stopIssue. */
   issueAccess: DurableIssueAccessIndex
   /** Snapshot tail for auto-archive parent-issue check. */
@@ -385,6 +391,46 @@ export class SessionTeardown {
     // Peer/operator: graceful stop now, kill only as escalation. Self-stop:
     // hold both until the relay has delivered agentRelayResult
     // (finalizeDeferredStopKill) [spec:SP-9904].
+    //
+    // SHELL LIFETIME POLICY: the issue-close / worktree-free trigger (POD-4435).
+    // The row above already parked a live shell as hibernated; the policy now
+    // answers park vs kill for it, and this is its one call site for these two
+    // triggers (issue close reaches here through stopIssue, worktree free
+    // through the section above — they converge here already). Touched shells
+    // and login panes stay parked: an explicit close always stops what it
+    // finds. An untouched shell nobody holds, whose owner is gone, dies
+    // instead of lingering as a hibernated row nobody will ever resume.
+    //
+    // No release edge and no grace here: this trigger answers the close, not a
+    // tab, and the backstop stays with the reaper. Self-stop is excluded: its
+    // process kill is deferred until after the relay reply, and tombstoning
+    // the caller mid-reply would break exactly what the deferral protects.
+    if (wasRunning && session.agentKind === 'shell' && !input.selfStop) {
+      const decision = decideShellLifetime({
+        purpose: session.loginHarness !== undefined ? 'login' : 'shell',
+        hasInput: session.terminal.lastInputAtMs > 0,
+        heldByTab: this.isHeldByTab(session.sessionId),
+        watched: this.isWatched(session.sessionId),
+        lastTabReleased: false,
+        issueClosed: issue ? isIssueClosed(issue) || issue.deletedAt != null : false,
+        worktreeFreed,
+        quietMs: this.quietMs(session),
+        unheldMs: undefined,
+        unwatchedMs: 0,
+        warmTtlMs: 0,
+        backstopMs: undefined,
+        idleGraceMs: undefined,
+        exited: false,
+      })
+      if (decision.verdict === 'kill') {
+        try {
+          await this.ports.killSession({ sessionId: session.sessionId })
+        } catch {
+          return { ok: false, reason: 'process retirement was not confirmed', worktreeFreed }
+        }
+        return { ok: true, worktreeFreed }
+      }
+    }
     if ((wasRunning || input.reapParked === true) && !input.selfStop &&
         !await this.gracefulStopThenKill(session))
       return { ok: false, reason: 'process retirement was not confirmed', worktreeFreed }
@@ -396,9 +442,42 @@ export class SessionTeardown {
     }
   }
 
+  /** Whether any connected client renders or streams the session (POD-4435). */
+  private isHeldByTab(sessionId: SessionId): boolean {
+    for (const client of this.ports.clients.values()) {
+      if (client.viewVisible.has(sessionId)) return true
+      if (client.attached.has(sessionId)) return true
+    }
+    return false
+  }
+
+  /** Whether any connected client renders the session in native mode (POD-4435). */
+  private isWatched(sessionId: SessionId): boolean {
+    for (const client of this.ports.clients.values()) {
+      if (
+        client.viewVisible.has(sessionId) &&
+        (client.viewModes[sessionId] ?? 'native') === 'native'
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /** Ms since the shell's last activity; malformed stamps read as now (POD-4435). */
+  private quietMs(session: Session): number {
+    const stamps = [
+      Date.parse(session.lastActiveAt),
+      session.terminal.lastResumedAtMs,
+      session.terminal.lastInputAtMs,
+      session.terminal.lastOutputAtMs,
+    ]
+    if (!stamps.every(Number.isFinite)) return 0
+    return Math.max(0, this.ports.now() - Math.max(...stamps))
+  }
+
   /** Immediate process kill for a session already parked by stop. */
-  private killStoppedSession(session: Session): void {
-    this.ports.toMachine(session.machineId, {
+  private killStoppedSession(session: Session): void {    this.ports.toMachine(session.machineId, {
       type: 'kill',
       sessionId: session.sessionId,
       durableLabel: session.durableLabel,

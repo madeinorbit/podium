@@ -69,6 +69,11 @@ export interface SessionClientControlPorts {
   /** Join/leave session presence room with PTY attach (POD-1081 §5). */
   sessionRoomJoin?(client: ClientConn, sessionId: SessionId): Promise<boolean>
   sessionRoomLeave?(client: ClientConn, sessionId: SessionId): void
+  /**
+   * Answer a client's explicit tab-close release (POD-4435). The shell
+   * lifetime policy owns the decision; this port is the trigger's entry.
+   */
+  onTabRelease(sessionId: SessionId, reporterClientId: string): void | Promise<void>
 }
 
 /** Client control-plane adapter; transport framing remains in gateway/client-mux. */
@@ -276,6 +281,24 @@ export class SessionClientControl {
       case 'redrawRequest':
         this.ports.sessions.get(message.sessionId)?.terminal.redraw()
         break
+      case 'tabRelease': {
+        // THE TAB-CLOSE RELEASE (POD-4435): the reporting client closed its
+        // last tab for this session. Gated exactly like an attach — visibility
+        // plus machine use, same consistent-error silence — so a client cannot
+        // spend another principal's untouched shell. A disconnect never lands
+        // here (no frame is sent), which is what distinguishes a tab close
+        // from a network blip. Unknown and denied share the same silence: the
+        // sender learns nothing either way.
+        const session = this.ports.sessions.get(message.sessionId)
+        if (
+          (await this.authorizeAttach(principal, message.sessionId, session)) &&
+          session &&
+          this.ports.sessions.get(message.sessionId) === session
+        ) {
+          await this.ports.onTabRelease(message.sessionId, id)
+        }
+        break
+      }
       case 'transcriptSubscribe':
         client.transcriptSubs.add(message.sessionId)
         this.ports.sessions
