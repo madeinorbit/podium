@@ -156,17 +156,20 @@ describe('RETIRED leaf-package + restricted-package-deps -> manifest-deps', () =
     ).toContain('manifest-deps')
   })
 
-  it('keeps transcript near-leaf, and reachable from apps', () => {
+  it('keeps the store reachable from apps, and the closed set closed', () => {
+    // POD-4469 dissolved the transcript package into `@podium/harness/store`;
+    // the retired shape (open surface reachable, closed set refused) is pinned
+    // against the store entry and the harness closed set instead.
     expect(
       rulesFor(
         'apps/server/src/modules/memory/transcript-indexer.ts',
-        `import { claudeRecordToItems } from '@podium/transcript'`,
+        `import { claudeRecordToItems } from '@podium/harness/store'`,
       ),
     ).toEqual([])
     expect(
       rulesFor(
-        'packages/transcript/src/source.ts',
-        `import { openDatabase } from '@podium/runtime/sqlite'`,
+        'packages/harness/src/store/source.ts',
+        `import { x } from '@podium/sync'`,
       ),
     ).toContain('manifest-deps')
   })

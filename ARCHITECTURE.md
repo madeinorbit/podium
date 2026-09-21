@@ -43,12 +43,8 @@ L1 — wire / commands / contracts
                                 deps: @podium/model
 
 L2 — kernels / ports
-  @podium/agent-runtime         node-only, host capability — importable only by @podium/daemon, scripts/
-                                deps: @podium/harness, @podium/model, @podium/protocol, @podium/transcript
-  @podium/composer              browser-safe
-                                deps: @podium/model, @podium/protocol
-  @podium/harness               neutral, host capability — importable only by @podium/daemon, @podium/agent-runtime, scripts/
-                                deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime, @podium/transcript
+  @podium/harness               neutral, host capability — importable only by @podium/daemon, scripts/
+                                deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime
   @podium/pty                   node-only, host capability — importable only by @podium/daemon, scripts/
                                 deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime
   @podium/runtime               neutral
@@ -59,8 +55,6 @@ L2 — kernels / ports
                                 deps: @podium/model, @podium/protocol, @podium/runtime
   @podium/terminal-client       browser-safe
                                 deps: anything below its layer
-  @podium/transcript            node-only
-                                deps: @podium/model, @podium/protocol
 
 L3 — features / adapters
   @podium/client-core           browser-safe
@@ -92,17 +86,14 @@ L5 — build / compose tier
 
 **Declared same-layer edges** — the only legal sideways imports:
 
-- `@podium/agent-runtime → @podium/harness`
-- `@podium/agent-runtime → @podium/transcript`
 - `@podium/commands → @podium/protocol`
 - `@podium/harness → @podium/runtime`
-- `@podium/harness → @podium/transcript`
 - `@podium/issue-client → @podium/commands`
 - `@podium/issue-client → @podium/protocol`
 - `@podium/pty → @podium/runtime`
 - `@podium/sync → @podium/runtime`
 - `@podium/telemetry → @podium/runtime`
-- `@podium/terminal-client → @podium/composer`
+- `@podium/terminal-client → @podium/harness`
 - `@podium/terminal-client-react → @podium/client-core`
 
 **Declared type-only same-layer edges** — erased at build, so no runtime edge:

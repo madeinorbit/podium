@@ -1,4 +1,6 @@
 import { rmSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   auditClosureAt,
@@ -155,14 +157,17 @@ describe('auditServerClosureAt', () => {
   })
 
   it('resolves the real harness table so the walk is not vacuous', () => {
-    // Pinned against the live tree: if the entries move, the guard must move
-    // with them rather than pass on an unresolvable root.
+    // Pinned against the live tree (rooted at this file, never cwd — lane
+    // runners execute with a different working directory): if the entries
+    // move, the guard must move with them rather than pass on an
+    // unresolvable root.
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..')
     expect(
-      resolveToSource(process.cwd(), 'packages/harness/src/browser.ts', './store/cursor-codec'),
+      resolveToSource(root, 'packages/harness/src/browser.ts', './store/cursor-codec'),
     ).toBe('packages/harness/src/store/cursor-codec.ts')
     expect(
       resolveToSource(
-        process.cwd(),
+        root,
         'apps/server/src/modules/superagent/headless.ts',
         '@podium/harness/driver',
       ),
