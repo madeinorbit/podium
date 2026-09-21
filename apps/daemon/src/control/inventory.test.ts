@@ -13,7 +13,8 @@ const probeModels = vi.fn<(opts: unknown) => Promise<Record<string, unknown[]>>>
 vi.mock('@podium/harness', () => ({
   probeAllModels: (opts: unknown) => probeModels(opts),
 }))
-vi.mock('@podium/harness/driver/host', () => ({
+vi.mock('@podium/harness/driver/host', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@podium/harness/driver/host')>()),
   gateCodexVersion: vi.fn((version: string) =>
     version === 'codex-cli 0.101.0' ? null : { code: 'unsupported' },
   ),
