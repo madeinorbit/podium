@@ -1651,6 +1651,17 @@ export class SocketHub {
     if (this.connectedFlag) this.sendRaw({ type: 'viewState', ...this.lastViewState })
   }
 
+  /**
+   * TAB RELEASE (POD-4435): report that this client closed its last tab for
+   * the session, so the server can run the shell lifetime policy on it.
+   * Fire-and-forget and never re-asserted: a release is an edge, not state —
+   * replaying it on reconnect could kill a shell the operator reopened while
+   * offline. Dropped while offline for the same reason.
+   */
+  reportTabRelease(sessionId: SessionId): void {
+    if (this.connectedFlag) this.sendRaw({ type: 'tabRelease', sessionId })
+  }
+
   connectionHealth(): ConnectionHealth {
     return this.health
   }
