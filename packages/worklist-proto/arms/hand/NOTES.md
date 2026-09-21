@@ -31,6 +31,22 @@
   (locals-only publications emit no event), so the engine-backed click
   commits 0 rows; the UI click path commits exactly the two rows whose
   selected-ness flips, with 0 derivations (both evidenced in tests).
+- **Agent-audience rows need a visible formal host.** The legacy nesting
+  pass drops top-level agent rows ("internal issues: nested only"), and the
+  oracle flattens what survives — so the flat slice drops agent rows with
+  no visible formal ancestor (250 at 1x fixture: 211 rows, matching the
+  control exactly). Walk passes through invisible intermediates; the
+  started-by fallback is out (spec §6) and absent from the corpora.
+  Rescued rows host in a second round (legacy nests after rescue).
+- **Merge decisions and awaiting-merge never fire in the worklist.** Both
+  read `branch`/`gitState`, which the navigation model never carries
+  (`deriveIssueViews` drops them), so the legacy slice only ever decides
+  `review`. The arm matches legacy (spec: legacy wins over shorthand) —
+  reading the richer wire would fail parity. Same for `dependents`, which
+  the arm re-derives from outgoing edges like the model does.
+- **`closed` is the fold predicate, not the lane.** Pinned settled rows
+  read `closed: true` while rendering in PINNED (the oracle projects
+  `rowInClosedFold` directly).
 - **Notifications count batches.** `notifications` = dispatch passes (one
   batch = one pass), including no-op passes — the heartbeat records
   `notifications: 1` with zero commits and zero derivations.
@@ -70,6 +86,14 @@ value, but the three input checks proving that execute. Zero value changes.
 Identical shape: heartbeat 0/37 all-zero, phase 1 row (i0) + chain of 1,
 click 0 rows + 3 evaluations, parity green throughout, rebuild oracle green
 after every scenario.
+
+### G2 fixture at 1x (engine-booted, `hand.fixture.test.ts`)
+
+211 visible rows — exactly the control's set. Full-snapshot deep-equal with
+`snapshotFromStore` (rows, order, groups) plus the rebuild oracle. This is
+the corpus the browser pages measure; the scenario corpora above exercise
+the change paths, this one exercises the rule surface (nesting drops,
+decay windows, closed fold, defer bands, pinned lanes).
 
 ### Browser (1x click input-to-paint)
 

@@ -147,7 +147,11 @@ export function HandList({ store }: { store: HandStore }): ReactElement {
   const windowed = range === null ? items : items.slice(range.start, range.end)
   const base = range === null ? 0 : range.start
   return (
-    <div ref={containerRef} data-hand-list style={{ overflowY: 'auto', maxHeight: '100%' }}>
+    <div
+      ref={containerRef}
+      data-hand-list
+      style={{ overflowY: 'auto', height: '100vh', maxHeight: '100vh' }}
+    >
       <div style={range === null ? undefined : { height: total, position: 'relative' }}>
         {windowed.map((item, index) => {
           const absolute = base + index
