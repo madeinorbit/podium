@@ -1,0 +1,250 @@
+diff --git a/packages/worklist-proto/arms/tanstack/queries.ts b/packages/worklist-proto/arms/tanstack/queries.ts
+index b1fe5f799..a17be6a4b 100644
+--- a/packages/worklist-proto/arms/tanstack/queries.ts
++++ b/packages/worklist-proto/arms/tanstack/queries.ts
+@@ -264,6 +264,8 @@ export interface RowsRow {
+   tickSeq: number | null
+   tickTitle: string | null
+   tickRef: string | null
++  /** K3-B: continuation line beside the row (never inside SliceRow). */
++  continuation: string | null
+ }
+ 
+ function idleKindOfState(agentState: unknown): string | undefined {
+@@ -848,6 +850,7 @@ export function createTopQueries(
+             tickSeq: r.tickSeq,
+             tickTitle: r.tickTitle,
+             tickRef: r.tickRef,
++            continuation: r.continuation,
+           }
+           endFnMs(runs, 'rows', t0)
+           return out
+diff --git a/packages/worklist-proto/arms/tanstack/react/list.tsx b/packages/worklist-proto/arms/tanstack/react/list.tsx
+index 06ff4dd84..230b04fda 100644
+--- a/packages/worklist-proto/arms/tanstack/react/list.tsx
++++ b/packages/worklist-proto/arms/tanstack/react/list.tsx
+@@ -49,6 +49,9 @@ const TanStackRow = memo(function TanStackRow({
+   const selected = useTanStackKey<boolean>(store, `selected:${id}`)
+   if (row === null) return null
+   const tick = store.rollup.ticks.get(id) ?? null
++  // K3-B: the continuation line rides beside the row (never in SliceRow);
++  // the commit-compare already recommits this row when it moves.
++  const continuation = store.rollup.continuations.get(id) ?? null
+   return (
+     <RowShell id={id}>
+       <div data-issue-row={id} data-selected={selected ? 'true' : 'false'}>
+@@ -57,6 +60,7 @@ const TanStackRow = memo(function TanStackRow({
+           {row.working ? '*' : ''}
+           {row.asking ? '?' : ''}] {row.progressDone}/{row.progressTotal}
+           {tick !== null ? ` ⤷${tick.ref}` : ''}
++          {continuation !== null ? ` (${continuation})` : ''}
+         </button>
+       </div>
+     </RowShell>
+diff --git a/packages/worklist-proto/arms/tanstack/rollup.ts b/packages/worklist-proto/arms/tanstack/rollup.ts
+index 32bd6c57a..41a423337 100644
+--- a/packages/worklist-proto/arms/tanstack/rollup.ts
++++ b/packages/worklist-proto/arms/tanstack/rollup.ts
+@@ -40,6 +40,7 @@ import type { ResolveRow } from './queries'
+ import {
+   displayRefOf,
+   plainDeps,
++  continuationLine,
+   encodeSortKey,
+   groupKeyOf,
+   hasLeftMission,
+@@ -100,6 +101,8 @@ export interface RollupRow {
+   tickSeq: number | null
+   tickTitle: string | null
+   tickRef: string | null
++  /** K3-B: continuation line beside the row (never inside SliceRow). */
++  continuation: string | null
+ }
+ 
+ interface IssueRead {
+@@ -129,6 +132,9 @@ export class RollupSync {
+   readonly collection: Collection<RollupRow, string, Record<string, never>>
+   /** Ticks per visible row (R-ORIGIN renders beside the row). */
+   readonly ticks = new Map<string, OriginTick | null>()
++  /** K3-B: continuation lines per row (rendered beside the row, compared in
++   *  the commit layer like ticks, never inside SliceRow). */
++  readonly continuations = new Map<string, string | null>()
+   private readonly childrenByParent = new Map<string, Set<string>>()
+   private readonly parentOf = new Map<string, string>()
+   private readonly memberSeats = new Map<string, Map<string, VerdictRow>>()
+@@ -354,6 +360,34 @@ export class RollupSync {
+     return this.spinOffTip(issue.id) !== null
+   }
+ 
++  /**
++   * K3-B: the LINE behind continuationOf's boolean (mission.ts:2207,
++   * transcribed 1:1). Kept parallel to continuationOf on purpose: the line
++   * is non-null exactly when the boolean is true, so the review-ask
++   * suppression and the rendered signpost can never disagree.
++   */
++  private continuationLineOf(issue: SliceIssue): string | null {
++    const extra = issue as SliceIssue & { supersededBy?: string; duplicateOf?: string }
++    const targetId = extra.supersededBy ?? extra.duplicateOf
++    if (targetId) {
++      const target = this.inputs.issues.get(targetId)
++      const ref =
++        target === undefined
++          ? 'another task'
++          : displayRefOf(target, this.inputs.prefix.prefixForRepo(target.repoId))
++      return continuationLine(extra.supersededBy ? 'superseded' : 'duplicate', ref)
++    }
++    // Hopscotch: no agent left here, and a started spin-off is where it went
++    // (mission.ts:2233 — membership is issueId, not any live session).
++    if (this.batchCache().openExplicit.has(issue.id)) return null
++    const tip = this.spinOffTip(issue.id)
++    if (tip === null) return null
++    return continuationLine(
++      'spinoff',
++      displayRefOf(tip, this.inputs.prefix.prefixForRepo(tip.repoId)),
++    )
++  }
++
+   private vacatedOrigin(issue: SliceIssue): boolean {
+     const seats = this.memberSeats.get(issue.id)
+     if (seats !== undefined) {
+@@ -527,6 +561,9 @@ export class RollupSync {
+     const aggregate = this.aggregates.get(id)
+     const final = this.final.has(id)
+     const tick = final && aggregate !== undefined ? this.tickOf(id) : null
++    // K3-B: the line assembles beside the aggregate (like the tick), so a
++    // line-only change still rewrites the row and drives rowsQ → commit.
++    const continuation = final ? this.continuationLineOf(issue) : null
+     return {
+       row: {
+         id,
+@@ -557,6 +594,7 @@ export class RollupSync {
+         tickSeq: tick?.seq ?? null,
+         tickTitle: tick?.title ?? null,
+         tickRef: tick?.ref ?? null,
++        continuation,
+       },
+       tick,
+     }
+@@ -570,6 +608,7 @@ export class RollupSync {
+         this.written.delete(id)
+         this.aggregates.delete(id)
+         this.ticks.delete(id)
++        this.continuations.delete(id)
+         this.pendingWrites.push({ op: 'remove', key: id })
+         return true
+       }
+@@ -579,6 +618,7 @@ export class RollupSync {
+     if (this.written.get(id) === snap) return false
+     this.written.set(id, snap)
+     this.ticks.set(id, next.tick)
++    this.continuations.set(id, next.row.continuation)
+     this.pendingWrites.push({ op: 'upsert', key: id, value: next.row })
+     return true
+   }
+@@ -931,6 +971,12 @@ export class RollupSync {
+     if (prevSeat !== liveSeat) {
+       if (prevSeat !== null) this.dropSeat(this.spinOffChildren, prevSeat, id)
+       if (liveSeat !== null) this.takeSeat(this.spinOffChildren, liveSeat, id)
++      // K3-B: a spin-off seat move can flip its origins' continuation line
++      // (and the continuationOf boolean it tracks) — seed both ends' chains.
++      // refreshChain early-stops when nothing moved, so the steady-state
++      // cost is one value-compared recompute per end.
++      if (prevSeat !== null) this.dirtyChains.add(prevSeat)
++      if (liveSeat !== null) this.dirtyChains.add(liveSeat)
+     }
+     if (prevOrigin !== nextOrigin) {
+       if (nextOrigin === null) this.originOf.delete(id)
+@@ -1165,6 +1211,7 @@ export class RollupSync {
+     this.final.clear()
+     this.aggregates.clear()
+     this.ticks.clear()
++    this.continuations.clear()
+     this.written.clear()
+     this.bandById.clear()
+     this.repoKeyById.clear()
+@@ -1232,8 +1279,14 @@ export class RollupSync {
+       for (const id of this.final) {
+         if (!this.flat.has(id)) this.rescue.add(id)
+       }
++      // K3-B: seat ALL issues before deriving any: spinOffTip (and the
++      // pre-existing vacatedOrigin/continuationOf walks) read siblings'
++      // seats, so interleaved seat+derive leaves boot order-dependent
++      // (an origin assembled before its tip is ingested misses the tip).
+       for (const id of inputs.issues) {
+         this.ingestIssueStatic(id)
++      }
++      for (const id of inputs.issues) {
+         const summary = this.inputs.summaryQ.get(id) as SummaryRow | undefined
+         if (summary !== undefined && !summary.excluded) {
+           this.bandById.set(id, summary.band)
+@@ -1245,6 +1298,7 @@ export class RollupSync {
+         if (assembled !== null) {
+           this.written.set(id, JSON.stringify([assembled.row, assembled.tick]))
+           this.ticks.set(id, assembled.tick)
++          this.continuations.set(id, assembled.row.continuation)
+           this.pendingWrites.push({ op: 'upsert', key: id, value: assembled.row })
+         }
+       }
+diff --git a/packages/worklist-proto/arms/tanstack/rules.ts b/packages/worklist-proto/arms/tanstack/rules.ts
+index f4c5bffdc..dd771fc1c 100644
+--- a/packages/worklist-proto/arms/tanstack/rules.ts
++++ b/packages/worklist-proto/arms/tanstack/rules.ts
+@@ -318,6 +318,16 @@ export function displayTitleOf(
+   return issue.title
+ }
+ 
++/**
++ * K3-B continuation line (mission.ts:2207 `issueContinuation`, transcribed
++ * 1:1): the sidebar status phrase beside the row — `continued · <ref>` for a
++ * superseded or vacated issue, `duplicate · <ref>` for a duplicate, `another
++ * task` when the replacement is outside the replica. Never inside SliceRow.
++ */
++export function continuationLine(kind: 'superseded' | 'duplicate' | 'spinoff', ref: string): string {
++  return kind === 'duplicate' ? `duplicate · ${ref}` : `continued · ${ref}`
++}
++
+ // ---------------------------------------------------------- spin-off graph
+ 
+ export function spinOffOriginId(issue: Pick<SliceIssue, 'deps'>): string | null {
+diff --git a/packages/worklist-proto/arms/tanstack/store.ts b/packages/worklist-proto/arms/tanstack/store.ts
+index 4744ffbd6..7183e2978 100644
+--- a/packages/worklist-proto/arms/tanstack/store.ts
++++ b/packages/worklist-proto/arms/tanstack/store.ts
+@@ -76,6 +76,8 @@ export class TanStackStore {
+   /** Committed rows by id (identity-stable unless the value moved). */
+   readonly rows = new Map<string, SliceRow>()
+   private readonly lastTick = new Map<string, OriginTick | null>()
++  /** K3-B: committed continuation lines (compared like ticks, never in SliceRow). */
++  private readonly lastContinuation = new Map<string, string | null>()
+   private readonly graceSensitive = new Set<string>()
+   private orderCache: SliceOrder | null = null
+   private readonly listeners = new Map<string, Set<Listener>>()
+@@ -461,6 +463,7 @@ export class TanStackStore {
+       if (prev !== undefined) {
+         this.rows.delete(id)
+         this.lastTick.delete(id)
++        this.lastContinuation.delete(id)
+         this.graceSensitive.delete(id)
+         this.stats.rowsDerived += 1
+         this.emit(id)
+@@ -486,12 +489,18 @@ export class TanStackStore {
+       repoKey: found.repoKey,
+       closed: this.closedOf(id),
+     }
+-    const snap = JSON.stringify([next, tick])
++    // K3-B: the line rides the commit compare (like the tick) without
++    // entering SliceRow — a line-only change still recommits the row.
++    const continuation = found.continuation ?? null
++    const snap = JSON.stringify([next, tick, continuation])
+     const prevSnap =
+-      prev === undefined ? null : JSON.stringify([prev, this.lastTick.get(id) ?? null])
++      prev === undefined
++        ? null
++        : JSON.stringify([prev, this.lastTick.get(id) ?? null, this.lastContinuation.get(id) ?? null])
+     if (prevSnap !== snap) {
+       this.rows.set(id, next)
+       this.lastTick.set(id, tick)
++      this.lastContinuation.set(id, continuation)
+       this.stats.rowsDerived += 1
+       this.emit(id)
+     }
