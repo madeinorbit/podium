@@ -40,6 +40,8 @@ export interface ProtoScenarioResult {
   /** Wall time of the scenario action including settle, ms (NOT input-to-paint). */
   taskMs: number
   longTasks: { startTime: number; duration: number }[]
+  /** Rows currently mounted in the windowed list (commits only observe these). */
+  mountedRows: number
 }
 
 export interface ProtoPage {
@@ -51,7 +53,13 @@ export interface ProtoPage {
   runScenario(
     name: 'heartbeat' | 'rename' | 'stagemove' | 'clock' | 'click',
   ): Promise<ProtoScenarioResult>
-  clickRow(id?: string): Promise<{ inputMs: number; paintMs: number; longTasks: { startTime: number; duration: number }[]; commits: number }>
+  clickRow(id?: string): Promise<{
+    inputMs: number
+    paintMs: number
+    longTasks: { startTime: number; duration: number }[]
+    commits: number
+    mountedRows: number
+  }>
   snapshotHash(): string
   stats(): ProtoScenarioResult['stats']
 }
@@ -237,7 +245,13 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
 
   function clickRowInPage(
     id?: string,
-  ): Promise<{ inputMs: number; paintMs: number; longTasks: { startTime: number; duration: number }[]; commits: number }> {
+  ): Promise<{
+    inputMs: number
+    paintMs: number
+    longTasks: { startTime: number; duration: number }[]
+    commits: number
+    mountedRows: number
+  }> {
     const rowId = id ?? firstVisibleId()
     const button = document.querySelector(
       `[data-issue-row="${CSS.escape(rowId)}"] [data-pressable]`,
@@ -250,7 +264,13 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
       ;(button as HTMLElement).click()
       await doubleRaf()
-      return { inputMs, paintMs: performance.now(), longTasks: [...longTasks], commits: log.total() }
+      return {
+        inputMs,
+        paintMs: performance.now(),
+        longTasks: [...longTasks],
+        commits: log.total(),
+        mountedRows: document.querySelectorAll('[data-issue-row]').length,
+      }
     })
   }
 
@@ -283,6 +303,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       stats: statsOf(),
       taskMs: performance.now() - start,
       longTasks: [...longTasks],
+      mountedRows: document.querySelectorAll('[data-issue-row]').length,
     }
   }
 

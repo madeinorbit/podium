@@ -133,6 +133,8 @@ interface TimingRecord {
   heapBefore: HeapUsage | null
   heapAfter: HeapUsage | null
   commits: number
+  mountedRows: number
+  stats: { rowsDerived: number; rollupsDerived: number; indexUpdates: number; notifications: number }
   loadavg: number
   uptime: number
   runtimeSha: string
@@ -216,6 +218,7 @@ async function main(): Promise<void> {
                     paintMs: number
                     longTasks: { duration: number }[]
                     commits: number
+                    mountedRows: number
                   }>
                 }
               }
@@ -225,6 +228,7 @@ async function main(): Promise<void> {
             paintMs: number
             longTasks: { duration: number }[]
             commits: number
+            mountedRows: number
           }
           record = {
             arm: args.arm,
@@ -238,6 +242,8 @@ async function main(): Promise<void> {
             heapBefore,
             heapAfter: null,
             commits: painted.commits,
+            mountedRows: painted.mountedRows,
+            stats: { rowsDerived: 0, rollupsDerived: 0, indexUpdates: 0, notifications: 0 },
             loadavg: loadavg()[0] ?? 0,
             uptime: uptime(),
             runtimeSha,
@@ -249,6 +255,13 @@ async function main(): Promise<void> {
                 __proto: {
                   runScenario: (n: string) => Promise<{
                     commits: number
+                    mountedRows: number
+                    stats: {
+                      rowsDerived: number
+                      rollupsDerived: number
+                      indexUpdates: number
+                      notifications: number
+                    }
                     taskMs: number
                     longTasks: { duration: number }[]
                   }>
@@ -257,6 +270,13 @@ async function main(): Promise<void> {
             ).__proto.runScenario(name),
           scenario)) as unknown as {
             commits: number
+            mountedRows: number
+            stats: {
+              rowsDerived: number
+              rollupsDerived: number
+              indexUpdates: number
+              notifications: number
+            }
             taskMs: number
             longTasks: { duration: number }[]
           }
@@ -272,6 +292,8 @@ async function main(): Promise<void> {
             heapBefore,
             heapAfter: null,
             commits: result.commits,
+            mountedRows: result.mountedRows,
+            stats: result.stats,
             loadavg: loadavg()[0] ?? 0,
             uptime: uptime(),
             runtimeSha,
