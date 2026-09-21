@@ -516,17 +516,12 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
 
   it('still sees what an ALLOWED module loader loads', () => {
     // The ban has an allowance list, and an allowance that does not pin its own
-    // specifiers is a hole with a comment on it. node-pty is a NATIVE addon
-    // running in the daemon's address space; it must be an edge in its own
-    // right, not because a neighbouring `typeof import('node-pty')` annotation
-    // happens to mention it — that accident is what a review found here, and it
-    // was one tidy-up from removing a native addon from the walk in silence.
-    const backend = readFileSync(
-      join(repoRoot, 'packages/pty/src/backends/node-pty-backend.ts'),
-      'utf8',
-    )
-    expect(requirerLoads(backend).specifiers).toContain('node-pty')
-    expect(graph.externals.has('node-pty')).toBe(true)
+    // specifiers is a hole with a comment on it. (This control once named the
+    // node-pty backend; the node-pty fallback was removed in 61b8e2ef0 and the
+    // allowance entry for its deleted file is inert — the live example is the
+    // Bun sqlite builtin below.)
+    const source = readFileSync(join(repoRoot, 'packages/runtime/src/sqlite/bun.ts'), 'utf8')
+    expect(requirerLoads(source).specifiers).toContain('bun:sqlite')
   })
 
   it('reads a backtick specifier as the literal it is', () => {
