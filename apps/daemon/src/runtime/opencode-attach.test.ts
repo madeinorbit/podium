@@ -16,8 +16,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { OpencodeJournal, OpencodeJournalEntry, SessionBinding } from '@podium/harness/driver/host'
-import { STRIPPED_CODEX_CREDENTIALS } from '@podium/harness/driver/host'
-import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor } from '@podium/harness'
+import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifestFor } from '@podium/harness'
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -812,8 +811,10 @@ describe('the client terminal a server-family attach produces', () => {
     }
     // And the codex list is the reconciled one, named so a silent narrowing back
     // to the three it used to carry fails here rather than in a billing report.
-    expect(AGENT_MANIFESTS.codex.inventory.foreignCredentialEnv).toEqual(STRIPPED_CODEX_CREDENTIALS)
-    expect(STRIPPED_CODEX_CREDENTIALS).toContain('OPENAI_BASE_URL')
+    // (POD-4494: the family no longer re-exports it — tests read the manifest.)
+    const codexStripEnv = AGENT_MANIFESTS.codex.inventory.foreignCredentialEnv
+    expect(codexStripEnv).toContain('OPENAI_BASE_URL')
+    expect(codexStripEnv).toContain('OPENAI_ORG_ID')
   })
 
   it('passes a generation-specific database path to the OpenCode 2 native client', async () => {
@@ -1417,7 +1418,7 @@ describe('what a machine can give back under pressure (spec §5)', () => {
 // The host port: when the daemon answers `attach` at all
 // ---------------------------------------------------------------------------
 
-const OC_FLAVOR = opencodeFlavor()
+const OC_FLAVOR = opencodeFlavor(manifestFor('opencode')!)
 
 function engineHost(
   extra: Omit<Partial<OpencodeEngineHostDeps>, 'clientTerminals' | 'supervision'> & {

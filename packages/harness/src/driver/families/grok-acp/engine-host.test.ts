@@ -12,6 +12,7 @@ import { asSessionId } from '@podium/model'
 import { Buffer } from 'node:buffer'
 import { describe, expect, it } from 'vitest'
 import { grokEngineFacts } from './engine-facts.js'
+import { manifestFor } from '../../../registry.js'
 import {
   type GrokEngineHostDeps,
   createGrokEngineHost,
@@ -21,7 +22,7 @@ import {
 } from './engine-host.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
 
-const FACTS = grokEngineFacts()
+const FACTS = grokEngineFacts(manifestFor('grok')!)
 
 function engineHost(extra: Partial<GrokEngineHostDeps> = {}) {
   return createGrokEngineHost({

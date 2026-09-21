@@ -25,6 +25,7 @@ import {
   type OpencodeJournalEntry,
 } from '@podium/harness/driver/host'
 import { createDurableProcess } from '@podium/process/durable'
+import { manifestFor } from '@podium/harness'
 import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
 import {
   composeEngineEnv,
@@ -49,9 +50,9 @@ const ready = (engine: string, binding: unknown): void => {
   process.stdout.write(`READY ${engine} ${JSON.stringify(binding)}\n`)
 }
 
-const codexFacts = codexEngineFacts()
-const grokFacts = grokEngineFacts()
-const flavor = opencodeFlavor()
+const codexFacts = codexEngineFacts(manifestFor('codex')!)
+const grokFacts = grokEngineFacts(manifestFor('grok')!)
+const flavor = opencodeFlavor(manifestFor('opencode')!)
 
 const codexHost = createCodexEngineHost({
   facts: codexFacts,

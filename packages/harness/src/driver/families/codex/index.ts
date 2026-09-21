@@ -108,7 +108,7 @@ export {
   evaluateCodexVersionProbe,
 } from './engine-host.js'
 export { type CodexChildLiveness } from './engine-host.js'
-export { type CodexEngineFacts, codexEngineFacts } from './engine-facts.js'
+export { type CodexEngineFacts, codexEngineFacts, codexHarnessKind } from './engine-facts.js'
 export {
   buildCodexExecTurn,
   type CodexExecTurnInput,

@@ -14,9 +14,10 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { grokAcpProcessKey } from './engine-host.js'
 import { grokEngineFacts } from './engine-facts.js'
+import { manifestFor } from '../../../registry.js'
 import { createGrokSessionRuntime } from './session.js'
 
-const FACTS = grokEngineFacts()
+const FACTS = grokEngineFacts(manifestFor('grok')!)
 
 function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {}) {
   const entries = new Map<SessionId, GrokAcpJournalEntry>()

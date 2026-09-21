@@ -34,7 +34,7 @@ export {
   grokAcpProcessKey,
   GrokEngineLeaseRefused,
 } from './engine-host.js'
-export { type GrokEngineFacts, grokEngineFacts } from './engine-facts.js'
+export { type GrokEngineFacts, grokEngineFacts, grokHarnessKind } from './engine-facts.js'
 export {
   type DaemonGrokRuntime,
   type GrokSessionDeps,

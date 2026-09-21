@@ -13,6 +13,7 @@ import {
 } from '@podium/harness'
 import {
   claudeSdkExecutablePath,
+  codexHarnessKind,
   cursorCreateChatInvocation,
   HeadlessTurnFailure,
   parseCursorChatId,
@@ -288,8 +289,8 @@ function runCodexTurn(
   emit: HeadlessEmit,
   snapshot: ResolvedHarnessInventory,
 ): HeadlessTurnHandle {
-  const manifest = harnessAdapterFor('codex')
-  if (!manifest) throw new Error("no harness adapter for 'codex'")
+  const manifest = harnessAdapterFor(codexHarnessKind)
+  if (!manifest) throw new Error(`no harness adapter for '${codexHarnessKind}'`)
   const turn = runCodexExecTurn({
     prompt: spec.prompt,
     ...(spec.model ? { model: spec.model } : {}),

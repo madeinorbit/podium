@@ -41,7 +41,12 @@ import {
   type CodexTransport,
   createCodexRuntime,
 } from './index.js'
-import { gateCodexVersion, STRIPPED_CODEX_CREDENTIALS, SUPPORTED_CODEX } from './version.js'
+import { gateCodexVersion, SUPPORTED_CODEX } from './version.js'
+import { manifestFor } from '../../../registry.js'
+
+// Tests read the manifest directly (they are not mechanisms): if the daemon
+// adds a key, this run strips it too.
+const STRIPPED_CODEX_CREDENTIALS = manifestFor('codex')!.inventory.foreignCredentialEnv
 
 const LIVE = process.env.PODIUM_CODEX_LIVE === '1'
 const describeLive = LIVE ? describe : describe.skip

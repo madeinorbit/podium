@@ -18,6 +18,14 @@
 import type { HarnessAgent } from '@podium/model'
 import { declaredValue, type AgentManifest } from '../../../manifest.js'
 
+/**
+ * The harness kind these facts are read for, as a VALUE for the composition
+ * root (same shape as `claudeSdkHarnessKind`): the daemon hands
+ * `codexEngineFacts` the sections of THIS adapter without writing the name
+ * itself — identifiers may flow as values, literals may not (vendor lint).
+ */
+export const codexHarnessKind = 'codex' as const
+
 /** The codex engine's per-harness facts, read off its adapter sections. */
 export interface CodexEngineFacts {
   /** Value passed as the engine child's harness identity (env composition). */

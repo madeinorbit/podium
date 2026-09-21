@@ -18,7 +18,7 @@ import type {
   GrokAcpRuntimeHost,
   GrokAcpTransport,
 } from '@podium/harness/driver/host'
-import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
+import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions, manifestFor } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asAgentIdentityId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
@@ -1141,7 +1141,7 @@ function defaultCodexRuntime(sent: DaemonMessage[]) {
     },
   }
   return createCodexSessionRuntime({
-    facts: codexEngineFacts(),
+    facts: codexEngineFacts(manifestFor('codex')!),
     engine: host,
     send: (msg) => void sent.push(msg),
     emitBind: (bind) => void sent.push({ type: 'bind', ...bind }),
@@ -1181,7 +1181,7 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
     },
   }
   return createGrokSessionRuntime({
-    facts: grokEngineFacts(),
+    facts: grokEngineFacts(manifestFor('grok')!),
     engine: host,
     send: (msg) => void sent.push(msg),
     emitBind: (bind) => void sent.push({ type: 'bind', ...bind }),

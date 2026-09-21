@@ -76,6 +76,7 @@ export {
   type OpencodeEngineFlavor,
   opencode2Flavor,
   opencodeFlavor,
+  opencodeHarnessKind,
 } from './engine-facts.js'
 export {
   type DaemonOpencodeRuntime,

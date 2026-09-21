@@ -1,12 +1,15 @@
 import { execFile } from 'node:child_process'
+import type { AgentKind } from '@podium/model'
 import { type AgentManifest, manifestFor } from '@podium/harness'
 import {
   type CodexProbeVerdict,
   codexEngineFacts,
+  codexHarnessKind,
   evaluateCodexVersionProbe,
   evaluateGrokAcpVersionProbe,
   type GrokAcpProbeVerdict,
   grokEngineFacts,
+  grokHarnessKind,
   evaluateOpencode2VersionProbe,
   evaluateOpencodeVersionProbe,
   type OpencodeProbeVerdict,
@@ -14,6 +17,7 @@ import {
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   opencode2Flavor,
   opencodeFlavor,
+  opencodeHarnessKind,
 } from '@podium/harness/driver/host'
 import { reportHarnessProbe } from '../harness-version-reporting'
 
@@ -130,9 +134,10 @@ const VERSION_PROBE_TIMEOUT_MS = OPENCODE_VERSION_PROBE_TIMEOUT_MS
  * The composition root's side of the POD-4494 handover: the families take
  * handed sections, so each default probe reads its adapter here — the one
  * place on this path allowed to name a harness — and hands the sections in.
+ * Kinds arrive as the families' own values, never literals (vendor lint).
  */
 function engineSections(
-  kind: 'codex' | 'grok' | 'opencode',
+  kind: AgentKind,
 ): Pick<AgentManifest, 'kind' | 'runtime' | 'inventory'> {
   const manifest = manifestFor(kind)
   if (!manifest) throw new Error(`no harness adapter for '${kind}'`)
@@ -146,7 +151,7 @@ const codexProbeCache = createVersionProbeCache<CodexProbeVerdict>({
 export function codexAppServerVersionProbe(
   probe: VersionProbe = () =>
     execVersionProbe(
-      codexEngineFacts(engineSections('codex')).executableName,
+      codexEngineFacts(engineSections(codexHarnessKind)).executableName,
       VERSION_PROBE_TIMEOUT_MS,
     ),
   policy?: VersionProbePolicy,
@@ -166,7 +171,7 @@ const grokProbeCache = createVersionProbeCache<GrokAcpProbeVerdict>({
 export function grokAcpVersionProbe(
   probe: VersionProbe = () =>
     execVersionProbe(
-      grokEngineFacts(engineSections('grok')).executableName,
+      grokEngineFacts(engineSections(grokHarnessKind)).executableName,
       VERSION_PROBE_TIMEOUT_MS,
     ),
   policy?: VersionProbePolicy,
@@ -185,7 +190,7 @@ const opencodeProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
 export function opencodeVersionProbe(
   probe: VersionProbe = () =>
     execVersionProbe(
-      opencodeFlavor(engineSections('opencode')).executableName,
+      opencodeFlavor(engineSections(opencodeHarnessKind)).executableName,
       VERSION_PROBE_TIMEOUT_MS,
     ),
   policy?: VersionProbePolicy,
@@ -210,7 +215,7 @@ const opencode2ProbeCache = createVersionProbeCache<OpencodeProbeVerdict>({
 export function opencode2VersionProbe(
   probe: VersionProbe = () =>
     execVersionProbe(
-      opencode2Flavor(engineSections('opencode')).executableName,
+      opencode2Flavor(engineSections(opencodeHarnessKind)).executableName,
       VERSION_PROBE_TIMEOUT_MS,
     ),
   policy?: VersionProbePolicy,

@@ -49,6 +49,7 @@ import {
   type OpencodeJournalEntry,
 } from '@podium/harness/driver/host'
 import { stageRuntimeAttachment } from './attachment-staging'
+import { manifestFor } from '@podium/harness'
 import {
   composeEngineEnv,
   createEngineJournal,
@@ -63,9 +64,9 @@ import {
   opencodeVersionProbeForExecutable,
 } from './version-probe'
 
-const codexFacts = codexEngineFacts()
-const grokFacts = grokEngineFacts()
-const flavor = opencodeFlavor()
+const codexFacts = codexEngineFacts(manifestFor('codex')!)
+const grokFacts = grokEngineFacts(manifestFor('grok')!)
+const flavor = opencodeFlavor(manifestFor('opencode')!)
 
 const GEN1 = fileURLToPath(new URL('../test-support/server-host-survival.gen1.ts', import.meta.url))
 
