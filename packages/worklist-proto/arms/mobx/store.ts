@@ -133,6 +133,8 @@ export class MobXStore {
       | 'bootstrap'
       | 'takeSeat'
       | 'dropSeat'
+      | 'dropResolved'
+      | 'takeResolved'
       | 'ingestIssue'
       | 'moveSeat'
       | 'ingestSession'
@@ -174,6 +176,8 @@ export class MobXStore {
       ingestWorktree: action,
       takeSeat: action,
       dropSeat: action,
+      dropResolved: action,
+      takeResolved: action,
       moveSeat: action,
       resolveAllUnbound: action,
       setSelection: action,
@@ -329,6 +333,22 @@ export class MobXStore {
     return true
   }
 
+  /** Drop one session's resolved seats under its recorded path (spec §2 R3). */
+  private dropResolved(id: string, resolved: string | null): void {
+    if (resolved === null) return
+    for (const issueId of this.issuesByWorktree.get(resolved) ?? []) {
+      this.dropSeat(this.resolvedByIssue, issueId, id)
+    }
+  }
+
+  /** Take one session's resolved seats under a path (spec §2 R3). */
+  private takeResolved(id: string, resolved: string | null): void {
+    if (resolved === null) return
+    for (const issueId of this.issuesByWorktree.get(resolved) ?? []) {
+      this.takeSeat(this.resolvedByIssue, issueId, id)
+    }
+  }
+
   private ingestIssue(id: string): void {
     const issue = this.issues.get(id)?.value
     // R1 formal edge (live children only); evict orphans to roots.
@@ -435,11 +455,7 @@ export class MobXStore {
     }
     if (session === undefined) {
       const home = this.sessionHome.get(id)
-      if (home?.resolved) {
-        for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
-          this.dropSeat(this.resolvedByIssue, issueId, id)
-        }
-      }
+      this.dropResolved(id, home?.resolved ?? null)
       this.sessionHome.delete(id)
       return
     }
@@ -447,16 +463,8 @@ export class MobXStore {
       const resolved = this.resolveCwd(session.cwd)
       const home = this.sessionHome.get(id)
       if ((home?.resolved ?? null) !== resolved) {
-        if (home?.resolved) {
-          for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
-            this.dropSeat(this.resolvedByIssue, issueId, id)
-          }
-        }
-        if (resolved) {
-          for (const issueId of this.issuesByWorktree.get(resolved) ?? []) {
-            this.takeSeat(this.resolvedByIssue, issueId, id)
-          }
-        }
+        this.dropResolved(id, home?.resolved ?? null)
+        this.takeResolved(id, resolved)
       }
       // Always seated: lanes ingest after sessions at bootstrap, so the home
       // may not exist yet — resolveAllUnbound (post-lane) seats it then.
@@ -464,9 +472,7 @@ export class MobXStore {
     } else {
       const home = this.sessionHome.get(id)
       if (home?.resolved) {
-        for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
-          this.dropSeat(this.resolvedByIssue, issueId, id)
-        }
+        this.dropResolved(id, home.resolved)
         this.sessionHome.set(id, { explicit: nextExplicit, resolved: null })
       } else if (home && home.explicit !== nextExplicit) {
         this.sessionHome.set(id, { explicit: nextExplicit, resolved: null })
@@ -500,35 +506,29 @@ export class MobXStore {
 
   /** Re-resolve every unbound session after lane/target moves (spec §2 R3). */
   private resolveAllUnbound(): void {
-    // Unconditional drop+retake in stable home order: the resolved PATH may
-    // be unchanged while its member set moved (an issue gained a
-    // worktreePath), so a path-equality skip would leave stale seats behind.
-    // Per-session drop-then-take in insertion order preserves bucket order.
+    // Two passes in stable home order. The resolved PATH may be unchanged
+    // while its member set moved (an issue gained a worktreePath), so seats
+    // rebuild unconditionally; the drop-then-take split preserves bucket
+    // order across the rebuild.
+    const pending: Array<{ id: string; explicit: string | null; resolved: string | null }> = []
     for (const [id, home] of [...this.sessionHome]) {
       if (home.explicit !== null) continue
       const session = this.sessions.get(id)?.value
       if (session === undefined || session.headless === true || session.issueId) {
         if (home.resolved !== null) {
-          for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
-            this.dropSeat(this.resolvedByIssue, issueId, id)
-          }
+          this.dropResolved(id, home.resolved)
           this.sessionHome.set(id, { explicit: home.explicit, resolved: null })
         }
         continue
       }
-      const resolved = this.resolveCwd(session.cwd)
-      if (home.resolved !== null) {
-        for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
-          this.dropSeat(this.resolvedByIssue, issueId, id)
-        }
-      }
-      if (resolved !== null) {
-        for (const issueId of this.issuesByWorktree.get(resolved) ?? []) {
-          this.takeSeat(this.resolvedByIssue, issueId, id)
-        }
-      }
-      if ((home.resolved ?? null) !== resolved) {
-        this.sessionHome.set(id, { explicit: home.explicit, resolved })
+      this.dropResolved(id, home.resolved)
+      pending.push({ id, explicit: home.explicit, resolved: this.resolveCwd(session.cwd) })
+    }
+    for (const { id, explicit, resolved } of pending) {
+      this.takeResolved(id, resolved)
+      const home = this.sessionHome.get(id)
+      if ((home?.resolved ?? null) !== resolved) {
+        this.sessionHome.set(id, { explicit, resolved })
       }
     }
   }
