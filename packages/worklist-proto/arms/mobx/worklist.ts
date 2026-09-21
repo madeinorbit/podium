@@ -22,7 +22,7 @@ export type Lane = 'pinned' | 'open' | 'closed'
 
 export class WorklistModel {
   constructor(private readonly store: MobXStore) {
-    makeObservable(this, {
+    makeObservable<WorklistModel, 'store' | 'foldAt'>(this, {
       store: false,
       visibleIds: computed({ equals: shallowIdsEqual }),
       order: computed({ equals: shallowIdsEqual }),

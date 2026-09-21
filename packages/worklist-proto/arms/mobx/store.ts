@@ -121,7 +121,7 @@ export class MobXStore {
       coarseNow: locals.coarseNow,
     })
     this.worklist = new WorklistModel(this)
-    makeObservable(this, {
+    makeObservable<MobXStore, 'source' | 'off' | 'webRoot'>(this, {
       source: false,
       locals: false,
       stats: false,

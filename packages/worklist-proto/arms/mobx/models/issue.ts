@@ -78,7 +78,7 @@ export class IssueModel {
   constructor(store: MobXStore, value: SliceIssue) {
     this.store = store
     this.value = value
-    makeObservable(this, {
+    makeObservable<IssueModel, 'lastRowJson' | 'lastTickJson'>(this, {
       value: observableRef,
       store: false,
       lastRowJson: false,
