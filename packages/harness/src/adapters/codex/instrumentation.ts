@@ -705,29 +705,40 @@ async function installCodexInstrumentation(
   const codexHome =
     destination.harnessHome ??
     join(destination.homeDir ?? homedir(), '.codex')
-  const result = await ensurePodiumCodexHooks({
-    codexHome,
-    ...(destination.reportVersionProbe
-      ? { reportVersionProbe: (output) => destination.reportVersionProbe?.('codex', output) }
-      : {}),
-  })
-  const degradedReason = !result.installed
-    ? (result.reason ?? 'hook installation failed')
-    : 'trusted' in result && result.trusted === false
-      ? (result.reason ?? 'untrusted codex hooks')
-      : undefined
-  return {
+  const wiring = {
     args: destination.seedTheme ? ['-c', 'tui.theme=ansi'] : [],
     env: {
       [PODIUM_CODEX_HOOK_URL_ENV]: destination.endpointUrl,
       ...(destination.socketPath ? { [PODIUM_CODEX_HOOK_SOCKET_ENV]: destination.socketPath } : {}),
     },
-    ...(degradedReason
-      ? {
-          degradedReason,
-          degradedKind: installerDegradedKind(result.reason) as InstalledInstrumentation['degradedKind'],
-        }
-      : {}),
+  }
+  // A throwing global install degrades like a refused one: the per-session
+  // wiring above is still returned, so the session starts poll-only with the
+  // reason reported instead of being refused.
+  try {
+    const result = await ensurePodiumCodexHooks({
+      codexHome,
+      ...(destination.reportVersionProbe
+        ? { reportVersionProbe: (output) => destination.reportVersionProbe?.('codex', output) }
+        : {}),
+    })
+    const degradedReason = !result.installed
+      ? (result.reason ?? 'hook installation failed')
+      : 'trusted' in result && result.trusted === false
+        ? (result.reason ?? 'untrusted codex hooks')
+        : undefined
+    return {
+      ...wiring,
+      ...(degradedReason
+        ? {
+            degradedReason,
+            degradedKind: installerDegradedKind(result.reason) as InstalledInstrumentation['degradedKind'],
+          }
+        : {}),
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    return { ...wiring, degradedReason: reason, degradedKind: 'error' }
   }
 }
 
