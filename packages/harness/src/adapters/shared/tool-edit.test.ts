@@ -5,7 +5,7 @@ import {
   safeToolEditJson,
   safeToolEditJsonFromInput,
   TOOL_EDIT_KIND,
-} from './tool-edit'
+} from './tool-edit.js'
 
 describe('extractToolEdit', () => {
   it('reads a Claude / Grok search-replace as one replace hunk', () => {

@@ -2,16 +2,22 @@ import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
+  declaredValue,
   discoveryRoots,
   harnessKindForResumeKind,
+  manifestFor,
   resolveWithinRoots,
-  transcriptSourceFor,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
-import type { SliceResult, TranscriptSource } from '@podium/harness/store'
+import {
+  fileChainSource,
+  transcriptSourceFromGrammar,
+  type SliceResult,
+  type TranscriptSource,
+} from '@podium/harness/store'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:transcripts')
@@ -39,8 +45,13 @@ export function normalizeAgentKind(agentKind: AgentKind, resumeKind?: string): A
 // Build a TranscriptSource for the session named by a transcript-read request.
 // The factory routes on the TRUE harness (normalizeAgentKind, since a session's
 // real harness can hide behind resume.kind) and resolves the file chain / DB
-// session from cwd + resume value. Centralizes the per-read source resolution so
-// both the on-demand read and the reattach re-seed share one path.
+// session from cwd + resume value through the harness's adapter transcript
+// section — the Store takes that grammar as its parameter (POD-4471).
+// Centralizes the per-read source resolution so both the on-demand read and
+// the reattach re-seed share one path. Unknown kinds (including 'shell') and
+// harnesses whose transcript support is declared unsupported read as an empty
+// file-chain source, matching the pre-registry behavior — the session still
+// runs, it just has no readable history.
 export function sourceForRead(
   ctx: Pick<DaemonContext, 'homeDir'>,
   msg: {
@@ -52,9 +63,11 @@ export function sourceForRead(
   },
 ): Promise<TranscriptSource> {
   const agentKind = normalizeAgentKind(msg.agentKind, msg.resume?.kind)
-  return transcriptSourceFor({
+  const transcript = manifestFor(agentKind)?.transcript
+  const grammar = transcript ? declaredValue(transcript) : undefined
+  if (!grammar) return Promise.resolve(fileChainSource([], () => []))
+  return transcriptSourceFromGrammar(grammar, {
     podiumSessionId: msg.sessionId,
-    agentKind,
     cwd: msg.cwd,
     ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
     ...(msg.pathHint ? { pathHint: msg.pathHint } : {}),

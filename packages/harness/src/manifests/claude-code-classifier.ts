@@ -1,4 +1,4 @@
-import { isClaudeInterruptMarker } from '../store/index.js'
+import { isClaudeInterruptMarker } from '../adapters/claude-code/transcript.js'
 import type {
   DeterministicAgentState,
   GlobalAgentStateLabel,

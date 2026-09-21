@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cursorRecordToItems } from './cursor'
+import { cursorRecordToItems } from './transcript.js'
 
 describe('cursorRecordToItems', () => {
   it('normalizes user and assistant messages', () => {

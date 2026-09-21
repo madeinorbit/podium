@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { claudeRecordToItems } from './claude'
+import { claudeRecordToItems } from '../adapters/claude-code/transcript.js'
 import { encodeCursor } from './cursor-codec'
 import { fileIdFor } from './file-chain'
-import { fileChainSource, opencodeFileId, sliceItemsByAnchor } from './source'
+import { opencodeFileId } from '../adapters/opencode/transcript.js'
+import { fileChainSource, sliceItemsByAnchor } from './source'
 
 const item = (uuid: string | null, offset: number, sub = 0): TranscriptItem =>
   ({

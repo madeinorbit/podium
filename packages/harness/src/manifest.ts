@@ -14,7 +14,7 @@ import type {
   QuotaHistorySampleWire,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { fileChainSource, fileIdFor, type StatTick, type TranscriptRecordMapper, type TranscriptRuntimeReader, type TranscriptSource } from './store/index.js'
+import { fileChainSource, fileIdFor, type StatTick, type TranscriptColorReader, type TranscriptRecordMapper, type TranscriptRuntimeReader, type TranscriptSource } from './store/index.js'
 import type { UsageFileScan, UsageScanCache } from './usage-records.js'
 import type {
   AgentStateEventSource,
@@ -746,43 +746,56 @@ export interface TranscriptSourceInput {
 }
 
 export interface HarnessTranscript {
-  storage: 'file-chain' | 'sqlite'
+  /** Which at-rest store this harness's transcript lives in. `file` is the
+   *  JSONL chain, `sqlite` the opencode database (host-only until mirrored),
+   *  `stream` a live-only event stream with no at-rest file (no declarer yet;
+   *  the tailer already reads every file grammar as a stream). */
+  storage: 'file' | 'sqlite' | 'stream'
   /** Pure native-record parser selected by this manifest. SQLite-backed
-   *  transcripts declare this unsupported because their adapter maps typed rows
-   *  before applying the storage-neutral slice contract. */
+  *  transcripts declare this unsupported because their adapter maps typed rows
+  *  before applying the storage-neutral slice contract. */
   recordToItems: Declared<TranscriptRecordMapper>
   /** Pure native-record reader for RUNTIME facts — the model, effort and context
-   *  use this harness actually reports. Separate from `recordToItems` because it
-   *  answers a different question about the same record: that one produces the
-   *  conversation, this one produces what the agent is running as. Unsupported ⇒
-   *  no observed model/effort/context for this harness; the transcript still
-   *  reads. */
+  *  use this harness actually reports. Separate from `recordToItems` because it
+  *  answers a different question about the same record: that one produces the
+  *  conversation, this one produces what the agent is running as. Unsupported ⇒
+  *  no observed model/effort/context for this harness; the transcript still
+  *  reads. */
   recordRuntime: Declared<TranscriptRuntimeReader>
-  /** Ordered oldest→newest JSONL files for a session ('file-chain' storage only;
-   *  unsupported for 'sqlite', which has no files to chain). Every file-based
-   *  harness resolves the SPECIFIC conversation by its resume value — a cwd
-   *  bucket holds many DISTINCT conversations, so globbing the bucket would merge
-   *  unrelated sessions; no resume value ⇒ []. */
+  /** Pure native-record reader for the agent identity colour (`/color`).
+   *  Unsupported ⇒ no colour is ever observed for this harness; the transcript
+   *  tail still reads. The tailer takes this as an explicit parameter — it
+   *  carries no harness default of its own. */
+  recordColor: Declared<TranscriptColorReader>
+  /** Ordered oldest→newest JSONL files for a session ('file' storage only;
+  *  unsupported for 'sqlite', which has no files to chain). Every file-based
+  *  harness resolves the SPECIFIC conversation by its resume value — a cwd
+  *  bucket holds many DISTINCT conversations, so globbing the bucket would merge
+  *  unrelated sessions; no resume value ⇒ []. */
   chainPaths: Declared<(input: TranscriptSourceInput) => Promise<string[]>>
   /** Resolve this session's transcript read source (file chain or DB-backed). */
   sourceFor(input: TranscriptSourceInput): Promise<TranscriptSource>
 }
 
 /** Build the common file-backed transcript declaration without restating its
- * mapper in both `recordToItems` and `sourceFor`. The parser implementation stays
- * in the browser-safe transcript store (ADR 8 D4.3); the per-CLI manifest owns the
- * choice of which parser applies. */
+ * mapper in both `recordToItems` and `sourceFor`. The parser implementation
+ * lives in the harness's own `adapters/<h>/transcript.ts`; the per-CLI
+ * manifest owns the choice of which parser applies. */
 export function fileTranscript(
   chainPaths: (input: TranscriptSourceInput) => Promise<string[]>,
   recordToItems: TranscriptRecordMapper,
   recordRuntime?: TranscriptRuntimeReader,
+  recordColor?: TranscriptColorReader,
 ): HarnessTranscript {
   return {
-    storage: 'file-chain',
+    storage: 'file',
     recordToItems: supported(recordToItems),
     recordRuntime: recordRuntime
       ? supported(recordRuntime)
       : unsupported('this harness does not report model, effort or context use in its records'),
+    recordColor: recordColor
+      ? supported(recordColor)
+      : unsupported('this harness does not report an identity colour in its records'),
     chainPaths: supported(chainPaths),
     async sourceFor(input) {
       const sessionIdentity = input.resumeValue

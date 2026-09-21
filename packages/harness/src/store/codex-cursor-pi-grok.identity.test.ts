@@ -1,10 +1,10 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { codexRecordToItems } from './codex'
-import { cursorRecordToItems } from './cursor'
+import { codexRecordToItems } from '../adapters/codex/transcript.js'
+import { cursorRecordToItems } from '../adapters/cursor/transcript.js'
 import { stampCursors } from './cursor-codec'
-import { grokRecordToItems } from './grok'
-import { piRecordToItems } from './pi'
+import { grokRecordToItems } from '../adapters/grok/transcript.js'
+import { piRecordToItems } from '../adapters/pi/transcript.js'
 
 const content = [{ type: 'text', text: 'hello' }]
 const tool = { type: 'tool_use', name: 'Read', input: { file_path: 'hello' } }

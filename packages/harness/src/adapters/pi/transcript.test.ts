@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { piRecordToItems, piRuntime } from './pi'
+import { piRecordToItems, piRuntime } from './transcript.js'
 
 const ts = '2026-09-02T09:48:47.074Z'
 const entry = (id: string, message: Record<string, unknown>) => ({

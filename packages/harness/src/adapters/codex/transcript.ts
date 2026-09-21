@@ -1,8 +1,17 @@
 import type { TranscriptItem } from '@podium/model'
-import { askQuestionPreview, safeAskQuestionInputJson, toolInputPreview } from './claude'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
-import { contentToText, isRecord, stringField } from './json-util'
-import { safeToolEditJsonFromInput } from './tool-edit'
+import { findCodexRolloutPath } from '../../agent-state/codex.js'
+import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
+// One authoritative definition (spec rule 2): the interview-preview helpers
+// live with the claude grammar and are reused here, never duplicated.
+import {
+  askQuestionPreview,
+  safeAskQuestionInputJson,
+  toolInputPreview,
+} from '../claude-code/transcript.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
+import type { HarnessRuntimeObservation } from '../../store/runtime.js'
+import { contentToText, isRecord, stringField } from '../shared/json-util.js'
+import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 
 /**
  * Normalize one Codex rollout JSONL record (envelope `{ timestamp, type, payload }`)
@@ -469,3 +478,56 @@ function parseArgs(value: unknown): unknown {
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}...` : s
 }
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/**
+ * Codex: model/effort from `turn_context`, context use from `token_count`.
+ * Declared as this harness's `recordRuntime` in its transcript section.
+ */
+export function codexRuntime(record: unknown): HarnessRuntimeObservation {
+  if (!isRecord(record)) return {}
+  const payload = isRecord(record.payload) ? record.payload : undefined
+  if (!payload) return {}
+
+  if (record.type === 'turn_context') {
+    const model = stringField(payload, 'model')
+    const effort = stringField(payload, 'effort') ?? stringField(payload, 'reasoning_effort')
+    return {
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+    }
+  }
+
+  if (record.type !== 'event_msg' || payload.type !== 'token_count') return {}
+  const info = isRecord(payload.info) ? payload.info : undefined
+  const usage = info && isRecord(info.total_token_usage) ? info.total_token_usage : undefined
+  const used = usage ? finiteNumber(usage.total_tokens) : undefined
+  const window = info ? finiteNumber(info.model_context_window) : undefined
+  if (used === undefined || window === undefined || window <= 0) return {}
+  const percent = Math.min(100, Math.max(0, (used / window) * 100))
+  return { contextUsagePercent: Math.round(percent * 10) / 10 }
+}
+
+// ---------------------------------------------------------------------------
+// Transcript section: file-store grammar + layout (POD-4471), the ONE
+// authoritative transcript definition for this harness (spec §4).
+// ---------------------------------------------------------------------------
+
+
+// Codex stores no derivable per-cwd path; resolve the rollout from the resume
+// value (state DB, then filename fallback). null/undefined → no chain.
+export async function codexChainPaths(input: TranscriptSourceInput): Promise<string[]> {
+  if (!input.resumeValue) return []
+  const path = await findCodexRolloutPath({
+    resumeValue: input.resumeValue,
+    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+  })
+  return path ? [path] : []
+}
+
+export const codexTranscript = supported(
+  fileTranscript(codexChainPaths, codexRecordToItems, codexRuntime),
+)

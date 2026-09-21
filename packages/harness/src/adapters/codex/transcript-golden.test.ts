@@ -19,9 +19,9 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { codexRecordToItems } from './codex'
+import { codexRecordToItems } from './transcript.js'
 
-const lines = readFileSync(new URL('./__fixtures__/codex-rollout.jsonl', import.meta.url), 'utf8')
+const lines = readFileSync(new URL('../../store/__fixtures__/codex-rollout.jsonl', import.meta.url), 'utf8')
   .split('\n')
   .filter(Boolean)
 
@@ -116,7 +116,7 @@ it('preserves the same message IDs as fake app-server notifications through the 
     server.emitUserMessage('Hello', 'usr_parity')
     server.emitAgentMessage('Hello back', 'msg_parity', 'Hello')
     const bytes = readFileSync(
-      new URL('./__fixtures__/codex-provider-identity.jsonl', import.meta.url),
+      new URL('../../store/__fixtures__/codex-provider-identity.jsonl', import.meta.url),
       'utf8',
     )
     const parse = () =>

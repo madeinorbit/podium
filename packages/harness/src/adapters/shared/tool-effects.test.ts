@@ -1,7 +1,7 @@
 import { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { claudeRecordToItems } from './claude'
-import { claudeToolEffects } from './tool-effects'
+import { claudeRecordToItems } from '../claude-code/transcript.js'
+import { claudeToolEffects } from './tool-effects.js'
 
 const hunks = [
   { oldStart: 7, oldLines: 1, newStart: 7, newLines: 1, lines: ['-before', '+actually applied'] },

@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { opencodePartToItems } from '../../store/index.js'
+import { opencodePartToItems } from '../../adapters/opencode/transcript.js'
 import {
   listOpencodeSessions,
   loadOpencodeMessageParts,

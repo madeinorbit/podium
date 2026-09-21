@@ -22,6 +22,7 @@ import {
   locateClaudeSessionFile,
   parseClaudeTranscriptSegmentId,
   reduceAgentState,
+  transcriptColorReaderFor,
   transcriptRecordMapperFor,
   transcriptRuntimeReaderFor,
 } from '@podium/harness'
@@ -1094,6 +1095,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     existing?.stop()
     nativeSessionIds.set(sessionId, resumeValue)
     tailSessionIds.set(sessionId, resumeValue)
+    // The agent's `/color` accent rides the same transcript tail. The extractor
+    // is the adapter grammar's (POD-4471); absent ⇒ the tail observes no colour.
+    const recordColor = transcriptColorReaderFor(agentKind)
     tails.set(
       sessionId,
       tailTranscript(
@@ -1122,7 +1126,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           resumeValue,
           recordToItems,
           statTick,
-          // The agent's `/color` accent rides the same transcript tail.
+          ...(recordColor ? { recordColor } : {}),
           onColor: (color, at) => send({ type: 'agentColor', sessionId, color, ...(at ? { at } : {}) }),
           // As do the observed model + effort (assistant `message.model` / `effort`).
           onModel: (model, effort, at) =>

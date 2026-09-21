@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { grokRecordToItems, grokRuntime } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../../agent-state/grok.js'
 import { locateGrokChatHistory } from '../../agent-state/grok-locate.js'
@@ -11,15 +10,14 @@ import {
   type AgentManifest,
   accountIdentity,
   credentialFileReader,
-  fileTranscript,
   type HarnessEnvironment,
   isSet,
   promptArgv,
   selectRuntimeDriver,
   supported,
-  type TranscriptSourceInput,
   unsupported,
 } from '../../manifest.js'
+import { grokTranscript } from './transcript.js'
 import { grokCredentials } from './credentials.js'
 import { grokInstall } from './install.js'
 import { grokUsage } from './usage.js'
@@ -62,20 +60,6 @@ function grokProfile(path: string): string | undefined {
     // Keep the historical presence-only fallback below.
   }
   return undefined
-}
-
-async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
-  if (!input.resumeValue) return []
-  // Locate, don't derive: Grok buckets by the creation-time cwd, while
-  // session.cwd is the current worktree (docs/spec/conversation-registry.md §3.3).
-  const path = await locateGrokChatHistory({
-    cwd: input.cwd,
-    sessionId: input.resumeValue,
-    ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-    ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
-  })
-  return path ? [path] : []
 }
 
 export const grokManifest: AgentManifest = {
@@ -531,7 +515,7 @@ export const grokManifest: AgentManifest = {
 
   discovery: createGrokConversationProvider(),
 
-  transcript: supported(fileTranscript(chainPaths, grokRecordToItems, grokRuntime)),
+  transcript: grokTranscript,
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for grok sessions'),
 
