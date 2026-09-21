@@ -29,6 +29,8 @@
     "@podium/sync": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
+    "eslint": "10.11.0",
+    "eslint-plugin-mobx": "0.0.14",
     "happy-dom": "^20.10.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -40,5 +42,9 @@
   },
   "peerDependencies": {
     "react": ">=19"
+  },
+  "dependencies": {
+    "mobx": "7.0.3",
+    "mobx-react-lite": "5.0.3"
   }
 }
