@@ -35,7 +35,7 @@ export function dispatchNativeInputBytes(
   if (bridge) {
     bridge.write(bytes)
   } else if (
-    !ctx.nativeClientRequests?.has(metadata.sessionId) ||
+    ctx.sessions.get(metadata.sessionId)?.nativeRequested !== true ||
     !ctx.clientTerminals?.input(metadata.sessionId, bytes)
   ) {
     // Release revokes the request and the client generation before awaiting

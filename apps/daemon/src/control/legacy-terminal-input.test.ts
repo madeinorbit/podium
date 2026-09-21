@@ -25,10 +25,11 @@ function world(contracted: boolean, bridged: boolean) {
   const input = vi.fn(() => true)
   const onInputByte = vi.fn()
   const recordInputOrigin = vi.fn()
+  const sessions = testSessions()
+  sessions.ensure(sessionId).nativeRequested = true
   const ctx = {
     agentRuntime: { has: () => contracted },
-    sessions: testSessions(),
-    nativeClientRequests: new Set([sessionId]),
+    sessions,
     clientTerminals: { input },
     composerEngine: { onInputByte },
     observers: { recordInputOrigin },

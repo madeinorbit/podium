@@ -25,10 +25,10 @@ function world(contracted: boolean, bridged: boolean) {
   const recordInputOrigin = vi.fn()
   const onInputByte = vi.fn()
   const sessions = testSessions()
+  sessions.ensure(sessionId).nativeRequested = true
   const ctx = {
     agentRuntime: { has: () => contracted },
     sessions,
-    nativeClientRequests: new Set([sessionId]),
     clientTerminals: { input },
     observers: { recordInputOrigin },
     composerEngine: { onInputByte },
@@ -63,10 +63,10 @@ describe('native host byte boundary', () => {
 
   it('requires both a native request and an accepting generation', () => {
     const w = world(true, false)
-    w.ctx.nativeClientRequests?.clear()
+    w.ctx.sessions.get(sessionId)!.nativeRequested = false
     dispatchNativeInputBytes(w.ctx, { sessionId, inputOrigin: 'human' }, bytes)
     expect(w.input).not.toHaveBeenCalled()
-    w.ctx.nativeClientRequests?.add(sessionId)
+    w.ctx.sessions.get(sessionId)!.nativeRequested = true
     w.input.mockReturnValue(false)
     dispatchNativeInputBytes(w.ctx, { sessionId, inputOrigin: 'human' }, bytes)
     expect(w.recordInputOrigin).not.toHaveBeenCalled()

@@ -18,6 +18,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './control/context'
 import { createFrameSink } from './frame-sink'
+import { testSessions } from './session/testing.js'
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
 
@@ -47,12 +48,13 @@ function world() {
     attach,
     lease: { release: vi.fn(async () => {}) },
   }
+  const sessions = testSessions()
+  // A session that already asked for Native and was refused: exactly the state
+  // an `agentState` frame is supposed to act on.
+  sessions.ensure(SESSION).nativeRequested = true
+  sessions.get(SESSION)!.nativeRetryCount = 1
   const ctx = {
-    // A session that already asked for Native and was refused: exactly the state
-    // an `agentState` frame is supposed to act on.
-    nativeClientRequests: new Set([SESSION]),
-    nativeClientTransitions: new Map(),
-    nativeClientRetries: new Map([[SESSION, 1]]),
+    sessions,
     clientTerminals: { close: vi.fn(async () => {}), resize: vi.fn(() => false) },
     agentRuntime: { handleFor: (id: string) => (id === SESSION ? handle : undefined) },
   } as unknown as DaemonContext
@@ -68,7 +70,7 @@ function world() {
 
 /** The sink hands the reconcile off to a promise chain; let it drain. */
 const settled = (ctx: DaemonContext) =>
-  vi.waitFor(() => expect(ctx.nativeClientTransitions?.size).toBe(0))
+  vi.waitFor(() => expect(ctx.sessions.get(SESSION)?.nativeTransition).toBeUndefined())
 
 describe('the daemon outbound frame sink', () => {
   it('re-arms a refused native attach from a runtime state snapshot', async () => {
@@ -112,7 +114,7 @@ describe('the daemon outbound frame sink', () => {
     await settled(ctx)
 
     expect(attach).not.toHaveBeenCalled()
-    expect(ctx.nativeClientRetries?.get(SESSION)).toBe(1)
+    expect(ctx.sessions.get(SESSION)?.nativeRetryCount).toBe(1)
   })
 
   it('ignores non-state transcript frames', async () => {

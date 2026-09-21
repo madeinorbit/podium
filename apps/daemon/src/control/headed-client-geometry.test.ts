@@ -21,7 +21,7 @@
 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it } from 'vitest'
@@ -172,11 +172,10 @@ function harness(
     born,
     clients,
     openNative: async () => {
-      ctx.nativeClientRequests ??= new Set<SessionId>()
-      ctx.nativeClientRequests.add(SESSION)
+      ctx.sessions.ensure(SESSION).nativeRequested = true
       reconcileNativeClientTerminal(ctx, SESSION)
       // The reconcile is fire-and-forget; drain what its awaits are parked on.
-      await ctx.nativeClientTransitions?.get(SESSION)
+      await ctx.sessions.get(SESSION)?.nativeTransition
       await new Promise((r) => setTimeout(r, 0))
     },
     drain: async () => {
