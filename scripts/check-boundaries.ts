@@ -6,15 +6,15 @@
  *
  *  1. No app→app imports. Grandfathered allowance: `apps/web` may import from
  *     `@podium/server` **type-only** (the `AppRouter` type for the tRPC client).
- *  2. `@podium/harness`, `@podium/process` and `@podium/harness` may only be
+ *  2. `@podium/harness` and `@podium/process` may only be
  *     imported by `apps/daemon`, `scripts/`, and their own packages (including
  *     their tests); agent-bridge may also reach pty and harness. Importing any of
  *     them means driving real agent processes / PTYs, which is a host capability.
- *     Servers read transcripts via `@podium/transcript` instead.
+ *     Servers read transcripts via `@podium/harness/store` and the driver
+ *     contract via `@podium/harness/driver` instead.
  *     See {@link AGENT_HOST_CONSUMERS}.
  *  3. `@podium/protocol` and `@podium/model` are leaf packages — they import
- *     no other workspace package. `@podium/transcript` is a near-leaf: it may
- *     import only `@podium/protocol`. `@podium/runtime` is a near-leaf
+ *     no other workspace package. `@podium/runtime` is a near-leaf
  *     runtime-plumbing package: it may import only `@podium/protocol` and
  *     `@podium/model` (e.g. the model's `normalizeOriginUrl`) — never another
  *     app or a non-leaf package.
@@ -405,18 +405,18 @@ function resolveTsSibling(repoRoot: string, fromFile: string, specifier: string)
  * and for whom".
  */
 const PRINCIPAL_FREE_WORKSPACES: readonly string[] = [
-  // POD-2019 joins `packages/agent-runtime` to the set, for the same reason and
-  // at the same layer as the other three. The contract describes how a session
-  // is DRIVEN, never who may drive it: `SessionSpec`'s account selector names a
-  // harness-native login (which `~/.codex/auth.json` to spawn under), not a
-  // principal, and carries no user id, grant or visibility class. Authorization
-  // belongs at the server projection boundary (POD-1079), which is above this
-  // package — and stating it as a lint keeps a future driver from reaching for
-  // an authz type when what it actually wants is an account.
-  'packages/agent-runtime',
+  // POD-2019's authorization-taint lint, kept through the POD-4469 dissolve:
+  // the contract's principal-free argument moved into `packages/harness` with
+  // the driver tree, and the consumer restriction narrowed to the host entry
+  // (`@podium/harness/driver/host`, daemon only) in scripts/architecture-manifest.ts.
+  // `SessionSpec`'s account selector names a harness-native login (which
+  // `~/.codex/auth.json` to spawn under), not a principal, and carries no user
+  // id, grant or visibility class. Authorization belongs at the server
+  // projection boundary (POD-1079), which is above this package — and stating
+  // it as a lint keeps a future driver from reaching for an authz type when
+  // what it actually wants is an account.
   'packages/harness',
   'packages/pty',
-  'packages/transcript',
 ]
 
 /**
@@ -451,7 +451,7 @@ const PRINCIPAL_IDENTIFIERS: readonly string[] = [
 const PRINCIPAL_RE = new RegExp(`\\b(${PRINCIPAL_IDENTIFIERS.join('|')})\\b`)
 
 /**
- * Rule: packages/harness, packages/pty and packages/transcript must not import
+ * Rule: packages/harness and packages/pty must not import
  * a principal, user, grant or visibility type.
  *
  * WHY IT IS A LINT rather than a review note: the pressure to break this is

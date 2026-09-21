@@ -8,12 +8,12 @@
  * READ-ONLY here: scrape → publish only. No injection, no clearing, no lease
  * arbitration — that is phase 4. The engine, lease, and state machine are all
  * harness-agnostic; every harness-specific choice lives behind the ComposerDriver
- * (from @podium/composer).
+ * (from `@podium/harness/driver/families/terminal/composer-sync`).
  *
  * See docs/superpowers/specs/2026-07-17-draft-sync-v2-design.md §2, §5.
  */
 
-import { type ComposerDriver, composerDriverFor } from '@podium/composer'
+import { type ComposerDriver, composerDriverFor } from '@podium/harness/driver/families/terminal/composer-sync'
 import type { AgentKind, SessionId } from '@podium/model'
 // P2c: the headless screen is a shared thing owned by @podium/process/screen.
 // This module imports it; it constructs no emulator of its own.

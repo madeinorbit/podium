@@ -103,7 +103,7 @@ import {
   driverLocalCursor,
   headlessAskAndAwait,
   stampRuntimeEvent,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import {
   declaredValue,
   harnessAdapterFor,

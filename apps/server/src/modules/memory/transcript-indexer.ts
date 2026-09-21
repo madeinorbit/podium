@@ -1,7 +1,7 @@
 import { open } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import { machineScopedKey, type MachineId } from '@podium/model'
-import { claudeRecordToItems } from '@podium/transcript'
+import { claudeRecordToItems } from '@podium/harness/store'
 import type { TranscriptMirrorRepository } from '../../store/conversations/mirror'
 import type { TranscriptIndexRepository } from '../../store/conversations/transcript-index'
 

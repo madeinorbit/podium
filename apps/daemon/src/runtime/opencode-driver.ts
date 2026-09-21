@@ -45,7 +45,7 @@ import {
   type OpencodeRuntimeHost,
   type PendingInteraction,
   type RuntimeEvent,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'

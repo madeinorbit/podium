@@ -17,7 +17,7 @@ import {
   type AgentSessionHandle,
   claudeSdkCapabilities,
   configureFieldsForDriver,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'

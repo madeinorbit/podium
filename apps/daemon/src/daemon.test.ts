@@ -17,7 +17,7 @@ import type {
   CodexTransport,
   GrokAcpRuntimeHost,
   GrokAcpTransport,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asAgentIdentityId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'

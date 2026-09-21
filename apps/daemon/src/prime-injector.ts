@@ -2,7 +2,7 @@ import {
   createBoundaryContext,
   type BoundaryContextEvent,
   type BoundaryContextOperation,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import { hookEventName, hookString } from './hook-payload'
 

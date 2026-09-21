@@ -1,4 +1,4 @@
-import { isDriverRefusal, type SessionArchive } from '@podium/agent-runtime'
+import { isDriverRefusal, type SessionArchive } from '@podium/harness/driver/host'
 import { harnessSupportsHandoff } from '@podium/harness'
 import type { ResumeRef, SessionId } from '@podium/model'
 import type { DaemonContext } from './control/context'

@@ -65,7 +65,7 @@ import {
   gateOpencodeVersion,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type RuntimeEvent,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import type { MachineId, SessionId } from '@podium/model'
 import {
   readOrCreateDaemonSecret,

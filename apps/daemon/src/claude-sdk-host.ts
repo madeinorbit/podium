@@ -20,7 +20,7 @@ import {
   type PermissionMode,
   query,
 } from '@anthropic-ai/claude-agent-sdk'
-import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from '@podium/agent-runtime'
+import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from '@podium/harness/driver/host'
 import {
   CLAUDE_SDK_HOST_ENV,
   type ClaudeSdkHostCommand,

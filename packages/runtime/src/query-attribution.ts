@@ -192,7 +192,7 @@ export const queryCallerStacksEnabled = STACKS
  * A marker missing from this list does not lose the stack, it just buries the
  * caller one frame deeper — which is exactly how a stack stops answering "who".
  * So the markers are as specific as the path allows: `driver.ts` alone would
- * also swallow `packages/agent-runtime/src/driver.ts`, which CAN be a caller.
+ * also swallow `packages/harness/src/driver/driver.ts`, which CAN be a caller.
  */
 const INSTRUMENT_FRAMES = [
   'query-attribution',

@@ -234,9 +234,6 @@ export default defineConfig(({ command, mode }) => {
         '@podium/commands': fileURLToPath(
           new URL('../../packages/commands/src/index.ts', import.meta.url),
         ),
-        '@podium/composer': fileURLToPath(
-          new URL('../../packages/composer/src/index.ts', import.meta.url),
-        ),
         // [POD-796] Model reaches the bundle at RUNTIME — `protocol/messages/sync.ts`
         // imports the `IssueProjection` zod schema as a VALUE for the feed's
         // 'issueProjection' arm — so it needs the same treatment as the others.

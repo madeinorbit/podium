@@ -30,7 +30,7 @@ import {
   type GrokVersionDiagnostic,
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type ScopeResources,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import {
   GROK_ACP_VERSION_POLICY,
   gateHarnessVersion,

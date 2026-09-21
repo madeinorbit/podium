@@ -42,19 +42,20 @@
  *    blessed exception — icon/label maps — needs no declaration: a Record keyed
  *    by harness is a lookup, not a comparison, so the rule never sees it.
  *
- *    That exception extends to ADAPTER SELECTION, and POD-1105 is the precedent:
- *    packages/composer picks a per-harness composer driver, and an `if` chain
- *    doing so was a violation while the same thing written as a registry Record
- *    is not. This is not a loophole — the per-harness BEHAVIOR lives in the
- *    driver objects (they ARE the adapters); only the selection was branching,
- *    and a table makes adding a harness a new row instead of a found-and-edited
- *    `if`. Note the alternative was WORSE: moving that selection into
- *    {@link HARNESS_ADAPTER_HOME} would drag node-only code toward a browser
- *    bundle (composer is browser-safe, aliased by apps/web and re-exported by
- *    terminal-client), which ADR 0008 already rejected for pure mappers. So
- *    composer is NOT a second sanctioned home for harness branching, and no
- *    second home was created: a sanctioned second home is the kind of exception
- *    that quietly becomes N homes, and the registry form needs none.
+  *    That exception extends to ADAPTER SELECTION, and POD-1105 is the precedent:
+  *    the terminal family's composer table picks a per-harness composer driver,
+  *    and an `if` chain doing so was a violation while the same thing written as
+  *    a registry Record is not. This is not a loophole — the per-harness BEHAVIOR
+  *    lives in the driver objects (they ARE the adapters); only the selection was
+  *    branching, and a table makes adding a harness a new row instead of a
+  *    found-and-edited `if`. Note the alternative was WORSE: moving that selection
+  *    into {@link HARNESS_ADAPTER_HOME} would drag node-only code toward a browser
+  *    bundle (the composer interface is browser-safe, reached through
+  *    `@podium/harness/browser`), which ADR 0008 already rejected for pure
+  *    mappers. So the composer table is NOT a second sanctioned home for harness
+  *    branching, and no second home was created: a sanctioned second home is the
+  *    kind of exception that quietly becomes N homes, and the registry form needs
+  *    none.
  *
  * Non-error manifest rules use a ratchet: known violations are declared in
  * scripts/boundary-allowlist.ts with a per-file COUNT and the phase that
@@ -412,15 +413,6 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   },
 
   // L2 — kernels / ports.
-  // Pure parsing/paging over protocol types — it must never grow IO or harness
-  // dependencies, which the ordinal alone would permit (transcript L2 could
-  // reach commands L1 on the layer axiom; the closed set is what refuses it).
-  'packages/transcript': {
-    layer: 2,
-    platform: 'node-only',
-    features: ['transcript-parsing'],
-    deps: ['packages/protocol', 'packages/model'],
-  },
   'packages/runtime': {
     layer: 2,
     platform: 'neutral',
@@ -537,12 +529,19 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   'packages/harness': {
     layer: 2,
     platform: 'neutral',
-    features: ['harness-adapters'],
+    // One package, four dissolved features (POD-4469): the harness adapters,
+    // the driver contract + host, the transcript store and the composer port.
+    features: [
+      'harness-adapters',
+      'agent-runtime-contract',
+      'transcript-parsing',
+      'composer-driver',
+      'prompt-draft',
+    ],
     deps: [
       'packages/protocol',
       'packages/model',
       'packages/runtime',
-      'packages/transcript',
       'packages/logger',
     ],
     // HOST CAPABILITY (legacy rule 2), with a declared open surface.
@@ -551,85 +550,35 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     // action on a host. `./browser` is open for the same reason AND bundlable,
     // which `./metadata` is not: openness is a statement about the SURFACE, and
     // POD-2176 is what it cost to read it as a statement about the closure.
-    openEntrypoints: ['@podium/harness/metadata', '@podium/harness/browser'],
-    // `packages/agent-runtime` joins the consumer set in POD-2019: the drivers
-    // behind the runtime contract ARE the thing that reads manifests to launch
-    // and observe a harness, so it takes the capability rather than routing
-    // around it. See that package's entry below for the argument.
-    consumers: ['apps/daemon', 'packages/agent-runtime', 'scripts'],
-  },
-  // The Agent Runtime contract (POD-1761 W1): the typed primitive surface every
-  // harness driver sits behind — lifecycle, turns, interactions, observation,
-  // transcript, attach, export — plus the driver-conformance corpus.
-  //
-  // WHY IT IS L2 AND NOT L3. It is a PORT, not a feature: it defines what a
-  // session IS and owns no engine of its own. That puts it in the same family as
-  // `packages/pty` (the PTY port) and `packages/harness` (the manifest port),
-  // and it composes both — which is why the two same-layer edges below exist and
-  // why the ordinal alone could not have expressed this.
-  //
-  // WHY IT TAKES THE HOST CAPABILITY. The whole point of the package is that its
-  // drivers spawn things: abduco masters (terminal family), harness server
-  // processes (server family) and SDK worker children (embedded family). That is
-  // the same capability `packages/pty` and `packages/harness` carry, and the
-  // same consumer restriction applies for the same reason — an ordinal cannot
-  // say it, because the edges it forbids (apps/server L4 → here L2) all point
-  // correctly DOWN.
-  //
-  // WHY THERE IS AN OPEN ENTRYPOINT ANYWAY. `apps/server` genuinely needs part
-  // of this package and never wanted the capability: it projects RuntimeEvents
-  // onto the wire, stores PendingInteractions, renders a session's driver and
-  // family, and reads the permitted-failures table to decide whether a weak
-  // outcome is a bug. All of that is DESCRIPTION, none of it is an action on a
-  // host — exactly the distinction `@podium/harness/metadata` was built to make,
-  // and the same enforcement (`manifest-open-entrypoint`: no `export *`, no
-  // process-driving export names, no process-API import) holds it.
-  //
-  // PRINCIPAL-FREE, like its two neighbours: `SessionSpec`'s account selector
-  // names a harness-native login, never a user, grant or visibility class.
-  // Authorization lives at the server projection boundary (POD-1079).
-  'packages/agent-runtime': {
-    layer: 2,
-    platform: 'node-only',
-    features: ['agent-runtime-contract'],
-    // `packages/pty` is DELIBERATELY ABSENT until a driver here needs it. The
-    // contract package imports no PTY today, and a declared edge nobody
-    // exercises is mechanism-presence rather than coverage — the same argument
-    // this file makes about open entrypoints. W3's terminal driver did NOT add
-    // it: its concrete half lives in the daemon because it is composed of daemon
-    // internals, so the PTY import stayed there. W5's opencode driver does not
-    // need it either — its process management is likewise in the daemon.
-    //
-    // `packages/transcript` IS here as of POD-2023 (W5), and the edge is
-    // deliberate rather than incidental. The opencode server driver's SSE
-    // payloads are the SAME message+part pair the sqlite transcript source has
-    // always read, so it calls `opencodePartToItems`/`stampOpencodeItems`
-    // instead of writing a second opencode→TranscriptItem mapper. Two mappers
-    // for one harness is two renderings of the same tool call, diverging on the
-    // first tool opencode adds — which is exactly the drift a shared port
-    // exists to prevent. The edge points from a PORT to a PARSER, both L2, and
-    // carries no capability: `@podium/transcript` is pure normalization.
-    deps: ['packages/protocol', 'packages/model', 'packages/harness', 'packages/transcript'],
+    // `./driver` is open because the server projects the contract onto the wire
+    // and verifies headless receipts against it — DESCRIPTION, never an action
+    // on a host — under the same `manifest-open-entrypoint` enforcement (no
+    // `export *`, no process-driving names, no process-API import). `./store`
+    // is open because both sides page transcripts through it; the sqlite-backed
+    // source stays host-only behind the barrel. `./driver/host` and
+    // `./inventory` are NOT open: construction, adopt, attach, families and
+    // machine probing are daemon-only, which is the narrowed consumer
+    // restriction POD-2019 keeps (the dissolved `packages/agent-runtime` left
+    // the consumer set with the dissolve).
+    openEntrypoints: [
+      '@podium/harness/metadata',
+      '@podium/harness/browser',
+      '@podium/harness/driver',
+      '@podium/harness/store',
+    ],
     consumers: ['apps/daemon', 'scripts'],
-    openEntrypoints: ['@podium/agent-runtime/metadata'],
   },
+  // The driver contract dissolved INTO this package (POD-4469): lifecycle,
+  // turns, interactions, observation, transcript, attach, export, plus the
+  // driver-conformance corpus, now `src/driver/` with the contract/host entry
+  // split. The capability argument the deleted `packages/agent-runtime` entry
+  // made still applies — drivers spawn things, so construction stays
+  // daemon-only behind `./driver/host` — and the open-entrypoint argument
+  // moved with it: `./driver` carries DESCRIPTION under the same enforcement.
   'packages/terminal-client': {
     layer: 2,
     platform: 'browser-safe',
     features: ['terminal-port'],
-  },
-  // The harness composer port: pure prompt-draft extraction + keystroke
-  // injection, imported only from @podium/protocol. BROWSER-SAFE by
-  // construction and by consumer — apps/web aliases it in vite.config.ts, and
-  // packages/terminal-client re-exports the extractors into the browser
-  // bundle; tagging it node-only would falsely accuse both. Same L2 family as
-  // agent-bridge/terminal-client (ADR 8 D4 end-state `packages/harness` /
-  // `packages/terminal-ui`), not L3: it is a port with no engine of its own.
-  'packages/composer': {
-    layer: 2,
-    platform: 'browser-safe',
-    features: ['composer-driver', 'prompt-draft'],
-    deps: ['packages/protocol', 'packages/model'],
   },
 
   // L3 — features / adapters / engine.
@@ -687,30 +636,16 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // than re-deriving the state directory (the `state-dir-defs` audit item is at 0
   // and must stay there).
   'packages/pty -> packages/runtime',
-  // L2: agent-bridge parses transcripts through the shared parser rather than
-  // carrying a second copy.
-  // L2: harness reads config/stateDir/sqlite from runtime and parses transcripts
-  // through the shared parser — the same two edges agent-bridge had, inherited by
-  // the half that actually uses them (POD-397).
+  // L2: harness reads config/stateDir/sqlite from runtime (POD-397).
   'packages/harness -> packages/runtime',
-  'packages/harness -> packages/transcript',
-  // L2 (POD-2019): the Agent Runtime contract sits in front of the manifest
-  // port and composes it. `harness` is where the driver taxonomy and the three
-  // `*RuntimeSpec` shapes are DEFINED (agent-runtime re-exports them — the
-  // reverse direction would be a cycle), and where `Declared<T>` comes from.
-  // The `-> packages/pty` edge is deliberately NOT declared yet: W3's terminal
-  // driver adds it in the commit that first wraps the durable-host stack.
-  'packages/agent-runtime -> packages/harness',
-  /** POD-2023 (W5): the opencode driver reuses the sqlite source's own
-   *  message+part → `TranscriptItem` mapper rather than writing a second one.
-   *  Port → parser, both L2, no capability crosses. See the workspace entry. */
-  'packages/agent-runtime -> packages/transcript',
+  // L2 (POD-4469): the terminal-client DOM readiness check uses the shared,
+  // pure composer extractor rather than carrying a second copy. The extractor
+  // dissolved from `packages/composer` into `@podium/harness/browser`; the edge
+  // moved with it.
+  'packages/terminal-client -> packages/harness',
   // L3: the React adapter binds hooks to client-core's transport port; it owns no
   // socket protocol state of its own.
   'packages/terminal-client-react -> packages/client-core',
-  // L2: terminal-client's DOM readiness check uses the shared,
-  // pure composer extractor rather than carrying a second copy.
-  'packages/terminal-client -> packages/composer',
   // L1: the CLI's issue client RENDERS the shared command contracts (POD-311)
   // rather than declaring its own command-name universe. Previously invisible to
   // this set because the import is type-only and type-only used to skip the
@@ -774,9 +709,11 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   // `createRequire is not a function` before it could render. This row is what
   // keeps `./browser` the only reachable one, and holds it to importing nothing.
   ['@podium/harness/browser', 'packages/harness/src/browser.ts'],
-  // packages/transcript — opaque cursor and stream-item identity only. Parsing,
-  // filesystem paging and tailing remain behind the host-only root barrel.
-  ['@podium/transcript/browser', 'packages/transcript/src/browser.ts'],
+  // The store's cursor helpers ride the harness browser entry (POD-4469):
+  // parsing, filesystem paging and tailing stay behind the host-only store
+  // entry, and the opaque cursor/stream-item identity the feed needs is
+  // re-exported from `@podium/harness/browser`, so no second browser entry
+  // exists to drift.
   // packages/telemetry — the pure display example apps/web renders in its
   // privacy and setup copy. The bare specifier pulls the emitter and node:fs.
   ['@podium/telemetry/example', 'packages/telemetry/src/example.ts'],

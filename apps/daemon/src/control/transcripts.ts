@@ -11,7 +11,7 @@ import { createLogger } from '@podium/logger'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
-import type { SliceResult, TranscriptSource } from '@podium/transcript'
+import type { SliceResult, TranscriptSource } from '@podium/harness/store'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:transcripts')

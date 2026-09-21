@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import type { DriverCapabilities, SessionSpec } from '@podium/agent-runtime'
+import type { DriverCapabilities, SessionSpec } from '@podium/harness/driver/host'
 import { agentStateProviderFor, harnessInstanceHomeEnv, manifestFor } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'

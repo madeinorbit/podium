@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SessionSpec } from '@podium/agent-runtime'
+import type { SessionSpec } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as codexHooks from '../codex-hooks'

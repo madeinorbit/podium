@@ -63,28 +63,43 @@ export const sharedVitestConfig = {
       // bare STRING form here prefix-matched it and rewrote
       // '@podium/harness/metadata' to '<index.ts>/metadata'. 99 apps/server suites
       // failed to import with "Cannot find package", which is the exact hazard the
-      // model/sync/composer entries above already anchor against.
+      // model/sync entries above already anchor against.
       // ANCHORED for the same reason harness is, and for the same live hazard:
-      // `@podium/agent-runtime` exposes a `./metadata` open entrypoint, so a bare
-      // string alias would rewrite it to '<index.ts>/metadata'. Added by POD-2021,
-      // the first item whose suites import the package by name — W1's own
-      // conformance corpus reaches its source through relative paths.
+      // `@podium/harness` exposes open subpath entrypoints (`./driver`,
+      // `./driver/host`, `./store`, …), so a bare string alias would rewrite
+      // them to '<index.ts>/…'. Each entry below is anchored; the deep family
+      // path the daemon's composer-sync reaches is anchored too.
       {
-        find: /^@podium\/agent-runtime$/,
+        find: /^@podium\/harness\/driver$/,
         replacement: fileURLToPath(
-          new URL('./packages/agent-runtime/src/index.ts', import.meta.url),
+          new URL('./packages/harness/src/driver.ts', import.meta.url),
         ),
       },
       {
-        find: /^@podium\/agent-runtime\/metadata$/,
+        find: /^@podium\/harness\/driver\/host$/,
         replacement: fileURLToPath(
-          new URL('./packages/agent-runtime/src/metadata.ts', import.meta.url),
+          new URL('./packages/harness/src/driver/host.ts', import.meta.url),
         ),
       },
       {
-        find: /^@podium\/agent-runtime\/testing$/,
+        find: /^@podium\/harness\/driver\/testing$/,
         replacement: fileURLToPath(
-          new URL('./packages/agent-runtime/src/testing/index.ts', import.meta.url),
+          new URL('./packages/harness/src/driver/testing/index.ts', import.meta.url),
+        ),
+      },
+      {
+        find: /^@podium\/harness\/driver\/families\/terminal\/composer-sync$/,
+        replacement: fileURLToPath(
+          new URL(
+            './packages/harness/src/driver/families/terminal/composer-sync.ts',
+            import.meta.url,
+          ),
+        ),
+      },
+      {
+        find: /^@podium\/harness\/store$/,
+        replacement: fileURLToPath(
+          new URL('./packages/harness/src/store.ts', import.meta.url),
         ),
       },
       {
@@ -94,13 +109,6 @@ export const sharedVitestConfig = {
       {
         find: /^@podium\/harness\/metadata$/,
         replacement: fileURLToPath(new URL('./packages/harness/src/metadata.ts', import.meta.url)),
-      },
-      // Anchored for the same reason model and sync are, below: composer exposes
-      // only '.' today, and the day it grows a subpath a prefix match would
-      // rewrite '@podium/composer/x' to '<index.ts>/x'. (Anchoring came from main.)
-      {
-        find: /^@podium\/composer$/,
-        replacement: fileURLToPath(new URL('./packages/composer/src/index.ts', import.meta.url)),
       },
       // Anchored RegExp, not a bare string: model is the L0 root every lane resolves,
       // and the prefix-match hazard described above is not worth re-learning if it
@@ -182,10 +190,6 @@ export const sharedVitestConfig = {
       //      because a module-scoped WeakMap made identity load-bearing.
       // EITHER half failing brings the hazard back: give telemetry a module-scoped
       // WeakMap/Map/registry, or import it from scripts/, and it needs the anchor above.
-      {
-        find: '@podium/transcript',
-        replacement: fileURLToPath(new URL('./packages/transcript/src/index.ts', import.meta.url)),
-      },
       {
         find: '@podium/terminal-client',
         replacement: fileURLToPath(

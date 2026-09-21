@@ -13,7 +13,7 @@ const probeModels = vi.fn<(opts: unknown) => Promise<Record<string, unknown[]>>>
 vi.mock('@podium/harness', () => ({
   probeAllModels: (opts: unknown) => probeModels(opts),
 }))
-vi.mock('@podium/agent-runtime', () => ({
+vi.mock('@podium/harness/driver/host', () => ({
   gateCodexVersion: vi.fn((version: string) =>
     version === 'codex-cli 0.101.0' ? null : { code: 'unsupported' },
   ),
@@ -35,7 +35,7 @@ vi.mock('../runtime/opencode-server', () => ({
   opencode2VersionProbeForExecutable: vi.fn(async () => ({ drivable: true })),
 }))
 
-import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/agent-runtime'
+import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/harness/driver/host'
 import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
 import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
 import {

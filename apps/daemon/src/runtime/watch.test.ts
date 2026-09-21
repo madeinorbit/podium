@@ -7,7 +7,7 @@
  * is the one behaviour the debounce exists to prevent.
  */
 
-import type { AgentSessionHandle, DriverCapabilities } from '@podium/agent-runtime'
+import type { AgentSessionHandle, DriverCapabilities } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createRuntimeWatchLifecycle } from './watch'

@@ -19,7 +19,7 @@
  * the field would pass just as happily as one that reads the record.
  */
 
-import type { AgentSessionHandle, ClaudeSdkRuntime } from '@podium/agent-runtime'
+import type { AgentSessionHandle, ClaudeSdkRuntime } from '@podium/harness/driver/host'
 import { asSessionId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -38,8 +38,8 @@ const mocks = vi.hoisted(() => ({
  * `attachKindsForDriver`, the driver-id constants) stays REAL, so this suite
  * cannot disagree with what the drivers actually declare.
  */
-vi.mock('@podium/agent-runtime', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/agent-runtime')>()
+vi.mock('@podium/harness/driver/host', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/harness/driver/host')>()
   return { ...actual, ...mocks }
 })
 

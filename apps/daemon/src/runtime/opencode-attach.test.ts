@@ -5,7 +5,7 @@
  * which label, with the secret where, whose memory it counts against, and when
  * the warm window closes. The DRIVER's half — that the endpoint is the `client`
  * variant its capability declares — is proved by the conformance corpus in
- * `packages/agent-runtime`, against a real listener.
+ * `@podium/harness/driver/host`, against a real listener.
  *
  * No abduco and no systemd are started: every process port is injected. What is
  * NOT faked is `attributeMemory`, because the label rule below is only true if
@@ -15,8 +15,8 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { OpencodeJournal, OpencodeJournalEntry, SessionBinding } from '@podium/agent-runtime'
-import { STRIPPED_CODEX_CREDENTIALS } from '@podium/agent-runtime'
+import type { OpencodeJournal, OpencodeJournalEntry, SessionBinding } from '@podium/harness/driver/host'
+import { STRIPPED_CODEX_CREDENTIALS } from '@podium/harness/driver/host'
 import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor } from '@podium/harness'
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'

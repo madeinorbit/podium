@@ -1,4 +1,4 @@
-import { pageHistory } from '@podium/agent-runtime'
+import { pageHistory } from '@podium/harness/driver/host'
 import { AGENT_MANIFESTS } from '@podium/harness'
 /**
  * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
@@ -35,19 +35,19 @@ import { AGENT_MANIFESTS } from '@podium/harness'
  * because a timer was dropped would fail the ordering assertions immediately.
  */
 
-import type { PendingInteraction } from '@podium/agent-runtime'
-import { TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
+import type { PendingInteraction } from '@podium/harness/driver/host'
+import { TERMINAL_PERMITTED_FAILURES } from '@podium/harness/driver/host'
 import type {
   ConformanceControl,
   TerminalEvidenceControl,
   TerminalEvidenceTarget,
-} from '@podium/agent-runtime/testing'
+} from '@podium/harness/driver/testing'
 import {
   assertArchiveHonoursItsDeclaration,
   defaultAskFor,
   describeTerminalEvidenceConformance,
   runConformance,
-} from '@podium/agent-runtime/testing'
+} from '@podium/harness/driver/testing'
 import type { AgentKind, AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'

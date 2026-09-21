@@ -1,4 +1,4 @@
-import { DriverRefusalError } from '@podium/agent-runtime'
+import { DriverRefusalError } from '@podium/harness/driver/host'
 /**
  * THE DAEMON, AS THE TERMINAL DRIVER'S HOST (POD-1761 W3).
  *
@@ -16,7 +16,7 @@ import { DriverRefusalError } from '@podium/agent-runtime'
 
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import type { AttachmentStager } from '@podium/agent-runtime'
+import type { AttachmentStager } from '@podium/harness/driver/host'
 import { durableProcessFor, scopeUnitName } from '@podium/process/durable'
 import type { DaemonContext } from '../control/context'
 import { launchSpawn, recoverTerminalHost, stopSessionProcess } from '../control/session'

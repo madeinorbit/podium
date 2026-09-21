@@ -19,7 +19,7 @@ function item(overrides: Partial<TranscriptItem> & { id: string }): TranscriptIt
 }
 
 /** A real Podium cursor: base64url `[fileId, offset, uuid, sub]`, the encoding
- *  packages/transcript/src/cursor-codec.ts stamps every item with. */
+ *  packages/harness/src/store/cursor-codec.ts stamps every item with. */
 function cursor(fileId: string, offset: number, sub = 0): string {
   return Buffer.from(JSON.stringify([fileId, offset, null, sub]), 'utf8').toString('base64url')
 }

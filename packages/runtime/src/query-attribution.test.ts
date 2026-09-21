@@ -118,17 +118,17 @@ describe('callerFrames', () => {
   })
 
   /**
-   * `driver.ts` on its own would also swallow `packages/agent-runtime/src/driver.ts`
-   * and `packages/composer/src/driver.ts`, either of which can be a caller. A
+   * `driver.ts` on its own would also swallow `packages/harness/src/driver/driver.ts`
+   * and `packages/harness/src/driver/families/terminal/composer-sync.ts`, either of which can be a caller. A
    * marker that is too broad does not fail loudly: it buries the answer.
    */
   it('keeps a caller whose file is also named driver.ts', () => {
     const raw = [
       'Error: statement issued',
       '    at get (/repo/apps/server/src/store/executor/driver.ts:324:83)',
-      '    at resume (/repo/packages/agent-runtime/src/driver.ts:77:9)',
+      '    at resume (/repo/packages/harness/src/driver/driver.ts:77:9)',
     ].join('\n')
-    expect(callerFrames(raw)).toBe('at resume (/repo/packages/agent-runtime/src/driver.ts:77:9)')
+    expect(callerFrames(raw)).toBe('at resume (/repo/packages/harness/src/driver/driver.ts:77:9)')
   })
 
   it('caps the sample so one stall line stays readable', () => {

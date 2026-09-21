@@ -17,7 +17,7 @@
  * either arm of the reap goes red — the epic's missing-caller lesson, pinned.
  */
 
-import type { AgentSessionHandle } from '@podium/agent-runtime'
+import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'

@@ -1,4 +1,4 @@
-import type { AgentSessionHandle, RuntimeEvent, SendOptions } from '@podium/agent-runtime'
+import type { AgentSessionHandle, RuntimeEvent, SendOptions } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import { hookBoolean, hookEventName, isGrokHookPayload } from '../hook-payload'
 

@@ -1,4 +1,4 @@
-import type { AgentSessionHandle, DriverId, RuntimeDriver } from '@podium/agent-runtime'
+import type { AgentSessionHandle, DriverId, RuntimeDriver } from '@podium/harness/driver/host'
 import type { Inventory, SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { createDaemonMachineRuntime } from './machine-runtime'

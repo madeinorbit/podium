@@ -42,7 +42,7 @@
 import type { SessionId } from '@podium/model'
 import type { TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
 import type { RuntimeEvent } from '@podium/protocol/daemon'
-import { streamItemIdOf } from '@podium/transcript'
+import { streamItemIdOf } from '@podium/harness/store'
 
 /**
  * How often a session may emit a preview frame, at most.

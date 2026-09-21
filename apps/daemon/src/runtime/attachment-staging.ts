@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { realpathSync, statSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
-import type { AttachmentRef, AttachmentStager } from '@podium/agent-runtime'
+import type { AttachmentRef, AttachmentStager } from '@podium/harness/driver/host'
 import { stateDir } from '@podium/runtime/config'
 import { uploadFilePath } from '../upload.js'
 

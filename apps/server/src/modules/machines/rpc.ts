@@ -122,7 +122,7 @@ export interface ScanReposResult {
 }
 
 /** Identity of the server-side reader requesting personal transcript content.
- * Authorization belongs at this boundary; the daemon and @podium/transcript run
+ * Authorization belongs at this boundary; the daemon and @podium/harness/store run
  * as system-side readers and never receive or interpret this value. */
 export type TranscriptReader = MemoryReader
 

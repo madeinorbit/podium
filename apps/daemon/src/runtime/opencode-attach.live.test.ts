@@ -14,7 +14,7 @@
  * machine that runs the suite.
  *
  * OPT-IN via `PODIUM_OPENCODE_LIVE=1`, the same switch and the same argument as
- * `packages/agent-runtime/src/drivers/opencode/live-secret.test.ts`: booting a
+ * `packages/harness/src/driver/families/opencode/live-secret.test.ts`: booting a
  * ~180MB binary is a minute of wall clock and a flake risk on a loaded box, and
  * a gate that is occasionally red for reasons unrelated to the change is a gate
  * people learn to ignore.

@@ -240,7 +240,7 @@ export function resolveRuntimeDriver(input: {
   }
   // The headless driver is never returned by a manifest `select()` — heads
   // never spawn it — so an explicit `headless` preference bypasses the policy
-  // here exactly as `runtime.create` does in `@podium/agent-runtime`. The
+  // here exactly as `runtime.create` does in `@podium/harness/driver/host`. The
   // harness must still declare the headless axis; otherwise the create below
   // would mint a session that can never turn.
   if (canonicalDriverId(preference) === 'headless') {

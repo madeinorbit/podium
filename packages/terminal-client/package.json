@@ -43,8 +43,8 @@
   },
   "dependencies": {
     "@podium/client-core": "workspace:*",
+    "@podium/harness": "workspace:*",
     "@podium/model": "workspace:*",
-    "@podium/composer": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
