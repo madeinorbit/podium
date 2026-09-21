@@ -10,7 +10,7 @@
  * Run by `server-host-survival.integration.test.ts` as
  * `<bun> --conditions=@podium/source <this file>` with GEN1_* env set.
  */
-import { createGrokAcpRuntime, createOpencodeRuntime, createCodexRuntime } from '@podium/agent-runtime'
+import { createGrokAcpRuntime, createOpencodeRuntime, createCodexRuntime } from '@podium/harness/driver/host'
 import { createDurableProcess } from '@podium/process/durable'
 import { createCodexHost } from '../runtime/codex-app-server.js'
 import { createGrokAcpHost } from '../runtime/grok-acp-server.js'

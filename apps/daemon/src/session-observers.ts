@@ -36,7 +36,7 @@ import {
   type StatTick,
   type TranscriptTailer,
   tailTranscript,
-} from '@podium/transcript'
+} from '@podium/harness/store'
 import { createGitCapture } from './git-capture'
 import { hookString } from './hook-payload'
 import { countTail, timeTask } from './loop-attribution'

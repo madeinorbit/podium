@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import { canonicalHeadlessContractFacts } from '@podium/agent-runtime'
+import { canonicalHeadlessContractFacts } from '@podium/harness/driver'
 import { describeError } from '@podium/logger'
 import type {
   AccountId,

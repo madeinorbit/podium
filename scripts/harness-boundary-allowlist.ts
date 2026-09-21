@@ -28,6 +28,13 @@
  *   FAILS; same for policy/total. The list can only shrink.
  *
  * Seeded at integrate/4414-single-harness-transport tip 570448172 (2026-09-20).
+ * POD-4469 (one harness package) shrank it by 65: the six `manifests/<h>.ts`
+ * files moved into `adapters/<h>/`, the seven driver runtime/version files
+ * into `driver/families/`, and `composer/src/driver.ts` into
+ * `driver/families/terminal/` — all inside the two homes, so their entries
+ * were deleted and the baselines lowered to match. Two entries were renamed
+ * with counts unchanged (`headless-interrupt.ts` → `driver/`,
+ * `discovery/scanner.ts` → `store/`).
  * Counts are literal occurrences (one violation per quoted literal), not files.
  * Inventory at base (non-test, outside drivers/manifests, quoted kinds):
  * apps/daemon/src 31 files, apps/server/src 17 (18 raw incl. comment-only relay),
@@ -61,9 +68,9 @@ export interface HarnessBoundaryAllowlistEntry {
  * policy or combined total exceeds these — bumping a count to admit new
  * vendor behaviour fails instead of going quiet.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 622
+export const HARNESS_BASELINE_LEAK_COUNT = 557
 export const HARNESS_BASELINE_POLICY_COUNT = 30
-export const HARNESS_BASELINE_TOTAL = 652
+export const HARNESS_BASELINE_TOTAL = 587
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/install-agents.ts', count: 16, category: 'leak', reason: 'CLI/install names a harness; move into adapter install sections (4.4)', issue: 'POD-4414/4.4' },
@@ -164,14 +171,7 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/web/src/perf/large-state.frontend-perf.tsx', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/perf/responsive-filtering.frontend-perf.tsx', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/perf/tuck-fanout.probe.tsx', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/agent-runtime/src/drivers/claude-sdk/runtime.ts', count: 5, category: 'leak', reason: 'driver names its harness; move into harness driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'packages/agent-runtime/src/drivers/codex/runtime.ts', count: 5, category: 'leak', reason: 'driver names its harness; move into harness driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'packages/agent-runtime/src/drivers/codex/version.ts', count: 1, category: 'leak', reason: 'driver names its harness; move into harness driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'packages/agent-runtime/src/drivers/grok-acp/runtime.ts', count: 4, category: 'leak', reason: 'driver names its harness; move into harness driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'packages/agent-runtime/src/drivers/grok-acp/version.ts', count: 1, category: 'leak', reason: 'driver names its harness; move into harness driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'packages/agent-runtime/src/drivers/opencode/runtime.ts', count: 4, category: 'leak', reason: 'driver names its harness; move into harness driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'packages/agent-runtime/src/drivers/opencode/version.ts', count: 1, category: 'leak', reason: 'driver names its harness; move into harness driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'packages/agent-runtime/src/headless-interrupt.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
+  { file: 'packages/harness/src/driver/headless-interrupt.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/replica/legacy-snapshot.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/replica/replica.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/spawn-agent.ts', count: 3, category: 'leak', reason: 'descriptor/catalog/label names a harness; serve via wire descriptor (4.1)', issue: 'POD-4414/4.1' },
@@ -182,7 +182,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/client-core/src/viewmodels/slices/machines/placement.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/viewmodels/usage.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/commands/src/cloud/contracts.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/composer/src/driver.ts', count: 1, category: 'leak', reason: 'composer names a harness; move into adapter composer sections (4.3)', issue: 'POD-4414/4.3' },
   { file: 'packages/harness/src/agent-state/claude-code.ts', count: 1, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
   { file: 'packages/harness/src/agent-state/codex.ts', count: 6, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
   { file: 'packages/harness/src/agent-state/grok-causal.ts', count: 2, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
@@ -194,13 +193,7 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/harness/src/discovery/providers/grok.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
   { file: 'packages/harness/src/discovery/providers/opencode.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
   { file: 'packages/harness/src/discovery/providers/pi.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/discovery/scanner.ts', count: 1, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'packages/harness/src/manifests/claude-code.ts', count: 3, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
-  { file: 'packages/harness/src/manifests/codex.ts', count: 11, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
-  { file: 'packages/harness/src/manifests/cursor.ts', count: 2, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
-  { file: 'packages/harness/src/manifests/grok.ts', count: 14, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
-  { file: 'packages/harness/src/manifests/opencode.ts', count: 7, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
-  { file: 'packages/harness/src/manifests/pi.ts', count: 6, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
+  { file: 'packages/harness/src/store/scanner.ts', count: 1, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
   { file: 'packages/harness/src/model-probe.ts', count: 5, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/harness/src/opencode/auth.ts', count: 1, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },
   { file: 'packages/harness/src/opencode/cli.ts', count: 6, category: 'leak', reason: 'per-harness knowledge outside adapters/; move into adapters/<h>/', issue: 'POD-4414/6.2' },

@@ -1,4 +1,4 @@
-import type { AgentSessionHandle, RuntimeEvent } from '@podium/agent-runtime'
+import type { AgentSessionHandle, RuntimeEvent } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'

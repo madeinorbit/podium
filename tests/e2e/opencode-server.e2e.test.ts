@@ -39,7 +39,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gateOpencodeVersion, OPENCODE_VERSION_PROBE_TIMEOUT_MS } from '@podium/agent-runtime'
+import { gateOpencodeVersion, OPENCODE_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness/driver/host'
 import {
   readOrCreateDaemonSecret,
   readOrCreateLocalMachineId,

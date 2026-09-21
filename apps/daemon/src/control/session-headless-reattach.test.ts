@@ -1,4 +1,4 @@
-import type { AgentSessionHandle } from '@podium/agent-runtime'
+import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'

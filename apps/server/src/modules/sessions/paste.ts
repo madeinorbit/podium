@@ -4,7 +4,7 @@
  * The authoritative statement of this boundary — what `send()` promises about
  * arbitrary bytes, why the promise cannot vary by origin, and why removing the
  * ESC character class is a proof rather than a pattern match — lives with the
- * driver, in `packages/agent-runtime/src/drivers/terminal/paste.ts`. Read it
+ * driver, in `packages/harness/src/driver/families/terminal/paste.ts`. Read it
  * there; this file is deliberately the same rule and not a second opinion.
  *
  * WHY A SECOND COPY EXISTS AT ALL. The injection mechanics were ported to the
@@ -17,7 +17,7 @@
  * sends — the one write path with no harness behind it — unwrapped, which is
  * why this copy stays.
  *
- * A THIRD BUILDER EXISTS AND IS NOT COVERED: `packages/composer` exports the two
+ * A THIRD BUILDER EXISTS AND IS NOT COVERED: the terminal family composer (`driver/families/terminal/composer-sync.ts`) exports the two
  * markers publicly and wraps text in them without a strip. It ships dark, so it
  * is not the live hole this closes, but it is the copy the next person reaches
  * for — filed as POD-2733 rather than fixed here.

@@ -12,7 +12,7 @@ import {
  * ---------------------------------------------------------------------------
  *
  * The driver itself — client, SSE, receipts, interactions, events — is in
- * `@podium/agent-runtime`, testable in-process. What could not go there is
+ * `@podium/harness/driver/host`, testable in-process. What could not go there is
  * everything below: composing the engine's argv and env, spawning it headless
  * under podium-host, and writing the journal that lets `adopt()` find it again
  * after the daemon dies. This is the `OpencodeRuntimeHost` implementation, and
@@ -66,11 +66,11 @@ import type {
   OpencodeRuntimeHost,
   OpencodeServerEndpoint,
   ScopeResources,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import {
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   type OpencodeVersionDiagnostic,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import { AGENT_MANIFESTS } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'

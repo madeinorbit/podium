@@ -16,7 +16,7 @@ import {
   type RuntimeDriver,
   type SessionBinding,
   type SessionSpec,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import type { AcceptedDriverId } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { DaemonMessage, RuntimeWatchLevel } from '@podium/protocol/daemon'

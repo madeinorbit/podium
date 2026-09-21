@@ -10,7 +10,6 @@
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "@hono/trpc-server": "^0.3.4",
-    "@podium/agent-runtime": "workspace:*",
     "@podium/commands": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/harness": "workspace:*",
@@ -21,7 +20,6 @@
     "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
     "@podium/telemetry": "workspace:*",
-    "@podium/transcript": "workspace:*",
     "@trpc/client": "^11.0.0",
     "@trpc/server": "^11.0.0",
     "drizzle-orm": "1.0.0-rc.4",

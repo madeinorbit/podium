@@ -17,7 +17,7 @@ import { declaredValue, manifestFor } from '@podium/harness'
 
 export { codexTranscriptPlacement } from '@podium/harness'
 
-import type { SessionArchive } from '@podium/agent-runtime'
+import type { SessionArchive } from '@podium/harness/driver/host'
 import type { Attribution, IssueId, MachineId, RepoId, SessionId } from '@podium/model'
 import { HandoffManifest, type HandoffManifest as HandoffManifestType } from '@podium/model'
 import { archivePathParts, validateConversationArchive } from './handoff-driver-bridge'

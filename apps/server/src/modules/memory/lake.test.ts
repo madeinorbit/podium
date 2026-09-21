@@ -236,7 +236,7 @@ it.each([
   'archived',
 ] as const)('lake %s namespaces match live bytes only for the active incarnation', async (mode) => {
   const { claudeRecordToItems, decodeCursor, fileIdFor, readFileItems } = await import(
-    '@podium/transcript'
+    '@podium/harness/store'
   )
   const store = await openTestStore(':memory:')
   const dir = mkdtempSync(join(tmpdir(), 'lake-namespace-'))

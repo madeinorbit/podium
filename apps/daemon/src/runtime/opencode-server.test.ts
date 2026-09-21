@@ -6,7 +6,7 @@
  * reaches this family, and the journal that makes `adopt()` possible after the
  * daemon dies. The driver's own behaviour — receipts, events, interactions — is
  * proved by the conformance corpus against a real listener in
- * `packages/agent-runtime`.
+ * `packages/harness/src/driver`.
  */
 
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -1016,7 +1016,7 @@ describe('the scope label', () => {
  *
  * Asserted against the argv the launch path BUILDS, because that is the thing
  * `/proc/<pid>/cmdline` ends up holding. The live proof that opencode enforces
- * the credential is `packages/agent-runtime/src/drivers/opencode/live-secret.test.ts`;
+ * the credential is `packages/harness/src/driver/families/opencode/live-secret.test.ts`;
  * this is the proof that we do not hand it to every local user on the way in.
  */
 describe('spec §6 — the secret rides the env', () => {

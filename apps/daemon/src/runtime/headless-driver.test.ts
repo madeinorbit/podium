@@ -20,7 +20,7 @@ import {
   type RuntimeEvent,
   type SessionSpec,
   type TurnInput,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import { supported } from '@podium/harness'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -372,7 +372,7 @@ describe('headless driver identity', () => {
 
   it('agrees with the contract catalog on configure fields and attach kinds', async () => {
     const { attachKindsForDriver, configureFieldsForDriver } = await import(
-      '@podium/agent-runtime'
+      '@podium/harness/driver/host'
     )
     // The catalog derives every other driver from its own capabilities(); the
     // headless declaration lives daemon-side, so this test holds the pairing

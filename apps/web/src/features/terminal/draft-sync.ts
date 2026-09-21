@@ -18,7 +18,7 @@
  * The ARBITRATION owns when `rearm()` is called (`use-panel-surface`'s
  * chat → native edge). This module owns what happens then.
  */
-import { composerDriverFor } from '@podium/composer'
+import { composerDriverFor } from '@podium/harness/browser'
 import type { AgentKind } from '@podium/model/browser'
 import type { MountedSession } from '@podium/terminal-client'
 

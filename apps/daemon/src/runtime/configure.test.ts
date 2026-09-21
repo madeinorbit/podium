@@ -15,7 +15,7 @@
  * Hermetic: a stub handle and a stub capability, no process and no provider.
  */
 
-import type { ConfigureRequest, DriverCapabilities, Refusal } from '@podium/agent-runtime'
+import type { ConfigureRequest, DriverCapabilities, Refusal } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'

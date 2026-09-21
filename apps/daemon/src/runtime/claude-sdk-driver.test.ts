@@ -1,4 +1,4 @@
-import { pageHistory } from '@podium/agent-runtime'
+import { pageHistory } from '@podium/harness/driver/host'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'

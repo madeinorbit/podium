@@ -1,4 +1,4 @@
-import type { RuntimeEvent, SessionBinding } from '@podium/agent-runtime'
+import type { RuntimeEvent, SessionBinding } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { DriverTimingRecorder, type DriverTimingRecord } from './driver-timing'

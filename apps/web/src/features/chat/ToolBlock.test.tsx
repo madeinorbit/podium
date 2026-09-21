@@ -120,9 +120,9 @@ it('shows an interrupted effect as a failure even with empty output', () => {
 
 it('renders the real recorded Bash edit with identical path, hunk lines and counts', async () => {
   const { default: records } = await import(
-    '../../../../../packages/transcript/src/__fixtures__/claude-bash-edit.json'
+    '../../../../../packages/harness/src/store/__fixtures__/claude-bash-edit.json'
   )
-  const { claudeRecordToItems } = await import('@podium/transcript')
+  const { claudeRecordToItems } = await import('@podium/harness/store')
   const { pairToolResults } = await import('./chat')
   const block = pairToolResults(records.flatMap(claudeRecordToItems))[0]
   if (!block) throw new Error('Missing recorded Bash call')
@@ -194,7 +194,7 @@ describe('retained Bash command disclosure', () => {
   })
 
   it('shows the retained prefix and loss notice when the mapper budget is exceeded', async () => {
-    const { claudeToolCallItem } = await import('@podium/transcript')
+    const { claudeToolCallItem } = await import('@podium/harness/store')
     const item = claudeToolCallItem({
       id: 'large',
       toolName: 'Bash',

@@ -2,7 +2,7 @@ import type {
   GrokAcpJournalEntry,
   GrokAcpRuntimeHost,
   GrokAcpTransport,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import type {
   DurableAdapter,

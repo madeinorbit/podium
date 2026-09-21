@@ -13,7 +13,7 @@ import type {
   RuntimeEvent,
   SessionBinding,
   TurnReceipt,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import { driverFamilyForId } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { AgentKind, SessionId } from '@podium/model'

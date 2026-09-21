@@ -11,7 +11,7 @@ import type { TranscriptItem } from '@podium/model'
  * the message that produced it.
  *
  * Every item the readers and the live tailer emit is stamped with a cursor
- * encoding `[fileId, offset, uuid, sub]` (packages/transcript/src/cursor-codec.ts),
+ * encoding `[fileId, offset, uuid, sub]` (packages/harness/src/store/cursor-codec.ts),
  * so within one transcript FILE `(offset, sub)` is a total order — the same order
  * the disk reader emits. That is enough to place an item without asking the
  * server anything.

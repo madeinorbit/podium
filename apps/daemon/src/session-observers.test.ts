@@ -20,7 +20,7 @@ import {
 import { asSessionId, type SessionId } from '@podium/model'
 import type { AgentObservation, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { StatTick } from '@podium/transcript'
+import type { StatTick } from '@podium/harness/store'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   CAUSAL_DELIVERY_RETRY_BASE_MS,
@@ -3316,7 +3316,7 @@ describe('Grok causal hook ingest', () => {
 })
 
 it('tail binding uses native session cursors and rebinds the same path to a new identity', async () => {
-  const { claudeRecordToItems, fileIdFor, readFileItems } = await import('@podium/transcript')
+  const { claudeRecordToItems, fileIdFor, readFileItems } = await import('@podium/harness/store')
   const dir = await mkdtemp(join(tmpdir(), 'observer-namespace-'))
   const path = join(dir, 'transcript.jsonl')
   await writeFile(

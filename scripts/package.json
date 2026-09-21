@@ -17,8 +17,7 @@
     "@podium/runtime": "workspace:*",
     "@podium/server": "workspace:*",
     "@podium/sync": "workspace:*",
-    "@podium/terminal-client": "workspace:*",
-    "@podium/transcript": "workspace:*"
+    "@podium/terminal-client": "workspace:*"
   },
   "scripts": {
     "test": "bun validation-admission.ts focused --label scripts:test -- bun --bun ../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",

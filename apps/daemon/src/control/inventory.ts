@@ -1,4 +1,4 @@
-import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/agent-runtime'
+import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/harness/driver/host'
 import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'

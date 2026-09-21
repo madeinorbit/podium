@@ -35,7 +35,7 @@
  * an event is a claim about something happening NOW.
  */
 
-import type { ScopeResources } from '@podium/agent-runtime'
+import type { ScopeResources } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import {

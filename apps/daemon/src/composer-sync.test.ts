@@ -1,5 +1,5 @@
 import { asSessionId, type SessionId } from '@podium/model'
-import { type ComposerDriver, claudeComposerDriver, codexComposerDriver } from '@podium/composer'
+import { type ComposerDriver, claudeComposerDriver, codexComposerDriver } from '@podium/harness/driver/families/terminal/composer-sync'
 import { describe, expect, it, vi } from 'vitest'
 import {
   ComposerSyncEngine,

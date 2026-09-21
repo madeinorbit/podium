@@ -1624,7 +1624,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     title: 'Segments / native evidence',
     sites: [
       '`conversation_segments` — keyed `(machine_id, native_id)`',
-      'packages/transcript',
+      'packages/harness/src/store',
       'the disk lake',
     ],
     home: 'server',

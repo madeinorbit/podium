@@ -1,8 +1,8 @@
-import type { AgentSessionHandle } from '@podium/agent-runtime'
+import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import { configureFieldsForDriver } from '@podium/agent-runtime'
+import { configureFieldsForDriver } from '@podium/harness/driver/host'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './session'
 

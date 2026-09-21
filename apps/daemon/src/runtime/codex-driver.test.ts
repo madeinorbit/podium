@@ -19,12 +19,12 @@
  * an adopt makes: `initialize`, `initialized`, `thread/resume`.
  */
 
-import type { CodexRuntimeHost, CodexTransport } from '@podium/agent-runtime'
+import type { CodexRuntimeHost, CodexTransport } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
-import { startFakeAppServer } from '../../../../packages/agent-runtime/src/drivers/codex/test-support/fake-app-server'
+import { startFakeAppServer } from '../../../../packages/harness/src/driver/families/codex/test-support/fake-app-server'
 import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
 import { createDaemonCodexRuntime } from './codex-driver'
 

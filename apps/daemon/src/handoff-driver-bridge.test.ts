@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { DriverRefusalError, type SessionArchive } from '@podium/agent-runtime'
+import { DriverRefusalError, type SessionArchive } from '@podium/harness/driver/host'
 import { claudeProjectSlug, codexTranscriptPlacement } from '@podium/harness'
 import {
   asMachineId,

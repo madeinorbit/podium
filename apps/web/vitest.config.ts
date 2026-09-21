@@ -16,7 +16,7 @@ const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
 // prefix-rewrite `/browser` or `/terminal-view` onto `index.ts`.
 
 const sharedAliases = sharedVitestConfig.resolve.alias.filter(
-  ({ find }) => find !== '@podium/terminal-client' && find !== '@podium/transcript',
+  ({ find }) => find !== '@podium/terminal-client',
 )
 
 export default defineConfig({

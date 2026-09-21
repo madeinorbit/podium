@@ -1,4 +1,4 @@
-import { DriverRefusalError } from '@podium/agent-runtime'
+import { DriverRefusalError } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { ControlMessage, DaemonMessage, type RuntimeHistoryPage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'

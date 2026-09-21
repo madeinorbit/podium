@@ -2,7 +2,7 @@
   "name": "@podium/harness",
   "version": "0.0.0",
   "private": true,
-  "description": "Per-CLI agent manifests: one object per coding-agent CLI carrying launch/exec/headless/state/discovery/transcript. The single home for behavioral variance between Claude Code, Codex, Grok, OpenCode and Cursor.",
+  "description": "Everything about agent harnesses in one package: per-CLI adapters, the driver contract + host, the transcript store, machine inventory and the browser descriptor surface.",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,6 +23,31 @@
       "@podium/source": "./src/browser.ts",
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
+    },
+    "./driver": {
+      "@podium/source": "./src/driver.ts",
+      "types": "./dist/driver.d.ts",
+      "import": "./dist/driver.js"
+    },
+    "./driver/host": {
+      "@podium/source": "./src/driver/host.ts",
+      "types": "./dist/driver/host.d.ts",
+      "import": "./dist/driver/host.js"
+    },
+    "./driver/testing": {
+      "@podium/source": "./src/driver/testing/index.ts",
+      "types": "./dist/driver/testing/index.d.ts",
+      "import": "./dist/driver/testing/index.js"
+    },
+    "./store": {
+      "@podium/source": "./src/store.ts",
+      "types": "./dist/store.d.ts",
+      "import": "./dist/store.js"
+    },
+    "./inventory": {
+      "@podium/source": "./src/inventory.ts",
+      "types": "./dist/inventory.d.ts",
+      "import": "./dist/inventory.js"
     }
   },
   "files": [
@@ -36,7 +61,7 @@
     "@podium/model": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
-    "@podium/transcript": "workspace:*"
+    "zod": "^3.24.1"
   },
   "scripts": {
     "build": "tsup",

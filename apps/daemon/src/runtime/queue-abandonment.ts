@@ -24,7 +24,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { OnQueueAbandoned } from '@podium/agent-runtime'
+import type { OnQueueAbandoned } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 

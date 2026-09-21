@@ -1,7 +1,7 @@
 import { respondToMailBoundary, type MailBoundaryContext } from './mail-boundary'
-import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '@podium/agent-runtime'
+import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '@podium/harness/driver/host'
 import type { ReattachControl } from '../session-observers'
-import { withDeliveryQueue } from '@podium/agent-runtime'
+import { withDeliveryQueue } from '@podium/harness/driver/host'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import {
   type InstalledTerminalInstrumentation,
@@ -96,7 +96,7 @@ import type {
   TurnInput,
   TurnReceipt,
   WatchLevel,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import {
   createRuntimeEventStream,
   createTerminalInjection,
@@ -108,7 +108,7 @@ import {
   sessionHealth,
   stampRuntimeEvent,
   terminalCapabilities,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 
 import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '@podium/harness/metadata'
 import { canonicalDriverId } from '@podium/harness'

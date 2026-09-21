@@ -1,4 +1,4 @@
-import { createBoundaryContext } from '@podium/agent-runtime'
+import { createBoundaryContext } from '@podium/harness/driver/host'
 import { primeHookResponse } from './prime-injector'
 import { createPrimeInjector } from './prime-injector'
 import { composeResponders } from './mail-injector'

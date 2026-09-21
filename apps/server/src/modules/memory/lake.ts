@@ -1,6 +1,6 @@
 import type { AgentKind, MachineId, ResumeRef, TranscriptItem } from '@podium/model'
 import { MirrorService } from '@podium/sync'
-import { fileChainSource, fileIdFor } from '@podium/transcript'
+import { fileChainSource, fileIdFor } from '@podium/harness/store'
 import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { ConversationsRepository } from '../../store/conversations'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'

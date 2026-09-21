@@ -3,7 +3,7 @@ import type {
   OpencodeRuntime,
   OpencodeRuntimeHost,
   RuntimeEvent,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -20,8 +20,8 @@ const mocks = vi.hoisted(() => ({
  * what the bind actually carries — which is the one thing worth knowing about
  * the line that calls it.
  */
-vi.mock('@podium/agent-runtime', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/agent-runtime')>()
+vi.mock('@podium/harness/driver/host', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/harness/driver/host')>()
   return {
     createOpencodeRuntime: mocks.createOpencodeRuntime,
     OPENCODE_SERVER_DRIVER_ID: 'opencode-server',

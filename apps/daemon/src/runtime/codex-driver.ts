@@ -30,7 +30,7 @@
  * they are keyed to an env var this spawn never sets.
  */
 
-import type { AgentSessionHandle } from '@podium/agent-runtime'
+import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import {
   attachKindsForDriver,
   CODEX_APP_SERVER_DRIVER_ID,
@@ -41,7 +41,7 @@ import {
   createCodexRuntime,
   type PendingInteraction,
   type RuntimeEvent,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'

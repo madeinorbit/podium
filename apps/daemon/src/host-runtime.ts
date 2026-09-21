@@ -4,7 +4,7 @@ import type { BindingConfirmations } from '@podium/protocol'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { createOpencode2Client, DriverRefusalError } from '@podium/agent-runtime'
+import { createOpencode2Client, DriverRefusalError } from '@podium/harness/driver/host'
 import {
   agentLaunchCommand,
   buildMachineInventory,

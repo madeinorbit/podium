@@ -13,7 +13,6 @@
  * for `@podium/harness/driver`. The sqlite-backed source stays host-only
  * behind `@podium/harness` (the daemon barrel), never here.
  */
-
 export {
   askQuestionPreview,
   claudeRecordColor,
@@ -73,6 +72,9 @@ export {
 export {
   SliceOptions,
   SliceResult,
+  readFileItems,
+  readTranscriptSlice,
+  readTranscriptSliceCached,
   resetSliceCache,
   sliceCacheStats,
 } from './store/slice.js'

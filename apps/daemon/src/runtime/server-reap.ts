@@ -67,7 +67,7 @@
 import { spawn } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { setTimeout as sleepFor } from 'node:timers/promises'
-import type { AgentSessionHandle } from '@podium/agent-runtime'
+import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { canScopeMaster, scopeReclaimArgvs } from '@podium/process/durable'

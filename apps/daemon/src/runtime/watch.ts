@@ -39,7 +39,7 @@
  * answer.
  */
 
-import type { AgentSessionHandle, DriverCapabilities } from '@podium/agent-runtime'
+import type { AgentSessionHandle, DriverCapabilities } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import type { RuntimeWatchLevel } from '@podium/protocol/daemon'

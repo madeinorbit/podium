@@ -7,7 +7,7 @@
  * ---------------------------------------------------------------------------
  *
  * The driver itself — the JSON-RPC client, the mapping, the receipts, the
- * approval inversion — is in `@podium/agent-runtime`, testable in-process. What
+ * approval inversion — is in `@podium/harness/driver/host`, testable in-process. What
  * could not go there is everything below: composing the engine's argv and env,
  * spawning it headless under podium-host, and writing the journal that lets
  * `adopt()` find the session again after the daemon dies. This is the
@@ -47,11 +47,11 @@ import type {
   CodexTransport,
   CodexVersionDiagnostic,
   ScopeResources,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import {
   OPENCODE_VERSION_PROBE_TIMEOUT_MS,
   STRIPPED_CODEX_CREDENTIALS,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import {
   CODEX_VERSION_POLICY,
   codexMcpArgs,
@@ -91,7 +91,7 @@ const log = createLogger('daemon:codex-app-server')
 /**
  * RE-EXPORTED, NOT RESTATED (POD-2024 review, finding 8).
  *
- * The list lives beside the version gate in `@podium/agent-runtime` so that this
+ * The list lives beside the version gate in `@podium/harness/driver/host` so that this
  * host and the live test read ONE array. It was declared here and restated in
  * `live.test.ts`, and the restatement had already lost `OPENAI_ORG_ID` — while
  * that test's header promised it mirrored the daemon exactly. Existing importers

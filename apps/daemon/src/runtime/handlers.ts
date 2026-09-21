@@ -19,8 +19,8 @@
  * warns about two directories away. So every path below ends in a send.
  */
 
-import { isDriverRefusal } from '@podium/agent-runtime'
-import type { AgentSessionHandle } from '@podium/agent-runtime'
+import { isDriverRefusal } from '@podium/harness/driver/host'
+import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import type {
   RuntimeConfigureResultMessage,

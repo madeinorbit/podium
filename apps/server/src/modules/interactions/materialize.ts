@@ -5,7 +5,7 @@
  * WHY THIS FILE EXISTS
  * ---------------------------------------------------------------------------
  * The contract states one routing rule and states it as an invariant, not as a
- * suggestion (`packages/agent-runtime/src/errors.ts`): "every failure is
+ * suggestion (`packages/harness/src/driver/errors.ts`): "every failure is
  * classified, and `needs-human` failures MATERIALIZE AS PendingInteractions".
  * That rule is the entire mechanism behind §4's claim that a blocked session is
  * an ENUMERABLE session — if a failure can stop a session without minting an

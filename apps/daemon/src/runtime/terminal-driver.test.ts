@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { pageHistory } from '@podium/agent-runtime'
+import { pageHistory } from '@podium/harness/driver/host'
 import * as codexHooks from '../codex-hooks'
 import { primeHookResponse } from '../prime-injector'
 import { installTerminalInstrumentation } from './terminal-instrumentation'
@@ -41,7 +41,7 @@ import {
   type PendingInteraction,
   RAW_FIRST_TURN_ATTACHMENT_REFUSAL,
   type RuntimeEvent,
-} from '@podium/agent-runtime'
+} from '@podium/harness/driver/host'
 import { addSink, type LogRecord } from '@podium/logger'
 import type { AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'

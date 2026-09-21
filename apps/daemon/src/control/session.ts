@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { dispatchInputBytes } from './legacy-terminal-input'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { RefusalReason, SessionSpec } from '@podium/agent-runtime'
-import { attachKindsForDriver, configureFieldsForDriver } from '@podium/agent-runtime'
+import type { RefusalReason, SessionSpec } from '@podium/harness/driver/host'
+import { attachKindsForDriver, configureFieldsForDriver } from '@podium/harness/driver/host'
 import {
   agentStateProviderFor,
   bindHarnessLaunch,
