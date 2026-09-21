@@ -270,14 +270,14 @@ describe('concierge threads (issue #64)', () => {
     expect(await registry.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
     // Plain create (no start) stays ungated — filing issues is always allowed.
     const plain = await sa.callMcpTool('issue_create', { repoPath: '/r', title: 'Note' }, tid)
-    expect(plain).toContain('created #1 Note')
+    expect(plain).toMatch(/created (?:[A-Z]{2,5}-|#)1 Note/)
     // Confirmed create --start → created AND started.
     const out = await sa.callMcpTool(
       'issue_create',
       { repoPath: '/r', title: 'Big', start: true, confirmed: true },
       tid,
     )
-    expect(out).toContain('created #2 Big')
+    expect(out).toMatch(/created (?:[A-Z]{2,5}-|#)2 Big/)
     expect(out).toContain('started in')
     expect((await registry.issues.list('/r')).find((i) => i.title === 'Big')?.stage).toBe('in_progress')
   })

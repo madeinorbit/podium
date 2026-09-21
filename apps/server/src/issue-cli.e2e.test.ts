@@ -11,6 +11,13 @@ import { startServer } from './server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
+/** `created POD-12 …` or the `#12` fallback when the repo has no prefix yet. */
+const createdSeq = (text: string): string => {
+  const seq = /created (?:[A-Z]{2,5}-|#)(\d+)/.exec(text)?.[1]
+  if (!seq) throw new Error(`no seq in: ${text}`)
+  return seq
+}
+
 describe('podium issue CLI ↔ live server (e2e)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
@@ -35,8 +42,7 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
       ['create', '--repoPath', '/repo', '--title', 'Wire the CLI', '--priority', '1'],
       client,
     )
-    const seq = /created #(\d+)/.exec(created)?.[1]
-    if (!seq) throw new Error(`no seq in: ${created}`)
+    const seq = createdSeq(created)
 
     const ready = await runIssueCli(['ready', '--repoPath', '/repo'], client)
     expect(ready).toContain('Wire the CLI')
@@ -59,13 +65,12 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
 
   it('dep-add by display seq + --json carries structured payloads', async () => {
     const client = makeIssueClient(baseUrl)
-    const a = /created #(\d+)/.exec(
+    const a = createdSeq(
       await runIssueCli(['create', '--repoPath', '/repo', '--title', 'Blocker'], client),
-    )?.[1]
-    const b = /created #(\d+)/.exec(
+    )
+    const b = createdSeq(
       await runIssueCli(['create', '--repoPath', '/repo', '--title', 'Dependent'], client),
-    )?.[1]
-    if (!a || !b) throw new Error('missing seqs')
+    )
 
     expect(await runIssueCli(['dep-add', b, a, '--type', 'blocks'], client)).toContain('dep added')
     const blocked = await runIssueCli(['blocked', '--repoPath', '/repo'], client)
@@ -84,7 +89,7 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
 
   it('--agent/--model/--effort flow into the issue columns on create and update, show surfaces them', async () => {
     const client = makeIssueClient(baseUrl)
-    const seq = /created #(\d+)/.exec(
+    const seq = createdSeq(
       await runIssueCli(
         [
           'create',
@@ -101,8 +106,7 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
         ],
         client,
       ),
-    )?.[1]
-    if (!seq) throw new Error('missing seq')
+    )
 
     const shown = JSON.parse(await runIssueCli(['show', seq, '--json'], client))
     expect(shown.data).toMatchObject({
@@ -124,13 +128,12 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     const client = makeIssueClient(baseUrl)
     await expect(runIssueCli(['show', '99999'], client)).rejects.toThrow(/unknown issue/)
     // Same seq in a second repo → unqualified ref is ambiguous and says so.
-    const s = /created #(\d+)/.exec(
+    const s = createdSeq(
       await runIssueCli(['create', '--repoPath', '/repo2', '--title', 'Twin A'], client),
-    )?.[1]
-    if (!s) throw new Error('missing seq')
-    const twin = /created #(\d+)/.exec(
+    )
+    const twin = createdSeq(
       await runIssueCli(['create', '--repoPath', '/repo3', '--title', 'Twin B'], client),
-    )?.[1]
+    )
     if (twin !== s) return // seq counters diverged; ambiguity can't be staged — skip
     await expect(runIssueCli(['show', s], client)).rejects.toThrow(/ambiguous issue ref/)
   })
@@ -191,7 +194,7 @@ describe('podium issue CLI ↔ password-protected server (e2e)', () => {
       ['create', '--repoPath', '/repo', '--title', 'Promote the proposed lane'],
       client,
     )
-    expect(created).toMatch(/created #\d+/)
+    expect(created).toMatch(/created (?:[A-Z]{2,5}-|#)\d+/)
     expect(await runIssueCli(['stats', '--repoPath', '/repo'], client)).toMatch(/open|total|1/)
   })
 

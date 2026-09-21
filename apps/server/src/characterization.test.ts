@@ -276,7 +276,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         ],
         cli,
       )
-      const seq = /created #(\d+)/.exec(created)?.[1]
+      const seq = /created (?:[A-Z]{2,5}-|#)(\d+)/.exec(created)?.[1]
       if (!seq) throw new Error(`no seq in: ${created}`)
       await runIssueCli(['claim', seq, '--assignee', 'agent:test'], cli)
       await runIssueCli(['comment', seq, '--body', 'progress note', '--author', 'agent:test'], cli)

@@ -95,7 +95,7 @@ describe('agent relay end-to-end (CLI → daemon relay → server capability gat
       ['create', '--title', 'Found bug', '--repoPath', repoPath],
       client,
     )
-    expect(out).toMatch(/created #\d+/)
+    expect(out).toMatch(/created (?:[A-Z]{2,5}-|#)\d+/)
   })
 
   // 4. update on B (outside sA's subtree) is a scope violation → rejected by the P1a gate.

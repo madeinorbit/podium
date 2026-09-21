@@ -152,12 +152,17 @@ describe('the podium issue CLI table renders over the real surface', () => {
     }
 
     const createCmd = verb('create')
-    await createCmd?.run(
+    const createdOut = await createCmd?.run(
       client,
       parseArgs(createCmd, { repoPath: '/r', title: 'Written by the CLI table' }),
     )
     const created = (await reg.issues.list('/r')).find((i) => i.title === 'Written by the CLI table')
     expect(created, 'the CLI create really wrote a row').toBeDefined()
+    // The printed id is PREFIX-seq (or `#seq` before a prefix exists) as one
+    // token — the same displayRef the row carries, not a repo-ambiguous `#N`.
+    expect(createdOut?.text).toBe(
+      `created ${created!.displayRef ?? `#${created!.seq}`} Written by the CLI table`,
+    )
     const id = String(created?.seq)
 
     const commentCmd = verb('comment')

@@ -22,6 +22,7 @@ import {
   ISSUE_EVENTS_DEFAULT_LIMIT,
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
+  issueDisplayRef,
   selfRefNudge,
   TITLE_RULE_TERSE,
 } from '@podium/protocol'
@@ -81,9 +82,9 @@ export interface IssueCommand {
 const repoArg = { repoPath: z.string() }
 const optRepo = { repoPath: z.string().optional() }
 
-/** Issue references accept the internal `iss_…` id or the display seq the CLI prints
- *  (`10` / `#10`); MCP callers may pass the seq as a number. Resolution happens
- *  server-side (IssueService.resolveRef). */
+/** Issue references accept the internal `iss_…` id, the prefixed display id create
+ *  prints (`POD-10`), or a bare/`#` seq (`10` / `#10`); MCP callers may pass the seq
+ *  as a number. Resolution happens server-side (IssueService.resolveRef). */
 const idArg = z.union([z.string(), z.number()]).transform((v) => String(v))
 
 /** Boolean flag that also accepts an explicit value: `--pinned`, `--pinned true`,
@@ -647,10 +648,18 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
             }
           : {}),
         ...(a.parentBranch ? { parentBranch: a.parentBranch as string } : {}),
-      })) as { seq: number; title: string; worktreePath?: string | null; warning?: string }
+      })) as {
+        seq: number
+        title: string
+        displayRef?: string
+        worktreePath?: string | null
+        warning?: string
+      }
       const started = a.start === true && i.worktreePath ? ` (started in ${i.worktreePath})` : ''
       const warn = i.warning ? `\n⚠ ${i.warning}` : ''
-      return { text: `created #${i.seq} ${i.title}${started}${warn}`, data: i }
+      // Print PREFIX-seq as one token (`POD-12`). `#seq` is ambiguous across
+      // repos; the prefixed form is the id callers should copy into later flags.
+      return { text: `created ${issueDisplayRef(i)} ${i.title}${started}${warn}`, data: i }
     },
   },
   {
