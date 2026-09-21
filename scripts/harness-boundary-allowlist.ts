@@ -83,21 +83,18 @@ export interface HarnessBoundaryAllowlistEntry {
  * runtime/settings.ts 19 → 6 (provider-namespace 'codex' + one local default
  * remain): leak 438 → 402.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 402
+export const HARNESS_BASELINE_LEAK_COUNT = 394
 export const HARNESS_BASELINE_POLICY_COUNT = 30
-export const HARNESS_BASELINE_TOTAL = 432
+export const HARNESS_BASELINE_TOTAL = 424
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/binding-store.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/daemon/src/codex-hooks.ts', count: 2, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
   { file: 'apps/daemon/src/control/inventory.ts', count: 23, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
   { file: 'apps/daemon/src/control/session.ts', count: 5, category: 'leak', reason: 'lifecycle names a harness; move into session/terminal lifecycle (2.1)', issue: 'POD-4414/2.1' },
   { file: 'apps/daemon/src/handoff-package.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/harness-version-reporting.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/runtime/opencode-attach.ts', count: 4, category: 'leak', reason: 'daemon headless host/driver names a harness; move into driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'apps/daemon/src/runtime/terminal-instrumentation.ts', count: 4, category: 'leak', reason: 'daemon headless host/driver names a harness; move into driver families (1.5)', issue: 'POD-4414/1.5' },
-  { file: 'apps/daemon/src/session-observers.ts', count: 2, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
   { file: 'apps/mobile/harness/agent-mark-entry.tsx', count: 13, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/mobile/harness/backend-rail-entry.tsx', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/mobile/src/client/demoData.ts', count: 9, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
