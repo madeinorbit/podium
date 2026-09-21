@@ -15,7 +15,7 @@
  */
 
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { streamItemIdOf } from '@podium/transcript'
+import { streamItemIdOf } from '../../../store/index.js'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'

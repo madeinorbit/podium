@@ -1,6 +1,6 @@
 import { resolveCursorBin } from '../cursor/cli.js'
 import { join } from 'node:path'
-import { cursorRecordToItems } from '@podium/transcript'
+import { cursorRecordToItems } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
 import { withStateChannel } from '../agent-state/types.js'

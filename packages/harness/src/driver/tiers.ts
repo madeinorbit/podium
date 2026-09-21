@@ -22,7 +22,7 @@
  * by hand, which is the same weakness a paragraph has. What the table buys is
  * that the union and the tiering can never disagree, and that the tier is a
  * value rather than prose. Keeping the union honest against the interfaces is a
- * review obligation; `packages/agent-runtime/src/testing/manifest-axis.test.ts`
+ * review obligation; `packages/harness/src/driver/testing/manifest-axis.test.ts`
  * pins the handful the conformance corpus depends on.
  *
  * THE RULE FOR NEW ENTRIES: new primitives default to `extended` and must argue

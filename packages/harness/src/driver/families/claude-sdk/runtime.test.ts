@@ -1,6 +1,6 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { RuntimeEvent } from '../../index.js'
+import type { RuntimeEvent } from '../../host.js'
 import {
   type ClaudeSdkRuntimeHost,
   type ClaudeSdkTurnHandle,

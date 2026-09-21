@@ -13,12 +13,4 @@
  * exists.
  */
 
-export type {
-  AcceptedDriverId,
-  DriverFamily,
-  DriverId,
-  EmbeddedRuntimeSpec,
-  SelectionContext,
-  ServerRuntimeSpec,
-  TerminalRuntimeSpec,
-} from '@podium/harness'
+export type { AcceptedDriverId, DriverFamily, DriverId, EmbeddedRuntimeSpec, SelectionContext, ServerRuntimeSpec, TerminalRuntimeSpec } from '../manifest.js'

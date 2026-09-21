@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { ConversationDiscoveryCache } from './cache.js'
-import { scanAgentConversationsCached, summarizePaths } from './scanner.js'
+import { scanAgentConversationsCached, summarizePaths } from '../store/scanner.js'
 import type {
   AgentConversation,
   AgentConversationSummary,

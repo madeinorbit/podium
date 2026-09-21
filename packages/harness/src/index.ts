@@ -17,6 +17,7 @@
  */
 
 export * from './agent-state/index.js'
+export type { AgentManifest as HarnessAdapter } from './adapter.js'
 export * from './codex-auth-identity.js'
 export * from './codex-credential-absence-grace.js'
 export * from './credential-freshness.js'

@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeRecordToItems, decodeCursor, fileIdFor } from '@podium/transcript'
+import { claudeRecordToItems, decodeCursor, fileIdFor } from './store/index'
 import { expect, it } from 'vitest'
 import { fileTranscript } from './manifest'
 

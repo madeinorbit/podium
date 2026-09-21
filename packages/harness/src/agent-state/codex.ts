@@ -12,7 +12,7 @@ import type {
   ProviderCursor,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { type StatTick, scheduleStatPoll } from '@podium/transcript'
+import { type StatTick, scheduleStatPoll } from '../store/index.js'
 import {
   cleanCodexTitle,
   codexPromptTitle,

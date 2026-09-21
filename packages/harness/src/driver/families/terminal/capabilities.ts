@@ -15,7 +15,8 @@
  * a second list would drift the first time a harness grew a hook channel.
  */
 
-import { type HarnessComposerReadiness, supported, unsupported } from '@podium/harness'
+import { type HarnessComposerReadiness } from '../../../registry.js'
+import { supported, unsupported } from '../../../manifest.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 import type { DriverId } from '../../families.js'
 import type { SendProof } from '../../turns.js'

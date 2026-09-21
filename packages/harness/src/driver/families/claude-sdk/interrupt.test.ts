@@ -14,7 +14,7 @@
 
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import type { RuntimeEvent } from '../../index.js'
+import type { RuntimeEvent } from '../../host.js'
 import {
   type ClaudeSdkInterruptAck,
   type ClaudeSdkRuntimeHost,

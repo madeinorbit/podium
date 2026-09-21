@@ -1,10 +1,5 @@
 import { join } from 'node:path'
-import {
-  type OpencodeMessagePartRow,
-  sliceItemsByAnchor,
-  stampOpencodeItems,
-  type TranscriptSource,
-} from '@podium/transcript'
+import { type OpencodeMessagePartRow, sliceItemsByAnchor, stampOpencodeItems, type TranscriptSource } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../accept-correlation.js'
 import { observeOpencodeState, opencodeStateProvider } from '../agent-state/opencode.js'
 import { withStateChannel } from '../agent-state/types.js'

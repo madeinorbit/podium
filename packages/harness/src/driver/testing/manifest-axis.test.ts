@@ -13,12 +13,9 @@
  * typo in a taxonomy.
  */
 
-import {
-  AGENT_MANIFESTS,
-  DRIVER_IDS,
-  HARNESS_VERSION_POLICIES,
-  harnessVersionFloor,
-} from '@podium/harness'
+import { AGENT_MANIFESTS } from '../../registry.js'
+import { DRIVER_IDS } from '../../manifest.js'
+import { HARNESS_VERSION_POLICIES, harnessVersionFloor } from '../../version-policy.js'
 import { describe, expect, it } from 'vitest'
 
 const MANIFESTS = Object.entries(AGENT_MANIFESTS)

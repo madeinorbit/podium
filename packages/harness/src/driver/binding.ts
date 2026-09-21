@@ -1,8 +1,8 @@
 import type { SessionMetadataObservation } from './events.js'
-// Part of the Agent Runtime contract (POD-1761 W1). See ./index.ts for the
+// Part of the Agent Runtime contract (POD-1761 W1). See ./host.js for the
 // surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { DriverFamily, DriverId } from '@podium/harness'
+import type { DriverFamily, DriverId } from '../manifest.js'
 import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import type { ProviderCursor } from '@podium/protocol'
 import type { PendingInteraction } from './interactions.js'

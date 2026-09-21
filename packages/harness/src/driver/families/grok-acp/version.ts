@@ -1,11 +1,4 @@
-import {
-  GROK_ACP_VERSION_POLICY,
-  gateHarnessVersion,
-  type HarnessVersion,
-  type HarnessVersionDiagnostic,
-  harnessVersionDiagnostic,
-  parseHarnessVersion,
-} from '@podium/harness'
+import { GROK_ACP_VERSION_POLICY, gateHarnessVersion, type HarnessVersion, type HarnessVersionDiagnostic, harnessVersionDiagnostic, parseHarnessVersion } from '../../../version-policy.js'
 
 export type GrokVersion = HarnessVersion
 export type GrokVersionDiagnostic = HarnessVersionDiagnostic

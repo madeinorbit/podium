@@ -1,8 +1,8 @@
 // Stream identity for a transcript item (POD-1761 W1; POD-2293).
 //
-// WHY THIS SITS IN packages/transcript RATHER THAN packages/agent-runtime
-// (POD-2820). It began life on the Agent Runtime contract, next to the event
-// types whose join it defines. But `packages/agent-runtime` RESTRICTS ITS
+// WHY THIS SITS IN the store RATHER THAN THE DRIVER TREE
+// (POD-2820, POD-4469). It began life on the Agent Runtime contract, next to the
+// event types whose join it defines. But the driver barrel RESTRICTS ITS
 // CONSUMERS to the machine host and the build tier, because importing it means
 // taking a host capability — and the join is not a capability. It is cursor
 // arithmetic over a `TranscriptItem`: two lines of it, reading the very codec
@@ -10,16 +10,16 @@
 // the fragment stream (`turn-preview.ts`), it needed the join and nothing else
 // around it, and the honest reading of `manifest-consumers` refusing that import
 // was that the FUNCTION was filed on the wrong plane, not that the server was
-// wrong to want it. So it moved down to the plane both halves may reach.
-// `@podium/agent-runtime` re-exports it, so the contract's surface is unchanged
+// wrong to want it. So it sits on the plane both halves may reach.
+// `@podium/harness/driver` re-exports it, so the contract's surface is unchanged
 // and drivers still emit what the one named function returns.
 //
-// The other route was `@podium/agent-runtime/metadata`, the open entrypoint that
-// package already declares for the server. It was not taken because this
+// The other route was the contract entry itself, the open entrypoint the driver
+// tree already declares for the server. It was not taken because this
 // function's true home was never the contract: it is
 // `encodeCursor({...decodeCursor(c), offset: 0})` with a fallback, a thin wrapper
-// over two primitives that live HERE and that agent-runtime already depends on
-// this package to get. Opening a door for it would have left it reaching back
+// over two primitives that live HERE and that the driver tree already depends on
+// this store to get. Opening a door for it would have left it reaching back
 // across an edge it should have been on the near side of.
 
 import type { TranscriptItem } from '@podium/model'

@@ -1,6 +1,6 @@
 import { asSessionId } from '@podium/model'
 import type { AgentObservationRebindAckMessage } from '@podium/protocol'
-import type { StatTick } from '@podium/transcript'
+import type { StatTick } from '../store/index.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessObservationLease, HarnessObserverHost } from '../manifest.js'
 

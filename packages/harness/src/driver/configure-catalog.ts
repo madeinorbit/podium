@@ -1,8 +1,8 @@
 // Part of the Agent Runtime contract (POD-1761 W1, POD-3087). See ./index.ts for
 // the surface's five governing rules and the core-vs-extended tier boundary.
 
-import type { Declared } from '@podium/harness'
-import { canonicalDriverId, supported, unsupported } from '@podium/harness'
+import type { Declared } from '../manifest.js'
+import { canonicalDriverId, supported, unsupported } from '../manifest.js'
 import type { AttachCapability, ConfigureCapability, ConfigureRequest } from './capabilities.js'
 import { claudeSdkCapabilities } from './drivers/claude-sdk/capabilities.js'
 import { codexAppServerCapabilities } from './drivers/codex/capabilities.js'

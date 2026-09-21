@@ -9,6 +9,6 @@ export {
   scanAgentConversations,
   scanAgentConversationsCached,
   summarizePaths,
-} from './scanner.js'
+} from '../store/scanner.js'
 export type * from './types.js'
 export { AgentConversationLoadError } from './types.js'

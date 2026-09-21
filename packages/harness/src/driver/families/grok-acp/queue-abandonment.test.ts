@@ -20,7 +20,7 @@
 
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { SessionSpec } from '../../index.js'
+import type { SessionSpec } from '../../host.js'
 import {
   createGrokAcpRuntime,
   type GrokAcpJournalEntry,

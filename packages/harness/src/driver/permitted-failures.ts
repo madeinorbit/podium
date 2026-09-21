@@ -22,7 +22,7 @@
  * every consumer must branch on it. The spec permits exactly two, both terminal.
  */
 
-import { canonicalDriverId } from '@podium/harness'
+import { canonicalDriverId } from '../manifest.js'
 import type { AcceptedDriverId, DriverFamily, DriverId } from './families.js'
 
 /** One named weakness a family may exhibit. */

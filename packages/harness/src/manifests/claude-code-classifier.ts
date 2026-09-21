@@ -1,4 +1,4 @@
-import { isClaudeInterruptMarker } from '@podium/transcript'
+import { isClaudeInterruptMarker } from '../store/index.js'
 import type {
   DeterministicAgentState,
   GlobalAgentStateLabel,

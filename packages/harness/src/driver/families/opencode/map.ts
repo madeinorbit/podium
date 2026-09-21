@@ -26,15 +26,10 @@
  * added.
  */
 
-import type { AgentStateEvent } from '@podium/harness'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { TranscriptItem } from '@podium/model'
-import {
-  encodeCursor,
-  type OpencodeMessagePartRow,
-  opencodeFileId,
-  stampOpencodeItems,
-} from '@podium/transcript'
-import type { InteractionAnswer, PendingInteraction, QuestionPrompt, Refusal } from '../../index.js'
+import { encodeCursor, type OpencodeMessagePartRow, opencodeFileId, stampOpencodeItems } from '../../../store/index.js'
+import type { InteractionAnswer, PendingInteraction, QuestionPrompt, Refusal } from '../../host.js'
 import type {
   OpencodeMessageInfo,
   OpencodePart,

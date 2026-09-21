@@ -1,6 +1,6 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { opencodePartToItems } from '@podium/transcript'
+import { opencodePartToItems } from '../../store/index.js'
 import {
   listOpencodeSessions,
   loadOpencodeMessageParts,

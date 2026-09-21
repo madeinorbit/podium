@@ -60,7 +60,7 @@ import {
   type SessionSpec,
   streamItemIdOf,
   type TurnReceipt,
-} from '../../index.js'
+} from '../../host.js'
 import { defaultAskFor } from '../fake-driver.js'
 import type { ConformanceControl, ConformanceOptions, ConformanceTarget } from './target.js'
 
