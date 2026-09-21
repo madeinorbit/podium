@@ -24,6 +24,7 @@ import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, HarnessAgent, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
 import { grokAcpProcessKey } from './engine-host.js'
+import { GrokAcpRpcError } from './protocol.js'
 
 const log = createLogger('harness:grok-session')
 
@@ -171,17 +172,27 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
       // for any other logical incarnation before launching a new child.
       if (entry.sessionId !== sessionId || entry.process.key !== processKey) return undefined
       // A journalled entry whose driver then refuses is reported, not
-      // swallowed (§4.8) — see the codex session for why.
-      const handle = await runtime.driver.adopt({
-        sessionId,
-        driver: GROK_ACP_DRIVER_ID,
-        family: 'server',
-        harness: deps.facts.harnessKind,
-        workdir: entry.workdir,
-        resume: { kind: 'grok-session', value: entry.grokSessionId },
-        process: { key: processKey },
-        bindingVersion: entry.bindingVersion,
-      })
+      // swallowed (§4.8) — see the codex session for why. The one exception
+      // is a protocol ANSWER: an RPC error means the engine is alive and
+      // answered, so the attempt is transient and stays retryable (the
+      // journal is kept, the next adopt tries again). Anything else — no
+      // engine, no launch, a corrupt journal — is unrecoverable.
+      let handle: AgentSessionHandle
+      try {
+        handle = await runtime.driver.adopt({
+          sessionId,
+          driver: GROK_ACP_DRIVER_ID,
+          family: 'server',
+          harness: deps.facts.harnessKind,
+          workdir: entry.workdir,
+          resume: { kind: 'grok-session', value: entry.grokSessionId },
+          process: { key: processKey },
+          bindingVersion: entry.bindingVersion,
+        })
+      } catch (err) {
+        if (err instanceof GrokAcpRpcError) return undefined
+        throw err
+      }
       pump(sessionId)
       reportResumeRef(sessionId, handle)
       return handle
