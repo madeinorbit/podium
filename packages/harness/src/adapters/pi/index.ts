@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { piRecordToItems, piRuntime } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { observePiState, piStateProvider } from '../../agent-state/pi.js'
 import { withStateChannel } from '../../agent-state/types.js'
@@ -9,15 +8,14 @@ import { createPiConversationProvider } from '../../discovery/providers/pi.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
-  fileTranscript,
   type HarnessEnvironment,
   isSet,
   promptArgv,
   selectRuntimeDriver,
   supported,
-  type TranscriptSourceInput,
   unsupported,
 } from '../../manifest.js'
+import { piTranscript } from './transcript.js'
 import { locatePiSessionFile, piAgentDir } from '../../pi/paths.js'
 import { piCredentials } from './credentials.js'
 import { piInstall } from './install.js'
@@ -109,17 +107,6 @@ function piIdentity(homeDir: string, env?: HarnessEnvironment) {
     digest.update('\n')
   }
   return { fingerprint: digest.digest('hex'), providerAccountId: providers.join(',') }
-}
-
-async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
-  if (!input.resumeValue) return []
-  const path = await locatePiSessionFile({
-    cwd: input.cwd,
-    sessionId: input.resumeValue,
-    ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-  })
-  return path ? [path] : []
 }
 
 export const piManifest: AgentManifest = {
@@ -328,7 +315,7 @@ export const piManifest: AgentManifest = {
 
   discovery: createPiConversationProvider(),
 
-  transcript: supported(fileTranscript(chainPaths, piRecordToItems, piRuntime)),
+  transcript: piTranscript,
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for pi sessions'),
 

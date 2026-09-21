@@ -1,6 +1,5 @@
 import { resolveCursorBin } from '../../cursor/cli.js'
 import { join } from 'node:path'
-import { cursorRecordToItems } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { cursorStateProvider, observeCursorState } from '../../agent-state/cursor.js'
 import { withStateChannel } from '../../agent-state/types.js'
@@ -9,27 +8,15 @@ import { createCursorConversationProvider } from '../../discovery/providers/curs
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
-  fileTranscript,
   isSet,
   selectRuntimeDriver,
   supported,
-  type TranscriptSourceInput,
-  transcriptFileExists,
   unsupported,
 } from '../../manifest.js'
+import { cursorTranscript } from './transcript.js'
 import { cursorCredentials } from './credentials.js'
 import { cursorInstall } from './install.js'
 import { cursorUsage } from './usage.js'
-
-async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
-  if (!input.resumeValue) return []
-  const path = cursorSessionPaths({
-    cwd: input.cwd,
-    chatId: input.resumeValue,
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-  }).transcriptPath
-  return (await transcriptFileExists(path)) ? [path] : []
-}
 
 export const cursorManifest: AgentManifest = {
   kind: 'cursor',
@@ -216,7 +203,7 @@ export const cursorManifest: AgentManifest = {
 
   discovery: createCursorConversationProvider(),
 
-  transcript: supported(fileTranscript(chainPaths, cursorRecordToItems)),
+  transcript: cursorTranscript,
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for cursor sessions'),
 

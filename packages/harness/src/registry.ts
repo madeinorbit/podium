@@ -5,7 +5,7 @@ import {
   isBuiltinHarnessKind,
   type ObservationProvider,
 } from '@podium/protocol'
-import type { TranscriptRecordMapper, TranscriptRuntimeReader } from './store/index.js'
+import type { TranscriptColorReader, TranscriptRecordMapper, TranscriptRuntimeReader } from './store/index.js'
 import type { AgentStateProvider } from './agent-state/types.js'
 import {
   type AgentManifest,
@@ -394,6 +394,19 @@ export function transcriptRuntimeReaderFor(
   const declaredTranscript = manifestFor(kind)?.transcript
   const transcript = declaredTranscript ? declaredValue(declaredTranscript) : undefined
   return transcript ? declaredValue(transcript.recordRuntime) : undefined
+}
+
+/** The identity-colour reader declared by this CLI's manifest. Harnesses that
+ * report none (and unknown kinds) return undefined, so the transcript tailer
+ * observes no colour rather than reading another harness's record conventions.
+ * The tailer takes this as an explicit parameter — it carries no harness
+ * default of its own (POD-4471). */
+export function transcriptColorReaderFor(
+  kind: AgentKind | string,
+): TranscriptColorReader | undefined {
+  const declaredTranscript = manifestFor(kind)?.transcript
+  const transcript = declaredTranscript ? declaredValue(declaredTranscript) : undefined
+  return transcript ? declaredValue(transcript.recordColor) : undefined
 }
 
 /** @deprecated Renamed to {@link manifestFor}. Kept so POD-398/399 can retire the

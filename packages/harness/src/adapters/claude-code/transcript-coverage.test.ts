@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import corpus from './__fixtures__/claude-corpus-shapes.json'
+import corpus from '../../store/__fixtures__/claude-corpus-shapes.json'
 import {
   ATTACHMENT_TYPES,
   EFFECT_KEYS,
@@ -9,8 +9,8 @@ import {
   RECORD_TYPES,
   SYSTEM_TYPES,
   uncoveredClaudeShapes,
-} from './claude-coverage'
-import { claudeToolEffects } from './tool-effects'
+} from '../shared/claude-coverage.js'
+import { claudeToolEffects } from '../shared/tool-effects.js'
 
 describe('Claude corpus conformance', () => {
   it('classifies the real corpus and optional fresh JSONL corpus with a frequency threshold of 3', () => {

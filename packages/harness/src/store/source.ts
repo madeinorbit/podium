@@ -1,7 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
-import { decodeCursor, encodeCursor } from './cursor-codec'
+import { decodeCursor } from './cursor-codec'
 import type { ChainEntry } from './file-chain'
-import { type OpencodeMessagePartRow, opencodePartToItems } from './opencode'
 import { readTranscriptSlice, readTranscriptSliceCached, type SliceResult } from './slice'
 
 /**
@@ -10,10 +9,10 @@ import { readTranscriptSlice, readTranscriptSliceCached, type SliceResult } from
  * adaptable strategy: every implementation serves the SAME cursor-anchored
  * `SliceResult` over the SAME opaque cursor contract, so cursors interoperate
  * and callers never branch on the harness. A NEW harness is added as a new
- * `TranscriptSource` implementation — no change to callers. The per-kind
- * resolution (file locators, the opencode SQLite source) lives in
- * @podium/harness's `transcriptSourceFor`; this package holds only the
- * storage-neutral parts.
+ * `TranscriptSource` implementation — no change to callers. The per-harness
+ * grammar (file locators, the opencode SQLite source) lives in that harness's
+ * `adapters/<h>/transcript.ts`; the Store takes it as a parameter (see
+ * `./store.ts`) and holds only the storage-neutral parts here.
  */
 export interface TranscriptSource {
   /** Cursor-anchored read; SAME contract as `readTranscriptSlice`. */
@@ -57,76 +56,11 @@ export function fileChainSource(
   }
 }
 
-// ---------------------------------------------------------------------------
-// opencode cursor stamping + in-memory slicing (the SQLite source's pure half).
-// ---------------------------------------------------------------------------
-
-/**
- * Stable file-id tag for an opencode session's cursor namespace.
- *
- * EXPORTED so the live driver can derive a part's stream identity (POD-2293)
- * without restating the prefix. A second literal `opencode:` would be a second
- * cursor namespace the day either one changed, and the two would silently stop
- * joining.
- */
-/** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-export function opencodeFileId(sessionId: string): string {
-  return `opencode:${sessionId}`
-}
-
-/**
- * Map opencode part rows to cursor-stamped items, stamping each item with a
- * cursor that encodes the part's position in the session's total
- * `(time_created, id, sub)` order. One part → 0..N items (a tool part is a call +
- * a result), so each item gets its own `sub` index within the part. We can't
- * reuse `stampCursors` directly: every row is its own sub-sequence keyed by the
- * row's `timeCreated` and `partId`, not a single shared `(offset, uuid)`.
- *
- *   - `offset` = `row.timeCreated` (the DB's primary order key)
- *   - `uuid`   = `row.partId`      (disambiguates same-`time_created` ties; the
- *                                   secondary `id` order key)
- *   - `sub`    = item index within the part
- *
- * The triple is the part-position analog of the file `(offset, uuid, sub)` and
- * yields a total order matching the DB's `(time_created, id, sub)`.
- *
- * Shared so the daemon's live opencode observer stamps emitted items with the
- * EXACT SAME cursor scheme as `opencodeDbSource`'s on-demand read — live deltas
- * and read pages then interoperate (the client can dedup/subscribe-from-cursor).
- * The cursor namespace (`fileId`) is derived from `sessionId` here so callers
- * pass only `(rows, sessionId)` — they never construct the fileId themselves.
- */
-export function stampOpencodeItems(
-  rows: OpencodeMessagePartRow[],
-  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-  sessionId: string,
-): TranscriptItem[] {
-  const fileId = opencodeFileId(sessionId)
-  const out: TranscriptItem[] = []
-  for (const row of rows) {
-    const items = opencodePartToItems(row)
-    for (let sub = 0; sub < items.length; sub++) {
-      const item = items[sub]
-      if (!item) continue
-      out.push({
-        ...item,
-        ...(item.event === 'interrupt'
-          ? {}
-          : { cursor: encodeCursor({ fileId, offset: row.timeCreated, uuid: row.partId, sub }) }),
-      })
-    }
-  }
-  return out
-}
-
 /**
  * Index-slice a fully-ordered, in-memory item list around an anchor — the
- * SliceResult contract over a list rather than a file chain. Kept a SMALL
- * copy of `readTranscriptSlice`'s slice arithmetic rather than merged into it:
- * `readTranscriptSlice` has no full-list in-memory path to share — it reads
- * bounded, doubling windows per file and never materializes the whole chain.
- * opencode's parts ARE a bounded list, so an honest in-memory slice is the
- * right shape here. Exported for @podium/harness's `opencodeDbSource`.
+ * SliceResult contract over a list rather than a file chain. The opencode
+ * SQLite source (adapters/opencode/transcript.ts) builds its full ordered item
+ * list and slices it here, exactly matching `readTranscriptSlice`'s semantics.
  *
  * Anchor matching uses UUID + sub within the session namespace, even when the
  * position changes. UUID-less anchors use position + sub. Missing anchors fall
@@ -138,7 +72,7 @@ export function sliceItemsByAnchor(
 ): SliceResult {
   if (all.length === 0 || opts.limit <= 0) return { items: [], hasMore: false }
 
-  const anchorIdx = opts.anchor ? findOpencodeAnchorIndex(all, opts.anchor) : -1
+  const anchorIdx = opts.anchor ? findAnchorIndex(all, opts.anchor) : -1
   // No anchor (or it drifted away): page from the appropriate end.
   const haveAnchor = anchorIdx >= 0
 
@@ -163,7 +97,7 @@ function finalize(items: TranscriptItem[], hasMore: boolean): SliceResult {
 }
 
 /** Locate the anchor item: exact cursor first, then UUID + sub (position only for UUID-less anchors). */
-function findOpencodeAnchorIndex(items: TranscriptItem[], anchor: string): number {
+function findAnchorIndex(items: TranscriptItem[], anchor: string): number {
   const exact = items.findIndex((i) => i.cursor === anchor)
   if (exact >= 0) return exact
   const want = decodeCursor(anchor)

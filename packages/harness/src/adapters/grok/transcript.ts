@@ -1,7 +1,10 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
-import { toolInputPreview } from './claude'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
-import { safeToolEditJsonFromInput } from './tool-edit'
+import { toolInputPreview } from '../claude-code/transcript.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
+import type { HarnessRuntimeObservation } from '../../store/runtime.js'
+import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
+import { locateGrokChatHistory } from '../../agent-state/grok-locate.js'
+import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 
 /** Normalize one Grok chat_history.jsonl record into Podium chat transcript items. */
 export function grokRecordToItems(record: unknown): TranscriptItem[] {
@@ -474,3 +477,41 @@ function stringField(value: unknown, key: string): string | undefined {
   const field = value[key]
   return typeof field === 'string' && field.length > 0 ? field : undefined
 }
+
+/**
+ * Grok: the model id, wherever this record carries it. Declared as this
+ * harness's `recordRuntime` in its transcript section.
+ */
+export function grokRuntime(record: unknown): HarnessRuntimeObservation {
+  if (!isRecord(record)) return {}
+  const message = isRecord(record.message) ? record.message : undefined
+  const model =
+    stringField(record, 'model_id') ??
+    stringField(record, 'model') ??
+    (message ? (stringField(message, 'model_id') ?? stringField(message, 'model')) : undefined)
+  return model ? { model } : {}
+}
+
+// ---------------------------------------------------------------------------
+// Transcript section: file-store grammar + layout (POD-4471), the ONE
+// authoritative transcript definition for this harness (spec §4).
+// ---------------------------------------------------------------------------
+
+
+export async function grokChainPaths(input: TranscriptSourceInput): Promise<string[]> {
+  if (!input.resumeValue) return []
+  // Locate, don't derive: Grok buckets by the creation-time cwd, while
+  // session.cwd is the current worktree (docs/spec/conversation-registry.md §3.3).
+  const path = await locateGrokChatHistory({
+    cwd: input.cwd,
+    sessionId: input.resumeValue,
+    ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
+    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
+  })
+  return path ? [path] : []
+}
+
+export const grokTranscript = supported(
+  fileTranscript(grokChainPaths, grokRecordToItems, grokRuntime),
+)

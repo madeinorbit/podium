@@ -1,15 +1,18 @@
 import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
-import {
-  claudeRecordColor,
-  claudeRecordEffort,
-  claudeRecordModel,
-  claudeRecordToItems,
-} from './claude'
 import { recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
 import type { HarnessRuntimeObservation } from './runtime'
 import { type StatTick, scheduleStatPoll } from './stat-tick'
+
+/**
+ * Extract an agent identity colour from a native record, if any. One
+ * implementation per harness lives in that harness's adapter transcript
+ * module; WHICH one applies is the manifest's answer (`HarnessTranscript.
+ * recordColor`), resolved by the caller and passed as `recordColor` — the
+ * tailer itself carries no harness default (POD-4471).
+ */
+export type TranscriptColorReader = (record: unknown) => string | undefined
 
 const POLL_MS = 700
 // Initial-read cap: a long-running transcript can be hundreds of MB, but the
@@ -142,10 +145,13 @@ export function tailTranscript(
   onItems: (items: TranscriptItem[], meta: TranscriptTailMeta) => void,
   opts: TranscriptTailOptions,
 ): TranscriptTailer {
-  const recordToItems = opts.recordToItems ?? claudeRecordToItems
-  const recordColor = opts.recordColor ?? claudeRecordColor
-  const recordModel = opts.recordModel ?? claudeRecordModel
-  const recordEffort = opts.recordEffort ?? claudeRecordEffort
+  // No harness defaults: the caller passes the adapter grammar's extractors
+  // explicitly (recordToItems + recordRuntime from the manifest registry, and
+  // recordColor via transcriptColorReaderFor). Absent ⇒ observe nothing.
+  const recordToItems = opts.recordToItems ?? (() => [])
+  const recordColor = opts.recordColor ?? (() => undefined)
+  const recordModel = opts.recordModel ?? (() => undefined)
+  const recordEffort = opts.recordEffort ?? (() => undefined)
   const windowBytes = opts.initialWindowBytes ?? TAIL_BYTES
   const maxInitialItems = opts.maxInitialItems ?? MAX_INITIAL_ITEMS
   const chunkBytes = opts.readChunkBytes ?? READ_CHUNK_BYTES

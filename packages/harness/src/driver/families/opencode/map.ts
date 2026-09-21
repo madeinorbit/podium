@@ -28,7 +28,12 @@
 
 import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { TranscriptItem } from '@podium/model'
-import { encodeCursor, type OpencodeMessagePartRow, opencodeFileId, stampOpencodeItems } from '../../../store/index.js'
+import { encodeCursor } from '../../../store/index.js'
+import {
+  type OpencodeMessagePartRow,
+  opencodeFileId,
+  stampOpencodeItems,
+} from '../../../adapters/opencode/transcript.js'
 import type { InteractionAnswer, PendingInteraction, QuestionPrompt, Refusal } from '../../host.js'
 import type {
   OpencodeMessageInfo,

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { claudeRuntime, codexRuntime, grokRuntime } from './runtime'
+import { claudeRuntime } from '../claude-code/transcript.js'
+import { codexRuntime } from '../codex/transcript.js'
+import { grokRuntime } from '../grok/transcript.js'
 
 describe('per-harness runtime readers', () => {
   it('reads the actual Codex model and effort from turn context', () => {

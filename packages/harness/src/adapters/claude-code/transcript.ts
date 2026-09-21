@@ -1,8 +1,14 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
-import { safeToolCommandJson } from './tool-command'
-import { safeToolEditJsonFromInput } from './tool-edit'
-import { claudeToolEffects } from './tool-effects'
+// The cursor codec is shared pure identity infrastructure owned by the Store
+// (spec rule 8): grammars mark provisional ids with its prefix, the reader's
+// stampCursors replaces them with cursors. No reader behaviour is imported.
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
+import type { HarnessRuntimeObservation } from '../../store/runtime.js'
+import { locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
+import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
+import { safeToolCommandJson } from '../shared/tool-command.js'
+import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
+import { claudeToolEffects } from '../shared/tool-effects.js'
 
 /**
  * Normalize one Claude Code transcript JSONL record into render-oriented
@@ -699,3 +705,41 @@ function blockContentToText(content: unknown): string {
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s
 }
+
+/**
+ * Claude Code: model and effort ride the assistant record. Declared as this
+ * harness's `recordRuntime` in its transcript section.
+ */
+export function claudeRuntime(record: unknown): HarnessRuntimeObservation {
+  const model = claudeRecordModel(record)
+  const effort = claudeRecordEffort(record)
+  return {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+  }
+}
+
+// The ONE authoritative transcript definition for this harness (spec §4):
+// the Store reader takes this section as a narrow typed parameter and never
+// the whole adapter. The parse functions above are the grammar; chainPaths is
+// the layout; together with the runtime/color readers they are everything the
+// live tail, the on-demand slice, the mirror lake and the search indexer read.
+
+// The claude session_id (resume value) IS the JSONL basename. The locator
+// tries the current-cwd bucket first, then sweeps all buckets — session.cwd is
+// mutable (worktree moves restamp it) while the file stays in the bucket of
+// the cwd it was CREATED under (docs/spec/conversation-registry.md §3.3).
+export async function claudeChainPaths(input: TranscriptSourceInput): Promise<string[]> {
+  if (!input.resumeValue) return []
+  const path = await locateClaudeSessionFile({
+    cwd: input.cwd,
+    resumeValue: input.resumeValue,
+    ...(input.pathHint ? { pathHint: input.pathHint } : {}),
+    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+  })
+  return path ? [path] : []
+}
+
+export const claudeCodeTranscript = supported(
+  fileTranscript(claudeChainPaths, claudeRecordToItems, claudeRuntime, claudeRecordColor),
+)

@@ -12,7 +12,7 @@ import {
 import type { ProviderCursor } from '@podium/protocol'
 import { PermissionAnswer } from '@podium/protocol'
 import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
-import { claudeToolCallItem, claudeToolResultItem } from '../../../store/index.js'
+import { claudeToolCallItem, claudeToolResultItem } from '../../../adapters/claude-code/transcript.js'
 import { DriverRefusalError } from '../../errors.js'
 import { createRuntimeEventStream } from '../../events.js'
 import { headlessInterruptMark } from '../../headless-interrupt.js'

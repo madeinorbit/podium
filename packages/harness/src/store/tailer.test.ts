@@ -6,7 +6,7 @@ import type { TranscriptItem } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { decodeCursor } from './cursor-codec'
 import { fileIdFor } from './file-chain'
-import { grokRecordToItems } from './grok'
+import { grokRecordToItems } from '../adapters/grok/transcript.js'
 import { type TranscriptTailOptions, tailTranscript } from './tailer'
 
 const dir = mkdtempSync(join(tmpdir(), 'podium-tailer-'))
@@ -620,7 +620,7 @@ describe('tailTranscript — observed model + effort (POD-121)', () => {
 })
 
 it('tailer and repeated disk parses produce identical byte-offset cursors and synthetic ids', async () => {
-  const { claudeRecordToItems } = await import('./claude')
+  const { claudeRecordToItems } = await import('../adapters/claude-code/transcript.js')
   const { readFileItems } = await import('./slice')
   const path = join(dir, 'disk-parity.jsonl')
   const bytes = `${['multibyte 🦊 prefix', 'uuid-less record']

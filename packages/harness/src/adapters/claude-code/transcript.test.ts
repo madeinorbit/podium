@@ -6,10 +6,10 @@ import {
   claudeToolCallItem,
   claudeToolResultItem,
   toolInputPreview,
-} from './claude'
-import { codexRecordToItems } from './codex'
-import { recordUuid, stampCursors } from './cursor-codec'
-import { TOOL_INPUT_MAX } from './tool-input-budget'
+} from './transcript.js'
+import { codexRecordToItems } from '../codex/transcript.js'
+import { recordUuid, stampCursors } from '../../store/cursor-codec.js'
+import { TOOL_INPUT_MAX } from '../shared/tool-input-budget.js'
 
 describe('claudeRecordColor', () => {
   it('reads agentColor from an agent-color record', () => {

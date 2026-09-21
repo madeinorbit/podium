@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { codexRecordToItems, codexRuntime } from '../../store/index.js'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import {
   codexStateProvider,
@@ -21,16 +20,15 @@ import {
   type AgentManifest,
   accountIdentity,
   credentialFileReader,
-  fileTranscript,
   type HarnessEnvironment,
   type HarnessObservationLease,
   isSet,
   promptArgv,
   selectRuntimeDriver,
   supported,
-  type TranscriptSourceInput,
   unsupported,
 } from '../../manifest.js'
+import { codexTranscript } from './transcript.js'
 import { codexCredentials } from './credentials.js'
 import { codexInstall } from './install.js'
 import { codexUsage } from './usage.js'
@@ -153,17 +151,6 @@ export function codexMcpArgs(
     }
   }
   return { args, env }
-}
-
-// Codex stores no derivable per-cwd path; resolve the rollout from the resume
-// value (state DB, then filename fallback). null/undefined → no chain.
-async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
-  if (!input.resumeValue) return []
-  const path = await findCodexRolloutPath({
-    resumeValue: input.resumeValue,
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-  })
-  return path ? [path] : []
 }
 export function codexTranscriptPlacement(
   home: string,
@@ -710,7 +697,7 @@ export const codexManifest: AgentManifest = {
     },
   }),
 
-  transcript: supported(fileTranscript(chainPaths, codexRecordToItems, codexRuntime)),
+  transcript: codexTranscript,
 
   // Codex login goes through auth.openai.com (loopback redirect to :1455);
   // chatgpt.com / platform.openai.com opens are plain links. Unknown hosts

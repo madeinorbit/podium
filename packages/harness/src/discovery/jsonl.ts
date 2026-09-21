@@ -1,9 +1,9 @@
 import { open } from 'node:fs/promises'
-import { stringField } from '../store/index.js'
+import { stringField } from '../adapters/shared/json-util.js'
 
-// Moved to the store (the parsers there need them); re-exported for
+// Moved to the adapters' shared grammar helpers (POD-4471); re-exported for
 // this package's discovery providers, which imported them from here.
-export { contentToText, isRecord, stringField } from '../store/index.js'
+export { contentToText, isRecord, stringField } from '../adapters/shared/json-util.js'
 
 import type { AgentConversationDiagnostic, AgentConversationRole } from './types.js'
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from './cursor-codec'
-import { grokRecordToItems } from './grok'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
+import { grokRecordToItems } from './transcript.js'
 
 describe('grokRecordToItems', () => {
   it('maps Grok chat history user and assistant records to transcript items', () => {

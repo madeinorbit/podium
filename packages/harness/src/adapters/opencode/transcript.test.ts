@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { decodeCursor, encodeCursor } from './cursor-codec'
-import type { OpencodeMessagePartRow } from './opencode'
-import { classifyOpencodeIdleText, opencodePartToItems, opencodeRowsToItems } from './opencode'
-import { opencodeFileId, stampOpencodeItems } from './source'
+import { decodeCursor, encodeCursor } from '../../store/cursor-codec.js'
+import type { OpencodeMessagePartRow } from './transcript.js'
+import { classifyOpencodeIdleText, opencodePartToItems, opencodeRowsToItems } from './transcript.js'
+import { opencodeFileId, stampOpencodeItems } from './transcript.js'
 
 function row(
   overrides: Partial<OpencodeMessagePartRow> & {

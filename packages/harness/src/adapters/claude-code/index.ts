@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { claudeRecordToItems, claudeRuntime } from '../../store/index.js'
 import {
   claudeCodeStateProvider,
   configureClaudeTranscriptClassifier,
@@ -14,16 +13,15 @@ import {
   type AgentManifest,
   type DriverId,
   credentialFileReader,
-  fileTranscript,
   type HarnessEnvironment,
   isSet,
   promptArgv,
   type SelectionContext,
   selectRuntimeDriver,
   supported,
-  type TranscriptSourceInput,
   unsupported,
 } from '../../manifest.js'
+import { claudeChainPaths, claudeCodeTranscript } from './transcript.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeInstall } from './install.js'
 import { claudeUsage } from './usage.js'
@@ -32,21 +30,6 @@ import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-cla
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
 
 configureClaudeTranscriptClassifier(createTranscriptClassifier(claudeTranscriptClassifierRules))
-
-// The claude session_id (resume value) IS the JSONL basename. The locator
-// tries the current-cwd bucket first, then sweeps all buckets — session.cwd is
-// mutable (worktree moves restamp it) while the file stays in the bucket of
-// the cwd it was CREATED under (docs/spec/conversation-registry.md §3.3).
-async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
-  if (!input.resumeValue) return []
-  const path = await locateClaudeSessionFile({
-    cwd: input.cwd,
-    resumeValue: input.resumeValue,
-    ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-  })
-  return path ? [path] : []
-}
 
 const CLAUDE_SDK_AUTH = new Set(['subscription', 'api-key', 'bedrock', 'vertex'])
 
@@ -310,7 +293,7 @@ export const claudeCodeManifest: AgentManifest = {
       // conversation by resume value, so without one this resolves nothing
       // today — the first hook's transcript_path binds the tail instead.
       void (async () => {
-        const paths = await chainPaths({ cwd: input.cwd, homeDir: home })
+        const paths = await claudeChainPaths({ cwd: input.cwd, homeDir: home })
         const newest = paths.at(-1)
         if (newest) host.tailFile(newest)
       })()
@@ -322,7 +305,7 @@ export const claudeCodeManifest: AgentManifest = {
 
   discovery: createClaudeCodeConversationProvider(),
 
-  transcript: supported(fileTranscript(chainPaths, claudeRecordToItems, claudeRuntime)),
+  transcript: claudeCodeTranscript,
 
   handoffTranscript: supported({
     transcriptPlacement: ({ cwd, homeDir, resumeValue }) =>
