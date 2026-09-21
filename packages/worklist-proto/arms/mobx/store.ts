@@ -148,6 +148,7 @@ export class MobXStore {
       visibleGuard: false,
       off: false,
       webRoot: false,
+      resolveNeeded: false,
       issues: false,
       sessions: false,
       worktrees: false,
