@@ -50,6 +50,7 @@ export const HostFrame = {
   DETACH: 0x07,
   KILL: 0x08,
   REPLAY: 0x09,
+  STEAL: 0x0a,
   WELCOME: 0x81,
   DATA: 0x82,
   GAP: 0x83,
@@ -61,6 +62,7 @@ export const HostFrame = {
   LEASE_LOST: 0x89,
   REPLAYING: 0x8a,
   REPLAYED: 0x8b,
+  STOLEN: 0x8c,
   ERR: 0x8f,
 } as const
 
@@ -139,7 +141,35 @@ export class HostError extends Error {
   }
 }
 
-type Pending = { kind: 'resize' | 'size' | 'status'; resolve: (v: unknown) => void; reject: (e: Error) => void }
+/**
+ * THE REFUSED WRITER LEASE (POD-4434): the host granted no writer lease
+ * because another writer is attached, and the attach refused rather than
+ * reading along silently. Carries the durable label so the daemon's
+ * reattachFailed/spawnError names the session, and the holder census the host
+ * reported (writers/readers) so the message names what holds it.
+ */
+export class WriterLeaseRefusedError extends Error {
+  readonly label: string
+  readonly writers: number
+  readonly readers: number
+  constructor(label: string, writers: number, readers: number) {
+    super(
+      `podium-host refused the writer lease for '${label}' ` +
+        `(writers=${writers}, readers=${readers}): another writer is attached — ` +
+        `refusing rather than reading silently; steal it deliberately with stealWriter`,
+    )
+    this.name = 'WriterLeaseRefusedError'
+    this.label = label
+    this.writers = writers
+    this.readers = readers
+  }
+}
+
+type Pending = {
+  kind: 'resize' | 'size' | 'status' | 'steal'
+  resolve: (v: unknown) => void
+  reject: (e: Error) => void
+}
 type PendingWrite = { id: number; resolve: (bytes: number) => void; reject: (e: Error) => void }
 type PendingReplay = { resolve: (r: { from: bigint; bytes: number }) => void; reject: (e: Error) => void }
 
@@ -165,6 +195,7 @@ export class HostConnection {
   private readonly exitCbs = new Set<(code: number, signal: number) => void>()
   private readonly closeCbs = new Set<(err?: Error) => void>()
   private readonly errCbs = new Set<(err: HostError) => void>()
+  private readonly leaseLostCbs = new Set<() => void>()
   private closed = false
   /** The seq of the byte AFTER the last DATA byte received: the resume point. */
   lastSeq: bigint | undefined
@@ -274,6 +305,12 @@ export class HostConnection {
         for (const cb of [...this.exitCbs]) cb(code, signal)
         return
       }
+      case HostFrame.STOLEN:
+        this.answer('steal', undefined)
+        return
+      case HostFrame.LEASE_LOST:
+        for (const cb of [...this.leaseLostCbs]) cb()
+        return
       case HostFrame.ERR: {
         const code = p.readUInt16BE(0)
         const n = p.readUInt32BE(2)
@@ -285,7 +322,7 @@ export class HostConnection {
         return
       }
       default:
-        return // LEASE_LOST and anything newer: ignored
+        return // anything newer: ignored
     }
   }
 
@@ -349,6 +386,22 @@ export class HostConnection {
       this.pendingReplays.push({ resolve, reject })
       this.sock.write(encodeHostFrame(HostFrame.REPLAY, p))
     })
+  }
+
+  /**
+   * Deliberate takeover (POD-4434): revoke the current writer's lease and take
+   * it on this connection. The daemon sends this only on an explicit operator
+   * action — never as a retry — so a second writer is always a decision. The
+   * revoked holder hears LEASE_LOST on its own connection at the same moment.
+   */
+  steal(): Promise<void> {
+    return this.request<void>('steal', encodeHostFrame(HostFrame.STEAL))
+  }
+
+  /** Fired when this connection held the lease and someone stole it. */
+  onLeaseLost(cb: () => void): () => void {
+    this.leaseLostCbs.add(cb)
+    return () => this.leaseLostCbs.delete(cb)
   }
 
   signal(signo: number): void {
@@ -617,6 +670,13 @@ export interface HostAttachOptions {
   fromSeq?: bigint | 'tail'
   /** Reattaching a shell: `redraw()` defaults to the hard Ctrl-L repaint. */
   hardRepaint?: boolean
+  /**
+   * Refuse when the host grants no writer lease (POD-4434): detach and throw
+   * {@link WriterLeaseRefusedError} instead of holding a silent reader. The
+   * daemon passes this on every headed attach and spawn-adopt; headless
+   * engines leave it off and judge the lease themselves (POD-4433).
+   */
+  requireLease?: boolean
   env?: Record<string, string>
 }
 
@@ -668,11 +728,38 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
     if (err && !disposed) log.warn('podium-host connection dropped', { label: opts.label, err })
   })
   conn.onError((err) => log.warn('podium-host refused a request', { label: opts.label, err: err.message }))
+  // Someone stole the lease out from under this attachment: say so once, by
+  // label, so the next swallowed write is never a mystery. The host keeps
+  // delivering DATA (reading is allowed); only writes stop landing.
+  let leaseLost = false
+  let warnedLeaselessWrite = false
+  conn.onLeaseLost(() => {
+    leaseLost = true
+    log.warn('podium-host revoked our writer lease — another writer stole it', {
+      label: opts.label,
+    })
+  })
 
-  const ready = conn.welcome.then((w) => {
+  const ready = conn.welcome.then(async (w) => {
     childPid = w.childPid
     if (w.hasPty) applied = { cols: w.cols, rows: w.rows }
-    if (!w.lease) log.warn('podium-host granted no writer lease — another writer is attached', { label: opts.label })
+    if (!w.lease) {
+      if (opts.requireLease) {
+        // REFUSE, never read silently: drop the connection and name the label
+        // and the holder census, so the daemon's reattachFailed/spawnError
+        // names the session instead of leaving a live-looking dead writer.
+        const status = await conn.status().catch(() => undefined)
+        conn.detach()
+        throw new WriterLeaseRefusedError(
+          opts.label,
+          status?.writers ?? 1,
+          status?.readers ?? 0,
+        )
+      }
+      log.warn('podium-host granted no writer lease — another writer is attached', {
+        label: opts.label,
+      })
+    }
     return w
   })
   ready.catch(() => {})
@@ -701,7 +788,19 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
       exitCb = cb
     },
     write(data) {
-      conn.write(data).catch(() => {})
+      conn.write(data).catch((err) => {
+        // A write that lands nowhere must never be silent once the lease is
+        // known gone: after a steal this attachment still reads, so without
+        // this the session looks live and swallows input. Logged once — the
+        // lease never comes back without a reattach.
+        if (leaseLost && !warnedLeaselessWrite) {
+          warnedLeaselessWrite = true
+          log.warn('podium-host dropped input: this attachment no longer holds the writer lease', {
+            label: opts.label,
+            err: err instanceof Error ? err.message : String(err),
+          })
+        }
+      })
     },
     resize(cols, rows) {
       // Fire-and-forget, exactly as before: the acknowledgement settles into
@@ -841,7 +940,17 @@ export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostDura
 
   const adopt = async (path: string): Promise<HostDurableAttachment> => {
     log.info('durable label already owned by a live host — adopting it', { label: opts.label, path })
-    const s = attachHostAgent({ label: opts.label, socketPath: path, fromSeq: 'tail', ...(opts.env ? { env: opts.env } : {}) })
+    // A spawn that adopts while another writer holds the lease is the update-
+    // overlap symptom (two daemons, one host): refuse loudly when the caller
+    // asked for the lease rather than attaching a silent reader. The refusal
+    // throws out of `ready`, after detaching — see `requireLease`.
+    const s = attachHostAgent({
+      label: opts.label,
+      socketPath: path,
+      fromSeq: 'tail',
+      ...(opts.requireLease ? { requireLease: true as const } : {}),
+      ...(opts.env ? { env: opts.env } : {}),
+    })
     await s.ready
     return Object.assign(s, { adopted: true })
   }

@@ -219,6 +219,9 @@ export const CONTROL_PLANE_CLASS = {
   agentObservationAck: 'control.command',
   agentObservationRebindAck: 'control.command',
   kill: 'control.command',
+  // Deliberate writer-lease takeover (POD-4434): one frame that changes what
+  // the daemon does, and it carries no records.
+  stealWriter: 'control.command',
   sessionBindingRetire: 'control.command',
   // Draft Sync v2 (POD-859): server→daemon "inject this chat draft into native".
   draftTarget: 'control.command',

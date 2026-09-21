@@ -47,6 +47,13 @@ export type DurableKind = Exclude<DurableBackend, 'none'>
 export interface DurableAttachOptions {
   label: string
   socketPath: string
+  /**
+   * Refuse when the host grants no writer lease (POD-4434): the attach throws
+   * {@link WriterLeaseRefusedError} instead of holding a silent reader. The
+   * daemon passes this on every headed attach; headless reattach leaves it off
+   * and judges the lease itself (POD-4433). abduco has no lease and ignores it.
+   */
+  requireLease?: boolean
   /** The server's last-known size — a belief, not an observation (abduco's downgrade fallback). */
   lastKnownGeometry: Geometry
   /**
@@ -102,6 +109,13 @@ export interface DurableAdapter {
    */
   attachHeadless(opts: HeadlessAttachOptions): Promise<HostDurableAttachment>
   attach(opts: DurableAttachOptions): Promise<DurableReattach>
+  /**
+   * Deliberate takeover (POD-4434): take the writer lease for `label` even
+   * when it is held, and return the leased reattach. The daemon calls this
+   * only on an explicit operator verb — never as a retry. Only the host
+   * backend implements it; abduco refuses loudly (it has no lease).
+   */
+  steal(opts: DurableAttachOptions): Promise<DurableReattach>
   /** A live host owns the label AND its program is still running. */
   has(label: string): Promise<boolean>
   kill(label: string): Promise<void>
@@ -196,6 +210,11 @@ export function abducoDurableAdapter(): DurableAdapter {
         readGeometry: undefined,
       }
     },
+    async steal(opts) {
+      throw new Error(
+        `abduco has no writer lease to steal (label '${opts.label}'): every attach client already writes`,
+      )
+    },
     has: (label) => abducoHasSession(label),
     kill: (label) => killAbducoSession(label),
     list: async () => listLiveAbducoLabels(),
@@ -227,8 +246,28 @@ export function hostDurableAdapter(): DurableAdapter {
         label: opts.label,
         socketPath: opts.socketPath,
         fromSeq: opts.lastSeq ?? 'tail',
+        ...(opts.requireLease ? { requireLease: true as const } : {}),
       })
       const welcome = await attachment.ready
+      return {
+        attachment,
+        cmd: `podium-host attach ${opts.socketPath}`,
+        redrawOnReattach: false,
+        readGeometry: welcome.hasPty ? { cols: welcome.cols, rows: welcome.rows } : undefined,
+      }
+    },
+    async steal(opts) {
+      // Deliberate takeover (POD-4434): attach first WITHOUT the lease — the
+      // refusal above would detach the very connection the steal needs — then
+      // take the lease over that connection. The revoked holder hears
+      // LEASE_LOST; this connection is the writer from here on.
+      const attachment: HostDurableAttachment = attachHostAgent({
+        label: opts.label,
+        socketPath: opts.socketPath,
+        fromSeq: opts.lastSeq ?? 'tail',
+      })
+      const welcome = await attachment.ready
+      await attachment.connection.steal()
       return {
         attachment,
         cmd: `podium-host attach ${opts.socketPath}`,
