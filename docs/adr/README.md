@@ -25,6 +25,7 @@ tip `2ddfec21`. Source proposal committed at
 | ADR | File | Decides |
 |---|---|---|
 | 10 | [0010-harness-adapter-and-driver-boundary.md](0010-harness-adapter-and-driver-boundary.md) | Harness adapter and driver boundary (POD-4468, 2026-09-20). One `Adapter` per harness, three mechanisms plus Descriptor projection, no vendor behaviour outside `adapters/` and driver families, one `@podium/harness` package, three-scope capability. Amends ADR 8 D4.3 only. |
+| 11 | [0011-claude-stream-engine.md](0011-claude-stream-engine.md) | Claude stream engine under podium-host (POD-4499, 2026-09-21). One long-lived `claude` stream-json child per session under `--no-pty`, family speaks the wire directly, SDK dependency dropped; adopt-by-label with `--resume` fallback; production routing move left to POD-4497. |
 
 ## Amendments (2026-07-29 — multi-user)
 

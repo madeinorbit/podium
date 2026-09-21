@@ -1,16 +1,18 @@
 /**
- * A REAL daemon restart leaves codex and opencode engines running and the
- * driver re-adopts them; an in-flight codex turn completes (POD-4433,
- * DONE WHEN 2 — shown red on base, where the engines were daemon children).
+ * A REAL daemon restart leaves codex, opencode, grok and claude engines
+ * running and the driver re-adopts them; in-flight codex and claude turns
+ * complete (POD-4433, DONE WHEN 2 — shown red on base, where the engines
+ * were daemon children; POD-4499 extends the table to claude).
  *
  * Generation 1 is a REAL SEPARATE PROCESS (`server-host-survival.gen1.ts`):
- * it launches all three engines under the real podium-host, drives each to a
- * live session (codex holds an OPEN turn), prints its bindings and idles. The
- * test SIGKILLs it — sockets close with the process, freeing the writer lease
- * exactly the way production frees it — then generation 2 (this process)
- * adopts every binding and proves each engine is the SAME process that served
- * generation 1. No respawn, no resumed thread for codex, no fresh `serve` for
- * opencode, no fresh stdio child for grok: the incarnation files each hold one
+ * it launches all four engines under the real podium-host, drives each to a
+ * live session (codex holds an OPEN turn, claude holds an OPEN turn), prints
+ * its bindings and idles. The test SIGKILLs it — sockets close with the
+ * process, freeing the writer lease exactly the way production frees it —
+ * then generation 2 (this process) adopts every binding and proves each
+ * engine is the SAME process that served generation 1. No respawn, no resumed
+ * thread for codex, no fresh `serve` for opencode, no fresh stdio child for
+ * grok, no fresh `claude` for claude: the incarnation files each hold one
  * line.
  *
  * Integration lane (real processes, a C compile, real sockets); never unit.
@@ -35,15 +37,20 @@ import type { RuntimeEvent, SessionBinding } from '@podium/harness/driver/host'
 import { createDurableProcess } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
+  claudeEngineFacts,
   codexEngineFacts,
   codexScopeLabel,
+  createClaudeEngineHost,
+  createClaudeSdkSessionRuntime,
   createCodexEngineHost,
   createGrokEngineHost,
   createOpencodeEngineHost,
+  claudeEngineProcessKey,
   grokAcpProcessKey,
   grokEngineFacts,
   opencodeFlavor,
   opencodeScopeLabel,
+  type ClaudeEngineJournalEntry,
   type CodexJournalEntry,
   type GrokAcpJournalEntry,
   type OpencodeJournalEntry,
@@ -66,6 +73,7 @@ import {
 
 const codexFacts = codexEngineFacts(manifestFor('codex')!)
 const grokFacts = grokEngineFacts(manifestFor('grok')!)
+const claudeFacts = claudeEngineFacts(manifestFor('claude-code')!)
 const flavor = opencodeFlavor(manifestFor('opencode')!)
 
 const GEN1 = fileURLToPath(new URL('../test-support/server-host-survival.gen1.ts', import.meta.url))
@@ -261,6 +269,62 @@ process.stdin.on('data', (chunk) => {
 setInterval(() => {}, 60_000)
 `
 
+/** A stub `claude` CLI in streaming-input mode: initialize handshake, one
+ *  session id for the process lifetime, turns held open until the COMPLETE
+ *  file lands. Speaks the family's stream-json wire (see
+ *  families/claude-sdk/protocol.ts) — nothing more. */
+const STUB_CLAUDE = `
+const fs = require('node:fs')
+if (process.argv.includes('--version')) {
+  process.stdout.write('claude 1.0.0\\n')
+  process.exit(0)
+}
+fs.appendFileSync(process.env.GEN1_INCARNATIONS_CLAUDE, process.pid + '\\n')
+const COMPLETE = process.env.GEN1_COMPLETE
+let sessionId = 'claude-stub-session'
+const resumeIx = process.argv.indexOf('--resume')
+const mintIx = process.argv.indexOf('--session-id')
+if (resumeIx >= 0) sessionId = process.argv[resumeIx + 1]
+else if (mintIx >= 0) sessionId = process.argv[mintIx + 1]
+let buffer = ''
+let openTurns = 0
+process.stdin.on('data', (chunk) => {
+  buffer += chunk.toString('utf8')
+  let boundary = buffer.indexOf('\\n')
+  while (boundary >= 0) {
+    const line = buffer.slice(0, boundary)
+    buffer = buffer.slice(boundary + 1)
+    boundary = buffer.indexOf('\\n')
+    if (!line.trim()) continue
+    let msg
+    try { msg = JSON.parse(line) } catch { continue }
+    if (msg.type === 'control_request') {
+      const id = msg.request_id
+      const subtype = msg.request && msg.request.subtype
+      if (subtype === 'initialize') {
+        process.stdout.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: id, response: {} } }) + '\\n')
+        process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\\n')
+      } else if (subtype === 'interrupt') {
+        process.stdout.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: id, response: {} } }) + '\\n')
+      } else {
+        process.stdout.write(JSON.stringify({ type: 'control_response', response: { subtype: 'error', request_id: id, error: 'unsupported' } }) + '\\n')
+      }
+    } else if (msg.type === 'user') {
+      openTurns += 1
+    }
+  }
+})
+setInterval(() => {
+  if (openTurns > 0 && fs.existsSync(COMPLETE)) {
+    while (openTurns > 0) {
+      openTurns -= 1
+      process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', result: 'survived' }) + '\\n')
+    }
+  }
+}, 100)
+setInterval(() => {}, 60_000)
+`
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\\\''")}'`
 }
@@ -339,12 +403,14 @@ beforeAll(() => {
     'GEN1_INCARNATIONS_CODEX',
     'GEN1_INCARNATIONS_OPENCODE',
     'GEN1_INCARNATIONS_GROK',
+    'GEN1_INCARNATIONS_CLAUDE',
   ]) {
     savedEnv[key] = process.env[key]
   }
   installStub('codex', STUB_CODEX)
   installStub('opencode', STUB_OPENCODE)
   installStub('grok', STUB_GROK)
+  installStub('claude', STUB_CLAUDE)
   hostSockets = shortSockRoot('pod-4433-sv-')
   xdgRuntime = shortSockRoot('pod-4433-xr-')
   process.env.PATH = `${binDir}:${savedEnv.PATH ?? ''}`
@@ -360,6 +426,7 @@ beforeAll(() => {
   process.env.GEN1_INCARNATIONS_CODEX = join(root, 'incarnations-codex.txt')
   process.env.GEN1_INCARNATIONS_OPENCODE = join(root, 'incarnations-opencode.txt')
   process.env.GEN1_INCARNATIONS_GROK = join(root, 'incarnations-grok.txt')
+  process.env.GEN1_INCARNATIONS_CLAUDE = join(root, 'incarnations-claude.txt')
 })
 
 afterAll(() => {
@@ -374,7 +441,7 @@ afterAll(() => {
 })
 
 describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
-  it('leaves codex and opencode running, rebinds every driver, and completes the in-flight codex turn', async () => {
+  it('leaves every engine running, rebinds every driver, and completes turns on the survivors', async () => {
     const completeFile = join(root, 'complete-turn')
     const gen1Env = {
       ...process.env,
@@ -387,10 +454,10 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       env: gen1Env,
       stdio: ['ignore', 'pipe', errFd],
     })
-    const bindings: Partial<Record<'codex' | 'opencode' | 'grok', SessionBinding>> = {}
+    const bindings: Partial<Record<'codex' | 'opencode' | 'grok' | 'claude', SessionBinding>> = {}
     try {
-      // Generation 1 boots three engines and three live sessions. Slow on a
-      // loaded box: host build, three version probes, three launches.
+      // Generation 1 boots four engines and four live sessions. Slow on a
+      // loaded box: host build, version probes, launches.
       let output = ''
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`gen1 never became ready: ${output}`)), 150_000)
@@ -398,14 +465,14 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         gen1?.stdout?.on('data', (chunk: Buffer) => {
           output += chunk.toString('utf8')
           for (const line of output.split('\n')) {
-            const match = /^READY (codex|opencode|grok) (\{.*\})$/.exec(line.trim())
+            const match = /^READY (codex|opencode|grok|claude) (\{.*\})$/.exec(line.trim())
             if (match?.[1] && match[2]) {
-              bindings[match[1] as 'codex' | 'opencode' | 'grok'] = JSON.parse(
+              bindings[match[1] as 'codex' | 'opencode' | 'grok' | 'claude'] = JSON.parse(
                 match[2],
               ) as SessionBinding
             }
           }
-          if (bindings.codex && bindings.opencode && bindings.grok) {
+          if (bindings.codex && bindings.opencode && bindings.grok && bindings.claude) {
             clearTimeout(timer)
             resolve()
           }
@@ -420,12 +487,15 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       const codexBinding = bindings.codex as SessionBinding
       const opencodeBinding = bindings.opencode as SessionBinding
       const grokBinding = bindings.grok as SessionBinding
+      const claudeBinding = bindings.claude as SessionBinding
       const codexPid = codexBinding.process.pid as number
       const opencodePid = opencodeBinding.process.pid as number
       const grokPid = grokBinding.process.pid as number
+      const claudePid = claudeBinding.process.pid as number
       expect(codexPid).toBeGreaterThan(0)
       expect(opencodePid).toBeGreaterThan(0)
       expect(grokPid).toBeGreaterThan(0)
+      expect(claudePid).toBeGreaterThan(0)
 
       // THE RESTART: SIGKILL the whole daemon generation. Podium-hosts own the
       // engines, so they stay; sockets close with us, freeing the leases.
@@ -526,14 +596,65 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       expect(adoptedGrok.binding.process.pid).toBe(grokPid)
       expect(incarnations('grok')).toEqual([String(grokPid)])
 
+      // CLAUDE: the stream engine re-attaches to the survivor by journal; the
+      // turn sent after adopt completes on the same child — same pid, one
+      // incarnation line, no fresh `claude`.
+      const claudeHost = createClaudeEngineHost({
+        facts: claudeFacts,
+        supervision: supervisionFor(durable),
+        journal: createEngineJournal<ClaudeEngineJournalEntry>({ namespace: claudeFacts.journalNamespace }),
+        buildEnv: composeEngineEnv,
+        gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+      })
+      const claudeRuntime = createClaudeSdkSessionRuntime({
+        send: () => {},
+        emitBind: () => {},
+        sessionReady: () => {},
+        traceRuntimeEvent: () => {},
+        startMailContinuation: () => () => {},
+        facts: claudeFacts,
+        engine: claudeHost,
+        transcript: {
+          readHistory: async () => ({ items: [], hasMore: false }),
+          archiveTranscript: async () => {
+            throw new Error('no archive in the survival probe')
+          },
+          readFileBytes: async () => new Uint8Array(),
+        },
+      })
+      const adoptedClaude = await claudeRuntime.adoptFromJournal(claudeBinding.sessionId)
+      expect(adoptedClaude?.binding.process.pid).toBe(claudePid)
+      expect(incarnations('claude')).toEqual([String(claudePid)])
+      if (!adoptedClaude) throw new Error('claude adoptFromJournal answered undefined')
+      const claudeCollected: RuntimeEvent[] = []
+      void (async () => {
+        try {
+          for await (const event of adoptedClaude.events('bootstrap')) claudeCollected.push(event)
+        } catch {
+          // the stream ends with the session
+        }
+      })()
+      await adoptedClaude.send({ id: 'claude-second', text: 'second turn' }, { origin: 'human', delivery: 'when-ready' })
+      await waitFor(
+        () =>
+          claudeCollected.some(
+            (event) => event.t === 'turn' && event.ev.ev === 'completed',
+          ),
+        'the claude turn to complete on the adopted engine',
+        30_000,
+      )
+      expect(await adoptedClaude.state().then((state) => state.phase)).toBe('idle')
+
       // Cleanup owns every engine by label, whatever generation holds it now.
       const killer = createDurableProcess('host', { host: true, abduco: false })
       await killer.kill(codexScopeLabel(codexFacts, codexBinding.sessionId))
       await killer.kill(opencodeScopeLabel(flavor, opencodeBinding.sessionId))
       await killer.kill(grokAcpProcessKey(grokFacts, grokBinding.sessionId))
+      await killer.kill(claudeEngineProcessKey(claudeFacts, claudeBinding.sessionId))
       codexRuntime.dispose()
       opencodeRuntime.dispose()
       grokRuntime.dispose()
+      claudeRuntime.dispose()
     } finally {
       try {
         gen1?.kill('SIGKILL')
