@@ -244,6 +244,26 @@ describe('mobx arm: indexes', () => {
     expect(world.store.membersOf('A')).toEqual([])
   })
 
+  it('re-resolves unbound sessions when an issue gains a worktreePath (R3)', () => {
+    const world = testWorld([
+      rec('issue', 'A', issue({ id: 'A' })),
+      rec(
+        'session',
+        's',
+        session({ sessionId: 's', cwd: '/w/alpha/sub', agentState: workingState }),
+      ),
+      rec('worktree', '/w/alpha', { path: '/w/alpha', repoId: 'r1', repoPath: '/repo', repoName: 'repo', prefix: 'POD' }),
+    ])
+    expect(world.store.membersOf('A')).toEqual([])
+    world.store.stats.reset()
+    world.push({
+      type: 'update',
+      rows: [rec('issue', 'A', issue({ id: 'A', worktreePath: '/w/alpha' }))],
+    })
+    expect(world.store.membersOf('A').map((s) => s.sessionId)).toEqual(['s'])
+    expect(world.store.stats.indexUpdates).toBeGreaterThan(0)
+  })
+
   it('re-buckets children on parent moves, orphans surface as roots', () => {
     const world = exampleWorld()
     world.push({
