@@ -1,0 +1,689 @@
+diff --git a/packages/worklist-proto/arms/hand/deltas.ts b/packages/worklist-proto/arms/hand/deltas.ts
+index ef5bc2203..e013c535b 100644
+--- a/packages/worklist-proto/arms/hand/deltas.ts
++++ b/packages/worklist-proto/arms/hand/deltas.ts
+@@ -95,6 +95,8 @@ export type ScanName =
+   | 'index-resolve'
+   /** Group-member visits refreshing rows after a lane change. */
+   | 'rows-group'
++  /** K1-C2: lane-row visits refreshing all lanes after an epoch move. */
++  | 'lane-refresh'
+   /** Order/group visits assembling a snapshot read. */
+   | 'order-snapshot'
+ 
+diff --git a/packages/worklist-proto/arms/hand/groups.ts b/packages/worklist-proto/arms/hand/groups.ts
+index 0a146c421..c6345105c 100644
+--- a/packages/worklist-proto/arms/hand/groups.ts
++++ b/packages/worklist-proto/arms/hand/groups.ts
+@@ -11,7 +11,7 @@ import { closedFoldAt, groupKeyOf, groupLabelOf, inClosedFold } from './rules'
+ import type { OrderModule } from './order'
+ import type { RollupModule } from './rollup'
+ import type { SummaryModule } from './summary'
+-import type { IssueTable } from './tables'
++import type { IssueTable, WorktreeTable } from './tables'
+ 
+ export type Lane = 'pinned' | 'open' | 'closed'
+ 
+@@ -38,7 +38,7 @@ export class GroupsModule {
+   readonly graceSensitive = new Set<string>()
+ 
+   constructor(
+-    private readonly tables: { issues: IssueTable },
++    private readonly tables: { issues: IssueTable; worktrees: WorktreeTable },
+     private readonly summary: SummaryModule,
+     private readonly rollup: RollupModule,
+     private readonly order: OrderModule,
+@@ -63,6 +63,14 @@ export class GroupsModule {
+   }
+ 
+   private laneOf(issueId: string): { groupKey: string; lane: Lane } | null {
++    // K1-C2: lane rows sit in the open lane of their repo group, never
++    // pinned, never folded (closedOf already reads false without an issue).
++    if (!this.tables.issues.rows.has(issueId)) {
++      const lane = this.tables.worktrees.rows.get(issueId)
++      if (lane === undefined) return null
++      this.graceSensitive.delete(issueId)
++      return { groupKey: lane.repoId ?? lane.path, lane: 'open' }
++    }
+     const issue = this.tables.issues.rows.get(issueId)
+     if (issue === undefined) return null
+     if (issue.stage === 'done' || issue.closedReason != null) this.graceSensitive.add(issueId)
+@@ -161,8 +169,10 @@ export class GroupsModule {
+       }
+       let bucket = buckets.get(place.groupKey)
+       if (bucket === undefined) {
++        // K1-C2: a lane founding a group labels it with its repo name.
++        const lane = this.tables.worktrees.rows.get(id)
+         const issue = issues.get(id) as SliceIssue
+-        bucket = { label: groupLabelOf(issue), open: [], closed: [] }
++        bucket = { label: lane !== undefined ? lane.repoName : groupLabelOf(issue), open: [], closed: [] }
+         buckets.set(place.groupKey, bucket)
+       }
+       if (place.lane === 'closed') bucket.closed.push(id)
+diff --git a/packages/worklist-proto/arms/hand/indexes.ts b/packages/worklist-proto/arms/hand/indexes.ts
+index ad35b9410..2be9f974d 100644
+--- a/packages/worklist-proto/arms/hand/indexes.ts
++++ b/packages/worklist-proto/arms/hand/indexes.ts
+@@ -44,6 +44,15 @@ export class IndexSet {
+   /** Honest bucket-write counter, wired by the store. */
+   stats: DerivationStats = nullStats
+ 
++  /**
++   * K1-C2 lane epoch: bumped whenever lane-row inputs move (an issue's
++   * worktree seat, an unbound session's resolve seat, a lane add/remove).
++   * Derived modules cache the epoch and refresh all lane rows on mismatch —
++   * O(lanes) but only on lane-affecting events (heartbeats on bound sessions
++   * never bump). No new delta kind: lanes reuse the epoch, issues keep deltas.
++   */
++  laneEpoch = 0
++
+   constructor(private readonly tables: IndexTables) {}
+   /** R1: live child ids by parent id (parent may be archived/missing). */
+   readonly childrenByParent = new Map<string, Set<string>>()
+@@ -58,6 +67,13 @@ export class IndexSet {
+   private readonly sessionHome = new Map<string, { explicit: string | null; resolved: string | null }>()
+   /** R3 targets: live issues with a worktreePath, by path. */
+   private readonly issuesByWorktree = new Map<string, Set<string>>()
++  /**
++   * K1-C2: unbound session ids by resolve root (lane or issue path). Lane
++   * rows read their lane's bucket; issue seat takes/drops re-seat the
++   * sessions at their root without scanning sessionHome (the issueSeats
++   * precedent — moving a seat never scans the map for the old bucket).
++   */
++  readonly sessionsByRoot = new Map<string, Set<string>>()
+   /** R3 roots: lane paths + issue worktree paths. */
+   private roots = new Set<string>()
+   /** R4: origin issue id per issue. */
+@@ -112,9 +128,36 @@ export class IndexSet {
+         ? issue.worktreePath
+         : null
+     if ((seats?.worktree ?? null) !== nextWorktree) {
+-      if (seats?.worktree != null) this.dropSeat(this.issuesByWorktree, seats.worktree, id)
+-      if (nextWorktree !== null) this.takeSeat(this.issuesByWorktree, nextWorktree, id)
++      if (seats?.worktree != null) {
++        this.dropSeat(this.issuesByWorktree, seats.worktree, id)
++        // K1-C2 fix (latent R3 gap, oracle-caught): sessions already
++        // resolving at the old root keep their seats without this —
++        // resolveAllUnbound below only moves sessions whose ROOT changed.
++        // Drop this issue's buckets directly (idempotent with the loop).
++        for (const sid of this.sessionsByRoot.get(seats.worktree) ?? []) {
++          if (this.dropSeat(this.resolvedByIssue, id, sid)) {
++            out.push({ kind: 'MembershipChanged', issueId: id })
++          }
++        }
++      }
++      if (nextWorktree !== null) {
++        this.takeSeat(this.issuesByWorktree, nextWorktree, id)
++        // Same-root attach for the new seat: sessions waiting at this root
++        // join the issue now, not on their next move.
++        for (const sid of this.sessionsByRoot.get(nextWorktree) ?? []) {
++          if (this.takeSeat(this.resolvedByIssue, id, sid)) {
++            out.push({ kind: 'MembershipChanged', issueId: id })
++          }
++        }
++      }
+       this.rebuildRoots()
++      // K1-C2: bump only when a lane row could move (old/new seat is a lane).
++      if (
++        (seats?.worktree != null && this.lanePaths.has(seats.worktree)) ||
++        (nextWorktree !== null && this.lanePaths.has(nextWorktree))
++      ) {
++        this.laneEpoch += 1
++      }
+       out.push(...this.resolveAllUnbound((sid) => this.tables.sessions.rows.get(sid)))
+     }
+     // Repo seat (prefix fan-out), same prev-seat diff.
+@@ -241,9 +284,17 @@ export class IndexSet {
+             }
+           }
+         }
++        // K1-C2: unbound resolve seat moved — root buckets + epoch follow
++        // (epoch only when a lane bucket moved; issue-path moves are
++        // lane-silent).
++        if (this.syncRootBucket(id, prevResolved, resolved)) this.laneEpoch += 1
+         this.sessionHome.set(id, { explicit: nextExplicit, resolved })
+       } else {
+         this.sessionHome.set(id, { explicit: nextExplicit, resolved: prevResolved })
++        // K1-C2: unbound content changed (phase, activity) with the seat
++        // fixed — lane aggregates still read it, so bump when seated at a
++        // lane. (Lane activity is dead data by design; asking/phase are not.)
++        if (prevResolved !== null && this.lanePaths.has(prevResolved)) this.laneEpoch += 1
+       }
+     } else {
+       if (prevResolved !== null) {
+@@ -253,8 +304,21 @@ export class IndexSet {
+           }
+         }
+       }
+-      if (session === undefined) this.sessionHome.delete(id)
+-      else this.sessionHome.set(id, { explicit: nextExplicit, resolved: null })
++      if (session === undefined) {
++        // K1-C2: removal drops the root bucket when the row was unbound;
++        // epoch follows only out of a lane.
++        if (prev !== undefined && (prev.explicit === null || prev.resolved !== null)) {
++          if (this.syncRootBucket(id, prev.resolved, null)) this.laneEpoch += 1
++        }
++        this.sessionHome.delete(id)
++      } else {
++        // K1-C2: bound↔unbound flip moves lane inputs even at a fixed seat
++        // (a brand-new bound session seats nothing lane-side: no bump).
++        if (prev !== undefined && (prev.explicit === null || nextExplicit === null)) {
++          if (this.syncRootBucket(id, prevResolved, null)) this.laneEpoch += 1
++        }
++        this.sessionHome.set(id, { explicit: nextExplicit, resolved: null })
++      }
+     }
+     return out
+   }
+@@ -277,7 +341,6 @@ export class IndexSet {
+     this.stats.index()
+     return true
+   }
+-
+   private dropSeat(map: Map<string, Set<string>>, key: string, id: string): boolean {
+     const bucket = map.get(key)
+     if (bucket === undefined || !bucket.delete(id)) return false
+@@ -286,6 +349,39 @@ export class IndexSet {
+     return true
+   }
+ 
++  /**
++   * K1-C2: move one unbound session between root buckets. Returns whether a
++   * lane bucket moved (the lane-epoch signal — issue-path moves are
++   * lane-silent). Callers bump the epoch on true, plus on unbound content
++   * changes seated at a lane (lane aggregates read phase/activity).
++   */
++  private syncRootBucket(sessionId: string, prev: string | null, next: string | null): boolean {
++    if (prev !== null) this.dropSeat(this.sessionsByRoot, prev, sessionId)
++    if (next !== null) this.takeSeat(this.sessionsByRoot, next, sessionId)
++    // Lane buckets moved iff the seat changed and a lane is either side
++    // (lane→lane moves change TWO lane rows — the first version compared
++    // lane-ness for equality and went silent here; the oracle caught it).
++    return (
++      prev !== next &&
++      ((prev !== null && this.lanePaths.has(prev)) || (next !== null && this.lanePaths.has(next)))
++    )
++  }
++
++  /** K1-C2: lane paths (worktree row ids double as lane keys). */
++  lanes(): Iterable<string> {
++    return this.lanePaths.keys()
++  }
++
++  /** K1-C2: unbound session ids resolving to a lane. */
++  laneSessions(path: string): Set<string> {
++    return this.sessionsByRoot.get(path) ?? new Set()
++  }
++
++  /** K1-C2: live issues seated at a path (non-zero covers the lane row). */
++  coveringIssues(path: string): number {
++    return this.issuesByWorktree.get(path)?.size ?? 0
++  }
++
+   /** Re-resolve every unbound session (lane / worktree-path change). */
+   resolveAllUnbound(getSession: (id: string) => SliceSession | undefined): Delta[] {
+     const out: Delta[] = []
+@@ -299,6 +395,8 @@ export class IndexSet {
+           ? this.resolveCwd(session.cwd)
+           : null
+       if (resolved === home.resolved) continue
++      // K1-C2: a re-resolve moves root buckets when a lane is either side.
++      if (this.syncRootBucket(id, home.resolved, resolved)) this.laneEpoch += 1
+       if (home.resolved !== null) {
+         for (const issueId of this.issuesByWorktree.get(home.resolved) ?? []) {
+           if (this.dropSeat(this.resolvedByIssue, issueId, id)) {
+@@ -365,9 +463,14 @@ export class IndexSet {
+   private ingestWorktree(id: string): Delta[] {
+     const lane = this.tables.worktrees.rows.get(id)
+     const out: Delta[] = []
+-    if (lane === undefined) this.lanePaths.delete(id)
+-    else this.lanePaths.add(id)
++    if (lane === undefined) {
++      this.lanePaths.delete(id)
++      // K1-C2: dropping a lane drops its bucket (else ghosts seat rows).
++      if (this.sessionsByRoot.delete(id)) this.stats.index()
++    } else this.lanePaths.add(id)
+     this.rebuildRoots()
++    // K1-C2: the lane set moved — lane rows refresh by epoch.
++    this.laneEpoch += 1
+     const repoId = lane?.repoId ?? null
+     if (repoId !== null) {
+       const prefix = lane?.prefix ?? null
+@@ -422,6 +525,7 @@ export class IndexSet {
+     this.issuesByRepo.clear()
+     this.issueSeats.clear()
+     this.lanePaths.clear()
++    this.sessionsByRoot.clear()
+     for (const path of lanes) {
+       this.lanePaths.add(path)
+       const info = laneInfo(path)
+@@ -504,6 +608,15 @@ export class IndexSet {
+             }
+             bucket.add(id)
+           }
++          // K1-C2: cold-path root bucket seat (bulk build, no deltas).
++          if (resolved !== null) {
++            let bucket = this.sessionsByRoot.get(resolved)
++            if (bucket === undefined) {
++              bucket = new Set()
++              this.sessionsByRoot.set(resolved, bucket)
++            }
++            bucket.add(id)
++          }
+         }
+       }
+     }
+diff --git a/packages/worklist-proto/arms/hand/order.ts b/packages/worklist-proto/arms/hand/order.ts
+index 1bcb4d731..62bccf738 100644
+--- a/packages/worklist-proto/arms/hand/order.ts
++++ b/packages/worklist-proto/arms/hand/order.ts
+@@ -8,7 +8,7 @@ import { assertNever, nullStats, type Delta, type DerivationStats } from './delt
+ import type { IndexSet } from './indexes'
+ import { compareRank } from './rules'
+ import type { SummaryModule } from './summary'
+-import type { IssueTable } from './tables'
++import type { IssueTable, WorktreeTable } from './tables'
+ import type { VisibleModule } from './visible'
+ 
+ interface RankKey {
+@@ -31,7 +31,7 @@ export class OrderModule {
+   private readonly ranks = new Map<string, RankKey>()
+ 
+   constructor(
+-    private readonly tables: { issues: IssueTable },
++    private readonly tables: { issues: IssueTable; worktrees: WorktreeTable },
+     private readonly indexes: IndexSet,
+     private readonly summary: SummaryModule,
+     private readonly visible: VisibleModule,
+@@ -47,6 +47,13 @@ export class OrderModule {
+   }
+ 
+   private rankOf(id: string): RankKey | null {
++    // K1-C2: lane rows rank a fixed band-1 seat with no manual key and no
++    // creation stamp (createdAt '' sorts them after every real row in-band —
++    // exercise-grade ordering, noted, not defended).
++    if (!this.tables.issues.rows.has(id)) {
++      if (!this.tables.worktrees.rows.has(id)) return null
++      return { band: 1, sortKey: null, createdAt: '', seq: 0, id }
++    }
+     const issue = this.tables.issues.rows.get(id)
+     if (issue === undefined) return null
+     const summary = this.summary.summaries.get(id)
+diff --git a/packages/worklist-proto/arms/hand/rollup.ts b/packages/worklist-proto/arms/hand/rollup.ts
+index 4d9ef7d10..4081ac149 100644
+--- a/packages/worklist-proto/arms/hand/rollup.ts
++++ b/packages/worklist-proto/arms/hand/rollup.ts
+@@ -21,10 +21,11 @@ import {
+   openSession,
+   parseMs,
+   preferredTip,
++  sessionLive,
+   spinOffOriginId,
+ } from './rules'
+ import { splitMembers, type SummaryModule } from './summary'
+-import type { IssueTable, SessionTable } from './tables'
++import type { IssueTable, SessionTable, WorktreeTable } from './tables'
+ import type { VisibleModule } from './visible'
+ 
+ export interface RollupValue {
+@@ -77,7 +78,7 @@ export class RollupModule {
+   >
+ 
+   constructor(
+-    private readonly tables: { issues: IssueTable; sessions: SessionTable },
++    private readonly tables: { issues: IssueTable; sessions: SessionTable; worktrees: WorktreeTable },
+     private readonly indexes: IndexSet,
+     private readonly summary: SummaryModule,
+     private readonly visible: VisibleModule,
+@@ -85,6 +86,9 @@ export class RollupModule {
+     private readonly stats: DerivationStats = nullStats,
+   ) {}
+ 
++  /** K1-C2: last lane epoch consumed. */
++  private seenLaneEpoch = -1
++
+   // ---------------------------------------------------------- seat maintenance
+ 
+   /**
+@@ -422,7 +426,13 @@ export class RollupModule {
+ 
+   compute(issueId: string): RollupValue | null {
+     const root = this.tables.issues.rows.get(issueId)
+-    if (root === undefined || !this.visible.isVisible(issueId)) return null
++    // K1-C2: lane rows aggregate their unbound sessions (no subtree, no
++    // decisions, no progress units — a lane is a session bag, not a mission).
++    if (root === undefined) {
++      if (!this.tables.worktrees.rows.has(issueId)) return null
++      return this.computeLane(issueId)
++    }
++    if (!this.visible.isVisible(issueId)) return null
+     this.stats.aggregates()
+     const members = this.visibleSubtree(issueId)
+     const ownByMember = new Map<string, SliceSession[]>()
+@@ -477,6 +487,34 @@ export class RollupModule {
+     }
+   }
+ 
++  /**
++   * K1-C2 lane aggregate: phase/working/asking over the lane's live unbound
++   * sessions. No pending decisions (lanes hold none), no subtree, no
++   * progress units. Offer-only waiting counts — there is no decision to
++   * dedup it against.
++   */
++  private computeLane(path: string): RollupValue | null {
++    if (!this.visible.isVisible(path)) return null
++    this.stats.aggregates()
++    const now = this.getNow()
++    const sessions = this.summary
++      .laneMembersOf(path)
++      .filter((s) => sessionLive(s, now, undefined))
++    const kinds = sessions.map((s) => motionPhase(s, undefined))
++    let phase: RollupValue['phase']
++    if (kinds.includes('waiting')) phase = 'waiting'
++    else if (kinds.includes('working')) phase = 'working'
++    else if (kinds.length > 0 && kinds.every((k) => k === 'done')) phase = 'done'
++    else phase = 'queued'
++    return {
++      phase,
++      working: sessions.some(isSessionWorking),
++      asking: sessions.some((s) => motionPhase(s, undefined) === 'waiting'),
++      progressDone: 0,
++      progressTotal: 0,
++    }
++  }
++
+   tickOf(issueId: string): OriginTick | null {
+     const issue = this.tables.issues.rows.get(issueId)
+     if (issue === undefined) return null
+@@ -583,6 +621,26 @@ export class RollupModule {
+     {
+       const seeds = new Set<string>()
+       const chains = new Set<string>()
++      // K1-C2: lane epoch — refresh every lane; drop aggregates for rows
++      // that are neither issues nor lanes anymore (removed lanes unmount
++      // through the RollupChanged below, picked up by rows).
++      if (this.seenLaneEpoch !== this.indexes.laneEpoch) {
++        this.seenLaneEpoch = this.indexes.laneEpoch
++        const lanes = new Set<string>(this.indexes.lanes())
++        let visits = 0
++        for (const id of this.aggregates.keys()) {
++          if (!this.tables.issues.rows.has(id) && !lanes.has(id)) {
++            this.aggregates.delete(id)
++            this.ticks.delete(id)
++            out.push({ kind: 'RollupChanged', id })
++          }
++        }
++        for (const lane of lanes) {
++          visits += 1
++          this.refresh(lane, out)
++        }
++        this.stats.scan('lane-refresh', visits)
++      }
+       for (const delta of batch) {
+         switch (delta.kind) {
+           case 'MembershipChanged':
+@@ -646,6 +704,7 @@ export class RollupModule {
+     this.aggregates.clear()
+     this.ticks.clear()
+     this.buildSeats()
++    this.seenLaneEpoch = this.indexes.laneEpoch
+     for (const id of this.visible.orderedIds()) {
+       const next = this.compute(id)
+       if (next !== null) {
+diff --git a/packages/worklist-proto/arms/hand/summary.ts b/packages/worklist-proto/arms/hand/summary.ts
+index ca73512cd..88f5b20e6 100644
+--- a/packages/worklist-proto/arms/hand/summary.ts
++++ b/packages/worklist-proto/arms/hand/summary.ts
+@@ -18,7 +18,7 @@ import {
+   sessionRetains,
+   structurallyExcluded,
+ } from './rules'
+-import type { IssueTable, SessionTable } from './tables'
++import type { IssueTable, SessionTable, WorktreeTable } from './tables'
+ 
+ export interface OwnSummary {
+   activityAt: number
+@@ -31,6 +31,7 @@ export interface OwnSummary {
+ export interface SummaryTables {
+   issues: IssueTable
+   sessions: SessionTable
++  worktrees: WorktreeTable
+ }
+ 
+ export class SummaryModule {
+@@ -38,6 +39,8 @@ export class SummaryModule {
+   readonly summaries = new Map<string, OwnSummary>()
+   /** Rows whose band can move with the coarse clock (deferUntil carriers). */
+   readonly timeSensitive = new Set<string>()
++  /** K1-C2: last lane epoch consumed (lane rows refresh by epoch, not delta). */
++  private seenLaneEpoch = -1
+ 
+   constructor(
+     private readonly tables: SummaryTables,
+@@ -85,6 +88,54 @@ export class SummaryModule {
+     }
+   }
+ 
++  /**
++   * K1-C2 worktree-row summary. Unbound sessions resolving to a lane, shells
++   * and archived excluded (same read as membersOf). activityAt is dead data
++   * (0): lane rows sort by a fixed rank, so session heartbeats must not move
++   * the summary — only seat changes (epoch) refresh lanes. displayRef/title
++   * are exercise-grade presentation choices (lanes have no seq).
++   */
++  laneMembersOf(path: string): SliceSession[] {
++    const out: SliceSession[] = []
++    for (const sid of this.indexes.laneSessions(path)) {
++      const session = this.tables.sessions.rows.get(sid)
++      if (session !== undefined && session.agentKind !== 'shell' && !session.archived) {
++        out.push(session)
++      }
++    }
++    return out
++  }
++
++  computeLane(path: string): OwnSummary | null {
++    const lane = this.tables.worktrees.rows.get(path)
++    if (lane === undefined) return null
++    this.stats.summaries()
++    return {
++      activityAt: 0,
++      displayRef: lane.prefix ?? path.split('/').pop() ?? path,
++      title: lane.repoName,
++      band: 1,
++      repoKey: lane.repoId ?? path,
++    }
++  }
++
++  /** Recompute one lane row; emit SummaryChanged iff the value moved. */
++  refreshLane(path: string, out: Delta[]): void {
++    const next = this.computeLane(path)
++    const prev = this.summaries.get(path)
++    if (next === null) {
++      if (prev !== undefined) {
++        this.summaries.delete(path)
++        out.push({ kind: 'SummaryChanged', id: path })
++      }
++      return
++    }
++    if (prev === undefined || JSON.stringify(prev) !== JSON.stringify(next)) {
++      this.summaries.set(path, next)
++      out.push({ kind: 'SummaryChanged', id: path })
++    }
++  }
++
+   /** Recompute one issue; emit SummaryChanged iff the committed value moved. */
+   refresh(issueId: string, out: Delta[]): void {
+     const next = this.compute(issueId)
+@@ -147,6 +198,17 @@ export class SummaryModule {
+       }
+     }
+     for (const issueId of dirty) this.refresh(issueId, out)
++    // K1-C2: lane rows refresh by epoch — every lane-affecting event (seat
++    // move, lane add/remove, unbound content change) bumps it in indexes.
++    if (this.seenLaneEpoch !== this.indexes.laneEpoch) {
++      this.seenLaneEpoch = this.indexes.laneEpoch
++      const candidates = new Set<string>(this.indexes.lanes())
++      for (const id of this.summaries.keys()) {
++        if (!this.tables.issues.rows.has(id)) candidates.add(id)
++      }
++      this.stats.scan('lane-refresh', candidates.size)
++      for (const lane of candidates) this.refreshLane(lane, out)
++    }
+     return out
+   }
+ 
+@@ -163,6 +225,12 @@ export class SummaryModule {
+       const next = this.compute(id)
+       if (next !== null) this.summaries.set(id, next)
+     }
++    // K1-C2: lane summaries join the full derive; the epoch cursor follows.
++    for (const lane of this.indexes.lanes()) {
++      const next = this.computeLane(lane)
++      if (next !== null) this.summaries.set(lane, next)
++    }
++    this.seenLaneEpoch = this.indexes.laneEpoch
+   }
+ }
+ 
+diff --git a/packages/worklist-proto/arms/hand/visible.ts b/packages/worklist-proto/arms/hand/visible.ts
+index 2eb5411a8..9db6bfa45 100644
+--- a/packages/worklist-proto/arms/hand/visible.ts
++++ b/packages/worklist-proto/arms/hand/visible.ts
+@@ -8,9 +8,9 @@
+ import type { SliceIssue } from '../../shared/src/slice-types'
+ import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
+ import type { IndexSet } from './indexes'
+-import { derivedUnread, rescueEligible, sessionlessKept, structurallyExcluded } from './rules'
++import { derivedUnread, rescueEligible, sessionlessKept, sessionRetains, structurallyExcluded } from './rules'
+ import { splitMembers, type SummaryModule } from './summary'
+-import type { IssueTable } from './tables'
++import type { IssueTable, WorktreeTable } from './tables'
+ export class VisibleModule {
+   /** All visible rows (flat + rescue). The comparison surface for rollup. */
+   readonly visible = new Set<string>()
+@@ -34,13 +34,16 @@ export class VisibleModule {
+   private flipSink: ((id: string) => void) | null = null
+ 
+   constructor(
+-    private readonly tables: { issues: IssueTable },
++    private readonly tables: { issues: IssueTable; worktrees: WorktreeTable },
+     private readonly indexes: IndexSet,
+     private readonly summary: SummaryModule,
+     private readonly getNow: () => number,
+     private readonly stats: DerivationStats = nullStats,
+   ) {}
+ 
++  /** K1-C2: last lane epoch consumed. */
++  private seenLaneEpoch = -1
++
+   isVisible(id: string): boolean {
+     return this.visible.has(id)
+   }
+@@ -51,6 +54,11 @@ export class VisibleModule {
+ 
+   /** Flat-pass predicate (rows.ts:62-118). */
+   evaluateFlat(issueId: string): boolean {
++    // K1-C2: lane paths share the flat set (they can never collide with
++    // issue ids — issues are `i<N>`, lanes are `/`-paths).
++    if (!this.tables.issues.rows.has(issueId)) {
++      return this.tables.worktrees.rows.has(issueId) ? this.evaluateLane(issueId) : false
++    }
+     const issue = this.tables.issues.rows.get(issueId)
+     if (issue === undefined) return false
+     this.stats.visibility()
+@@ -63,6 +71,22 @@ export class VisibleModule {
+     return sessionlessKept(issue, now, unread)
+   }
+ 
++  /**
++   * K1-C2 lane membership: a lane with ≥1 retained unbound session and no
++   * live issue seated at its path. Coverage wins — the issue row carries
++   * those sessions once an issue claims the path.
++   */
++  evaluateLane(path: string): boolean {
++    if (!this.tables.worktrees.rows.has(path)) return false
++    this.stats.visibility()
++    if (this.indexes.coveringIssues(path) > 0) return false
++    const now = this.getNow()
++    const members = this.summary.laneMembersOf(path)
++    // No owning issue: retention reads session clocks only (undefined issue
++    // = unfinished, so idle-done sessions without anchors still retain).
++    return members.filter((s) => sessionRetains(s, now, undefined)).length > 0
++  }
++
+   /** Ancestor chain for rescue (rows.ts:131-158 walk). */
+   private chainOf(issueId: string): string[] {
+     const issues = this.tables.issues.rows
+@@ -287,7 +311,33 @@ export class VisibleModule {
+     else this.decaySensitive.delete(issueId)
+   }
+ 
++  /**
++   * K1-C2 lane flat refresh: membership only, no chains. Lane rows decay
++   * through the shared decaySensitive set (any member with a stop anchor can
++   * age the row out on a tick).
++   */
++  private refreshLaneFlat(path: string, out: Delta[]): void {
++    const next = this.evaluateLane(path)
++    const prev = this.flat.has(path)
++    if (next && !prev) {
++      this.flat.add(path)
++      this.rescue.delete(path)
++    } else if (!next && prev) {
++      this.flat.delete(path)
++    }
++    const sensitive = this.summary.laneMembersOf(path).some((s) => s.stoppedAt != null)
++    if (next && sensitive) this.decaySensitive.add(path)
++    else this.decaySensitive.delete(path)
++    this.reconcile(path, out)
++  }
++
+   private refreshFlat(issueId: string, out: Delta[]): void {
++    // K1-C2: lane rows take the lane path (no rescue chains — lanes neither
++    // keep ancestors nor nest; recheckAgent/rescue treat them as inert).
++    if (!this.tables.issues.rows.has(issueId) && this.tables.worktrees.rows.has(issueId)) {
++      this.refreshLaneFlat(issueId, out)
++      return
++    }
+     const issue = this.tables.issues.rows.get(issueId)
+     // Missing or structurally excluded rows can never be flat-visible: drop
+     // without evaluating the predicate (an unrelated heartbeat on an
+@@ -362,6 +412,17 @@ export class VisibleModule {
+       }
+     }
+     for (const issueId of flats) this.refreshFlat(issueId, out)
++    // K1-C2: lane epoch — refresh every lane plus flat entries that are no
++    // longer issues (removed lanes purge through the issue path).
++    if (this.seenLaneEpoch !== this.indexes.laneEpoch) {
++      this.seenLaneEpoch = this.indexes.laneEpoch
++      const lanes = new Set<string>(this.indexes.lanes())
++      for (const id of this.flat) {
++        if (!this.tables.issues.rows.has(id)) lanes.add(id)
++      }
++      this.stats.scan('lane-refresh', lanes.size)
++      for (const lane of lanes) this.refreshFlat(lane, out)
++    }
+     // Re-sync chains whose ancestry or ancestor eligibility may have moved:
+     // moved subtrees plus subtrees under changed issues. Sync is flip-free.
+     const synced = new Set<string>()
+@@ -425,11 +486,19 @@ export class VisibleModule {
+     this.keptBy.clear()
+     this.chains.clear()
+     this.decaySensitive.clear()
++    this.seenLaneEpoch = this.indexes.laneEpoch
+     const issues = this.tables.issues.rows
+     for (const issueId of issues.keys()) {
+       if (this.evaluateFlat(issueId)) this.flat.add(issueId)
+       this.trackDecay(issueId, this.flat.has(issueId))
+     }
++    // K1-C2: lane rows join the full derive (same predicate, no chains).
++    for (const lane of this.indexes.lanes()) {
++      if (this.evaluateLane(lane)) this.flat.add(lane)
++      if (this.flat.has(lane) && this.summary.laneMembersOf(lane).some((s) => s.stoppedAt != null)) {
++        this.decaySensitive.add(lane)
++      }
++    }
+     // Humans first (agents never keep ancestors). Agent hosting then grows
+     // monotonically; rescued rows host in a second round (agents under
+     // rescue nest in legacy, since rescue materializes before nesting).

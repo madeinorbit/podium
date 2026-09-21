@@ -1,0 +1,16 @@
+diff --git a/packages/worklist-proto/arms/hand/react/list.tsx b/packages/worklist-proto/arms/hand/react/list.tsx
+index 292f9af99..8bcb71860 100644
+--- a/packages/worklist-proto/arms/hand/react/list.tsx
++++ b/packages/worklist-proto/arms/hand/react/list.tsx
+@@ -45,6 +45,11 @@ const HandRow = memo(function HandRow({
+   const row = useHandKey<SliceRow | null>(store, id)
+   const selected = useHandKey<boolean>(store, `selected:${id}`)
+   if (row === null) return null
++  // K1-F FOOT-GUN (do not copy): O(N) read inside the row component. No new
++  // subscription, no output change — pure per-render work over the table.
++  let seqSum = 0
++  for (const issue of store.issues.rows.values()) seqSum += issue.seq
++  void seqSum
+   const tick = store.rollup.ticks.get(id) ?? null
+   return (
+     <RowShell id={id}>

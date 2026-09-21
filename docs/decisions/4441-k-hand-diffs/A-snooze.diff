@@ -1,0 +1,126 @@
+diff --git a/packages/worklist-proto/arms/hand/rules.ts b/packages/worklist-proto/arms/hand/rules.ts
+index 24c903f8c..90fbb6784 100644
+--- a/packages/worklist-proto/arms/hand/rules.ts
++++ b/packages/worklist-proto/arms/hand/rules.ts
+@@ -323,7 +323,6 @@ export function isDeferred(issue: SliceIssue, now: number): boolean {
+   const until = deferMs(issue)
+   return until !== null && until > now
+ }
+-
+ /** issueReturnedFromDefer (model issue-stage.ts:70). */
+ export function returnedFromDefer(issue: SliceIssue, now: number): boolean {
+   if (issue.deferUntil === DEFER_NEXT_MESSAGE) return false
+@@ -331,6 +330,23 @@ export function returnedFromDefer(issue: SliceIssue, now: number): boolean {
+   return until !== null && until <= now
+ }
+ 
++/**
++ * K1-A snooze (exercise only): an issue carrying a `snoozedUntil` wire field
++ * is hidden while coarseNow is before it. Defensive read — SliceIssue does
++ * not declare the field (same convention as branch/gitState above): absent
++ * on every existing corpus row, so legacy parity is unaffected.
++ */
++export function snoozedUntilMs(issue: SliceIssue): number | null {
++  const raw = (issue as SliceIssue & { snoozedUntil?: string | null }).snoozedUntil
++  return parseMs(raw)
++}
++
++/** K1-A: hidden while the snooze timestamp lies in the future. */
++export function isSnoozed(issue: SliceIssue, now: number): boolean {
++  const until = snoozedUntilMs(issue)
++  return until !== null && until > now
++}
++
+ /** unifiedRowBand (row-order.ts:16): pinned/returned 0, snoozed 2, else 1. */
+ export function bandOf(issue: SliceIssue, now: number): 0 | 1 | 2 {
+   if (issue.pinned === true || returnedFromDefer(issue, now)) return 0
+diff --git a/packages/worklist-proto/arms/hand/visible.ts b/packages/worklist-proto/arms/hand/visible.ts
+index 2eb5411a8..323dd5e2a 100644
+--- a/packages/worklist-proto/arms/hand/visible.ts
++++ b/packages/worklist-proto/arms/hand/visible.ts
+@@ -8,7 +8,7 @@
+ import type { SliceIssue } from '../../shared/src/slice-types'
+ import { assertNever, nullStats, type Delta, type DerivationStats } from './deltas'
+ import type { IndexSet } from './indexes'
+-import { derivedUnread, rescueEligible, sessionlessKept, structurallyExcluded } from './rules'
++import { derivedUnread, isSnoozed, rescueEligible, sessionlessKept, structurallyExcluded } from './rules'
+ import { splitMembers, type SummaryModule } from './summary'
+ import type { IssueTable } from './tables'
+ export class VisibleModule {
+@@ -30,6 +30,9 @@ export class VisibleModule {
+   private readonly chains = new Map<string, string[]>()
+   /** Rows whose flat visibility can move with the coarse clock. */
+   readonly decaySensitive = new Set<string>()
++  /** K1-A: rows carrying a snoozedUntil timestamp (snooze is time-dependent
++   *  membership — a tick past the timestamp must re-derive them). */
++  readonly snoozeSensitive = new Set<string>()
+   /** Flip listener for the agent worklist (set during apply). */
+   private flipSink: ((id: string) => void) | null = null
+ 
+@@ -55,7 +58,10 @@ export class VisibleModule {
+     if (issue === undefined) return false
+     this.stats.visibility()
+     if (structurallyExcluded(issue)) return false
++    // K1-A: snooze hides the row itself (rescue of a snoozed ancestor by a
++    // visible descendant still applies — same as any flat-invisible row).
+     const now = this.getNow()
++    if (isSnoozed(issue, now)) return false
+     const { retained } = splitMembers(this.summary.membersOf(issueId), now, issue)
+     if (retained.length > 0) return true
+     // Decay anchors read the replica unread rollup, never the wire field.
+@@ -297,6 +303,7 @@ export class VisibleModule {
+       this.flat.delete(issueId)
+       this.reconcile(issueId, out)
+       this.decaySensitive.delete(issueId)
++      this.snoozeSensitive.delete(issueId)
+       return
+     }
+     // A rescue row that lost eligibility drops even while kept: finished
+@@ -306,6 +313,7 @@ export class VisibleModule {
+       this.flat.delete(issueId)
+       this.reconcile(issueId, out)
+       this.decaySensitive.delete(issueId)
++      this.snoozeSensitive.delete(issueId)
+       return
+     }
+     const next = this.evaluateFlat(issueId)
+@@ -317,6 +325,13 @@ export class VisibleModule {
+       this.flat.delete(issueId)
+     }
+     this.trackDecay(issueId, next)
++    // K1-A: any row carrying the timestamp can flip on a tick, whether or
++    // not it is flat-visible now (a snoozed row must reappear on time).
++    if ((issue as { snoozedUntil?: string | null }).snoozedUntil != null) {
++      this.snoozeSensitive.add(issueId)
++    } else {
++      this.snoozeSensitive.delete(issueId)
++    }
+     this.reconcile(issueId, out)
+   }
+ 
+@@ -345,6 +360,8 @@ export class VisibleModule {
+           break
+         case 'ClockChanged':
+           for (const issueId of this.decaySensitive) flats.add(issueId)
++          // K1-A: snooze timestamps cross on ticks.
++          for (const issueId of this.snoozeSensitive) flats.add(issueId)
+           break
+         case 'WorktreeChanged':
+         case 'WorktreeRemoved':
+@@ -425,10 +442,16 @@ export class VisibleModule {
+     this.keptBy.clear()
+     this.chains.clear()
+     this.decaySensitive.clear()
++    this.snoozeSensitive.clear()
+     const issues = this.tables.issues.rows
+     for (const issueId of issues.keys()) {
+       if (this.evaluateFlat(issueId)) this.flat.add(issueId)
+       this.trackDecay(issueId, this.flat.has(issueId))
++      // K1-A bootstrap mirror of refreshFlat: a boot that leaves
++      // snoozeSensitive empty blinds every later tick to snoozed rows.
++      if ((issues.get(issueId) as { snoozedUntil?: string | null } | undefined)?.snoozedUntil != null) {
++        this.snoozeSensitive.add(issueId)
++      }
+     }
+     // Humans first (agents never keep ancestors). Agent hosting then grows
+     // monotonically; rescued rows host in a second round (agents under

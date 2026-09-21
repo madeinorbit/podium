@@ -1,0 +1,95 @@
+diff --git a/packages/worklist-proto/arms/hand/k1e.scratch.test.tsx b/packages/worklist-proto/arms/hand/k1e.scratch.test.tsx
+new file mode 100644
+index 000000000..85e42f65f
+--- /dev/null
++++ b/packages/worklist-proto/arms/hand/k1e.scratch.test.tsx
+@@ -0,0 +1,66 @@
++// @vitest-environment happy-dom
++/** K1-E scratch: ghost-kept rescue parent after evict. */
++import { describe, expect, it } from 'vitest'
++import { createReplaySource, mountArmForCounts, runCountScenario } from '../../harness/src/count-harness'
++import type { SliceLocals } from '../../shared/src/slice-types'
++import { handArm } from './arm'
++import { issue, LANE, NOW, rec, session, testWorld, workingState } from './hand.test'
++import { rebuildFromScratch } from './rebuild'
++import type { HandStore } from './store'
++
++describe('K1-E evict', () => {
++  it('evicted keeper leaves its rescue parent on screen; rebuild oracle fires', async () => {
++    const replay = createReplaySource({
++      issues: [
++        rec('issue', 'mid', issue({ id: 'mid', stage: 'backlog' })),
++        rec('issue', 'leaf', issue({ id: 'leaf', parentId: 'mid' })),
++      ],
++      sessions: [
++        rec('session', 's1', session({ sessionId: 's1', issueId: 'leaf', agentState: workingState })),
++      ],
++      worktrees: [rec('worktree', '/wt', LANE)],
++    })
++    const locals: SliceLocals = { selectedIssueId: null, coarseNow: NOW }
++    const mounted = mountArmForCounts(handArm, replay.source, locals)
++    const store = (mounted.handle as unknown as { store: HandStore }).store
++    try {
++      expect(store.snapshot().rowsById['mid']).toBeDefined()
++      const result = await runCountScenario(mounted, {
++        scenario: 'evictLeaf',
++        methodology: 'K1-E',
++        apply: () => {
++          replay.push({ type: 'update', rows: [rec('issue', 'leaf', undefined)] })
++        },
++        expected: () => {
++          const rebuilt = rebuildFromScratch({
++            issues: store.issues,
++            sessions: store.sessions,
++            worktrees: store.worktrees,
++            selection: { selectedIssueId: null, selectedIssueWasFolded: false },
++            now: NOW,
++          })
++          return rebuilt.snapshot
++        },
++      })
++      // Screen: the ghost keeper holds mid visible (legacy drops it).
++      expect(store.snapshot().rowsById['mid']).toBeDefined()
++      // Rebuild oracle fires on the same dispatch.
++      expect(result.parity).toBe(false)
++      expect(result.parityDiff).toMatch(/mid/)
++    } finally {
++      mounted.unmount()
++    }
++  })
++
++  it('unit oracle fires on the rescue-evict shape', () => {
++    const world = testWorld([
++      rec('issue', 'mid', issue({ id: 'mid', stage: 'backlog' })),
++      rec('issue', 'leaf', issue({ id: 'leaf', parentId: 'mid' })),
++      rec('session', 's1', session({ sessionId: 's1', issueId: 'leaf', agentState: workingState })),
++      rec('worktree', '/wt', LANE),
++    ])
++    world.push({ type: 'update', rows: [rec('issue', 'leaf', undefined)] })
++    expect(world.store.snapshot().rowsById['mid']).toBeDefined()
++    expect(() => world.oracle()).toThrowError(/rebuild oracle/)
++  })
++})
+diff --git a/packages/worklist-proto/arms/hand/visible.ts b/packages/worklist-proto/arms/hand/visible.ts
+index 2eb5411a8..0d591743f 100644
+--- a/packages/worklist-proto/arms/hand/visible.ts
++++ b/packages/worklist-proto/arms/hand/visible.ts
+@@ -184,15 +184,9 @@ export class VisibleModule {
+     this.keptBy.delete(issueId)
+     this.chains.delete(issueId)
+     this.dropped.delete(issueId)
+-    let visits = 0
+-    for (const [ancestor, keepers] of [...this.keptBy]) {
+-      visits += 1
+-      if (keepers.delete(issueId)) {
+-        if (keepers.size === 0) this.keptBy.delete(ancestor)
+-        this.reconcile(ancestor, out)
+-      }
+-    }
+-    this.stats.scan('visible-walk', visits)
++    // K1-E FOOT-GUN (do not copy): the keeper-seat cleanup below is deleted.
++    // Ancestors kept alive by the evicted row never reconcile — a ghost
++    // keeper holds them visible after scenario-6 evicts.
+   }
+ 
+   /**

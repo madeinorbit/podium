@@ -1,0 +1,46 @@
+diff --git a/packages/worklist-proto/arms/hand/rollup.ts b/packages/worklist-proto/arms/hand/rollup.ts
+index 4d9ef7d10..bb223a0b1 100644
+--- a/packages/worklist-proto/arms/hand/rollup.ts
++++ b/packages/worklist-proto/arms/hand/rollup.ts
+@@ -467,11 +467,40 @@ export class RollupModule {
+     // the offer-only dedup, plus pending decisions.
+     const waiting = sessions.filter((s) => motionPhase(s, root) === 'waiting')
+     const extra = waiting.filter((s) => !(isOfferOnlyAttention(s) && deciding.has(s.sessionId)))
++    // K1-C: an ask on ANY formal descendant marks the root asking — the
++    // legacy pill sums "visible children and rolled-up depth alike"
++    // (row-attention.ts:100-106), while the walk above covers only the
++    // visible subtree. The extra walk runs only while nothing visible asks.
++    let deepAsking = false
++    if (extra.length + pending === 0) {
++      const seen = new Set(members)
++      for (const id of this.formalMembers(issueId)) {
++        if (seen.has(id)) continue
++        seen.add(id)
++        const member = this.tables.issues.rows.get(id)
++        if (member === undefined) continue
++        const own = this.ownLive(id)
++        const memberWaiting = own.filter((s) => motionPhase(s, root) === 'waiting')
++        const memberExtra = memberWaiting.filter(
++          (s) => !(isOfferOnlyAttention(s) && deciding.has(s.sessionId)),
++        )
++        if (memberExtra.length > 0) {
++          deepAsking = true
++          break
++        }
++        const decision = issuePendingDecision(member as SliceIssue)
++        if (decision === null) continue
++        if (!issueFinished(member as SliceIssue) && own.some(isSessionWorking)) continue
++        if (decision === 'review' && this.continuationOf(member as SliceIssue)) continue
++        deepAsking = true
++        break
++      }
++    }
+     const progress = this.progressOf(issueId)
+     return {
+       phase,
+       working,
+-      asking: extra.length + pending > 0,
++      asking: extra.length + pending > 0 || deepAsking,
+       progressDone: progress.done,
+       progressTotal: progress.total,
+     }

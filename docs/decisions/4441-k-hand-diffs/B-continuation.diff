@@ -1,0 +1,161 @@
+diff --git a/packages/worklist-proto/arms/hand/rollup.ts b/packages/worklist-proto/arms/hand/rollup.ts
+index 4d9ef7d10..c01906dfc 100644
+--- a/packages/worklist-proto/arms/hand/rollup.ts
++++ b/packages/worklist-proto/arms/hand/rollup.ts
+@@ -56,6 +56,13 @@ export class RollupModule {
+   readonly aggregates = new Map<string, RollupValue>()
+   /** Origin tick per visible row (R-ORIGIN renders beside the row). */
+   readonly ticks = new Map<string, OriginTick | null>()
++  /**
++   * K1-B continuation line per visible row (legacy issueContinuation,
++   * mission.ts:2207, re-expressed): `continued · <ref>` for a supersede /
++   * spin-off hop, `duplicate · <ref>` for a dupe. Rides the commit like the
++   * origin tick — never a SliceRow field (shared/ is frozen).
++   */
++  readonly continuations = new Map<string, string | null>()
+   /**
+    * J1 (POD-4453): the old `batch()` rebuilt these three seats from scratch
+    * on every computing dispatch (~2× session seats + staffed ancestor steps,
+@@ -316,6 +323,29 @@ export class RollupModule {
+     return this.spinOffTip(issue.id) !== null
+   }
+ 
++  /**
++   * K1-B continuation line (mission.ts:2207 issueContinuation): explicit
++   * supersede/dupe target first (missing target reads "another task" — a
++   * scoped replica may know the replacement without seeing it), else the
++   * live spin-off tip once no open session remains on this issue.
++   */
++  continuationLineOf(issue: SliceIssue): string | null {
++    const extra = issue as SliceIssue & { supersededBy?: string; duplicateOf?: string }
++    const refOf = (targetId: string): string => {
++      const target = this.tables.issues.rows.get(targetId)
++      if (target === undefined) return 'another task'
++      const prefix = this.indexes.prefixForRepo(target.repoId)
++      return prefix ? `${prefix}-${target.seq}` : `#${target.seq}`
++    }
++    const explicit = extra.supersededBy ?? extra.duplicateOf ?? null
++    if (explicit !== null) {
++      return extra.supersededBy ? `continued · ${refOf(explicit)}` : `duplicate · ${refOf(explicit)}`
++    }
++    if (this.batch().openExplicit.has(issue.id)) return null
++    const tip = this.spinOffTip(issue.id)
++    return tip !== null ? `continued · ${refOf(tip.id)}` : null
++  }
++
+   /** isVacatedOrigin (mission.ts:794): sessionless, work continued elsewhere. */
+   private vacatedOrigin(issue: SliceIssue): boolean {
+     const bucket = this.indexes.explicitByIssue.get(issue.id)
+@@ -501,19 +531,27 @@ export class RollupModule {
+       if (prev !== undefined) {
+         this.aggregates.delete(issueId)
+         this.ticks.delete(issueId)
++        this.continuations.delete(issueId)
+         out.push({ kind: 'RollupChanged', id: issueId })
+       }
+       return
+     }
+     const tick = this.tickOf(issueId)
+     const prevTick = this.ticks.get(issueId)
++    // K1-B: the continuation line joins the commit comparison (a hop that
++    // appears or resolves re-renders the row, like an origin-tick move).
++    const issue = this.tables.issues.rows.get(issueId)
++    const cont = issue !== undefined ? this.continuationLineOf(issue) : null
++    const prevCont = this.continuations.get(issueId)
+     if (
+       prev === undefined ||
+       JSON.stringify(prev) !== JSON.stringify(next) ||
+-      JSON.stringify(prevTick ?? null) !== JSON.stringify(tick)
++      JSON.stringify(prevTick ?? null) !== JSON.stringify(tick) ||
++      (prevCont ?? null) !== cont
+     ) {
+       this.aggregates.set(issueId, next)
+       this.ticks.set(issueId, tick)
++      this.continuations.set(issueId, cont)
+       out.push({ kind: 'RollupChanged', id: issueId })
+     }
+   }
+@@ -600,6 +638,7 @@ export class RollupModule {
+             else {
+               this.aggregates.delete(delta.id)
+               this.ticks.delete(delta.id)
++              this.continuations.delete(delta.id)
+             }
+             break
+           case 'ChildrenChanged': {
+@@ -611,6 +650,7 @@ export class RollupModule {
+           case 'SessionRemoved':
+             this.aggregates.delete(delta.id)
+             this.ticks.delete(delta.id)
++            this.continuations.delete(delta.id)
+             break
+           case 'WorktreeChanged':
+           case 'WorktreeRemoved':
+@@ -645,12 +685,15 @@ export class RollupModule {
+   rebuildAll(): void {
+     this.aggregates.clear()
+     this.ticks.clear()
++    this.continuations.clear()
+     this.buildSeats()
+     for (const id of this.visible.orderedIds()) {
+       const next = this.compute(id)
+       if (next !== null) {
+         this.aggregates.set(id, next)
+         this.ticks.set(id, this.tickOf(id))
++        const issue = this.tables.issues.rows.get(id)
++        this.continuations.set(id, issue !== undefined ? this.continuationLineOf(issue) : null)
+       }
+     }
+   }
+diff --git a/packages/worklist-proto/arms/hand/rows.ts b/packages/worklist-proto/arms/hand/rows.ts
+index d406da8b0..7f3d00817 100644
+--- a/packages/worklist-proto/arms/hand/rows.ts
++++ b/packages/worklist-proto/arms/hand/rows.ts
+@@ -51,26 +51,31 @@ export class RowsModule {
+     const next = this.assemble(id)
+     const prev = this.rows.get(id)
+     const tick = this.rollup.ticks.get(id) ?? null
++    // K1-B: the continuation line rides the commit like the origin tick.
++    const cont = this.rollup.continuations.get(id) ?? null
+     if (next === null) {
+       if (prev !== undefined) {
+         this.rows.delete(id)
+         this.lastTick.delete(id)
++        this.lastCont.delete(id)
+         this.stats.rows(1)
+         out.push({ kind: 'RowChanged', id })
+       }
+       return
+     }
+-    const snap = JSON.stringify([next, tick])
+-    const prevSnap = prev === undefined ? null : JSON.stringify([prev, this.lastTick.get(id) ?? null])
++    const snap = JSON.stringify([next, tick, cont])
++    const prevSnap = prev === undefined ? null : JSON.stringify([prev, this.lastTick.get(id) ?? null, this.lastCont.get(id) ?? null])
+     if (prevSnap !== snap) {
+       this.rows.set(id, next)
+       this.lastTick.set(id, tick)
++      this.lastCont.set(id, cont)
+       this.stats.rows(1)
+       out.push({ kind: 'RowChanged', id })
+     }
+   }
+ 
+   private readonly lastTick = new Map<string, unknown>()
++  private readonly lastCont = new Map<string, unknown>()
+ 
+   apply(batch: Delta[]): Delta[] {
+     const out: Delta[] = []
+@@ -123,11 +128,13 @@ export class RowsModule {
+   rebuildAll(): void {
+     this.rows.clear()
+     this.lastTick.clear()
++    this.lastCont.clear()
+     for (const id of this.visible.orderedIds()) {
+       const next = this.assemble(id)
+       if (next !== null) {
+         this.rows.set(id, next)
+         this.lastTick.set(id, this.rollup.ticks.get(id) ?? null)
++        this.lastCont.set(id, this.rollup.continuations.get(id) ?? null)
+       }
+     }
+   }
