@@ -289,3 +289,130 @@ deltas +31 (scan vocabulary), store +21 (scan totals, assertNever),
 rollup +17 (walk/batch counts), groups +14/− (set membership, rebuild
 count), visible +9, summary +6, rows +2. Test growth: m2 run (308) + tick
 sets (part of hand.test.ts +119).
+
+---
+
+# POD-4453 NOTES — hand-rolled arm, milestone 3 (lifecycle, growth, coexistence)
+
+## Arm changes (each: did it add a place to remember?)
+
+1. **Rollup seats go incremental (the deferred M2 slope item).** No new
+   place: `openExplicit` / `lastActive` / `staffed` (+ open counts, staffed
+   refcounts, per-session snapshots) live inside `rollup.ts` beside the
+   aggregates they feed — the `order.ts` members/ranks precedent, same diff
+   shape. Session diffs refresh the touched issue's bucket only; open flips
+   walk the ancestor chain; parent moves re-hang the moved subtree's open
+   issues. The `rollup-batch` scan (~11.2k visits per computing dispatch at
+   1x) is zero on every scenario; rows committed and derivations are
+   identical to the M2 after-table on all thirteen steps (M2 strict gate
+   green on the pre-4491 seed).
+2. **Computation share timing.** `HandStore` accumulates `indexMs` /
+   `rollupMs` / `rowMs` around the dispatch levels, read via `store.phaseMs()`.
+   No new place: beside `scanTotals` in `store.ts` (#10); arm-local optional
+   fields, shared `ArmStats` and the harness's four-field readers untouched
+   (no shared/ or harness/ change, no coordinator mail needed).
+3. **`spike/` holds the write-path sketch only.** Never imported by the
+   production path; excluded from line counts by directory.
+
+## Count tables
+
+Measured on the pre-4491 seed (branch `191f627a9`–`81a08f51a`, counts
+load-independent); box load 6–10 through the runs, so every wall below is
+withheld and every verdict below is counts. After the rebase onto 4491's
+`815e2e85f` the 1x mount parity fails exactly as the coordinator announced
+(extra row in one group, byte-identical across arms, POD-4496 owns the
+verdict) — the tables below are the pre-seed-fix record, the mechanism
+(batch removal with identical derivations) is seed-independent.
+
+### Growth scenario 14 (1x/2x/4x scenario corpora; visible 3,230 / 6,464 / 12,926)
+
+| Scale | #1 heartbeat | #2 phase | #3 click (engine) | #5 stagemove |
+|---|---|---|---|---|
+| 1x | 0 / 0+0 / idx 0 | 1 (i0) / 1+3 / idx 0 | 0 / 0+3 / idx 0 | 1 / 1+3 / idx 0 |
+| 2x | 0 / 0+0 / idx 0 | 1 / 1+3 / idx 0 | 0 / 0+3 / idx 0 | 1 / 1+3 / idx 0 |
+| 4x | 0 / 0+0 / idx 0 | 1 / 1+3 / idx 0 | 0 / 0+3 / idx 0 | 1 / 1+3 / idx 0 |
+
+Cells: rows committed / rowsDerived+rollupsDerived / indexUpdates; parity +
+rebuild oracle green on all twelve. Flatness gate holds: #1–#3 counts
+identical at every scale (slope on counts = 0.25 by construction — flat).
+`rollup-batch` scans: 0 everywhere (was ~11.2k/22.4k/44.8k per computing
+dispatch). Remaining scale-growing scan is `order-snapshot` (= visible rows:
+3,230/6,464/12,926) — the harness's `snapshot()` read, one order build per
+snapshot read, not event work; the browser list reads order only on
+`OrderChanged`. Subtree walks stay bounded (visible-walk ≤ 2, rollup-walk ≤
+2 on #5; 0 elsewhere). Phase split (happy-dom, load-contaminated, proxy
+only): rollup ~0.2–1.0 ms vs index + row ~0.05–0.6 ms per event; share
+reported properly at 1x/4x in the m3 note from the same records.
+
+### Lifecycle (count-harness mechanism half; browser walls owned by POD-4489)
+
+- coldBootstrap 1x: construction snapshots full once — 3,230 visible /
+  4,867 issues / 4,304 sessions, parity + oracle green.
+- principalSwitch (SMALL, fresh replica + fresh runtime): 37 visible, parity
+  + oracle green, old store `listenerCount()` 0 after dispose.
+- rescope 1x: replace installs (issues 4,867 → 4,877, parity + oracle green
+  at the grown state), rescope back returns tables to 4,867 / 4,304 and
+  visible to 3,230 (no leak; happy-dom proxy for the withheld heap ±5%).
+  The ten grown rows carry no audience/sessions and stay invisible in arm
+  and oracle alike — install proved by table sizes.
+
+### Coexistence scenario 15 (SMALL, one kernel, one row source, two roots)
+
+| Side | Solo rows / derivs | Co-mounted rows / derivs | Parity |
+|---|---|---|---|
+| hand arm | 0 / 0+0 | 0 / 0+0 | green both |
+| legacy control | 39 / 41+1 | 39 / 41+1 | green both |
+
+One shared heartbeat publication; each side reset before it. Neither wakes
+the other beyond its solo shape; the control still says NO (39/37 commits),
+so the detector is not blinded by the arm's presence.
+
+### Mobile
+
+`harness/native/hand.native.test.tsx` (package lane): #1–#3 with parity +
+rebuild oracle green after the seat change (heartbeat 0 commits, click 0
+rows + 0 derivs). No FlatList change: ScrollView-full matches the control
+lane, so counts compare directly; recycling stays hardening for device
+evidence.
+
+## Stats split (methodology §6.4; full share table in the m3 note)
+
+Per-event `phaseMs` at 1x and 4x from the growth records: the pipeline is
+sub-millisecond in happy-dom and rollup-dominated (~70% of the timed
+levels); index maintenance and row assembly split the rest. Under box load
+these are proxies, not verdicts — the count split (derivations by level:
+summary/visible/rollup bodies vs committed rows vs bucket writes) is in the
+m3 JSON beside every step.
+
+## Bundle (production vite build, this branch)
+
+hand entry chunk 51.40 kB / gzip 13.18 kB vs control 4.55 kB / gzip
+1.97 kB: delta +46.85 kB raw, **+11.21 kB gzip** (budget +60 KB gzip —
+PASS). The shared `entrylib` chunk (engine + harness, 585.54 kB / gzip
+170.72 kB) is common to all pages, not arm cost. (Sibling chunks for scale:
+mobx 75.07 / gzip 21.51 kB, tanstack 312.44 / gzip 86.21 kB.)
+
+## Browser (withheld)
+
+Load never dropped below the hygiene line during the count phase (6–10),
+and timing is owned by POD-4489 regardless: principalSwitch ≤ 2× control,
+coldBootstrap ≤ 1.1× control (+ heap ≤ 1.1×), rescope heap ±5%, growth
+actionMs slopes and the §1a p95 lines are all withheld for the leased
+re-run. Counts above carry the verdict meanwhile.
+
+## Line count (arm folder, `wc -l`, tests + `spike/` excluded)
+
+3,962 non-test total (+239 over M2's 3,723): rollup +207 (seats + session
+snaps + re-hang), store +31 (HandStats, phaseMs, timed levels). Still over
+the 800–1,500 budget, openly, for the same reason as M1/M2: parity-exact
+transcription of 8 rules. Test growth: m3 run (435) + spike (1 file, out
+of count).
+
+## Findings for later phases (unchanged from M2: F1 agent-hosting on ticks,
+F2 sessionRetains day-windows, F3 browser commit logging) plus:
+
+- F4 (seed, now POD-4491/POD-4496's): the scenario seed's dep edges and R3
+  anchors were inert on the scenario path, so R3/R4 were under-tested there
+  on every arm equally. Landed as `815e2e85f` after these counts; the new
+  1x mount parity mismatch is the announced identical-across-arms failure
+  and is not chased here.
