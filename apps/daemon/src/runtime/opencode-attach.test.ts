@@ -198,7 +198,7 @@ interface Harness {
 }
 
 function harness(opts: HarnessOptions = {}) {
-  const sessions = opts.sessions ?? new SessionRegistry({ labelFor: () => 'podium-test-label' })
+  const sessions = opts.sessions ?? new SessionRegistry()
   const state: Harness = {
     spawns: [],
     reclaimed: [],
@@ -1847,6 +1847,9 @@ describe('under backend=host the client terminal lives in the host, not abduco (
         throw new Error('engines are not under test')
       },
       attach: async () => {
+        throw new Error('not used')
+      },
+      steal: async () => {
         throw new Error('not used')
       },
       has: async () => true,

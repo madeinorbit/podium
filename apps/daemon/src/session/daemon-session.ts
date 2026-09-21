@@ -32,14 +32,19 @@ const DEFAULT_MODEL_SIZE = { cols: 80, rows: 24 } as const
 
 export interface DaemonSessionInit {
   sessionId: SessionId
-  /** The primary durable label (the agent/headed process). */
-  label: string
+  /** The primary durable label, when an authoritative source set one. */
+  label?: string
 }
 
 export class DaemonSession {
   readonly sessionId: SessionId
-  /** Primary durable label — the process identity. */
-  label: string
+  /**
+   * Primary durable label — the process identity, set only from authoritative
+   * sources (spawn/reattach/steal frames, wireBridge). NEVER a default: a
+   * stamped default would trip the reattach identity guard for a session this
+   * daemon never owned. Readers fall back to the daemon's label function.
+   */
+  label: string | undefined
   /**
    * Client-TUI label (`podium-<token>-attach-<id>`), once a native client was
    * opened for a server-family session. Never contains the session's own
@@ -73,6 +78,11 @@ export class DaemonSession {
   constructor(init: DaemonSessionInit) {
     this.sessionId = init.sessionId
     this.label = init.label
+  }
+
+  /** The process identity: the owned label, else the daemon's default for the id. */
+  labeled(labelFor: (sessionId: SessionId) => string): string {
+    return this.label ?? labelFor(this.sessionId)
   }
 
   /** Whether a live surface is attached right now. */

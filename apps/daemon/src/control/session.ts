@@ -2592,7 +2592,7 @@ export async function stealTerminalWriter(
   msg: Extract<ControlMessage, { type: 'stealWriter' }>,
 ): Promise<void> {
   const owned = ctx.sessions.ensure(msg.sessionId)
-  const label = msg.durableLabel ?? owned.label
+  const label = msg.durableLabel ?? owned.label ?? ctx.durableLabelFor(msg.sessionId)
   owned.label = label
   // Park first: the losing attachment detaches while the master, the screen,
   // the held resize and the replay cursor stay owned. The stolen attachment
@@ -2682,6 +2682,12 @@ export function stopSessionProcess(
   // A timeout retry must observe the same retirement, not the now-empty
   // registry. Binding retirement may strengthen a park after it completes.
   if (previous && !opts.retire) return previous
+  // Synchronous bookkeeping, before the async teardown below: a dispatched
+  // kill invalidates the held viewer ask NOW. The reaps settle on microtasks
+  // the sender never waits for, so retiring it there leaves a resize held for
+  // a spawn that will never bind.
+  const dying = ctx.sessions.get(msg.sessionId)
+  if (dying) dying.pendingResize = undefined
   const work = (previous ? previous.catch(() => false) : Promise.resolve()).then(
     () => stopSessionProcessOnce(ctx, msg, opts),
   ).catch((error) => {

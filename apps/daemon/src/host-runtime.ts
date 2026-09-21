@@ -440,9 +440,9 @@ export async function createDaemonHostRuntime(args: {
     return replayed
   }
 
-  const sessions = new SessionRegistry({
-    labelFor: (sessionId) => durableSessionLabel(sessionId, instance.instanceId),
-  })
+  // Entries start unlabelled; spawn/reattach/steal label them from the
+  // authoritative frame. Nothing here mints a default (POD-4434).
+  const sessions = new SessionRegistry()
   const composerEngine = new ComposerSyncEngine(
     (sessionId, text) => {
       if (terminalRuntime?.has(sessionId)) terminalRuntime.observeDraft(sessionId, text)
@@ -1717,7 +1717,7 @@ export async function createDaemonHostRuntime(args: {
     const durableReaps: Promise<unknown>[] = []
     const reapSessions = closeOpts?.reapSessions ?? false
     for (const [sessionId, owned] of ctx.sessions.entries()) {
-      const label = owned.label
+      const label = owned.label ?? ctx.durableLabelFor(sessionId)
       owned.clear()
       if (reapSessions && durable) {
         durableReaps.push(durable.kill(label))
