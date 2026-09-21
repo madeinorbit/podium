@@ -235,11 +235,11 @@ apps/server/src/modules/memory/lake.ts      a Store over mirrored bytes, from @p
 <div class="wrap"><table>
 <tr><th>Step</th><th>Who acts</th><th>Reads</th><th>On failure, who cleans up</th></tr>
 <tr><td>1 prepare</td><td>Driver family (pure)</td><td>launch, environment, instrumentation</td><td>nothing to clean; spawn is refused with the reason</td></tr>
-<tr><td>2 create or adopt process</td><td>DaemonSession via DurableProcess</td><td>the prepared spec</td><td>DaemonSession: if instrumentation was installed and spawn fails, remove it; report <code>spawnError</code></td></tr>
+<tr><td>2 create or adopt process</td><td>DaemonSession via DurableProcess</td><td>the prepared spec</td><td>DaemonSession: cleanup is the session's OWN artifacts (instructions, uploads); report <code>spawnError</code>. Per-home hook installs are idempotent and are deliberately left in place &mdash; they are shared by every session in that home, so removing them on one spawn failure would break siblings. (Amended by the 2.R review, D5: no uninstall exists in <code>runtime/terminal-instrumentation.ts</code>, and the spawn catch at <code>control/session.ts:983-1000</code> removes per-session instructions only.)</td></tr>
 <tr><td>3 attach surface</td><td>DaemonSession builds a Terminal over the process (headed) or records the engine address (headless)</td><td>—</td><td>DaemonSession: process stays owned; a failed attach reports and may retry; nothing is killed</td></tr>
 <tr><td>4 bind driver</td><td>DaemonSession hands the Driver its typed sections and the Terminal or address</td><td>runtime, state</td><td>DaemonSession: an unbuildable driver is <code>spawnError</code> (fresh) or <code>reattachFailed</code> (adopt); the process is kept for an operator decision, never silently orphaned</td></tr>
 <tr><td>5 observe</td><td>Driver</td><td>state, instrumentation (decode)</td><td>Driver reports degraded observation; the session stays live</td></tr>
-<tr><td>6 detach or terminate</td><td>DaemonSession, per ServerSession policy</td><td>—</td><td>park = drop the Terminal, keep the process; kill = dispose the process, then the Terminal</td></tr>
+<tr><td>6 detach or terminate</td><td>DaemonSession, per ServerSession policy</td><td>—</td><td>park = drop the Terminal, keep the process; kill = park the Terminal FIRST, then dispose the process. (Amended by the 2.R review, D6 &mdash; the code's order at <code>control/session.ts:2782</code> then <code>:2806</code> is deliberate: disposing first lets the attachment's exit handler report an operator kill as an agent exit. Do not &ldquo;fix&rdquo; this back.)</td></tr>
 </table></div>
 <p><strong>Process survival is not session recovery.</strong> After an adopt, the Driver must restore or explicitly invalidate pending deliveries, protocol subscriptions, open interactions and acceptance evidence. A surviving process with unrecoverable protocol state is reported as such, not presented as live.</p>
 
@@ -282,7 +282,7 @@ apps/server/src/modules/memory/lake.ts      a Store over mirrored bytes, from @p
 <li>Cross-version: an older client renders a new descriptor inside its schema and unsupported operations fail explicitly; an older server refuses rather than misparses a newer harness's transcript.</li>
 <li>Removal is proven by consumption, not by grep alone: the lake, the indexer, discovery, credentials, composer and runtime selection are shown to consume the new boundaries.</li>
 <li>The generated support matrix (harness by section, supported or declined with reason) exists and is the first of the three capability inputs; it is not presented as the session's capability.</li>
-<li><code>grep</code> for <code>AgentSession</code>, the legacy delivery symbols, <code>child_process</code> under <code>driver/families</code>, and the two env switches returns nothing.</li>
+<li><code>grep</code> for <code>AgentSession</code>, the legacy delivery symbols and the two env switches returns nothing. For <code>child_process</code> under <code>driver/families</code> the bar is no VALUE import and no spawning; a type-only <code>import type { ChildProcess }</code> is permitted (one exists, <code>families/codex/exec-turn.ts:21</code>, where the one-shot turn holds an injected child). <code>apps/daemon/src/claude-sdk-isolation.test.ts</code> pins the real property. (Amended by the 2.R review, D8.)</li>
 </ul>
 
 <h2>8. Risks</h2>
