@@ -1166,12 +1166,13 @@ export async function createDaemonHostRuntime(args: {
   /**
    * THE SESSION LAYER'S ENGINE HOLD (spec §4.8 steps 2–6): the
    * `EngineProcessOwner` the families consume, plus the journal
-   * store. Bound onto the session registry so every `DaemonSession` delegate
-   * routes through it. (For POD-4506: this edit touches nothing near the
+   * store. One instance over the daemon's engine durable, handed to the
+   * families directly; the per-session entry owns the per-session policy
+   * (`DaemonSession.bindFailed`, kept-engine record), not the process acts.
+   * (For POD-4506: this edit touches nothing near the
    * native-client maps at ~1003-1005; their construction is unchanged.)
    */
   const sessionEngines = createSessionEngineScope(engineDurable)
-  sessions.bindEngines(sessionEngines)
   const opencode2Executable = generationInventory?.commandEnvironment.resolve(oc2Facts.executableName)
   // Session-frame ports shared by the four headless families: the frame sink,
   // the one bind builder, timing stages and the mail continuation. The

@@ -1,5 +1,5 @@
 /**
- * THE SESSION LAYER'S ENGINE OWNERSHIP (this issue, spec §4.8 steps 2–4 and 6).
+ * THE SESSION LAYER'S ENGINE OWNERSHIP (spec §4.8 steps 2–4 and 6).
  *
  * The driver families compose argv/env and bind protocol; they never summon,
  * re-attach, probe or reap a process. Every process act — `spawnHeadless`,
@@ -8,14 +8,14 @@
  * and every binding-journal instance is created and held HERE (one per family
  * namespace), handed to the families as a read/write port.
  *
- * `DaemonSession` exposes the same verbs as delegate methods
- * (`spawnEngine` / `reattachEngine` / `engineAlive` / `killEngine` /
- * `journalFor`): the session object the spec names is the caller of record,
- * while this scope holds the daemon-wide durable and journal store the
- * delegates route through. The long-lived family instances hold the scope
- * itself (one family serves many sessions); per-session bind-failure policy
- * (`DaemonSession.bindFailed`, kept-engine record, turn invalidation) stays on
- * the session, exactly where POD-4490 put it.
+ * This scope IS the session layer's arm: one instance per daemon over the
+ * daemon's engine durable, constructed by the composition root and handed to
+ * the long-lived family singletons (one family serves many sessions;
+ * per-session identity travels as the label/sessionId value in each call).
+ * The per-session entry (`DaemonSession`) owns the per-session policy —
+ * `bindFailed`, the kept-engine record, turn invalidation — not the process
+ * acts. A forwarding delegate on the entry would add a hop and no decision,
+ * so there is none: the entry holds no scope and exposes no engine verb.
  *
  * Refusal wording below is byte-identical to the supervision wiring's
  * (`runtime/host.ts`): a daemon without a host adapter cannot own an engine
@@ -34,7 +34,7 @@ import {
   type DurableProcess,
   type HostDurableAttachment,
 } from '@podium/process/durable'
-import { createEngineJournal } from '../runtime/host.js'
+import { createEngineJournal } from './journal.js'
 
 /** The binding-journal port, as the families consume it. Structurally the
  *  same store `createEngineJournal` builds; the instance lives here. */
@@ -80,8 +80,9 @@ function toEngineAttachment(session: HostDurableAttachment): EngineAttachment {
 
 /**
  * The session layer's hold on the engine durable: the `EngineProcessOwner`
- * the families drive, plus the journal store. One per daemon, bound onto the
- * `SessionRegistry` so every `DaemonSession` delegate routes through it.
+ * the families drive, plus the journal store. One per daemon, constructed by
+ * the composition root over the daemon's engine durable and handed to the
+ * families directly.
  */
 export class SessionEngineScope implements EngineProcessOwner {
   private readonly journals = new Map<string, EngineJournal<{ sessionId: SessionId }>>()
