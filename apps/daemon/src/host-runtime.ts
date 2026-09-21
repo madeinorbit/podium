@@ -1141,7 +1141,7 @@ export async function createDaemonHostRuntime(args: {
   // single assignment at the end closes the wiring cycle: handlers reach every
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
   const contractHost = { ...daemonRuntimeHost(ctx, send, stageAttachment), boundaryContext: mailContext.pendingContext }
-  terminalRuntime = createTerminalRuntime(contractHost, primeSource)
+  terminalRuntime = createTerminalRuntime(contractHost, primeSource, ctx.sessions)
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   // Engine-family facts (POD-4494, spec §4.1/§5): this composition root reads
   // the registry ONCE per harness and hands each family exactly the sections

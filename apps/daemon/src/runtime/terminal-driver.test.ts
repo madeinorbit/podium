@@ -60,6 +60,8 @@ import {
   type TerminalRuntimeHost,
   turnEventForObservation,
 } from './terminal-driver'
+import { testSessions } from '../session/testing.js'
+import type { SessionRegistry } from '../session/registry.js'
 
 // ---------------------------------------------------------------------------
 // A fixture world, sized for one assertion at a time
@@ -117,6 +119,8 @@ interface VirtualTimer {
 interface World {
   runtime: TerminalRuntime
   host: TerminalRuntimeHost
+  /** The session entries the driver binds its handles onto (POD-4512). */
+  sessions: SessionRegistry
   /** What the PTY was actually given, in order, decoded. */
   written: string[]
   frames: DaemonMessage[]
@@ -208,6 +212,7 @@ function makeWorld(
   let runtime!: TerminalRuntime
   let bindOnLaunch = false
   let registerOnLaunch = false
+  const sessions = testSessions()
 
   const bindFrame = (sessionId: SessionId): void => {
     runtime.observe({
@@ -362,11 +367,12 @@ function makeWorld(
     },
   }
 
-  runtime = createTerminalRuntime(host, options.primeSource)
+  runtime = createTerminalRuntime(host, options.primeSource, sessions)
 
   return {
     runtime,
     host,
+    sessions,
     written,
     frames,
     abandoned,
@@ -464,6 +470,24 @@ const SPEC = {
 }
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// THE SESSION OWNS ITS DRIVER HANDLE (POD-4512)
+// ---------------------------------------------------------------------------
+
+describe('the session-owned driver handle', () => {
+  it('binds the driver handle onto the session entry', async () => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const handle = await driver.create(SPEC)
+    // WHAT `register` USED TO INDEX IN ITS OWN MAP is the same object the
+    // session holds, and the same object the runtime answers for the session.
+    expect(world.sessions.get(handle.binding.sessionId)?.driver).toBe(handle)
+    expect(world.runtime.handleFor(handle.binding.sessionId)).toBe(handle)
+    expect(world.runtime.bindings()).toHaveLength(1)
+    world.runtime.dispose()
+  })
+})
 
 describe('instrumented terminal creation', () => {
   it('awaits installation before launch and forwards the installed wiring', async () => {
@@ -2009,8 +2033,10 @@ describe('adopt', () => {
     expect(lastSeq).toBeGreaterThan(0)
 
     // The same host (durable pty), a fresh runtime, ten seconds later: what a
-    // restarted daemon looks like from the session's point of view.
-    const restarted = createTerminalRuntime({ ...world.host, now: () => world.host.now() + 10_000 })
+    // restarted daemon looks like from the session's point of view. A fresh
+    // registry goes with it — a restarted daemon has no entries, so no handle
+    // survives except through a rebind.
+    const restarted = createTerminalRuntime({ ...world.host, now: () => world.host.now() + 10_000 }, undefined, testSessions())
     const framesBefore = world.frames.length
     // The boot-time path: the daemon re-registers the surviving pty as a rebind.
     restarted.register(

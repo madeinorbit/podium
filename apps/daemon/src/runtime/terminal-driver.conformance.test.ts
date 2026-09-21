@@ -62,6 +62,7 @@ import {
   type TerminalRuntimeHost,
 } from './terminal-driver'
 import { terminalProfileFor } from './registry'
+import { testSessions } from '../session/testing.js'
 
 function shippedProfile(harness: AgentKind): TerminalHarnessProfile {
   const profile = terminalProfileFor(harness)
@@ -602,7 +603,9 @@ function makeWorld(options: WorldOptions): {
       name: options.name ?? `${harness} (${profile.driverId})`,
       family: 'terminal',
       createDriver: () => {
-        runtime = createTerminalRuntime(host)
+        // A fresh registry per driver: the corpus rebuilds the runtime across
+        // cases the way a restarted daemon rebuilds its entries (POD-4512).
+        runtime = createTerminalRuntime(host, undefined, testSessions())
         return { driver: runtime.driverFor(harness, profile), control, evidence }
       },
       reset: () => {

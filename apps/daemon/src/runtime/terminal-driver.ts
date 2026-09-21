@@ -1,6 +1,7 @@
 import { respondToMailBoundary, type MailBoundaryContext } from './mail-boundary'
 import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '@podium/harness/driver/host'
 import type { ReattachControl } from '../session-observers'
+import type { SessionRegistry } from '../session/registry.js'
 import { withDeliveryQueue } from '@podium/harness/driver/host'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import {
@@ -572,9 +573,18 @@ export interface TerminalRuntimeControl {
   askInteraction(sessionId: SessionId, interaction: PendingInteraction): void
 }
 
+/**
+ * Build the terminal driver over a session registry (POD-4512): the ONE live
+ * driver handle per session lives ON the DaemonSession entry, not in a
+ * per-session index here. The driver-internal `sessions` map below keeps the
+ * mechanism (the DriverSession record); the entry owns the handle.
+ */
 export function createTerminalRuntime(
   host: TerminalRuntimeHost,
-  primeSource?: (sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>,
+  primeSource:
+    | ((sessionId: SessionId) => Promise<{ ok: boolean; result?: unknown }>)
+    | undefined,
+  registry: SessionRegistry,
 ): TerminalRuntime {
   const contexts = new Map<SessionId, ReturnType<typeof createBoundaryContext>>()
   function boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined {
@@ -606,7 +616,13 @@ export function createTerminalRuntime(
   >()
   const profiles = new Map<SessionId, TerminalHarnessProfile>()
   const registrations = new Map<SessionId, TerminalSessionRegistration>()
-  const handles = new Map<SessionId, AgentSessionHandle>()
+  // NO HANDLE INDEX HERE (POD-4512): the entry owns the handle; the reads and
+  // writes below go through `registry`.
+  /** Forget one entry's driver handle without touching the handle itself. */
+  const forgetDriver = (sessionId: SessionId): void => {
+    const owned = registry.get(sessionId)
+    if (owned) owned.driver = undefined
+  }
   /**
    * FRAMES FOR A SESSION THIS DRIVER HAS CLAIMED BUT NOT YET REGISTERED (POD-2107).
    *
@@ -728,7 +744,7 @@ export function createTerminalRuntime(
     session.publishedCursor = event.cursor
     if (event.t === 'metadata') session.metadata.set(event.change.kind, event)
     session.log.push({ seq: session.seq, event })
-    const timingBinding = handles.get(session.sessionId)?.binding
+    const timingBinding = registry.get(session.sessionId)?.driver?.binding
     if (timingBinding) driverTiming.runtimeEvent(timingBinding, event)
     // BOUNDED, and the bound is a promise about what `events(after)` can serve
     // rather than a memory tweak. `log` exists so a consumer can resume from a
@@ -2264,9 +2280,12 @@ export function createTerminalRuntime(
     profiles.set(registration.sessionId, profile)
     const session = openSession(registration, profile)
     // Rebinding the same daemon-owned process must preserve queued custody and
-    // completed outcome replay, including an acceptance still in flight.
-    const handle = handles.get(registration.sessionId) ?? makeHandle(session)
-    handles.set(registration.sessionId, handle)
+    // completed outcome replay, including an acceptance still in flight. The
+    // get-or-make runs against the ENTRY, so a rebind reuses the one handle
+    // exactly as the deleted index did.
+    const owned = registry.ensure(registration.sessionId)
+    const handle = owned.driver ?? makeHandle(session)
+    owned.driver = handle
     replayHeldFrames(registration.sessionId)
     return handle
   }
@@ -2301,7 +2320,7 @@ export function createTerminalRuntime(
     registration: TerminalSessionRegistration,
     profile: TerminalHarnessProfile,
   ): AgentSessionHandle {
-    const already = handles.get(registration.sessionId)
+    const already = registry.get(registration.sessionId)?.driver
     if (already) {
       replayHeldFrames(registration.sessionId)
       return already
@@ -2334,7 +2353,9 @@ export function createTerminalRuntime(
       for (const wake of [...session.wakers]) wake()
     }
     sessions.delete(sessionId)
-    handles.delete(sessionId)
+    // Forget the entry's handle WITHOUT destroying it: the daemon's teardown
+    // holds its own reference for the §4.8 step 6 reap (POD-4512).
+    forgetDriver(sessionId)
     profiles.delete(sessionId)
     registrations.delete(sessionId)
     // A session torn down mid-create has nothing left to replay INTO, and
@@ -2353,9 +2374,9 @@ export function createTerminalRuntime(
         session.disposed = true
         session.injection.dispose()
         for (const wake of [...session.wakers]) wake()
+        forgetDriver(session.sessionId)
       }
       sessions.clear()
-      handles.clear()
     },
     askInteraction(sessionId, interaction) {
       const session = sessions.get(sessionId)
@@ -2404,7 +2425,7 @@ export function createTerminalRuntime(
         )
       })
     } catch (error) {
-      if (!handles.has(sessionId)) {
+      if (!registry.get(sessionId)?.driver) {
         contexts.get(sessionId)?.reset()
         contexts.delete(sessionId)
         profiles.delete(sessionId)
@@ -2497,8 +2518,15 @@ export function createTerminalRuntime(
     createWithId,
     recoverWithId,
     register,
-    handleFor: (sessionId) => handles.get(sessionId),
-    bindings: () => [...handles.values()].map((handle) => handle.binding),
+    handleFor: (sessionId) => registry.get(sessionId)?.driver,
+    bindings: () => {
+      const out: RuntimeSessionBinding[] = []
+      for (const [, entry] of registry.entries()) {
+        const binding = entry.driver?.binding
+        if (binding) out.push(binding)
+      }
+      return out
+    },
     has: (sessionId) => sessions.has(sessionId),
     observe,
     observeState: (observation) => observe({ type: 'terminalState', ...observation }),
