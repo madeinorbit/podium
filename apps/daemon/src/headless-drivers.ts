@@ -11,7 +11,14 @@ import {
   type ResolvedHarnessInventory,
   resolvedHarnessPath,
 } from '@podium/harness'
-import { HeadlessTurnFailure, runClaudeSdkChildTurn } from '@podium/harness/driver/host'
+import {
+  claudeSdkExecutablePath,
+  cursorCreateChatInvocation,
+  HeadlessTurnFailure,
+  parseCursorChatId,
+  runClaudeSdkChildTurn,
+  runCodexExecTurn,
+} from '@podium/harness/driver/host'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
@@ -189,6 +196,28 @@ export function buildHeadlessExec(
   )
 }
 
+/**
+ * Spawn one headless turn child with piped stdio and an immediate stdin EOF.
+ * Timeout, output folding and kill discipline belong to the calling family
+ * (its turn shape); this is only the supervisor's side of the spawn. The env
+ * arrives fully composed — stored-login precedence is the supervisor's merge,
+ * applied by the caller.
+ */
+function spawnTurnChild(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  env: Record<string, string>,
+): ChildProcess {
+  const child = spawn(cmd, args, {
+    cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env,
+  })
+  child.stdin?.end()
+  return child
+}
+
 function runChild<T>(
   agent: HarnessAgent,
   cmd: string,
@@ -248,90 +277,37 @@ function collectStderr(child: ChildProcess): () => string {
 
 /**
  * Codex headless turn over `codex exec --json` (first turn) / `codex exec
- * resume <id> --json` (turns ≥2). TRANSPORT NOTE: the design names `codex
- * app-server` JSON-RPC as the target surface; this ships the exec --json
- * variant because its event stream (`thread.started`/`item.*`/`turn.completed`)
- * was VERIFIED against the installed codex-cli 0.142.5, while the app-server
- * handshake specifics were not. The transport is contained to this function —
- * swapping in an app-server client later changes nothing upstream.
+ * resume <id> --json` (turns ≥2). The turn shape — argv off the adapter's
+ * `headless.buildExec` section, the `thread.started`/`item.*` fold — lives in
+ * the codex family; this file owns the supervisor's side (spawn, composed
+ * env, timeout budget).
  */
 function runCodexTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   snapshot: ResolvedHarnessInventory,
 ): HeadlessTurnHandle {
-  const {
-    cmd,
-    args,
-    env: execEnv,
-  } = buildHeadlessExec(
-    'codex',
-    {
-      prompt: spec.prompt,
-      ...(spec.model ? { model: spec.model } : {}),
-      ...(spec.effort ? { effort: spec.effort } : {}),
-      ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
-      ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
-      ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),
-      ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
-      ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
-      ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
-    },
-    snapshot,
-  )
-  emit({ kind: 'status', status: 'starting' })
-  const { child, done } = runChild(
-    spec.agent,
-    cmd,
-    args,
-    spec.cwd,
-    spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
-    headlessSpawnEnv({
+  const turn = runCodexExecTurn({
+    prompt: spec.prompt,
+    ...(spec.model ? { model: spec.model } : {}),
+    ...(spec.effort ? { effort: spec.effort } : {}),
+    ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
+    ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
+    ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),
+    ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
+    ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
+    ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
+    cwd: spec.cwd,
+    timeoutMs: spec.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
+    env: headlessSpawnEnv({
       ...(spec.env ? { specEnv: spec.env } : {}),
-      ...(execEnv ? { execEnv } : {}),
       commandEnv: snapshot.commandEnvironment.env,
     }),
-    async (child) => {
-      const stderrTail = collectStderr(child)
-      let threadId = spec.resumeValue ?? ''
-      let output = ''
-      const rl = createInterface({ input: child.stdout as NodeJS.ReadableStream })
-      rl.on('line', (line) => {
-        let ev: {
-          type?: string
-          /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
-          thread_id?: string
-          item?: { id?: string; type?: string; text?: string }
-        }
-        try {
-          ev = JSON.parse(line)
-        } catch {
-          return
-        }
-        if (ev.type === 'thread.started' && ev.thread_id) {
-          threadId = ev.thread_id
-          emit({ kind: 'status', status: 'running', harnessSessionId: threadId })
-        } else if (
-          ev.type === 'item.started' &&
-          ev.item?.type &&
-          ev.item.type !== 'agent_message'
-        ) {
-          emit({ kind: 'status', status: 'tool', label: ev.item.type })
-        } else if (ev.type === 'item.completed' && ev.item?.type === 'agent_message') {
-          output = ev.item.text ?? ''
-          emit({
-            kind: 'partial-text',
-            text: output,
-            ...(ev.item.id ? { itemHint: ev.item.id } : {}),
-          })
-        }
-      })
-      await childExit(child, stderrTail)
-      if (!threadId) throw new Error('codex turn ended without reporting a thread id')
-      return { harnessSessionId: threadId, output }
-    },
-  )
-  return { done, interrupt: () => child.kill('SIGKILL') }
+    snapshot,
+    emit,
+    spawnChild: (cmd, args, opts) => spawnTurnChild(cmd, args, opts.cwd, opts.env),
+  })
+  return { done: turn.done, interrupt: turn.interrupt }
 }
 
 /** Read all of stdout as text (grok/cursor: whole-output, no partial events). */
@@ -437,10 +413,11 @@ function runResumeExecTurn(
       if (headless.resumeIdAllocation === 'daemon-minted-uuid') {
         sessionId = randomUUID()
       } else if (headless.resumeIdAllocation === 'create-chat') {
+        const invocation = cursorCreateChatInvocation(snapshot)
         const alloc = runChild(
           spec.agent,
-          resolvedHarnessPath(snapshot, 'cursor'),
-          ['create-chat'],
+          invocation.cmd,
+          [...invocation.args],
           spec.cwd,
           60_000,
           spec.env,
@@ -448,10 +425,7 @@ function runResumeExecTurn(
         )
         interrupt = () => alloc.child.kill('SIGKILL')
         const printed = await alloc.done
-        sessionId = printed.split('\n').at(-1)?.trim() ?? ''
-        if (!/^[0-9a-f-]{36}$/i.test(sessionId)) {
-          throw new Error(`cursor create-chat did not print a chat id: ${printed}`)
-        }
+        sessionId = parseCursorChatId(printed)
       } else {
         throw new Error(
           `headless driver cannot allocate a session id via ${headless.resumeIdAllocation}`,
@@ -545,7 +519,7 @@ const DRIVER_IMPLS: Record<HarnessHeadless['driver'], HeadlessDriver> = {
   // (claude-sdk-host.ts) that the daemon can lose without losing anything else.
   'claude-sdk': (spec, emit, snapshot) =>
     runClaudeSdkChildTurn(
-      { ...spec, executablePath: resolvedHarnessPath(snapshot, 'claude-code') },
+      { ...spec, executablePath: claudeSdkExecutablePath(snapshot) },
       emit,
       { childEnv: headlessChildEnv(spec.agent, spec.env) },
     ),
@@ -580,7 +554,7 @@ export function runHeadlessTurn(
   }
   if (headless.driver === 'claude-sdk') {
     return runClaudeSdkChildTurn(
-      { ...spec, executablePath: resolvedHarnessPath(snapshot, 'claude-code') },
+      { ...spec, executablePath: claudeSdkExecutablePath(snapshot) },
       emit,
       {
         childEnv: headlessChildEnv(spec.agent, spec.env),

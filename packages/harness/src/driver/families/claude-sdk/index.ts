@@ -17,6 +17,12 @@ export * from './classify.js'
 export * from './host-protocol.js'
 export * from './runtime.js'
 export {
+  buildClaudeDurableTurn,
+  type ClaudeDurableTurnSpec,
+  claudeDurableExecutable,
+  claudeSdkExecutablePath,
+} from './exec.js'
+export {
   type ClaudeSdkSessionDeps,
   createClaudeSdkSessionRuntime,
   type DaemonClaudeSdkRuntime,

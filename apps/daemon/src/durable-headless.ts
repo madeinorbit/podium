@@ -41,7 +41,14 @@ import {
   headlessChildEnv,
   headlessSpawnEnv,
 } from './headless-drivers.js'
-import { createPiStreamReducer, HeadlessTurnFailure } from '@podium/harness/driver/host'
+import {
+  buildClaudeDurableTurn,
+  claudeDurableExecutable,
+  createPiStreamReducer,
+  cursorCreateChatInvocation,
+  HeadlessTurnFailure,
+  parseCursorChatId,
+} from '@podium/harness/driver/host'
 
 /**
  * The pty size a durable headless turn runs at. No viewer ever looks at it, so
@@ -170,13 +177,6 @@ function establishIdentity(paths: DurablePaths, expected: DurableIdentity): void
   }
 }
 
-function combinedInstructions(spec: HeadlessTurnSpec): string | undefined {
-  const value = [spec.systemPrompt, spec.contextPrompt]
-    .map((part) => part?.trim())
-    .filter(Boolean)
-    .join('\n\n')
-  return value || undefined
-}
 function headlessFor(agent: HarnessAgent): HarnessHeadless {
   const manifest = harnessAdapterFor(agent)
   if (!manifest) throw new Error(`agent kind ${String(agent)} has no harness manifest`)
@@ -190,53 +190,22 @@ function headlessFor(agent: HarnessAgent): HarnessHeadless {
   return headless
 }
 
-export function buildClaudeDurableExec(
-  spec: HeadlessTurnSpec,
-  paths: Pick<DurablePaths, 'mcp'>,
-): { cmd: string; args: string[]; stdin: string } {
-  const instructions = combinedInstructions(spec)
-  const mode = spec.permissionMode === 'bypassPermissions' ? 'auto' : spec.permissionMode || 'auto'
-  const args = [
-    '-p',
-    '--verbose',
-    '--output-format',
-    'stream-json',
-    '--include-partial-messages',
-    '--permission-mode',
-    mode,
-    ...(instructions ? ['--append-system-prompt', instructions] : []),
-    ...(spec.model && spec.model !== 'auto' ? ['--model', spec.model] : []),
-    ...(spec.effort ? ['--effort', spec.effort] : []),
-    ...(spec.mcpConfig && spec.toolPolicy !== 'none' ? ['--mcp-config', paths.mcp] : []),
-    ...(spec.resumeValue
-      ? ['--resume', spec.resumeValue]
-      : spec.sessionUuid
-        ? ['--session-id', spec.sessionUuid]
-        : []),
-    // Variadic: keep last, and feed the real user prompt on stdin.
-    ...(spec.allowedTools?.length && spec.toolPolicy !== 'none'
-      ? ['--allowedTools', spec.allowedTools.join(',')]
-      : []),
-    ...(spec.toolPolicy === 'none' ? ['--setting-sources', '', '--tools', ''] : []),
-  ]
-  return { cmd: 'claude', args, stdin: spec.prompt }
-}
-
 function cursorSessionId(
   paths: DurablePaths,
   snapshot: ResolvedHarnessInventory,
+  agent: HarnessAgent,
   env?: Record<string, string>,
 ): string {
   if (existsSync(paths.cursorSession)) return readFileSync(paths.cursorSession, 'utf8').trim()
-  const output = execFileSync(resolvedHarnessPath(snapshot, 'cursor'), ['create-chat'], {
+  // The journal file above is durable mechanics (this module); the allocation
+  // invocation and id grammar are cursor knowledge (the family).
+  const invocation = cursorCreateChatInvocation(snapshot)
+  const printed = execFileSync(invocation.cmd, [...invocation.args], {
     encoding: 'utf8',
     timeout: 60_000,
-    env: headlessChildEnv('cursor', env),
-  })
-  const id = output.split('\n').at(-1)?.trim() ?? ''
-  if (!/^[0-9a-f-]{36}$/i.test(id)) {
-    throw new Error(`cursor create-chat did not print a chat id: ${output.trim()}`)
-  }
+    env: headlessChildEnv(agent, env),
+  }) as string
+  const id = parseCursorChatId(printed)
   writeAtomic(paths.cursorSession, id)
   return id
 }
@@ -259,7 +228,7 @@ function prepareInvocation(
   }
   if (headless.driver === 'claude-sdk') {
     if (spec.mcpConfig && spec.toolPolicy !== 'none') writeAtomic(paths.mcp, spec.mcpConfig)
-    const exec = buildClaudeDurableExec(spec, paths)
+    const turn = buildClaudeDurableTurn(spec, { mcp: paths.mcp }, claudeDurableExecutable(snapshot))
     // NO `env` here. `spec.env` ALREADY carries this snapshot's command
     // environment as its base layer (control/headless.ts builds it with
     // `spawnEnv({ sessionEnv: snapshot.commandEnvironment.env, podiumEnv })`),
@@ -269,15 +238,11 @@ function prepareInvocation(
     // child wrote its transcript where the reader does not look (POD-3059).
     // What belongs here is adapter-SPECIFIC env only, as codex's per-turn MCP
     // bearer below is.
-    return {
-      ...exec,
-      cmd: resolvedHarnessPath(snapshot, 'claude-code'),
-      knownSessionId: spec.resumeValue ?? spec.sessionUuid,
-    }
+    return turn
   }
   let sessionId = spec.resumeValue ?? spec.sessionUuid
   if (headless.resumeIdAllocation === 'create-chat' && !sessionId)
-    sessionId = cursorSessionId(paths, snapshot, {
+    sessionId = cursorSessionId(paths, snapshot, spec.agent, {
       ...snapshot.commandEnvironment.env,
       ...spec.env,
     })

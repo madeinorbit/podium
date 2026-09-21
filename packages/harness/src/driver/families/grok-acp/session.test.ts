@@ -7,8 +7,8 @@
 import type {
   GrokAcpJournalEntry,
   GrokAcpRuntimeHost,
-  GrokAcpTransport,
 } from './runtime.js'
+import type { GrokAcpTransport } from './client.js'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'

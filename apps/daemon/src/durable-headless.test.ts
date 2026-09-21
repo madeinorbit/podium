@@ -7,7 +7,6 @@ import { abducoHasSession, isAbducoAvailable, killAbducoSession } from '@podium/
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   acknowledgeDurableHeadlessTurn,
-  buildClaudeDurableExec,
   createDurableProgressParser,
   runDurableHeadlessTurn,
 } from './durable-headless.js'
@@ -120,74 +119,11 @@ describe('durable headless invocation', () => {
     expect(events.at(-1)).toEqual({ kind: 'status', status: 'tool', label: 'Read' })
   })
 
-  it('uses Claude native auto mode and keeps machine context out of stdin', () => {
-    const exec = buildClaudeDurableExec(
-      {
-        agent: 'claude-code',
-        ...identity,
-        cwd: '/repo',
-        prompt: 'human text',
-        contextPrompt: 'machine context',
-        systemPrompt: 'orchestrator',
-        permissionMode: 'bypassPermissions',
-        sessionUuid: randomUUID(),
-      },
-      { mcp: '/tmp/mcp.json' },
-    )
-    expect(exec.stdin).toBe('human text')
-    expect(exec.args).toContain('--permission-mode')
-    expect(exec.args[exec.args.indexOf('--permission-mode') + 1]).toBe('auto')
-    expect(exec.args).not.toContain('--dangerously-skip-permissions')
-    expect(exec.args[exec.args.indexOf('--append-system-prompt') + 1]).toBe(
-      'orchestrator\n\nmachine context',
-    )
-  })
 
-  it('reapplies the current system prompt when resuming a Claude CLI thread', () => {
-    const exec = buildClaudeDurableExec(
-      {
-        agent: 'claude-code',
-        ...identity,
-        cwd: '/repo',
-        prompt: 'Why?',
-        systemPrompt: 'NORMAL: HARD LIMIT 80 words total',
-        resumeValue: 'claude-thread-1',
-      },
-      { mcp: '/tmp/mcp.json' },
-    )
 
-    expect(exec.stdin).toBe('Why?')
-    expect(
-      exec.args.slice(exec.args.indexOf('--resume'), exec.args.indexOf('--resume') + 2),
-    ).toEqual(['--resume', 'claude-thread-1'])
-    expect(exec.args[exec.args.indexOf('--append-system-prompt') + 1]).toBe(
-      'NORMAL: HARD LIMIT 80 words total',
-    )
-  })
 
-  it('removes Claude tools and MCP from a durable repair invocation', () => {
-    const exec = buildClaudeDurableExec(
-      {
-        agent: 'claude-code',
-        ...identity,
-        cwd: '/repo',
-        prompt: 'repair',
-        toolPolicy: 'none',
-        mcpConfig: '{"mcpServers":{"podium":{"url":"http://podium.invalid"}}}',
-      },
-      { mcp: '/tmp/mcp.json' },
-    )
-    expect(exec.args.slice(exec.args.indexOf('--tools'), exec.args.indexOf('--tools') + 2)).toEqual(
-      ['--tools', ''],
-    )
-    expect(exec.args).not.toContain('--mcp-config')
-    expect(
-      exec.args.slice(
-        exec.args.indexOf('--setting-sources'),
-        exec.args.indexOf('--setting-sources') + 2,
-      ),
-    ).toEqual(['--setting-sources', ''])
-  })
+
+
 })
 
 describe.skipIf(!isAbducoAvailable())('durable headless abduco lifecycle', () => {
