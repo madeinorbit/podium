@@ -1,0 +1,914 @@
+diff --git a/packages/worklist-proto/arms/tanstack/queries.ts b/packages/worklist-proto/arms/tanstack/queries.ts
+index b1fe5f799..a02afdecc 100644
+--- a/packages/worklist-proto/arms/tanstack/queries.ts
++++ b/packages/worklist-proto/arms/tanstack/queries.ts
+@@ -48,7 +48,9 @@ import {
+   groupKeyOf,
+   groupLabelOf,
+   inClosedFold,
++  isLaneOwner,
+   isSessionWorking,
++  laneOwnerForPath,
+   attentionGroup,
+   isOfferOnlyAttention,
+   closedFoldAt,
+@@ -76,6 +78,9 @@ export interface GraphRuns {
+   summary: number
+   lane: number
+   rows: number
++  /** K3-C2: lane-seat fn runs (membership for ownerless worktree paths). */
++  laneSeat: number
++  laneRows: number
+   changes: Record<string, number>
+   ms: Record<string, number>
+   reset(): void
+@@ -91,6 +96,8 @@ export function createGraphRuns(): GraphRuns {
+     summary: 0,
+     lane: 0,
+     rows: 0,
++    laneSeat: 0,
++    laneRows: 0,
+     changes: {},
+     ms: {},
+     reset() {
+@@ -102,6 +109,8 @@ export function createGraphRuns(): GraphRuns {
+       runs.summary = 0
+       runs.lane = 0
+       runs.rows = 0
++      runs.laneSeat = 0
++      runs.laneRows = 0
+       runs.changes = {}
+       runs.ms = {}
+     },
+@@ -197,6 +206,22 @@ export interface AggRow {
+   firstPick: string | null
+ }
+ 
++/**
++ * K3-C2: one seat per (session, ownerless worktree path). The session
++ * resolves to a path (R3) that names a worktree lane no issue claims, so no
++ * verdict row exists for it — this query IS the lane membership: a VerdictRow
++ * under the pseudo-owner `lane:<path>`, which the rollup seats exactly like
++ * an issue owner. Liveness is deliberately session-local (no decay windows:
++ * ownerless seats have no owner timestamps to decay against — recorded).
++ */
++export interface LaneSeatRow extends VerdictRow {
++  /** Lane display denorm for the rollup's row assembly (inventions, recorded). */
++  dispRef: string
++  dispTitle: string
++  repoKey: string
++  repoPath: string
++}
++
+ export interface IssuesNRow {
+   id: string
+   parentId: string | null | undefined
+@@ -264,6 +289,8 @@ export interface RowsRow {
+   tickSeq: number | null
+   tickTitle: string | null
+   tickRef: string | null
++  /** K3-C2: carried for forward-compat (B's line); null on this branch. */
++  continuation: string | null
+ }
+ 
+ function idleKindOfState(agentState: unknown): string | undefined {
+@@ -402,6 +429,8 @@ export interface BaseQueries {
+   childQ: LiveQuery
+   summaryQ: LiveQuery
+   visibleQ: LiveQuery
++  /** K3-C2: lane membership (ownerless worktree paths with sessions). */
++  laneSeatQ: LiveQuery
+ }
+ 
+ /** Membership → verdicts → per-issue scalars → own-summary → visible set. */
+@@ -635,6 +664,102 @@ export function createBaseQueries(
+         .select(({ i }) => ({ id: i.id, parentId: i.parentId as string })),
+   })
+ 
++  // K3-C2: lane seats. An R3 session resolving to a worktree path no issue
++  // claims (left-join miss on issuesN.worktreePath) seats under the
++  // pseudo-owner `lane:<path>`; explicit sessions never match a path join,
++  // orphans never equal, claimed paths drop in the where. One row per
++  // (path, session) — congruent keys by construction (no M3 dedup hazard).
++  // Liveness mirrors sessionRetains/sessionLive ownerless (finished=false):
++  // lanes with only long-dead sessions stay down, like the legacy
++  // worktree-fallback rows; the locals join re-runs seats on every tick.
++  const laneSeatQ = createLiveQueryCollection({
++    id: 'tanstack-arm.laneSeat',
++    gcTime: GC_TIME_MS,
++    getKey: (item) =>
++      `${(item as unknown as LaneSeatRow).owner}:${(item as unknown as LaneSeatRow).sid}`,
++    query: (q) =>
++      q
++        .from({ m: asSource<ResolveRow>(resolveQ) })
++        .join({ w: entities.worktrees.collection }, ({ m, w }) => eq(m.joinKey, w.path), 'inner')
++        .join(
++          { n: asSource<IssuesNRow>(issuesN) },
++          ({ m, n }) => eq(m.joinKey, n.worktreePath),
++          'left',
++        )
++        .join({ l: locals.collection }, ({ m, l }) => eq((m as unknown as { marker: 1 }).marker, l.marker), 'inner')
++        .fn.where((row) => {
++          const claimed = (row as unknown as { n?: unknown }).n
++          return claimed === undefined || claimed === null
++        })
++        .fn.select((row) => {
++          runs.laneSeat += 1
++          const t0 = performance.now()
++          const m = row.m as unknown as ResolveRow
++          const w = row.w as unknown as {
++            path: string
++            repoId?: string | null
++            repoPath: string
++            repoName: string
++            prefix?: string | null
++          }
++          const now = (row.l as unknown as LocalsRow).now
++          const idleNeeds =
++            m.idleKind === 'question' || m.idleKind === 'approval' || m.idleKind === 'interrupted'
++          const idleDone = m.idleKind === 'done' || m.idleKind === 'open_todos'
++          const needsYouNoOffer =
++            m.phase === 'needs_user' || m.phase === 'errored' || (m.phase === 'idle' && idleNeeds)
++          // Ownerless retain/live (rules sessionRetains/sessionLive with no
++          // owner: finished=false, so idle-done never anchors closure).
++          let retaining: boolean
++          if (m.archived) {
++            retaining = false
++          } else {
++            const finishedAt =
++              m.stoppedAt ?? (m.phase === 'ended' ? m.endedSince : undefined)
++            if (finishedAt == null) {
++              retaining = true
++            } else {
++              const ms = parseMs(finishedAt) ?? 0
++              if (m.unread || m.readAt == null) {
++                retaining = now - ms <= SIDEBAR_FINISHED_UNREAD_WINDOW_MS
++              } else {
++                retaining = now - Math.max(ms, parseMs(m.readAt) ?? 0) <= SIDEBAR_FINISHED_GRACE_MS
++              }
++            }
++          }
++          const live = m.status !== 'exited' && retaining
++          const tail = w.path.split('/').pop() || w.path
++          const out: LaneSeatRow = {
++            sid: m.sid,
++            owner: laneOwnerForPath(w.path),
++            marker: 1,
++            explicit: false,
++            retaining,
++            live,
++            needsYou: m.hasOffer || needsYouNoOffer,
++            offerOnly: m.hasOffer && !needsYouNoOffer,
++            endedDone: m.phase === 'ended' || (m.phase === 'idle' && idleDone),
++            workingNow:
++              (m.phase === 'working' || m.phase === 'compacting') &&
++              m.status !== 'exited' &&
++              m.status !== 'starting' &&
++              m.status !== 'reconnecting' &&
++              m.status !== 'hibernated',
++            activeAt: m.activeAt,
++            retainedActive: retaining ? m.activeAt : null,
++            pick: firstPickOf(m.sid, m.agentKind ?? null, m.agentName ?? null),
++            archived: m.archived,
++            status: m.status,
++            dispRef: w.prefix ?? tail,
++            dispTitle: w.repoName,
++            repoKey: w.repoId ?? w.repoPath,
++            repoPath: w.repoPath,
++          }
++          endFnMs(runs, 'laneSeat', t0)
++          return out
++        }),
++  })
++
+   const summaryQ = createLiveQueryCollection({
+     id: 'tanstack-arm.summary',
+     gcTime: GC_TIME_MS,
+@@ -717,7 +842,7 @@ export function createBaseQueries(
+     indexType: BasicIndex,
+   })
+ 
+-  return { narrowQ, resolveQ, verdictQ, verdictR, aggQ, aggR, issuesN, childQ, summaryQ, visibleQ }
++  return { narrowQ, resolveQ, verdictQ, verdictR, aggQ, aggR, issuesN, childQ, summaryQ, visibleQ, laneSeatQ }
+ }
+ 
+ export interface TopQueries {
+@@ -725,6 +850,8 @@ export interface TopQueries {
+   laneQ: LiveQuery
+   groupsQ: LiveQuery
+   rowsQ: LiveQuery
++  /** K3-C2: SliceRow fold for lane rows (rollup-only, no summary join). */
++  laneRowsQ: LiveQuery
+ }
+ 
+ /**
+@@ -848,11 +975,52 @@ export function createTopQueries(
+             tickSeq: r.tickSeq,
+             tickTitle: r.tickTitle,
+             tickRef: r.tickRef,
++            continuation: (r as unknown as { continuation?: string | null }).continuation ?? null,
+           }
+           endFnMs(runs, 'rows', t0)
+           return out
+         }),
+   })
+ 
+-  return { orderQ, laneQ, groupsQ, rowsQ }
++  // K3-C2: lane rows fold straight off the rollup (lanes hold no summary).
++  // Display comes from the denormalized dispRef/dispTitle; ticks and
++  // continuations never apply to lanes.
++  const laneRowsQ = createLiveQueryCollection({
++    id: 'tanstack-arm.laneRows',
++    gcTime: GC_TIME_MS,
++    getKey: (item) => (item as unknown as RowsRow).id,
++    query: (q) =>
++      q
++        .from({ r: rollup })
++        .fn.where((row) => {
++          const r = row.r as unknown as RollupRow
++          return r.final === true && isLaneOwner(r.id)
++        })
++        .fn.select((row) => {
++          runs.laneRows += 1
++          const t0 = performance.now()
++          const r = row.r as unknown as RollupRow
++          const out: RowsRow = {
++            id: r.id,
++            displayRef: r.dispRef,
++            title: r.dispTitle,
++            phase: r.phase,
++            progressDone: r.progressDone,
++            progressTotal: r.progressTotal,
++            working: r.working,
++            asking: r.asking,
++            band: r.band,
++            repoKey: r.repoKey,
++            tickId: null,
++            tickSeq: null,
++            tickTitle: null,
++            tickRef: null,
++            continuation: null,
++          }
++          endFnMs(runs, 'laneRows', t0)
++          return out
++        }),
++  })
++
++  return { orderQ, laneQ, groupsQ, rowsQ, laneRowsQ }
+ }
+diff --git a/packages/worklist-proto/arms/tanstack/rollup.ts b/packages/worklist-proto/arms/tanstack/rollup.ts
+index 32bd6c57a..12391ae49 100644
+--- a/packages/worklist-proto/arms/tanstack/rollup.ts
++++ b/packages/worklist-proto/arms/tanstack/rollup.ts
+@@ -36,17 +36,19 @@ import type { Collection } from '@tanstack/db'
+ import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
+ import { EntitySync, type PrefixIndex } from './collections'
+ import type { ChildRow, LiveQuery, QueryChange, SummaryRow, VerdictRow } from './queries'
+-import type { ResolveRow } from './queries'
++import type { LaneSeatRow, ResolveRow } from './queries'
+ import {
+   displayRefOf,
+   plainDeps,
+   encodeSortKey,
+   groupKeyOf,
+   hasLeftMission,
++  isLaneOwner,
+   issueAbandoned,
+   issueFinished,
+   issueFinishedAt,
+   issuePendingDecision,
++  laneOwnerForPath,
+   motionPhaseFromParts,
+   openSession,
+   preferredTip,
+@@ -100,6 +102,10 @@ export interface RollupRow {
+   tickSeq: number | null
+   tickTitle: string | null
+   tickRef: string | null
++  /** K3-C2: denormalized display fields (summaryQ's for issues, lane-seat
++   *  denorm for lanes) so laneRowsQ folds rows without a summary join. */
++  dispRef: string
++  dispTitle: string
+ }
+ 
+ interface IssueRead {
+@@ -120,6 +126,8 @@ export interface RollupInputs {
+   childQ: LiveQuery
+   verdictQ: LiveQuery
+   verdictR: LiveQuery
++  /** K3-C2: lane seats (ownerless worktree paths with sessions). */
++  laneSeatQ: LiveQuery
+   summaryQ: LiveQuery
+   prefix: PrefixIndex
+ }
+@@ -148,6 +156,18 @@ export class RollupSync {
+   private readonly written = new Map<string, string>()
+   private readonly bandById = new Map<string, 0 | 1 | 2>()
+   private readonly repoKeyById = new Map<string, string>()
++  /** K3-C2: display denorm for laneRowsQ (issues mirror summaryQ values here;
++   *  lanes carry their seat denorm). Set in ingestSummary/ingestLane. */
++  private readonly dispRefById = new Map<string, string>()
++  private readonly dispTitleById = new Map<string, string>()
++  private readonly repoPathById = new Map<string, string>()
++  /**
++   * K3-C2 (replays the A finding): ids whose final membership flipped since
++   * the last drain. laneRowsQ's pure where-retraction on a lane loss emits no
++   * change event, so the store drains this into rowsDirty in finishCycle —
++   * the takeRemoved precedent, extended from entity removals to membership.
++   */
++  private readonly finalFlips = new Set<string>()
+   /** Seats dropped in this flush (retraction half of a del+ins pair nets
+    *  zero against its re-add — indexUpdates counts net membership moves,
+    *  the hand arm's seat semantics). */
+@@ -223,6 +243,9 @@ export class RollupSync {
+       this.inputs.childQ.subscribeChanges((changes) => this.ingestChild(changes)),
+       this.inputs.verdictQ.subscribeChanges((changes) => this.ingestVerdict(changes)),
+       this.inputs.verdictR.subscribeChanges((changes) => this.ingestVerdict(changes)),
++      // K3-C2: lane seats ride the verdict seat machinery (same shape), then
++      // refresh lane flat/denorm below — summaryQ never carries lanes.
++      this.inputs.laneSeatQ.subscribeChanges((changes) => this.ingestLane(changes)),
+       this.inputs.summaryQ.subscribeChanges((changes) => this.ingestSummary(changes)),
+     ]
+     for (const sub of subs) this.unsubs.push(() => sub.unsubscribe())
+@@ -438,6 +461,10 @@ export class RollupSync {
+   }
+ 
+   compute(issueId: string): RollupValue | null {
++    // K3-C2: lanes aggregate their own live seats only — no formal subtree
++    // (lanes are roots by construction), no pending decisions, no finished
++    // override (ownerless seats never decay).
++    if (isLaneOwner(issueId)) return this.computeLane(issueId)
+     const root = this.inputs.issues.get(issueId)
+     if (root === undefined || !this.final.has(issueId)) return null
+     this.countRollup()
+@@ -505,6 +532,45 @@ export class RollupSync {
+     }
+   }
+ 
++  private computeLane(laneId: string): RollupValue | null {
++    if (!this.final.has(laneId)) return null
++    this.countRollup()
++    const sessions = this.ownLive(laneId)
++    const kinds = sessions.map((v) =>
++      motionPhaseFromParts({
++        needsYou: v.needsYou,
++        offerOnly: v.offerOnly,
++        endedDone: v.endedDone,
++        workingNow: v.workingNow,
++        finished: false,
++      }),
++    )
++    let phase: RollupValue['phase']
++    if (kinds.includes('waiting')) phase = 'waiting'
++    else if (kinds.includes('working')) phase = 'working'
++    else if (kinds.length > 0 && kinds.every((k) => k === 'done')) phase = 'done'
++    else phase = 'queued'
++    const waiting = sessions.filter(
++      (v) =>
++        motionPhaseFromParts({
++          needsYou: v.needsYou,
++          offerOnly: v.offerOnly,
++          endedDone: v.endedDone,
++          workingNow: v.workingNow,
++          finished: false,
++        }) === 'waiting',
++    )
++    // Progress is milestone semantics — lanes hold sessions, not milestones
++    // (invention, recorded): 0/0, never done (a lane is presence, not work).
++    return {
++      phase,
++      working: sessions.some((v) => v.workingNow),
++      asking: waiting.length > 0,
++      progressDone: 0,
++      progressTotal: 0,
++    }
++  }
++
+   tickOf(issueId: string): OriginTick | null {
+     const originId = this.originOf.get(issueId)
+     if (originId === undefined) return null
+@@ -522,11 +588,56 @@ export class RollupSync {
+   // ---------------------------------------------------------- row write
+ 
+   private assemble(id: string): { row: RollupRow; tick: OriginTick | null } | null {
++    // K3-C2: lanes assemble from denorm (no issue row, no summary row, no
++    // tick). Rank sorts last in-band (createdAt ''), groups key on repoKey.
++    if (isLaneOwner(id)) {
++      const aggregate = this.aggregates.get(id)
++      const final = this.final.has(id)
++      return {
++        row: {
++          id,
++          marker: 1,
++          final,
++          phase: aggregate?.phase ?? 'queued',
++          working: aggregate?.working ?? false,
++          asking: aggregate?.asking ?? false,
++          progressDone: 0,
++          progressTotal: 0,
++          band: this.bandById.get(id) ?? 1,
++          repoKey: this.repoKeyById.get(id) ?? '',
++          repoPath: this.repoPathById.get(id) ?? '',
++          sortKeyEnc: encodeSortKey(null),
++          createdAt: '',
++          seq: 0,
++          pinned: false,
++          parentId: null,
++          audience: undefined,
++          stage: '',
++          closedReason: null,
++          needsHuman: false,
++          tuckedAt: null,
++          closedAt: null,
++          updatedAt: '',
++          finishedAt: 0,
++          tickId: null,
++          tickSeq: null,
++          tickTitle: null,
++          tickRef: null,
++          dispRef: this.dispRefById.get(id) ?? id,
++          dispTitle: this.dispTitleById.get(id) ?? id,
++        },
++        tick: null,
++      }
++    }
+     const issue = this.inputs.issues.get(id)
+     if (issue === undefined) return null
+     const aggregate = this.aggregates.get(id)
+     const final = this.final.has(id)
+     const tick = final && aggregate !== undefined ? this.tickOf(id) : null
++    // K3-C2: display denorm reads the live summary row (the same values
++    // rowsQ folds), so laneRowsQ-adjacent compares stay exact without a
++    // second denorm map for issues.
++    const summary = this.inputs.summaryQ.get(id) as SummaryRow | undefined
+     return {
+       row: {
+         id,
+@@ -557,6 +668,8 @@ export class RollupSync {
+         tickSeq: tick?.seq ?? null,
+         tickTitle: tick?.title ?? null,
+         tickRef: tick?.ref ?? null,
++        dispRef: summary?.displayRef ?? '',
++        dispTitle: summary?.title ?? '',
+       },
+       tick,
+     }
+@@ -662,6 +775,14 @@ export class RollupSync {
+     if (keepers.size === 0) this.keptBy.delete(ancestor)
+   }
+ 
++  /** Drain ids whose final membership flipped since the last call. */
++  takeFinalFlips(): string[] {
++    if (this.finalFlips.size === 0) return []
++    const out = [...this.finalFlips]
++    this.finalFlips.clear()
++    return out
++  }
++
+   private reconcile(issueId: string): void {
+     const want =
+       (this.flat.has(issueId) && !this.dropped.has(issueId)) ||
+@@ -669,12 +790,14 @@ export class RollupSync {
+     const has = this.final.has(issueId)
+     if (want && !has) {
+       this.final.add(issueId)
++      this.finalFlips.add(issueId)
+       if (!this.flat.has(issueId)) this.rescue.add(issueId)
+       else this.rescue.delete(issueId)
+       this.dirtyChains.add(issueId)
+       this.chainRow(issueId)
+     } else if (!want && has) {
+       this.final.delete(issueId)
++      this.finalFlips.add(issueId)
+       this.rescue.delete(issueId)
+       const chain = this.chains.get(issueId) ?? []
+       this.chains.delete(issueId)
+@@ -816,6 +939,8 @@ export class RollupSync {
+               if (seats.size === 0) this.memberSeats.delete(owner)
+               this.droppedSeats.add(`${owner}:${sid}`)
+             }
++            // K3-C2: lane seats share this branch; keep their flat exact.
++            if (isLaneOwner(owner)) this.refreshLaneFlat(owner)
+             this.dirtyChains.add(owner)
+           }
+         }
+@@ -882,6 +1007,8 @@ export class RollupSync {
+       if (c.type === 'delete' || srow === undefined) {
+         this.bandById.delete(id)
+         this.repoKeyById.delete(id)
++        this.dispRefById.delete(id)
++        this.dispTitleById.delete(id)
+         // A summary retraction is a membership loss (issue deletes are
+         // also driven explicitly, idempotently, via ingestIssue).
+         if (this.flat.delete(id)) {
+@@ -909,11 +1036,122 @@ export class RollupSync {
+           this.repoKeyById.set(id, srow.repoKey)
+           this.rewrite(id)
+         }
++        // K3-C2: display denorm mirrors summaryQ (lanes set theirs in
++        // ingestLane); a display-only change still rewrites the row so
++        // laneRowsQ-adjacent compares stay exact.
++        if (
++          this.dispRefById.get(id) !== srow.displayRef ||
++          this.dispTitleById.get(id) !== srow.title
++        ) {
++          this.dispRefById.set(id, srow.displayRef)
++          this.dispTitleById.set(id, srow.title)
++          this.rewrite(id)
++        }
+       }
+     }
+     this.flushBatch()
+   }
+ 
++  /** K3-C2: lane seats ride the verdict seat machinery (same VerdictRow
++   *  shape under a `lane:<path>` pseudo-owner), then lane flat + denorm are
++   *  refreshed here — summaryQ never carries lanes. Resurrection on unclaim
++   *  flows via laneSeatQ inserts; the kill directions (issue claims the path,
++   *  worktree removed) are driven explicitly via dropLane. */
++  private ingestLane(changes: QueryChange[]): void {
++    this.timed(() => this.ingestLaneBody(changes))
++  }
++
++  private ingestLaneBody(changes: QueryChange[]): void {
++    this.ingestVerdictBody(changes)
++    // Lanes are few: refresh every seated one. Denorm first so the flat
++    // flip's reconcile assembles fresh display values.
++    for (const owner of this.memberSeats.keys()) {
++      if (!isLaneOwner(owner)) continue
++      this.refreshLaneDenorm(owner)
++      this.refreshLaneFlat(owner)
++    }
++    this.flushBatch()
++  }
++
++  /** K3-C2: lane flat follows seat presence (the brief's letter: "a worktree
++   *  with sessions but no issue", no liveness qualifier — the MobX C2
++   *  precedent rows all 37 fixture lanes the same way). Caveat, recorded not
++   *  defended: seats never decay, so a lane of only long-dead sessions rows
++   *  until evict/claim/removal, where the legacy worktree-fallback rows would
++   *  decay out through retain windows. No rescue, no hosting — lanes are
++   *  roots by construction. */
++  private refreshLaneFlat(owner: string): void {
++    const seats = this.memberSeats.get(owner)
++    const kept = seats !== undefined && seats.size > 0
++    const had = this.flat.has(owner)
++    if (kept && !had) {
++      this.flat.add(owner)
++      this.reconcile(owner)
++    } else if (!kept && had) {
++      this.flat.delete(owner)
++      this.purge(owner)
++      this.reconcile(owner)
++    }
++  }
++
++  /** K3-C2: lane display denorm follows the seats (band is always 1 —
++   *  lanes never pin, defer or fold). Rewrites on display moves so
++   *  laneRowsQ stays exact. */
++  private refreshLaneDenorm(owner: string): void {
++    const seats = this.memberSeats.get(owner)
++    const first = seats === undefined ? undefined : ([...seats.values()][0] as LaneSeatRow | undefined)
++    if (first === undefined) return
++    if (
++      this.dispRefById.get(owner) !== first.dispRef ||
++      this.dispTitleById.get(owner) !== first.dispTitle ||
++      this.repoKeyById.get(owner) !== first.repoKey ||
++      this.repoPathById.get(owner) !== first.repoPath ||
++      this.bandById.get(owner) !== 1
++    ) {
++      this.dispRefById.set(owner, first.dispRef)
++      this.dispTitleById.set(owner, first.dispTitle)
++      this.repoKeyById.set(owner, first.repoKey)
++      this.repoPathById.set(owner, first.repoPath)
++      this.bandById.set(owner, 1)
++      this.rewrite(owner)
++    }
++  }
++
++  /**
++   * K3-C2: explicit lane kill — an issue claiming the path, or the worktree
++   * leaving scope. The lane-seat retraction is silent upstream (a left-join
++   * miss turning into a match fails the seat where with no event), so this
++   * mirrors the issue-removal branch: seats, flat, denorm and final go now.
++   */
++  dropLane(owner: string): void {
++    this.timed(() => this.dropLaneBody(owner))
++  }
++
++  private dropLaneBody(owner: string): void {
++    const seats = this.memberSeats.get(owner)
++    if (seats !== undefined) {
++      for (const sid of seats.keys()) {
++        const owners = this.sidOwner.get(sid)
++        if (owners !== undefined) {
++          owners.delete(owner)
++          if (owners.size === 0) this.sidOwner.delete(sid)
++        }
++      }
++      this.memberSeats.delete(owner)
++      this.countIndex()
++      this.dirtyChains.add(owner)
++    }
++    this.flat.delete(owner)
++    this.purge(owner)
++    this.bandById.delete(owner)
++    this.repoKeyById.delete(owner)
++    this.dispRefById.delete(owner)
++    this.dispTitleById.delete(owner)
++    this.repoPathById.delete(owner)
++    this.reconcile(owner)
++    this.flushBatch()
++  }
++
+   /** Issue rows drive origin/dependent seats, tick inputs and rank denorm. */
+   ingestIssue(id: string, issue: SliceIssue | undefined): void {
+     this.timed(() => this.ingestIssueBody(id, issue))
+@@ -980,15 +1218,26 @@ export class RollupSync {
+         else this.dependentsOf.set(to, kept)
+       }
+       this.final.delete(id)
++      this.finalFlips.add(id)
+       this.flat.delete(id)
+       this.purge(id)
+       this.aggregates.delete(id)
+       this.bandById.delete(id)
+       this.repoKeyById.delete(id)
++      this.dispRefById.delete(id)
++      this.dispTitleById.delete(id)
++      this.repoPathById.delete(id)
+       this.rewrite(id)
+       this.flushBatch()
+       return
+     }
++    // K3-C2: an issue claiming a worktree path kills the lane there (the
++    // lane-seat retraction is silent upstream). Unclaim resurrection flows
++    // via laneSeatQ inserts, so nothing is needed on the way out.
++    if (issue.worktreePath != null) {
++      const lane = laneOwnerForPath(issue.worktreePath)
++      if (this.memberSeats.has(lane)) this.dropLaneBody(lane)
++    }
+     // R1 edge from the issue row itself: childQ drops archived rows
+     // silently, so the edge is reconciled here (childQ events dedup
+     // against this — a live move arrives twice and the second is a no-op).
+@@ -1036,6 +1285,9 @@ export class RollupSync {
+         if (seats.size === 0) this.memberSeats.delete(owner)
+         this.countIndex()
+       }
++      // K3-C2: emptied lanes lose flat here (their seat loss is otherwise
++      // silent — no summary row ever flips for a lane).
++      if (isLaneOwner(owner)) this.refreshLaneFlat(owner)
+       this.dirtyChains.add(owner)
+     }
+     this.flushBatch()
+@@ -1138,6 +1390,8 @@ export class RollupSync {
+     verdicts: VerdictRow[]
+     flatIds: string[]
+     issues: Iterable<string>
++    /** K3-C2: lane owners seated from laneSeatQ (verdicts carry their seats). */
++    lanes: string[]
+   }): void {
+     this.timed(() => this.rebuildAllBody(inputs))
+   }
+@@ -1147,6 +1401,7 @@ export class RollupSync {
+     verdicts: VerdictRow[]
+     flatIds: string[]
+     issues: Iterable<string>
++    lanes: string[]
+   }): void {
+     this.childrenByParent.clear()
+     this.parentOf.clear()
+@@ -1168,6 +1423,10 @@ export class RollupSync {
+     this.written.clear()
+     this.bandById.clear()
+     this.repoKeyById.clear()
++    this.dispRefById.clear()
++    this.dispTitleById.clear()
++    this.repoPathById.clear()
++    this.finalFlips.clear()
+     this.dirtyChains.clear()
+     this.fullChains.clear()
+     this.droppedSeats.clear()
+@@ -1196,6 +1455,21 @@ export class RollupSync {
+         this.resolveKey.set(r.sid, r.joinKey ?? null)
+       }
+       for (const id of inputs.flatIds) this.flat.add(id)
++      // K3-C2: lanes go flat from live seats (no summary row ever carries
++      // them); denorm rides the seats. Lanes skip the agent rounds below
++      // (no issue row, so never agent-audience) and join final directly.
++      for (const lane of inputs.lanes) {
++        const seats = this.memberSeats.get(lane)
++        if (seats === undefined || seats.size === 0) continue
++        const values = [...seats.values()] as LaneSeatRow[]
++        const first = values[0] as LaneSeatRow
++        this.flat.add(lane)
++        this.dispRefById.set(lane, first.dispRef)
++        this.dispTitleById.set(lane, first.dispTitle)
++        this.repoKeyById.set(lane, first.repoKey)
++        this.repoPathById.set(lane, first.repoPath)
++        this.bandById.set(lane, 1)
++      }
+       // Humans first; agents host monotonically; rescue in two rounds.
+       for (const id of this.flat) {
+         if (this.inputs.issues.get(id)?.audience !== 'agent') this.final.add(id)
+@@ -1248,6 +1522,17 @@ export class RollupSync {
+           this.pendingWrites.push({ op: 'upsert', key: id, value: assembled.row })
+         }
+       }
++      // K3-C2: lanes derive after issues (same loop shape, lane branches).
++      for (const id of inputs.lanes) {
++        const next = this.compute(id)
++        if (next !== null) this.aggregates.set(id, next)
++        const assembled = this.assemble(id)
++        if (assembled !== null) {
++          this.written.set(id, JSON.stringify([assembled.row, assembled.tick]))
++          this.ticks.set(id, assembled.tick)
++          this.pendingWrites.push({ op: 'upsert', key: id, value: assembled.row })
++        }
++      }
+     } finally {
+       this.batching = false
+       this.batch = null
+diff --git a/packages/worklist-proto/arms/tanstack/rules.ts b/packages/worklist-proto/arms/tanstack/rules.ts
+index f4c5bffdc..c6b8ebf94 100644
+--- a/packages/worklist-proto/arms/tanstack/rules.ts
++++ b/packages/worklist-proto/arms/tanstack/rules.ts
+@@ -318,6 +318,19 @@ export function displayTitleOf(
+   return issue.title
+ }
+ 
++/**
++ * K3-C2 lane identity: a worktree with sessions but no issue rows as
++ * `lane:<path>` — a pseudo-owner namespace that never collides with issue
++ * ids (paths contain slashes; ids never do).
++ */
++export function laneOwnerForPath(path: string): string {
++  return `lane:${path}`
++}
++
++export function isLaneOwner(owner: string): boolean {
++  return owner.startsWith('lane:')
++}
++
+ // ---------------------------------------------------------- spin-off graph
+ 
+ export function spinOffOriginId(issue: Pick<SliceIssue, 'deps'>): string | null {
+diff --git a/packages/worklist-proto/arms/tanstack/store.ts b/packages/worklist-proto/arms/tanstack/store.ts
+index 4744ffbd6..8121d1728 100644
+--- a/packages/worklist-proto/arms/tanstack/store.ts
++++ b/packages/worklist-proto/arms/tanstack/store.ts
+@@ -52,7 +52,7 @@ import {
+   type VerdictRow,
+ } from './queries'
+ import { RollupSync, type OriginTick, type RollupRow } from './rollup'
+-import { inClosedFold } from './rules'
++import { inClosedFold, laneOwnerForPath } from './rules'
+ import { TanStackList } from './react/list'
+ 
+ type Listener = () => void
+@@ -86,6 +86,8 @@ export class TanStackStore {
+   private orderDirty = false
+   private markSummary = 0
+   private markRows = 0
++  /** K3-C2: lane-rows fold marks (same rollupsDerived classification). */
++  private markLaneRows = 0
+   /**
+    * Named multi-row walks (H4 residual R-T1 slope material). Same convention
+    * as the MobX arm: cumulative visits since the last `stats.reset()`, so
+@@ -151,12 +153,16 @@ export class TanStackStore {
+     this.rebuildRows(
+       (this.top.rowsQ.toArray as RowsRow[]).map((row) => row.id),
+     )
++    this.rebuildRows(
++      (this.top.laneRowsQ.toArray as RowsRow[]).map((row) => row.id),
++    )
+     this.rebuildOrder()
+     this.off = source.subscribe((event) => this.dispatch(event))
+     stats.reset()
+     this.runs.reset()
+     this.markSummary = 0
+     this.markRows = 0
++    this.markLaneRows = 0
+   }
+ 
+   /**
+@@ -196,6 +202,7 @@ export class TanStackStore {
+       ['child', this.base.childQ],
+       ['summary', this.base.summaryQ],
+       ['visible', this.base.visibleQ],
++      ['laneSeat', this.base.laneSeatQ],
+     ]
+     for (const [name, collection] of baseSubs) {
+       const sub = collection.subscribeChanges((changes) => {
+@@ -216,6 +223,7 @@ export class TanStackStore {
+         childQ: this.base.childQ,
+         verdictR: this.base.verdictR,
+         verdictQ: this.base.verdictQ,
++        laneSeatQ: this.base.laneSeatQ,
+         summaryQ: this.base.summaryQ,
+         prefix: this.prefix,
+       },
+@@ -236,9 +244,16 @@ export class TanStackStore {
+       verdicts: [
+         ...(this.base.verdictQ.toArray as unknown as VerdictRow[]),
+         ...(this.base.verdictR.toArray as unknown as VerdictRow[]),
++        ...(this.base.laneSeatQ.toArray as unknown as VerdictRow[]),
+       ],
+       flatIds: (this.base.visibleQ.toArray as Array<{ id: string }>).map((row) => row.id),
+       issues: this.entities.issues.keys(),
++      // K3-C2: lane owners seated above (their seats ride `verdicts`).
++      lanes: [
++        ...new Set(
++          (this.base.laneSeatQ.toArray as unknown as Array<{ owner: string }>).map((v) => v.owner),
++        ),
++      ],
+     })
+ 
+     this.top = createTopQueries(this.entities, this.base, this.rollup, this.runs)
+@@ -247,11 +262,12 @@ export class TanStackStore {
+       ['lane', this.top.laneQ],
+       ['groups', this.top.groupsQ],
+       ['rows', this.top.rowsQ],
++      ['laneRows', this.top.laneRowsQ],
+     ]
+     for (const [name, collection] of topSubs) {
+       const sub = collection.subscribeChanges((changes) => {
+         this.runs.changes[name] = (this.runs.changes[name] ?? 0) + changes.length
+-        if (name === 'rows') {
++        if (name === 'rows' || name === 'laneRows') {
+           for (const c of changes) this.rowsDirty.add(String(c.key))
+         } else if (changes.length > 0) {
+           this.orderDirty = true
+@@ -286,6 +302,7 @@ export class TanStackStore {
+     }
+     this.rollup.dispose()
+     const collections = [
++      this.top.laneRowsQ,
+       this.top.rowsQ,
+       this.top.groupsQ,
+       this.top.laneQ,
+@@ -293,6 +310,7 @@ export class TanStackStore {
+       this.rollup.collection,
+       this.base.visibleQ,
+       this.base.summaryQ,
++      this.base.laneSeatQ,
+       this.base.aggQ,
+       this.base.aggR,
+       this.base.verdictQ,
+@@ -346,7 +364,11 @@ export class TanStackStore {
+           for (const sid of this.entities.sessions.takeRemoved()) {
+             this.rollup.dropSession(sid)
+           }
+-          this.entities.worktrees.takeRemoved()
++          // K3-C2: worktree removals kill lanes explicitly (the seat
++          // retraction is silent upstream, like sync deletes).
++          for (const path of this.entities.worktrees.takeRemoved()) {
++            this.rollup.dropLane(laneOwnerForPath(path))
++          }
+         })
+       })
+     }
+@@ -412,9 +434,17 @@ export class TanStackStore {
+ 
+   /** Transfer per-issue fn runs into ArmStats, refresh commits, notify once. */
+   private finishCycle(): void {
+-    this.stats.rollupsDerived += this.runs.summary - this.markSummary + (this.runs.rows - this.markRows)
++    this.stats.rollupsDerived +=
++      this.runs.summary -
++      this.markSummary +
++      (this.runs.rows - this.markRows) +
++      (this.runs.laneRows - this.markLaneRows)
+     this.markSummary = this.runs.summary
+     this.markRows = this.runs.rows
++    this.markLaneRows = this.runs.laneRows
++    // K3-C2 (replays the A finding): final-membership flips the queries went
++    // silent on still need a commit-layer visit — the takeRemoved precedent.
++    for (const id of this.rollup.takeFinalFlips()) this.rowsDirty.add(id)
+     const tRows = performance.now()
+     this.refreshRows()
+     this.phaseMsTotals.rowMs += performance.now() - tRows
+@@ -455,7 +485,11 @@ export class TanStackStore {
+   }
+ 
+   private refreshRow(id: string): void {
+-    const found = this.top.rowsQ.get(id) as RowsRow | undefined
++    // K3-C2: lane rows fold off laneRowsQ (no summary join); ticks and the
++    // continuation never apply to lanes.
++    const found =
++      (this.top.rowsQ.get(id) as RowsRow | undefined) ??
++      (this.top.laneRowsQ.get(id) as RowsRow | undefined)
+     const prev = this.rows.get(id)
+     if (found === undefined) {
+       if (prev !== undefined) {
+@@ -514,6 +548,11 @@ export class TanStackStore {
+       current.add(entry.id)
+       this.rowsDirty.add(entry.id)
+     }
++    // K3-C2: lanes fold off their own query.
++    for (const entry of this.top.laneRowsQ.toArray as RowsRow[]) {
++      current.add(entry.id)
++      this.rowsDirty.add(entry.id)
++    }
+     for (const id of [...this.rows.keys()]) {
+       if (!current.has(id)) this.rowsDirty.add(id)
+     }
