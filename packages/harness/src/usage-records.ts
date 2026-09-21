@@ -191,7 +191,7 @@ export function fileBuckets(scan: UsageFileScan): UsageBucketWire[] {
 /** Bucket hours are hour-aligned, so the window edge is too. */
 const windowHourStart = (sinceMs: number): number => Math.floor(sinceMs / HOUR_MS) * HOUR_MS
 
-function windowBuckets(buckets: UsageBucketWire[], sinceMs: number): UsageBucketWire[] {
+export function windowBuckets(buckets: UsageBucketWire[], sinceMs: number): UsageBucketWire[] {
   const from = windowHourStart(sinceMs)
   return buckets.filter((b) => Date.parse(b.hour) >= from)
 }
