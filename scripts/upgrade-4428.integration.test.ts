@@ -86,7 +86,7 @@ import { fileURLToPath } from 'node:url'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
-import { openDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlParam } from '@podium/runtime/sqlite'
 import { hostHasSession } from '@podium/process/durable'
 import type { SessionId } from '@podium/model'
 import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
@@ -250,9 +250,9 @@ function pidGone(pid: number): boolean {
 }
 
 function openDb(ro = true): {
-  get: (sql: string, ...params: unknown[]) => unknown
-  all: (sql: string, ...params: unknown[]) => unknown[]
-  run: (sql: string, ...params: unknown[]) => void
+  get: (sql: string, ...params: SqlParam[]) => unknown
+  all: (sql: string, ...params: SqlParam[]) => unknown[]
+  run: (sql: string, ...params: SqlParam[]) => void
   close: () => void
 } {
   const db = openDatabase(join(stateDir, 'podium.db'), ro ? { readOnly: true } : undefined)
@@ -588,6 +588,12 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
     let newDaemon: DaemonHandle | undefined
     let newServer: Awaited<ReturnType<typeof startServer>> | undefined
     let attemptsPre: number[] = []
+    let sHarness = ''
+    let sHib = ''
+    let sShell = ''
+    let sLogin = ''
+    let sQueue = ''
+    let sMenu = ''
     try {
       // -- OLD BUILD: enroll, pair the host identity, boot the old daemon ----
       const anon = apiFor(oldPort)
@@ -601,7 +607,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       mkdirSync(cwd, { recursive: true })
 
       // (1) live harness session through the old driver path.
-      const sHarness = await createSession(oldApi, {
+      sHarness = await createSession(oldApi, {
         agentKind: 'claude-code',
         cwd,
         runtimeContract: 'generic-pty',
@@ -622,7 +628,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // resurrect spawns `grok --resume <ref>`; grok tolerates an unresolvable
       // ref by staying alive (verified by hand), so the session genuinely
       // returns to live with a driver.
-      const sHib = await createSession(oldApi, {
+      sHib = await createSession(oldApi, {
         agentKind: 'grok',
         cwd,
         runtimeContract: 'generic-pty',
@@ -643,10 +649,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       }
 
       // (3) live shell. (4) login shell.
-      const sShell = await createSession(oldApi, { agentKind: 'shell', cwd })
+      sShell = await createSession(oldApi, { agentKind: 'shell', cwd })
       await waitStatus(oldApi, sShell, 'live', 'old shell')
       const loginAttempt = await oldApi.accounts.login.mutate({ harness: 'claude-code' })
-      const sLogin = loginAttempt?.sessionId as string
+      sLogin = loginAttempt?.sessionId as string
       expect(sLogin, 'login returns a session').toBeTruthy()
       await waitStatus(oldApi, sLogin, 'live', 'old login shell')
 
@@ -656,7 +662,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // queueTexts for non-live sessions — sendText would wake-and-deliver).
       // A parked drain HOLDS rows without typing or forwarding, so both rows
       // sit deterministically; the post-upgrade bind is their first delivery.
-      const sQueue = await createSession(oldApi, {
+      sQueue = await createSession(oldApi, {
         agentKind: 'grok',
         cwd,
         runtimeContract: 'generic-pty',
@@ -755,7 +761,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // the row below carries exactly the columns InteractionService.ask
       // inserts (id, session, kind, payload, source, answerable, fingerprint,
       // status asked, asked_at).
-      const sMenu = await createSession(oldApi, {
+      sMenu = await createSession(oldApi, {
         agentKind: 'claude-code',
         cwd,
         runtimeContract: 'generic-pty',
