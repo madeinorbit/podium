@@ -6,3 +6,8 @@ export {
   SessionEngineScope,
   type EngineJournal,
 } from './engines.js'
+export {
+  createSessionClientScope,
+  SessionClientScope,
+  type ClientProcessOwner,
+} from './clients.js'
