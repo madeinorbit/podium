@@ -87,7 +87,15 @@ export class EntitySync<T extends object> {
     const tx = this.tx()
     let moved = false
     tx.begin()
-    for (const op of ops) {
+    // Last-writer-wins per key (M3 rescope finding): one flush can rewrite
+    // the same id twice with different values (chain refresh, then a later
+    // ingest in the same batch moving it again). Two same-key upserts in one
+    // transaction reach the query compiler as two positive contributors for
+    // one row key and the join canonicalization throws ("not congruent").
+    // The net effect is the last op, so earlier ones are dropped here.
+    const last = new Map<string, (typeof ops)[number]>()
+    for (const op of ops) last.set(op.key, op)
+    for (const op of last.values()) {
       if (op.op === 'remove') {
         if (!this.known.has(op.key)) continue
         tx.write({ type: 'delete', key: op.key })

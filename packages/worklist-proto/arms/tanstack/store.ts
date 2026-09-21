@@ -58,14 +58,21 @@ import { TanStackList } from './react/list'
 type Listener = () => void
 
 export class TanStackStore {
-  readonly entities: EntityCollections
   readonly prefix: PrefixIndex
   readonly runs: GraphRuns
-  readonly base: BaseQueries
-  readonly rollup: RollupSync
-  readonly top: TopQueries
   readonly stats: ArmStats
   readonly locals: SliceLocals
+  /** Rebuilt on every `replace` (rescope): the bulk reseed goes through the
+   *  proven bootstrap path (seed entities, then build the graph over settled
+   *  state) instead of pushing thousands of inserts through the live graph,
+   *  where the 0.9.2 join canonicalization throws on transient same-key
+   *  contributors (M3 rescope finding). One replace event in, full-once
+   *  install out; the commit layer still transitions rows incrementally
+   *  against the retained `rows` map. */
+  entities!: EntityCollections
+  base!: BaseQueries
+  rollup!: RollupSync
+  top!: TopQueries
   /** Committed rows by id (identity-stable unless the value moved). */
   readonly rows = new Map<string, SliceRow>()
   private readonly lastTick = new Map<string, OriginTick | null>()
@@ -126,9 +133,6 @@ export class TanStackStore {
     const countIndex = (): void => {
       stats.indexUpdates += 1
     }
-    const countRollup = (): void => {
-      stats.rollupsDerived += 1
-    }
     this.prefix = new PrefixIndex(countIndex, (name, visits) => this.scan(name, visits))
 
     // Seed from the source snapshot (cold path is silent — arms snapshot).
@@ -137,11 +141,41 @@ export class TanStackStore {
         .snapshot(kind)
         .map((r) => r.value as T | undefined)
         .filter((v): v is T => v !== undefined)
-    this.entities = createEntityCollections({
+    this.buildGraph({
       issues: seedOf<SliceIssue>('issue'),
       sessions: seedOf<SliceSession>('session'),
       worktrees: seedOf<SliceWorktree>('worktree'),
       now: this.locals.coarseNow,
+    })
+
+    this.rebuildRows(
+      (this.top.rowsQ.toArray as RowsRow[]).map((row) => row.id),
+    )
+    this.rebuildOrder()
+    this.off = source.subscribe((event) => this.dispatch(event))
+    stats.reset()
+    this.runs.reset()
+    this.markSummary = 0
+    this.markRows = 0
+  }
+
+  /**
+   * Seed entities, then build the query graph + rollup over settled state
+   * (the bootstrap path). Rows/order are NOT touched here: the constructor
+   * commits them explicitly after, and `replace` reconciles against the
+   * retained commit layer so only moved rows re-commit.
+   */
+  private buildGraph(seed: {
+    issues: SliceIssue[]
+    sessions: SliceSession[]
+    worktrees: SliceWorktree[]
+    now: number
+  }): void {
+    this.entities = createEntityCollections({
+      issues: seed.issues,
+      sessions: seed.sessions,
+      worktrees: seed.worktrees,
+      now: seed.now,
     })
     this.prefix.seed(
       this.entities.issues.collection.toArray.map((row) => [row.id, row] as [string, SliceIssue]),
@@ -185,8 +219,12 @@ export class TanStackStore {
         summaryQ: this.base.summaryQ,
         prefix: this.prefix,
       },
-      countRollup,
-      countIndex,
+      () => {
+        this.stats.rollupsDerived += 1
+      },
+      () => {
+        this.stats.indexUpdates += 1
+      },
       (name, visits) => this.scan(name, visits),
       (ms) => {
         this.phaseMsTotals.rollupMs += ms
@@ -228,26 +266,69 @@ export class TanStackStore {
       })
       this.unsubs.push(() => sub.unsubscribe())
     }
+  }
 
-    this.rebuildRows(
-      (this.top.rowsQ.toArray as RowsRow[]).map((row) => row.id),
-    )
-    this.rebuildOrder()
-    this.off = source.subscribe((event) => this.dispatch(event))
-    stats.reset()
-    this.runs.reset()
-    this.markSummary = 0
-    this.markRows = 0
+  /**
+   * Tear down the query graph + rollup + entities, dependent-first (the
+   * verified reverse-topology order: cleaning a source while a live query
+   * still depends on it poisons the graph). Counter subscriptions and the
+   * rollup's query subscriptions are dropped with it. The source
+   * subscription, the commit layer (`rows`, `orderCache`, listeners) and
+   * locals survive — `replace` reconciles against them.
+   */
+  private teardownGraph(): void {
+    for (const off of this.unsubs.splice(0)) {
+      try {
+        off()
+      } catch {
+        // Teardown is best-effort.
+      }
+    }
+    this.rollup.dispose()
+    const collections = [
+      this.top.rowsQ,
+      this.top.groupsQ,
+      this.top.laneQ,
+      this.top.orderQ,
+      this.rollup.collection,
+      this.base.visibleQ,
+      this.base.summaryQ,
+      this.base.aggQ,
+      this.base.aggR,
+      this.base.verdictQ,
+      this.base.verdictR,
+      this.base.childQ,
+      this.base.resolveQ,
+      this.base.narrowQ,
+      this.base.issuesN,
+      this.entities.locals.collection,
+      this.entities.worktrees.collection,
+      this.entities.sessions.collection,
+      this.entities.issues.collection,
+    ]
+    for (const collection of collections) {
+      try {
+        void (collection.cleanup() as Promise<void>).catch(() => {})
+      } catch {
+        // Cleanup is best-effort; listener state is already cleared.
+      }
+    }
   }
 
   // ------------------------------------------------------------ dispatch
 
   dispatch(event: RowSourceEvent): void {
-    this.timedWrite(() => {
-      this.rollup.batchDuring(() => {
-        if (event.type === 'replace') {
-          this.replace(event)
-        } else {
+    if (event.type === 'replace') {
+      // Rescope goes through the bootstrap path (see `replace`): the graph
+      // is rebuilt over settled state, so there is no incremental
+      // propagation to separate from the section wall — the rebuild IS the
+      // index work, and the fn/rollup deltas inside it still attribute.
+      this.timedWrite(() => {
+        this.replace(event)
+      })
+    } else {
+      this.timedWrite(() => {
+        this.rollup.batchDuring(() => {
           const { prefixMoved } = applyEventRows(this.entities, event.rows, this.prefix)
           if (prefixMoved) {
             this.bumpWtVersion()
@@ -266,9 +347,9 @@ export class TanStackStore {
             this.rollup.dropSession(sid)
           }
           this.entities.worktrees.takeRemoved()
-        }
+        })
       })
-    })
+    }
     this.finishCycle()
   }
 
@@ -292,34 +373,31 @@ export class TanStackStore {
     this.phaseMsTotals.indexMs += Math.max(0, wall - fnDelta - rollupDelta)
   }
 
+  /**
+   * Rescope: tear down the graph and rebuild it over the new corpus (the
+   * bootstrap path — one replace event in, full-once install out). Bulk
+   * reseeds must NOT flow through the live graph: pushing thousands of
+   * inserts through running queries trips the 0.9.2 join canonicalization
+   * ("contributors with the same row key are not congruent", M3 finding —
+   * transient same-key contributors mid-drain). The fresh graph evaluates
+   * its fns once over settled state, exactly like a cold mount. The commit
+   * layer is retained, so `reconcileAfterReplace` + `finishCycle` transition
+   * rows incrementally (only moved rows re-commit). No version bump: there
+   * is nothing stale to re-trigger — resolution computes current at build.
+   */
   private replace(event: RowSourceEvent): void {
-    const issues: Array<{ key: string; value: SliceIssue }> = []
-    const sessions: Array<{ key: string; value: SliceSession }> = []
-    const worktrees: Array<{ key: string; value: SliceWorktree }> = []
+    const issues: SliceIssue[] = []
+    const sessions: SliceSession[] = []
+    const worktrees: SliceWorktree[] = []
     for (const row of event.rows) {
       if (row.value === undefined) continue
-      if (row.kind === 'issue') issues.push({ key: row.id, value: row.value as SliceIssue })
+      if (row.kind === 'issue') issues.push(row.value as SliceIssue)
       else if (row.kind === 'session') {
-        sessions.push({ key: row.id, value: row.value as SliceSession })
-      } else worktrees.push({ key: row.id, value: row.value as SliceWorktree })
+        sessions.push(row.value as SliceSession)
+      } else worktrees.push(row.value as SliceWorktree)
     }
-    this.entities.issues.replace(issues)
-    this.entities.sessions.replace(sessions)
-    this.entities.worktrees.replace(worktrees)
-    this.prefix.seed(
-      issues.map((row) => [row.key, row.value]),
-      worktrees.map((row) => [row.key, row.value]),
-    )
-    this.bumpWtVersion()
-    this.rollup.rebuildAll({
-      children: this.base.childQ.toArray as unknown as ChildRow[],
-      verdicts: [
-        ...(this.base.verdictQ.toArray as unknown as VerdictRow[]),
-        ...(this.base.verdictR.toArray as unknown as VerdictRow[]),
-      ],
-      flatIds: (this.base.visibleQ.toArray as Array<{ id: string }>).map((row) => row.id),
-      issues: this.entities.issues.keys(),
-    })
+    this.teardownGraph()
+    this.buildGraph({ issues, sessions, worktrees, now: this.locals.coarseNow })
     this.reconcileAfterReplace()
     this.orderDirty = true
   }
@@ -652,43 +730,8 @@ export class TanStackStore {
     this.off = null
     this.webRoot?.unmount()
     this.webRoot = null
-    for (const off of this.unsubs.splice(0)) {
-      try {
-        off()
-      } catch {
-        // Teardown is best-effort.
-      }
-    }
-    this.rollup.dispose()
+    this.teardownGraph()
     this.listeners.clear()
-    const collections = [
-      this.top.rowsQ,
-      this.top.groupsQ,
-      this.top.laneQ,
-      this.top.orderQ,
-      this.rollup.collection,
-      this.base.visibleQ,
-      this.base.summaryQ,
-      this.base.childQ,
-      this.base.issuesN,
-      this.base.aggQ,
-      this.base.aggR,
-      this.base.verdictQ,
-      this.base.verdictR,
-      this.base.resolveQ,
-      this.base.narrowQ,
-      this.entities.locals.collection,
-      this.entities.worktrees.collection,
-      this.entities.sessions.collection,
-      this.entities.issues.collection,
-    ]
-    for (const collection of collections) {
-      try {
-        void (collection.cleanup() as Promise<void>).catch(() => {})
-      } catch {
-        // Cleanup is best-effort; listener state is already cleared.
-      }
-    }
   }
 
   /** Test hook: the live store. */
