@@ -3,7 +3,7 @@ import type {
   SessionConnection,
   SocketHub,
 } from '@podium/client-core/socket-transport'
-import { extractCodexPromptDraft } from '@podium/harness/browser'
+import { extractCodexPromptDraft } from '@podium/harness/driver/families/terminal/prompt-extract'
 import type { SessionId } from '@podium/model'
 import { DomViewportSource } from './dom-viewport'
 import type { Grid } from './session-viewport'

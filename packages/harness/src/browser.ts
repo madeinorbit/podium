@@ -117,25 +117,3 @@ export {
  */
 export { decodeCursor, encodeCursor } from './store/cursor-codec'
 export { streamIdOfCursor, streamItemIdOf } from './store/stream-identity'
-/**
- * The pure composer interface (POD-4469: dissolved from `@podium/composer`).
- * No IO — screen lines in, bytes out — so the web fallback and
- * `packages/terminal-client` can share the daemon's draft extractors without
- * taking the host capability. The stateful sync engine stays in
- * `driver/families/terminal/` (daemon only).
- */
-export {
-  type ComposerDriver,
-  composerDriverFor,
-  claudeComposerDriver,
-  codexComposerDriver,
-  CTRL_C,
-  CTRL_U,
-  PASTE_END,
-  PASTE_START,
-} from './driver/families/terminal/composer-sync'
-export {
-  extractClaudePromptDraft,
-  extractCodexPromptDraft,
-  type ScreenLines,
-} from './driver/families/terminal/prompt-extract'
