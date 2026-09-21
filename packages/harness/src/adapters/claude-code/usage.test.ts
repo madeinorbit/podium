@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { scanClaudeUsage, usageFromRecord, fetchClaudeQuota, parseClaudeUsage } from './usage.js'
 import { scanHostUsageSources } from '../../inventory/usage.js'
-import { UsageScanCache } from '../../usage-records.js'
+import { UsageScanCache, fileBuckets, mergeBuckets, windowBuckets } from '../../usage-records.js'
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
@@ -15,6 +15,12 @@ function trackTmp(prefix: string): string {
 }
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+
+/** Fold section scans the way the inventory mechanism does (file fold, window, merge). */
+async function scanBuckets(opts: { sinceMs: number; homeDir: string }) {
+  const scans = await scanClaudeUsage(opts)
+  return mergeBuckets(scans.flatMap((scan) => windowBuckets(fileBuckets(scan), opts.sinceMs)))
+}
 })
 
 const assistantLine = (
@@ -130,7 +136,7 @@ describe('scanClaudeUsage', () => {
         'not json',
       ].join('\n'),
     )
-    const buckets = await scanClaudeUsage({
+    const buckets = await scanBuckets({
       sinceMs: Date.parse('2026-06-10T00:00:00Z'),
       homeDir: home,
     })
@@ -171,7 +177,7 @@ describe('scanClaudeUsage', () => {
       ].join('\n'),
     )
 
-    const buckets = await scanClaudeUsage({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({
       hour: '2026-06-12T10:00:00.000Z',
@@ -331,22 +337,6 @@ describe('the incremental cursor', () => {
     ])
     const after = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
     expect(after.sources[0]!.models[0]).toMatchObject({ inputTokens: 7, messages: 1 })
-  })
-
-  it('carries the Codex model across the seam a turn_context sits behind', async () => {
-    const dir = trackTmp('podium-usage-incr-codex-')
-    const codexDir = join(dir, '.codex', 'sessions', '2026', '06', '12')
-    mkdirSync(codexDir, { recursive: true })
-    const path = join(codexDir, 'rollout-a.jsonl')
-    write(path, [turnContextLine('gpt-5.6-sol'), tokenCountLine('2026-06-12T10:01:00.000Z', LAST)])
-
-    const cache = new UsageScanCache()
-    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
-    append(path, [tokenCountLine('2026-06-12T10:02:00.000Z', LAST)])
-    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
-
-    expect(warm.sources[0]!.models.map((m) => m.model)).toEqual(['gpt-5.6-sol'])
-    expect(warm.sources[0]!.models[0]).toMatchObject({ messages: 2 })
   })
 
   it('forgets files the window has moved past instead of growing without bound', async () => {

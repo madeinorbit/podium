@@ -1,8 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { codexModelOf, codexUsageFromRecord, scanCodexUsage, fetchCodexQuota, parseWhamUsage, codexSamplesFromEvent } from './usage.js'
+import { scanHostUsageSources } from '../../inventory/usage.js'
+import { UsageScanCache, fileBuckets, mergeBuckets, windowBuckets } from '../../usage-records.js'
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
@@ -13,6 +15,12 @@ function trackTmp(prefix: string): string {
 }
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
+
+/** Fold section scans the way the inventory mechanism does (file fold, window, merge). */
+async function scanBuckets(opts: { sinceMs: number; homeDir: string }) {
+  const scans = await scanCodexUsage(opts)
+  return mergeBuckets(scans.flatMap((scan) => windowBuckets(fileBuckets(scan), opts.sinceMs)))
+}
 })
 
 // ── Codex (POD-570). Shapes below are copied from real
@@ -132,7 +140,7 @@ describe('scanCodexUsage', () => {
       tokenCountLine('2026-05-01T10:01:00.000Z', LAST), // before since
       'not json',
     ])
-    const buckets = await scanCodexUsage({
+    const buckets = await scanBuckets({
       sinceMs: Date.parse('2026-06-10T00:00:00Z'),
       homeDir: home,
     })
@@ -157,7 +165,7 @@ describe('scanCodexUsage', () => {
     ])
     // Same hour, so both land in one hour with a bucket each — the switch is
     // visible as two models, not one model charged for both turns.
-    const buckets = await scanCodexUsage({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
     expect(buckets.map((b) => b.model).sort()).toEqual(['gpt-5-mini', 'gpt-5.6-sol'])
     expect(buckets.every((b) => b.messages === 1)).toBe(true)
   })
@@ -165,7 +173,7 @@ describe('scanCodexUsage', () => {
   it('attributes usage to unknown when a rollout names no model at all', async () => {
     const home = trackTmp('podium-usage-codex-nomodel-')
     writeRollout(home, 'rollout-c.jsonl', [tokenCountLine('2026-06-12T10:01:00.000Z', LAST)])
-    const buckets = await scanCodexUsage({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
     expect(buckets[0]).toMatchObject({ model: 'unknown', messages: 1 })
   })
 
@@ -373,5 +381,26 @@ describe('codexSamplesFromEvent', () => {
   it('drops a window with no usable percentage', () => {
     const broken = { rate_limits: { primary: { window_minutes: 10080, resets_at: 1 } } }
     expect(codexSamplesFromEvent(broken, undefined, 'm1', 1)).toEqual([])
+  })
+})
+
+describe('the incremental cursor (codex model carriage)', () => {
+  const write = (path: string, lines: string[]) => writeFileSync(path, `${lines.join('\n')}\n`)
+  const append = (path: string, lines: string[]) => appendFileSync(path, `${lines.join('\n')}\n`)
+
+  it('carries the Codex model across the seam a turn_context sits behind', async () => {
+    const dir = trackTmp('podium-usage-incr-codex-')
+    const codexDir = join(dir, '.codex', 'sessions', '2026', '06', '12')
+    mkdirSync(codexDir, { recursive: true })
+    const path = join(codexDir, 'rollout-a.jsonl')
+    write(path, [turnContextLine('gpt-5.6-sol'), tokenCountLine('2026-06-12T10:01:00.000Z', LAST)])
+
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    append(path, [tokenCountLine('2026-06-12T10:02:00.000Z', LAST)])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    expect(warm.sources[0]!.models.map((m) => m.model)).toEqual(['gpt-5.6-sol'])
+    expect(warm.sources[0]!.models[0]).toMatchObject({ messages: 2 })
   })
 })
