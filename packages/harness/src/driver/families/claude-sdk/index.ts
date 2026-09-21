@@ -1,5 +1,18 @@
 export * from './capabilities.js'
-export * from './child-turn.js'
+export {
+  type ClaudeSdkChildHandle,
+  type ClaudeSdkChildOptions,
+  type ClaudeSdkChildTurnInput,
+  type ClaudeSdkTurnEmit,
+  type ClaudeSdkTurnOutcome,
+  HeadlessTurnFailure,
+  runClaudeSdkChildTurn,
+} from './child-turn.js'
+// NOTE: ./child-turn.js also declares `ClaudeSdkInterruptAck` and
+// `ClaudeSdkTurnHandle` for the parent side of the child pipe, but those names
+// already mean the driver's turn types from ./runtime.js — re-exporting both
+// would silently drop one pair. The child's handle type above is the one
+// supervisors need; the driver's stays authoritative for its own level.
 export * from './classify.js'
 export * from './host-protocol.js'
 export * from './runtime.js'

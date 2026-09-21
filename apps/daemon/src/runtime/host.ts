@@ -23,6 +23,7 @@ import type {
   CodexRawSocket,
   EngineAttachment,
   EngineSupervisor,
+  OpencodeEngineClientTerminals,
 } from '@podium/harness/driver/host'
 import {
   durableProcessFor,
@@ -38,6 +39,8 @@ import WebSocket from 'ws'
 import type { AgentKind, SessionId } from '@podium/model'
 import { createLogger } from '@podium/logger'
 import { serverChildEnv } from '../control/session-env'
+import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
+import type { AcceptedDriverId } from '@podium/harness'
 import type { DaemonContext } from '../control/context'
 import { launchSpawn, recoverTerminalHost, stopSessionProcess } from '../control/session'
 import { sourceForRead } from '../control/transcripts'
@@ -310,22 +313,24 @@ export function dialEngineSocket(path: string): Promise<CodexRawSocket> {
   // durable listener so that expected retry cleanup cannot become an
   // unhandled EventEmitter `error` under Bun.
   socket.on('error', () => undefined)
+  // The port's surface is narrower than `ws`'s overloads; one honest cast at
+  // the boundary rather than a parallel socket type. `unknown[]` rest params
+  // accept every listener shape in both directions, which `never[]` does not.
+  const narrow = socket as unknown as {
+    send(payload: string, cb?: (err?: Error) => void): void
+    on(event: string, cb: (...args: unknown[]) => void): void
+    once(event: string, cb: (...args: unknown[]) => void): void
+    off(event: string, cb: (...args: unknown[]) => void): void
+    terminate(): void
+  }
   return Promise.resolve({
-    send: (payload, cb) => {
-      socket.send(payload, (err) => cb?.(err instanceof Error ? err : undefined))
-    },
-    on: (event, cb) => {
-      socket.on(event, cb as (...args: never[]) => void)
-    },
-    once: (event, cb) => {
-      socket.once(event, cb as (...args: never[]) => void)
-    },
-    off: (event, cb) => {
-      socket.off(event, cb as (...args: never[]) => void)
-    },
+    send: (payload, cb) => narrow.send(payload, cb),
+    on: (event, cb) => narrow.on(event, cb as (...args: unknown[]) => void),
+    once: (event, cb) => narrow.once(event, cb as (...args: unknown[]) => void),
+    off: (event, cb) => narrow.off(event, cb as (...args: unknown[]) => void),
     terminate: () => {
       try {
-        socket.terminate()
+        narrow.terminate()
       } catch {
         // Already closed; that is the state we wanted.
       }
@@ -359,4 +364,34 @@ export function composeEngineEnv(input: {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
   return out
+}
+
+/**
+ * Adapt the daemon's client-terminal host to the engine family's narrow port.
+ *
+ * The attach kind arrives as the family's own token value; the closed union
+ * it is asserted into lives here, beside the type that declares it — the
+ * family stays generic over the mechanism, and the one place that knows the
+ * closed set keeps knowing it.
+ */
+export function engineClientTerminals(
+  terminals: OpencodeClientTerminals,
+): OpencodeEngineClientTerminals {
+  return {
+    attach: (input) =>
+      terminals.attach({
+        sessionId: input.sessionId,
+        target: {
+          ...input.target,
+          kind: input.target.kind as ClientTerminalKind,
+          driverId: input.target.driverId as AcceptedDriverId,
+        },
+      }),
+    adopt: (sessionId, kind) =>
+      terminals.adopt(sessionId, kind as ClientTerminalKind | undefined),
+    close: (sessionId, kind) =>
+      terminals.close(sessionId, kind as ClientTerminalKind | undefined),
+    relaunch: (sessionId, kind) =>
+      terminals.relaunch(sessionId, kind as ClientTerminalKind),
+  }
 }

@@ -47,7 +47,7 @@ import { chmodSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import type { AgentKind, SessionId } from '@podium/model'
+import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import {
   ABDUCO_SUN_PATH_MAX,
@@ -60,16 +60,16 @@ import {
   gateHarnessVersion,
   harnessVersionDiagnostic,
 } from '../../../version-policy.js'
+import type { AttachmentStager } from '../../turns.js'
+import type { ScopeResources } from '../../capabilities.js'
 import type {
-  AttachmentStager,
   CodexJournal,
   CodexJournalEntry,
   CodexRuntimeHost,
   CodexServerEndpoint,
-  CodexTransport,
-  CodexVersionDiagnostic,
-  ScopeResources,
 } from './runtime.js'
+import type { CodexTransport } from './client.js'
+import type { CodexVersionDiagnostic } from './version.js'
 import type { CodexEngineFacts } from './engine-facts.js'
 import type { EngineAttachment, EngineSupervisor } from '../engine-supervision.js'
 
@@ -267,7 +267,7 @@ export interface CodexEngineHostDeps {
    */
   buildEnv(input: {
     sessionId: SessionId
-    agentKind: AgentKind
+    agentKind: HarnessAgent
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     harnessEnv?: Readonly<Record<string, string>>
@@ -294,8 +294,9 @@ export interface CodexEngineHostDeps {
 export interface CodexRawSocket {
   send(payload: string, cb?: (err?: Error) => void): void
   on(event: 'message', cb: (message: { toString(): string }, binary: boolean) => void): void
+  on(event: 'error', cb: () => void): void
   once(event: 'open' | 'close' | 'error', cb: (...args: never[]) => void): void
-  off(event: string, cb: (...args: never[]) => void): void
+  off(event: 'open' | 'close' | 'error' | 'message', cb: (...args: never[]) => void): void
   terminate(): void
 }
 

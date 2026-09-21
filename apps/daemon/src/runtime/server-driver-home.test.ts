@@ -33,16 +33,34 @@ import { asSessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
-  codexAppServerVersionProbe,
-  createCodexHost,
-  resetCodexAppServerVersionProbe,
-} from './codex-app-server'
-import { createGrokAcpHost, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './grok-acp-server'
+  codexEngineFacts,
+  createCodexEngineHost,
+  createGrokEngineHost,
+  createOpencodeEngineHost,
+  grokEngineFacts,
+  opencodeFlavor,
+  type CodexJournalEntry,
+  type GrokAcpJournalEntry,
+  type OpencodeJournalEntry,
+} from '@podium/harness/driver/host'
+import { stageRuntimeAttachment } from './attachment-staging'
 import {
-  createOpencodeHost,
+  composeEngineEnv,
+  createEngineJournal,
+  dialEngineSocket,
+  engineSocketRoot,
+  supervisionFor,
+} from './host'
+import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
+import {
+  codexAppServerVersionProbe,
+  grokAcpVersionProbe,
   opencodeVersionProbe,
+  opencodeVersionProbeForExecutable,
+  resetCodexAppServerVersionProbe,
+  resetGrokAcpVersionProbe,
   resetOpencodeVersionProbe,
-} from './opencode-server'
+} from './version-probe'
 
 // UNSCOPED, before anything asks: with a live systemd user manager the launch
 // would ride `systemd-run` into a transient scope — correct in production,
@@ -246,7 +264,19 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     )
 
     const landing = join(root, 'landing-opencode.json')
-    const host = createOpencodeHost({ resources, homeDir: instanceHome, durable: engineDurable() })
+    const flavor = opencodeFlavor()
+    const host = createOpencodeEngineHost({
+      flavor,
+      supervision: supervisionFor(engineDurable()),
+      journal: createEngineJournal<OpencodeJournalEntry>({ namespace: flavor.journalNamespace }),
+      stageAttachment: stageRuntimeAttachment,
+      resources,
+      homeDir: instanceHome,
+      buildEnv: composeEngineEnv,
+      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+      checkVersion: ({ executable }) =>
+        opencodeVersionProbeForExecutable(executable).then((v) => (v.drivable ? null : v.diagnostic)),
+    })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
@@ -276,7 +306,20 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     ).toBe(true)
 
     const landing = join(root, 'landing-codex.json')
-    const host = createCodexHost({ resources, homeDir: instanceHome, durable: engineDurable() })
+    const facts = codexEngineFacts()
+    const host = createCodexEngineHost({
+      facts,
+      supervision: supervisionFor(engineDurable()),
+      journal: createEngineJournal<CodexJournalEntry>({ namespace: facts.journalNamespace }),
+      stageAttachment: stageRuntimeAttachment,
+      resources,
+      homeDir: instanceHome,
+      buildEnv: composeEngineEnv,
+      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+      checkVersion: () => codexAppServerVersionProbe(),
+      socketRoot: engineSocketRoot(),
+      dialSocket: dialEngineSocket,
+    })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
       workdir,
@@ -309,11 +352,17 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const landing = join(root, 'landing-grok.json')
     const instanceUuid = '11111111-2222-4333-8444-555555555555'
     const sessionId = asSessionId('grok-stamped-child')
-    const host = createGrokAcpHost({
+    const facts = grokEngineFacts()
+    const host = createGrokEngineHost({
+      facts,
+      supervision: supervisionFor(engineDurable()),
+      journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: facts.journalNamespace }),
       resources,
       homeDir: instanceHome,
       instanceUuid,
-      durable: engineDurable(),
+      buildEnv: composeEngineEnv,
+      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+      checkVersion: () => grokAcpVersionProbe(),
     })
     const endpoint = await host.launch({
       sessionId,
@@ -351,7 +400,15 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const second = '{"native":2}\n'
     writeFileSync(paths.updatesPath, first + second)
 
-    const host = createGrokAcpHost({ resources, homeDir: instanceHome })
+    const host = createGrokEngineHost({
+      facts: grokEngineFacts(),
+      journal: { read: () => undefined, write: () => {}, clear: () => {} },
+      resources,
+      homeDir: instanceHome,
+      buildEnv: composeEngineEnv,
+      gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+      checkVersion: () => grokAcpVersionProbe(),
+    })
     const tail = await host.readNativeUpdates?.({
       sessionId: asSessionId('podium-reader-session'),
       grokSessionId,

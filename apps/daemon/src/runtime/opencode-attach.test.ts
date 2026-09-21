@@ -42,10 +42,14 @@ import {
 } from './opencode-attach'
 import {
   createOpencodeEngineHost,
+  type EngineAttachment,
+  type EngineSupervisor,
+  type OpencodeEngineClientTerminals,
   type OpencodeEngineHostDeps,
   opencodeFlavor,
   opencodeScopeLabel,
 } from '@podium/harness/driver/host'
+import { engineClientTerminals } from './host'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface'
@@ -1415,16 +1419,43 @@ describe('what a machine can give back under pressure (spec §5)', () => {
 
 const OC_FLAVOR = opencodeFlavor()
 
-function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
+function engineHost(
+  extra: Omit<Partial<OpencodeEngineHostDeps>, 'clientTerminals' | 'supervision'> & {
+    clientTerminals?: OpencodeEngineClientTerminals
+    supervision?: EngineSupervisor
+  } = {},
+) {
+  const { clientTerminals, supervision, ...rest } = extra
+  const attachment: EngineAttachment = {
+    ready: Promise.resolve({ lease: true, childPid: 4242 }),
+    connection: {
+      onData: () => () => {},
+      onExit: () => {},
+      signal: () => {},
+    },
+    dispose: () => {},
+  }
   return createOpencodeEngineHost({
     flavor: OC_FLAVOR,
     journal: memoryJournal(),
-    stageAttachment: async () => ({ staged: [], refused: [] }),
+    stageAttachment: async () => { throw new Error('attachments are not under test') },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => null,
-    ...extra,
+    // Production always holds the engine under podium-host; the default stub
+    // answers re-attach. Tests that need absence pass `supervision: undefined`
+    // explicitly and get the loud refusal.
+    supervision: supervision ?? {
+      spawnHeadless: () => Promise.reject(new Error('no spawn in this test')),
+      attachHeadless: async () => attachment,
+      has: async () => true,
+      kill: async () => {},
+      scopeUnitFor: () => undefined,
+    },
+    // Already narrowed by the caller (engineClientTerminals); passed through.
+    ...(clientTerminals ? { clientTerminals } : {}),
+    ...rest,
   })
 }
 
@@ -1471,7 +1502,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
     const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(),
-      clientTerminals: terminals,
+      clientTerminals: engineClientTerminals(terminals),
     })
     expect(
       await host.attachClient({ sessionId: SESSION, url: URL, mode: 'takeover' }),
@@ -1484,7 +1515,7 @@ describe('the daemon’s answer to “host a client terminal”', () => {
     const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
-      clientTerminals: terminals,
+      clientTerminals: engineClientTerminals(terminals),
     })
     // A rebind moved the server's port; the DRIVER's url is the current one.
     const endpoint = await host.attachClient({
@@ -1509,13 +1540,6 @@ describe('the daemon’s answer to “host a client terminal”', () => {
         adopt: () => {},
         relaunch: async () => {},
         close: async () => {},
-        release: async () => {},
-        viewers: () => {},
-        input: () => false,
-        resize: () => false,
-        redraw: () => false,
-        reclaimable: () => 0,
-        reclaimUnwatched: async () => 0,
       },
     })
     // A throw would surface to the caller as a driver crash; the port's contract
@@ -1555,7 +1579,7 @@ describe('the session’s lifecycle owns its attachment', () => {
     const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
-      clientTerminals: terminals,
+      clientTerminals: engineClientTerminals(terminals),
     })
     expect(await host.adopt(binding)).toBeDefined()
     expect(state.armed).toBe(1)
@@ -1579,7 +1603,7 @@ describe('the session’s lifecycle owns its attachment', () => {
     const host = engineHost({
       resources: () => undefined,
       journal: journal(),
-      clientTerminals: terminals,
+      clientTerminals: engineClientTerminals(terminals),
     })
     expect(await host.adopt(binding)).toBeUndefined()
     expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
@@ -1591,7 +1615,7 @@ describe('the session’s lifecycle owns its attachment', () => {
     const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
-      clientTerminals: terminals,
+      clientTerminals: engineClientTerminals(terminals),
     })
     expect(await host.adopt(binding)).toBeUndefined()
     expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
@@ -1602,7 +1626,7 @@ describe('the session’s lifecycle owns its attachment', () => {
     const host = engineHost({
       resources: () => undefined,
       journal: memoryJournal(journalEntry()),
-      clientTerminals: terminals,
+      clientTerminals: engineClientTerminals(terminals),
     })
     const endpoint = await host.adopt(binding)
     await endpoint?.kill()

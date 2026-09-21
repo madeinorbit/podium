@@ -10,11 +10,35 @@
  * Run by `server-host-survival.integration.test.ts` as
  * `<bun> --conditions=@podium/source <this file>` with GEN1_* env set.
  */
-import { createGrokAcpRuntime, createOpencodeRuntime, createCodexRuntime } from '@podium/harness/driver/host'
+import {
+  codexEngineFacts,
+  createCodexEngineHost,
+  createCodexRuntime,
+  createGrokAcpRuntime,
+  createGrokEngineHost,
+  createOpencodeEngineHost,
+  createOpencodeRuntime,
+  grokEngineFacts,
+  opencodeFlavor,
+  type CodexJournalEntry,
+  type GrokAcpJournalEntry,
+  type OpencodeJournalEntry,
+} from '@podium/harness/driver/host'
 import { createDurableProcess } from '@podium/process/durable'
-import { createCodexHost } from '../runtime/codex-app-server.js'
-import { createGrokAcpHost } from '../runtime/grok-acp-server.js'
-import { createOpencodeHost } from '../runtime/opencode-server.js'
+import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
+import {
+  composeEngineEnv,
+  createEngineJournal,
+  dialEngineSocket,
+  engineSocketRoot,
+  supervisionFor,
+} from '../runtime/host.js'
+import { SERVER_GRACEFUL_EXIT_MS } from '../runtime/server-teardown-budget.js'
+import {
+  codexAppServerVersionProbe,
+  grokAcpVersionProbe,
+  opencodeVersionProbeForExecutable,
+} from '../runtime/version-probe.js'
 
 const root = process.env.GEN1_ROOT as string
 const workdir = `${root}/work`
@@ -25,7 +49,22 @@ const ready = (engine: string, binding: unknown): void => {
   process.stdout.write(`READY ${engine} ${JSON.stringify(binding)}\n`)
 }
 
-const codexHost = createCodexHost({ resources: noResources, durable })
+const codexFacts = codexEngineFacts()
+const grokFacts = grokEngineFacts()
+const flavor = opencodeFlavor()
+
+const codexHost = createCodexEngineHost({
+  facts: codexFacts,
+  supervision: supervisionFor(durable),
+  journal: createEngineJournal<CodexJournalEntry>({ namespace: codexFacts.journalNamespace }),
+  stageAttachment: stageRuntimeAttachment,
+  resources: noResources,
+  buildEnv: composeEngineEnv,
+  gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+  checkVersion: () => codexAppServerVersionProbe(),
+  socketRoot: engineSocketRoot(),
+  dialSocket: dialEngineSocket,
+})
 const codexRuntime = createCodexRuntime(codexHost)
 const codexHandle = await codexRuntime.driver.create({
   harness: 'codex',
@@ -45,7 +84,17 @@ const codexHandle = await codexRuntime.driver.create({
 await codexHandle.send({ text: 'survive this' }, { origin: 'human', delivery: 'when-ready' })
 ready('codex', codexHandle.binding)
 
-const opencodeHost = createOpencodeHost({ resources: noResources, durable })
+const opencodeHost = createOpencodeEngineHost({
+  flavor,
+  supervision: supervisionFor(durable),
+  journal: createEngineJournal<OpencodeJournalEntry>({ namespace: flavor.journalNamespace }),
+  stageAttachment: stageRuntimeAttachment,
+  resources: noResources,
+  buildEnv: composeEngineEnv,
+  gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+  checkVersion: ({ executable }) =>
+    opencodeVersionProbeForExecutable(executable).then((v) => (v.drivable ? null : v.diagnostic)),
+})
 const opencodeRuntime = createOpencodeRuntime(opencodeHost)
 const opencodeHandle = await opencodeRuntime.driver.create({
   harness: 'opencode',
@@ -62,7 +111,15 @@ const opencodeHandle = await opencodeRuntime.driver.create({
 })
 ready('opencode', opencodeHandle.binding)
 
-const grokHost = createGrokAcpHost({ resources: noResources, durable })
+const grokHost = createGrokEngineHost({
+  facts: grokFacts,
+  supervision: supervisionFor(durable),
+  journal: createEngineJournal<GrokAcpJournalEntry>({ namespace: grokFacts.journalNamespace }),
+  resources: noResources,
+  buildEnv: composeEngineEnv,
+  gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+  checkVersion: () => grokAcpVersionProbe(),
+})
 const grokRuntime = createGrokAcpRuntime(grokHost)
 const grokHandle = await grokRuntime.driver.create({
   harness: 'grok',

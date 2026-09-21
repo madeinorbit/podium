@@ -9,6 +9,7 @@
  */
 
 import { asSessionId } from '@podium/model'
+import { Buffer } from 'node:buffer'
 import { describe, expect, it } from 'vitest'
 import { grokEngineFacts } from './engine-facts.js'
 import {
@@ -64,11 +65,11 @@ describe('headless engine lifecycle (POD-4433)', () => {
   function fakeEngineSession(input: { childPid?: number; lease?: boolean } = {}): {
     session: EngineAttachment
     written: string[]
-    dataListeners: Array<(seq: bigint, data: Uint8Array) => void>
+    dataListeners: Array<(seq: bigint, data: Buffer) => void>
     exits: Array<(code: number, signal: number) => void>
   } {
     const written: string[] = []
-    const dataListeners: Array<(seq: bigint, data: Uint8Array) => void> = []
+    const dataListeners: Array<(seq: bigint, data: Buffer) => void> = []
     const exits: Array<(code: number, signal: number) => void> = []
     const session: EngineAttachment = {
       ready: Promise.resolve({
@@ -76,7 +77,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
         childPid: input.childPid ?? 4242,
       }),
       connection: {
-        onData: (cb: (seq: bigint, data: Uint8Array) => void) => {
+        onData: (cb: (seq: bigint, data: Buffer) => void) => {
           dataListeners.push(cb)
           return () => {}
         },

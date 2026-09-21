@@ -53,7 +53,7 @@ function dial(path: string): Promise<CodexRawSocket> {
 
 async function connect(
   path: string,
-  ...rest: Parameters<typeof connectCodexWebSocket> extends [unknown, ...infer R] ? R : never
+  ...rest: Parameters<typeof connectCodexWebSocket> extends [unknown, unknown, ...infer R] ? R : never
 ): Promise<WebSocket> {
   const socket = await connectCodexWebSocket(dial, path, ...rest)
   return socket as unknown as WebSocket
