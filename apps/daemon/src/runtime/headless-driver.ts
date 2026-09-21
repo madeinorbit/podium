@@ -137,6 +137,7 @@ import {
   type HeadlessTurnSpec,
   runHeadlessTurn,
 } from '../headless-drivers.js'
+import type { SessionRegistry } from '../session/registry.js'
 import { HeadlessTurnFailure, claudeSdkHarnessKind } from '@podium/harness/driver/host'
 import {
   acknowledgeDurableHeadlessTurn,
@@ -442,12 +443,26 @@ export interface HeadlessRuntime {
   dispose(): void
 }
 
+/**
+ * Build the headless driver over a session registry (POD-4512): the ONE live
+ * driver handle per session lives ON the DaemonSession entry, not in a
+ * per-session index here. The driver-internal `sessions` map below keeps the
+ * mechanism (the HeadlessDriverSession record: turn journal, stream position);
+ * the entry owns the handle.
+ */
 export function createHeadlessRuntime(
   host: HeadlessDriverHost,
   runners: HeadlessDriverRunners = defaultRunners,
+  registry: SessionRegistry,
 ): HeadlessRuntime {
   const sessions = new Map<SessionId, HeadlessDriverSession>()
-  const handles = new Map<SessionId, AgentSessionHandle>()
+  // NO HANDLE INDEX HERE (POD-4512): the entry owns the handle; the reads and
+  // writes below go through `registry`.
+  /** Forget one entry's driver handle without touching the handle itself. */
+  const forgetDriver = (sessionId: SessionId): void => {
+    const owned = registry.get(sessionId)
+    if (owned) owned.driver = undefined
+  }
 
   function publish(sessionId: SessionId, event: RuntimeEvent): void {
     // The one predicate every producer and the server's durable gate reads
@@ -1404,8 +1419,11 @@ export function createHeadlessRuntime(
 
   function register(session: HeadlessDriverSession): AgentSessionHandle {
     sessions.set(session.sessionId, session)
+    // Fresh handle per registration, stored ON the entry (POD-4512): the map
+    // this replaces overwrote unconditionally too, so a re-register supersedes
+    // rather than reuses.
     const handle = makeHandle(session)
-    handles.set(session.sessionId, handle)
+    registry.ensure(session.sessionId).driver = handle
     return handle
   }
 
@@ -1506,7 +1524,7 @@ export function createHeadlessRuntime(
       } catch (error) {
         log.warn('headless resume rebind failed', { err: error, sessionId })
       }
-      const handle = handles.get(sessionId)
+      const handle = registry.get(sessionId)?.driver
       if (!handle) throw new Error(`headless session '${sessionId}' lost its handle`)
       return handle
     }
@@ -1575,7 +1593,7 @@ export function createHeadlessRuntime(
         { t: 'process', ev: { ev: 'adopted', bindingVersion: existing.bindingVersion } },
         'bootstrap',
       )
-      const handle = handles.get(binding.sessionId)
+      const handle = registry.get(binding.sessionId)?.driver
       if (!handle) throw new Error(`headless session '${binding.sessionId}' lost its handle`)
       return handle
     }
@@ -1655,7 +1673,7 @@ export function createHeadlessRuntime(
 
   return {
     driverFor,
-    handleFor: (sessionId) => handles.get(sessionId),
+    handleFor: (sessionId) => registry.get(sessionId)?.driver,
     bindings: () => [...sessions.values()].map(bindingFor),
     createWithId,
     resumeWithId,
@@ -1675,15 +1693,16 @@ export function createHeadlessRuntime(
         for (const wake of [...session.wakers]) wake()
       }
       sessions.delete(sessionId)
-      handles.delete(sessionId)
+      // Forget the entry's handle WITHOUT destroying it (POD-4512).
+      forgetDriver(sessionId)
     },
     dispose: () => {
       for (const session of sessions.values()) {
         session.disposed = true
         for (const wake of [...session.wakers]) wake()
+        forgetDriver(session.sessionId)
       }
       sessions.clear()
-      handles.clear()
     },
   }
 }
