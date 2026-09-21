@@ -161,6 +161,18 @@ export interface ClaudeSdkRuntimeHost {
   }): void
   /** Report accepted turns that cannot be delivered after teardown or failure. */
   onQueueAbandoned?: OnQueueAbandoned
+  /**
+   * END THE SESSION'S ENGINE (POD-4499). The contract runtime owns turns; the
+   * engine host owns the per-session `claude` child the turns rode. Absent =
+   * no engine (tests, embedded fakes). `retire` true (stop/kill) clears the
+   * adopt journal; false (hibernate) keeps it — the session persists and a
+   * later resume (or a daemon-restart adopt) rebinds by label.
+   */
+  stopEngine?(sessionId: SessionId, retire: boolean): Promise<void> | void
+  /** Drop every engine hold WITHOUT ending engines (daemon shutdown): the
+   *  host owns them now, and the journals stay so the next generation adopts
+   *  the survivors. */
+  releaseEngines?(): void
 }
 
 interface QueuedTurn {
@@ -777,6 +789,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         })
         await active?.interrupt()
         await active?.dispose?.()
+        await host.stopEngine?.(core.sessionId, true)
       },
       async hibernate() {
         assertCurrent()
@@ -785,6 +798,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         end(core)
         await active?.interrupt()
         await active?.dispose?.()
+        await host.stopEngine?.(core.sessionId, false)
         return { ok: true as const }
       },
       async kill() {
@@ -796,6 +810,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         })
         await active?.interrupt()
         await active?.dispose?.()
+        await host.stopEngine?.(core.sessionId, true)
       },
       async health(): Promise<SessionHealth> {
         return { alive: core.alive, oomEvents: core.oomEvents }
@@ -1230,6 +1245,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         void active?.interrupt()
         void active?.dispose?.()
       }
+      host.releaseEngines?.()
     },
   }
   return runtime

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { basename, join } from 'node:path'
+import { basename } from 'node:path'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
 import type { PendingInteraction } from '../../interactions.js'
@@ -9,11 +9,13 @@ import {
   type ClaudeSdkRuntimeHost,
   createClaudeSdkRuntime,
 } from './runtime.js'
-import { type ClaudeSdkChildTurnInput, runClaudeSdkChildTurn } from './child-turn.js'
+import type { ClaudeEngineHost } from './engine-host.js'
+import { claudeEngineProcessKey, type ClaudeEngineFacts } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
 import type { ServerSessionFramePorts } from '../server-family.js'
+import type { ServerFamilyJournalEntry } from '../server-family.js'
 import { createLogger } from '@podium/logger'
-import type { AgentRuntimeState, HarnessAgent, ResumeRef, SessionId } from '@podium/model'
+import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import {
   type DaemonMessage,
   isRuntimeFineEvent,
@@ -53,7 +55,7 @@ export async function emitClaudeBinding(
   publishedClaudeBindings.add(handle)
   ports.emitBind({
     sessionId: input.sessionId,
-    cmd: 'Claude Agent SDK (embedded)',
+    cmd: 'Claude stream engine',
     cwd: input.cwd,
     agentKind: input.agentKind,
     driverId: handle.binding.driver,
@@ -85,40 +87,42 @@ export async function ensureClaudeBindingPublished(
 
 export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
   launch(input: ClaudeSdkSessionLaunch): Promise<AgentSessionHandle>
+  /** Every session this runtime currently holds. */
+  has(sessionId: SessionId): boolean
+  /**
+   * THE BINDING JOURNAL, so the reattach path can ask whether a session was
+   * ours before it tries to adopt it. The ENTRY'S EXISTENCE is the statement
+   * that this session was engine-driven.
+   */
+  journal: ClaudeEngineHost['journal']
+  /**
+   * Re-bind a session after a daemon restart, from the journal alone. The
+   * engine re-attach itself stays lazy (first turn adopts the survivor, or
+   * spawns fresh with `--resume` when nothing survived), so adopt never fails
+   * for a missing engine — only for a missing journal.
+   */
+  adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
+  /** Uniform server-family shape: the supervisor composes families without
+   *  naming them. Satisfied by the members below (describe/journalEntry/
+   *  clearJournal) plus the spread runtime above. */
+  readonly describe: string
+  journalEntry(sessionId: SessionId): ServerFamilyJournalEntry | undefined
+  clearJournal(sessionId: SessionId): void
+  reportOomKill(sessionId: SessionId, scopeUnit?: string): void
 }
 
 /**
- * THE HOME THE SDK CHILD MUST RUN IN, and why it is a parameter at all.
- *
- * `readTranscript` below resolves this session's JSONL under the daemon's
- * `ctx.homeDir` — the named instance's agent home. The child writes that file
- * under its own `HOME`, and nothing in the spawn frame's `env` (server-resolved
- * managed credentials) names one, so the child kept the DAEMON's `HOME`: the
- * operator account home. Reader and writer then addressed two different files
- * and every `sessions.read` answered `items: []` for a conversation that had
- * really happened — prompt and answer included, not one item type (POD-3057).
- *
- * The same split, reached by a different road, is POD-3059 on the durable
- * headless path; the instance home is authoritative there for the reasons that
- * issue records, and this path is the one it did not travel. `claude-code`
- * declares no `instanceHome` state selector, so for this harness `HOME` alone
- * decides where the record lands — which is also why aligning it closes the
- * credential-isolation leak POD-2247 names: a child left on the daemon's `HOME`
- * reads and writes the operator's real auth files from inside an instance that
- * is supposed to be isolated.
- *
- * Absent on the DEFAULT instance, where the daemon has no agent home of its own
- * and reader and child already agree on the ambient one.
- */
-/**
  * What a Claude SDK session adapter needs from whoever supervises it.
  *
- * The SDK child runs where the supervisor puts it; the transcript it writes
- * is read back through the supervisor's transcript ports; env composition
- * (stored-login precedence) is the supervisor's merge. Ports and facts as in
- * ../codex/session.ts.
+ * The engine (stream-json protocol over the supervisor-held child) arrives
+ * as `engine`; the frame stream, bind emission, timing and mail continuation
+ * arrive as narrow ports; harness-shaped values arrive through `facts`. The
+ * supervisor owns processes, disks and the wire — this adapter owns the
+ * translation between the contract and the frames.
  */
 export interface ClaudeSdkSessionDeps extends ServerSessionFramePorts {
+  facts: ClaudeEngineFacts
+  engine: ClaudeEngineHost
   transcript: {
     readHistory(
       session: {
@@ -138,101 +142,17 @@ export interface ClaudeSdkSessionDeps extends ServerSessionFramePorts {
     }): Promise<{ path: string; relativeDir?: string }>
     readFileBytes(path: string): Promise<Uint8Array>
   }
-  /**
-   * Compose the SDK host child's environment (stored-login precedence).
-   * Owned by the supervisor — the same merge every other child gets.
-   */
-  composeChildEnv(
-    agent: typeof claudeSdkHarnessKind,
-    explicit?: Readonly<Record<string, string>>,
-  ): Record<string, string>
-  /** The named instance's agent home, when there is one. */
-  homeDir?: string
-  /** Installed Claude executable captured from this supervisor generation. */
-  executablePath?: string
 }
 
 export function createClaudeSdkSessionRuntime(
   deps: ClaudeSdkSessionDeps,
 ): DaemonClaudeSdkRuntime {
-  /**
-   * The instance-owned overlay, layered LAST so it outranks the spawn frame's
-   * env. `CLAUDE_CONFIG_DIR` rides along because the CLI honours it over `HOME`
-   * for its config root while the reader knows only `HOME`: pinning it to this
-   * home's own `.claude` keeps a value inherited from the daemon's environment
-   * from re-opening the split the `HOME` line just closed.
-   */
-  const instanceEnv = deps.homeDir
-    ? { HOME: deps.homeDir, CLAUDE_CONFIG_DIR: join(deps.homeDir, '.claude') }
-    : undefined
   let runtime!: DaemonClaudeSdkRuntime
   const host: ClaudeSdkRuntimeHost = {
     mintSessionId: () => randomUUID() as SessionId,
     mintResumeValue: randomUUID,
     now: () => new Date().toISOString(),
-    startTurn(input) {
-      const instructions = input.spec.instructions.supported
-        ? input.spec.instructions.value.instructions.map((entry) => entry.content).join('\n\n')
-        : undefined
-      const mcpConfig =
-        input.spec.mcpServers.supported && input.spec.mcpServers.value.transport === 'inline'
-          ? input.spec.mcpServers.value.config
-          : undefined
-      const model =
-        input.turn.overrides?.supported && input.turn.overrides.value.model
-          ? input.turn.overrides.value.model
-          : input.spec.model.model
-      const effort =
-        input.turn.overrides?.supported && input.turn.overrides.value.effort
-          ? input.turn.overrides.value.effort
-          : input.spec.model.effort
-      const spec: ClaudeSdkChildTurnInput = {
-        cwd: input.spec.workdir,
-        prompt: input.turn.text,
-        ...(input.newConversation
-          ? { sessionUuid: input.resumeValue }
-          : { resumeValue: input.resumeValue }),
-        structuredPermissions: true,
-        ...(model && model !== 'auto' ? { model } : {}),
-        ...(effort && effort !== 'auto' ? { effort } : {}),
-        ...(deps.executablePath ? { executablePath: deps.executablePath } : {}),
-        ...(instructions ? { systemPrompt: instructions } : {}),
-        ...(mcpConfig ? { mcpConfig } : {}),
-        ...(input.spec.env || instanceEnv ? { env: { ...input.spec.env, ...instanceEnv } } : {}),
-      }
-      const child = runClaudeSdkChildTurn(
-        spec,
-        (event) => {
-          if (event.kind === 'partial-text') {
-            input.onPartialText(event.text, event.itemHint)
-          }
-        },
-        {
-          childEnv: deps.composeChildEnv(claudeSdkHarnessKind, spec.env),
-          onPermission: input.onPermission,
-          onToolCall: input.onToolCall,
-          onToolResult: input.onToolResult,
-        },
-      )
-      return {
-        done: child.done.then((outcome) => ({
-          resumeValue: outcome.harnessSessionId,
-          output: outcome.output,
-          ...(outcome.observedModel ? { observedModel: outcome.observedModel } : {}),
-          ...(outcome.observedEffort ? { observedEffort: outcome.observedEffort } : {}),
-        })),
-        interrupt: child.interrupt,
-        // The acknowledged form, kept separate from `interrupt` above so
-        // teardown keeps its fire-and-forget poke and the operator's stop gets
-        // the provider's actual answer.
-        requestInterrupt: child.requestInterrupt,
-        answerPermission(interactionId, answer) {
-          if (!child.answerPermission) throw new Error('SDK child has no permission answer channel')
-          child.answerPermission(interactionId, answer)
-        },
-        dispose: child.dispose,
-      }
-    },
+    startTurn: (input) => deps.engine.startTurn(input),
     readTranscript: ({ sessionId, workdir, resumeValue, range }) =>
       deps.transcript.readHistory(
         {
@@ -266,6 +186,8 @@ export function createClaudeSdkSessionRuntime(
         ...(effort ? { effort } : {}),
       }),
     onQueueAbandoned: reportQueueAbandonment('claude-sdk', deps.send),
+    stopEngine: (sessionId, retire) => deps.engine.stopEngine(sessionId, retire),
+    releaseEngines: () => deps.engine.releaseEngines(),
   }
 
   const contractRuntime = createClaudeSdkRuntime(host)
@@ -333,35 +255,125 @@ export function createClaudeSdkSessionRuntime(
     })()
   }
 
+  /** Tell the server the harness-native id this session resumes from, so a
+   *  handoff or a later resume does not have to re-derive it. */
+  function reportResumeRef(sessionId: SessionId, handle: AgentSessionHandle): void {
+    const resume = handle.binding.resume
+    if (!resume) return
+    deps.send({ type: 'sessionResumeRef', sessionId, resume, confidence: 'exact' })
+  }
+
+  function launchSpec(input: {
+    cwd: string
+    model?: string
+    effort?: string
+    env?: Readonly<Record<string, string>>
+    initialPrompt?: string
+  }): Parameters<ClaudeSdkRuntime['createWithId']>[1] {
+    return {
+      harness: claudeSdkHarnessKind,
+      selection: {
+        auth: 'unknown',
+        platform: process.platform,
+        available: ['claude-sdk'],
+        preference: 'claude-sdk',
+      },
+      workdir: input.cwd,
+      model: {
+        ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
+        ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
+      },
+      instructions: { supported: false, reason: 'spawn supplied no hidden instruction channel' },
+      mcpServers: { supported: false, reason: 'spawn supplied no inline MCP configuration' },
+      ...(input.env ? { env: input.env } : {}),
+      ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
+    }
+  }
+
   runtime = {
     ...contractRuntime,
+    describe: `${deps.facts.command} --input-format stream-json (streaming engine)`,
+    journal: deps.engine.journal,
+    journalEntry(sessionId) {
+      const entry = deps.engine.journal.read(sessionId)
+      if (!entry) return undefined
+      return {
+        workdir: entry.workdir,
+        process: entry.process,
+        bindingVersion: entry.bindingVersion,
+      }
+    },
+    clearJournal(sessionId) {
+      deps.engine.journal.clear(sessionId)
+    },
+    reportOomKill(sessionId, scopeUnit) {
+      contractRuntime.processEvent(sessionId, { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) })
+    },
+
+    /**
+     * STRAIGHT FROM THE RUNTIME'S HANDLE MAP, never a parallel Set (POD-2249):
+     * the Set this pattern replaced survived the lifecycle verbs, so a parked
+     * session's bind fact kept routing verbs onto a contract path answering
+     * `not_running`.
+     */
+    has: (sessionId) => contractRuntime.handleFor(sessionId) !== undefined,
+
+    async adoptFromJournal(sessionId) {
+      const entry = deps.engine.journal.read(sessionId)
+      // No entry is "not mine" — every terminal session reaches reattach paths
+      // too, and answering anything else would hijack a PTY session's
+      // reattach. The process key is derived independently (never trusted
+      // from the journal) before a fresh channel may serve the native
+      // session it names.
+      if (!entry) return undefined
+      if (entry.sessionId !== sessionId) return undefined
+      if (entry.process.key !== claudeEngineProcessKey(deps.facts, sessionId)) return undefined
+      // The engine re-attach stays LAZY: resume the contract core now (the
+      // journal carries the facts the next turn's spawn needs), and the first
+      // turn adopts the surviving engine — or spawns fresh with `--resume`
+      // when nothing survived. Adopt therefore never fails for a missing
+      // engine, only for a missing journal.
+      const handle = await contractRuntime.resumeWithId(
+        sessionId,
+        { kind: 'claude-session', value: entry.claudeSessionId },
+        {
+          ...launchSpec({
+            cwd: entry.workdir,
+            ...(entry.model ? { model: entry.model } : {}),
+            ...(entry.effort ? { effort: entry.effort } : {}),
+            ...(entry.env ? { env: entry.env } : {}),
+          }),
+          // The journal carries what the next turn's engine spawn reads: the
+          // instruction text (one entry, attributed to the adopt) and the raw
+          // MCP config. Absent = the launch-time unsupported, honestly so.
+          instructions: entry.instructions
+            ? {
+                supported: true,
+                value: {
+                  instructions: [{ source: 'journal-adopt', content: entry.instructions }],
+                  reprimeOnCompaction: false,
+                },
+              }
+            : { supported: false, reason: 'adopt carries no instruction channel' },
+          mcpServers: entry.mcpConfig
+            ? { supported: true, value: { transport: 'inline', config: entry.mcpConfig } }
+            : { supported: false, reason: 'adopt carries no inline MCP configuration' },
+        },
+      )
+      pump(sessionId)
+      reportResumeRef(sessionId, handle)
+      return handle
+    },
+
     async launch(input) {
-      const spec = {
-        harness: claudeSdkHarnessKind,
-        selection: {
-          auth: 'unknown',
-          platform: process.platform,
-          available: ['claude-sdk'],
-          preference: 'claude-sdk',
-        },
-        workdir: input.cwd,
-        model: {
-          ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-          ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
-        },
-        instructions: { supported: false, reason: 'spawn supplied no hidden instruction channel' },
-        mcpServers: { supported: false, reason: 'spawn supplied no inline MCP configuration' },
-        ...(input.env ? { env: input.env } : {}),
-        ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
-      } satisfies Parameters<ClaudeSdkRuntime['createWithId']>[1]
       const handle = input.resume
-        ? await contractRuntime.resumeWithId(input.sessionId, input.resume, spec)
-        : await contractRuntime.createWithId(input.sessionId, spec)
+        ? await contractRuntime.resumeWithId(input.sessionId, input.resume, launchSpec(input))
+        : await contractRuntime.createWithId(input.sessionId, launchSpec(input))
       pump(input.sessionId)
       deps.sessionReady(handle.binding)
-      // THE BIND IS BARE (POD-3290). An embedded SDK child is not attached to
-      // a terminal, so nothing here reports a size — instead of the `120x40`
-      // that used to go out as a report, the server keeps W unknown until a
+      // THE BIND IS BARE (POD-3290). A stream engine has no terminal of any
+      // kind, so nothing here reports a size — instead of the `120x40` that
+      // used to go out as a report, the server keeps W unknown until a
       // viewer asks.
       await emitClaudeBinding(
         deps,
