@@ -21,11 +21,14 @@ import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-poli
 import { opencodeCredentials } from './credentials.js'
 import { opencodeInstall } from './install.js'
 import { opencodeUsage } from './usage.js'
+import { opencodeCatalog } from './catalog.js'
+import { opencodeDescriptor } from './descriptor.js'
 import { opencodeTranscript } from './transcript.js'
 
 export const opencodeManifest: AgentManifest = {
   kind: 'opencode',
-  displayName: 'opencode',
+  descriptor: opencodeDescriptor,
+  catalog: opencodeCatalog,
   capabilities: {
     argvPrompt: true,
     effortFlag: 'variant',

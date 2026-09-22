@@ -35,7 +35,9 @@ export type QuotaFetcher = (deps: { homeDir?: string; now?: number }) => Promise
  * never heard of — degrade to a capitalized id, never to another CLI's label.
  */
 export function quotaAgentLabel(kind: string): string {
-  const display = manifestFor(kind)?.displayName
+  // The ONE short-label statement (POD-4538): the adapter's descriptor row,
+  // read through its own manifest — never a second label table.
+  const display = manifestFor(kind)?.descriptor.shortLabel
   if (display) return display
   return kind.length > 0 ? kind.charAt(0).toUpperCase() + kind.slice(1) : kind
 }

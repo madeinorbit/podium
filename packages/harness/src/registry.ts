@@ -345,7 +345,9 @@ export {
 export { cursorCreateChatInvocation, parseCursorChatId } from './adapters/cursor/index.js'
 
 export function harnessDisplayName(kind: AgentKind | string): string {
-  return manifestFor(kind)?.displayName ?? kind
+  // The ONE short-label statement (POD-4538): the adapter's descriptor row,
+  // read through its own manifest — never a second `displayName` table.
+  return manifestFor(kind)?.descriptor.shortLabel ?? kind
 }
 
 /**

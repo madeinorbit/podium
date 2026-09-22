@@ -758,7 +758,22 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       // set — the point is that the SHAPE is satisfiable, not that a sixth
       // harness exists.
       kind: fictional,
-      displayName: 'Fictional',
+      descriptor: {
+        kind: fictional,
+        provider: 'fictional',
+        label: 'Fictional CLI',
+        shortLabel: 'Fictional',
+        icon: { id: 'fictional', viewBox: '0 0 24 24', d: 'M4 4h16v16H4z' },
+        brand: null,
+        login: { command: null, installHint: null, signedOutHint: null },
+        defaults: { model: null, effort: null },
+      },
+      catalog: {
+        kind: fictional,
+        models: [],
+        efforts: [],
+        liveMerge: 'live-wins-when-non-empty',
+      },
       capabilities: { ...AGENT_MANIFESTS['claude-code'].capabilities },
       resumeKind: 'fictional-session',
       environment: { removeInherited: [] },

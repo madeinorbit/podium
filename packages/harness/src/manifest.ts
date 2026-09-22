@@ -36,6 +36,10 @@ import type {
   ProviderAgentStateEvent,
 } from './agent-state/types.js'
 import type { ConversationProvider } from './discovery/types.js'
+import type {
+  HarnessCatalogData,
+  HarnessDescriptorData,
+} from './descriptor-types.js'
 
 /** The harness kinds — every AgentKind except 'shell' (a shell is spawned by the
  *  daemon directly; it has no CLI conventions, transcript, or observers).
@@ -1449,8 +1453,18 @@ export interface HarnessHandoffTranscript {
  */
 export interface AgentManifest {
   kind: BuiltinHarnessKind
-  /** Human-facing CLI/provider name for diagnostics. */
-  displayName: string
+  /**
+   * Browser-safe PRESENTATION + STATIC CATALOG (spec §4.1/§4.5, POD-4538):
+   * the adapter's own `descriptor.ts`/`catalog.ts` rows, stated here so the
+   * registry totality check covers them — a harness without presentation
+   * cannot be offered, so these are plain required fields, never Declared
+   * and never declined. The served builder (`descriptors.ts`) and the
+   * bundled snapshot generator read them off the manifest; there is no
+   * second enumeration to drift. `descriptor.shortLabel` is the ONE
+   * human-facing short label (quota, install, menus) — no `displayName`.
+   */
+  descriptor: HarnessDescriptorData
+  catalog: HarnessCatalogData
   /** Static SOFTWARE facts for this CLI. These are deliberately declared beside
    * transcript mapping and launch behavior rather than in a parallel table. */
   capabilities: HarnessCapabilities

@@ -20,6 +20,8 @@ import { locatePiSessionFile, piAgentDir } from '../../pi/paths.js'
 import { piCredentials } from './credentials.js'
 import { piInstall } from './install.js'
 import { piUsage } from './usage.js'
+import { piCatalog } from './catalog.js'
+import { piDescriptor } from './descriptor.js'
 
 /** Pi's turn-output fold, surfaced on the adapter's own index for the supervisor's headless machinery (reached through the registry — POD-4530). */
 export {
@@ -119,7 +121,8 @@ function piIdentity(homeDir: string, env?: HarnessEnvironment) {
 
 export const piManifest: AgentManifest = {
   kind: 'pi',
-  displayName: 'Pi',
+  descriptor: piDescriptor,
+  catalog: piCatalog,
   capabilities: {
     argvPrompt: true,
     effortFlag: 'effort',

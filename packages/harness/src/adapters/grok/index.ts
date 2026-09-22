@@ -22,6 +22,8 @@ import { grokTranscript } from './transcript.js'
 import { grokCredentials } from './credentials.js'
 import { grokInstall } from './install.js'
 import { grokUsage } from './usage.js'
+import { grokCatalog } from './catalog.js'
+import { grokDescriptor } from './descriptor.js'
 import { GROK_ACP_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 
 interface GrokAuthRecord {
@@ -65,7 +67,8 @@ function grokProfile(path: string): string | undefined {
 
 export const grokManifest: AgentManifest = {
   kind: 'grok',
-  displayName: 'Grok',
+  descriptor: grokDescriptor,
+  catalog: grokCatalog,
   capabilities: {
     argvPrompt: true,
     effortFlag: 'effort',
