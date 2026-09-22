@@ -70,7 +70,7 @@ export class DeadlineClock {
       this.rewind.reportChanged()
       return
     }
-    const end = this.indexOf(now + 1) // deadlines <= now
+    const end = this.indexOf(nextUp(now)) // deadlines <= now
     if (end === 0) return
     const crossed = this.deadlines.splice(0, end)
     for (const t of crossed) {

@@ -77,6 +77,9 @@ function installFields(prototype: EntityModel, entity: EntityName): void {
   const spec = SCHEMA[entity]
   const spelling = FEED_SPELLING[entity] ?? {}
   for (const field of Object.keys(spec.fields)) {
+    if (field in prototype) {
+      throw new Error(`[pool] ${entity}.${field} collides with a model member; rename one`)
+    }
     const property = spelling[field] ?? field
     Object.defineProperty(prototype, field, {
       configurable: false,

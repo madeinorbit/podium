@@ -8,6 +8,9 @@
  * state: the answer is the source row's field plus the target's presence,
  * and both are tracked reads of table slots. `issue.repo` (for `displayRef`)
  * and `issue.discoveredFrom` (for `originTick`) are two of them.
+ * `relationRef` is the first half alone (the reference, no presence check):
+ * the row views memo it separately from the resolution (`views.ts`), so a
+ * change to the source row that keeps the reference never reads the target.
  *
  * WHAT IS STUBBED UNTIL Ma2 (POD-4566). Everything that needs an inverse
  * bucket or a root set: `hasMany`, incoming `edge`, and `prefix` answer
