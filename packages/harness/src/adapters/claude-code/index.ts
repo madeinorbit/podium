@@ -22,6 +22,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { claudeChainPaths, claudeCodeTranscript } from './transcript.js'
+import { claudeComposer } from './composer.js'
 import { claudeCodeInstrumentation } from './instrumentation.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeInstall } from './install.js'
@@ -308,6 +309,8 @@ export const claudeCodeManifest: AgentManifest = {
   discovery: createClaudeCodeConversationProvider(),
 
   transcript: claudeCodeTranscript,
+
+  composer: supported(claudeComposer),
 
   handoffTranscript: supported({
     transcriptPlacement: ({ cwd, homeDir, resumeValue }) =>

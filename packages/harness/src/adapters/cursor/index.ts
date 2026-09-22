@@ -209,6 +209,8 @@ export const cursorManifest: AgentManifest = {
 
   transcript: cursorTranscript,
 
+  composer: unsupported('Cursor has no composer scrape rules yet'),
+
   handoffTranscript: unsupported('cross-machine handoff is not supported for cursor sessions'),
 
   classifyBrowserOpen: unsupported(

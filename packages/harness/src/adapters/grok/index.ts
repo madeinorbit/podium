@@ -519,6 +519,8 @@ export const grokManifest: AgentManifest = {
 
   transcript: grokTranscript,
 
+  composer: unsupported('grok has no composer scrape rules yet'),
+
   handoffTranscript: unsupported('cross-machine handoff is not supported for grok sessions'),
 
   classifyBrowserOpen: unsupported(
