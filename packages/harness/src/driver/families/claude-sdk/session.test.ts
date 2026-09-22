@@ -65,7 +65,7 @@ function fakeEngine(
   }),
 ): ClaudeEngineHost & { startTurn: ReturnType<typeof vi.fn> } {
   return {
-    journal: { read: () => undefined, write: vi.fn(), clear: vi.fn() },
+    bindings: { recorded: () => undefined, bound: vi.fn(), released: vi.fn() },
     startTurn: vi.fn(impl),
     stopEngine: vi.fn(async () => {}),
     releaseEngines: vi.fn(),
@@ -380,7 +380,7 @@ describe('Claude SDK daemon host adapter', () => {
       const sent: DaemonMessage[] = []
       const engine = fakeEngine()
       const journal = {
-        read: () => ({
+        recorded: () => ({
           sessionId: SESSION_ID,
           claudeSessionId: 'claude-native-9',
           workdir: '/project',
@@ -388,10 +388,10 @@ describe('Claude SDK daemon host adapter', () => {
           model: 'claude-opus-5',
           bindingVersion: 1,
         }),
-        write: vi.fn(),
-        clear: vi.fn(),
+        bound: vi.fn(),
+        released: vi.fn(),
       }
-      const runtime = sessionWorld(sent, [], { ...engine, journal })
+      const runtime = sessionWorld(sent, [], { ...engine, bindings: journal })
       const handle = await runtime.adoptFromJournal(SESSION_ID)
       expect(handle?.binding).toMatchObject({
         sessionId: SESSION_ID,
@@ -459,17 +459,17 @@ describe('Claude SDK daemon host adapter', () => {
     it('refuses a journal entry for another process key', async () => {
       const engine = fakeEngine()
       const journal = {
-        read: () => ({
+        recorded: () => ({
           sessionId: SESSION_ID,
           claudeSessionId: 'claude-native-9',
           workdir: '/project',
           process: { key: 'podium-cx-something-else' },
           bindingVersion: 1,
         }),
-        write: vi.fn(),
-        clear: vi.fn(),
+        bound: vi.fn(),
+        released: vi.fn(),
       }
-      const runtime = sessionWorld([], [], { ...engine, journal })
+      const runtime = sessionWorld([], [], { ...engine, bindings: journal })
       await expect(runtime.adoptFromJournal(SESSION_ID)).resolves.toBeUndefined()
       runtime.dispose()
     })
@@ -484,11 +484,11 @@ describe('Claude SDK daemon host adapter', () => {
         bindingVersion: 1,
       }
       const journal = {
-        read: (sessionId: SessionId) => (sessionId === SESSION_ID ? stored : undefined),
-        write: vi.fn(),
-        clear: vi.fn(),
+        recorded: (sessionId: SessionId) => (sessionId === SESSION_ID ? stored : undefined),
+        bound: vi.fn(),
+        released: vi.fn(),
       }
-      const runtime = sessionWorld([], [], { ...engine, journal })
+      const runtime = sessionWorld([], [], { ...engine, bindings: journal })
       expect(runtime.journalEntry(SESSION_ID)).toEqual({
         workdir: '/work',
         process: { key: 'podium-cl-claude-adapter-session', pid: 4242 },
@@ -499,7 +499,7 @@ describe('Claude SDK daemon host adapter', () => {
       })
       expect(runtime.journalEntry('no-such-session' as SessionId)).toBeUndefined()
       runtime.clearJournal(SESSION_ID)
-      expect(journal.clear).toHaveBeenCalledWith(SESSION_ID)
+      expect(journal.released).toHaveBeenCalledWith(SESSION_ID)
       runtime.dispose()
     })
   })

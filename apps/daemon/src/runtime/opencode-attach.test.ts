@@ -15,7 +15,12 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { OpencodeJournal, OpencodeJournalEntry, SessionBinding } from '@podium/harness/driver/host'
+import type { OpencodeJournalEntry, SessionBinding } from '@podium/harness/driver/host'
+import {
+  createMemoryBindingRecords,
+  createTestEngineOwner,
+  type MemoryBindingRecords,
+} from '@podium/harness/driver/testing'
 import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifestFor } from '@podium/harness'
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
@@ -1455,9 +1460,12 @@ function engineHost(
   extra: Omit<Partial<OpencodeEngineHostDeps>, 'clientTerminals' | 'supervision' | 'engines'> & {
     clientTerminals?: OpencodeEngineClientTerminals
     supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
-    engines?: EngineProcessOwner
+    engines?: undefined
+    /** The session layer's binding record the default owner reports into. */
+    journal?: MemoryBindingRecords<OpencodeJournalEntry>
   } = {},
 ) {
+  const { journal = memoryJournal(), ...rest } = extra
   const attachment: EngineAttachment = {
     ready: Promise.resolve({ lease: true, childPid: 4242 }),
     connection: {
@@ -1469,7 +1477,6 @@ function engineHost(
   }
   return createOpencodeEngineHost({
     flavor: OC_FLAVOR,
-    journal: memoryJournal(),
     stageAttachment: async () => { throw new Error('attachments are not under test') },
     resources: () => undefined,
     buildEnv: () => ({}),
@@ -1482,13 +1489,15 @@ function engineHost(
     // from the ownership guard — spread-last, so an explicit undefined
     // overrides the default rather than falling back to it.
     supervision: { scopeUnitFor: () => undefined },
-    engines: {
-      startEngine: () => Promise.reject(new Error('no spawn in this test')),
-      reattachEngine: async () => attachment,
-      engineAlive: async () => true,
-      destroyEngine: async () => {},
-    },
-    ...extra,
+    engines: createTestEngineOwner<OpencodeJournalEntry>(
+      {
+        startEngine: () => Promise.reject(new Error('no spawn in this test')),
+        reattachEngine: async () => attachment,
+        engineAlive: async () => true,
+      },
+      { records: journal },
+    ),
+    ...rest,
   })
 }
 
@@ -1506,17 +1515,8 @@ const journalEntry = (over: Partial<OpencodeJournalEntry> = {}): OpencodeJournal
   ...over,
 })
 
-function memoryJournal(entry?: OpencodeJournalEntry): OpencodeJournal {
-  const entries = new Map<SessionId, OpencodeJournalEntry>(entry ? [[entry.sessionId, entry]] : [])
-  return {
-    read: (sessionId) => entries.get(sessionId),
-    write: (e) => {
-      entries.set(e.sessionId, e)
-    },
-    clear: (sessionId) => {
-      entries.delete(sessionId)
-    },
-  }
+function memoryJournal(entry?: OpencodeJournalEntry): MemoryBindingRecords<OpencodeJournalEntry> {
+  return createMemoryBindingRecords<OpencodeJournalEntry>(entry ? [entry] : [])
 }
 
 describe('the daemon’s answer to “host a client terminal”', () => {

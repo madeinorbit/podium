@@ -28,7 +28,10 @@ import type {
   EngineAttachment,
   EngineProcessOwner,
   EngineSupervisor,
+  SessionEngineOwner,
 } from '../engine-supervision.js'
+import { createMemoryBindingRecords, createTestEngineOwner } from '../../testing/binding-records.js'
+import type { OpencodeJournalEntry } from './runtime.js'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const FLAVOR = opencodeFlavor(manifestFor('opencode')!)
@@ -37,7 +40,6 @@ const FLAVOR2 = opencode2Flavor(manifestFor('opencode')!)
 function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
   return createOpencodeEngineHost({
     flavor: FLAVOR,
-    journal: { read: () => undefined, write: () => {}, clear: () => {} },
     stageAttachment: async () => { throw new Error('attachments are not under test') },
     resources: () => undefined,
     buildEnv: () => ({}),
@@ -89,20 +91,36 @@ function fakePorts(hooks: {
   }) => Promise<EngineAttachment>
   reattachEngine?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
   destroyed?: (label: string) => void
+  /** What the session layer recorded for the session. */
+  recorded?: OpencodeJournalEntry
+  /** Every fact set the family reported as bound. */
+  reported?: OpencodeJournalEntry[]
 }): {
   supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
-  engines: EngineProcessOwner
+  engines: SessionEngineOwner<OpencodeJournalEntry>
 } {
+  const records = createMemoryBindingRecords<OpencodeJournalEntry>(
+    hooks.recorded ? [hooks.recorded] : [],
+  )
+  const owner = createTestEngineOwner<OpencodeJournalEntry>(
+    {
+      ...(hooks.startEngine ? { startEngine: hooks.startEngine } : {}),
+      ...(hooks.reattachEngine
+        ? { reattachEngine: (input) => hooks.reattachEngine!({ label: input.label, fromSeq: 'tail' }) }
+        : {}),
+      destroyEngine: async (label) => {
+        hooks.destroyed?.(label)
+      },
+    },
+    { records },
+  )
   return {
     supervision: { scopeUnitFor: () => undefined },
     engines: {
-      startEngine:
-        hooks.startEngine ?? (() => Promise.reject(new Error('unexpected startEngine'))),
-      reattachEngine:
-        hooks.reattachEngine ?? (() => Promise.reject(new Error('no engine host answers'))),
-      engineAlive: async () => false,
-      destroyEngine: async (label: string) => {
-        hooks.destroyed?.(label)
+      ...owner,
+      bound: (facts) => {
+        hooks.reported?.push(facts)
+        owner.bound(facts)
       },
     },
   }
@@ -256,12 +274,7 @@ function fakePorts(hooks: {
       reattachEngine?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
     }) {
       return engineHost({
-        journal: {
-          read: () => journalled,
-          write: () => {},
-          clear: () => {},
-        },
-        ...fakePorts(hooks),
+        ...fakePorts({ ...hooks, recorded: journalled }),
       })
     }
 
@@ -272,12 +285,8 @@ function fakePorts(hooks: {
       const host = engineHost({
         checkVersion: async () => null,
         freePort: async () => 49999,
-        journal: {
-          read: () => journalled,
-          write: () => {},
-          clear: () => {},
-        },
         ...fakePorts({
+          recorded: journalled,
           startEngine: async (opts) => {
             spawned.push(opts)
             throw new Error('a live server must be adopted, never re-spawned')
@@ -321,12 +330,8 @@ function fakePorts(hooks: {
       const host = engineHost({
         checkVersion: async () => null,
         freePort: async () => 49999,
-        journal: {
-          read: () => journalled,
-          write: () => {},
-          clear: () => {},
-        },
         ...fakePorts({
+          recorded: journalled,
           startEngine: async (opts) => {
             spawned.push(opts)
             throw new Error('must not spawn beside a leased engine')
@@ -355,7 +360,6 @@ function fakePorts(hooks: {
       const host = engineHost({
         checkVersion: async () => null,
         freePort: async () => 41234,
-        journal: { read: () => undefined, write: () => {}, clear: () => {} },
         ...fakePorts({ startEngine: async () => session }),
       })
       try {
@@ -428,17 +432,13 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
     // from this error's address and secret. The secret rides a field, never
     // the message.
     const killed: string[] = []
-    const written: string[] = []
+    const written: OpencodeJournalEntry[] = []
     const { session } = fakeEngineSession()
     const host = engineHost({
       checkVersion: async () => null,
       freePort: async () => 41234,
-      journal: {
-        read: () => undefined,
-        write: (entry) => void written.push(entry.sessionId),
-        clear: () => {},
-      },
       ...fakePorts({
+        reported: written,
         startEngine: async () => session,
         destroyed: (label) => void killed.push(label),
       }),

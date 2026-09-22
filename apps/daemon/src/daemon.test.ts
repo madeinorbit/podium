@@ -1118,7 +1118,7 @@ function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport 
 }
 
 function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
-  const entries = new Map<SessionId, Parameters<CodexRuntimeHost['journal']['write']>[0]>()
+  const entries = new Map<SessionId, Parameters<CodexRuntimeHost['bindings']['bound']>[0]>()
   const host: CodexRuntimeHost = {
     stageAttachment: async ({ source }) => ({
       id: 'test-attachment',
@@ -1127,10 +1127,10 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
       mediaType: source.mediaType,
       kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
     }),
-    journal: {
-      read: (id) => entries.get(id),
-      write: (entry) => void entries.set(entry.sessionId, entry),
-      clear: (id) => void entries.delete(id),
+    bindings: {
+      recorded: (id) => entries.get(id),
+      bound: (entry) => void entries.set(entry.sessionId, entry),
+      released: (id) => void entries.delete(id),
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-codex-session'),
@@ -1158,12 +1158,12 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
 }
 
 function defaultGrokRuntime(sent: DaemonMessage[]) {
-  const entries = new Map<SessionId, Parameters<GrokAcpRuntimeHost['journal']['write']>[0]>()
+  const entries = new Map<SessionId, Parameters<GrokAcpRuntimeHost['bindings']['bound']>[0]>()
   const host: GrokAcpRuntimeHost = {
-    journal: {
-      read: (id) => entries.get(id),
-      write: (entry) => void entries.set(entry.sessionId, entry),
-      clear: (id) => void entries.delete(id),
+    bindings: {
+      recorded: (id) => entries.get(id),
+      bound: (entry) => void entries.set(entry.sessionId, entry),
+      released: (id) => void entries.delete(id),
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-grok-session'),

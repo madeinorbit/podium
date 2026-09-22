@@ -87,7 +87,6 @@ function world() {
   const runtime = {
     createWithId: vi.fn(async () => handle),
     handleFor: vi.fn((id: SessionId) => (id === sessionId ? handle : undefined)),
-    journal: { read: () => undefined },
     driver: {},
   } as unknown as OpencodeRuntime
 
@@ -164,7 +163,7 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
     const daemon = createOpencodeSessionRuntime({ driverSlots: createMemoryDriverSlots(),
       flavor: opencodeFlavor(manifestFor('opencode')!),
       engine: {
-        journal: { read: () => entry, write: () => {}, clear: () => {} },
+        bindings: { recorded: () => entry, bound: () => {}, released: () => {} },
       } as unknown as OpencodeRuntimeHost,
       send: () => {},
       emitBind: () => {},
@@ -188,7 +187,7 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
     })
     const daemon = createOpencodeSessionRuntime({ driverSlots: createMemoryDriverSlots(),
       flavor: opencodeFlavor(manifestFor('opencode')!),
-      engine: { journal: { read: () => undefined } } as unknown as OpencodeRuntimeHost,
+      engine: { bindings: { recorded: () => undefined } } as unknown as OpencodeRuntimeHost,
       send: () => {},
       emitBind: () => {},
       sessionReady: () => {},

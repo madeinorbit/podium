@@ -35,7 +35,6 @@ import { afterAll, describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../events.js'
 import {
-  type CodexJournal,
   type CodexJournalEntry,
   type CodexRuntimeHost,
   type CodexTransport,
@@ -44,6 +43,7 @@ import {
 import { gateCodexVersion, SUPPORTED_CODEX } from './version.js'
 import { manifestFor } from '../../../registry.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 
 // Tests read the manifest directly (they are not mechanisms): if the daemon
 // adds a key, this run strips it too.
@@ -73,10 +73,10 @@ function liveHost(workdir: string): {
   const authReports: { authMethod: string | undefined; subscription: boolean }[] = []
   let seq = 0
 
-  const journal: CodexJournal = {
-    read: (id) => entries.get(id),
-    write: (entry) => void entries.set(entry.sessionId, entry),
-    clear: (id) => void entries.delete(id),
+  const bindings: EngineBindingRecords<CodexJournalEntry> = {
+    recorded: (id) => entries.get(id),
+    bound: (entry) => void entries.set(entry.sessionId, entry),
+    released: (id) => void entries.delete(id),
   }
 
   const host: CodexRuntimeHost = {
@@ -87,7 +87,7 @@ function liveHost(workdir: string): {
       mediaType: source.mediaType,
       kind: 'image',
     }),
-    journal,
+    bindings,
     now: () => Date.now(),
     mintSessionId: () => `live-${++seq}` as SessionId,
     reportAuthMode: ({ authMethod, subscription }) =>

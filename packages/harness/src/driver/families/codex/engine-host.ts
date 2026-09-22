@@ -21,9 +21,10 @@
  * that.
  *
  * THIS FAMILY NEVER FORKS, JOURNALS OR KILLS. Every process act — start,
- * re-attach, destroy — goes through the injected `EngineProcessOwner`, which
- * the session layer implements over its durable process; the binding journal
- * arrives as a port the session layer holds. The engine outlives a supervisor
+ * re-attach, destroy — goes through the injected `SessionEngineOwner`, which
+ * the session layer implements over its durable process; the binding record
+ * is the session layer's too — this family reports `bound` / `released` and
+ * reads back what was recorded. The engine outlives a supervisor
  * restart, so `adopt()` rebinds to the survivor — the in-flight turn is no
  * longer abandoned — and only falls back to a fresh engine plus
  * `thread/resume` when nothing survived. `grep child_process` in this file
@@ -37,24 +38,19 @@
  * Pinned Codex 0.147.0 accepts JSON-RPC clients on `--listen unix://PATH`, and
  * its stock TUI connects with `codex resume <thread> --remote unix://PATH`.
  * Podium's driver and the TUI therefore share one harness server without
- * stopping or replacing it. The socket lives directly under the instance's private runtime root,
- * which is 0700; its mode is forced to 0600 before the endpoint is exposed. A short random
- * incarnation suffix prevents a stale pathname from being reused across child incarnations.
- * The journal remains in the state root because it is durable metadata, not a socket.
+ * stopping or replacing it. The ADDRESS IS HANDED, NOT COMPOSED (POD-4611):
+ * this family asks the session layer for a listener and receives
+ * `unix://<path>`; the session layer mints the path under the instance's
+ * private 0700 runtime root, clears a stale file, seals the socket to 0600
+ * when it first answers and removes it when the engine is destroyed. This
+ * file never touches the socket's filesystem entry.
  */
 
-import { createHash, randomUUID } from 'node:crypto'
-import { chmodSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { access, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import {
-  ABDUCO_SUN_PATH_MAX,
-  unixSocketPathBytes,
-  unixSocketPathFits,
-} from '@podium/runtime/abduco-socket'
 import { codexMcpArgs } from '../../../adapters/codex/index.js'
 import {
   CODEX_VERSION_POLICY,
@@ -63,39 +59,19 @@ import {
 } from '../../../version-policy.js'
 import type { AttachmentStager } from '../../turns.js'
 import type { ScopeResources } from '../../capabilities.js'
-import type {
-  CodexJournal,
-  CodexJournalEntry,
-  CodexRuntimeHost,
-  CodexServerEndpoint,
-} from './runtime.js'
+import type { CodexJournalEntry, CodexRuntimeHost, CodexServerEndpoint } from './runtime.js'
 import type { CodexTransport } from './client.js'
 import type { CodexVersionDiagnostic } from './version.js'
 import type { CodexEngineFacts } from './engine-facts.js'
-import type { EngineAttachment, EngineProcessOwner, EngineSupervisor } from '../engine-supervision.js'
-import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import type {
+  EngineAttachment,
+  EngineProcessOwner,
+  EngineSupervisor,
+  SessionEngineOwner,
+} from '../engine-supervision.js'
+import { bindingRecordsOf, EngineBindUnrecoverable } from '../engine-supervision.js'
 
 const log = createLogger('harness:codex-engine-host')
-
-/** A short basename preserves room under Unix's sockaddr limit. The socket
- *  directory itself is the supervisor's instance-private runtime namespace,
- *  handed in — this family only shapes the basename. */
-export function codexClientSocketPath(
-  socketRoot: string,
-  sessionId: SessionId,
-  nonce: string = randomUUID(),
-): string {
-  const session = createHash('sha256').update(sessionId).digest('hex').slice(0, 12)
-  const incarnation = nonce.replaceAll('-', '').slice(0, 12)
-  const path = join(socketRoot, `${session}-${incarnation}.sock`)
-  if (!unixSocketPathFits(path)) {
-    throw new Error(
-      `codex app-server socket path is ${unixSocketPathBytes(path)} bytes; ` +
-        `Unix socket paths must be shorter than ${ABDUCO_SUN_PATH_MAX} bytes: ${path}`,
-    )
-  }
-  return path
-}
 
 // ---------------------------------------------------------------------------
 // The version gate
@@ -227,19 +203,19 @@ export interface CodexEngineHostDeps {
   facts: CodexEngineFacts
   /**
    * The session layer's ownership of every engine: start, re-attach and
-   * destroy go through it; this family composes argv/env and binds protocol,
-   * never forks. Absent (tests that never launch) = launch/adopt/stop/kill
-   * refuse loudly rather than forking a child no restart could re-adopt.
+   * destroy go through it, it mints the listener address, and it holds the
+   * binding record this family reports into. This family composes argv/env
+   * and binds protocol, never forks. Absent (tests that never launch) =
+   * launch/adopt/stop/kill refuse loudly rather than forking a child no
+   * restart could re-adopt, and nothing is recorded.
    */
-  engines?: EngineProcessOwner
+  engines?: SessionEngineOwner<CodexJournalEntry>
   /**
    * The session's transient scope unit, where the platform has one. Only
    * `scopeUnitFor` is read here — never a process verb: spawning, attaching
    * and killing are the session owner's job, delivered through `engines`.
    */
   supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
-  /** The binding journal, persisted by the supervisor (0600, sync). */
-  journal: CodexJournal
   stageAttachment: AttachmentStager
   /** Resource truth for a session's scope — memory, tasks and the kernel's own
    *  OOM-kill counter, from the supervisor's one cgroup observer. */
@@ -291,13 +267,11 @@ export interface CodexEngineHostDeps {
    *  owns the probe budget, the memo and the fork; this family owns the
    *  evaluation (see `evaluateCodexVersionProbe`). */
   checkVersion(): Promise<CodexProbeVerdict>
-  /** The supervisor's instance-private socket root (0700): this family only
-   *  shapes basenames under it. */
-  socketRoot: string
-  /** Open one WebSocket-over-Unix client to the engine's listener. The
-   *  supervisor owns the socket library; the retry loop and the transport
-   *  adapter below are this family's protocol edge. */
-  dialSocket(path: string): Promise<CodexRawSocket>
+  /** Open one WebSocket client to the engine's listener, by the address the
+   *  session layer handed. The supervisor owns the socket library and the
+   *  socket file; the retry loop and the transport adapter below are this
+   *  family's protocol edge. */
+  dialSocket(address: string): Promise<CodexRawSocket>
 }
 
 /** The narrow socket surface the transport adapter needs. */
@@ -391,6 +365,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
    * host, and only the attachment observes its EXITED frame.
    */
   const engines = new Map<SessionId, HeldEngine>()
+  const records = bindingRecordsOf(deps.engines)
 
   const adapterFor = (sessionId: SessionId): EngineProcessOwner =>
     engineOwner(deps.engines, sessionId)
@@ -421,24 +396,26 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
   }
 
   /**
-   * Re-attach to the host holding this session's engine, as the writer.
-   * `undefined` when no host answers (nothing to rebind to); THROWS when a
-   * stale daemon still holds the writer lease — the new generation refuses
-   * loudly rather than driving half of an engine.
+   * Re-attach to the host holding this session's engine, as the writer, with
+   * the address the session layer recorded for it. `undefined` when no host
+   * answers (nothing to rebind to); THROWS when a stale daemon still holds the
+   * writer lease — the new generation refuses loudly rather than driving half
+   * of an engine.
    */
   async function attachEngine(
     owner: EngineProcessOwner,
     sessionId: SessionId,
     label: string,
-  ): Promise<HeldEngine | undefined> {
-    let session: EngineAttachment
+  ): Promise<{ held: HeldEngine; address: string | undefined } | undefined> {
+    let hold
     try {
-      session = await owner.reattachEngine({ label, fromSeq: 'tail' })
+      hold = await owner.reattachEngine({ label, fromSeq: 'tail', sessionId })
     } catch (err) {
       log.warn('could not re-attach to the codex engine host', { err, sessionId, label })
       return undefined
     }
-    return claimEngine(sessionId, label, session)
+    const held = await claimEngine(sessionId, label, hold.attachment)
+    return held ? { held, address: hold.address } : undefined
   }
 
   /**
@@ -543,18 +520,17 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       }
       held.session.dispose()
     }
-    await adapterFor(sessionId).destroyEngine(codexScopeLabel(deps.facts, sessionId))
+    await adapterFor(sessionId).destroyEngine(codexScopeLabel(deps.facts, sessionId), sessionId)
   }
 
   /**
    * One endpoint over a held engine — shared by launch (fresh engine, fresh
-   * socket) and adopt (surviving engine, journalled socket). THIS endpoint's
+   * address) and adopt (surviving engine, recorded address). THIS endpoint's
    * engine, captured: stop/kill terminate what this endpoint was built for,
    * never whatever is currently registered under the session id.
    */
   const endpointFor = (input: {
     sessionId: SessionId
-    socketPath: string
     clientAddress: string
     held: HeldEngine
     transport: CodexTransport
@@ -568,7 +544,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       reconnect: async () => {
         const socket = await connectCodexWebSocket(
           deps.dialSocket,
-          input.socketPath,
+          input.clientAddress,
           livenessFor(input.held),
           () => input.held.banner,
         )
@@ -590,13 +566,11 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       stop: async () => {
         input.transport.close()
         await terminate(input.sessionId, 'SIGTERM', input.held)
-        rmSync(input.socketPath, { force: true })
       },
       kill: async () => {
         input.transport.close()
         await terminate(input.sessionId, 'SIGKILL', input.held)
-        rmSync(input.socketPath, { force: true })
-        deps.journal.clear(input.sessionId)
+        records.released(input.sessionId)
       },
       resources: () =>
         deps.resources({
@@ -611,7 +585,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
   }
 
   return {
-    journal: deps.journal,
+    bindings: records,
     stageAttachment: deps.stageAttachment,
     now: deps.now ?? (() => Date.now()),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
@@ -641,18 +615,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
           }
         },
       })
-      const socketPath = codexClientSocketPath(deps.socketRoot, input.sessionId)
-      mkdirSync(deps.socketRoot, { recursive: true, mode: 0o700 })
-      chmodSync(deps.socketRoot, 0o700)
-      rmSync(socketPath, { force: true })
-      const clientAddress = `unix://${socketPath}`
-      const argv = [
-        deps.facts.command,
-        ...deps.facts.serverArgs,
-        ...config.args,
-        '--listen',
-        clientAddress,
-      ]
+      const argv = [deps.facts.command, ...deps.facts.serverArgs, ...config.args]
       const [command, ...args] = argv
 
       const env = deps.buildEnv({
@@ -675,19 +638,21 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
        * summoning the process is the owner's job, never this family's.
        */
       let held: HeldEngine | undefined
+      let clientAddress: string | undefined
       try {
-        held = await claimEngine(
-          input.sessionId,
+        const started = await owner.startEngine({
+          sessionId: input.sessionId,
           label,
-          await owner.startEngine({
-            label,
-            cmd: command ?? deps.facts.command,
-            args,
-            cwd: input.workdir,
-            env,
-            stripEnv: deps.facts.stripEnv,
-          }),
-        )
+          cmd: command ?? deps.facts.command,
+          args,
+          // The engine is TOLD its address by flag; the session layer mints it.
+          listen: { argv: (address) => ['--listen', address] },
+          cwd: input.workdir,
+          env,
+          stripEnv: deps.facts.stripEnv,
+        })
+        clientAddress = started.address
+        held = await claimEngine(input.sessionId, label, started.attachment)
       } catch (err) {
         engines.delete(input.sessionId)
         throw err
@@ -695,6 +660,18 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       if (!held) {
         engines.delete(input.sessionId)
         throw new Error(`codex engine host for ${input.sessionId} never welcomed its spawn`)
+      }
+      if (clientAddress === undefined) {
+        // Never expected: this request asked for a listener. Loud rather than
+        // a transport to nowhere; the engine is kept like any bind failure.
+        engines.delete(input.sessionId)
+        held.session.dispose()
+        throw new EngineBindUnrecoverable(
+          input.sessionId,
+          'launch',
+          undefined,
+          new Error('the session layer handed no listener address'),
+        )
       }
       const banner = (): string => held.banner
       const liveness = livenessFor(held)
@@ -707,8 +684,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
 
       let transport: CodexTransport
       try {
-        const socket = await connectCodexWebSocket(deps.dialSocket, socketPath, liveness, banner)
-        chmodSync(socketPath, 0o600)
+        const socket = await connectCodexWebSocket(deps.dialSocket, clientAddress, liveness, banner)
         transport = websocketTransport(socket, held, banner)
       } catch (err) {
         // §4.8: THE ENGINE IS UP BUT THE PROTOCOL WILL NOT BIND. Our hold is
@@ -725,38 +701,39 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         })
         throw new EngineBindUnrecoverable(input.sessionId, 'launch', clientAddress, err)
       }
-      return endpointFor({ sessionId: input.sessionId, socketPath, clientAddress, held, transport })
+      return endpointFor({ sessionId: input.sessionId, clientAddress, held, transport })
     },
 
     /**
      * Rebind to the SURVIVING engine after a daemon restart — or `undefined`
-     * when nothing survived. Exact identity first (journal vs binding), then
-     * host liveness, then the address itself: a WS that opens on the journalled
-     * socket. The thread never closed, so the driver attaches to it WITHOUT a
-     * `thread/resume` — and an in-flight turn continues on the engine instead
-     * of being abandoned with a fresh child. A lease held elsewhere throws
+     * when nothing survived. Exact identity first (recorded binding vs
+     * binding), then host liveness, then the address itself: a WS that opens
+     * on the address the session layer recorded for this engine. The thread
+     * never closed, so the driver attaches to it WITHOUT a `thread/resume` —
+     * and an in-flight turn continues on the engine instead of being
+     * abandoned with a fresh child. A lease held elsewhere throws
      * (loud) rather than returning a transport the driver cannot own.
      */
     async adopt(binding) {
-      const entry = deps.journal.read(binding.sessionId)
+      const entry = records.recorded(binding.sessionId)
       if (!entry || entry.process.key !== binding.process.key) return undefined
-      // Entries written before the socket address was journalled predate
-      // durable engines: nothing to rebind to, fall back to fresh-start.
-      if (!entry.clientAddress) return undefined
+      // Records written before the address was recorded predate durable
+      // engines: nothing to rebind to, fall back to fresh-start.
+      if (!entry.address) return undefined
       const owner = adapterFor(binding.sessionId)
       const label = codexScopeLabel(deps.facts, binding.sessionId)
       if (!(await owner.engineAlive(label))) return undefined
-      const held = await attachEngine(owner, binding.sessionId, label)
-      if (!held) return undefined
-      const socketPath = entry.clientAddress.slice('unix://'.length)
+      const attached = await attachEngine(owner, binding.sessionId, label)
+      if (!attached) return undefined
+      const { held, address } = attached
       const banner = (): string => held.banner
       try {
-        const socket = await connectCodexWebSocket(deps.dialSocket, socketPath, livenessFor(held), banner)
+        if (address === undefined) throw new Error('the session layer handed no listener address')
+        const socket = await connectCodexWebSocket(deps.dialSocket, address, livenessFor(held), banner)
         const transport = websocketTransport(socket, held, banner)
         return endpointFor({
           sessionId: binding.sessionId,
-          socketPath,
-          clientAddress: entry.clientAddress,
+          clientAddress: address,
           held,
           transport,
         })
@@ -805,7 +782,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
     },
 
     async attachClient(input) {
-      const entry = deps.journal.read(input.sessionId)
+      const entry = records.recorded(input.sessionId)
       if (!entry) return undefined
       return (
         (await deps.attachClient?.({

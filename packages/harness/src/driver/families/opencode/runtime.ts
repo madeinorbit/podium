@@ -85,6 +85,7 @@ import type {
 } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import type { SessionDriverSlots } from '../session-slots.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 import { opencodeServerCapabilities } from './capabilities.js'
 import { type OpencodeClient, type OpencodeClientConfig, createOpencodeClient } from './client.js'
 import {
@@ -223,9 +224,11 @@ export interface OpencodeRuntimeHost {
     effort?: string
   }): void
 
-  /** Persist enough to rebind after a daemon restart: port, secret, opencode
-   *  session id, scope unit. Written before the first turn, cleared on kill. */
-  journal: OpencodeJournal
+  /** Report enough to rebind after a daemon restart — port, secret, opencode
+   *  session id, scope unit — into the session layer's binding record.
+   *  Reported before the first turn, released on kill; the store is the
+   *  session layer's, never this driver's. */
+  bindings: EngineBindingRecords<OpencodeJournalEntry>
 
   now(): number
   /** 32 bytes of CSPRNG, hex. Injected so a test is deterministic and so the
@@ -271,12 +274,6 @@ export interface OpencodeJournalEntry {
   /** Highest turn epoch whose authoritative `session.idle` has been folded. */
   fencedTurnEpoch?: number
   bindingVersion: number
-}
-
-export interface OpencodeJournal {
-  read(sessionId: SessionId): OpencodeJournalEntry | undefined
-  write(entry: OpencodeJournalEntry): void
-  clear(sessionId: SessionId): void
 }
 
 /** How many events one session's replay buffer retains — the same bound and the
@@ -401,11 +398,6 @@ export interface OpencodeRuntime {
    * answers `undefined` and every verb replies `not_running`.
    */
   has(sessionId: SessionId): boolean
-  /** The binding journal this runtime writes to. Exposed because the DAEMON's
-   *  reattach path has to ask "was this session server-driven?" before it can
-   *  decide whether to look for a PTY, and the journal entry's existence is that
-   *  answer. */
-  readonly journal: OpencodeJournal
   /** Drop a session's handle and stop its stream, without touching the process.
    *  What a supervisor restart looks like from inside this process. */
   forget(sessionId: SessionId): void
@@ -481,7 +473,7 @@ export function createOpencodeRuntime(
   }
 
   const persist = (session: DriverSession): void => {
-    host.journal.write({
+    host.bindings.bound({
       sessionId: session.sessionId,
       opencodeSessionId: session.opencodeSessionId,
       baseUrl: session.endpoint.baseUrl,
@@ -1418,7 +1410,7 @@ export function createOpencodeRuntime(
         endSession(session)
         session.stream.abort()
         await session.endpoint.kill()
-        host.journal.clear(session.sessionId)
+        host.bindings.released(session.sessionId)
         streamPositions.delete(session.binding.process.key)
         slots.release(session.sessionId)
         sessions.delete(session.sessionId)
@@ -1964,7 +1956,7 @@ export function createOpencodeRuntime(
       directory: input.spec.workdir,
     })
     const carried = streamPositions.get(input.endpoint.process.key)
-    const journalled = host.journal.read(input.sessionId)
+    const journalled = host.bindings.recorded(input.sessionId)
     const session: DriverSession = {
       sessionId: input.sessionId,
       spec: input.spec,
@@ -2128,8 +2120,8 @@ export function createOpencodeRuntime(
         spec,
         endpoint,
         opencodeSessionId: ref.value,
-        bindingVersion: (host.journal.read(sessionId)?.bindingVersion ?? 0) + 1,
-        observerGeneration: (host.journal.read(sessionId)?.bindingVersion ?? 0) + 1,
+        bindingVersion: (host.bindings.recorded(sessionId)?.bindingVersion ?? 0) + 1,
+        observerGeneration: (host.bindings.recorded(sessionId)?.bindingVersion ?? 0) + 1,
       })
     },
 
@@ -2163,7 +2155,7 @@ export function createOpencodeRuntime(
      *     session's own id, which is the part `resume()` cannot do.
      */
     async adopt(binding: SessionBinding): Promise<AgentSessionHandle> {
-      const journalled = host.journal.read(binding.sessionId)
+      const journalled = host.bindings.recorded(binding.sessionId)
       if (!journalled) {
         throw new Error(
           `opencode-server cannot adopt ${binding.sessionId}: no binding journal entry to rebind from`,
@@ -2208,7 +2200,6 @@ export function createOpencodeRuntime(
   return {
     driver,
     createWithId,
-    journal: host.journal,
     handleFor: (sessionId) => slots.get(sessionId),
     // ONE SLOT, THREE READERS. `stop`/`hibernate`/`kill` all release the slot,
     bindings: () => slots.handles().map((handle) => handle.binding),

@@ -36,13 +36,19 @@ import {
 import type { ScopeResources } from '../../capabilities.js'
 import type {
   GrokAcpEndpoint,
-  GrokAcpJournal,
+  GrokAcpJournalEntry,
   GrokAcpRuntimeHost,
 } from './runtime.js'
 import type { GrokAcpTransport } from './client.js'
 import type { GrokVersionDiagnostic } from './version.js'
 import type { GrokEngineFacts } from './engine-facts.js'
-import type { EngineAttachment, EngineProcessOwner, EngineSupervisor } from '../engine-supervision.js'
+import type {
+  EngineAttachment,
+  EngineProcessOwner,
+  EngineSupervisor,
+  SessionEngineOwner,
+} from '../engine-supervision.js'
+import { bindingRecordsOf } from '../engine-supervision.js'
 
 const log = createLogger('harness:grok-acp-engine-host')
 
@@ -80,19 +86,19 @@ export interface GrokEngineHostDeps {
   facts: GrokEngineFacts
   /**
    * The session layer's ownership of every engine: start, re-attach and
-   * destroy go through it; this family composes argv/env and binds protocol,
-   * never forks. Absent (tests that never launch) = launch/stop/kill refuse
-   * loudly rather than forking a child no restart could re-adopt.
+   * destroy go through it, and it holds the binding record this family
+   * reports into. This family composes argv/env and binds protocol, never
+   * forks. Absent (tests that never launch) = launch/stop/kill refuse loudly
+   * rather than forking a child no restart could re-adopt, and nothing is
+   * recorded.
    */
-  engines?: EngineProcessOwner
+  engines?: SessionEngineOwner<GrokAcpJournalEntry>
   /**
    * The session's transient scope unit, where the platform has one. Only
    * `scopeUnitFor` is read here — never a process verb: spawning, attaching
    * and killing are the session owner's job, delivered through `engines`.
    */
   supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
-  /** The binding journal, created and held by the session layer (0600, sync). */
-  journal: GrokAcpJournal
   /** Resource truth for a session's scope — memory, tasks and the kernel's own
    *  OOM-kill counter, from the supervisor's one cgroup observer. */
   resources(input: {
@@ -215,6 +221,7 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
    *  generation re-attaches by label through `launch` itself, which adopts a
    *  live host instead of spawning beside it. */
   const engines = new Map<SessionId, HeldEngine>()
+  const records = bindingRecordsOf(deps.engines)
 
   const adapterFor = (sessionId: SessionId): EngineProcessOwner =>
     engineOwner(deps.engines, sessionId)
@@ -319,11 +326,11 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
       }
       held.session.dispose()
     }
-    await adapterFor(sessionId).destroyEngine(grokAcpProcessKey(deps.facts, sessionId))
+    await adapterFor(sessionId).destroyEngine(grokAcpProcessKey(deps.facts, sessionId), sessionId)
   }
 
   return {
-    journal: deps.journal,
+    bindings: records,
     now: deps.now ?? (() => Date.now()),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
     onRawFrame:
@@ -372,14 +379,17 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
         held = await claimEngine(
           input.sessionId,
           label,
-          await owner.startEngine({
+          (
+            await owner.startEngine({
+            sessionId: input.sessionId,
             label,
             cmd: command ?? deps.facts.command,
             args,
             cwd: input.workdir,
             env,
             stripEnv: deps.facts.stripEnv,
-          }),
+          })
+          ).attachment,
         )
       } catch (err) {
         engines.delete(input.sessionId)
@@ -404,7 +414,7 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
         stop: () => terminate(input.sessionId, 'SIGTERM', held),
         kill: async () => {
           await terminate(input.sessionId, 'SIGKILL', held)
-          deps.journal.clear(input.sessionId)
+          records.released(input.sessionId)
         },
         resources: () =>
           deps.resources({
@@ -468,7 +478,7 @@ export function createGrokEngineHost(deps: GrokEngineHostDeps): GrokAcpRuntimeHo
     },
 
     async attachClient(input) {
-      const entry = deps.journal.read(input.sessionId)
+      const entry = records.recorded(input.sessionId)
       if (!entry) return undefined
       return deps.attachClient?.({
         sessionId: input.sessionId,

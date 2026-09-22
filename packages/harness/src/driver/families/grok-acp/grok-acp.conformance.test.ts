@@ -18,13 +18,13 @@ import { createGrokAcpClient } from './client.js'
 import {
   createGrokAcpRuntime,
   type GrokAcpEndpoint,
-  type GrokAcpJournal,
   type GrokAcpJournalEntry,
   type GrokAcpRuntime,
   type GrokAcpRuntimeHost,
 } from './runtime.js'
 import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 
 /**
  * THE ONE HOST FACT THIS FILE VARIES, and it is a fact about the MACHINE rather
@@ -98,16 +98,16 @@ function makeWorld(options: WorldOptions = {}): {
   const servers = new Map<SessionId, FakeGrokAcpServer>()
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
   const rawFrames: unknown[] = []
-  const journal: GrokAcpJournal = {
-    read: (id) => entries.get(id),
-    write: (entry) => entries.set(entry.sessionId, entry),
-    clear: (id) => {
+  const bindings: EngineBindingRecords<GrokAcpJournalEntry> = {
+    recorded: (id) => entries.get(id),
+    bound: (entry) => entries.set(entry.sessionId, entry),
+    released: (id) => {
       entries.delete(id)
     },
   }
   const processKey = (id: SessionId): string => `podium-gk-${id}`
   const host: GrokAcpRuntimeHost = {
-    journal,
+    bindings,
     now: () => Date.UTC(2026, 7, 16) + ++seq * 1000,
     mintSessionId: () => `gk-session-${++seq}` as SessionId,
     nativeArchivePollMs: 5,

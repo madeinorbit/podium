@@ -36,6 +36,7 @@ import {
   restartTurn,
   runRestartTurn,
 } from '../test-support/headless-turn-restart.shared.js'
+import { SessionRegistry } from '../session/registry.js'
 
 const GEN1 = fileURLToPath(new URL('../test-support/headless-turn-restart.gen1.ts', import.meta.url))
 
@@ -194,7 +195,7 @@ describe('a real daemon restart replays a one-shot headless turn (POD-4614)', ()
       expect(await hostHasSession(turn.label)).toBe(true)
 
       // Generation 2: new objects, the same turn from the server again.
-      const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }))
+      const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }), { sessions: new SessionRegistry() })
       const events: HeadlessTurnEvent[] = []
       const handle = runRestartTurn(engines, turn, snapshot, events)
       await wait(300)
@@ -237,7 +238,7 @@ describe('a real daemon restart replays a one-shot headless turn (POD-4614)', ()
       await waitFor(async () => !(await hostHasSession(turn.label)), 10_000, 'the child to exit')
       await wait(500)
 
-      const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }))
+      const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }), { sessions: new SessionRegistry() })
       const outcome = await runRestartTurn(engines, turn, snapshot).done
       expect(outcome).toEqual({
         harnessSessionId: `uuid-${c.sessionId}`,

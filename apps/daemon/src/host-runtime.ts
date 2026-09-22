@@ -298,8 +298,10 @@ export async function createDaemonHostRuntime(args: {
   sendOutput: (batch: DaemonPtyOutputBatch) => void
   acknowledgeQueueDrainReport: (reportId: string) => void
   acknowledgeRuntimeEvent: (deliveryId: string) => void
-  /** Test-only runtime seam for exercising the returned host close contract. */
-  testAgentRuntime?: CloseAgentRuntime
+  /** Test-only runtime seam for exercising the returned host close contract.
+   *  The factory form is handed the daemon's session registry, so a test can
+   *  keep its handles where production does: on the session entries. */
+  testAgentRuntime?: CloseAgentRuntime | ((sessions: SessionRegistry) => CloseAgentRuntime)
   /** Test-only server-child process effects; production uses real process probes. */
   testServerReapIo?: ServerReapIo
   /**
@@ -1193,6 +1195,8 @@ export async function createDaemonHostRuntime(args: {
    * native-client maps at ~1003-1005; their construction is unchanged.)
    */
   const sessionEngines = createSessionEngineScope(engineDurable, {
+    sessions: ctx.sessions,
+    socketRoot: engineSocketRoot,
     // Engines never follow the terminal `--backend`, so an explicit `none`
     // (which skips the boot probe) must not refuse them: probe lazily, the
     // same memoized resolve the host adapter itself runs at first spawn.
@@ -1233,9 +1237,8 @@ export async function createDaemonHostRuntime(args: {
    */
   const claudeEngine = createClaudeEngineHost({
     facts: claudeFacts,
-    engines: sessionEngines,
+    engines: sessionEngines.ownerFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
     supervision: sessionEngines,
-    journal: sessionEngines.journalFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
     buildEnv: composeEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
     // The instance agent home the transcript reader already resolves against
@@ -1271,9 +1274,8 @@ export async function createDaemonHostRuntime(args: {
    */
   const opencodeEngine = createOpencodeEngineHost({
     flavor: ocFacts,
-    engines: sessionEngines,
+    engines: sessionEngines.ownerFor<OpencodeJournalEntry>(ocFacts.journalNamespace),
     supervision: sessionEngines,
-    journal: sessionEngines.journalFor<OpencodeJournalEntry>(ocFacts.journalNamespace),
     resources: (subject) => scopeMonitor.resources(subject),
     stageAttachment,
     buildEnv: composeEngineEnv,
@@ -1309,9 +1311,8 @@ export async function createDaemonHostRuntime(args: {
   })
   const opencodeEngine2 = createOpencodeEngineHost({
     flavor: oc2Facts,
-    engines: sessionEngines,
+    engines: sessionEngines.ownerFor<OpencodeJournalEntry>(oc2Facts.journalNamespace),
     supervision: sessionEngines,
-    journal: sessionEngines.journalFor<OpencodeJournalEntry>(oc2Facts.journalNamespace),
     resources: (subject) => scopeMonitor.resources(subject),
     // Absent on a backend=none daemon (POD-3917): no terminal host, so the
     // opencode host refuses a Native attach with its per-machine wording.
@@ -1347,16 +1348,14 @@ export async function createDaemonHostRuntime(args: {
    */
   const codexEngine = createCodexEngineHost({
     facts: codexFacts,
-    engines: sessionEngines,
+    engines: sessionEngines.ownerFor<CodexJournalEntry>(codexFacts.journalNamespace),
     supervision: sessionEngines,
-    journal: sessionEngines.journalFor<CodexJournalEntry>(codexFacts.journalNamespace),
     resources: (subject) => scopeMonitor.resources(subject),
     stageAttachment,
     buildEnv: composeEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
     checkVersion: () => codexAppServerVersionProbe(),
-    socketRoot: engineSocketRoot(),
-    dialSocket: dialEngineSocket,
+    dialSocket: sessionEngines.dialerFor(dialEngineSocket),
     // Omitted outright on a backend=none daemon (POD-3917): without a
     // terminal host the codex host reports it cannot host one, rather than
     // reaching a backend this daemon never selected.
@@ -1398,9 +1397,8 @@ export async function createDaemonHostRuntime(args: {
   })
   const grokEngine = createGrokEngineHost({
     facts: grokFacts,
-    engines: sessionEngines,
+    engines: sessionEngines.ownerFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
     supervision: sessionEngines,
-    journal: sessionEngines.journalFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
     resources: (subject) => scopeMonitor.resources(subject),
     buildEnv: composeEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
@@ -1540,7 +1538,10 @@ export async function createDaemonHostRuntime(args: {
         ? (await harnessRuntime.current()).inventory
         : (await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })).inventory,
   })
-  const closeAgentRuntime = args.testAgentRuntime ?? agentRuntime
+  const closeAgentRuntime =
+    typeof args.testAgentRuntime === 'function'
+      ? args.testAgentRuntime(ctx.sessions)
+      : (args.testAgentRuntime ?? agentRuntime)
   ctx.agentRuntime = closeAgentRuntime as DaemonMachineRuntime
   // Closes the cycle the `let context` declaration above describes. Nothing that
   // binds a session may move above this line — see that comment.

@@ -31,6 +31,7 @@ import { createDurableProcess } from '@podium/process/durable'
 import { createGrokSessionRuntime } from '@podium/harness/driver/host'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
+import { SessionRegistry } from '../session/registry.js'
 
 const CHILD_HELPER = `
 const fs = require('node:fs')
@@ -137,12 +138,11 @@ describe('Grok ACP real scoped child boundary', () => {
       const sent: DaemonMessage[] = []
       const facts = grokEngineFacts(manifestFor('grok')!)
       const durable = createDurableProcess('host', { host: true, abduco: false })
-      const engines = createSessionEngineScope(durable)
+      const engines = createSessionEngineScope(durable, { sessions: new SessionRegistry() })
       const host = createGrokEngineHost({
         facts,
-        engines,
+        engines: engines.ownerFor(facts.journalNamespace),
         supervision: engines,
-        journal: engines.journalFor(facts.journalNamespace),
         resources: () => undefined,
         buildEnv: composeEngineEnv,
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,

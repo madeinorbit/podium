@@ -71,6 +71,7 @@ import {
 } from './version-probe'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
+import { SessionRegistry } from '../session/registry.js'
 
 const codexFacts = codexEngineFacts(manifestFor('codex')!)
 const grokFacts = grokEngineFacts(manifestFor('grok')!)
@@ -512,28 +513,27 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       const durable = createDurableProcess('host', { host: true, abduco: false })
       const noResources = () => undefined
       // The session layer's engine hold over the new generation's durable.
-      const sessionEngines = createSessionEngineScope(durable)
+      const sessionEngines = createSessionEngineScope(durable, { sessions: new SessionRegistry(), socketRoot: engineSocketRoot })
 
       // CODEX: the driver rebinds to the survivor — same pid — and the
       // in-flight turn completes on the adopted handle.
       const codexHost = createCodexEngineHost({
         facts: codexFacts,
-        engines: sessionEngines,
+        engines: sessionEngines.ownerFor<CodexJournalEntry>(codexFacts.journalNamespace),
         supervision: sessionEngines,
-        journal: sessionEngines.journalFor<CodexJournalEntry>(codexFacts.journalNamespace),
         stageAttachment: stageRuntimeAttachment,
         resources: noResources,
         buildEnv: composeEngineEnv,
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => codexAppServerVersionProbe(),
-        socketRoot: engineSocketRoot(),
-        dialSocket: dialEngineSocket,
+        dialSocket: sessionEngines.dialerFor(dialEngineSocket),
       })
       const codexRuntime = createCodexRuntime(codexHost, driverSlotsOver(testSessions()))
       const adoptedCodex = await codexRuntime.driver.adopt(codexBinding)
       expect(adoptedCodex.binding.process.pid).toBe(codexPid)
       expect(incarnations('codex')).toEqual([String(codexPid)])
-      // The journal the first generation wrote names the listener adopt found.
+      // The record the first generation's session layer wrote names the
+      // listener adopt found — the session's address, not a family field.
       const codexJournal = JSON.parse(
         readFileSync(
           join(
@@ -544,8 +544,9 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
           ),
           'utf8',
         ),
-      ) as { clientAddress?: string }
-      expect(codexJournal.clientAddress).toMatch(/^unix:\/\//)
+      ) as { address?: string; clientAddress?: string }
+      expect(codexJournal.address).toMatch(/^unix:\/\//)
+      expect(codexJournal.clientAddress).toBeUndefined()
       const collected: RuntimeEvent[] = []
       void (async () => {
         try {
@@ -568,9 +569,8 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       // OPENCODE: same server, same port and secret, same pid.
       const opencodeHost = createOpencodeEngineHost({
         flavor,
-        engines: sessionEngines,
+        engines: sessionEngines.ownerFor<OpencodeJournalEntry>(flavor.journalNamespace),
         supervision: sessionEngines,
-        journal: sessionEngines.journalFor<OpencodeJournalEntry>(flavor.journalNamespace),
         stageAttachment: stageRuntimeAttachment,
         resources: noResources,
         buildEnv: composeEngineEnv,
@@ -589,9 +589,8 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       // answers over the new pipes.
       const grokHost = createGrokEngineHost({
         facts: grokFacts,
-        engines: sessionEngines,
+        engines: sessionEngines.ownerFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
         supervision: sessionEngines,
-        journal: sessionEngines.journalFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
         resources: noResources,
         buildEnv: composeEngineEnv,
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
@@ -607,9 +606,8 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       // incarnation line, no fresh `claude`.
       const claudeHost = createClaudeEngineHost({
         facts: claudeFacts,
-        engines: sessionEngines,
+        engines: sessionEngines.ownerFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
         supervision: sessionEngines,
-        journal: sessionEngines.journalFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
         buildEnv: composeEngineEnv,
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       })

@@ -46,7 +46,6 @@ import type { RuntimeEvent } from '../../events.js'
 import type { PendingInteraction } from '../../interactions.js'
 import {
   CODEX_APP_SERVER_DRIVER_ID,
-  type CodexJournal,
   type CodexRuntime,
   type CodexRuntimeHost,
   createCodexRuntime,
@@ -104,17 +103,6 @@ export interface DaemonCodexRuntime extends CodexRuntime {
   launch(input: CodexSessionLaunch): Promise<void>
   /** Every session this runtime currently holds. */
   has(sessionId: SessionId): boolean
-  /**
-   * THE BINDING JOURNAL, so the reattach path can ask whether a session was
-   * ours before it tries to adopt it.
-   *
-   * Exposed for the same reason the opencode runtime exposes its own: the
-   * ENTRY'S EXISTENCE is the statement that this session was server-driven.
-   * Every terminal session reaches the reattach path too, and none of them has
-   * one, so this is what keeps the adopt attempt silent for sessions it has no
-   * business touching.
-   */
-  journal: CodexJournal
   /**
    * Re-bind a session after a daemon restart, from the journal alone.
    *
@@ -247,7 +235,7 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
     ...runtime,
     describe: [deps.facts.command, ...deps.facts.serverArgs].join(' '),
     journalEntry(sessionId) {
-      const entry = deps.engine.journal.read(sessionId)
+      const entry = deps.engine.bindings.recorded(sessionId)
       if (!entry) return undefined
       return {
         workdir: entry.workdir,
@@ -256,7 +244,7 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
       }
     },
     clearJournal(sessionId) {
-      deps.engine.journal.clear(sessionId)
+      deps.engine.bindings.released(sessionId)
     },
 
     /**
@@ -269,10 +257,8 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
      */
     has: (sessionId) => runtime.handleFor(sessionId) !== undefined,
 
-    journal: deps.engine.journal,
-
     async adoptFromJournal(sessionId) {
-      const entry = deps.engine.journal.read(sessionId)
+      const entry = deps.engine.bindings.recorded(sessionId)
       // No entry is "not mine" — every terminal session reaches this path
       // too, and answering anything else would hijack a PTY session's
       // reattach. But a JOURNALLED entry whose driver then refuses is

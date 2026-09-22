@@ -61,6 +61,7 @@ import {
   resetGrokAcpVersionProbe,
   resetOpencodeVersionProbe,
 } from './version-probe'
+import { SessionRegistry } from '../session/registry.js'
 
 // UNSCOPED, before anything asks: with a live systemd user manager the launch
 // would ride `systemd-run` into a transient scope — correct in production,
@@ -267,12 +268,11 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const flavor = opencodeFlavor(manifestFor('opencode')!)
     // Launches go through the session layer's engine hold, as production
     // wires it; the journal below is the hold's instance.
-    const engines = createSessionEngineScope(engineDurable())
+    const engines = createSessionEngineScope(engineDurable(), { sessions: new SessionRegistry(), socketRoot: engineSocketRoot })
     const host = createOpencodeEngineHost({
       flavor,
-      engines,
+      engines: engines.ownerFor<OpencodeJournalEntry>(flavor.journalNamespace),
       supervision: engines,
-      journal: engines.journalFor<OpencodeJournalEntry>(flavor.journalNamespace),
       stageAttachment: stageRuntimeAttachment,
       resources,
       homeDir: instanceHome,
@@ -311,20 +311,18 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
 
     const landing = join(root, 'landing-codex.json')
     const facts = codexEngineFacts(manifestFor('codex')!)
-    const engines = createSessionEngineScope(engineDurable())
+    const engines = createSessionEngineScope(engineDurable(), { sessions: new SessionRegistry(), socketRoot: engineSocketRoot })
     const host = createCodexEngineHost({
       facts,
-      engines,
+      engines: engines.ownerFor<CodexJournalEntry>(facts.journalNamespace),
       supervision: engines,
-      journal: engines.journalFor<CodexJournalEntry>(facts.journalNamespace),
       stageAttachment: stageRuntimeAttachment,
       resources,
       homeDir: instanceHome,
       buildEnv: composeEngineEnv,
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       checkVersion: () => codexAppServerVersionProbe(),
-      socketRoot: engineSocketRoot(),
-      dialSocket: dialEngineSocket,
+      dialSocket: engines.dialerFor(dialEngineSocket),
     })
     const endpoint = await host.launch({
       sessionId: asSessionId(crypto.randomUUID()),
@@ -359,12 +357,11 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
     const instanceUuid = '11111111-2222-4333-8444-555555555555'
     const sessionId = asSessionId('grok-stamped-child')
     const facts = grokEngineFacts(manifestFor('grok')!)
-    const engines = createSessionEngineScope(engineDurable())
+    const engines = createSessionEngineScope(engineDurable(), { sessions: new SessionRegistry(), socketRoot: engineSocketRoot })
     const host = createGrokEngineHost({
       facts,
-      engines,
+      engines: engines.ownerFor<GrokAcpJournalEntry>(facts.journalNamespace),
       supervision: engines,
-      journal: engines.journalFor<GrokAcpJournalEntry>(facts.journalNamespace),
       resources,
       homeDir: instanceHome,
       instanceUuid,
@@ -410,7 +407,6 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
 
     const host = createGrokEngineHost({
       facts: grokEngineFacts(manifestFor('grok')!),
-      journal: { read: () => undefined, write: () => {}, clear: () => {} },
       resources,
       homeDir: instanceHome,
       buildEnv: composeEngineEnv,

@@ -42,11 +42,11 @@ import type { RuntimeEvent } from '../../events.js'
 import { assertAttachHonoursOneControlLease } from '../../testing/conformance/suite.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance } from '../../testing/index.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 import { createOpencodeClient, type OpencodeClient } from './client.js'
 import { SERVER_PERMITTED_FAILURES } from './permitted-failures.js'
 import {
   createOpencodeRuntime,
-  type OpencodeJournal,
   type OpencodeJournalEntry,
   type OpencodeRuntime,
   type OpencodeRuntimeHost,
@@ -120,13 +120,13 @@ function makeWorld(options: WorldOptions = {}): {
   const entries = new Map<SessionId, OpencodeJournalEntry>()
   const observed: Array<{ sessionId: SessionId; model: string; effort?: string }> = []
 
-  const journal: OpencodeJournal = {
-    read: (sessionId) => entries.get(sessionId),
-    write: (entry) => {
+  const bindings: EngineBindingRecords<OpencodeJournalEntry> = {
+    recorded: (sessionId) => entries.get(sessionId),
+    bound: (entry) => {
       entries.set(entry.sessionId, entry)
       opencodeIds.set(entry.sessionId, entry.opencodeSessionId)
     },
-    clear: (sessionId) => {
+    released: (sessionId) => {
       entries.delete(sessionId)
     },
   }
@@ -226,7 +226,7 @@ function makeWorld(options: WorldOptions = {}): {
       return { streamId: `oc-attach-${input.sessionId}`, warmTtlMs: 300_000 }
     },
 
-    journal,
+    bindings,
     now: () => Date.UTC(2026, 7, 14) + seq * 1000,
     randomSecret: () => `fake-secret-${++seq}`,
     mintSessionId: () => `oc-session-${++seq}` as SessionId,

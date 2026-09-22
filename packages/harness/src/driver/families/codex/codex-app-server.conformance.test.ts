@@ -41,7 +41,6 @@ import type { ConformanceControl, ConformanceTarget } from '../../testing/index.
 import { runConformance } from '../../testing/index.js'
 import { CODEX_SERVER_PERMITTED_FAILURES } from './permitted-failures.js'
 import {
-  type CodexJournal,
   type CodexJournalEntry,
   type CodexRuntime,
   type CodexRuntimeHost,
@@ -50,6 +49,7 @@ import {
 } from './runtime.js'
 import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 
 /**
  * THE ONE HOST FACT THIS FILE VARIES, and it is a fact about the MACHINE rather
@@ -93,12 +93,12 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
   const retired: FakeAppServer[] = []
   const entries = new Map<SessionId, CodexJournalEntry>()
 
-  const journal: CodexJournal = {
-    read: (sessionId) => entries.get(sessionId),
-    write: (entry) => {
+  const bindings: EngineBindingRecords<CodexJournalEntry> = {
+    recorded: (sessionId) => entries.get(sessionId),
+    bound: (entry) => {
       entries.set(entry.sessionId, entry)
     },
-    clear: (sessionId) => {
+    released: (sessionId) => {
       entries.delete(sessionId)
     },
   }
@@ -117,7 +117,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
         kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
       }
     },
-    journal,
+    bindings,
     now: () => Date.UTC(2026, 7, 14) + ++seq * 1000,
     mintSessionId: () => `cx-session-${++seq}` as SessionId,
 

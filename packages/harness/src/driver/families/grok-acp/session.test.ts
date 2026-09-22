@@ -31,10 +31,10 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
   let launches = 0
 
   const host: GrokAcpRuntimeHost = {
-    journal: {
-      read: (sessionId) => entries.get(sessionId),
-      write: (entry) => void entries.set(entry.sessionId, entry),
-      clear: (sessionId) => void entries.delete(sessionId),
+    bindings: {
+      recorded: (sessionId) => entries.get(sessionId),
+      bound: (entry) => void entries.set(entry.sessionId, entry),
+      released: (sessionId) => void entries.delete(sessionId),
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => 'grok-minted' as SessionId,
@@ -306,10 +306,10 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
     const runtime = createGrokSessionRuntime({ driverSlots: createMemoryDriverSlots(),
       facts: FACTS,
       engine: {
-        journal: {
-          read: () => entry,
-          write: () => {},
-          clear: () => {},
+        bindings: {
+          recorded: () => entry,
+          bound: () => {},
+          released: () => {},
         },
         launch: async () => {
           throw new Error('engine never started')

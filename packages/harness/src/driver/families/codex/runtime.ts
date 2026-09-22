@@ -102,6 +102,7 @@ import type {
 } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import type { SessionDriverSlots } from '../session-slots.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 import { codexAppServerCapabilities } from './capabilities.js'
 import { type CodexClient, type CodexClientConfig, createCodexClient } from './client.js'
 import {
@@ -274,15 +275,23 @@ export interface CodexRuntimeHost {
    */
   onQueueAbandoned?: OnQueueAbandoned
 
-  journal: CodexJournal
+  /**
+   * The session layer's binding record for this family (spec §4.8): this
+   * driver REPORTS what a restart needs and reads it back; where the bytes
+   * live, when they go and which address the engine listens on are the
+   * session layer's. Never a store this driver holds.
+   */
+  bindings: EngineBindingRecords<CodexJournalEntry>
   now(): number
   mintSessionId(): SessionId
   /** Injected only by tests, which point the client at an in-process server. */
   makeClient?(config: CodexClientConfig): CodexClient
 }
 
-/** What survives a supervisor restart. The listener address survives WITH the
- *  engine that serves it (POD-4433): it is recreated only with the next child. */
+/** What survives a supervisor restart, as this family reports it. The
+ *  listener address is NOT here: the session layer minted it and records it
+ *  beside these facts (`EngineBindingRecord.address`), and it survives WITH
+ *  the engine that serves it (POD-4433, POD-4611). */
 export interface CodexJournalEntry {
   sessionId: SessionId
   threadId: CodexThreadId
@@ -290,12 +299,6 @@ export interface CodexJournalEntry {
   /** The rollout JSONL path Codex reported at `thread/start`. What makes
    *  `export()` byte-faithful for this family. */
   rolloutPath?: string
-  /**
-   * The engine's Unix listener (`unix://…`), journalled so `adopt()` can
-   * rebind to the SURVIVING engine. Optional: entries written before durable
-   * engines have none, and adopt falls back to fresh-start-and-resume.
-   */
-  clientAddress?: string
   /**
    * THE SESSION'S MODEL POLICY, because a resume that drops it CHANGES THE
    * AGENT (POD-2775, review 3).
@@ -327,12 +330,6 @@ export interface CodexJournalEntry {
   seq: number
   turnEpoch: number
   bindingVersion: number
-}
-
-export interface CodexJournal {
-  read(sessionId: SessionId): CodexJournalEntry | undefined
-  write(entry: CodexJournalEntry): void
-  clear(sessionId: SessionId): void
 }
 
 /** How many events one session's replay buffer retains — the same bound and the
@@ -524,19 +521,11 @@ export function createCodexRuntime(
   }
 
   const persist = (session: DriverSession): void => {
-    host.journal.write({
+    host.bindings.bound({
       sessionId: session.sessionId,
       threadId: session.threadId,
       workdir: session.spec.workdir,
       ...(session.rolloutPath ? { rolloutPath: session.rolloutPath } : {}),
-      /**
-       * THE ENGINE'S ADDRESS, journalled because the engine survives (POD-4433).
-       * `adopt()` rebinds by opening a second protocol client on this listener;
-       * without it there is nothing to rebind to and adopt falls back to a
-       * fresh engine plus `thread/resume`. Entries written before this field
-       * existed simply have no address, which is exactly the old behaviour.
-       */
-      clientAddress: session.endpoint.clientAddress,
       model: session.spec.model,
       ...(session.title ? { title: session.title } : {}),
       process: session.binding.process,
@@ -1390,7 +1379,7 @@ export function createCodexRuntime(
         await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.kill()
-        host.journal.clear(session.sessionId)
+        host.bindings.released(session.sessionId)
         streamPositions.delete(session.binding.process.key)
         slots.release(session.sessionId)
         sessions.delete(session.sessionId)
@@ -2153,7 +2142,7 @@ export function createCodexRuntime(
     observerGeneration: number
   }): Promise<AgentSessionHandle> {
     const carried = streamPositions.get(input.endpoint.process.key)
-    const journalled = host.journal.read(input.sessionId)
+    const journalled = host.bindings.recorded(input.sessionId)
     const session: DriverSession = {
       sessionId: input.sessionId,
       spec: input.spec,
@@ -2349,7 +2338,7 @@ export function createCodexRuntime(
 
     async resume(ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle> {
       const sessionId = host.mintSessionId()
-      const previous = host.journal.read(sessionId)?.bindingVersion ?? 0
+      const previous = host.bindings.recorded(sessionId)?.bindingVersion ?? 0
       return resumeThread({
         sessionId,
         spec,
@@ -2377,7 +2366,7 @@ export function createCodexRuntime(
      * connection — instead of being abandoned with a fresh child.
      */
     async adopt(binding: SessionBinding): Promise<AgentSessionHandle> {
-      const journalled = host.journal.read(binding.sessionId)
+      const journalled = host.bindings.recorded(binding.sessionId)
       if (!journalled) {
         throw new Error(
           `codex-app-server cannot adopt ${binding.sessionId}: no binding journal entry to rebind from`,

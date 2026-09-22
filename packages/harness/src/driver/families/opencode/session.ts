@@ -256,7 +256,7 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
     ...runtime,
     describe: `${deps.flavor.executableName} serve`,
     journalEntry(sessionId) {
-      const entry = deps.engine.journal.read(sessionId)
+      const entry = deps.engine.bindings.recorded(sessionId)
       if (!entry) return undefined
       return {
         workdir: entry.workdir,
@@ -271,7 +271,7 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
       }
     },
     clearJournal(sessionId) {
-      deps.engine.journal.clear(sessionId)
+      deps.engine.bindings.released(sessionId)
     },
 
     /**
@@ -287,7 +287,7 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
      * deleting the Set rather than fixing its bookkeeping.
      */
     async adoptFromJournal(sessionId) {
-      const entry = deps.engine.journal.read(sessionId)
+      const entry = deps.engine.bindings.recorded(sessionId)
       // No entry is "not mine". A journalled entry whose driver then refuses
       // is reported, not swallowed (§4.8): the cause tells the operator why
       // and lets the lifecycle invalidate pending turns, rather than a

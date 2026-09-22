@@ -19,6 +19,7 @@ import {
   restartTurn,
   runRestartTurn,
 } from './headless-turn-restart.shared.js'
+import { SessionRegistry } from '../session/registry.js'
 
 const env = (key: string): string => {
   const value = process.env[key]
@@ -42,7 +43,7 @@ const turn = restartTurn({
   files,
   snapshot,
 })
-const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }))
+const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }), { sessions: new SessionRegistry() })
 const handle = runRestartTurn(engines, turn, snapshot)
 handle.done.then(
   (outcome) => process.stdout.write(`GEN1-SETTLED ${JSON.stringify(outcome)}\n`),

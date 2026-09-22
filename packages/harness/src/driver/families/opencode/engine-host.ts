@@ -73,14 +73,19 @@ import type { OpencodeVersionDiagnostic } from './version.js'
 import type { AttachmentStager } from '../../turns.js'
 import type { ScopeResources } from '../../capabilities.js'
 import type {
-  OpencodeJournal,
+  OpencodeJournalEntry,
   OpencodeRuntimeHost,
   OpencodeServerEndpoint,
 } from './runtime.js'
 import type { OpencodeClient, OpencodeClientConfig } from './client.js'
 import type { OpencodeEngineFlavor } from './engine-facts.js'
-import type { EngineAttachment, EngineProcessOwner, EngineSupervisor } from '../engine-supervision.js'
-import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import type {
+  EngineAttachment,
+  EngineProcessOwner,
+  EngineSupervisor,
+  SessionEngineOwner,
+} from '../engine-supervision.js'
+import { bindingRecordsOf, EngineBindUnrecoverable } from '../engine-supervision.js'
 
 const log = createLogger('harness:opencode-engine-host')
 
@@ -293,19 +298,19 @@ export interface OpencodeEngineHostDeps {
   flavor: OpencodeEngineFlavor
   /**
    * The session layer's ownership of every engine: start, re-attach and
-   * destroy go through it; this family composes argv/env and binds protocol,
-   * never forks. Absent (tests that never launch) = launch/adopt/stop/kill
-   * refuse loudly rather than forking a child no restart could re-adopt.
+   * destroy go through it, and it holds the binding record this family
+   * reports into. This family composes argv/env and binds protocol, never
+   * forks. Absent (tests that never launch) = launch/adopt/stop/kill refuse
+   * loudly rather than forking a child no restart could re-adopt, and
+   * nothing is recorded.
    */
-  engines?: EngineProcessOwner
+  engines?: SessionEngineOwner<OpencodeJournalEntry>
   /**
    * The session's transient scope unit, where the platform has one. Only
    * `scopeUnitFor` is read here — never a process verb: spawning, attaching
    * and killing are the session owner's job, delivered through `engines`.
    */
   supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
-  /** The binding journal, created and held by the session layer (0600, sync). */
-  journal: OpencodeJournal
   stageAttachment: AttachmentStager
   /** Resource truth for a session's scope — memory, tasks and the kernel's own
    *  OOM-kill counter, from the supervisor's one cgroup observer. */
@@ -438,7 +443,7 @@ export const opencodeScopeLabel = (
 
 export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): OpencodeRuntimeHost {
   const flavor = deps.flavor
-  const journal = deps.journal
+  const records = bindingRecordsOf(deps.engines)
   const driverId = flavor.driverId
   const username = flavor.username
   const healthPath = flavor.healthPath
@@ -488,7 +493,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
   ): Promise<HeldEngine | undefined> {
     let session: EngineAttachment
     try {
-      session = await owner.reattachEngine({ label, fromSeq: 'tail' })
+      ;({ attachment: session } = await owner.reattachEngine({ label, fromSeq: 'tail', sessionId }))
     } catch (err) {
       log.warn('could not re-attach to the opencode engine host', { err, sessionId, label })
       return undefined
@@ -604,15 +609,15 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       // AND THE SCOPE. On an exited engine this only sweeps the lingering host
       // and the squatted unit name; on a wedged one the host escalates past
       // SIGTERM on its own. The sweep is the session owner's act.
-      await adapterFor(input.sessionId).destroyEngine(scopeLabel(input.sessionId))
+      await adapterFor(input.sessionId).destroyEngine(scopeLabel(input.sessionId), input.sessionId)
     },
     kill: async () => {
       const held = input.held ?? engines.get(input.sessionId)
       engines.delete(input.sessionId)
       held?.session.dispose()
       await deps.clientTerminals?.close(input.sessionId, flavor.attachKind)
-      await adapterFor(input.sessionId).destroyEngine(scopeLabel(input.sessionId))
-      journal.clear(input.sessionId)
+      await adapterFor(input.sessionId).destroyEngine(scopeLabel(input.sessionId), input.sessionId)
+      records.released(input.sessionId)
     },
     resources: () =>
       deps.resources({
@@ -627,7 +632,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
 
   return {
     driverId,
-    journal: deps.journal,
+    bindings: records,
     ...(deps.makeClient ? { makeClient: deps.makeClient } : {}),
     stageAttachment: deps.stageAttachment,
     now: deps.now ?? (() => Date.now()),
@@ -667,7 +672,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
        * label. The health probe with the journalled secret is still the exact-
        * identity proof: a recycled port answers nothing on this credential.
        */
-      const previous = journal.read(input.sessionId)
+      const previous = records.recorded(input.sessionId)
       if (previous && (await health(previous.baseUrl, previous.secret))) {
         // A lease held elsewhere throws out of here: spawning a second server
         // beside one another daemon drives would be a split brain, so the
@@ -736,14 +741,17 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         held = await claimEngine(
           input.sessionId,
           label,
-          await owner.startEngine({
-            label,
-            cmd: command ?? executablePath,
-            args,
-            cwd: input.workdir,
-            env,
-            stripEnv: flavor.stripEnv,
-          }),
+          (
+            await owner.startEngine({
+              sessionId: input.sessionId,
+              label,
+              cmd: command ?? executablePath,
+              args,
+              cwd: input.workdir,
+              env,
+              stripEnv: flavor.stripEnv,
+            })
+          ).attachment,
         )
       } catch (err) {
         engines.delete(input.sessionId)
@@ -816,7 +824,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         await deps.clientTerminals?.relaunch(binding.sessionId, flavor.attachKind)
         return undefined
       }
-      const entry = journal.read(binding.sessionId)
+      const entry = records.recorded(binding.sessionId)
       if (!entry) return abandon()
       /**
        * EXACT IDENTITY BEFORE LIVENESS. A journal entry whose process key does
@@ -890,7 +898,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
     async attachClient(input) {
       const terminals = deps.clientTerminals
       if (!terminals) return undefined
-      const entry = journal.read(input.sessionId)
+      const entry = records.recorded(input.sessionId)
       /**
        * NO CONVERSATION ID, NO ATTACH. `opencode attach` without `--session`
        * opens a DIFFERENT conversation on the same server, which is a terminal

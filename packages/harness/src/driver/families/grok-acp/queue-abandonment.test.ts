@@ -60,10 +60,10 @@ function world(): World {
     reports,
     serverFor: (sessionId) => servers.get(sessionId),
     host: {
-      journal: {
-        read: (id) => entries.get(id),
-        write: (entry) => entries.set(entry.sessionId, entry),
-        clear: (id) => {
+      bindings: {
+        recorded: (id) => entries.get(id),
+        bound: (entry) => entries.set(entry.sessionId, entry),
+        released: (id) => {
           entries.delete(id)
         },
       },

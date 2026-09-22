@@ -22,13 +22,13 @@ import type { RuntimeEvent } from '../../events.js'
 import { codexAppServerCapabilities } from './capabilities.js'
 import { createCodexClient } from './client.js'
 import {
-  type CodexJournal,
   type CodexJournalEntry,
   type CodexRuntimeHost,
   createCodexRuntime,
 } from './runtime.js'
 import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 
 interface World {
   handle: AgentSessionHandle
@@ -78,12 +78,12 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
   let detached = 0
   let gate: Promise<void> | undefined
   let openGate: (() => void) | undefined
-  const journal: CodexJournal = {
-    read: (id) => entries.get(id),
-    write: (entry) => {
+  const bindings: EngineBindingRecords<CodexJournalEntry> = {
+    recorded: (id) => entries.get(id),
+    bound: (entry) => {
       entries.set(entry.sessionId, entry)
     },
-    clear: (id) => {
+    released: (id) => {
       entries.delete(id)
     },
   }
@@ -101,7 +101,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
         // distinction these tests exist to hold.
         kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
       })),
-    journal,
+    bindings,
     now: () => Date.UTC(2026, 7, 14) + ++seq * 1000,
     mintSessionId: () => 'cx-1' as SessionId,
     async launch(input) {

@@ -32,10 +32,13 @@ import type { HarnessAgent, SessionId } from '@podium/model'
 import type { ScopeResources } from '../../capabilities.js'
 import type { ProcessIdentity } from '../../binding.js'
 import {
+  bindingRecordsOf,
   EngineBindUnrecoverable,
   type EngineAttachment,
+  type EngineBindingRecords,
   type EngineProcessOwner,
   type EngineSupervisor,
+  type SessionEngineOwner,
 } from '../engine-supervision.js'
 import { claudeEngineProcessKey, type ClaudeEngineFacts } from './engine-facts.js'
 import {
@@ -79,12 +82,6 @@ export interface ClaudeEngineJournalEntry {
   bindingVersion: number
 }
 
-export interface ClaudeEngineJournal {
-  read(sessionId: SessionId): ClaudeEngineJournalEntry | undefined
-  write(entry: ClaudeEngineJournalEntry): void
-  clear(sessionId: SessionId): void
-}
-
 /**
  * What the claude engine host needs from whoever owns processes and disks.
  * Facts arrive as values (handed sections, read by the family); engine
@@ -95,19 +92,19 @@ export interface ClaudeEngineHostDeps {
   facts: ClaudeEngineFacts
   /**
    * The session layer's ownership of every engine: start, re-attach and
-   * destroy go through it; this family composes argv/env and binds protocol,
-   * never forks. Absent (tests that never launch) = launch/stop/kill refuse
-   * loudly rather than forking a child no restart could re-adopt.
+   * destroy go through it, and it holds the binding record this family
+   * reports into. This family composes argv/env and binds protocol, never
+   * forks. Absent (tests that never launch) = launch/stop/kill refuse loudly
+   * rather than forking a child no restart could re-adopt, and nothing is
+   * recorded.
    */
-  engines?: EngineProcessOwner
+  engines?: SessionEngineOwner<ClaudeEngineJournalEntry>
   /**
    * The session's transient scope unit, where the platform has one. Only
    * `scopeUnitFor` is read here — never a process verb: spawning, attaching
    * and killing are the session owner's job, delivered through `engines`.
    */
   supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>
-  /** The binding journal, persisted by the supervisor (0600, sync). */
-  journal: ClaudeEngineJournal
   /** Resource truth for a session's scope — reserved for the health path;
    *  the contract runtime does not read it today. */
   resources?(input: {
@@ -250,7 +247,9 @@ function hostLineTransport(
 }
 
 export interface ClaudeEngineHost {
-  journal: ClaudeEngineJournal
+  /** The session layer's binding record for this family: reported into and
+   *  read back, never a store this family holds. */
+  bindings: EngineBindingRecords<ClaudeEngineJournalEntry>
   startTurn(input: StartTurnInput): ClaudeSdkTurnHandle
   stopEngine(sessionId: SessionId, retire: boolean): Promise<void>
   releaseEngines(): void
@@ -272,6 +271,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
    *  adopts a live host instead of spawning beside it. */
   const engines = new Map<SessionId, HeldEngine>()
 
+  const records = bindingRecordsOf(deps.engines)
   const adapterFor = (sessionId: SessionId): EngineProcessOwner =>
     engineOwner(deps.engines, sessionId)
 
@@ -382,8 +382,8 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       await engineExited(held, deps.gracefulExitMs)
       held.attachment.dispose()
     }
-    await adapterFor(sessionId).destroyEngine(claudeEngineProcessKey(deps.facts, sessionId))
-    if (retire) deps.journal.clear(sessionId)
+    await adapterFor(sessionId).destroyEngine(claudeEngineProcessKey(deps.facts, sessionId), sessionId)
+    if (retire) records.released(sessionId)
   }
 
   function spawnSpec(input: StartTurnInput): ClaudeStreamTurnSpec {
@@ -471,7 +471,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
         const attached = await claimEngine(
           sessionId,
           label,
-          await owner.reattachEngine({ label, fromSeq: 'tail' }),
+          (await owner.reattachEngine({ label, fromSeq: 'tail', sessionId })).attachment,
         )
         if (attached) {
           try {
@@ -509,14 +509,17 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     const spawned = await claimEngine(
       sessionId,
       label,
-      await owner.startEngine({
-        label,
-        cmd,
-        args,
-        cwd: workdir,
-        env,
-        stripEnv: deps.facts.stripEnv,
-      }),
+      (
+        await owner.startEngine({
+          sessionId,
+          label,
+          cmd,
+          args,
+          cwd: workdir,
+          env,
+          stripEnv: deps.facts.stripEnv,
+        })
+      ).attachment,
     )
     if (!spawned) {
       engines.delete(sessionId)
@@ -538,7 +541,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       } catch {
         // Already gone.
       }
-      await owner.destroyEngine(label).catch(() => {})
+      await owner.destroyEngine(label, sessionId).catch(() => {})
       log.warn('claude engine never bound its protocol; reaped the stillborn engine', {
         sessionId,
         label,
@@ -549,7 +552,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
   }
 
   return {
-    journal: deps.journal,
+    bindings: records,
 
     processFor(sessionId) {
       const key = claudeEngineProcessKey(deps.facts, sessionId)
@@ -674,7 +677,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           const scopeUnit = scopeFor(sessionId).scopeUnitFor(
             claudeEngineProcessKey(deps.facts, sessionId),
           )
-          deps.journal.write({
+          records.bound({
             sessionId,
             claudeSessionId,
             workdir: input.spec.workdir,
