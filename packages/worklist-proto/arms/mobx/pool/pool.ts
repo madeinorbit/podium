@@ -45,7 +45,7 @@ import type {
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import { DeadlineClock } from './clock'
 import { issueIdsOf, reseed } from './enumerate'
-import { type EntityModel, type IssueModel, MODEL_CLASSES, type ModelOf } from './models'
+import { type EntityModel, MODEL_CLASSES, type ModelOf } from './models'
 import { PoolRelations } from './relations'
 import {
   createObservableTables,
