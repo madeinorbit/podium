@@ -187,7 +187,14 @@ Tests (`bun run test:file -- packages/worklist-proto/shared/src/gen/*.test.ts`):
 
 Arming (each check planted alone and restored with `cp`; the named test went red):
 
-<arming>
+| Mutation | Went red |
+|---|---|
+| issue changes write the cache without the kernel event | COVERAGE: "step 7 stageChange i329 missing from the feed" |
+| `supersede` presses once | COVERAGE: "supersede collapsed by the kernel outbox: expected 0 to be greater than 0" |
+| shrinker keeps the prefix pass, ddmin disabled | all three minimality tests (engine run shrunk to 69 changes instead of 2) |
+
+The engine shrink test also carries its own control: the correct consumer
+passes the same run and the same shrunk pair.
 
 ## 6. Findings
 

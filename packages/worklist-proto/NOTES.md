@@ -148,3 +148,36 @@ green for both arms; client-core `runtime.test.ts` 136/136.
 
 - None blocking. L2b adds the 2x/4x oracle range; this issue asserts 211 at 1x
   only.
+
+## POD-4555 (L4a) — random-change generator · 2026-09-22
+
+Doc: `docs/plans/pod-4545-round-three-change-generator.md` (vocabulary, L1c §5
+mapping, audit §3.3 shapes, seed-1 coverage table, findings).
+
+### Decisions
+
+- **Changes are intents; the runner resolves them.** `gen` is pure data from a
+  seeded PRNG. `run.ts` re-resolves every target on the engine and SKIPS (with a
+  reason) a change whose target is gone, so any subsequence the shrinker tries
+  runs. Write-path changes name their edit by a `handle` the `edit` minted.
+- **Production queue, scripted server.** The generator's engine runs
+  `openKernelEngineOutbox` (web's queue) over an in-memory store, and a
+  `GenServer` holds every `issues.update`/`issues.markRead` until a change
+  answers it. Options on `startEngineOnCorpus` are additive; the 21 engine-using
+  test files are green unchanged.
+- **Server writes read the cache**, never the folded snapshot (which carries
+  the pending overlay).
+- **The model mirrors the kernel drain** (single-flight pass, per-issue FIFO,
+  parked titles block their partition). Without it half the answers missed.
+- **Duplicate receipt comes from a reload**, not from a transient retry: the
+  kernel's retry backoff runs on the injected clock plus a real timer, which
+  would make step timing wall-clock dependent.
+
+### Findings (sent to the coordinator)
+
+1. Kernel outbox: a write enqueued while the single drain pass waits on a held
+   call is not sent when it answers, even on another issue.
+2. Row source: discovery worktree changes publish no event (L3a).
+3. Fixture sort keys `a0` fail the model's `isSortKey` (trailing minimum digit).
+4. `scenarios.ts` `patchIssue`/`patchSession` build from the folded snapshot.
+5. Mark-read overlays stamp `Date.now()`: painted `readAt` differs run to run.
