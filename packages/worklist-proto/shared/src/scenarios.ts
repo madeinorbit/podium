@@ -630,7 +630,7 @@ async function runWithSource(
   action: () => unknown,
   opts: { before?: ScenarioSnapshot } = {},
 ): Promise<ScenarioResult> {
-  const handle = createRowSource(ctx.engine, ctx.replica)
+  const handle = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const events: RowSourceEvent[] = []
   const off = handle.source.subscribe((e) => events.push(e))
   try {
@@ -1092,7 +1092,7 @@ export function burst50(scale: FixtureScale = 1): Promise<ScenarioResult> {
 /** #11 — principal switch: dispose everything, new runtime over a FRESH replica. */
 export async function principalSwitch(scale: FixtureScale = 1): Promise<ScenarioResult> {
   const old = await startScenarioEngine(scale, { principal: 'operator' })
-  const oldHandle = createRowSource(old.engine, old.replica)
+  const oldHandle = createRowSource(old.engine, old.replica, { mode: 'overlaid' })
   const oldEvents: RowSourceEvent[] = []
   const oldOff = oldHandle.source.subscribe((e) => oldEvents.push(e))
   const before = captureSnapshot(old.engine)

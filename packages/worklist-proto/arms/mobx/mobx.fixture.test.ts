@@ -16,7 +16,7 @@ it('fixture corpus at 1x: parity with the legacy oracle', async () => {
   const corpus = buildCorpus(1, 4443)
   const boot = await startEngineOnCorpus(corpus)
   try {
-    const source = createRowSource(boot.engine, boot.replica)
+    const source = createRowSource(boot.engine, boot.replica, { mode: 'overlaid' })
     const locals = {
       selectedIssueId: null as string | null,
       coarseNow: boot.engine.getSnapshot().coarseNow,

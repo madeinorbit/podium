@@ -64,7 +64,7 @@ class PendingTitles {
 describe('hand-rolled write-path spike: optimistic title rename', () => {
   it('pending commits one row, echo reconciles, rejection restores the prior row', async () => {
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,

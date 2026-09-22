@@ -8,7 +8,7 @@ const scale = readScale()
 const sha = new URLSearchParams(window.location.search).get('sha') ?? 'dev'
 const corpus = buildCorpus(scale, FIXTURE_SEED)
 const boot = await startEngineOnCorpus(corpus)
-const source = createRowSource(boot.engine, boot.replica)
+const source = createRowSource(boot.engine, boot.replica, { mode: 'overlaid' })
 mountPage({
   arm: 'mobx',
   createArm: () => mobxArm,

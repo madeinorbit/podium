@@ -49,7 +49,7 @@ import { legacyControlArmFor } from './arm'
 describe('legacy control (armed)', () => {
   it('FAILS isolation on unrelatedHeartbeat and passes parity exactly', async () => {
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,

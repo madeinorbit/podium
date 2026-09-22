@@ -48,7 +48,7 @@ function changedRows(before: SliceSnapshot, after: SliceSnapshot): string[] {
 async function bootFixture() {
   const corpus = buildCorpus(1, 4443)
   const boot = await startEngineOnCorpus(corpus)
-  const source = createRowSource(boot.engine, boot.replica)
+  const source = createRowSource(boot.engine, boot.replica, { mode: 'overlaid' })
   const locals: SliceLocals = {
     selectedIssueId: null,
     coarseNow: boot.engine.getSnapshot().coarseNow,

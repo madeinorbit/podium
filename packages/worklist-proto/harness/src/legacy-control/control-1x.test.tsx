@@ -28,7 +28,7 @@ describe('legacy control at 1x', () => {
   it('heartbeat fails isolation with exact parity in under 60 s', async () => {
     const started = performance.now()
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,

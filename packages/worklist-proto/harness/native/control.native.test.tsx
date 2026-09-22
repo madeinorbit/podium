@@ -33,7 +33,7 @@ describe('legacy control on the native renderer', () => {
   it('runs count scenarios #1-#3 with parity; #1 fails isolation', async () => {
     await preloadControlNative()
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,

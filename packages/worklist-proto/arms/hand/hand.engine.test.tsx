@@ -23,7 +23,7 @@ import { HandStore } from './store'
 
 async function bootArm() {
   const ctx = await startScenarioEngine(1)
-  const source = createRowSource(ctx.engine, ctx.replica)
+  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const locals: SliceLocals = {
     selectedIssueId: null,
     coarseNow: ctx.engine.getSnapshot().coarseNow,

@@ -80,7 +80,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
   it('scenarios #4-#10 with parity and budgets', async () => {
     const started = performance.now()
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     let locals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,

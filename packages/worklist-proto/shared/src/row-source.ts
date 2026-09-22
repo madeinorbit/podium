@@ -2,6 +2,11 @@
  * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
  * change stream, as the arms see it.
  *
+ * MODES. `overlaid` (ledger overlays folded in, as the app paints) or `truth`
+ * (server rows only, for pools that own their optimism). Every consumer names
+ * one; see {@link RowSourceMode}. The rest of this header describes
+ * `overlaid`; `truth` is the same feed with the ledger read as empty.
+ *
  * One publication from the runtime is one {@link RowSourceEvent}. Each row in
  * it is read BY ID: the authority row from the kernel replica
  * (`replica.row(kind, id)`), with that row's own pending optimistic overlays
@@ -167,6 +172,11 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
 const OVERLAID: readonly OverlayEntity[] = ['sessions', 'issues', 'issueProjections']
 const NO_OVERLAYS: readonly PendingOverlay[] = []
 type PendingByRow = Record<OverlayEntity, ReadonlyMap<string, readonly PendingOverlay[]>>
+const NO_PENDING: PendingByRow = {
+  sessions: new Map(),
+  issues: new Map(),
+  issueProjections: new Map(),
+}
 
 function repoNameOf(path: string): string {
   const tail = path.split('/').filter(Boolean).pop()
@@ -181,10 +191,34 @@ function idOf(row: AnyRow): string | null {
   return typeof row.id === 'string' ? (row.id as string) : null
 }
 
+/**
+ * Which rows the feed hands out — chosen by every consumer, no default
+ * (coordinator ruling on POD-4553 after the L1c write contract):
+ *
+ * - `overlaid`: server truth with the runtime ledger's pending overlays folded
+ *   over it — what the app paints today. For phase a/b pools, which do not own
+ *   optimism, and for parity with the legacy derivation.
+ * - `truth`: server truth only; the ledger is never read and a runtime
+ *   publication alone never produces a row. For phase c pools, which apply
+ *   their own optimistic edits (`write-contract.ts`): an overlay here would
+ *   hide a remote value for a locally pending field and rewind a rejection
+ *   twice.
+ */
+export type RowSourceMode = 'overlaid' | 'truth'
+
+export interface RowSourceOptions {
+  readonly mode: RowSourceMode
+}
+
 export function createRowSource(
   runtime: RowSourceRuntime,
   replica: RowSourceReplica,
+  options: RowSourceOptions,
 ): RowSourceHandle {
+  const { mode } = options
+  if (mode !== 'overlaid' && mode !== 'truth') {
+    throw new Error(`createRowSource: mode must be 'overlaid' or 'truth', got ${String(mode)}`)
+  }
   const rowOf = replica.row?.bind(replica)
   const addressedOf = replica.subscribeAddressedBatch?.bind(replica)
   if (rowOf === undefined || addressedOf === undefined) {
@@ -259,6 +293,7 @@ export function createRowSource(
   }
 
   function readPending(): PendingByRow {
+    if (mode === 'truth') return NO_PENDING
     return {
       sessions: runtime.pendingOverlaysByRow('sessions'),
       issues: runtime.pendingOverlaysByRow('issues'),
@@ -565,7 +600,9 @@ export function createRowSource(
 
   const offs: Array<() => void> = []
   offs.push(subscribeAddressed(onAddressed))
-  offs.push(runtime.subscribe(onRuntimePublication))
+  // Truth mode reads nothing the runtime publishes: kernel addresses alone
+  // name its rows, so a runtime publication is not a signal.
+  if (mode === 'overlaid') offs.push(runtime.subscribe(onRuntimePublication))
 
   // Seed the overlaid memo with the rows already painted at creation, so the
   // first flush compares against what `snapshot()` would have served. O(pending).

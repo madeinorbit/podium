@@ -57,7 +57,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     const lifecycle: Record<string, unknown> = {}
     // Cold bootstrap at live corpus: construction snapshots full, once.
     const cold = await startScenarioEngine(1)
-    const coldSource = createRowSource(cold.engine, cold.replica)
+    const coldSource = createRowSource(cold.engine, cold.replica, { mode: 'overlaid' })
     const coldLocals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: cold.engine.getSnapshot().coarseNow,
@@ -89,7 +89,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
 
     // Principal switch: dispose everything, rebuild over a FRESH replica.
     const first = await startScenarioEngine(1, { principal: 'operator' })
-    const firstSource = createRowSource(first.engine, first.replica)
+    const firstSource = createRowSource(first.engine, first.replica, { mode: 'overlaid' })
     const firstLocals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: first.engine.getSnapshot().coarseNow,
@@ -123,7 +123,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     first.engine.destroy()
 
     const second = await startScenarioEngine(1, { principal: 'operator-2' })
-    const secondSource = createRowSource(second.engine, second.replica)
+    const secondSource = createRowSource(second.engine, second.replica, { mode: 'overlaid' })
     const secondLocals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: second.engine.getSnapshot().coarseNow,
@@ -151,14 +151,14 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     // from a second engine's row source (the happy-dom proxy for the withheld
     // heap ±5% check is exact table-size return to baseline).
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
     const mounted = mountArmForCounts(mobxArm, source.source, locals)
     const grown = await startScenarioEngine(2)
-    const grownSource = createRowSource(grown.engine, grown.replica)
+    const grownSource = createRowSource(grown.engine, grown.replica, { mode: 'overlaid' })
     try {
       const store = storeOf(mounted)
       const issuesBefore = store.issues.size
@@ -260,7 +260,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     const byScale = new Map<string, Record<string, { rows: number; deriv: string }>>()
     for (const { name, scale } of scales) {
       const ctx = await startScenarioEngine(scale)
-      const source = createRowSource(ctx.engine, ctx.replica)
+      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
       const locals: SliceLocals = {
         selectedIssueId: null,
         coarseNow: ctx.engine.getSnapshot().coarseNow,
@@ -343,7 +343,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       stats: { rowsDerived: number; rollupsDerived: number; indexUpdates: number; notifications: number }
     }> => {
       const ctx = await startScenarioEngine(1)
-      const source = createRowSource(ctx.engine, ctx.replica)
+      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
       const locals: SliceLocals = {
         selectedIssueId: null,
         coarseNow: ctx.engine.getSnapshot().coarseNow,
@@ -387,7 +387,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     }
     const coRun = async (scenario: 'heartbeat' | 'click'): Promise<void> => {
       const ctx = await startScenarioEngine(1)
-      const source = createRowSource(ctx.engine, ctx.replica)
+      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
       const locals: SliceLocals = {
         selectedIssueId: null,
         coarseNow: ctx.engine.getSnapshot().coarseNow,

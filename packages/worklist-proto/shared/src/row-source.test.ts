@@ -22,7 +22,12 @@ import type { SocketHub } from '@podium/client-core/socket-transport'
 import { asIssueId, asUserId } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createRowSource, type RowSourceReplica, type RowSourceRuntime } from './row-source'
+import {
+  createRowSource,
+  type RowSourceMode,
+  type RowSourceReplica,
+  type RowSourceRuntime,
+} from './row-source'
 import type { RowSourceEvent } from './stats'
 
 // ------------------------------------------------------------------ fakes
@@ -137,14 +142,63 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('refuses a replica without row() or the addressed seam', () => {
     const runtime = fakeRuntime()
     const bare = { rows: () => [] } as unknown as RowSourceReplica
-    expect(() => createRowSource(runtime, bare)).toThrow(/replica\.row\(\)/)
+    expect(() => createRowSource(runtime, bare, { mode: 'overlaid' })).toThrow(/replica\.row\(\)/)
   })
+
+  it('refuses a mode that is not overlaid or truth', () => {
+    const { replica } = fixture()
+    expect(() =>
+      createRowSource(fakeRuntime(), replica, { mode: undefined as unknown as RowSourceMode }),
+    ).toThrow(/mode must be/)
+  })
+
+  // Coordinator ruling (after L1c): both directions, per mode. A pending local
+  // edit on `title`, then a remote value for the SAME field while it is still
+  // pending.
+  for (const mode of ['overlaid', 'truth'] as const) {
+    it(`${mode}: a press ${mode === 'overlaid' ? 'paints' : 'does not paint'}; a remote value for the pending field ${mode === 'overlaid' ? 'stays masked' : 'arrives unmasked'}`, () => {
+      const { cache, replica } = fixture()
+      const server = issueValue('i1', { title: 'Server' })
+      cache.put('issue', 'i1', server)
+      const runtime = fakeRuntime()
+      const handle = createRowSource(runtime, replica, { mode })
+      const events: RowSourceEvent[] = []
+      const off = handle.source.subscribe((e) => events.push(e))
+      try {
+        runtime.setPending('issues', 'i1', [patch('issues', 'i1', { title: 'Local' })])
+        runtime.publish()
+        const press = handle.flush()
+        if (mode === 'overlaid') {
+          expect(press?.rows).toHaveLength(1)
+          expect((press?.rows[0]?.value as { title: string }).title).toBe('Local')
+        } else {
+          expect(press).toBeNull()
+          expect(events).toHaveLength(0)
+        }
+        const remote = issueValue('i1', { title: 'Remote' })
+        cache.put('issue', 'i1', remote)
+        replica.onKernelEvent(upserted('issue', 'i1'))
+        runtime.publish()
+        const arrived = handle.flush()
+        expect(arrived?.rows).toHaveLength(1)
+        if (mode === 'overlaid') {
+          expect((arrived?.rows[0]?.value as { title: string }).title).toBe('Local')
+        } else {
+          expect(arrived?.rows[0]?.value).toBe(remote)
+        }
+        expect(events).toHaveLength(mode === 'overlaid' ? 2 : 1)
+      } finally {
+        off()
+        handle.dispose()
+      }
+    })
+  }
 
   it('one upsert yields one update carrying the replica row by identity', () => {
     const { cache, replica } = fixture()
     const value = sessionValue('s1', { lastActiveAt: '2026-09-20T12:00:00Z' })
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -168,7 +222,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     const value = sessionValue('s1')
     cache.put('session', 's1', value)
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -187,7 +241,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('a replica.batch() of 50 upserts yields exactly one update with 50 rows', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -213,7 +267,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('nested batches still yield one event', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -240,7 +294,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('wire and projection of one issue in one batch are one row', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     try {
       const wire = issueValue('i1', { title: 'wire' })
       replica.batch(() => {
@@ -262,7 +316,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     cache.put('session', 's1', sessionValue('s1'))
     cache.put('issue', 'i1', issueValue('i1'))
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -296,7 +350,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('out-of-slice kinds and locals-only publications emit nothing', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -318,7 +372,7 @@ describe('row-source over the real facade (fake runtime)', () => {
   it('a disposed source never emits again', () => {
     const { cache, replica } = fixture()
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
     handle.source.subscribe((e) => events.push(e))
     handle.dispose()
@@ -335,7 +389,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     const before = issueValue('i1', { readAt: null })
     cache.put('issue', 'i1', before)
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     const events: RowSourceEvent[] = []
     const off = handle.source.subscribe((e) => events.push(e))
     try {
@@ -376,7 +430,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     const existing = sessionValue('s1', { title: 'same' })
     cache.put('session', 's1', existing)
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     try {
       runtime.setPending('sessions', 's1', [patch('sessions', 's1', { title: 'same' })])
       runtime.publish()
@@ -406,7 +460,7 @@ describe('row-source over the real facade (fake runtime)', () => {
     cache.put('session', 's1', s)
     cache.put('issue', 'i1', i)
     const runtime = fakeRuntime()
-    const handle = createRowSource(runtime, replica)
+    const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
     try {
       expect(handle.source.snapshot('session')).toEqual([{ kind: 'session', id: 's1', value: s }])
       expect(handle.source.snapshot('issue')).toEqual([{ kind: 'issue', id: 'i1', value: i }])
@@ -420,7 +474,7 @@ describe('row-source over the real facade (fake runtime)', () => {
       const { cache, replica } = fixture()
       for (let i = 0; i < n; i += 1) cache.put('session', `s${i}`, sessionValue(`s${i}`))
       const runtime = fakeRuntime()
-      const handle = createRowSource(runtime, replica)
+      const handle = createRowSource(runtime, replica, { mode: 'overlaid' })
       try {
         const next = sessionValue('s0', { lastActiveAt: '2026-09-20T13:00:00Z' })
         cache.put('session', 's0', next)
@@ -581,7 +635,7 @@ describe('row-source over the real runtime (optimism identity)', () => {
       } as never)
       await settle(40)
 
-      const handle = createRowSource(engine, replica)
+      const handle = createRowSource(engine, replica, { mode: 'overlaid' })
       const events: RowSourceEvent[] = []
       const off = handle.source.subscribe((e) => events.push(e))
       try {
@@ -648,6 +702,70 @@ describe('row-source over the real runtime (optimism identity)', () => {
         // (`deadLetterHandlingFor`, wiring.ts) rather than parking: no dead
         // letter, but the paint still rolls back, which is what this asserts.
         expect(engine.outbox.deadLetters()).toHaveLength(0)
+      } finally {
+        off()
+        handle.dispose()
+      }
+    } finally {
+      engine.destroy()
+    }
+  }, 30_000)
+})
+
+describe('row-source truth mode over the real runtime', () => {
+  it('a real markIssueRead press emits nothing; the remote value arrives as the replica row', async () => {
+    const cache = new FakeCache()
+    const replica = createKernelReplica({
+      cache,
+      side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    })
+    const { api } = makeApi()
+    const engine = createClientRuntime({
+      principal: asClientPrincipal(asUserId('operator')),
+      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
+      api: api as PodiumClientApi,
+      onFatalError: (message) => {
+        throw new Error(message)
+      },
+      createReplicaFn: () => replica,
+      routerWindow: makeRouterWindow() as never,
+      createHub: () => new FakeHub() as unknown as SocketHub,
+    })
+    engine.start()
+    await settle(40)
+    try {
+      const wire = { id: 'iss_1', readAt: null, updatedAt: '2026-07-01T00:00:00.000Z' }
+      cache.put('issue', 'iss_1', wire)
+      replica.onKernelEvent({
+        type: 'upserted',
+        record: { entity: 'issue', entityId: 'iss_1', value: wire, provenance: { seq: 1 } },
+        readmitted: false,
+      } as never)
+      await settle(40)
+      const handle = createRowSource(engine, replica, { mode: 'truth' })
+      const events: RowSourceEvent[] = []
+      const off = handle.source.subscribe((e) => events.push(e))
+      try {
+        const pressPromise = engine.getSnapshot().markIssueRead(asIssueId('iss_1'))
+        // The runtime painted the press; the truth feed did not.
+        expect(engine.getSnapshot().issues.find((i) => i.id === 'iss_1')?.readAt).not.toBeNull()
+        expect(handle.flush()).toBeNull()
+        await pressPromise
+        await settle(40)
+        handle.flush()
+        expect(events).toHaveLength(0)
+
+        const remote = { ...wire, readAt: '2026-07-09T00:00:00.000Z' }
+        cache.put('issue', 'iss_1', remote)
+        replica.onKernelEvent({
+          type: 'upserted',
+          record: { entity: 'issue', entityId: 'iss_1', value: remote, provenance: { seq: 2 } },
+          readmitted: false,
+        } as never)
+        await settle(40)
+        handle.flush()
+        expect(events).toHaveLength(1)
+        expect(events[0]?.rows).toEqual([{ kind: 'issue', id: 'iss_1', value: remote }])
       } finally {
         off()
         handle.dispose()
@@ -815,10 +933,13 @@ async function waitFor(check: () => boolean, label: string): Promise<void> {
   }
 }
 
-async function runFence(spec: {
-  issues: number
-  sessions: number
-}): Promise<Record<string, StepCost>> {
+async function runFence(
+  spec: {
+    issues: number
+    sessions: number
+  },
+  mode: RowSourceMode,
+): Promise<Record<string, StepCost>> {
   const cache = new KeyedCache()
   seedFence(cache, spec)
   const replica = createKernelReplica({
@@ -844,7 +965,7 @@ async function runFence(spec: {
   expect(replica.rows('sessions')).toHaveLength(spec.sessions)
   expect(engine.getSnapshot().issues).toHaveLength(spec.issues)
   const wrapped = countingWrappers(engine, replica)
-  const handle = createRowSource(wrapped.runtime, wrapped.replica)
+  const handle = createRowSource(wrapped.runtime, wrapped.replica, { mode })
   let rowsEmitted = 0
   const off = handle.source.subscribe((e) => {
     rowsEmitted += e.rows.length
@@ -928,45 +1049,59 @@ async function runFence(spec: {
 }
 
 describe('visited-per-publication fence at 1x and 4x (real runtime)', () => {
-  it('visits exactly the addressed rows plus the pending-overlay rows, equal at both scales', async () => {
-    const tables: Record<string, Record<string, StepCost>> = {}
-    for (const [scale, spec] of Object.entries(FENCE_SCALES)) tables[scale] = await runFence(spec)
-    console.info(`ROW-SOURCE FENCE ${JSON.stringify(tables)}`)
-    // Rows each step names: kernel addresses (deduped to slice rows), and the
-    // one pending row on every flush of the optimistic steps.
-    const addressed: Record<string, number> = {
-      heartbeat: 1,
-      'rename (wire+projection)': 1,
-      'dep edge + owner wire': 1,
-      'burst of 50': 50,
-      'heartbeat after settle': 1,
-    }
-    for (const [scale, table] of Object.entries(tables)) {
-      for (const [name, cost] of Object.entries(table)) {
-        const where = `${scale} ${name}`
-        expect(cost.elementReads, `${where}: no collection element read`).toBe(0)
-        expect(cost.enumerations, `${where}: no whole-slice pass`).toBe(0)
-        const expected = addressed[name]
-        if (expected !== undefined) {
-          expect(cost.visited, `${where}: visited == addressed rows`).toBe(expected)
-          expect(cost.rowsEmitted, `${where}: emitted == addressed rows`).toBe(expected)
-        } else {
-          // Optimistic steps: one pending row, visited once per flush.
-          expect(cost.flushes, `${where}: flushed`).toBeGreaterThan(0)
-          expect(cost.visited, `${where}: visited == flushes x 1 pending row`).toBe(cost.flushes)
-          expect(cost.rowsEmitted, `${where}: one paint`).toBe(1)
+  // Rows each step names through the kernel batch (deduped to slice rows).
+  const ADDRESSED: Record<string, number> = {
+    heartbeat: 1,
+    'rename (wire+projection)': 1,
+    'dep edge + owner wire': 1,
+    'burst of 50': 50,
+    'heartbeat after settle': 1,
+  }
+  const perFlush = (table: Record<string, StepCost>) =>
+    Object.fromEntries(
+      Object.entries(table).map(([name, c]) => [name, c.flushes === 0 ? 0 : c.visited / c.flushes]),
+    )
+
+  for (const mode of ['overlaid', 'truth'] as const) {
+    it(`${mode}: visits exactly the addressed rows plus the pending-overlay rows, equal at both scales`, async () => {
+      const tables: Record<string, Record<string, StepCost>> = {}
+      for (const [scale, spec] of Object.entries(FENCE_SCALES)) {
+        tables[scale] = await runFence(spec, mode)
+      }
+      console.info(`ROW-SOURCE FENCE ${mode} ${JSON.stringify(tables)}`)
+      for (const [scale, table] of Object.entries(tables)) {
+        for (const [name, cost] of Object.entries(table)) {
+          const where = `${mode} ${scale} ${name}`
+          expect(cost.elementReads, `${where}: no collection element read`).toBe(0)
+          expect(cost.enumerations, `${where}: no whole-slice pass`).toBe(0)
+          const expected = ADDRESSED[name]
+          if (expected !== undefined) {
+            expect(cost.visited, `${where}: visited == addressed rows`).toBe(expected)
+            expect(cost.rowsEmitted, `${where}: emitted == addressed rows`).toBe(expected)
+          } else if (name === 'optimistic press') {
+            if (mode === 'overlaid') {
+              // One pending row, visited once per flush, painted once.
+              expect(cost.flushes, `${where}: flushed`).toBeGreaterThan(0)
+              expect(cost.visited, `${where}: visited == flushes x 1 pending row`).toBe(
+                cost.flushes,
+              )
+              expect(cost.rowsEmitted, `${where}: one paint`).toBe(1)
+            } else {
+              // Truth never reads the ledger: a press names no row.
+              expect(cost.visited, `${where}: nothing visited`).toBe(0)
+              expect(cost.rowsEmitted, `${where}: nothing emitted`).toBe(0)
+            }
+          } else {
+            // The echo: its kernel address, plus (overlaid) the retiring
+            // pending row — the same row, so one visit per flush.
+            expect(cost.visited, `${where}: visited == flushes x 1 row`).toBe(cost.flushes)
+            expect(cost.rowsEmitted, `${where}: one row`).toBe(1)
+          }
         }
       }
-    }
-    const perFlush = (table: Record<string, StepCost>) =>
-      Object.fromEntries(
-        Object.entries(table).map(([name, c]) => [
-          name,
-          c.flushes === 0 ? 0 : c.visited / c.flushes,
-        ]),
-      )
-    const { x1, x4 } = tables
-    expect(x1 && x4, 'both scales ran').toBeTruthy()
-    expect(perFlush(x4 ?? {})).toEqual(perFlush(x1 ?? {}))
-  }, 240_000)
+      const { x1, x4 } = tables
+      expect(x1 && x4, 'both scales ran').toBeTruthy()
+      expect(perFlush(x4 ?? {})).toEqual(perFlush(x1 ?? {}))
+    }, 240_000)
+  }
 })
