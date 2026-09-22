@@ -851,6 +851,7 @@ export class IssueGitWorkflowModule {
       row.worktreePath = null
       await this.store.persistRow(row)
       this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
+      await this.releaseDockShells(worktreePath)
       return {
         ok: true,
         output: row.branch
@@ -903,11 +904,29 @@ export class IssueGitWorkflowModule {
       forced: opts?.force === true,
       job,
     })
+    await this.releaseDockShells(worktreePath)
     return {
       ok: true,
       output: `freed ${worktreePath}; ${kept}`,
       issue,
       worktreeFreed: true,
+    }
+  }
+
+  /**
+   * Release every dock shell mapped to a freed worktree (POD-4436 step 4).
+   * Freeing is global — the disk fact holds for all devices — so every user's
+   * dock releases the path. Returns the retired session ids for the lifetime
+   * policy, which parks/kills per its rule once terminal-lifetime lands
+   * (step 3); until then removal is the whole wire. Best-effort: the disk
+   * free already happened, so a mapping-delete failure warns rather than
+   * failing the free.
+   */
+  private async releaseDockShells(worktreePath: string): Promise<void> {
+    try {
+      await this.store.d.store.dockShells.removeByWorktree(worktreePath)
+    } catch (error) {
+      log.warn('dock shell release failed for freed worktree', { worktreePath, err: error })
     }
   }
 
