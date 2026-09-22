@@ -15,11 +15,25 @@
  * its hidden spin-off's ⤷ tick changes and is drawn, which the fence counts as
  * an over-commit. #4's commit cell is written to the results file, not
  * asserted; the fence asserts it from Mb1.
+ *
+ * #1 joined #4 with Ma2 (POD-4566). The heartbeat's session belongs to a
+ * closed agent-audience root (`scenarios.ts` `heartbeat`), a row the worklist
+ * hides. Once `issue.sessions` is maintained, that hidden row's `activityAt`
+ * (max `lastActiveAt` of its sessions) moves on the heartbeat, and the a1
+ * list, drawing every issue, redraws it: the fence's over-commit is exactly
+ * that hidden row (`oracleVisible: false` in the results cell). Its reads
+ * stay asserted.
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import { assertCommits, assertReads, mountArmForCounts } from '../../../harness/src/count-harness'
-import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../../../harness/src/fence-scenarios'
+import {
+  engineLocals,
+  FENCE_SCENARIOS,
+  openFenceFeeds,
+  runFenceStep,
+} from '../../../harness/src/fence-scenarios'
+import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { mobxPoolArm } from './arm'
@@ -29,12 +43,12 @@ installMobxWarnTrap()
 
 /** The steps a1 runs, and whether the commit fence applies yet. */
 const STEPS: readonly { methodology: string; commits: boolean }[] = [
-  { methodology: '#1', commits: true },
+  { methodology: '#1', commits: false },
   { methodology: '#4', commits: false },
 ]
 
 describe('fence steps #1 and #4', () => {
-  it('meets the shared reads budget and holds no copy; #1 meets the commit fence', async () => {
+  it('meets the shared reads budget and holds no copy', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -50,12 +64,16 @@ describe('fence steps #1 and #4', () => {
         if (step.commits) assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
+        const visible = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
         cells.push({
           methodology: result.methodology,
           scenario: result.scenario,
           commitFence: step.commits ? 'asserted' : 'Mb1 (the a1 list draws hidden rows)',
           oracleChanged: result.oracleChangedRows,
           drawn: result.drawnRows,
+          oracleVisible: Object.fromEntries(
+            (result.drawnRows ?? []).map((id) => [id, visible[id] !== undefined]),
+          ),
           rowsCommitted: result.rowsCommitted,
           readsPerChange: result.readsPerChange,
           readsByEntity: result.reads?.byEntity,

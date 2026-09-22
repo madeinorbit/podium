@@ -22,6 +22,7 @@
  * closed): the pool's "nothing waiting" conjunct is the Mb3 stub.
  */
 
+import { runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { engineLocals, openFenceFeeds } from '../../../harness/src/fence-scenarios'
 import { rowViewsFromStore } from '../../../harness/src/oracle/index'
@@ -70,7 +71,9 @@ const relationChecked: CheckableArm & { snapshots: number } = {
       snapshot() {
         relationChecked.snapshots += 1
         const { pool } = handle
-        const diff = tracked(() => diffRelations(pool.graph, pool.tables))
+        // In an action, not a reaction: the check reads every relation of
+        // every row, and a reaction would subscribe to all of them.
+        const diff = runInAction(() => diffRelations(pool.graph, pool.tables))
         if (diff.length > 0) {
           throw new Error(`relations diverged from the scan (snapshot ${relationChecked.snapshots}):\n${diff.join('\n')}`)
         }
