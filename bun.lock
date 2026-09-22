@@ -82,6 +82,7 @@
         "@expo/ui": "~57.0.14",
         "@podium/client-core": "workspace:*",
         "@podium/commands": "workspace:*",
+        "@podium/harness": "workspace:*",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",

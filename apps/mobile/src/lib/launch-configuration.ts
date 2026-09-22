@@ -6,6 +6,7 @@ import {
   encodeModelPick,
   isEffortValid,
   issueAgentKind,
+  issueDefaultAgentKind,
   type IssueAgentKind,
 } from './agent-models'
 
@@ -104,7 +105,7 @@ export function selectLaunchMachine(
 }
 
 export function launchConfigurationForIssue(issue: IssueWire): LaunchConfiguration {
-  const agentKind = issueAgentKind(issue.defaultAgent) ?? 'claude-code'
+  const agentKind = issueAgentKind(issue.defaultAgent) ?? issueDefaultAgentKind(undefined)
   return {
     inheritAgent: false,
     agentKind,

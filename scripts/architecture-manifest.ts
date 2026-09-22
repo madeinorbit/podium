@@ -562,6 +562,10 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     // `podium quota` reads its labels, both on the machine (POD-4414/4.4) —
     // which is the narrowed consumer restriction POD-2019 keeps (the dissolved
     // `packages/agent-runtime` left the consumer set with the dissolve).
+    // apps/mobile is a consumer for ONE entrypoint only
+    // (`@podium/harness/browser`, the served/bundled wire descriptors —
+    // POD-4414/4.1): the barrel and `./metadata` stay unbundlable from mobile
+    // (`manifest-browser-reach`), so it imports nothing else from this package.
     openEntrypoints: [
       '@podium/harness/metadata',
       '@podium/harness/browser',
@@ -575,7 +579,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       '@podium/harness/driver/families/terminal/composer-sync',
       '@podium/harness/driver/families/terminal/prompt-extract',
     ],
-    consumers: ['apps/daemon', 'apps/cli', 'scripts'],
+    consumers: ['apps/daemon', 'apps/cli', 'apps/mobile', 'scripts'],
   },
   // The driver contract dissolved INTO this package (POD-4469): lifecycle,
   // turns, interactions, observation, transcript, attach, export, plus the

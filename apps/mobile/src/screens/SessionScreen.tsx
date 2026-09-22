@@ -1,5 +1,5 @@
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
-import { isDraftAgentVessel, panelLabel, sessionTitle } from '@podium/client-core/viewmodels'
+import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/viewmodels'
 import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -24,7 +24,9 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
-import { issueAgentKind, modelLabel } from '../lib/agent-models'
+import { useHarnessDescriptors } from '@podium/client-core/react'
+import { issueAgentKind, issueAgentLabel, modelLabel } from '../lib/agent-models'
+import type { MobileTrpc } from '../client/trpc'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { color } from '../theme/theme'
 import { sessionAbsence, sessionAbsenceShowsLoader } from './session-absence'
@@ -66,6 +68,9 @@ export function SessionScreen() {
   const replica = useReplica()
   const allSessions = useSessions()
   const session = useSession(sessionId)
+  // Served descriptors for the session's machine (POD-4475). Above the
+  // absence early-return: hooks stay unconditional.
+  const { served: harnessServed } = useHarnessDescriptors<MobileTrpc>(session?.machineId)
   const spawnPending = useSpawnPending(sessionId)
   const observedSpawnPrompt = useSpawnPrompt(sessionId)
   const issue = useIssue(session?.issueId)
@@ -224,7 +229,10 @@ export function SessionScreen() {
 
   const kind = issueAgentKind(session.agentKind)
   const selectedModel = session.observedModel ?? session.model
-  const provenance = `${session.agentKind === 'claude-code' ? 'Claude Code' : panelLabel(session.agentKind)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel)}` : ''}`
+  // Served descriptors for the session's machine (POD-4475): the harness
+  // name and model render from the report, bundled copy offline.
+  const served = harnessServed
+  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel, undefined, served)}` : ''}`
 
   return (
     <Screen
@@ -237,7 +245,7 @@ export function SessionScreen() {
       // No `safeBottom`: the floating composer is the bottom-most thing on this
       // screen and pays that inset itself, so it can drop it when the keyboard
       // takes the bottom edge [POD-502].
-      leading={<HarnessChip kind={session.agentKind} size={20} />}
+      leading={<HarnessChip kind={session.agentKind} size={20} descriptors={served} />}
       right={
         <>
           <HeaderButton

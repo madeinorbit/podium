@@ -1,5 +1,4 @@
 import {
-  BUNDLED_DESCRIPTORS,
   parseServedDescriptors,
   resolveDescriptors,
 } from '@podium/harness/browser'
@@ -232,7 +231,3 @@ export function agentIconFor(
   return undefined
 }
 
-/** All harnesses this build can draw a mark for (bundled set, registry order). */
-export function bundledIconKinds(): string[] {
-  return BUNDLED_DESCRIPTORS.map((d) => d.kind)
-}

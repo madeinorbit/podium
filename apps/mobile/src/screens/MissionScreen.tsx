@@ -6,7 +6,6 @@ import {
   missionProgress,
   missionRootFor,
   missionSessions as missionSessionsOf,
-  panelLabel,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
@@ -30,7 +29,9 @@ import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
-import { issueAgentKind, modelLabel } from '../lib/agent-models'
+import { useHarnessDescriptors } from '@podium/client-core/react'
+import { issueAgentKind, issueAgentLabel, modelLabel } from '../lib/agent-models'
+import type { MobileTrpc } from '../client/trpc'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { mostRelevantSession } from '../lib/mission-session'
 import { alpha } from '../theme/mix'
@@ -188,8 +189,11 @@ export function MissionScreen() {
   const resolved = root !== undefined || (!booting && issues.length > 0)
   const currentKind = current ? issueAgentKind(current.agentKind) : null
   const currentModel = current?.observedModel ?? current?.model
+  // Served descriptors for the session's machine (POD-4475): the harness
+  // name and model render from the report, bundled copy offline.
+  const { served } = useHarnessDescriptors<MobileTrpc>(current?.machineId)
   const provenance = current
-    ? `${current.agentKind === 'claude-code' ? 'Claude Code' : panelLabel(current.agentKind)}${currentKind && currentModel ? ` · ${modelLabel(currentKind, currentModel)}` : ''}`
+    ? `${issueAgentLabel(current.agentKind, served)}${currentKind && currentModel ? ` · ${modelLabel(currentKind, currentModel, undefined, served)}` : ''}`
     : null
 
   return (
@@ -205,7 +209,9 @@ export function MissionScreen() {
             ? 'No agent on this mission'
             : undefined
       }
-      leading={current ? <HarnessChip kind={current.agentKind} size={20} /> : undefined}
+      leading={
+        current ? <HarnessChip kind={current.agentKind} size={20} descriptors={served} /> : undefined
+      }
       right={
         <>
           {current ? (
