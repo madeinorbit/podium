@@ -22,9 +22,11 @@ roster run asserts reads on every step.
   arm (`reads-budgets.test.tsx`) that reads only through the fence, at 1x,
   2x and 4x; the NO is the legacy control (`control.test.tsx`) plus the shape
   arm with one table walk.
-- **Wall clock frozen** in the shape-arm runs and the roster run: the #3
-  click's un-echoed mark-read is swept by the runtime's 60 s wall-clock
-  awaiting-truth TTL and lands in a later step (#6b or #8 at 4x).
+- **Real clock** in the shape-arm runs and the roster run (POD-4618 removed
+  POD-4609's frozen `Date`): every write's settle has the server echo the
+  mark-reads it provoked, and `runFenceStep` refuses a step that leaves the
+  optimism ledger holding a write. #3's feed is now 2 events (read, echo),
+  and #10's at 1x/2x (the burst re-marks the selected row); no reads cell moved.
 
 ### Open (sent to the coordinator)
 
@@ -33,7 +35,8 @@ roster run asserts reads on every step.
   corrected to 3, the #9a shape, before any candidate arm ran #3; proven both
   ways in `reads-budgets.test.tsx` and `control.test.tsx`.
 - The #3 overlay sweep is a step-isolation leak in the scenario sequence, not
-  only in these tests: any runner that takes over 60 s sees it.
+  only in these tests: any runner that takes over 60 s sees it. FIXED
+  (POD-4618): the scenario server echoes it within #3.
 ## POD-4556 (L4b) — incremental-versus-rebuild checker · 2026-09-22
 
 What landed and how it is proven: `docs/plans/pod-4441-harness.md`, "The

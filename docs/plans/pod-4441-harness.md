@@ -319,23 +319,48 @@ The same arm plus ONE walk over the issue table per notification (a row event
 or a locals change) fails every #6–#10 budget, the ticks included (1x: 4,866
 to 4,919 rows read).
 
-**Step isolation: the wall clock is held still.** The #3 click's eager
-mark-read is acknowledged by the scenario server but never echoed as truth,
-so the runtime keeps it awaiting truth until a 60 s WALL-CLOCK sweep
-(`AWAITING_TRUTH_TTL_MS`, `client-core/src/engine/overlay.ts`). The sweep
-retires the overlay, and the feed emits that row in whichever step runs 60 s
-later: never at 1x (the run is shorter); at 4x it landed in #6b on one run
-and in #8 on another, where it read 1 against a budget of 0. That row is #3's,
-not the step's. `reads-budgets.test.tsx` and the roster run in
-`fences.test.tsx` therefore fake `Date` (frozen), so the sweep never comes
-due; the row views do not read the wall clock ("wall-clock independence" in
-`fences.test.tsx`). With `Date` frozen, #8 read 0 at 4x.
+**Step isolation: every step settles its own writes** (POD-4618, replacing
+POD-4609's frozen `Date`). The #3 click's eager mark-read used to be
+acknowledged by the scenario server and never echoed as truth, so the runtime
+kept it awaiting truth until its 60 s WALL-CLOCK sweep
+(`AWAITING_TRUTH_TTL_MS`, `client-core/src/engine/overlay.ts`), which retired
+it in whichever step was running then: at 4x it landed in #6b, #7 or #8, and
+in #8 it read 1 against a budget of 0. That row is #3's, not the step's.
+POD-4609 froze `Date` to hide it; a frozen clock hides exactly the clock
+behaviour the fences exist to check, so the freeze is gone. Now:
+
+- every scenario write's settle has the server acknowledge AND echo, within
+  the step, each mark-read the write provoked (`scenarios.ts`, `settled`):
+  `readAt` at the server's clock. Only the #9a press is left for #9b to echo;
+- `runFenceStep` refuses a step that leaves the runtime's optimism ledger
+  (`pendingOverlaysByRow`: queued, in flight or awaiting truth) holding a write
+  the step does not declare (`leavesPending`, #9a only). With the echo removed
+  it fails at #3 (`left writes pending: [issues:i17]`); it also caught #10 at
+  1x, where the burst gives the still-selected row new activity and the
+  runtime marks it read again;
+- the shape-arm runs keep the real clock and assert that no step writing no
+  read cursor (#1, #2, #4–#8b) moves one, and report how long the run went on
+  after #3.
+
+**Feeds changed:** #3 is 2 events (the painted read, then the server's echo)
+where it was 1. At 1x and 2x #10 is 2 events too: the burst gives the
+still-selected row new activity, the runtime marks it read again, and the
+server echoes that within #10 (at 4x the clicked row is not a burst target, so
+#10 stays 1). No reads cell moved (the table above holds at every scale): each
+pair of events names the same row.
+
+Evidence, 4x, real clock, three interleaved rounds against a control (the old
+code with only the freeze removed), 2026-09-23: fixed green 3/3, #3's row
+moving only in #3, #8 reading 0, 114–141 s of run after the click; control red
+3/3, #3's row moving in #8 (twice, reading 1 against 0) and in #7. Every other
+cell was identical in both arms.
 
 **#3 corrected: 0 → 3** (POD-4609, coordinator ruling on POD-4619,
 2026-09-22). L5a derived 0 from "selection is a local; no table read". That
 derivation was wrong: the engine reacts to a selection by marking the
-clicked issue read, so the click's feed event names the clicked row (one
-event, `issue:<visibleRootId>`, at every scale), and no arm that reads the
+clicked issue read, so the click's feed event names the clicked row
+(`issue:<visibleRootId>`, at every scale; since POD-4618 a second event, the
+server's echo, names it again), and no arm that reads the
 rows its events name could meet 0. A click is a local change plus a
 mark-read of the clicked row: the #9a shape, 3. This is a correction of a
 derivation made BEFORE any candidate arm was measured on #3 (the roster was

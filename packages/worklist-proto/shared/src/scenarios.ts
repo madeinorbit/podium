@@ -228,7 +228,12 @@ export interface ScenarioServer {
 // biome-ignore lint/suspicious/noExplicitAny: scenario API stub — shaped per-test like engine runtime.test.ts
 function scenarioApi(
   discovery: { repos: unknown[] },
-  opts: { rejectMarkRead?: () => boolean; server?: ScenarioServer } = {},
+  opts: {
+    rejectMarkRead?: () => boolean
+    server?: ScenarioServer
+    /** The server acknowledged a mark-read of this issue (its receipt). */
+    markReadAcknowledged?: (id: string) => void
+  } = {},
 ): any {
   return {
     sync: {
@@ -264,12 +269,17 @@ function scenarioApi(
       },
       markRead: {
         mutate: async (input: Parameters<NonNullable<ScenarioServer['issueMarkRead']>>[0]) => {
-          if (opts.server?.issueMarkRead) return opts.server.issueMarkRead(input)
+          if (opts.server?.issueMarkRead) {
+            const answer = await opts.server.issueMarkRead(input)
+            opts.markReadAcknowledged?.(input.id)
+            return answer
+          }
           if (opts.rejectMarkRead?.()) {
             throw Object.assign(new Error('scenario rejection'), {
               data: { code: 'BAD_REQUEST', httpStatus: 400 },
             })
           }
+          opts.markReadAcknowledged?.(input.id)
           return {}
         },
       },
@@ -508,6 +518,8 @@ export interface ScenarioEngine {
   corpus: FixtureCorpus
   targets: ScenarioTargets
   rejectNextMarkRead: () => void
+  /** Issue ids whose mark-read the server acknowledged, in receipt order. */
+  markReadReceipts: readonly string[]
   /** Advance the runtime's coarse clock by `ms` through its own tick path. */
   advanceClock: (ms: number) => void
   /** A fresh ISO timestamp on the corpus clock, strictly increasing per
@@ -551,6 +563,7 @@ export async function startEngineOnCorpus(
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   const newReplica = () => createKernelReplica({ cache, side })
   let rejectArmed = false
+  const markReadReceipts: string[] = []
   const discovery = { repos: corpus.repos as unknown[] }
   const api = scenarioApi(discovery, {
     rejectMarkRead: () => {
@@ -558,6 +571,7 @@ export async function startEngineOnCorpus(
       rejectArmed = false
       return true
     },
+    markReadAcknowledged: (id) => markReadReceipts.push(id),
     ...(opts.server ? { server: opts.server } : {}),
   })
   const clock = manualClock(corpus.fixedNow)
@@ -628,6 +642,7 @@ export async function startEngineOnCorpus(
     rejectNextMarkRead: () => {
       rejectArmed = true
     },
+    markReadReceipts,
     advanceClock: (ms) => clock.advance(ms),
     stamp: () => {
       stamps += 1
@@ -763,7 +778,36 @@ async function scenario(
 
 // ------------------------------------------------------------------ writes
 
+/** How many of `ctx.markReadReceipts` a write has already taken. */
+const takenReceipts = new WeakMap<ScenarioEngine, number>()
+
+/** The mark-reads the server acknowledged since the last take, deduplicated.
+ *  The server answers inside the write itself, so this is a cursor, not a
+ *  count taken at the settle. */
+function takeMarkReadReceipts(ctx: ScenarioEngine): string[] {
+  const from = takenReceipts.get(ctx) ?? 0
+  takenReceipts.set(ctx, ctx.markReadReceipts.length)
+  return [...new Set(ctx.markReadReceipts.slice(from))]
+}
+
+/**
+ * A write, settled: the engine settles, and every mark-read the write provoked
+ * (the eager mark-read-on-view of the selected row) is acknowledged by the
+ * server and then ECHOED as truth — `readAt` at the server's clock — before
+ * the step ends (POD-4618).
+ *
+ * Without the echo the runtime keeps that read awaiting truth until its 60 s
+ * WALL-CLOCK sweep (`AWAITING_TRUTH_TTL_MS`), which retires it in whichever
+ * later step is running then and charges that step a row it did not change.
+ * Only an explicit press (#9a) is left un-echoed, on purpose: its echo is #9b.
+ */
 async function settled(ctx: ScenarioEngine): Promise<void> {
+  await settle(ctx.settleMs)
+  const acknowledged = takeMarkReadReceipts(ctx)
+  if (acknowledged.length === 0) return
+  ctx.replica.batch(() => {
+    for (const id of acknowledged) echoIssueRead(ctx, id, ctx.stamp())
+  })
   await settle(ctx.settleMs)
 }
 
@@ -929,7 +973,37 @@ export async function writePhaseChange(ctx: ScenarioEngine): Promise<string> {
   return target
 }
 
-/** #3 — a selection click (locals + the eager mark-read row). */
+/** The ledger entities an optimistic write can paint. */
+const OVERLAY_ENTITIES = ['sessions', 'issues', 'issueProjections'] as const
+
+/**
+ * The rows the runtime's optimism ledger still holds a write for — queued,
+ * in flight, or resolved and AWAITING TRUTH — as `<entity>:<id>`, sorted.
+ * Empty when every optimistic write has settled.
+ *
+ * A write left here outlives its step: the runtime retires an awaiting write
+ * only on covering truth or on its 60 s WALL-CLOCK sweep
+ * (`AWAITING_TRUTH_TTL_MS`), and the sweep lands in whichever later step is
+ * running then (POD-4618).
+ */
+export function pendingWrites(ctx: ScenarioEngine): string[] {
+  const pending: string[] = []
+  for (const entity of OVERLAY_ENTITIES) {
+    for (const id of ctx.engine.pendingOverlaysByRow(entity).keys()) pending.push(`${entity}:${id}`)
+  }
+  return pending.sort()
+}
+
+/** The server echoes an issue's read cursor at its own clock. */
+function echoIssueRead(ctx: ScenarioEngine, id: string, readAt: string, seq = 2): void {
+  const wire = ctx.cache.read('issue', id)?.value as Record<string, unknown> | undefined
+  if (!wire) throw new Error(`issue ${id} missing from the server cache`)
+  upsert(ctx, 'issue', id, { ...wire, readAt }, seq)
+}
+
+/** #3 — a selection click: locals, plus the eager mark-read of the clicked
+ *  row, which `settled` has the server acknowledge and echo within the step
+ *  (the feed carries the row painted, then as truth). */
 export async function writeSelectionClick(
   ctx: ScenarioEngine,
   id = ctx.targets.visibleRootId,
@@ -1042,15 +1116,16 @@ export async function writeClockTick(ctx: ScenarioEngine, ms = 60_000): Promise<
  *  server confirms (or the kernel rolls back on rejection). */
 export async function writeOptimisticPress(ctx: ScenarioEngine, id = ctx.targets.markReadId): Promise<void> {
   await ctx.engine.getSnapshot().markIssueRead(asIssueId(id))
-  await settled(ctx)
+  // Not `settled`: the press stays awaiting truth; #9b is its echo.
+  await settle(ctx.settleMs)
+  takeMarkReadReceipts(ctx)
 }
 
 /** #9 echo — the server confirms the mark-read with its own timestamp. */
 export const OPTIMISTIC_ECHO_READ_AT = '2026-07-09T00:00:00.000Z'
 
 export async function writeOptimisticEcho(ctx: ScenarioEngine, id = ctx.targets.markReadId): Promise<void> {
-  const wire = ctx.cache.read('issue', id)?.value as Record<string, unknown>
-  upsert(ctx, 'issue', id, { ...wire, readAt: OPTIMISTIC_ECHO_READ_AT }, 3)
+  echoIssueRead(ctx, id, OPTIMISTIC_ECHO_READ_AT, 3)
   await settled(ctx)
 }
 

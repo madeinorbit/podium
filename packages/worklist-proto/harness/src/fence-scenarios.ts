@@ -37,6 +37,7 @@ import {
 } from '../../shared/src/row-source'
 import {
   armMarkReadRejection,
+  pendingWrites,
   type ScenarioEngine,
   writeArchiveIssue,
   writeBurst50,
@@ -82,6 +83,12 @@ export interface FenceScenario {
    * computed from the targets BEFORE the write. Every scenario has one.
    */
   readsBudget(ctx: ScenarioEngine): number
+  /**
+   * The optimistic writes this step leaves pending ON PURPOSE
+   * (`pendingWrites`), for the next step to settle: only #9a, whose echo is
+   * #9b. Every other step settles its own writes (POD-4618). Default none.
+   */
+  leavesPending?(ctx: ScenarioEngine): string[]
 }
 
 /** Selection and clock as the engine holds them: what the row views show. */
@@ -233,6 +240,7 @@ export const FENCE_SCENARIOS: readonly FenceScenario[] = [
     methodology: '#9a',
     write: (ctx) => writeOptimisticPress(ctx),
     readsBudget: () => READ_BUDGETS.markRead,
+    leavesPending: (ctx) => [`issues:${ctx.targets.markReadId}`],
   },
   {
     scenario: 'optimisticEcho',
@@ -303,5 +311,16 @@ export async function runFenceStep(
     expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
     views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
   })
+  // STEP ISOLATION (POD-4618): a write still awaiting truth after its step is
+  // retired later by the runtime's 60 s wall-clock sweep, in whichever step is
+  // running then, and charged to it. Refuse it here, where it was written.
+  const pending = pendingWrites(ctx)
+  const allowed = entry.leavesPending?.(ctx) ?? []
+  if (!isDeepStrictEqual(pending, allowed)) {
+    throw new Error(
+      `${entry.methodology} ${entry.scenario} left writes pending: ` +
+        `[${pending.join(', ')}], expected [${allowed.join(', ')}]`,
+    )
+  }
   return { result, readsBudget }
 }

@@ -196,13 +196,24 @@ describe('scenarios on the fixture at 1x', () => {
     expect(result.before.sessions.find((s) => s.sessionId === id)?.phase).toBe('working')
   }, 60_000)
 
-  it('#3 selectionClick: locals plus the eager mark-read row', async () => {
+  it('#3 selectionClick: locals plus the eager mark-read row, then its echo', async () => {
     const result = await selectionClick()
     const id = result.targets.visibleRootId
-    expect(result.events).toHaveLength(1)
-    expect(result.events[0]?.type).toBe('update')
-    expect(result.events[0]?.rows).toHaveLength(1)
-    expect(result.events[0]?.rows[0]).toMatchObject({ kind: 'issue', id })
+    // The painted mark-read, then the server's echo of it as truth, both within
+    // the step (POD-4618): nothing is left for the 60 s sweep to retire later.
+    expect(result.events).toHaveLength(2)
+    for (const event of result.events) {
+      expect(event.type).toBe('update')
+      expect(event.rows).toHaveLength(1)
+      expect(event.rows[0]).toMatchObject({ kind: 'issue', id })
+    }
+    const [painted, echoed] = result.events.map(
+      (event) => (event.rows[0]?.value as { readAt?: string | null } | undefined)?.readAt,
+    )
+    expect(painted).toEqual(expect.any(String))
+    expect(echoed).toEqual(expect.any(String))
+    expect(echoed).not.toBe(painted)
+    expect(result.after.issues.find((i) => i.id === id)?.readAt).toBe(echoed)
     expect(result.before.selectedIssueId).not.toBe(result.after.selectedIssueId)
     expect(result.after.selectedIssueId).toBe(id)
   }, 60_000)

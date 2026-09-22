@@ -39,17 +39,17 @@
  * control, which reads the whole world, fails every one, the ticks included
  * (`control.test.tsx`).
  *
- * STEP ISOLATION (wall clock held still). The #3 click's eager mark-read is
- * acknowledged by the scenario server but never echoed as truth, so the
- * runtime's ledger keeps it awaiting truth until its 60 s WALL-CLOCK sweep
- * (`AWAITING_TRUTH_TTL_MS`, `client-core/src/engine/overlay.ts`). The sweep
- * retires the overlay and the feed emits that row in whichever step is
- * running 60 s later: never at 1x (the run is shorter), at 4x in #6b on one
- * run and in #8 on another. That row belongs to #3, not to the step it lands
- * in, and it would turn #8's budget of 0 red by timing alone. So these runs
- * fake `Date` (frozen): the sweep never comes due, and no step is charged for
- * another step's write. The row views do not read the wall clock
- * (`fences.test.tsx`, "wall-clock independence").
+ * STEP ISOLATION (real clock, POD-4618). The #3 click's eager mark-read used
+ * to be acknowledged by the scenario server but never echoed as truth, so the
+ * runtime kept it awaiting truth until its 60 s WALL-CLOCK sweep
+ * (`AWAITING_TRUTH_TTL_MS`, `client-core/src/engine/overlay.ts`), which retired
+ * it in whichever step was running then: at 4x in #6b on one run and in #8 on
+ * another, charging #8 a row against its budget of 0. POD-4609 froze `Date` to
+ * hide it. Now every write settles its own mark-reads (the server acknowledges
+ * and echoes them within the step, `scenarios.ts` `settled`), `runFenceStep`
+ * refuses a step that leaves the optimism ledger holding a write it did not
+ * declare, and these runs keep the real clock and assert that no step writing
+ * no read cursor moves one, reporting how long the run went on after #3.
  *
  * #3 (corrected here, POD-4619 ruling): the click's feed event names the
  * clicked row (the engine's eager mark-read), so an arm that reads the rows
@@ -59,7 +59,7 @@
 
 import { isDeepStrictEqual } from 'node:util'
 import { createElement, type ReactElement } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { Arm, ArmHandle } from '../../shared/src/arm'
 import { DISABLED_READ_FENCE, type RelationReader } from '../../shared/src/instrument/reads'
 import { type FixtureScale, startScenarioEngine } from '../../shared/src/scenarios'
@@ -487,12 +487,7 @@ const TICKS = ['#8', '#8b'] as const
  * also records the rows the tick actually crossed (view changed, entered or
  * left), to hold the budget's projection to what happened.
  */
-async function runShape(
-  scale: FixtureScale,
-  mode: ProbeMode,
-): Promise<{ cells: Cell[]; crossed: Record<string, string[]> }> {
-  // Wall clock held still: see STEP ISOLATION in the header.
-  vi.useFakeTimers({ toFake: ['Date'] })
+async function runShape(scale: FixtureScale, mode: ProbeMode): Promise<ShapeRun> {
   const ctx = await startScenarioEngine(scale)
   const feeds = openFenceFeeds(ctx, 'overlaid')
   const visible = new Set(
@@ -501,8 +496,29 @@ async function runShape(
   const mounted = mountArmForCounts(shapeArm(mode, visible), feeds.rows.source, feeds.locals)
   const cells: Cell[] = []
   const crossed: Record<string, string[]> = {}
+  // STEP ISOLATION evidence: the rows whose read cursor the feed moved, per step.
+  const readAt = new Map<string, string | null>(
+    ctx.engine.getSnapshot().issues.map((i) => [i.id, i.readAt ?? null]),
+  )
+  const readMoves: Record<string, string[]> = {}
+  const feedEvents: Record<string, number> = {}
+  let moved = new Set<string>()
+  let events = 0
+  const offReads = feeds.rows.source.subscribe((event) => {
+    events += 1
+    for (const record of event.rows) {
+      if (record.kind !== 'issue' || record.value === undefined) continue
+      const next = (record.value as SliceIssue).readAt ?? null
+      // A row arriving for the first time (#6a) has no cursor to move.
+      if (readAt.has(record.id) && readAt.get(record.id) !== next) moved.add(record.id)
+      readAt.set(record.id, next)
+    }
+  })
+  let clickedAt = 0
   try {
     for (const entry of FENCE_SCENARIOS) {
+      moved = new Set()
+      events = 0
       const tick = (TICKS as readonly string[]).includes(entry.methodology)
       const before = tick ? rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)) : null
       const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
@@ -519,15 +535,46 @@ async function runShape(
         budget: readsBudget,
         result,
       })
+      readMoves[entry.methodology] = [...moved].sort()
+      feedEvents[entry.methodology] = events
+      if (entry.methodology === '#3') clickedAt = Date.now()
     }
   } finally {
+    offReads()
     mounted.unmount()
     feeds.dispose()
     ctx.engine.destroy()
-    vi.useRealTimers()
   }
-  return { cells, crossed }
+  return {
+    cells,
+    crossed,
+    readMoves,
+    feedEvents,
+    msAfterClick: Date.now() - clickedAt,
+    clickedRow: ctx.targets.visibleRootId,
+  }
 }
+
+interface ShapeRun {
+  cells: Cell[]
+  crossed: Record<string, string[]>
+  /** Per step, the issue rows whose `readAt` the feed moved. */
+  readMoves: Record<string, string[]>
+  /** Per step, the row-source events the feed published. */
+  feedEvents: Record<string, number>
+  /** Wall-clock ms from the end of #3 to the end of the run (the sweep's window is 60 000). */
+  msAfterClick: number
+  /** #3's target: the row whose mark-read used to leak. */
+  clickedRow: string
+}
+
+/**
+ * The steps that write no read cursor: a read moving there is another step's
+ * write landing late (POD-4618). #3 and #9a–#9c are mark-reads; #10's burst
+ * gives the still-selected row new activity, so the runtime marks it read
+ * again and the server echoes it within #10.
+ */
+const NO_READ_STEPS = ['#1', '#2', '#4', '#5', '#6a', '#6b', '#6c', '#6d', '#7', '#8', '#8b']
 
 const line = (cells: Cell[]): string =>
   cells.map((c) => `${c.methodology}:${c.reads}/${c.budget}`).join(' ')
@@ -535,11 +582,20 @@ const line = (cells: Cell[]): string =>
 describe('reads budgets #6–#10 (POD-4609)', () => {
   for (const scale of [1, 2, 4] as const) {
     it(`YES at ${scale}x: an arm doing the derived reads meets every budget, and the fence sees them`, async () => {
-      const { cells, crossed } = await runShape(scale, 'shape')
+      const { cells, crossed, readMoves, feedEvents, msAfterClick, clickedRow } = await runShape(
+        scale,
+        'shape',
+      )
       console.info(
         `[reads-budgets] shape ${scale}x reads/budget: ${line(cells)} ` +
-          `crossed=${JSON.stringify(Object.fromEntries(TICKS.map((t) => [t, crossed[t]?.length])))}`,
+          `crossed=${JSON.stringify(Object.fromEntries(TICKS.map((t) => [t, crossed[t]?.length])))} ` +
+          `readMoves=${JSON.stringify(readMoves)} feedEvents=${JSON.stringify(feedEvents)} ` +
+          `msAfterClick=${msAfterClick}`,
       )
+      // STEP ISOLATION (POD-4618), with the real clock: #3's mark-read moves its
+      // row in #3 and in no step that writes no read, however long the run.
+      expect(readMoves['#3']).toEqual([clickedRow])
+      for (const step of NO_READ_STEPS) expect(readMoves[step], step).toEqual([])
       const mine = cells.filter((cell) => BUDGETED_HERE.has(cell.methodology))
       expect(mine.map((cell) => cell.methodology)).toEqual([...BUDGETED_HERE])
       for (const cell of mine) {

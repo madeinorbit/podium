@@ -133,11 +133,6 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
 for (const entry of ROUND_THREE_ARMS) {
   describe(`fences: ${entry.name}`, () => {
     it('passes the exact-commit fence, parity, the reads budgets and the copy sweep on every scenario', async () => {
-      // POD-4609: wall clock held still, so the runtime's 60 s awaiting-truth
-      // sweep of the #3 click's un-echoed mark-read cannot land in a later
-      // step and charge it a row it did not change (#8's budget is 0). See
-      // STEP ISOLATION in `reads-budgets.test.tsx`.
-      vi.useFakeTimers({ toFake: ['Date'] })
       const ctx = await startScenarioEngine(1)
       const feeds = openFenceFeeds(ctx, entry.mode)
       const mounted = mountArmForCounts(entry.armFor(ctx), feeds.rows.source, feeds.locals)
@@ -159,7 +154,6 @@ for (const entry of ROUND_THREE_ARMS) {
         mounted.unmount()
         feeds.dispose()
         ctx.engine.destroy()
-        vi.useRealTimers()
       }
     }, 120_000)
   })
