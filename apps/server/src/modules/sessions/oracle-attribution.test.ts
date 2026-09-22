@@ -27,6 +27,74 @@ import {
 
 afterEach(() => disposeOracles())
 
+type Oracle = Awaited<ReturnType<typeof makeOracle>>
+
+/**
+ * The posture a real boot leaves behind, which makeOracle does not: the host
+ * row itself (nothing provisions it on construction — the store is empty until
+ * a test writes), assigned for agent execution, owned by the instance owner,
+ * and reporting the /p and /r checkouts the tests below place work into.
+ * Without the row the placement path answers "unknown machine"; without the
+ * assignment it answers "no assigned and available daemon" (POD-2700's
+ * structural axis); without the owner the host is quarantined (usable by
+ * nobody, POD-3960); without the checkouts no repo path resolves to a repo id
+ * (POD-4165). The daemon socket and its inventory report are already attached
+ * by makeOracle, and presence/availability derive from that socket live, so no
+ * re-attach is needed after the row appears. Gap-fill only: if a future
+ * makeOracle provisions the host itself, its row, assignment and owner stand.
+ * (POD-4544's shape, extended with /r for this file's issue-repo tests.)
+ */
+async function provisionHost(o: Oracle): Promise<void> {
+  const host = o.store.hostMachineId
+  if (!(await o.store.machines.getMachine(host))) {
+    await o.store.machines.upsertMachine({
+      id: host,
+      name: 'Test Host',
+      hostname: 'test-host',
+      tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: true },
+    })
+  }
+  if ((await o.reg.modules.machines.serviceAssignment(host)).agentExecution !== true) {
+    await o.store.machines.setServiceAssignment(host, { server: true, agentExecution: true })
+  }
+  if ((await o.store.machines.custodian(host)) === null) {
+    await o.store.machines.setMachineOwner(host, firstAdminMemberId())
+  }
+  for (const path of ['/p', '/r']) await o.store.repos.addRepo(path, host)
+}
+
+/**
+ * Answer the lifecycle RPC a stop/park makes of its daemon (POD-4302): `kill`
+ * retires the process through the daemon, and without the confirmation the
+ * kill fails after the tombstone committed. makeOracle's send arm answers
+ * only `repoOpRequest`, so this re-attach replicates that arm (not drops it)
+ * and adds the retirement confirmation.
+ */
+async function answerLifecycle(o: Oracle): Promise<void> {
+  const host = o.store.hostMachineId
+  await o.reg.gateway.attachDaemon(host, (msg) => {
+    o.daemon.push(msg)
+    if (msg.type === 'repoOpRequest') {
+      o.reg.gateway.routeDaemonFrame(host, {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: '',
+      })
+    }
+    if (msg.type === 'runtimeLifecycleRequest') {
+      o.reg.gateway.routeDaemonFrame(host, {
+        type: 'runtimeLifecycleResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result: { ok: true, retirement: 'confirmed' },
+      })
+    }
+  })
+}
+
 const NO_PERSON = willChange(
   'POD-1075',
   'attribution becomes (actor, on-behalf-of); today no field names a person',
@@ -35,6 +103,7 @@ const NO_PERSON = willChange(
 describe('oracle: who created this session', () => {
   it(`${MUST_NOT_CHANGE}: tRPC creation stamps user provenance and durable human ownership`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
 
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
@@ -47,6 +116,7 @@ describe('oracle: who created this session', () => {
 
   it(`${NO_PERSON}: a resume through the tRPC seam stamps 'user' on its fresh-spawn fallback`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
 
     const { sessionId } = await o.call.sessions.resume({
       agentKind: 'claude-code',
@@ -60,6 +130,7 @@ describe('oracle: who created this session', () => {
 
   it(`${MUST_NOT_CHANGE}: an agent-spawned child is stamped 'session:<parent>' — the actor half already exists, from the capability`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const parent = await o.reg.modules.sessions.createSession({
@@ -86,6 +157,7 @@ describe('oracle: who created this session', () => {
 describe('oracle: who named this session', () => {
   it(`${NO_PERSON}: nameSource records the CLASS of writer ('user' | 'agent'), never which user or which agent`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const agent = await o.reg.modules.sessions.createSession({
@@ -115,6 +187,8 @@ describe('oracle: who named this session', () => {
 describe('oracle: who ended this session', () => {
   it(`${NO_PERSON}: a kill records deletion_source 'standalone' — the CAUSE class, with no actor at all`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
+    await answerLifecycle(o)
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.kill({ sessionId })
@@ -126,6 +200,8 @@ describe('oracle: who ended this session', () => {
 
   it(`${NO_PERSON}: archive's park records stopReason 'parent' — again a cause, not an actor`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
+    await answerLifecycle(o)
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -147,6 +223,7 @@ describe('oracle: who ended this session', () => {
 describe('oracle: who typed into this session', () => {
   it(`${NO_PERSON}: PTY frames carry inputOrigin — 'human' for direct terminal input, 'controller' for a chat send`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -194,6 +271,7 @@ describe('oracle: who typed into this session', () => {
 describe('oracle: who asked the human a question', () => {
   it(`${NO_PERSON}: humanQuestionAskedBy is stamped from the transport principal, and an agent cannot attribute a question to another session`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const agent = await o.reg.modules.sessions.createSession({
@@ -233,6 +311,7 @@ describe('oracle: who asked the human a question', () => {
 describe('oracle: who moved this session between machines', () => {
   it(`${MUST_NOT_CHANGE}: handoff preserves the durable per-user session owner`, async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
 
     const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
