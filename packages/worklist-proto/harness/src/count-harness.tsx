@@ -4,7 +4,9 @@
  *
  * Mounts any `Arm` under happy-dom, replays a scenario's input, and reports:
  * rows committed (per-row `React.Profiler` via the required `RowShell`),
- * the arm's `ArmStats`, and oracle parity (`arm.snapshot()` deep-equal to the
+ * rows READ (POD-4557: the reads-per-change fence, `shared/src/instrument/
+ * reads.ts`, through which the harness hands the arm its feed), the arm's
+ * `ArmStats`, and oracle parity (`arm.snapshot()` deep-equal to the
  * caller-supplied expected `SliceSnapshot`).
  *
  * happy-dom has no paint: this module reports COMMITS, never wall time. Walls
@@ -34,6 +36,12 @@ import {
   withCommitLogAsync,
   type CommitLog,
 } from '../../shared/src/row-shell'
+import {
+  createReadFence,
+  DISABLED_READ_FENCE,
+  type ReadFence,
+  type ReadStats,
+} from '../../shared/src/instrument/reads'
 import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 
@@ -44,6 +52,8 @@ import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 export interface MountedArm {
   handle: ArmHandle
   log: CommitLog
+  /** The reads fence the arm was created with. Disabled means "no reads cell". */
+  reads: ReadFence
   unmount(): void
 }
 
@@ -66,15 +76,24 @@ function MountPoint({ handle }: { handle: ArmHandle }): ReactElement {
  * through its own root, which cannot inherit this tree's provider context
  * (see `row-shell.tsx`); context — when an arm renders inside the provider
  * tree — still takes precedence.
+ *
+ * The reads fence is ON by default (POD-4557): the arm receives `source`
+ * through `reads.wrapSource`, so every row value it ever holds is a borrowed,
+ * counted row, and it receives the fence itself to wrap its tables and
+ * relations. The arm cannot opt out; only the caller can, by passing a
+ * disabled fence, and then every reads cell is `null` and `assertReads`
+ * throws.
  */
 export function mountArmForCounts(
   arm: Arm,
   source: RowSource,
   locals: SliceLocals,
+  options: { reads?: ReadFence } = {},
 ): MountedArm {
   const log = createCommitLog()
-  const handle = arm.create(source, locals)
-  return mountElementForCounts(handle, <MountPoint handle={handle} />, log)
+  const reads = options.reads ?? createReadFence({ enabled: true })
+  const handle = arm.create(reads.wrapSource(source), locals, reads)
+  return mountElementForCounts(handle, <MountPoint handle={handle} />, log, reads)
 }
 
 /**
@@ -88,6 +107,7 @@ export function mountElementForCounts(
   handle: ArmHandle,
   element: ReactElement,
   log: CommitLog = createCommitLog(),
+  reads: ReadFence = DISABLED_READ_FENCE,
 ): MountedArm {
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -101,9 +121,11 @@ export function mountElementForCounts(
   })
   log.reset()
   handle.stats.reset()
+  if (reads.enabled) reads.reset()
   return {
     handle,
     log,
+    reads,
     unmount(): void {
       act(() => {
         root.unmount()
@@ -120,7 +142,10 @@ export function mountElementForCounts(
  * reaches every `RowShell` directly. Async because arm native lists may arrive
  * through `React.lazy` (the control's does — see its `arm.ts`).
  */
-export async function mountNativeForCounts(handle: ArmHandle): Promise<MountedArm> {
+export async function mountNativeForCounts(
+  handle: ArmHandle,
+  reads: ReadFence = DISABLED_READ_FENCE,
+): Promise<MountedArm> {
   const log = createCommitLog()
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -130,9 +155,11 @@ export async function mountNativeForCounts(handle: ArmHandle): Promise<MountedAr
   })
   log.reset()
   handle.stats.reset()
+  if (reads.enabled) reads.reset()
   return {
     handle,
     log,
+    reads,
     unmount(): void {
       act(() => {
         root.unmount()
@@ -216,6 +243,14 @@ export interface CountResult {
   scenario: string
   methodology: string
   rowsCommitted: number
+  /**
+   * Distinct entity rows the arm read to handle this change (POD-4557), or
+   * `null` when the mount's fence was disabled. Read BEFORE the harness calls
+   * `snapshot()`, so the parity projection is never charged to the arm.
+   */
+  readsPerChange: number | null
+  /** The fence's breakdown behind `readsPerChange`. */
+  reads: ReadStats | null
   commitsByRow: Record<string, number>
   /** Visible rows in the arm snapshot after the scenario (the isolation denominator). */
   visibleRows: number
@@ -257,6 +292,7 @@ export async function runCountScenario(
 ): Promise<CountResult> {
   mounted.handle.stats.reset()
   mounted.log.reset()
+  if (mounted.reads.enabled) mounted.reads.reset()
   await withCommitLogAsync(mounted.log, async () => {
     await act(async () => {
       await input.apply()
@@ -265,6 +301,9 @@ export async function runCountScenario(
       await new Promise<void>((resolve) => setTimeout(resolve, 0))
     })
   })
+  // Reads first: `snapshot()` below walks the arm's whole output and must not
+  // be charged to the change.
+  const reads = mounted.reads.enabled ? mounted.reads.stats() : null
   const snapshot = mounted.handle.snapshot()
   const expected = input.expected()
   const parity = isDeepStrictEqual(snapshot, expected)
@@ -275,6 +314,8 @@ export async function runCountScenario(
     scenario: input.scenario,
     methodology: input.methodology,
     rowsCommitted: mounted.log.total(),
+    readsPerChange: reads === null ? null : reads.rows,
+    reads,
     commitsByRow,
     visibleRows: Object.keys(snapshot.rowsById).length,
     stats: {
@@ -316,6 +357,90 @@ export function assertIsolation(result: CountResult, budget: IsolationBudget): v
         `committed ${result.rowsCommitted} rows, budget ${budget.rowsCommitted}. ` +
         `stats=${JSON.stringify(result.stats)} top=[${top}]. ` +
         `parity=${result.parity ? 'pass' : `FAIL ${result.parityDiff ?? ''}`}`,
+    )
+  }
+}
+
+// ------------------------------------------------------------ reads budgets
+
+/**
+ * POD-4557 — rows an arm may READ to handle one change, per scenario. Fixed
+ * here, BEFORE any round-three arm is measured (pitfall g: no budget is
+ * re-read on another dimension afterwards). Rationale per line in
+ * `docs/plans/pod-4441-harness.md` ("Reads per change").
+ */
+export const READ_BUDGETS = {
+  /** #1: the changed session, and at most its issue and one relation hop. */
+  unrelatedHeartbeat: 3,
+  /** #3: selection is a local; no table read at all. */
+  selectionClick: 0,
+  /** #4: the renamed issue, and at most two rows to place or label it. */
+  visibleTitleRename: 3,
+  /** #2: rows per level of the changed session's issue chain (see `phaseChangeReadBudget`). */
+  phaseChangePerLevel: 3,
+  /**
+   * #5: the visible neighbourhood of a row that moves between groups — the
+   * row, two neighbours at the old and at the new position, and the probes of
+   * a binary-search placement at 4x (log2 of ~13k visible rows ≈ 14), rounded
+   * up. A re-sort of the visible collection reads every visible row and fails.
+   */
+  stageMoveNeighbourhood: 24,
+} as const
+
+/**
+ * #2 budget: `phaseChangePerLevel × levels`, where `levels` is the changed
+ * session's issue plus every ancestor above it (chain depth + 1). A roll-up
+ * that re-reads a level's siblings is proportional to the family size, not
+ * the chain, and fails.
+ */
+export function phaseChangeReadBudget(ancestors: number): number {
+  return READ_BUDGETS.phaseChangePerLevel * (ancestors + 1)
+}
+
+/**
+ * Number of ancestors above `issueId` via `parentOf`. Cycle-safe: a repeated
+ * id stops the walk (the corpus has none; a malformed one must not hang CI).
+ */
+export function ancestorCount(
+  issueId: string,
+  parentOf: (id: string) => string | null | undefined,
+): number {
+  const seen = new Set<string>([issueId])
+  let count = 0
+  let current = parentOf(issueId)
+  while (typeof current === 'string' && current.length > 0 && !seen.has(current)) {
+    seen.add(current)
+    count += 1
+    current = parentOf(current)
+  }
+  return count
+}
+
+export interface ReadsBudget {
+  /** Max distinct rows the arm may read for this change. */
+  readsPerChange: number
+}
+
+/**
+ * The reads fence. Throws with the breakdown when the arm read more distinct
+ * rows than the budget allows — and ALSO when the result has no reads cell
+ * (the mount's fence was disabled): a missing cell fails, it is never a pass.
+ * Both directions are guarded in `count-harness.test.ts`; the legacy control
+ * must FAIL it on `unrelatedHeartbeat` (`control.test.tsx`).
+ */
+export function assertReads(result: CountResult, budget: ReadsBudget): void {
+  if (result.readsPerChange === null || result.reads === null) {
+    throw new Error(
+      `[reads] ${result.scenario} (${result.methodology}): no reads cell — the mount's read fence was disabled`,
+    )
+  }
+  if (result.readsPerChange > budget.readsPerChange) {
+    throw new Error(
+      `[reads] ${result.scenario} (${result.methodology}): ` +
+        `read ${result.readsPerChange} rows, budget ${budget.readsPerChange}. ` +
+        `byEntity=${JSON.stringify(result.reads.byEntity)} ` +
+        `accesses=${JSON.stringify(result.reads.accesses)} ` +
+        `first=[${result.reads.sample.join(' ')}] rowsCommitted=${result.rowsCommitted}`,
     )
   }
 }

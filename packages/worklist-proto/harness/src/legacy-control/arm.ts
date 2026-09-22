@@ -17,6 +17,10 @@
  * 2. The derive is counted. `countedSlice` wraps `worklistSlice.derive` with
  *    the identical `sourceEqual`/`isEqual` guards and body, adding only the
  *    `ArmStats` counters. Instrumentation, never a behavior change.
+ * 3. The derive reads the store through the reads fence when the harness
+ *    passes one (POD-4557, `fenced-store.ts`): every store array and replica
+ *    row collection it walks is counted, so the control reports what legacy
+ *    reads per change — the whole corpus on an unrelated heartbeat.
  *
  * `ArmStats` semantics for the control (honest whole-world numbers):
  * - `rowsDerived`: visible rows re-derived per derivation (the whole list —
@@ -42,6 +46,8 @@ import type { ArmStats } from '../../../shared/src/stats'
 import { snapshotFromStore } from '../oracle/index'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
 import { LegacyControlList, type ControlSliceDef } from './list'
+import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
+import { fencedLegacyStore } from './fenced-store'
 // DYNAMIC on purpose (not a bundle nicety): `./native` imports `react-native`,
 // whose Flow-typed source the root node/unit lanes cannot parse. A static
 // import would put that chain in every file importing this arm and break
@@ -101,14 +107,14 @@ function createControlStats(): ArmStats {
  */
 export function legacyControlArmFor(engine: LegacyControlEngine): Arm {
   return {
-    create(_source, locals: SliceLocals): ArmHandle {
+    create(_source, locals: SliceLocals, reads: ReadFence = DISABLED_READ_FENCE): ArmHandle {
       const stats = createControlStats()
       const counted: ControlSliceDef = defineSlice({
         name: 'worklist-control',
         sourceEqual: worklistSlice.sourceEqual,
         isEqual: worklistSlice.isEqual,
         derive: (store: Store<PodiumClientApi>): WorklistSlice => {
-          const slice = worklistSlice.derive(store)
+          const slice = worklistSlice.derive(fencedLegacyStore(reads, store))
           stats.rowsDerived += slice.work.length + slice.pinned.length
           stats.rollupsDerived += 1
           return slice

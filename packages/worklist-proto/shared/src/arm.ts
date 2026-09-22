@@ -8,6 +8,7 @@ import type { ReactElement } from 'react'
 import type { SliceLocals, SliceSnapshot } from './slice-types'
 import type { RowRecord, RowSourceEvent } from './stats'
 import type { ArmStats } from './stats'
+import type { ReadFence } from './instrument/reads'
 
 /**
  * The kernel's effective per-row row stream, as the arms see it. Owned by G3
@@ -53,5 +54,14 @@ export interface ArmHandle {
 }
 
 export interface Arm {
-  create(source: RowSource, locals: SliceLocals): ArmHandle
+  /**
+   * `reads` (POD-4557) is the reads-per-change fence. The harness has already
+   * passed `source` through it, so every row value arrives borrowed and
+   * counted. A round-three arm MUST store those borrowed row objects (never a
+   * copy), read its entity tables only through `reads.wrapTables(...)` and its
+   * relation buckets only through `reads.wrapRelations(...)`. Timing runs pass
+   * `DISABLED_READ_FENCE`, whose wrappers are the identity. Round-two arms and
+   * the legacy control predate it and may ignore it.
+   */
+  create(source: RowSource, locals: SliceLocals, reads?: ReadFence): ArmHandle
 }
