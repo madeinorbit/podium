@@ -36,7 +36,6 @@ export * from './descriptors.js'
 export type {
   HarnessBrandTone,
   HarnessCatalogData,
-  HarnessClientCapabilities,
   HarnessDescriptorData,
   HarnessIconData,
   HarnessLoginCopy,

@@ -154,7 +154,9 @@
     "docs:layers": "bun scripts/render-layer-diagram.ts",
     "docs:layers:check": "bun scripts/render-layer-diagram.ts --check",
     "docs:harness-matrix": "bun --conditions=@podium/source scripts/harness-matrix.ts",
-    "docs:harness-matrix:check": "bun --conditions=@podium/source scripts/harness-matrix.ts --check"
+    "docs:harness-matrix:check": "bun --conditions=@podium/source scripts/harness-matrix.ts --check",
+    "harness:descriptors": "bun --conditions=@podium/source scripts/harness-descriptors.ts",
+    "harness:descriptors:check": "bun --conditions=@podium/source scripts/harness-descriptors.ts --check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",

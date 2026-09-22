@@ -129,91 +129,24 @@ export { streamIdOfCursor, streamItemIdOf } from './store/stream-identity'
 // this entry, for harnesses the client build knows — composer interpretation
 // is authoritative on the daemon, which serves the resulting state.
 //
-// TWO READERS, ONE STATEMENT. The per-harness rows live in
+// TWO READERS, ONE STATEMENT. The per-harness rows are hand-written ONCE in
 // `adapters/<harness>/{descriptor,catalog}.ts` (pure literals + a type-only
-// import, so this entry may bundle them without pulling the manifests, the
-// transcript grammars, or sqlite). The served builder (`descriptors.ts`,
-// host-only) reads the SAME rows and overlays machine availability; the
-// bundled fallback below reads them with availability unknown. An older
-// client renders a NEW harness from the served report inside the schema it
-// already has; it does not acquire a new interaction model.
+// import); the client capability flags are DERIVED from each manifest at
+// generation time (`scripts/harness-descriptors.ts`, harness-matrix.ts
+// pattern) into `adapters/bundled-descriptors.generated.ts`, which is what
+// this entry bundles. The served builder (`descriptors.ts`, host-only) reads
+// the same rows and overlays machine availability. An older client renders a
+// NEW harness from the served report inside the schema it already has; it
+// does not acquire a new interaction model.
 //
-// The imports below name no harness: each row keys itself by its own `kind`,
-// so adding a harness is adding two files, never editing a key set here.
+// The import below names no harness: the generated rows key themselves by
+// their own `kind`, so adding a harness is adding two files plus a regen,
+// never editing a key set here.
 
-import { claudeCodeCatalog } from './adapters/claude-code/catalog.js'
-import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
-import { codexCatalog } from './adapters/codex/catalog.js'
-import { codexDescriptor } from './adapters/codex/descriptor.js'
-import { cursorCatalog } from './adapters/cursor/catalog.js'
-import { cursorDescriptor } from './adapters/cursor/descriptor.js'
-import { grokCatalog } from './adapters/grok/catalog.js'
-import { grokDescriptor } from './adapters/grok/descriptor.js'
-import { opencodeCatalog } from './adapters/opencode/catalog.js'
-import { opencodeDescriptor } from './adapters/opencode/descriptor.js'
-import { piCatalog } from './adapters/pi/catalog.js'
-import { piDescriptor } from './adapters/pi/descriptor.js'
-import type {
-  HarnessCatalogData,
-  HarnessDescriptorData,
-} from './descriptor-types.js'
+import { GENERATED_BUNDLED_DESCRIPTORS } from './adapters/bundled-descriptors.generated'
 
 /** Wire schema version the bundled rows speak. */
 export const BUNDLED_DESCRIPTOR_SCHEMA_VERSION = 1
-
-const BUNDLED_ROWS: readonly (readonly [HarnessDescriptorData, HarnessCatalogData])[] = [
-  [claudeCodeDescriptor, claudeCodeCatalog],
-  [codexDescriptor, codexCatalog],
-  [grokDescriptor, grokCatalog],
-  [opencodeDescriptor, opencodeCatalog],
-  [cursorDescriptor, cursorCatalog],
-  [piDescriptor, piCatalog],
-]
-
-function bundledRowToWire(
-  data: HarnessDescriptorData,
-  catalog: HarnessCatalogData,
-): HarnessDescriptorWire {
-  return {
-    schemaVersion: BUNDLED_DESCRIPTOR_SCHEMA_VERSION,
-    kind: data.kind,
-    label: data.label,
-    shortLabel: data.shortLabel,
-    icon: { ...data.icon },
-    ...(data.brand ? { brand: { ...data.brand } } : {}),
-    capabilities: { ...data.capabilities },
-    catalog: {
-      models: catalog.models.map((model) => ({ ...model })),
-      efforts: [...catalog.efforts],
-      liveMerge: catalog.liveMerge,
-    },
-    ...(data.login.command !== null ||
-    data.login.installHint !== null ||
-    data.login.signedOutHint !== null
-      ? {
-          login: {
-            ...(data.login.command !== null ? { command: data.login.command } : {}),
-            ...(data.login.installHint !== null ? { installHint: data.login.installHint } : {}),
-            ...(data.login.signedOutHint !== null
-              ? { signedOutHint: data.login.signedOutHint }
-              : {}),
-          },
-        }
-      : {}),
-    ...(data.defaults.model !== null || data.defaults.effort !== null
-      ? {
-          defaults: {
-            ...(data.defaults.model !== null ? { model: data.defaults.model } : {}),
-            ...(data.defaults.effort !== null ? { effort: data.defaults.effort } : {}),
-          },
-        }
-      : {}),
-    // No `available` (no machine connected) and no `sections` (the matrix
-    // derivation is served-only): both are optional and their absence
-    // renders — availability unknown means enabled, refused honestly at
-    // spawn when the machine answers.
-  }
-}
 
 /**
  * The bundled fallback: every harness THIS BUILD knows, without a machine.
@@ -221,9 +154,8 @@ function bundledRowToWire(
  * report names are appended. Clients always render through
  * {@link resolveDescriptors}, never this list directly.
  */
-export const BUNDLED_DESCRIPTORS: readonly HarnessDescriptorWire[] = BUNDLED_ROWS.map(
-  ([data, catalog]) => bundledRowToWire(data, catalog),
-)
+export const BUNDLED_DESCRIPTORS: readonly HarnessDescriptorWire[] =
+  GENERATED_BUNDLED_DESCRIPTORS
 
 /** The bundled row for a harness this build knows, or `undefined`. */
 export function bundledDescriptorFor(kind: string): HarnessDescriptorWire | undefined {

@@ -195,6 +195,11 @@ jobs:
       # stale commit hides a decline the registry already records.
       - name: harness support matrix is not stale
         run: bun run docs:harness-matrix:check
+      # The bundled descriptor snapshot is GENERATED from the adapter
+      # registry (POD-4475): a stale commit serves offline clients a
+      # harness the registry no longer describes.
+      - name: bundled harness descriptors are not stale
+        run: bun run harness:descriptors:check
 
   # [POD-758] Own blocking job — never fold into the continue-on-error lint
   # bundle above. A raw NUL makes the file binary: real grep is loud, but

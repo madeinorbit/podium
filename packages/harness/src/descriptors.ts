@@ -24,7 +24,11 @@
 import type { Inventory } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { AGENT_MANIFESTS, sectionStatusesOf } from './registry.js'
-import type { HarnessCatalogData, HarnessDescriptorData } from './descriptor-types.js'
+import type {
+  HarnessCatalogData,
+  HarnessDescriptorData,
+} from './descriptor-types.js'
+import type { AgentManifest } from './manifest.js'
 import { claudeCodeCatalog } from './adapters/claude-code/catalog.js'
 import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
 import { codexCatalog } from './adapters/codex/catalog.js'
@@ -81,41 +85,11 @@ export function buildServedDescriptors(inventory: Inventory): HarnessDescriptorW
   const catalogs = catalogDataByKind()
   const out: HarnessDescriptorWire[] = []
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
-    const kind = manifest.kind as string
-    const data = descriptors.get(kind)
-    const catalog = catalogs.get(kind)
-    if (!data || !catalog) continue
+    const assembled = assembleDescriptor(manifest, descriptors, catalogs)
+    if (!assembled) continue
     const agent = inventory.agents.find((candidate) => candidate.kind === manifest.kind)
     out.push({
-      schemaVersion: HARNESS_DESCRIPTOR_SCHEMA_VERSION,
-      kind,
-      label: data.label,
-      shortLabel: data.shortLabel,
-      icon: { ...data.icon },
-      ...(data.brand ? { brand: { ...data.brand } } : {}),
-      capabilities: {
-        argvPrompt: manifest.capabilities.argvPrompt,
-        effort: manifest.capabilities.effortFlag !== 'none',
-        systemPrompt: manifest.capabilities.systemPromptFlag,
-      },
-      catalog: {
-        models: catalog.models.map((model) => ({ ...model })),
-        efforts: [...catalog.efforts],
-        liveMerge: catalog.liveMerge,
-      },
-      ...(data.login.command !== null ||
-      data.login.installHint !== null ||
-      data.login.signedOutHint !== null
-        ? {
-            login: {
-              ...(data.login.command !== null ? { command: data.login.command } : {}),
-              ...(data.login.installHint !== null ? { installHint: data.login.installHint } : {}),
-              ...(data.login.signedOutHint !== null
-                ? { signedOutHint: data.login.signedOutHint }
-                : {}),
-            },
-          }
-        : {}),
+      ...assembled,
       available: {
         installed: agent?.installed === true,
         loggedIn: agent?.login.state === 'in',
@@ -127,4 +101,74 @@ export function buildServedDescriptors(inventory: Inventory): HarnessDescriptorW
     })
   }
   return out
+}
+
+/**
+ * The BUNDLED derivation: the same assembly with no machine — no
+ * `available`, no `sections` (both optional; their absence renders).
+ * Capabilities are DERIVED from the manifests here, never stated: the
+ * generator (`scripts/harness-descriptors.ts`) serialises this function's
+ * output into the committed snapshot the browser entry bundles, and the
+ * staleness check refuses a snapshot that no longer matches. Drift is
+ * impossible rather than merely detected.
+ */
+export function buildBundledDescriptors(): HarnessDescriptorWire[] {
+  const descriptors = descriptorDataByKind()
+  const catalogs = catalogDataByKind()
+  const out: HarnessDescriptorWire[] = []
+  for (const manifest of Object.values(AGENT_MANIFESTS)) {
+    const assembled = assembleDescriptor(manifest, descriptors, catalogs)
+    if (assembled) out.push(assembled)
+  }
+  return out
+}
+
+function assembleDescriptor(
+  manifest: AgentManifest,
+  descriptors: ReadonlyMap<string, HarnessDescriptorData>,
+  catalogs: ReadonlyMap<string, HarnessCatalogData>,
+): HarnessDescriptorWire | undefined {
+  const kind = manifest.kind as string
+  const data = descriptors.get(kind)
+  const catalog = catalogs.get(kind)
+  if (!data || !catalog) return undefined
+  return {
+    schemaVersion: HARNESS_DESCRIPTOR_SCHEMA_VERSION,
+    kind,
+    label: data.label,
+    shortLabel: data.shortLabel,
+    icon: { ...data.icon },
+    ...(data.brand ? { brand: { ...data.brand } } : {}),
+    capabilities: {
+      argvPrompt: manifest.capabilities.argvPrompt,
+      effort: manifest.capabilities.effortFlag !== 'none',
+      systemPrompt: manifest.capabilities.systemPromptFlag,
+    },
+    catalog: {
+      models: catalog.models.map((model) => ({ ...model })),
+      efforts: [...catalog.efforts],
+      liveMerge: catalog.liveMerge,
+    },
+    ...(data.login.command !== null ||
+    data.login.installHint !== null ||
+    data.login.signedOutHint !== null
+      ? {
+          login: {
+            ...(data.login.command !== null ? { command: data.login.command } : {}),
+            ...(data.login.installHint !== null ? { installHint: data.login.installHint } : {}),
+            ...(data.login.signedOutHint !== null
+              ? { signedOutHint: data.login.signedOutHint }
+              : {}),
+          },
+        }
+      : {}),
+    ...(data.defaults.model !== null || data.defaults.effort !== null
+      ? {
+          defaults: {
+            ...(data.defaults.model !== null ? { model: data.defaults.model } : {}),
+            ...(data.defaults.effort !== null ? { effort: data.defaults.effort } : {}),
+          },
+        }
+      : {}),
+  }
 }
