@@ -330,6 +330,20 @@ export function harnessPremintsHeadlessResumeId(kind: AgentKind | string): boole
  */
 export { harnessSupportsNoTools } from './browser.js'
 
+/**
+ * The headless turn-output fold (pi) and chat allocation (cursor),
+ * RE-EXPORTED from their adapters' own indexes (POD-4530). The daemon's
+ * supervisor machinery consumes them through this registry — driver/host.ts
+ * must not name specific adapters (spec §5 rule 4, 3.R D6).
+ */
+export {
+  createPiStreamReducer,
+  type PiStreamEffect,
+  type PiStreamReducer,
+  type PiStreamResult,
+} from './adapters/pi/index.js'
+export { cursorCreateChatInvocation, parseCursorChatId } from './adapters/cursor/index.js'
+
 export function harnessDisplayName(kind: AgentKind | string): string {
   return manifestFor(kind)?.displayName ?? kind
 }

@@ -3,11 +3,15 @@ import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import {
   bindHarnessExec,
+  createPiStreamReducer,
+  cursorCreateChatInvocation,
   declaredValue,
   type HarnessHeadless,
   type HeadlessExecOptions,
   harnessAdapterFor,
   LineDecoder,
+  parseCursorChatId,
+  type PiStreamEffect,
   type ResolvedHarnessInventory,
   resolvedHarnessPath,
 } from '@podium/harness'
@@ -18,15 +22,12 @@ import {
   codexHarnessKind,
   type ClaudeStreamTransport,
   createClaudeStreamClient,
-  cursorCreateChatInvocation,
   HeadlessTurnFailure,
-  parseCursorChatId,
   runCodexExecTurn,
 } from '@podium/harness/driver/host'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
-import { createPiStreamReducer, type PiStreamEffect } from '@podium/harness/driver/host'
 
 const DEFAULT_TURN_TIMEOUT_MS = 600_000
 
