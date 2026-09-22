@@ -223,7 +223,7 @@ describe('Claude SDK server-family teardown', () => {
   })
 })
 
-describe('Claude SDK subscription spawn selection', () => {
+describe('Claude stream engine spawn selection', () => {
   it('launches the stream engine for an explicit logged-in Claude spawn', async () => {
     const created = handle(SESSION_ID, RESUME)
     const send = vi.fn()
