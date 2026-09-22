@@ -215,7 +215,8 @@ never from a measured arm. Three terms, each already used above:
 | #6c evict | `removeOneReadBudget(ancestors)` | 15 / 15 / 15 | The same shape through a delete: the stored row (read before it is dropped), its chain, one position. Evict carries no tombstone; dropping the row from its buckets reads nothing. |
 | #6d evict keeper | `evictKeeperReadBudget(ancestors)` = level(ancestors) + 2 × `placeOne` | 30 / 30 / 30 | The evicted leaf's chain (the leaf, its rescue parent, their ancestors: 2 levels at every scale), and TWO rows leaving: the leaf and the parent that was visible only through it. Whether the parent still has a member is a `size` (free), not a read. |
 | #7 parent reassignment | `parentReassignmentReadBudget(moved, newParent)` = level(moved) + level(newParent) + `placeOne` | 21 / 21 / 21 | The moved row's OLD chain loses its cached subtree roll-up (the row and its old ancestors: 2 levels), the NEW parent's chain gains it (1 level), and one placement (a row that becomes or stops being top-level changes fold eligibility). The subtree moves as one cached value: no descendant is read. |
-| #8 clock tick | `READ_BUDGETS.clockTick` = 0 | 0 / 0 / 0 | A local, like #3: the feed emits nothing (a coarse tick that moves no band). The only rows a tick may re-derive are those whose time-derived fields cross at this tick (a lapsing defer, the finished grace, retention windows); deadlines are derived keys, not entity reads. This tick crosses none at any scale (asserted: no view changes, no row enters or leaves). |
+| #8 clock tick (60 s) | `clockTickReadBudget(crossings)` = crossings × 24 | 0 / 0 / 0 | A local, like #3: the row feed emits nothing; the tick reaches the arm on the locals channel (POD-4608). The only rows a tick re-derives are those whose time-derived fields cross at this tick (a lapsing defer, the finished grace, retention windows); deadlines are derived keys, not entity reads. Each crossing row moves between lanes (or enters or leaves) with no row event: #5's shape, 24 per row. `crossings` is projected BEFORE the write, by the row-view oracle at the advanced clock over the same store (`tickCrossings`). This tick crosses none at any scale. |
+| #8b grace crossing (24 h) | `clockTickReadBudget(crossings)` | 96 / 192 / 384 | The same rule. This tick crosses the grace rows (finished 1–20 h before the corpus clock, 4 per scale unit: 4, 8, 16), which fold. Flat per crossing; the crossings are the corpus's, not N's. An O(visible) walk still fails at every scale (211 / 422 / 844 visible). |
 | #9a press, #9b echo, #9c rejection | `READ_BUDGETS.markRead` = 3 | 3 / 3 / 3 | An own-field change (`readAt`) of one issue that no row-view field reads — the #4 shape: the issue and at most two rows to place or label it. The rejection's two events name the same row; distinct counting makes it one. |
 | #10 burst of 50 | `burstReadBudget(ancestors per issue)` = Σ level(ancestorsᵢ) | 171 / 195 / 243 | Fifty #2-shaped changes in one event: each new working session flips `working`/`phase` up its issue's chain. The sum of the #2 budget over the fifty chains; distinct counting only lowers it where chains share ancestors. No placement term: `rankOf` reads no activity. Bounded by fifty chains, not by N: at 4x, 243 against 844 visible rows. |
 
@@ -274,7 +275,7 @@ door and each refusal.
 *NO — the legacy control exceeds every one.* `control.test.tsx` runs every
 fence scenario in order with the budget each computes, and asserts that each
 #6–#10 step reads at least the whole corpus and that `assertReads` throws.
-Measured at 1x on this branch (happy-dom counts):
+Measured at 1x on this branch (happy-dom counts, 2026-09-22):
 
 | Scenario | Legacy reads | Budget |
 |---|---|---|
@@ -283,7 +284,8 @@ Measured at 1x on this branch (happy-dom counts):
 | #6c evict | 9,921 | 15 |
 | #6d evict keeper | 9,920 | 30 |
 | #7 parent reassignment | 9,920 | 21 |
-| #8 clock tick | 9,920 (the store publishes; the feed emits nothing) | 0 |
+| #8 clock tick | 9,920 (the store publishes; the row feed emits nothing) | 0 |
+| #8b grace crossing | 9,669 | 96 |
 | #9a / #9b / #9c | 9,669 / 9,669 / 9,920 | 3 |
 | #10 burst | 9,719 | 171 |
 
@@ -303,14 +305,19 @@ neighbours it reads to leave a position, and a binary search that READS
 every probed row to enter one. At 1x, 2x and 4x it meets every #6–#10 budget,
 and each cell is at least the rows the change names (not a blind 0):
 
-| Scale | #6a | #6b | #6c | #6d | #7 | #8 | #9a/b/c | #10 |
-|---|---|---|---|---|---|---|---|---|
-| 1x | 3/16 | 1/15 | 2/15 | 3/30 | 3/21 | 0/0 | 1/3 | 108/171 |
-| 2x | 4/16 | 1/15 | 2/15 | 2/30 | 3/21 | 0/0 | 1/3 | 116/195 |
-| 4x | 5/16 | 1/15 | 2/15 | 3/30 | 3/21 | 0/0 | 1/3 | 132/243 |
+| Scale | #6a | #6b | #6c | #6d | #7 | #8 | #8b | #9a/b/c | #10 |
+|---|---|---|---|---|---|---|---|---|---|
+| 1x | 3/16 | 1/15 | 2/15 | 3/30 | 3/21 | 0/0 | 6/96 | 1/3 | 108/171 |
+| 2x | 4/16 | 1/15 | 2/15 | 2/30 | 3/21 | 0/0 | 11/192 | 1/3 | 116/195 |
+| 4x | 5/16 | 1/15 | 2/15 | 3/30 | 3/21 | 0/0 | 24/384 | 1/3 | 132/243 |
 
-The same arm plus ONE walk over the issue table per event fails every #6–#10
-budget with an event; #8 has no event, and its NO is the control's.
+For the ticks the arm keeps each open-lane closure's fold deadline
+(`issueFinishedAt` + 24 h) as a derived key and, on a clock notification,
+reads and moves only the rows whose deadline passed. The test also holds each
+tick's projected crossings to what the tick did (0 for #8; 4, 8, 16 for #8b).
+The same arm plus ONE walk over the issue table per notification (a row event
+or a locals change) fails every #6–#10 budget, the ticks included (1x: 4,866
+to 4,919 rows read).
 
 **Step isolation: the wall clock is held still.** The #3 click's eager
 mark-read is acknowledged by the scenario server but never echoed as truth,

@@ -19,6 +19,7 @@ import {
   assertIsolation,
   assertReads,
   burstReadBudget,
+  clockTickReadBudget,
   evictKeeperReadBudget,
   newIssueReadBudget,
   parentReassignmentReadBudget,
@@ -105,7 +106,9 @@ it('budget helpers: #6–#10 are the derived sums', () => {
   expect(removeOneReadBudget(2)).toBe(9 + 12)
   expect(evictKeeperReadBudget(1)).toBe(6 + 24)
   expect(parentReassignmentReadBudget(1, 0)).toBe(6 + 3 + 12)
-  expect(READ_BUDGETS.clockTick).toBe(0)
+  // A tick: #5's move per row it crosses. The plain tick crosses none.
+  expect(clockTickReadBudget(0)).toBe(0)
+  expect(clockTickReadBudget(4)).toBe(4 * 24)
   expect(READ_BUDGETS.markRead).toBe(3)
   // Chains, not families: fifty roots cost 150, fifty depth-2 children 300.
   expect(burstReadBudget(Array.from({ length: 50 }, () => 0))).toBe(150)

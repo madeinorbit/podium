@@ -22,7 +22,10 @@
  *   keys: the worst honest arm) and then reads its two neighbours;
  * - an evicted issue: the stored row, its old chain, its position, and its
  *   parent's listing when the parent was listed only through its children
- *   (a rescue parent: sessionless backlog, `size` checks are free).
+ *   (a rescue parent: sessionless backlog, `size` checks are free);
+ * - a tick (the locals channel, POD-4608): only the rows whose fold deadline
+ *   (`issueFinishedAt` + the 24 h grace, kept as a derived key) it passes,
+ *   each read and moved from the open lane to the fold.
  *
  * It renders nothing and projects no slice, so parity is not asserted; its
  * "listed" set approximates visibility (not archived, not a childless
@@ -31,9 +34,10 @@
  * cell is not vacuous), and the budgets hold on the real corpus targets at
  * 1x, 2x and 4x (chain depths and group sizes as the corpus has them).
  *
- * The NO: the same arm plus ONE walk over the issue table per event fails
- * every #6–#10 budget that has an event; the legacy control, which reads the
- * whole world, fails every one including the tick (`control.test.tsx`).
+ * The NO: the same arm plus ONE walk over the issue table per notification
+ * (a row event or a locals change) fails every #6–#10 budget; the legacy
+ * control, which reads the whole world, fails every one, the ticks included
+ * (`control.test.tsx`).
  *
  * STEP ISOLATION (wall clock held still). The #3 click's eager mark-read is
  * acknowledged by the scenario server but never echoed as truth, so the
@@ -53,27 +57,45 @@
  * Reported to the coordinator, not re-read: L5a's budgets are L5a's.
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import { createElement, type ReactElement } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { Arm, ArmHandle } from '../../shared/src/arm'
 import { DISABLED_READ_FENCE, type RelationReader } from '../../shared/src/instrument/reads'
-import { createRowSource } from '../../shared/src/row-source'
 import { type FixtureScale, startScenarioEngine } from '../../shared/src/scenarios'
 import type { EntityName } from '../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../shared/src/slice-types'
 import type { ArmStats, RowRecord } from '../../shared/src/stats'
-import { assertReads, type CountResult, mountArmForCounts } from './count-harness'
-import { engineLocals, FENCE_SCENARIOS, runFenceStep } from './fence-scenarios'
+import {
+  assertReads,
+  type CountResult,
+  clockTickReadBudget,
+  mountArmForCounts,
+} from './count-harness'
+import { engineLocals, FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from './fence-scenarios'
 import { rowViewsFromStore } from './oracle/index'
 
 type ProbeMode = 'shape' | 'scan'
 
 /** The scenarios whose budgets POD-4609 fixed. #1–#5 are L5a's (see the note on #3 above). */
-const BUDGETED_HERE = new Set(['#6a', '#6b', '#6c', '#6d', '#7', '#8', '#9a', '#9b', '#9c', '#10'])
+const BUDGETED_HERE = new Set([
+  '#6a',
+  '#6b',
+  '#6c',
+  '#6d',
+  '#7',
+  '#8',
+  '#8b',
+  '#9a',
+  '#9b',
+  '#9c',
+  '#10',
+])
 
 /**
  * The rows each change NAMES, which any arm must read: the fence's cell must
- * be at least this, or it is blind. #8 names none (the feed emits nothing).
+ * be at least this, or it is blind. The ticks name the rows they cross,
+ * counted from the oracle in the run.
  */
 const NAMED_ROWS: Readonly<Record<string, number>> = {
   '#6a': 2, // the issue and its session
@@ -81,7 +103,6 @@ const NAMED_ROWS: Readonly<Record<string, number>> = {
   '#6c': 1,
   '#6d': 2, // the leaf and the rescue parent that leaves with it
   '#7': 3, // the moved row, its old parent, its new parent
-  '#8': 0,
   '#9a': 1,
   '#9b': 1,
   '#9c': 1,
@@ -124,9 +145,20 @@ function compareKeys(a: RankKey, b: RankKey): number {
   return 0
 }
 
-/** Group plus lane: a closed row sits in its group's fold. */
-function groupOf(row: SliceIssue): string {
-  return `${row.repoId ?? row.repoPath}:${row.closedAt ? 'closed' : 'open'}`
+/** The finished grace (`SIDEBAR_FINISHED_GRACE_MS`): a settled closure folds after it. */
+const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
+
+/** A closed top-level row's fold deadline (`issueFinishedAt` + grace), or null when time cannot fold it. */
+function foldDeadline(row: SliceIssue): number | null {
+  if (!row.closedAt || row.parentId || row.tuckedAt || row.closedReason === 'abandoned') return null
+  return (Date.parse(row.closedAt ?? row.updatedAt) || 0) + FINISHED_GRACE_MS
+}
+
+/** Group plus lane at clock `now`: tucked or abandoned closures fold at once, others after the grace. */
+function groupOf(row: SliceIssue, now: number): string {
+  const deadline = foldDeadline(row)
+  const folded = !!row.closedAt && (deadline === null || now > deadline)
+  return `${row.repoId ?? row.repoPath}:${folded ? 'closed' : 'open'}`
 }
 
 /** Fields a roll-up up the chain reads from a row. `readAt`/`unread` are not among them. */
@@ -147,7 +179,8 @@ const ROLLUP_FIELDS = [
  */
 function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
   return {
-    create(source, _locals, reads = DISABLED_READ_FENCE): ArmHandle {
+    create(source, localsSource, reads = DISABLED_READ_FENCE): ArmHandle {
+      let now = localsSource.get().coarseNow
       const raw = {
         issue: new Map<string, SliceIssue>(),
         session: new Map<string, SliceSession>(),
@@ -161,6 +194,14 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
       const issueOfSession = new Map<string, string>()
       const groups = new Map<string, string[]>()
       const placedIn = new Map<string, string>()
+      /** Fold deadlines of placed open-lane rows: derived keys, never entity reads. */
+      const deadlines = new Map<string, number>()
+      const track = (id: string, row: SliceIssue): void => {
+        const deadline = foldDeadline(row)
+        if (deadline !== null && deadline >= now && placedIn.get(id)?.endsWith(':open'))
+          deadlines.set(id, deadline)
+        else deadlines.delete(id)
+      }
 
       const link = (
         index: Map<string, Set<string>>,
@@ -238,9 +279,10 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
       }
       for (const row of raw.issue.values()) {
         if (!visibleAtMount.has(row.id)) continue
-        const group = groupOf(row)
+        const group = groupOf(row, now)
         groups.set(group, [...(groups.get(group) ?? []), row.id])
         placedIn.set(row.id, group)
+        track(row.id, row)
       }
       for (const ids of groups.values()) {
         ids.sort((a, b) => compareKeys(rankKey(raw.issue.get(a)!), rankKey(raw.issue.get(b)!)))
@@ -273,9 +315,10 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
         neighbours(ids, index)
         ids.splice(index, 1)
         placedIn.delete(id)
+        deadlines.delete(id)
       }
       const enter = (id: string, row: SliceIssue): void => {
-        const group = groupOf(row)
+        const group = groupOf(row, now)
         const ids = groups.get(group) ?? []
         groups.set(group, ids)
         const key = rankKey(row)
@@ -289,6 +332,7 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
         ids.splice(lo, 0, id)
         neighbours(ids, lo)
         placedIn.set(id, group)
+        track(id, row)
       }
       /** Re-evaluate one row's listing and position after its inputs moved. */
       const place = (id: string, before: { group: string; key: RankKey } | null): void => {
@@ -298,10 +342,10 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
         if (wasPlaced && !isListed) leave(id)
         else if (!wasPlaced && isListed) enter(id, row)
         else if (wasPlaced && isListed && before !== null) {
-          if (before.group !== groupOf(row) || compareKeys(before.key, rankKey(row)) !== 0) {
+          if (before.group !== groupOf(row, now) || compareKeys(before.key, rankKey(row)) !== 0) {
             leave(id)
             enter(id, row)
-          }
+          } else track(id, row)
         }
       }
 
@@ -356,7 +400,7 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
           return
         }
         const before =
-          previous === undefined ? null : { group: groupOf(previous), key: rankKey(previous) }
+          previous === undefined ? null : { group: groupOf(previous, now), key: rankKey(previous) }
         raw.issue.set(id, record.value as SliceIssue)
         const row = tables.issue.get(id)!
         const newParent = parentEdge(row)
@@ -378,6 +422,25 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
         place(id, before)
       }
 
+      /** The planted mistake (`scan`): one walk over the issue table per notification. */
+      const walk = (): void => {
+        for (const row of tables.issue.values()) void row.stage
+      }
+      /** A tick: only the rows whose fold deadline it passes are read and moved. */
+      const offLocals = localsSource.subscribe((changed) => {
+        if (mode === 'scan') walk()
+        if (!changed.has('coarseNow')) return
+        const next = localsSource.get().coarseNow
+        const due = [...deadlines].filter(([, deadline]) => deadline < next).map(([id]) => id)
+        now = next
+        for (const id of due) {
+          const row = readIssue(id)
+          if (row === undefined) continue
+          leave(id)
+          enter(id, row)
+        }
+      })
+
       const stats = zeroStats()
       const off = source.subscribe((event) => {
         stats.notifications += 1
@@ -392,15 +455,15 @@ function shapeArm(mode: ProbeMode, visibleAtMount: ReadonlySet<string>): Arm {
             lanePaths.add(record.id)
           }
         }
-        if (mode === 'scan') {
-          // The planted mistake: one walk over the issue table per event.
-          for (const row of tables.issue.values()) void row.stage
-        }
+        if (mode === 'scan') walk()
       })
       return {
         snapshot: () => ({ order: { pinnedIds: [], groups: [] }, rowsById: {} }),
         stats,
-        dispose: off,
+        dispose: () => {
+          off()
+          offLocals()
+        },
         mountWeb: () => () => undefined,
         mountNative: (): ReactElement => createElement('div'),
       }
@@ -415,35 +478,38 @@ interface Cell {
   result: CountResult
 }
 
-/** Every fence scenario, in order, against the shape arm; the #8 crossing precondition checked on the way. */
+const TICKS = ['#8', '#8b'] as const
+
+/**
+ * Every fence scenario, in order, against the shape arm. For the two ticks it
+ * also records the rows the tick actually crossed (view changed, entered or
+ * left), to hold the budget's projection to what happened.
+ */
 async function runShape(
   scale: FixtureScale,
   mode: ProbeMode,
-): Promise<{ cells: Cell[]; tick: { changed: string[]; entered: string[]; left: string[] } }> {
+): Promise<{ cells: Cell[]; crossed: Record<string, string[]> }> {
   // Wall clock held still: see STEP ISOLATION in the header.
   vi.useFakeTimers({ toFake: ['Date'] })
   const ctx = await startScenarioEngine(scale)
-  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+  const feeds = openFenceFeeds(ctx, 'overlaid')
   const visible = new Set(
     Object.keys(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))),
   )
-  const mounted = mountArmForCounts(shapeArm(mode, visible), source.source, engineLocals(ctx))
+  const mounted = mountArmForCounts(shapeArm(mode, visible), feeds.rows.source, feeds.locals)
   const cells: Cell[] = []
-  let tick = { changed: [] as string[], entered: [] as string[], left: [] as string[] }
+  const crossed: Record<string, string[]> = {}
   try {
     for (const entry of FENCE_SCENARIOS) {
-      const before =
-        entry.methodology === '#8'
-          ? rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
-          : null
-      const { result, readsBudget } = await runFenceStep(mounted, ctx, source.flush, entry)
+      const tick = (TICKS as readonly string[]).includes(entry.methodology)
+      const before = tick ? rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)) : null
+      const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
       if (before !== null) {
         const after = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
-        tick = {
-          changed: result.oracleChangedRows ?? [],
-          entered: Object.keys(after).filter((id) => !(id in before)),
-          left: Object.keys(before).filter((id) => !(id in after)),
-        }
+        const ids = new Set([...Object.keys(before), ...Object.keys(after)])
+        crossed[entry.methodology] = [...ids]
+          .filter((id) => !isDeepStrictEqual(before[id], after[id]))
+          .sort()
       }
       cells.push({
         methodology: entry.methodology,
@@ -454,11 +520,11 @@ async function runShape(
     }
   } finally {
     mounted.unmount()
-    source.dispose()
+    feeds.dispose()
     ctx.engine.destroy()
     vi.useRealTimers()
   }
-  return { cells, tick }
+  return { cells, crossed }
 }
 
 const line = (cells: Cell[]): string =>
@@ -467,34 +533,41 @@ const line = (cells: Cell[]): string =>
 describe('reads budgets #6–#10 (POD-4609)', () => {
   for (const scale of [1, 2, 4] as const) {
     it(`YES at ${scale}x: an arm doing the derived reads meets every budget, and the fence sees them`, async () => {
-      const { cells, tick } = await runShape(scale, 'shape')
-      console.info(`[reads-budgets] shape ${scale}x reads/budget: ${line(cells)}`)
-      // #8's budget of 0 rests on the tick crossing no row at this scale.
-      expect(tick).toEqual({ changed: [], entered: [], left: [] })
+      const { cells, crossed } = await runShape(scale, 'shape')
+      console.info(
+        `[reads-budgets] shape ${scale}x reads/budget: ${line(cells)} ` +
+          `crossed=${JSON.stringify(Object.fromEntries(TICKS.map((t) => [t, crossed[t]?.length])))}`,
+      )
       const mine = cells.filter((cell) => BUDGETED_HERE.has(cell.methodology))
       expect(mine.map((cell) => cell.methodology)).toEqual([...BUDGETED_HERE])
       for (const cell of mine) {
+        const tick = crossed[cell.methodology]
+        // A tick's budget is its projected crossings; it must be what the tick did.
+        if (tick !== undefined)
+          expect(cell.budget, cell.methodology).toBe(clockTickReadBudget(tick.length))
+        const named = tick?.length ?? NAMED_ROWS[cell.methodology]!
         expect(
           cell.reads,
           `${cell.methodology} reads fewer rows than the change names: the cell is blind`,
-        ).toBeGreaterThanOrEqual(NAMED_ROWS[cell.methodology]!)
+        ).toBeGreaterThanOrEqual(named)
         assertReads(cell.result, { readsPerChange: cell.budget })
       }
+      // #8 crosses nothing at any scale (its budget is 0); #8b crosses the grace rows.
+      expect(crossed['#8']).toEqual([])
+      expect(crossed['#8b']?.length).toBeGreaterThan(0)
     }, 300_000)
   }
 
-  it('NO: the same arm plus one walk over the issue table fails every budget with an event', async () => {
+  it('NO: the same arm plus one walk over the issue table per notification fails every budget', async () => {
     const { cells } = await runShape(1, 'scan')
     console.info(`[reads-budgets] scan 1x reads/budget: ${line(cells)}`)
-    for (const cell of cells.filter(
-      (c) => BUDGETED_HERE.has(c.methodology) && c.methodology !== '#8',
-    )) {
+    const mine = cells.filter((c) => BUDGETED_HERE.has(c.methodology))
+    expect(mine).toHaveLength(BUDGETED_HERE.size)
+    for (const cell of mine) {
       expect(
         () => assertReads(cell.result, { readsPerChange: cell.budget }),
         cell.methodology,
       ).toThrow(/read \d+ rows, budget/)
     }
-    // No event on the tick, so no walk: its NO is the legacy control's (`control.test.tsx`).
-    expect(cells.find((c) => c.methodology === '#8')!.reads).toBe(0)
   }, 300_000)
 })

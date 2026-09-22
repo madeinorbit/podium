@@ -13,8 +13,10 @@ roster run asserts reads on every step.
   placement (12: two neighbours and ~10 binary-search probes at 4x), and the
   rows the feed names. Chain terms follow the targets' depth; the placement
   term is flat.
-- **#8 is 0**, like #3: a local, no feed event, no crossing at any scale
-  (asserted).
+- **The ticks (#8, and POD-4608's #8b)** cost #5's move per row they cross;
+  crossings are projected by the oracle at the advanced clock before the
+  write, and the test holds the projection to what happened. #8 crosses none
+  (0); #8b crosses the grace rows (96 / 192 / 384).
 - **The reference arm is the wrong YES** for reads: it never touches the
   fence (0 on every step, pinned in `fences.test.tsx`). The YES is a shape
   arm (`reads-budgets.test.tsx`) that reads only through the fence, at 1x,

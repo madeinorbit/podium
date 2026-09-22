@@ -27,6 +27,7 @@
  * the boundary: an arm cannot tell them apart.
  */
 
+import { isDeepStrictEqual } from 'node:util'
 import type { ArmHandle } from '../../shared/src/arm'
 import type { LocalsSourceHandle } from '../../shared/src/locals-source'
 import {
@@ -56,6 +57,7 @@ import type { SliceLocals } from '../../shared/src/slice-types'
 import {
   ancestorCount,
   burstReadBudget,
+  clockTickReadBudget,
   type CountResult,
   evictKeeperReadBudget,
   type MountedArm,
@@ -124,6 +126,23 @@ export function parityLocals(ctx: ScenarioEngine): SliceLocals {
 function parentOf(ctx: ScenarioEngine): (id: string) => string | null | undefined {
   return (id) =>
     ctx.engine.getSnapshot().issueProjections.find((issue) => issue.id === id)?.parentId
+}
+
+/** #8: one coarse period (`writeClockTick`'s default). */
+export const CLOCK_TICK_MS = 60_000
+
+/**
+ * The rows a clock advance of `ms` would cross, projected BEFORE the write:
+ * the row-view oracle at the current locals and at the advanced clock, same
+ * store. Crossed = view changed, entered or left. Sorted ids.
+ */
+export function tickCrossings(ctx: ScenarioEngine, ms: number): string[] {
+  const store = ctx.engine.getSnapshot()
+  const now = engineLocals(ctx)
+  const before = rowViewsFromStore(store, now)
+  const after = rowViewsFromStore(store, { ...now, coarseNow: now.coarseNow + ms })
+  const ids = new Set([...Object.keys(before), ...Object.keys(after)])
+  return [...ids].filter((id) => !isDeepStrictEqual(before[id], after[id])).sort()
 }
 
 /** Ancestors above `id` in the engine's issue tree, before the write. */
@@ -200,14 +219,14 @@ export const FENCE_SCENARIOS: readonly FenceScenario[] = [
   {
     scenario: 'clockTick',
     methodology: '#8',
-    write: (ctx) => writeClockTick(ctx),
-    readsBudget: () => READ_BUDGETS.clockTick,
+    write: (ctx) => writeClockTick(ctx, CLOCK_TICK_MS),
+    readsBudget: (ctx) => clockTickReadBudget(tickCrossings(ctx, CLOCK_TICK_MS).length),
   },
   {
     scenario: 'clockGraceCrossing',
     methodology: '#8b',
     write: (ctx) => writeClockTick(ctx, GRACE_CROSSING_TICK_MS),
-    readsBudget: none,
+    readsBudget: (ctx) => clockTickReadBudget(tickCrossings(ctx, GRACE_CROSSING_TICK_MS).length),
   },
   {
     scenario: 'optimisticPress',

@@ -17,7 +17,7 @@
  *   the exact-commit fence's changed set is empty and every row the control
  *   redraws is an over-commit: `assertCommits` throws.
  *
- * - POD-4609: every #6–#10 step reads the whole corpus too, the clock tick
+ * - POD-4609: every #6–#10 step reads the whole corpus too, both clock ticks
  *   included, and exceeds its budget.
  *
  * NEVER weaken this test (no raised budget, no `skip`, no filtering the
@@ -40,7 +40,7 @@ import {
   runCountScenario,
   type CountResult,
 } from '../count-harness'
-import { engineLocals, FENCE_SCENARIOS, runFenceStep } from '../fence-scenarios'
+import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../fence-scenarios'
 import { rowViewsFromStore, snapshotFromStore } from '../oracle/index'
 import {
   startScenarioEngine,
@@ -246,21 +246,21 @@ describe('legacy control (armed)', () => {
    * POD-4609 — the NO for the #6–#10 budgets: every fence scenario in order
    * (`fence-scenarios.ts`, the list every arm runs), each with the budget the
    * scenario computes from its targets. The control reads the whole corpus on
-   * every one of them — the clock tick included, which publishes the store
-   * although the feed emits nothing — so each budget can say NO.
+   * every one of them — both clock ticks included, which publish the store
+   * although the row feed emits nothing — so each budget can say NO.
    */
   it('reads the whole corpus on every scenario #6–#10 and exceeds every budget', async () => {
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(
       legacyControlArmFor(ctx.engine),
-      source.source,
-      engineLocals(ctx),
+      feeds.rows.source,
+      feeds.locals,
     )
     try {
       const steps = []
       for (const entry of FENCE_SCENARIOS)
-        steps.push(await runFenceStep(mounted, ctx, source.flush, entry))
+        steps.push(await runFenceStep(mounted, ctx, feeds.flush, entry))
       const store = ctx.engine.getSnapshot()
       const corpus =
         new Set(store.issueProjections.map((issue) => issue.id)).size + store.sessions.length
@@ -272,6 +272,7 @@ describe('legacy control (armed)', () => {
         '#6d',
         '#7',
         '#8',
+        '#8b',
         '#9a',
         '#9b',
         '#9c',
@@ -292,7 +293,7 @@ describe('legacy control (armed)', () => {
       }
     } finally {
       mounted.unmount()
-      source.dispose()
+      feeds.dispose()
       ctx.engine.destroy()
     }
   }, 120_000)

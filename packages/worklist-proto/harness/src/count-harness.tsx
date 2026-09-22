@@ -516,14 +516,6 @@ export const READ_BUDGETS = {
    */
   newIssueLane: 1,
   /**
-   * POD-4609 #8: a coarse tick is a local, like #3. The feed emits nothing; the
-   * only rows a tick may re-derive are those whose time-derived fields (band on
-   * a lapsing defer, the finished grace, retention windows) cross at this tick,
-   * and this tick crosses none (asserted at every scale in
-   * `reads-budgets.test.tsx`). Deadlines are derived keys, not entity reads.
-   */
-  clockTick: 0,
-  /**
    * POD-4609 #9a/#9b/#9c: a mark-read press, its echo, its rollback. An
    * own-field change (`readAt`) of one issue that no row-view field reads — the
    * #4 shape: the issue, and at most two rows to place or label it. The
@@ -531,6 +523,20 @@ export const READ_BUDGETS = {
    */
   markRead: 3,
 } as const
+
+/**
+ * POD-4609 #8 and #8b budget: a coarse tick is a local, like #3; the feed
+ * emits nothing. The only rows a tick re-derives are those whose time-derived
+ * fields cross at this tick (band on a lapsing defer, the finished grace,
+ * retention windows) — deadlines are derived keys, not entity reads — and each
+ * such row moves between lanes (or enters or leaves) with no row event: #5's
+ * shape, `stageMoveNeighbourhood` per crossing. `crossings` is the rows whose
+ * view the tick changes, adds or removes, projected by the oracle at the
+ * advanced clock BEFORE the write. #8 (one 60 s period) crosses none: 0.
+ */
+export function clockTickReadBudget(crossings: number): number {
+  return crossings * READ_BUDGETS.stageMoveNeighbourhood
+}
 
 /**
  * POD-4609 #6a budget: the new issue's own level (the issue, its session, its
