@@ -15,7 +15,7 @@ function handle(sessionId: SessionId, resume: ResumeRef): AgentSessionHandle {
     binding: {
       sessionId,
       driver: 'claude-sdk',
-      family: 'embedded',
+      family: 'server',
       harness: 'claude-code',
       workdir: '/project',
       resume,
@@ -50,17 +50,25 @@ function reattachMessage(sessionId: SessionId, resume: ResumeRef): never {
   } as never
 }
 
+/**
+ * The machine root as the generic server arm sees it (POD-4612): the Claude
+ * engine answers `adoptJournalled` like codex, opencode and grok — there is no
+ * Claude-specific adopt or resume verb left for the reattach path to call.
+ */
 function world(input: {
-  existing?: AgentSessionHandle
-  adopt: (binding: unknown) => Promise<AgentSessionHandle>
-  resume: (ref: ResumeRef, spec: unknown, sessionId?: SessionId) => Promise<AgentSessionHandle>
+  adoptJournalled: (
+    sessionId: SessionId,
+    expect?: { resume?: ResumeRef },
+  ) => Promise<unknown>
 }) {
   const sent: DaemonMessage[] = []
-  const adopt = vi.fn(input.adopt)
-  const resume = vi.fn(input.resume)
+  const adoptJournalled = vi.fn(input.adoptJournalled)
+  const adopt = vi.fn()
+  const resume = vi.fn()
   const ctx = {
     send: (message: DaemonMessage) => sent.push(message),
     machineId: 'claude-test-machine',
+    sessions: testSessions(),
     sessionBinding: {
       transition: vi.fn(async () => ({
         status: 'applied',
@@ -68,137 +76,155 @@ function world(input: {
       })),
     },
     agentRuntime: {
-      handleFor: vi.fn(() => input.existing),
+      handleFor: vi.fn(() => undefined),
+      adoptJournalled,
       adopt,
       resume,
     },
   } as unknown as DaemonContext
-  return { ctx, sent, adopt, resume }
+  return { ctx, sent, adoptJournalled, adopt, resume }
 }
 
 describe('Claude SDK reattach control', () => {
-  it('adopts the surviving handle without minting a replacement conversation', async () => {
+  it('adopts the surviving handle through the generic server arm', async () => {
     const surviving = handle(SESSION_ID, RESUME)
     const w = world({
-      existing: surviving,
-      adopt: async () => surviving,
-      resume: async () => {
-        throw new Error('process-gone resume must not run for a survivor')
-      },
+      adoptJournalled: async () => ({
+        found: true,
+        what: 'claude --input-format stream-json (streaming engine)',
+        workdir: '/project',
+        handle: surviving,
+      }),
     })
 
     sessionHandlers.reattach(w.ctx, reattachMessage(SESSION_ID, RESUME))
-    await vi.waitFor(() => expect(w.adopt).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(w.adoptJournalled).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(w.sent.some((message) => message.type === 'bind')).toBe(true),
+    )
 
-    expect(w.adopt).toHaveBeenCalledWith(surviving.binding)
+    // The row's conversation travels with the request, so the arm can refuse a
+    // journal naming a different one before adopting anything.
+    expect(w.adoptJournalled).toHaveBeenCalledWith(SESSION_ID, { resume: RESUME })
+    expect(w.adopt).not.toHaveBeenCalled()
     expect(w.resume).not.toHaveBeenCalled()
     expect(w.sent).toContainEqual(
       expect.objectContaining({
         type: 'bind',
         sessionId: SESSION_ID,
         driverId: 'claude-sdk',
+        configureFields: [...configureFieldsForDriver('claude-sdk')],
+        attachKinds: [],
       }),
     )
     // ADOPTING A SURVIVOR APPLIES NO SIZE (POD-3279), so its bind carries none.
     // `objectContaining` above cannot see an extra field, which is exactly why
     // the absence is asserted separately here.
     expect(w.sent.find((message) => message.type === 'bind')).not.toHaveProperty('geometry')
-    expect(w.sent).toContainEqual(
-      expect.objectContaining({ type: 'sessionResumeRef', sessionId: SESSION_ID, resume: RESUME }),
-    )
     expect(w.sent.some((message) => message.type === 'reattachFailed')).toBe(false)
   })
 
-  it('resumes with the exact id and ref after the daemon process is gone', async () => {
-    const resumed = handle(SESSION_ID, RESUME)
+  it('refuses, without adopting, a journal that names a different conversation', async () => {
     const w = world({
-      adopt: async () => {
-        throw new Error('claude-sdk: no exact surviving process')
-      },
-      resume: async (ref, spec, sessionId) => {
-        expect(ref).toEqual(RESUME)
-        expect(spec).toMatchObject({ harness: 'claude-code', workdir: '/project' })
-        expect(sessionId).toBe(SESSION_ID)
-        return resumed
-      },
+      adoptJournalled: async () => ({
+        found: true,
+        what: 'claude --input-format stream-json (streaming engine)',
+        workdir: '/project',
+        conversationMismatch: 'the journal continues a different conversation',
+      }),
     })
 
     sessionHandlers.reattach(w.ctx, reattachMessage(SESSION_ID, RESUME))
-    await vi.waitFor(() => expect(w.resume).toHaveBeenCalledTimes(1))
-
-    expect(w.adopt).toHaveBeenCalledTimes(1)
-    expect(w.resume).toHaveBeenCalledWith(RESUME, expect.any(Object), SESSION_ID)
     await vi.waitFor(() =>
-      expect(w.sent).toContainEqual({
-        type: 'sessionResumeRef',
-        sessionId: SESSION_ID,
-        resume: RESUME,
-        confidence: 'exact',
-      }),
+      expect(w.sent.some((message) => message.type === 'reattachFailed')).toBe(true),
     )
+
     expect(w.sent).toContainEqual({
-      type: 'bind',
+      type: 'reattachFailed',
       sessionId: SESSION_ID,
-      cmd: 'Claude stream engine',
-      cwd: '/project',
-      agentKind: 'claude-code',
-      // NO `geometry` (POD-3279). Resuming a stream engine after process loss
-      // puts nothing at a size, so the bind reports none — and because this
-      // assertion is exact, a geometry reappearing here fails the test rather
-      // than passing unnoticed.
-      driverId: 'claude-sdk',
-      // POD-3087: what this driver can change on a running session, read off its
-      // own capabilities. Spelled out rather than matched loosely because this
-      // assertion is deliberately EXACT — it is the one place the whole bind
-      // frame's shape is pinned, so a field silently appearing or vanishing on a
-      // reattach bind has to be noticed here.
-      configureFields: [...configureFieldsForDriver('claude-sdk')],
-      attachKinds: [],
+      reason: 'the journal continues a different conversation',
     })
+    expect(w.sent.some((message) => message.type === 'bind')).toBe(false)
+  })
+
+  it('answers retry, not a PTY, when nothing journals the session', async () => {
+    // Process gone AND no journal: the server-family answer is a reattach
+    // failure the server retries as a spawn with the resume ref — which the
+    // launch path continues through `runtime.resume` (see below).
+    const w = world({ adoptJournalled: async () => ({ found: false }) })
+
+    sessionHandlers.reattach(w.ctx, reattachMessage(SESSION_ID, RESUME))
+    await vi.waitFor(() =>
+      expect(w.sent.some((message) => message.type === 'reattachFailed')).toBe(true),
+    )
+
     expect(w.sent).toContainEqual({
-      type: 'agentState',
+      type: 'reattachFailed',
       sessionId: SESSION_ID,
-      state: {
-        phase: 'idle',
-        since: '2026-08-27T00:00:00.000Z',
-        nativeSubagentCount: 0,
-      },
+      reason: "runtime driver 'claude-sdk' has no recoverable binding; retry this session",
     })
-    expect(w.sent.filter((message) => message.type === 'bind')).toHaveLength(1)
-    expect(w.sent.some((message) => message.type === 'reattachFailed')).toBe(false)
+    expect(w.resume).not.toHaveBeenCalled()
   })
 })
-describe('Claude SDK embedded teardown', () => {
-  it('ends an embedded handle from the generic hibernate/kill choke point', async () => {
+describe('Claude SDK server-family teardown', () => {
+  it('ends the Claude handle through the generic server reap', async () => {
+    const stop = vi.fn(async () => {})
     const kill = vi.fn(async () => {})
     const sent: DaemonMessage[] = []
-    const runtimeHandle = { ...handle(SESSION_ID, RESUME), stop: kill, kill }
+    const base = handle(SESSION_ID, RESUME)
+    // The binding a held engine reports since POD-4612: its durable label and
+    // the pid this daemon holds — what the generic reap measures.
+    const runtimeHandle = {
+      ...base,
+      binding: { ...base.binding, process: { key: 'podium-cl-claude-reattach-session', pid: 4242 } },
+      stop,
+      kill,
+    }
     const ctx = {
       backend: 'none',
       settingsDir: '/nonexistent/podium-test-settings',
       sessions: testSessions(),
-          durableLabelFor: (sessionId: SessionId) => `podium-${sessionId}`,
+      durableLabelFor: (sessionId: SessionId) => `podium-${sessionId}`,
       observers: { clearSession: vi.fn() },
       outputScheduler: { remove: vi.fn() },
       portableStateFence: { runSync: (fn: () => void) => fn() },
       agentRuntime: {
         handleFor: vi.fn(() => runtimeHandle),
-        serverHandleFor: vi.fn(() => undefined),
+        serverHandleFor: vi.fn(() => runtimeHandle),
         journalledServerProcess: vi.fn(() => undefined),
         clearTerminal: vi.fn(),
+      },
+      serverReapIo: {
+        pidAlive: () => false,
+        signal: vi.fn(),
+        pidInUnit: () => false,
+        probeOpencode: async () => false,
+        canScope: async () => false,
+        runSystemctl: vi.fn(async () => {}),
+        sleep: async () => {},
       },
       instanceUuid: undefined,
       send: (message: DaemonMessage) => sent.push(message),
     } as unknown as DaemonContext
 
     await expect(stopSessionProcess(ctx, { sessionId: SESSION_ID })).resolves.toBe(true)
-    expect(kill).toHaveBeenCalledTimes(1)
-    expect(sent).toEqual([])
+    // A generic kill parks: the server reap's verb is `stop`, exactly once —
+    // no second, Claude-specific ending beside it — and the receipt is a
+    // MEASURED kill of the engine's own identity, never an unmeasured one the
+    // server would answer by reviving the row.
+    expect(stop).toHaveBeenCalledTimes(1)
+    expect(kill).not.toHaveBeenCalled()
+    expect(sent).toContainEqual({
+      type: 'sessionKillResult',
+      sessionId: SESSION_ID,
+      durableLabel: 'podium-cl-claude-reattach-session',
+      killed: true,
+    })
   })
 })
 
 describe('Claude SDK subscription spawn selection', () => {
-  it('launches the embedded SDK for an explicit logged-in Claude spawn', async () => {
+  it('launches the stream engine for an explicit logged-in Claude spawn', async () => {
     const created = handle(SESSION_ID, RESUME)
     const send = vi.fn()
     const create = vi.fn(async () => created)
@@ -214,6 +240,9 @@ describe('Claude SDK subscription spawn selection', () => {
           driverId: 'claude-sdk',
           capabilities: { placement: 'dedicated' },
         })),
+        serverHandleFor: vi.fn(() => undefined),
+        adoptJournalled: vi.fn(async () => ({ found: false })),
+        resumesAtLaunch: vi.fn(() => true),
         create,
         resume,
         handleFor: vi.fn(() => undefined),
@@ -284,6 +313,10 @@ describe('Claude SDK spawn resume control', () => {
           driverId: 'claude-sdk',
           capabilities: { placement: 'dedicated' },
         })),
+        serverHandleFor: vi.fn(() => undefined),
+        // No journal: nothing survived to adopt, so the ref alone continues it.
+        adoptJournalled: vi.fn(async () => ({ found: false })),
+        resumesAtLaunch: vi.fn(() => true),
         create,
         resume,
         handleFor: vi.fn(() => undefined),

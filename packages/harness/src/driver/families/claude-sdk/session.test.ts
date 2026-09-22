@@ -411,6 +411,45 @@ describe('Claude SDK daemon host adapter', () => {
       runtime.dispose()
     })
 
+    it('re-adopts a session this daemon still holds instead of resuming a second core', async () => {
+      // A server reconnect re-sends reattach for live sessions, including one
+      // that has not run a turn — so nothing is journalled yet (POD-4612).
+      const sent: DaemonMessage[] = []
+      const engine = {
+        ...fakeEngine(),
+        processFor: (sessionId: SessionId) => ({
+          key: `podium-cl-${sessionId}`,
+          scopeUnit: `podium-scope-${sessionId}.scope`,
+        }),
+      }
+      const runtime = sessionWorld(sent, [], engine)
+      const launched = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+      // The handle's binding carries the ENGINE's identity — what the generic
+      // server reap measures — not an in-memory placeholder.
+      expect(launched.binding.process).toEqual({
+        key: 'podium-cl-claude-adapter-session',
+        scopeUnit: 'podium-scope-claude-adapter-session.scope',
+      })
+      expect(launched.binding.family).toBe('server')
+      // Held but unjournalled: the family still answers "mine" to the generic arm.
+      expect(runtime.journalEntry(SESSION_ID)).toEqual({
+        workdir: '/project',
+        process: launched.binding.process,
+        bindingVersion: 1,
+        resume: launched.binding.resume,
+      })
+
+      const adopted = await runtime.adoptFromJournal(SESSION_ID)
+      expect(adopted?.binding).toMatchObject({
+        sessionId: SESSION_ID,
+        resume: launched.binding.resume,
+        bindingVersion: 2,
+      })
+      expect(runtime.handleFor(SESSION_ID)).toBe(adopted)
+      expect(runtime.bindings()).toHaveLength(1)
+      runtime.dispose()
+    })
+
     it('answers undefined when no journal names the session', async () => {
       const runtime = sessionWorld([], [], fakeEngine())
       await expect(runtime.adoptFromJournal(SESSION_ID)).resolves.toBeUndefined()
@@ -454,6 +493,9 @@ describe('Claude SDK daemon host adapter', () => {
         workdir: '/work',
         process: { key: 'podium-cl-claude-adapter-session', pid: 4242 },
         bindingVersion: 1,
+        // The conversation, so the generic reattach arm can refuse a row that
+        // names a different one (POD-4612).
+        resume: { kind: 'claude-session', value: 'claude-native-9' },
       })
       expect(runtime.journalEntry('no-such-session' as SessionId)).toBeUndefined()
       runtime.clearJournal(SESSION_ID)

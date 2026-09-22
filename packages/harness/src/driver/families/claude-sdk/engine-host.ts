@@ -254,6 +254,15 @@ export interface ClaudeEngineHost {
   startTurn(input: StartTurnInput): ClaudeSdkTurnHandle
   stopEngine(sessionId: SessionId, retire: boolean): Promise<void>
   releaseEngines(): void
+  /**
+   * This session's engine identity, for the handle binding the generic
+   * server-family reap measures (POD-4612): the durable label as the key
+   * (the same one the journal records), the scope unit the platform would
+   * run it in, and the pid only while THIS generation holds the engine —
+   * never a journalled pid, which a reboot may have recycled. Optional so a
+   * test host that never launches can omit it.
+   */
+  processFor?(sessionId: SessionId): ProcessIdentity
 }
 
 export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngineHost {
@@ -541,6 +550,17 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
 
   return {
     journal: deps.journal,
+
+    processFor(sessionId) {
+      const key = claudeEngineProcessKey(deps.facts, sessionId)
+      const scopeUnit = deps.supervision?.scopeUnitFor(key)
+      const pid = engines.get(sessionId)?.childPid
+      return {
+        key,
+        ...(scopeUnit ? { scopeUnit } : {}),
+        ...(pid !== undefined ? { pid } : {}),
+      }
+    },
 
     startTurn(input) {
       const sessionId = input.sessionId
