@@ -53,25 +53,14 @@ export interface HarnessLoginCopy {
 }
 
 /**
- * The CLIENT subset of implemented flags (§4.7 fact one): which controls a
- * client draws. Stated per harness beside its manifest and HELD to it by the
- * identity test (`descriptor-identity.test.ts`, HARNESS_NO_TOOLS shape) —
- * a second statement with a test, not a second authority. Daemon-internal
- * capabilities (hook layout, observation protocol, driver families) are
- * never served.
- */
-export interface HarnessClientCapabilities {
-  argvPrompt: boolean
-  effort: boolean
-  systemPrompt: boolean
-}
-
-/**
  * Per-harness PRESENTATION (browser-safe): everything a client needs to draw
  * a harness it has never heard of, except the machine-varying availability
- * the served report overlays. `capabilities` mirrors the manifest's client
- * subset (see above); `label` is the picker label, `shortLabel` the menu
- * label (`New ${shortLabel}`).
+ * the served report overlays and the implemented flags the registry derives
+ * at generation time. `capabilities` are deliberately NOT stated here: the
+ * bundled snapshot is GENERATED from the manifests (scripts/
+ * harness-descriptors.ts, harness-matrix.ts pattern), so drift is impossible
+ * rather than merely detected. `label` is the picker label, `shortLabel`
+ * the menu label (`New ${shortLabel}`).
  */
 export interface HarnessDescriptorData {
   kind: BuiltinHarnessKind
@@ -82,7 +71,6 @@ export interface HarnessDescriptorData {
   brand: HarnessBrandTone | null
   login: HarnessLoginCopy
   defaults: { model: string | null; effort: string | null }
-  capabilities: HarnessClientCapabilities
 }
 
 /**

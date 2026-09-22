@@ -3,8 +3,9 @@
  * clients, beside the manifest that owns the behaviour. Browser-safe by
  * construction — literals plus a type-only import — so `@podium/harness/browser`
  * (the bundled fallback) and the served builder read the SAME row and web and
- * mobile never keep a second copy. `capabilities` mirrors the manifest's
- * client subset and is held to it by the identity test, not by convention.
+ * mobile never keep a second copy. Client capability flags are derived
+ * from the manifest at generation time (scripts/harness-descriptors.ts),
+ * never stated here.
  */
 
 import type { HarnessDescriptorData } from '../../descriptor-types.js'
@@ -27,5 +28,4 @@ export const opencodeDescriptor: HarnessDescriptorData = {
       'Installed but not signed in. You can continue now and sign in before you run it.',
   },
   defaults: { model: null, effort: null },
-  capabilities: { argvPrompt: true, effort: true, systemPrompt: false },
 }

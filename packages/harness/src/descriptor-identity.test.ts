@@ -1,26 +1,25 @@
 /**
- * The identity that lets adapter descriptor rows state client facts without
- * drifting from the manifests (POD-4475, HARNESS_NO_TOOLS shape).
+ * The coverage behind the generated snapshot (POD-4475).
  *
- * `adapters/<harness>/{descriptor,catalog}.ts` restate three facts each
- * manifest already declares (`argvPrompt`, `effortFlag`, `systemPromptFlag`)
- * because the browser entry cannot load a manifest. That is deliberate, and
- * this file is the reason it is safe: every row's stated capabilities are
- * asserted equal to what the served builder derives from the manifest, for
- * every harness — so a manifest that flips without its row fails here and
- * names the harness. The served path itself never reads the stated row (see
- * `descriptors.ts`); the row serves only builds that cannot reach the
- * registry.
- *
- * Also asserts coverage: every registry harness has both rows, keyed by its
- * own kind, so a harness that lands without descriptor data fails here
- * rather than vanishing from pickers silently.
+ * `adapters/<harness>/{descriptor,catalog}.ts` state presentation (labels,
+ * brand, icon, login copy, static catalog) — facts no manifest declares —
+ * while client capability flags are DERIVED from the manifests at generation
+ * time (`scripts/harness-descriptors.ts`, harness-matrix.ts pattern). This
+ * file asserts every registry harness HAS both rows with drawable content;
+ * the staleness check (`bun run harness:descriptors:check`, CI) refuses a
+ * snapshot that no longer matches the derivation. Drift is impossible
+ * rather than merely detected: there is no second statement to compare.
  */
 import { BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { BUNDLED_DESCRIPTORS } from './browser.js'
 import { AGENT_MANIFESTS } from './registry.js'
-import { buildServedDescriptors, catalogDataByKind, descriptorDataByKind } from './descriptors.js'
+import {
+  buildBundledDescriptors,
+  buildServedDescriptors,
+  catalogDataByKind,
+  descriptorDataByKind,
+} from './descriptors.js'
 
 describe('adapter descriptor rows track their manifests', () => {
   it('every registry harness has a descriptor row and a catalog row', () => {
@@ -32,16 +31,12 @@ describe('adapter descriptor rows track their manifests', () => {
     }
   })
 
-  it('stated client capabilities equal the manifest derivation', () => {
-    const descriptors = descriptorDataByKind()
-    for (const [kind, manifest] of Object.entries(AGENT_MANIFESTS)) {
-      const stated = descriptors.get(kind)?.capabilities
-      expect(stated, `${kind} capabilities row`).toEqual({
-        argvPrompt: manifest.capabilities.argvPrompt,
-        effort: manifest.capabilities.effortFlag !== 'none',
-        systemPrompt: manifest.capabilities.systemPromptFlag,
-      })
-    }
+  it('the committed snapshot matches the derivation (in-suite staleness guard)', () => {
+    // The CI check (`bun run harness:descriptors:check`) guards the file;
+    // this asserts the same invariant inside the suite so a stale snapshot
+    // fails here too, naming the harness.
+    expect([...BUNDLED_DESCRIPTORS]).toEqual(buildBundledDescriptors())
+    expect(AGENT_MANIFESTS).toBeDefined()
   })
   it('rows carry drawable presentation (label, icon, catalog rule)', () => {
     for (const data of descriptorDataByKind().values()) {
