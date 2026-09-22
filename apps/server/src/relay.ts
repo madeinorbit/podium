@@ -152,6 +152,7 @@ import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
+import { DockShellService } from './modules/shells/service'
 import {
   bridgeConfigChanged,
   SettingsService,
@@ -337,6 +338,8 @@ export interface RegistryModules {
   settings: SettingsService
   /** Per-user sidebar/tab layout (POD-1350) — store + feed publish behind one service. */
   layout: LayoutService
+  /** Server-owned dock-shell mapping (POD-4436) — per user, per worktree → shell session. */
+  dockShells: DockShellService
   /** Per-user event-stream read positions (POD-1380) — same shape, monotonic merge. */
   readPosition: ReadPositionService
   issueSessionLifecycle: IssueSessionLifecycle
@@ -2976,6 +2979,18 @@ export class SessionRegistry {
       cursors: this.store.readPositions,
       ledger,
     })
+    // Server-owned dock-shell mapping (POD-4436): per user, per worktree →
+    // shell session, so the same dock shell opens on every device. Creation
+    // stays the normal shell spawn; the service only owns the mapping row.
+    const dockShells = new DockShellService({
+      dockShells: this.store.dockShells,
+      sessions: {
+        sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
+        createShell: (input) =>
+          sessionsSvc.createSession({ agentKind: 'shell', ...input }),
+        archiveSession: (sessionId) => sessionsSvc.state.setArchived(sessionId, true),
+      },
+    })
 
     /**
      * DURABLE OPERATIONS, AND THE ONE KIND THIS BINARY KNOWS (POD-2097/POD-2098).
@@ -3248,6 +3263,7 @@ export class SessionRegistry {
       hosts,
       settings,
       layout,
+      dockShells,
       readPosition,
       headless,
       reactions,
