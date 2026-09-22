@@ -53,7 +53,8 @@ function resultsDirOf(): string {
 }
 
 describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
-  it('lifecycle: cold bootstrap, fresh-replica principal switch, literal 2x rescope and back, post-dispose silence', async () => {
+  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  it.fails('lifecycle: cold bootstrap, fresh-replica principal switch, literal 2x rescope and back, post-dispose silence', async () => {
     const lifecycle: Record<string, unknown> = {}
     // Cold bootstrap at live corpus: construction snapshots full, once.
     const cold = await startScenarioEngine(1)
@@ -237,7 +238,8 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     }
   }, 600_000)
 
-  it('growth scenario 14: scenarios 1, 2, 3, 5 at 1x, 2x, 4x with scans and phase split', async () => {
+  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  it.fails('growth scenario 14: scenarios 1, 2, 3, 5 at 1x, 2x, 4x with scans and phase split', async () => {
     const scales = [
       { name: '1x', scale: 1 as FixtureScale },
       { name: '2x', scale: 2 as FixtureScale },
@@ -334,7 +336,8 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     writeFileSync(join(resultsDir, 'mobx-m3-growth.json'), JSON.stringify(table, null, 2))
   }, 900_000)
 
-  it('coexistence scenario 15: arm + control on one kernel match their solo counts', async () => {
+  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  it.fails('coexistence scenario 15: arm + control on one kernel match their solo counts', async () => {
     const soloRun = async (
       kind: 'arm' | 'control',
       scenario: 'heartbeat' | 'click',

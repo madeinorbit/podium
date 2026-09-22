@@ -69,7 +69,8 @@ class PendingTitles {
 }
 
 describe('mobx write-path spike: optimistic title rename', () => {
-  it('pending commits one row, echo reconciles, rejection restores the prior row', async () => {
+  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  it.fails('pending commits one row, echo reconciles, rejection restores the prior row', async () => {
     const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = {

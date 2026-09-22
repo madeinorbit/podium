@@ -59,7 +59,8 @@ async function bootFixture() {
 }
 
 describe('mobx arm clock on the fixture corpus', () => {
-  it('+60s tick: nothing commits, parity green, settled re-runs counted', async () => {
+  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  it.fails('+60s tick: nothing commits, parity green, settled re-runs counted', async () => {
     const { boot, source, locals, mounted, store } = await bootFixture()
     try {
       const atMount = mounted.handle.snapshot()
@@ -96,7 +97,8 @@ describe('mobx arm clock on the fixture corpus', () => {
     }
   }, 300_000)
 
-  it('+60d jump: exactly the band-movers commit, parity green', async () => {
+  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  it.fails('+60d jump: exactly the band-movers commit, parity green', async () => {
     const { boot, source, locals, mounted, store } = await bootFixture()
     try {
       const before = snapshotFromStore(boot.engine.getSnapshot(), locals)

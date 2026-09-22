@@ -28,7 +28,8 @@ import {
 import { mobxArm } from './arm'
 
 describe('mobx arm at 1x', () => {
-  it('scenarios #1-#3 with parity and budgets', async () => {
+  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  it.fails('scenarios #1-#3 with parity and budgets', async () => {
     const started = performance.now()
     const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
