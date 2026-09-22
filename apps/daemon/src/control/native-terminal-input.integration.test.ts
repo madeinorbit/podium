@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
-import { spawnAgent, withHardRepaint } from '@podium/process/screen'
+import { directPtyDurableForTests } from '@podium/process/durable'
+import { withHardRepaint } from '@podium/process/screen'
 import { expect, it } from 'vitest'
 import type { DaemonContext } from './context'
 import { sessionHandlers } from './session'
@@ -11,7 +12,8 @@ import { attachTestTerminal, testSessions } from '../session/testing.js'
 it('round-trips human shell bytes without a driver and redraw never submits the line', async () => {
   const root = mkdtempSync(join(tmpdir(), 'native-host-input-'))
   const sessionId = asSessionId('plain-shell-boundary')
-  const bridge = withHardRepaint(spawnAgent({
+  const bridge = withHardRepaint(await directPtyDurableForTests().spawn({
+    label: 'native-host-input',
     cmd: '/bin/bash', args: ['--noprofile', '--norc', '-i'],
     cwd: root, cols: 80, rows: 24,
     env: { HOME: root, HISTFILE: '/dev/null', PS1: 'HOST_READY> ' },

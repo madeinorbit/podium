@@ -2,8 +2,8 @@
  * SIZING PLAN ASSUMPTION TESTS — C16, daemon half (POD-3235, SPEC-0b.md rev 2;
  * rewritten for POD-3279's rule 1 rev 4).
  *
- * Its own file because it must mock `@podium/process/durable`,
- * `@podium/process/abduco` and `@podium/process/screen` at module scope: the claim is
+ * Its own file because it must mock `@podium/process/durable` and
+ * `@podium/process/abduco` at module scope: the claim is
  * about what the reattach handler does AROUND the durable attach, so the attach
  * itself is stubbed and the real handler runs. The abduco half of C16
  * (`repaintOnAttach` defaulting to true) is executed for real against a vendored
@@ -108,17 +108,6 @@ vi.mock('@podium/process/abduco', async (importOriginal) => {
     reapStaleAbducoBindTemps: () => {},
     spawnAbducoAgent: async () => stub.session,
     waitForAbducoSocket: async () => '/tmp/podium-sizing-claims-reattach.sock',
-  }
-})
-
-vi.mock('@podium/process/screen', async (importOriginal) => {
-  // Spread the real door and stub only the spawn: the reattach handler under
-  // test reaches TerminalScreen (P2c) through session-screens, and a
-  // whole-module stub would hide it (see spawn-strip-env.test.ts).
-  const actual = await importOriginal<typeof import('@podium/process/screen')>()
-  return {
-    ...actual,
-    spawnAgent: () => stub.session,
   }
 })
 

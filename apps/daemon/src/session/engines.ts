@@ -34,6 +34,7 @@ import {
   type DurableProcess,
   type HostDurableAttachment,
 } from '@podium/process/durable'
+import { noDurableBackendRefusal } from '../durable-backend'
 import { createEngineJournal } from './journal.js'
 
 /** The binding-journal port, as the families consume it. Structurally the
@@ -87,10 +88,16 @@ function toEngineAttachment(session: HostDurableAttachment): EngineAttachment {
 export class SessionEngineScope implements EngineProcessOwner {
   private readonly journals = new Map<string, EngineJournal<{ sessionId: SessionId }>>()
 
-  constructor(private readonly durable: DurableProcess | undefined) {}
+  constructor(
+    private readonly durable: DurableProcess | undefined,
+    /** Can this machine run podium-host? False = refuse every start with the
+     *  one no-durable-host sentence terminal spawns use (POD-4617). */
+    private readonly hostAvailable: () => boolean = () => true,
+  ) {}
 
   /** Create-or-adopt the engine's process (spec §4.8 step 2). */
   async startEngine(req: EngineSpawnRequest): Promise<EngineAttachment> {
+    if (!this.hostAvailable()) throw new Error(noDurableBackendRefusal())
     const adapter = engineAdapter(this.durable, req.label)
     const { retention, ...spawn } = req
     return toEngineAttachment(await adapter.spawnHeadless({ ...spawn, ...retention }))
@@ -144,6 +151,7 @@ export class SessionEngineScope implements EngineProcessOwner {
  *  forking a child no restart could re-adopt. */
 export function createSessionEngineScope(
   durable: DurableProcess | undefined,
+  opts: { hostAvailable?: () => boolean } = {},
 ): SessionEngineScope {
-  return new SessionEngineScope(durable)
+  return new SessionEngineScope(durable, opts.hostAvailable)
 }

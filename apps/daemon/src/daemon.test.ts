@@ -36,6 +36,7 @@ import {
 } from '@podium/protocol/daemon'
 import {
   abducoHasSession,
+  directPtyDurableForTests,
   hostHasSession,
   isAbducoAvailable,
   isHostAvailable,
@@ -317,6 +318,7 @@ describe('daemon multi-bridge', () => {
       agentRelay: { port: 0 },
       // direct Bun.Terminal path keeps these fixtures/assertions deterministic
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:' },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
       // inject the deterministic fixture instead of real claude/codex
@@ -828,6 +830,7 @@ describe('daemon multi-bridge', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['gone-1'], diagnostics: [] }),
@@ -928,6 +931,7 @@ describe('daemon multi-bridge', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1545,6 +1549,7 @@ describe('default server-driver spawn integration', () => {
         hooks: { port: 0, settingsDir: trackTmp('podium-codex-hooks-') },
         agentRelay: { port: 0 },
         backend: 'none',
+        durable: directPtyDurableForTests(),
         metrics: { background: false },
         discovery: {
           homeDir: inventoryHome,
@@ -1939,13 +1944,13 @@ describe('durable backend resolution', () => {
     expect(resolveDurableBackend({ backend: 'abduco' }, neither)).toBe('abduco')
   })
 
-  it('explains a none-backend per platform: expected on Windows, missing tools elsewhere', () => {
-    expect(noDurableBackendWarning('win32')).toContain('ConPTY')
+  it('explains a none-backend per platform: podium-host absent on Windows, missing tools elsewhere', () => {
+    expect(noDurableBackendWarning('win32')).toContain('podium-host')
     expect(noDurableBackendWarning('win32')).not.toContain('abduco')
     expect(noDurableBackendWarning('linux')).toContain('abduco not found')
-    // Both wordings must state the consequence the operator cares about.
-    expect(noDurableBackendWarning('win32')).toContain('survive')
-    expect(noDurableBackendWarning('linux')).toContain('survive')
+    // Both wordings must state the consequence the operator cares about (POD-4617).
+    expect(noDurableBackendWarning('win32')).toContain('refuses to start sessions')
+    expect(noDurableBackendWarning('linux')).toContain('refuses to start sessions')
   })
 })
 
@@ -2701,6 +2706,7 @@ describe('daemon conversation discovery', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['sess-old'], diagnostics: [] }),
       discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
@@ -2751,6 +2757,7 @@ describe('daemon conversation discovery', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
@@ -2804,6 +2811,7 @@ describe('daemon conversation discovery', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: client,
@@ -2872,6 +2880,7 @@ describe('daemon conversation discovery', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       // No background loop, so the ONLY indexRefresh job is the on-demand scan.
@@ -2911,6 +2920,7 @@ describe('daemon host metrics', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { intervalMs: 25 },
     })
@@ -2949,6 +2959,7 @@ describe('daemon host metrics', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false, intervalMs: 10 },
     })
@@ -2981,6 +2992,7 @@ describe('daemon memory breakdown', () => {
         hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
         agentRelay: { port: 0 },
         backend: 'none',
+        durable: directPtyDurableForTests(),
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         workerClient: inlineWorkerClient(),
@@ -3056,6 +3068,7 @@ describe('Codex identity receipt recovery', () => {
         machineToken: 'test',
         machineId,
         backend: 'none',
+        durable: directPtyDurableForTests(),
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         hooks: { port: 0, settingsDir },
@@ -3136,6 +3149,7 @@ describe('agent state instrumentation', () => {
       serverUrl: `ws://localhost:${port}`,
       machineToken: 'test',
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       hooks: { port: 0, settingsDir },
@@ -3560,6 +3574,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:', homeDir },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
