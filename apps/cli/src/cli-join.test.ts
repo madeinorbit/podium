@@ -66,4 +66,21 @@ describe('applyJoinToken', () => {
     await applyJoinToken(token)
     expect(loadConfig().uiUrl).toBe('https://app.meetpodium.com')
   })
+
+  /** POD-4533: the same join learns the installation identity, so the locator
+   *  rescue is armed from the moment the box first points at its server. */
+  it('records the installation identity the joined server advertises', async () => {
+    const id = `pdm_${'a'.repeat(43)}`
+    const key = `ed25519:${'B'.repeat(43)}`
+    const body = { installationId: id, installationPublicKey: key }
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      headers: new Headers(),
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    } as unknown as Response)
+    const token = encodeJoin({ v: 1, serverUrl: 'wss://api.example.com', pairCode: 'P1' })
+    await applyJoinToken(token)
+    expect(loadConfig()).toMatchObject({ installationId: id, installationPublicKey: key })
+  })
 })
