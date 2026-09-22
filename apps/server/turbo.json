@@ -72,6 +72,7 @@
         "src/gateway/wire-feed-edge.test.ts",
         "src/gateway/wire-feed-edge.ts",
         "src/gateway/ws-send.ts",
+        "src/harness-enums-derived.test.ts",
         "src/harness-manifest.ts",
         "src/http-byte-range.ts",
         "src/http-cors.test.ts",
