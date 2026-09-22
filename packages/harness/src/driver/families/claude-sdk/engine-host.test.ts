@@ -227,6 +227,48 @@ describe('the claude stream engine host', () => {
     })
   })
 
+  it('reports the engine identity the generic server reap measures (POD-4612)', async () => {
+    const attachment = fakeAttachment({ childPid: 4242 })
+    const { engines, spawned } = fakePorts({ spawn: attachment })
+    const supervision = { scopeUnitFor: (label: string) => `podium-scope-${label}.scope` }
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines }, journalStore()))
+    const label = 'podium-cl-claude-engine-session'
+
+    // Before any engine: the durable key and the scope it would run in — the
+    // scope is what lets a reap measure "nothing is running" — and no pid.
+    expect(host.processFor?.(SESSION_ID)).toEqual({
+      key: label,
+      scopeUnit: `podium-scope-${label}.scope`,
+    })
+
+    const turn = host.startTurn(turnInput())
+    await vi.waitFor(() => expect(spawned).toHaveLength(1))
+    answerHandshake(attachment)
+    await vi.waitFor(() =>
+      expect(
+        attachment.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user'),
+      ).toBe(true),
+    )
+    endTurn(attachment)
+    await turn.done
+
+    // Held: the pid this generation's own attachment reported.
+    expect(host.processFor?.(SESSION_ID)).toEqual({
+      key: label,
+      scopeUnit: `podium-scope-${label}.scope`,
+      pid: 4242,
+    })
+
+    // Stopped: the hold is gone, so no pid survives into a later reap.
+    const stopping = host.stopEngine(SESSION_ID, false)
+    attachment.exit(0, 0)
+    await stopping
+    expect(host.processFor?.(SESSION_ID)).toEqual({
+      key: label,
+      scopeUnit: `podium-scope-${label}.scope`,
+    })
+  })
+
   it('reuses the held engine for the next turn', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })
     const { supervision, engines, spawned } = fakePorts({ spawn: attachment })

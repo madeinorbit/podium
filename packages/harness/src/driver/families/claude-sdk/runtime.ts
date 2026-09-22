@@ -42,6 +42,7 @@ import type {
   TurnReceipt,
   WatchLevel,
 } from '../../host.js'
+import type { ProcessIdentity } from '../../binding.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import {
   type ConfigureValueChecks,
@@ -174,6 +175,16 @@ export interface ClaudeSdkRuntimeHost {
    *  host owns them now, and the journals stay so the next generation adopts
    *  the survivors. */
   releaseEngines?(): void
+  /**
+   * THE ENGINE'S PROCESS IDENTITY for this session, read LIVE (POD-4612): its
+   * durable label as the key, its scope unit where the platform has one, and
+   * its pid while this daemon holds it. The handle's binding carries it, so
+   * the generic server-family reap measures a Claude engine exactly as it
+   * measures codex — the key never changes for a session, the pid appears
+   * once an engine is held. Absent = no engine host (tests, conformance
+   * fakes): the binding keeps the in-memory key.
+   */
+  processFor?(sessionId: SessionId): ProcessIdentity
 }
 
 interface QueuedTurn {
@@ -261,6 +272,17 @@ export function createClaudeSdkRuntime(
 ): ClaudeSdkRuntime {
   const cores = new Map<SessionId, SessionCore>()
   const processCores = new Map<string, SessionCore>()
+  /**
+   * WHAT HIBERNATE LEAVES BEHIND, so `adopt` can wake it (POD-4612). The
+   * server family's contract is that a parked session comes back under its
+   * own id, on its own conversation and its own sticky model — codex keeps
+   * its journal for that, and this is the driver-side twin: `hibernate()`
+   * records the core's spec and binding, `stop()`/`kill()` forget it, and a
+   * new incarnation of the id supersedes it. The engine's own journal (the
+   * session layer's) is what a daemon RESTART wakes from; this answers the
+   * same promise inside one daemon life.
+   */
+  const parked = new Map<SessionId, { spec: SessionSpec; binding: SessionBinding }>()
 
   const cursorAt = (core: SessionCore, seq = core.seq): ProviderCursor => ({
     segmentId: core.binding.process.key,
@@ -783,10 +805,12 @@ export function createClaudeSdkRuntime(
     }
     const handle: AgentSessionHandle = {
       get binding() {
-        return core.binding
+        const engine = host.processFor?.(core.sessionId)
+        return engine ? { ...core.binding, process: engine } : core.binding
       },
       async stop() {
         assertCurrent()
+        parked.delete(core.sessionId)
         const active = core.active
         end(core, {
           t: 'process',
@@ -800,6 +824,7 @@ export function createClaudeSdkRuntime(
         assertCurrent()
         if (!core.binding.resume) return refuse('no_resume_ref')
         const active = core.active
+        parked.set(core.sessionId, { spec: core.spec, binding: core.binding })
         end(core)
         await active?.interrupt()
         await active?.dispose?.()
@@ -808,6 +833,7 @@ export function createClaudeSdkRuntime(
       },
       async kill() {
         assertCurrent()
+        parked.delete(core.sessionId)
         const active = core.active
         end(core, {
           t: 'process',
@@ -1118,7 +1144,9 @@ export function createClaudeSdkRuntime(
         workdir: spec.workdir,
         resume,
         ...(spec.principal ? { principal: spec.principal } : {}),
-        process: { key: `claude-sdk:${sessionId}` },
+        // The key is fixed for the session's life: the engine's durable
+        // label where an engine host answers, the in-memory key otherwise.
+        process: { key: host.processFor?.(sessionId).key ?? `claude-sdk:${sessionId}` },
         bindingVersion: 1,
       },
       state: { phase: 'idle', since: host.now(), nativeSubagentCount: 0 },
@@ -1148,6 +1176,7 @@ export function createClaudeSdkRuntime(
       textDeliveries: 0,
       conversationStarted: !fresh,
     }
+    parked.delete(sessionId)
     cores.set(sessionId, core)
     processCores.set(core.binding.process.key, core)
     push(core, { t: 'state', change: { kind: 'session_started' } })
@@ -1193,6 +1222,25 @@ export function createClaudeSdkRuntime(
       return resumeWithId(host.mintSessionId(), ref, spec)
     },
     async adopt(binding) {
+      const park = parked.get(binding.sessionId)
+      if (
+        !processCores.has(binding.process.key) &&
+        park?.binding.resume &&
+        park.binding.process.key === binding.process.key
+      ) {
+        // WAKE A HIBERNATED SESSION: same id, same conversation, same sticky
+        // model — a new binding, so a stale one stays rejectable.
+        const woken = newCore(binding.sessionId, park.spec, park.binding.resume, false)
+        woken.binding = {
+          ...woken.binding,
+          bindingVersion: Math.max(binding.bindingVersion, park.binding.bindingVersion) + 1,
+        }
+        push(woken, {
+          t: 'process',
+          ev: { ev: 'adopted', bindingVersion: woken.binding.bindingVersion },
+        })
+        return makeHandle(woken)
+      }
       const core = processCores.get(binding.process.key)
       if (!core || core.binding.sessionId !== binding.sessionId || !core.alive) {
         throw new Error(`claude-sdk: no exact surviving process for ${binding.process.key}`)
@@ -1244,6 +1292,7 @@ export function createClaudeSdkRuntime(
       return cores.get(sessionId)?.lastRequestedModel
     },
     dispose() {
+      parked.clear()
       for (const core of [...cores.values()]) {
         const active = core.active
         end(core)
