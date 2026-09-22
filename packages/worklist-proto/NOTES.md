@@ -28,8 +28,10 @@ roster run asserts reads on every step.
 
 ### Open (sent to the coordinator)
 
-- L5a's #3 budget (0) cannot be met by an arm that reads the rows its events
-  name: the click's event names the clicked row. Same shape as #9a (3).
+- L5a's #3 budget (0) could not be met by an arm that reads the rows its
+  events name: the click's event names the clicked row. RULED (POD-4619):
+  corrected to 3, the #9a shape, before any candidate arm ran #3; proven both
+  ways in `reads-budgets.test.tsx` and `control.test.tsx`.
 - The #3 overlay sweep is a step-isolation leak in the scenario sequence, not
   only in these tests: any runner that takes over 60 s sees it.
 ## POD-4556 (L4b) — incremental-versus-rebuild checker · 2026-09-22

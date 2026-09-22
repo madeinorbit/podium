@@ -51,10 +51,10 @@
  * another step's write. The row views do not read the wall clock
  * (`fences.test.tsx`, "wall-clock independence").
  *
- * #3 (L5a's, NOT changed here): the click's feed event names the clicked row
- * (the eager mark-read), so an arm that reads the rows its events name reads
- * 1 on #3, over L5a's budget of 0 — the same shape #9a has, budgeted 3 here.
- * Reported to the coordinator, not re-read: L5a's budgets are L5a's.
+ * #3 (corrected here, POD-4619 ruling): the click's feed event names the
+ * clicked row (the engine's eager mark-read), so an arm that reads the rows
+ * its events name reads 1 on #3. L5a's 0 assumed a purely local click; the
+ * budget is now the #9a shape, 3, and is proven here with #6–#10.
  */
 
 import { isDeepStrictEqual } from 'node:util'
@@ -77,8 +77,9 @@ import { rowViewsFromStore } from './oracle/index'
 
 type ProbeMode = 'shape' | 'scan'
 
-/** The scenarios whose budgets POD-4609 fixed. #1–#5 are L5a's (see the note on #3 above). */
+/** The scenarios whose budgets POD-4609 fixed or corrected (#3, see the note above). #1, #2, #4, #5 are L5a's. */
 const BUDGETED_HERE = new Set([
+  '#3',
   '#6a',
   '#6b',
   '#6c',
@@ -98,6 +99,7 @@ const BUDGETED_HERE = new Set([
  * counted from the oracle in the run.
  */
 const NAMED_ROWS: Readonly<Record<string, number>> = {
+  '#3': 1, // the clicked row: the engine's eager mark-read
   '#6a': 2, // the issue and its session
   '#6b': 1,
   '#6c': 1,

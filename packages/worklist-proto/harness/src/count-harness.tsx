@@ -488,8 +488,15 @@ export function assertCommits(result: CountResult): void {
 export const READ_BUDGETS = {
   /** #1: the changed session, and at most its issue and one relation hop. */
   unrelatedHeartbeat: 3,
-  /** #3: selection is a local; no table read at all. */
-  selectionClick: 0,
+  /**
+   * #3: the selection local plus the engine's own reaction to it, an eager
+   * mark-read of the clicked issue — the #9a shape: the issue, and at most two
+   * rows to place or label it. CORRECTED by POD-4609 (coordinator ruling on
+   * POD-4619) from L5a's 0, whose derivation took the click to be purely
+   * local; the click's feed event names the clicked row, so no arm that reads
+   * its events could meet 0. Corrected before any candidate arm was measured.
+   */
+  selectionClick: 3,
   /** #4: the renamed issue, and at most two rows to place or label it. */
   visibleTitleRename: 3,
   /** #2: rows per level of the changed session's issue chain (see `phaseChangeReadBudget`). */

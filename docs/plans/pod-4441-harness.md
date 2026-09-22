@@ -189,7 +189,7 @@ after measuring.
 |---|---|---|
 | #1 unrelated heartbeat | ≤ 3 | The changed session, and at most its issue and one relation hop. |
 | #2 visible phase change | ≤ 3 × (ancestors + 1) (`phaseChangeReadBudget`) | 3 rows per level of the changed session's issue chain: the issue itself plus each ancestor. A roll-up that re-reads a level's siblings grows with the family, not the chain, and fails. |
-| #3 selection click | 0 | Selection is a local. No table read. |
+| #3 selection click | ≤ 3 (corrected from 0, see below) | The selection local plus the engine's own reaction to it: an eager mark-read of the clicked issue, the #9a shape — the clicked issue and at most two rows to place or label it. |
 | #4 visible title rename | ≤ 3 | The renamed issue, and at most two rows to place or label it. |
 | #5 stage move across groups | ≤ 24 (`stageMoveNeighbourhood`) | The **visible neighbourhood**: the moved row, two neighbours at the old position and two at the new (5), plus the probes of a binary-search placement at 4x (211 visible rows at 1x, so ~850 at 4x: log2 ≈ 10), is 15; rounded up to 24 for a group-header lookup and the closed-fold boundary. A constant: it does not grow with the corpus. A re-sort of the visible collection reads every visible row and fails. |
 
@@ -239,7 +239,7 @@ counts, which box load does not move).
 |---|---|---|---|
 | #1 unrelated heartbeat | 9,671 | 4,867 issues, 4,304 sessions, 500 lanes | 3 |
 | #2 visible phase change | 9,920 | the same plus 249 dep edges | 3 × (ancestors + 1) |
-| #3 selection click | 9,920 | the same (the eager mark-read row republishes) | 0 |
+| #3 selection click | 9,920 | the same (the eager mark-read row republishes) | 3 (was 0) |
 | #4 visible title rename | 9,671 | 4,867 issues, 4,304 sessions, 500 lanes | 3 |
 | #5 stage move | 9,920 | 4,867 issues, 4,304 sessions, 500 lanes, 249 dep edges | 24 |
 
@@ -331,10 +331,19 @@ not the step's. `reads-budgets.test.tsx` and the roster run in
 due; the row views do not read the wall clock ("wall-clock independence" in
 `fences.test.tsx`). With `Date` frozen, #8 read 0 at 4x.
 
-**#3 cannot be met by an arm that reads its events.** Not changed here (it
-is L5a's): the click's feed event names the clicked row (the eager
-mark-read), so the shape arm reads 1 on #3 against L5a's budget of 0 — the
-same shape #9a has, budgeted 3 above. Raised with the coordinator.
+**#3 corrected: 0 → 3** (POD-4609, coordinator ruling on POD-4619,
+2026-09-22). L5a derived 0 from "selection is a local; no table read". That
+derivation was wrong: the engine reacts to a selection by marking the
+clicked issue read, so the click's feed event names the clicked row (one
+event, `issue:<visibleRootId>`, at every scale), and no arm that reads the
+rows its events name could meet 0. A click is a local change plus a
+mark-read of the clicked row: the #9a shape, 3. This is a correction of a
+derivation made BEFORE any candidate arm was measured on #3 (the roster was
+empty), so it does not re-read a budget after measurement. Both directions:
+the shape arm reads 1 on #3 at 1x, 2x and 4x (`reads-budgets.test.tsx`, now
+in its budgeted set, with 1 as the named-row floor); the legacy control
+reads 9,920 and fails it (`control.test.tsx`); the shape arm plus one table
+walk fails it.
 
 ```bash
 bun run test:file -- packages/worklist-proto/shared/src/instrument/reads.test.ts \

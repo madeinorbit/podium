@@ -110,6 +110,8 @@ it('budget helpers: #6–#10 are the derived sums', () => {
   expect(clockTickReadBudget(0)).toBe(0)
   expect(clockTickReadBudget(4)).toBe(4 * 24)
   expect(READ_BUDGETS.markRead).toBe(3)
+  // #3 corrected to the #9a shape (POD-4619): a click is a local plus a mark-read.
+  expect(READ_BUDGETS.selectionClick).toBe(READ_BUDGETS.markRead)
   // Chains, not families: fifty roots cost 150, fifty depth-2 children 300.
   expect(burstReadBudget(Array.from({ length: 50 }, () => 0))).toBe(150)
   expect(burstReadBudget(Array.from({ length: 50 }, () => 1))).toBe(300)
