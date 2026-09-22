@@ -1,6 +1,12 @@
+import {
+  BUNDLED_DESCRIPTORS,
+  parseServedDescriptors,
+  resolveDescriptors,
+} from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { AgentKind } from '@podium/model/browser'
 import { SquareTerminal } from 'lucide-react'
-import type { ComponentType } from 'react'
+import { createElement, type ComponentType } from 'react'
 import {
   ClaudeCodeIcon,
   CursorIcon,
@@ -11,28 +17,18 @@ import {
 } from '@/lib/icons/AgentIcons'
 
 /**
- * Per-kind brand tone (POD-293) as TOTAL RESOLVERS over tables.
+ * Per-harness brand tone (POD-293, descriptor-driven since POD-4475).
  *
- * Every value here used to be an inline `kind === 'claude-code' ? … : …` spread
- * across four view files. That is behavioral branching on harness identity in
- * the UI — the exact shape the harness axiom exists to delete (see the axiom in
- * `scripts/architecture-manifest.ts` and ADR 0008). A Record keyed BY harness is
- * not a comparison: the axiom permits icon/label/tone maps precisely because
- * adding a harness means adding a row, not finding every `if` (POD-1105).
+ * Every value here used to be an inline `kind === 'claude-code' ? … : …`
+ * spread across view files, then TOTAL RESOLVERS over kind-keyed tables
+ * (POD-1105). The tables are now DERIVED from the bundled descriptors:
+ * brand hex drives class selection by VALUE, so no harness literal remains
+ * and an older client still renders a newer harness (neutrally) inside the
+ * schema it already has. Pass a machine's served descriptors when held for
+ * newer-harness names; the classes only ever match brands this build knows.
  *
- * WHY FUNCTIONS AND NOT BARE RECORDS (POD-1105 review, blocker 2). The tables
- * are typed `Record<AgentKind, …>`, but `agentKind` arrives from the WIRE, and
- * the wire can carry a harness this build has never heard of — a newer machine
- * in the fleet, or a harness added after this client shipped. A bare
- * `TABLE[kind]` then yields `undefined` and the tile silently loses its border,
- * background and text tone, which is a REGRESSION against the ternaries this
- * replaced: `kind === 'claude-code'` was false for an unknown harness, so it
- * fell into the non-Claude branch and still rendered. Each resolver below is
- * total, and its fallback is exactly that old non-Claude branch. An unknown
- * harness must render like any other non-Claude one, never unstyled.
- *
- * Keep the class strings verbatim per kind — these are the concept's pixels, so
- * a "simplification" that collapses two rows changes the design.
+ * Keep the class strings verbatim per brand — these are the concept's
+ * pixels, so a "simplification" that collapses two rows changes the design.
  */
 
 /** The tone an unrecognised harness gets: the old non-Claude branch, verbatim. */
@@ -45,43 +41,32 @@ const FLEET_TILE_TINT_PARKED = 'border-hairline-bar bg-muted text-muted-foregrou
  *  The dark invert was too loud on Dark Ink. The glyph is `currentColor`. */
 const GROK_TILE_TINT = 'border-zinc-950/15 bg-white text-zinc-950'
 
-const GLYPH_TONE: Record<AgentKind, string> = {
-  'claude-code': 'text-claude',
-  codex: GLYPH_TONE_FALLBACK,
-  grok: GLYPH_TONE_FALLBACK,
-  opencode: GLYPH_TONE_FALLBACK,
-  cursor: GLYPH_TONE_FALLBACK,
-  pi: GLYPH_TONE_FALLBACK,
-  shell: GLYPH_TONE_FALLBACK,
-}
-
-const CHIP_TINT: Record<AgentKind, string> = {
-  'claude-code': 'border-claude bg-claude text-white',
-  codex: CHIP_TINT_FALLBACK,
-  grok: GROK_TILE_TINT,
-  opencode: CHIP_TINT_FALLBACK,
-  cursor: CHIP_TINT_FALLBACK,
-  pi: CHIP_TINT_FALLBACK,
-  shell: CHIP_TINT_FALLBACK,
-}
-
-const FLEET_TILE_TINT: Record<AgentKind, string> = {
-  'claude-code': 'border-claude bg-claude text-white',
-  codex: FLEET_TILE_TINT_FALLBACK,
-  grok: GROK_TILE_TINT,
-  opencode: FLEET_TILE_TINT_FALLBACK,
-  cursor: FLEET_TILE_TINT_FALLBACK,
-  pi: FLEET_TILE_TINT_FALLBACK,
-  shell: FLEET_TILE_TINT_FALLBACK,
-}
-
 /**
- * Harnesses that carry a brand mark of their own. Only these get brand text or a
- * brand dot; everything else — including an unknown harness — inherits the
- * surrounding tone, which is what the old call sites did by appending nothing.
+ * Brand key → classes, by VALUE. Keys are chip-ground hexes from the
+ * descriptors (not harness names): the map cannot name a harness it has
+ * never heard of, and a newer brand simply misses and falls back.
  */
-const BRAND_TEXT: Partial<Record<AgentKind, string>> = { 'claude-code': 'text-claude' }
-const BRAND_DOT: Partial<Record<AgentKind, string>> = { 'claude-code': 'bg-claude' }
+const CHIP_TINT_BY_BG: Record<string, string> = {
+  '#d97757': 'border-claude bg-claude text-white',
+  '#ffffff': GROK_TILE_TINT,
+}
+
+const GLYPH_TONE_BY_BG: Record<string, string> = {
+  '#d97757': 'text-claude',
+}
+
+const FLEET_TILE_TINT_BY_BG: Record<string, string> = {
+  '#d97757': 'border-claude bg-claude text-white',
+  '#ffffff': GROK_TILE_TINT,
+}
+
+const BRAND_TEXT_BY_BG: Record<string, string> = {
+  '#d97757': 'text-claude',
+}
+
+const BRAND_DOT_BY_BG: Record<string, string> = {
+  '#d97757': 'bg-claude',
+}
 
 /**
  * The wire's harness id as this module accepts it: a known kind, or any string a
@@ -94,16 +79,31 @@ const BRAND_DOT: Partial<Record<AgentKind, string>> = { 'claude-code': 'bg-claud
  */
 type WireHarnessKind = AgentKind | (string & {})
 
+function resolvedDescriptors(
+  served: readonly HarnessDescriptorWire[] | undefined,
+): HarnessDescriptorWire[] {
+  return resolveDescriptors(parseServedDescriptors(served ?? []))
+}
+
+function brandBgFor(
+  kind: WireHarnessKind,
+  served: readonly HarnessDescriptorWire[] | undefined,
+): string | undefined {
+  return resolvedDescriptors(served).find((d) => d.kind === kind)?.brand?.bg
+}
+
 /** Glyph colour for an agent-kind icon at rest. Total. */
-export function agentGlyphTone(kind: WireHarnessKind): string {
-  return GLYPH_TONE[kind as AgentKind] ?? GLYPH_TONE_FALLBACK
+export function agentGlyphTone(kind: WireHarnessKind, served?: readonly HarnessDescriptorWire[]): string {
+  const bg = brandBgFor(kind, served)
+  return (bg && GLYPH_TONE_BY_BG[bg]) ?? GLYPH_TONE_FALLBACK
 }
 
 /** 20px chip behind the glyph (work-list agent rows): Claude wears its clay,
  *  Grok the light mark, other harnesses a quiet navy — solid fills so a chip
  *  never ghosts through a neighbour. Total. */
-export function agentChipTint(kind: WireHarnessKind): string {
-  return CHIP_TINT[kind as AgentKind] ?? CHIP_TINT_FALLBACK
+export function agentChipTint(kind: WireHarnessKind, served?: readonly HarnessDescriptorWire[]): string {
+  const bg = brandBgFor(kind, served)
+  return (bg && CHIP_TINT_BY_BG[bg]) ?? CHIP_TINT_FALLBACK
 }
 
 /** Stacked fleet-summary tile (sidebar issue rows) — carries its own text tone,
@@ -116,9 +116,14 @@ export function agentChipTint(kind: WireHarnessKind): string {
  *  classes `KindIcon`'s `dimmed` already uses, so a parked agent looks parked
  *  wherever it is drawn. The fill stays SOLID: stacked tiles overlap, and an
  *  opacity ghost would let the neighbour show through it. */
-export function agentFleetTileTint(kind: WireHarnessKind, parked = false): string {
+export function agentFleetTileTint(
+  kind: WireHarnessKind,
+  parked = false,
+  served?: readonly HarnessDescriptorWire[],
+): string {
   if (parked) return FLEET_TILE_TINT_PARKED
-  return FLEET_TILE_TINT[kind as AgentKind] ?? FLEET_TILE_TINT_FALLBACK
+  const bg = brandBgFor(kind, served)
+  return (bg && FLEET_TILE_TINT_BY_BG[bg]) ?? FLEET_TILE_TINT_FALLBACK
 }
 
 /**
@@ -129,14 +134,22 @@ export function agentFleetTileTint(kind: WireHarnessKind, parked = false): strin
  * nothing at all for non-Claude kinds, so returning `text-foreground` here would
  * override an inherited colour and change pixels.
  */
-export function agentBrandText(kind: WireHarnessKind): string | null {
-  return BRAND_TEXT[kind as AgentKind] ?? null
+export function agentBrandText(
+  kind: WireHarnessKind,
+  served?: readonly HarnessDescriptorWire[],
+): string | null {
+  const bg = brandBgFor(kind, served)
+  return (bg && BRAND_TEXT_BY_BG[bg]) ?? null
 }
 
 /** Brand dot shown beside the model token, or null for a harness with no brand
  *  mark of its own (the dot is omitted entirely, as before). */
-export function agentBrandDot(kind: WireHarnessKind): string | null {
-  return BRAND_DOT[kind as AgentKind] ?? null
+export function agentBrandDot(
+  kind: WireHarnessKind,
+  served?: readonly HarnessDescriptorWire[],
+): string | null {
+  const bg = brandBgFor(kind, served)
+  return (bg && BRAND_DOT_BY_BG[bg]) ?? null
 }
 
 /** An agent-kind icon.
@@ -152,23 +165,12 @@ export function agentBrandDot(kind: WireHarnessKind): string | null {
 export type AgentIconComponent = ComponentType<Record<string, unknown>>
 
 /**
- * Harness mark. The FOURTH kind→visual table in this module and the reason it
- * moved here from `features/worklist/agent-icon.ts` (POD-591): the sidebar's
- * fleet stack and the board card's now render from one component
- * (`components/IssueFleetSummary`), which sits under both features and so
- * cannot reach into either one's folder for a lookup. Icon, tint and tone are
- * the same question about the same key, and they now answer from the same file.
- *
- * The old module was DELETED rather than left as a re-export: `rearch-audit`
- * counts a re-export-only file pointing at another workspace as a shim tombstone
- * and refuses to let that count grow, which is the right call — the two call
- * sites import from here now.
- *
- * `undefined` for an unknown harness is deliberate and matches the old helper:
- * callers already render a neutral glyph in that case, and inventing a mark for
- * a harness we know nothing about would claim a brand.
+ * Bundled brand components for harnesses this build knows (bundled CODE,
+ * per the POD-4475 amendment). One quoted key: only `claude-code` needs
+ * quotes. A newer harness renders from its served icon DATA instead (see
+ * {@link agentIconFor}); nothing here invents a mark for one.
  */
-export const AGENT_KIND_ICON: Record<AgentKind, AgentIconComponent> = {
+const BUNDLED_ICONS: Record<string, AgentIconComponent> = {
   'claude-code': ClaudeCodeIcon,
   codex: OpenAIcon,
   grok: GrokIcon,
@@ -178,6 +180,59 @@ export const AGENT_KIND_ICON: Record<AgentKind, AgentIconComponent> = {
   shell: SquareTerminal,
 }
 
-export function agentIconFor(kind: WireHarnessKind): AgentIconComponent | undefined {
-  return AGENT_KIND_ICON[kind as AgentKind]
+/** Data-rendered components for served-only icons, cached by icon id: a new
+ *  component identity per call would remount the svg on every render. */
+const DATA_ICON_CACHE = new Map<string, AgentIconComponent>()
+
+function dataIconFor(descriptor: HarnessDescriptorWire): AgentIconComponent | undefined {
+  const { viewBox, d } = descriptor.icon
+  if (!viewBox || !d) return undefined
+  const cached = DATA_ICON_CACHE.get(descriptor.icon.id)
+  if (cached) return cached
+  const DataIcon = ((props: Record<string, unknown>) => {
+    const { size, width, height, ...rest } = props as {
+      size?: number
+      width?: number
+      height?: number
+      [key: string]: unknown
+    }
+    const dimension = width ?? height ?? size ?? 24
+    return createElement(
+      'svg',
+      {
+        xmlns: 'http://www.w3.org/2000/svg',
+        viewBox,
+        width: width ?? dimension,
+        height: height ?? dimension,
+        fill: 'currentColor',
+        fillRule: 'evenodd',
+        ...rest,
+      },
+      createElement('path', { d, clipRule: 'evenodd' }),
+    )
+  }) as AgentIconComponent
+  DATA_ICON_CACHE.set(descriptor.icon.id, DataIcon)
+  return DataIcon
+}
+
+/**
+ * Harness mark: the bundled component for harnesses this build knows, the
+ * served icon DATA for newer ones, `undefined` when neither exists (callers
+ * already render a neutral glyph in that case, and inventing a mark for a
+ * harness we know nothing about would claim a brand).
+ */
+export function agentIconFor(
+  kind: WireHarnessKind,
+  served?: readonly HarnessDescriptorWire[],
+): AgentIconComponent | undefined {
+  const bundled = BUNDLED_ICONS[kind]
+  if (bundled) return bundled
+  const descriptor = resolvedDescriptors(served).find((d) => d.kind === kind)
+  if (descriptor && descriptor.kind !== 'shell') return dataIconFor(descriptor)
+  return undefined
+}
+
+/** All harnesses this build can draw a mark for (bundled set, registry order). */
+export function bundledIconKinds(): string[] {
+  return BUNDLED_DESCRIPTORS.map((d) => d.kind)
 }

@@ -16,7 +16,7 @@ import {
   resolveTargetMachineForAgent,
   type SessionId,
 } from '@podium/model/browser'
-import { Circle, SquarePlus } from 'lucide-react'
+import { Circle, SquarePlus, SquareTerminal } from 'lucide-react'
 import type React from 'react'
 import { type JSX, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -38,7 +38,9 @@ import {
   capabilityReason,
   loginWarning,
 } from '@/lib/agent-capability'
-import { AGENT_KIND_ICON } from '@/lib/agent-tone'
+import { agentIconFor } from '@/lib/agent-tone'
+import { useResolvedDescriptors } from '@/lib/harness-descriptors'
+import { issueAgentDescriptors } from '@/lib/issue-agents'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
 import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
@@ -46,32 +48,28 @@ import { useStoreSelector } from './store'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
 
-/** Menu copy per harness. The MARK for each one comes from `agent-tone`'s
- *  kind→icon table (POD-591) rather than a second list here — this menu and the
- *  fleet stacks on the board and in the sidebar all draw the same glyph, so
- *  adding a harness is one row in one file. */
-const NEW_AGENT_LABELS: readonly (readonly [AgentKind, string])[] = [
-  ['claude-code', 'New Claude'],
-  ['codex', 'New Codex'],
-  ['grok', 'New Grok'],
-  ['opencode', 'New OpenCode'],
-  ['cursor', 'New Cursor'],
-  ['pi', 'New Pi'],
-  ['shell', 'New Shell'],
-]
-
-export const NEW_AGENTS: { kind: AgentKind; label: string; Icon: IconComponent }[] =
-  NEW_AGENT_LABELS.map(([kind, label]) => ({
-    kind,
-    label,
-    Icon: AGENT_KIND_ICON[kind],
-  }))
-
-// The workspace "+" (new tab) menu lists every agent kind, including 'New Shell'.
-// (SP-75b1 had excluded shells from this menu; we deliberately keep them here.)
-// Each row is still capability-gated below; a shell is always allowed on an
-// online machine (agentCapabilityRejection returns undefined for 'shell').
-const TAB_AGENTS = NEW_AGENTS
+/**
+ * Menu rows per harness, read off descriptors (POD-4475): `New ${shortLabel}`
+ * with the bundled mark for harnesses this build knows and the served icon
+ * DATA for newer ones. The workspace "+" (new tab) menu lists every agent
+ * kind, including 'New Shell' — shells are spawnable kinds, not harnesses,
+ * so the shell row stays static (SP-75b1 had excluded shells from this menu;
+ * we deliberately keep them here). Each row is still capability-gated below;
+ * a shell is always allowed on an online machine.
+ */
+function menuAgentsFor(
+  descriptors: ReturnType<typeof issueAgentDescriptors>,
+): { kind: AgentKind; label: string; Icon: IconComponent }[] {
+  const rows = descriptors
+    .filter((d) => d.kind !== 'shell')
+    .map((d) => ({
+      kind: d.kind as AgentKind,
+      label: `New ${d.shortLabel}`,
+      Icon: (agentIconFor(d.kind, descriptors) ?? SquareTerminal) as IconComponent,
+    }))
+  const shellIcon = (agentIconFor('shell') ?? SquareTerminal) as IconComponent
+  return [...rows, { kind: 'shell' as AgentKind, label: 'New Shell', Icon: shellIcon }]
+}
 
 // Recent files shown in the menu (POD-149) — reachability, not a file browser.
 const RECENT_LIMIT = 6
@@ -232,6 +230,16 @@ export function NewPanelMenu({
     </div>
   )
 
+  // Menu rows read the descriptors of every machine in scope (POD-4475):
+  // the single target when there is one, all repo machines otherwise, so a
+  // newer harness appears without a client change. No machine (yet) renders
+  // the bundled copy.
+  const descriptors = useResolvedDescriptors([
+    worktree.machineId,
+    ...repoView.machines.map((m) => m.machineId),
+  ])
+  const menuAgents = useMemo(() => menuAgentsFor(descriptors), [descriptors])
+
   // Single-machine (or no machines yet): no Machines region to choose between.
   if (machines.length <= 1) {
     const machine = machines[0]
@@ -246,7 +254,7 @@ export function NewPanelMenu({
           className="flex w-[248px] max-w-[calc(100vw-24px)] flex-col"
         >
           {header}
-          {TAB_AGENTS.map(({ kind, label, Icon }) => {
+          {menuAgents.map(({ kind, label, Icon }) => {
             const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
             const reason = machine
               ? capabilityReason(
@@ -275,7 +283,7 @@ export function NewPanelMenu({
             )
           })}
           {runtimeDriversEnabled && machine ? (
-            <HeadlessDriverItems machine={machine} onCreate={create} />
+            <HeadlessDriverItems machine={machine} onCreate={create} agents={menuAgents} />
           ) : null}
           <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
         </DropdownMenuContent>
@@ -296,7 +304,7 @@ export function NewPanelMenu({
         {header}
 
         {/* 1. Agent options — open on the resolved target machine */}
-        {TAB_AGENTS.map(({ kind, label, Icon }) => {
+        {menuAgents.map(({ kind, label, Icon }) => {
           const target = targetFor(kind)
           return (
             <CapabilityAgentItem
@@ -361,6 +369,7 @@ export function NewPanelMenu({
                 machine={machine}
                 onCreate={create}
                 runtimeDriversEnabled={runtimeDriversEnabled}
+                agents={menuAgents}
               />
             )
           })}
@@ -447,6 +456,7 @@ function RecentFilesSection({
 function HeadlessDriverItems({
   machine,
   onCreate,
+  agents,
 }: {
   machine: MachineWire
   onCreate: (
@@ -454,6 +464,7 @@ function HeadlessDriverItems({
     machineId: MachineId,
     requestedDriverId?: string,
   ) => Promise<void>
+  agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element | null {
   const drivers = headlessRuntimeDrivers(machine)
   if (drivers.length === 0) return null
@@ -461,7 +472,7 @@ function HeadlessDriverItems({
     <>
       <div className={MENU_SECTION}>HEADLESS DRIVERS</div>
       {drivers.map((driver) => {
-        const agent = NEW_AGENTS.find((candidate) => candidate.kind === driver.harness)
+        const agent = agents.find((candidate) => candidate.kind === driver.harness)
         if (!agent) return null
         const Icon = agent.Icon
         const loggedOut = agentLoginCondition(machine, driver.harness) === 'logged-out'
@@ -490,6 +501,7 @@ function MachineSubmenu({
   machine,
   onCreate,
   runtimeDriversEnabled,
+  agents,
 }: {
   machine: MachineWire
   onCreate: (
@@ -498,6 +510,7 @@ function MachineSubmenu({
     requestedDriverId?: string,
   ) => Promise<void>
   runtimeDriversEnabled: boolean
+  agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element {
   return (
     <DropdownMenuSub>
@@ -511,7 +524,7 @@ function MachineSubmenu({
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-[168px]">
-        {TAB_AGENTS.map(({ kind, label, Icon }) => {
+        {agents.map(({ kind, label, Icon }) => {
           const rejection = agentCapabilityRejection(machine, kind)
           const reason = capabilityReason(
             machine.name,
@@ -536,7 +549,7 @@ function MachineSubmenu({
           )
         })}
         {runtimeDriversEnabled ? (
-          <HeadlessDriverItems machine={machine} onCreate={onCreate} />
+          <HeadlessDriverItems machine={machine} onCreate={onCreate} agents={agents} />
         ) : null}
       </DropdownMenuSubContent>
     </DropdownMenuSub>

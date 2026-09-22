@@ -1,233 +1,152 @@
 import {
-  ISSUE_AGENT_KINDS,
-  type IssueAgentKind,
-  issueAgentKind,
-  issueAgentLabel,
-} from './issue-agents'
+  BUNDLED_DESCRIPTORS,
+  DESCRIPTOR_AUTO,
+  descriptorModels,
+  effortLevelLabel,
+  effortOptionsForDescriptor,
+  isEffortValidForDescriptor,
+  modelLabelForDescriptor,
+  modelOptionsForDescriptor,
+  parseServedDescriptors,
+  resolveDescriptors,
+} from '@podium/harness/browser'
+import type { HarnessDescriptorWire, ModelChoiceWire } from '@podium/protocol'
+import { issueAgentDescriptors, issueAgentLabel, type IssueAgentKind } from './issue-agents'
 import type { PropertyOption } from './PropertyMenu'
 
 /**
- * Per-agent model + reasoning-effort catalogs — the single source of truth for the
- * Model/Effort pickers used in the New Issue composer, the issue Start controls, and
- * the Settings screen (replacing the old free-text model field).
+ * Per-harness model + reasoning-effort catalogs (POD-4475): one source, read
+ * from descriptors — the served report over the bundled copy — instead of
+ * the duplicated static tables web and mobile used to keep.
  *
- * Values are what each agent's CLI actually accepts (verified against each binary's
- * `--help` / `models` command): claude's `--model` aliases, `grok models`,
- * `cursor-agent models`, `opencode models`; and each CLI's effort flag
- * (claude/grok `--effort`, codex reasoning-effort config, opencode `--variant`).
- *
- * `'auto'` is the sentinel for "let the agent decide" — the spawn layer passes no
- * flag. The model lists are curated (not exhaustive); the pickers keep a free-text
- * escape hatch so any model string still works.
+ * Values are what each agent's CLI actually accepts; `'auto'` is the sentinel
+ * for "let the agent decide" (the spawn layer passes no flag). The model
+ * lists stay curated fallbacks; the pickers keep a free-text escape hatch so
+ * any model string still works. A non-empty live list (the server's probe of
+ * the machine's own CLIs) replaces the static list per harness.
  */
 
 /** Stored sentinel meaning "no override — the agent/harness decides". */
-export const AUTO = 'auto'
+export const AUTO = DESCRIPTOR_AUTO
 
 export interface ModelChoice {
   value: string
   label: string
-  /** Per-model effort levels, when the source reports them authoritatively (claude,
-   *  codex). `[]` = the model supports no effort; `undefined` = unknown (agent fallback). */
+  /** Per-model effort levels, when the source reports them authoritatively.
+   *  `[]` = the model supports no effort; `undefined` = unknown (harness fallback). */
   efforts?: string[]
 }
-type Choice = { value: string; label: string }
 
-// Reasoning-effort ladders, each verified against the agent's own authoritative
-// source (not guessed):
-//   claude  `claude --help` → low, medium, high, xhigh, max
-//   grok    `grok --help`   → low, medium, high, xhigh, max
-//   codex   `codex debug models` supported_reasoning_levels → low, medium, high, xhigh
-//   opencode `opencode run --help` --variant examples → minimal, low, medium, high, max
-//   cursor   no effort flag — effort rides the model string (`model[effort=high]`)
-const CLAUDE_GROK_EFFORT: Choice[] = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-  { value: 'max', label: 'Max' },
-]
+/** The bundled resolution: every harness this build knows, no machine. */
+const BUNDLED_RESOLVED: readonly HarnessDescriptorWire[] = resolveDescriptors([])
 
-const CODEX_EFFORT: Choice[] = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-]
-
-const PI_THINKING: Choice[] = [
-  { value: 'off', label: 'Off' },
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra high' },
-  { value: 'max', label: 'Max' },
-]
-
-const CODEX_56_EFFORT = [...CODEX_EFFORT, { value: 'max', label: 'Max' }]
-const CODEX_56_FRONTIER_EFFORT = [...CODEX_56_EFFORT, { value: 'ultra', label: 'Ultra' }]
-
-const AGENT_MODELS: Record<IssueAgentKind, ModelChoice[]> = {
-  'claude-code': [
-    { value: 'opus', label: 'Opus', efforts: CLAUDE_GROK_EFFORT.map((o) => o.value) },
-    { value: 'sonnet', label: 'Sonnet', efforts: CLAUDE_GROK_EFFORT.map((o) => o.value) },
-    { value: 'haiku', label: 'Haiku', efforts: [] },
-  ],
-  // Fallback only — codex is live-enumerated server-side via `codex debug models`.
-  codex: [
-    {
-      value: 'gpt-5.6-sol',
-      label: 'GPT-5.6-Sol',
-      efforts: CODEX_56_FRONTIER_EFFORT.map((o) => o.value),
-    },
-    {
-      value: 'gpt-5.6-terra',
-      label: 'GPT-5.6-Terra',
-      efforts: CODEX_56_FRONTIER_EFFORT.map((o) => o.value),
-    },
-    {
-      value: 'gpt-5.6-luna',
-      label: 'GPT-5.6-Luna',
-      efforts: CODEX_56_EFFORT.map((o) => o.value),
-    },
-    { value: 'gpt-5.5', label: 'GPT-5.5', efforts: CODEX_EFFORT.map((o) => o.value) },
-    { value: 'gpt-5.4', label: 'GPT-5.4', efforts: CODEX_EFFORT.map((o) => o.value) },
-  ],
-  grok: [
-    { value: 'grok-4.5', label: 'Grok 4.5' },
-    { value: 'grok-composer-2.5-fast', label: 'Composer 2.5 Fast' },
-  ],
-  opencode: [
-    { value: 'openai/gpt-5.5', label: 'OpenAI GPT-5.5' },
-    { value: 'anthropic/claude-opus-4-8', label: 'Claude Opus 4.8' },
-    { value: 'xai/grok-4.3', label: 'Grok 4.3' },
-  ],
-  cursor: [
-    { value: 'composer-2.5', label: 'Composer 2.5' },
-    { value: 'gpt-5.2', label: 'GPT-5.2' },
-    { value: 'claude-opus-4-8-thinking-high', label: 'Claude Opus 4.8 Thinking' },
-  ],
-  // No static list: pi's catalog spans many providers and is live-enumerated via
-  // `pi --list-models` (provider/model ids); until then the picker offers Auto + free text.
-  pi: [],
+function resolved(
+  descriptors: readonly HarnessDescriptorWire[] | undefined,
+): readonly HarnessDescriptorWire[] {
+  if (!descriptors) return BUNDLED_RESOLVED
+  return resolveDescriptors(parseServedDescriptors(descriptors))
 }
 
-const AGENT_EFFORTS: Record<IssueAgentKind, Choice[]> = {
-  'claude-code': CLAUDE_GROK_EFFORT,
-  grok: CLAUDE_GROK_EFFORT,
-  codex: CODEX_EFFORT,
-  opencode: [
-    { value: 'minimal', label: 'Minimal' },
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-    { value: 'max', label: 'Max' },
-  ],
-  // Cursor has no effort flag — effort is a model parameter (model[effort=high]).
-  cursor: [],
-  // pi `--thinking` levels (`pi --help`): off, minimal, low, medium, high, xhigh, max.
-  pi: PI_THINKING,
+function descriptorFor(
+  kind: IssueAgentKind | string,
+  descriptors: readonly HarnessDescriptorWire[] | undefined,
+): HarnessDescriptorWire | undefined {
+  return resolved(descriptors).find((d) => d.kind === kind)
 }
 
-/** True when the agent exposes a reasoning-effort flag (everything but cursor). */
-export function agentSupportsEffort(kind: IssueAgentKind): boolean {
-  return AGENT_EFFORTS[kind].length > 0
-}
-
-function withAuto(choices: Choice[]): PropertyOption[] {
-  return [{ value: AUTO, label: 'Auto' }, ...choices]
-}
-
-/** The models to offer for an agent: the live list (from the CLI's `models` command,
- *  fetched by the server) when available, else the built-in static list. */
-function agentModels(kind: IssueAgentKind, live?: readonly ModelChoice[]): readonly ModelChoice[] {
-  return live && live.length > 0 ? live : AGENT_MODELS[kind]
+/** True when the harness exposes a reasoning-effort flag. */
+export function agentSupportsEffort(
+  kind: IssueAgentKind | string,
+  descriptors?: readonly HarnessDescriptorWire[],
+): boolean {
+  return descriptorFor(kind, descriptors)?.capabilities.effort ?? false
 }
 
 /** Model options for a `PropertyMenu`/`Select`, with the `auto` default first.
- *  Pass `live` (the server's live catalog for this agent) to override the static list. */
+ *  Pass `live` (the server's live catalog for this harness) to override the static list. */
 export function modelOptions(
-  kind: IssueAgentKind,
+  kind: IssueAgentKind | string,
   live?: readonly ModelChoice[],
+  descriptors?: readonly HarnessDescriptorWire[],
 ): PropertyOption[] {
-  return withAuto([...agentModels(kind, live)])
+  const descriptor = descriptorFor(kind, descriptors)
+  if (!descriptor) return [{ value: AUTO, label: 'Auto' }]
+  return [...modelOptionsForDescriptor(descriptor, live as readonly ModelChoiceWire[] | undefined)]
 }
 
 /** Effort options for a `PropertyMenu`/`Select`, with the `auto` default first. */
-export function effortOptions(kind: IssueAgentKind): PropertyOption[] {
-  return withAuto(AGENT_EFFORTS[kind])
-}
-
-const EFFORT_LEVEL_LABELS: Record<string, string> = {
-  off: 'Off',
-  minimal: 'Minimal',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
-}
-
-function effortLevelLabel(level: string): string {
-  return EFFORT_LEVEL_LABELS[level] ?? level
+export function effortOptions(
+  kind: IssueAgentKind | string,
+  descriptors?: readonly HarnessDescriptorWire[],
+): PropertyOption[] {
+  const descriptor = descriptorFor(kind, descriptors)
+  if (!descriptor) return []
+  return [...effortOptionsForDescriptor(descriptor)]
 }
 
 /**
  * Effort options for the selected model. Automatic model selection still accepts an
- * explicit harness effort, so it uses the agent's verified ladder. When the live
- * catalog reports model-specific levels (claude `capabilities.effort`, codex
- * `supported_reasoning_levels`), those are authoritative: a model with `[]` (e.g.
- * claude haiku) offers no effort. Models without such metadata (grok/opencode) also
- * fall back to the agent ladder. Empty result = hide the effort picker.
+ * explicit harness effort, so it uses the harness ladder. When the live
+ * catalog reports model-specific levels, those are authoritative: a model with
+ * `[]` offers no effort. Models without such metadata fall back to the
+ * harness ladder. Empty result = hide the effort picker.
  */
 export function effortOptionsForModel(
-  kind: IssueAgentKind,
+  kind: IssueAgentKind | string,
   modelValue: string | null | undefined,
   live?: readonly ModelChoice[],
+  descriptors?: readonly HarnessDescriptorWire[],
 ): PropertyOption[] {
-  if (!modelValue || modelValue === AUTO) {
-    return agentSupportsEffort(kind) ? effortOptions(kind) : []
-  }
-  const efforts = agentModels(kind, live).find((m) => m.value === modelValue)?.efforts
-  if (efforts !== undefined) {
-    if (efforts.length === 0) return []
-    return withAuto(efforts.map((e) => ({ value: e, label: effortLevelLabel(e) })))
-  }
-  // Grok/OpenCode expose an effort flag but no per-model metadata. Keep their
-  // full verified ladders available; an explicit [] remains authoritative.
-  return agentSupportsEffort(kind) ? effortOptions(kind) : []
+  const descriptor = descriptorFor(kind, descriptors)
+  if (!descriptor) return []
+  return [
+    ...effortOptionsForDescriptor(
+      descriptor,
+      modelValue,
+      live as readonly ModelChoiceWire[] | undefined,
+    ),
+  ]
 }
 
 /** Display label for a stored model value; checks live models first, falls back to the
  *  raw value for a custom (free-text) model, and 'Auto' for the sentinel/empty. */
 export function modelLabel(
-  kind: IssueAgentKind,
+  kind: IssueAgentKind | string,
   value: string | null | undefined,
   live?: readonly ModelChoice[],
+  descriptors?: readonly HarnessDescriptorWire[],
 ): string {
-  if (!value || value === AUTO) return 'Auto'
-  return agentModels(kind, live).find((m) => m.value === value)?.label ?? value
+  const descriptor = descriptorFor(kind, descriptors)
+  if (!descriptor) {
+    if (!value || value === AUTO) return 'Auto'
+    return value
+  }
+  return modelLabelForDescriptor(descriptor, value, live as readonly ModelChoiceWire[] | undefined)
 }
 
 /** Display label for a stored effort value; 'Auto' for the sentinel/empty. */
-export function effortLabel(_kind: IssueAgentKind, value: string | null | undefined): string {
+export function effortLabel(_kind: IssueAgentKind | string, value: string | null | undefined): string {
   if (!value || value === AUTO) return 'Auto'
   return effortLevelLabel(value)
 }
 
-/** Whether an effort value is offered for this agent — used to reset a stale effort
- *  when the effective agent changes (e.g. a codex-only rung under a claude session). */
-export function isEffortValid(kind: IssueAgentKind, value: string | null | undefined): boolean {
-  if (!value || value === AUTO) return true
-  return AGENT_EFFORTS[kind].some((e) => e.value === value)
+/** Whether an effort value is offered for this harness — used to reset a stale effort
+ *  when the effective agent changes. */
+export function isEffortValid(
+  kind: IssueAgentKind | string,
+  value: string | null | undefined,
+  descriptors?: readonly HarnessDescriptorWire[],
+): boolean {
+  const descriptor = descriptorFor(kind, descriptors)
+  if (!descriptor) return !value || value === AUTO
+  return isEffortValidForDescriptor(descriptor, value)
 }
 
 const MODEL_PICK_SEP = ':'
 
 /** Namespaced picker value so "opus" on Claude and a custom "opus" on Cursor
  *  cannot collide in one menu. `auto` stays the un-namespaced sentinel. */
-export function encodeModelPick(kind: IssueAgentKind, model: string): string {
+export function encodeModelPick(kind: IssueAgentKind | string, model: string): string {
   if (!model || model === AUTO) return AUTO
   return `${kind}${MODEL_PICK_SEP}${model}`
 }
@@ -239,22 +158,30 @@ export function decodeModelPick(value: string | null | undefined): {
   if (!value || value === AUTO) return { model: AUTO }
   const sep = value.indexOf(MODEL_PICK_SEP)
   if (sep <= 0) return { model: value }
-  const kind = issueAgentKind(value.slice(0, sep))
+  const kind = BUNDLED_DESCRIPTORS.some((d) => d.kind === value.slice(0, sep))
+    ? (value.slice(0, sep) as IssueAgentKind)
+    : undefined
   if (!kind) return { model: value }
   return { agentKind: kind, model: value.slice(sep + 1) }
 }
 
-/** Every connector's models, grouped, with Auto first. Live catalog wins per
- *  agent when the server has enumerated it. */
+/** Every harness's models, grouped, with Auto first. Live catalog wins per
+ *  harness when the server has enumerated it. Iterates DESCRIPTORS, never a
+ *  closed list, so a newer harness appears without a client change. */
 export function allConnectorModelOptions(
   catalog?: Record<string, readonly ModelChoice[] | undefined>,
+  descriptors?: readonly HarnessDescriptorWire[],
 ): PropertyOption[] {
   const options: PropertyOption[] = [{ value: AUTO, label: 'Auto' }]
-  for (const kind of ISSUE_AGENT_KINDS) {
-    const group = issueAgentLabel(kind)
-    for (const model of agentModels(kind, catalog?.[kind])) {
+  for (const descriptor of issueAgentDescriptors(descriptors)) {
+    if (descriptor.kind === 'shell') continue
+    const group = descriptor.label
+    for (const model of descriptorModels(
+      descriptor,
+      catalog?.[descriptor.kind] as readonly ModelChoiceWire[] | undefined,
+    )) {
       options.push({
-        value: encodeModelPick(kind, model.value),
+        value: encodeModelPick(descriptor.kind, model.value),
         label: model.label,
         group,
       })
@@ -265,11 +192,12 @@ export function allConnectorModelOptions(
 
 /** Pill label for a cross-connector pick: "Auto", or "Claude Code · Opus". */
 export function allConnectorModelLabel(
-  kind: IssueAgentKind | undefined,
+  kind: IssueAgentKind | string | undefined,
   model: string | null | undefined,
   catalog?: Record<string, readonly ModelChoice[] | undefined>,
+  descriptors?: readonly HarnessDescriptorWire[],
 ): string {
   if (!model || model === AUTO) return 'Auto'
   if (!kind) return model
-  return `${issueAgentLabel(kind)} · ${modelLabel(kind, model, catalog?.[kind])}`
+  return `${issueAgentLabel(kind, descriptors)} · ${modelLabel(kind, model, catalog?.[kind], descriptors)}`
 }

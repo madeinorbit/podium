@@ -171,12 +171,25 @@ describe('firstPrompt delivery (POD-549)', () => {
     expect(resumeAndSend).not.toHaveBeenCalled()
   })
 
-  it('agentAcceptsArgvPrompt matches harness argvPrompt capability', () => {
-    expect(agentAcceptsArgvPrompt('claude-code')).toBe(true)
-    expect(agentAcceptsArgvPrompt('codex')).toBe(true)
-    expect(agentAcceptsArgvPrompt('grok')).toBe(true)
-    expect(agentAcceptsArgvPrompt('opencode')).toBe(false)
-    expect(agentAcceptsArgvPrompt('cursor')).toBe(false)
-    expect(agentAcceptsArgvPrompt('shell')).toBe(false)
+  it('agentAcceptsArgvPrompt reads the descriptor argvPrompt flag (POD-4475)', () => {
+    // Inline wire rows (tests may name harnesses; product code may not).
+    // opencode is TRUE here: the old static mirror denied it an argv prompt
+    // its manifest declares — the drift this injection deletes.
+    const descriptors = [
+      { kind: 'claude-code', capabilities: { argvPrompt: true, effort: true, systemPrompt: true } },
+      { kind: 'codex', capabilities: { argvPrompt: true, effort: true, systemPrompt: false } },
+      { kind: 'grok', capabilities: { argvPrompt: true, effort: true, systemPrompt: false } },
+      { kind: 'opencode', capabilities: { argvPrompt: true, effort: true, systemPrompt: false } },
+      { kind: 'cursor', capabilities: { argvPrompt: false, effort: false, systemPrompt: false } },
+    ] as never
+    expect(agentAcceptsArgvPrompt('claude-code', descriptors)).toBe(true)
+    expect(agentAcceptsArgvPrompt('codex', descriptors)).toBe(true)
+    expect(agentAcceptsArgvPrompt('grok', descriptors)).toBe(true)
+    expect(agentAcceptsArgvPrompt('opencode', descriptors)).toBe(true)
+    expect(agentAcceptsArgvPrompt('cursor', descriptors)).toBe(false)
+    expect(agentAcceptsArgvPrompt('shell', descriptors)).toBe(false)
+    // Unknown harnesses and a missing report fail closed (durable outbox).
+    expect(agentAcceptsArgvPrompt('future-cli', descriptors)).toBe(false)
+    expect(agentAcceptsArgvPrompt('claude-code', undefined)).toBe(false)
   })
 })
