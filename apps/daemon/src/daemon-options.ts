@@ -1,6 +1,7 @@
 import type { MachineId } from '@podium/model'
 import type { agentLaunchCommand } from '@podium/harness'
 import type { LocalDaemonLink, ServerTransferServingProof } from '@podium/protocol'
+import type { DurableProcess } from '@podium/process/durable'
 import type { DurableBackend } from './control/context'
 import type { DiscoveryWorkerClient } from './worker-client'
 
@@ -60,6 +61,13 @@ export interface DaemonOptions {
   machineId?: MachineId
   launch?: typeof agentLaunchCommand
   backend?: DurableBackend
+  /**
+   * Test seam: a caller-built terminal DurableProcess, used instead of the one
+   * `backend` selects. Production never sets it; suites that drive fixtures on
+   * a direct pty inject `directPtyDurableForTests()` here, because a daemon
+   * with no durable process refuses every spawn (POD-4617).
+   */
+  durable?: DurableProcess
   discovery?: DaemonDiscoveryOptions
   metrics?: DaemonMetricsOptions
   hooks?: DaemonHooksOptions

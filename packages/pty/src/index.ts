@@ -48,7 +48,6 @@ export {
   type AgentFrame,
   type DurableAttachment,
   withHardRepaint,
-  spawnAgent,
   wrapPty,
 } from './session.js'
 export { type TitleScanner, createTitleScanner } from './osc-title.js'

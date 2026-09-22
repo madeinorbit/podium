@@ -36,11 +36,11 @@ import {
   durableProcessFor,
   WriterLeaseRefusedError,
 } from '@podium/process/durable'
-import { spawnAgent } from '@podium/process/screen'
 import { Terminal } from '../terminal/terminal.js'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
+import { noDurableBackendRefusal } from '../durable-backend'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
 import { codexAppServerVersionProbe } from '../runtime/version-probe'
@@ -705,6 +705,12 @@ export async function launchSpawn(
   propagateFailure = false,
 ): Promise<void> {
   try {
+    // NO SPAWN WITHOUT A DURABLE HOST (POD-4617). First, before the cwd pin,
+    // the launch files or the instrumentation: a daemon with no podium-host
+    // (backend `none`) starts nothing at all — agent, shell and login alike —
+    // and says why. There is no raw-pty fallback to reach.
+    const durable = durableProcessFor(ctx)
+    if (!durable) throw new Error(noDurableBackendRefusal())
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
     // is known before the agent has run a single hook. Every server-side spawn funnels
     // through here, so this one call covers issue start, add-session, `agent spawn`,
@@ -863,8 +869,7 @@ export async function launchSpawn(
         // environment" instead.
         stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
       }
-      const durable = durableProcessFor(ctx)
-      const session = durable ? await durable.spawn(spawnOpts) : spawnAgent(spawnOpts)
+      const session = await durable.spawn(spawnOpts)
       rememberDurableSeq(ctx, msg.sessionId, session)
       driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
         adopted: session.adopted,
