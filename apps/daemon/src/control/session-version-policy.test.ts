@@ -9,11 +9,13 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   codexAppServerVersionProbe,
+  grokAcpVersionProbe,
+  opencodeVersionProbe,
   resetCodexAppServerVersionProbe,
+  resetGrokAcpVersionProbe,
+  resetOpencodeVersionProbe,
 } from '../runtime/version-probe'
 import { testSessions } from '../session/testing.js'
-import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from '../runtime/version-probe'
-import { opencodeVersionProbe, resetOpencodeVersionProbe } from '../runtime/version-probe'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, reportHarnessVersionDiagnostic } from './session'
 
