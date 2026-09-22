@@ -166,6 +166,22 @@ export function bundledDescriptorFor(kind: string): HarnessDescriptorWire | unde
 export type ResolvedDescriptor = HarnessDescriptorWire
 
 /**
+ * The ONE provider fallback rule (POD-4542): the wire field is optional so
+ * an older daemon's frame still parses (§5: the schema widens the parser
+ * first), and every reader resolves a missing value to the kind — the
+ * honest answer for the self-routing harnesses. Stated here, once; the
+ * zod parser (`HarnessDescriptorWire`) and the browser parser
+ * (`parseServedDescriptors`) below plus the server's `nativePairs` all read
+ * through this, so the two parsers can never disagree on the field again.
+ */
+export function providerOf(descriptor: {
+  kind: string
+  provider?: string | null | undefined
+}): string {
+  return descriptor.provider ?? descriptor.kind
+}
+
+/**
  * Merge served descriptors over the bundled fallback. Served wins by kind;
  * report-only kinds (a NEWER harness) are appended in report order. Pure and
  * total: an empty report renders the bundled set, and unknown entries never
@@ -221,9 +237,9 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
     const iconViewBox = asString(icon?.viewBox) ?? ''
     const iconD = asString(icon?.d) ?? ''
     // POD-4529: the Accounts hub reads the provider off the served
-    // descriptor. A frame predating the field still renders — the kind is
-    // the honest fallback (true for the self-routing harnesses).
-    const provider = asString(entry.provider) ?? kind
+    // descriptor. A frame predating the field still renders — see
+    // {@link providerOf}, the one fallback rule.
+    const provider = providerOf({ kind, provider: asString(entry.provider) })
     const models = Array.isArray(catalog?.models)
       ? catalog.models.flatMap((model) => {
           if (!isRecord(model)) return []

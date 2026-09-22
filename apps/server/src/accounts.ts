@@ -5,7 +5,7 @@
 // its replicated, non-secret inventory record. Managed credentials remain in the
 // server-only accounts table and only their masked identities are projected.
 
-import { resolveDescriptors } from '@podium/harness/browser'
+import { providerOf, resolveDescriptors } from '@podium/harness/browser'
 import { harnessDetectLogin } from '@podium/harness/metadata'
 import { asAccountId, type HarnessAgent, type MachineId } from '@podium/model'
 import { isBuiltinHarnessKind, type HarnessDescriptorWire } from '@podium/protocol'
@@ -82,7 +82,9 @@ function nativePairs(
   const pairs: { kind: HarnessAgent; provider: string }[] = []
   for (const descriptor of resolveDescriptors(served)) {
     if (!isBuiltinHarnessKind(descriptor.kind)) continue
-    pairs.push({ kind: descriptor.kind, provider: descriptor.provider })
+    // POD-4542: an older daemon's descriptor carries no provider — the one
+    // {@link providerOf} rule falls back to kind, shared with the parsers.
+    pairs.push({ kind: descriptor.kind, provider: providerOf(descriptor) })
   }
   return pairs
 }

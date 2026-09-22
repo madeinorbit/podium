@@ -103,10 +103,13 @@ export const HarnessDescriptorWire = z.object({
   /** OPEN harness id: a kind this build never heard of still renders. */
   kind: z.string().min(1),
   /** Vendor backend label (POD-4529): stated per harness in
-   *  `adapters/<harness>/descriptor.ts`, read by the Accounts hub. Identity
-   *  core like `kind`/`label`, so required — a harness that routes to many
-   *  backends names itself. */
-  provider: z.string().min(1),
+   *  `adapters/<harness>/descriptor.ts`, read by the Accounts hub. Optional
+   *  on the wire (POD-4542): a daemon at the POD-4475 build serves no such
+   *  field, and the schema widens the parser first (§5) — a missing value
+   *  falls back to `kind` via the one `providerOf` rule in
+   *  `@podium/harness/browser`, never a second rule. The served builder and
+   *  the bundled snapshot keep emitting it always. */
+  provider: z.string().min(1).optional(),
   label: z.string().min(1),
   shortLabel: z.string().min(1),
   icon: HarnessDescriptorIconWire,
