@@ -631,9 +631,9 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
       })
       const adoptedClaude = await claudeRuntime.adoptFromJournal(claudeBinding.sessionId)
       // Same engine, proved two ways: the journal re-bound to the survivor
-      // carries the first generation's pid (the contract core keeps its
-      // embedded placeholder key; the journal is the adopt source), and the
-      // stub recorded exactly one incarnation — no fresh `claude`.
+      // carries the first generation's pid (the journal is the adopt
+      // source), and the stub recorded exactly one incarnation — no fresh
+      // `claude`.
       expect(claudeRuntime.journalEntry(claudeBinding.sessionId)?.process.pid).toBe(claudePid)
       expect(incarnations('claude')).toEqual([String(claudePid)])
       if (!adoptedClaude) throw new Error('claude adoptFromJournal answered undefined')
@@ -655,6 +655,13 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         30_000,
       )
       expect(await adoptedClaude.state().then((state) => state.phase)).toBe('idle')
+      // The handle states the SURVIVOR's identity once it holds it (POD-4612):
+      // the durable label and the first generation's pid — exactly what the
+      // generic server-family reap measures a kill against.
+      expect(adoptedClaude.binding.process).toMatchObject({
+        key: claudeEngineProcessKey(claudeFacts, claudeBinding.sessionId),
+        pid: claudePid,
+      })
 
       // Cleanup owns every engine by label, whatever generation holds it now.
       const killer = createDurableProcess('host', { host: true, abduco: false })
