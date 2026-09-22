@@ -14,13 +14,50 @@ so the detector is proven before any arm is trusted.
 |---|---|
 | `shared/src/row-shell.tsx` | Required per-row wrapper: `RowShell`, `CommitLogContext`, `createCommitLog`, ambient `withCommitLog` / `withCommitLogAsync`, `currentCommitLog` |
 | `harness/src/count-harness.tsx` | CI counting: `mountArmForCounts`, `mountElementForCounts`, `mountNativeForCounts`, `createReplaySource`, `runCountScenario`, `assertIsolation` |
-| `harness/src/scenario-writes.ts` | Engine-backed scenario inputs #1–#3 shared by the web and native lanes |
-| `harness/src/engine-bootstrap.ts` | Boots a real `ClientRuntime` over the G2 fixture at 1x/2x/4x (web entries) |
+| `shared/src/scenarios.ts` | THE scenario library (POD-4550): boot (`startScenarioEngine`, `startEngineOnCorpus`), rule-picked targets (`pickTargets`), every write (`write*` settled / `apply*` synchronous), the thirteen scenarios. Count runs, web entries and native lanes all use it |
+| `harness/src/fixture/` | The ONE corpus: `buildCorpus(scale, seed)` |
 | `harness/src/legacy-control/` | The control: `arm.ts` (`legacyControlArmFor`), `list.tsx`, `native.tsx`, `control.test.tsx` (armed), `control-1x.test.tsx` (CI budget + JSON) |
 | `harness/src/oracle/` | G2 oracle, plus `projectSnapshot` and `snapshotFromStore` (parity over live engine state) |
 | `harness/web/` | Vite pages per arm/control (`entries/`), shared page wiring (`entrylib.ts`, `window.__proto`) |
 | `harness/browser/run.ts` | Chromium timing driver (one invocation per arm/scale) |
 | `harness/native/` | React Native count lane (`control.native.test.tsx`) |
+
+## One corpus (POD-4550)
+
+Every count, parity check and timing runs on the live-shaped fixture,
+`buildCorpus(scale, seed)` in `harness/src/fixture/` (shape and provenance:
+`docs/measurements/POD-4441-fixture-shape.md`). There is no second corpus: the
+scenario generator's synthetic seed (`SMALL_CORPUS`, 60 issues; and
+`GROWTH_CORPORA`, which showed 3,230 visible rows at "1x" against ~211 live)
+was deleted in POD-4550, and with it the TanStack arm (eliminated in round
+two).
+
+| Knob | Values | Where |
+|---|---|---|
+| Scale | `1` (live installation: 4,867 issues, 4,304 sessions, 500 repos, 468 worktrees, **211 visible rows**), `2`, `4` (every collection multiplied; the growth slope) | `startScenarioEngine(scale)`, `?scale=` on the web pages |
+| Seed | `FIXTURE_SEED = 4443` everywhere; vary it only to prove determinism | `shared/src/scenarios.ts` |
+| Clock | the runtime's coarse clock is pinned to `FIXED_NOW` (2026-09-20T12:00Z, inside every band threshold) via the runtime's `coarseClock` seam; `writeClockTick` advances it through the engine; every write stamps rows from the same clock | `startEngineOnCorpus` |
+
+Targets are picked BY RULE from the corpus (`pickTargets`), carried on every
+`ScenarioResult` and on `ScenarioEngine.targets`, and checked against the
+oracle in `shared/src/scenarios.test.ts`:
+
+| Target | Rule |
+|---|---|
+| `heartbeatSessionId` (#1) | lowest-id session bound to a closed, childless agent root — a row the worklist never shows |
+| `visibleRootId` (#2 #3 #4, #7 destination) | lowest-id open human root in an active stage with children and a live working session |
+| `phaseSessionId` (#2) | that root's first live working session |
+| `stageMoveId`, `archiveId`, `evictId`, `markReadId` (#5 #6b #6c #9) | the next distinct childless, unpinned open human roots |
+| `keeperLeafId` / `keeperParentId` (#6d) | an open leaf that is the ONLY child of a sessionless `backlog` rescue parent (the fixture carries ten such pairs) |
+| `reparentId` (#7) | an open child with a live working session whose parent is another open root |
+| `burstIssueIds` (#10) | the 50 lowest-id open human issues |
+
+The fixture also carries one live issue whose `worktreePath` no discovery scan
+reported (`corpus.unscannedWorktree`, handover from POD-4546): a sessionless
+visible root seated ONLY by one orphan session under that path. The oracle
+seats it (the row reads working); moving the orphan away turns the row off
+(`oracle.test.ts`, "unscanned worktree seat"). A feed that only materialises
+scanned worktrees loses that seat and fails parity.
 
 ## Counts (CI, happy-dom) — the verdict-carrying half
 
@@ -101,7 +138,9 @@ live slice with the oracle's own projection, so parity passes exactly.
 derive, `rollupsDerived` = derives, `indexUpdates` = 0 (no incremental index —
 zero is the finding), `notifications` = publications observed.
 
-The armed failure (SMALL: 37 visible rows; 1x: 3230):
+The armed failure (numbers below are from the retired SMALL corpus; the
+fixture's are in the POD-4550 section of `packages/worklist-proto/NOTES.md`
+and in `control-1x.test.tsx`, which pins 211 visible rows at 1x):
 
 ```
 [control] heartbeat committed 39/37 visible rows;

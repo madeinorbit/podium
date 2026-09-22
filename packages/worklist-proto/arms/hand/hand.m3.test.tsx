@@ -76,7 +76,8 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     const coldMounted = mountArmForCounts(handArm, coldSource.source, coldLocals)
     try {
       const atMount = coldMounted.handle.snapshot()
-      expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(1000)
+      // The fixture's 1x visible set (POD-4550; the retired corpus showed 3,000+).
+      expect(Object.keys(atMount.rowsById).length).toBe(211)
       expect(atMount).toEqual(snapshotFromStore(cold.engine.getSnapshot(), coldLocals))
       checkOracle(coldMounted)
       console.info(

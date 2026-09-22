@@ -281,8 +281,10 @@ export interface ScenarioTargets {
   /** #1: a session bound to a closed agent root (a row the worklist never
    *  shows) — its heartbeat must move no visible row. */
   heartbeatSessionId: string
-  /** #2/#3/#4, #9 supplement: an open human root with children and a live
-   *  working session. */
+  /** #2/#3/#4, #9 supplement: an open human root with children and exactly
+   *  ONE live working session — so #2 (that session going idle) visibly
+   *  changes the row at every scale, and cross-scale counts compare the same
+   *  workload. */
   visibleRootId: string
   /** #2: that root's first live working session. */
   phaseSessionId: string
@@ -372,12 +374,12 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
   }
 
   const root = take(
-    'open human root with children and a live working session',
+    'open human root with children and exactly one live working session',
     (i) =>
       openHuman(i) &&
       !i.parentId &&
       !childless(i) &&
-      (sessionsOf.get(i.id) ?? []).some(isLiveWorking),
+      (sessionsOf.get(i.id) ?? []).filter(isLiveWorking).length === 1,
   )
   const phaseSession =
     (sessionsOf.get(root.id) ?? []).find(isLiveWorking) ?? fail('working session on the root')

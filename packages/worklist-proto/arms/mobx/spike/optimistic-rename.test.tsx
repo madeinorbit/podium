@@ -96,11 +96,21 @@ describe('mobx write-path spike: optimistic title rename', () => {
       })
       expect(store.issues.get(id)?.value.title).toBe('Renamed visible row')
       expect(pending.has(id)).toBe(true)
-      // Two rows: i0's renamed row plus i1's origin tick, which quotes i0's
-      // title and rides the commit (M2 rename commits the same pair).
-      expect(optimistic.commitsByRow).toEqual({ i0: 1, i1: 1 })
-      expect(optimistic.rowsCommitted).toBe(2)
-      expect(optimistic.stats.rowsDerived).toBe(2)
+      // The renamed row plus any VISIBLE R4 spin-off's origin tick, which
+      // quotes the renamed title and rides the commit (M2 rename commits the
+      // same set). POD-4550: computed from the fixture, not pinned ids.
+      const spinOffs = ctx.corpus.issues
+        .filter(
+          (i) =>
+            mounted.handle.snapshot().rowsById[i.id] !== undefined &&
+            (i.deps ?? []).some((d) => d.id === id && d.type === 'discovered-from'),
+        )
+        .map((i) => i.id)
+      expect(optimistic.commitsByRow).toEqual(
+        Object.fromEntries([id, ...spinOffs].map((rowId) => [rowId, 1])),
+      )
+      expect(optimistic.rowsCommitted).toBe(1 + spinOffs.length)
+      expect(optimistic.stats.rowsDerived).toBe(1 + spinOffs.length)
 
       // 2. Kernel echo through the real stream: flag clears, parity green.
       // The echo carries the same title the pending write set (a real echo

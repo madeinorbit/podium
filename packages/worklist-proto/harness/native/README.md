@@ -21,5 +21,5 @@ bun run --filter @podium/worklist-proto test
 ```
 
 H arms add their native lists here the same way: `handle.mountNative()`
-through `mountNativeForCounts`, scenarios from `harness/src/scenario-writes`,
+through `mountNativeForCounts`, scenario writes from `shared/src/scenarios` (the one library, POD-4550),
 parity against `snapshotFromStore`.

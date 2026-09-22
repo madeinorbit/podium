@@ -137,15 +137,18 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
       expect(atMount).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), locals))
 
-      // The renamed row's R4 spin-offs tick with it (UI-only, outside the
-      // oracle — see the #4 budget below), so they may commit.
+      // The renamed row's VISIBLE R4 spin-offs tick with it (UI-only, outside
+      // the oracle — see the #4 budget below), so they may commit.
       const spinOffs = ctx.corpus.issues
-        .filter((i) =>
-          (i.deps ?? []).some(
-            (d) => d.id === ctx.targets.visibleRootId && d.type === 'discovered-from',
-          ),
+        .filter(
+          (i) =>
+            atMount.rowsById[i.id] !== undefined &&
+            (i.deps ?? []).some(
+              (d) => d.id === ctx.targets.visibleRootId && d.type === 'discovered-from',
+            ),
         )
         .map((i) => i.id)
+        .sort()
       const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx), locals, spinOffs)
       const stageMove = await step('stageMoveAcrossGroups', '#5', () => writeStageMove(ctx))
       const newIssue = await step('newIssue', '#6a', () => writeNewIssue(ctx))

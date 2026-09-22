@@ -53,7 +53,13 @@ describe('mobx arm on the native renderer', () => {
       )
       expect(heartbeat.rowsCommitted).toBe(0)
       expect(heartbeat.stats.rowsDerived).toBe(0)
-      expect(heartbeat.stats.rollupsDerived).toBe(0)
+      // POD-4550: on the fixture the #1 target is a session of a closed agent
+      // issue, which the arm holds (unlike the retired corpus's archived
+      // issue, which it skipped outright). The arm re-derives that one
+      // issue's summary: a member's activity can decide whether a closed row
+      // is retained. One body, flat across 1x/2x/4x (m3 growth); zero rows
+      // commit, which is the methodology budget.
+      expect(heartbeat.stats.rollupsDerived).toBe(1)
 
       const phase = await runCountScenario(mounted, {
         scenario: 'visibleSessionPhaseChange',
