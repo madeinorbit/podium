@@ -938,6 +938,55 @@ export interface HarnessInstrumentation {
 }
 
 // ---------------------------------------------------------------------------
+// Composer rules: pure per-harness scrape/inject/verify over screen text (POD-4477).
+//
+// One authoritative definition per harness (spec §4): how the native composer
+// reads back (extract), when it is safe to write (injectable), how to clear
+// and type into it without submitting (clearSequence/typeSequence), how to
+// confirm a write landed (verify), and — where the harness needs it — the
+// empty-composer heuristic the browser client gates synthetic input on
+// (inputReady).
+//
+// PURE functions over screen lines and text, no I/O: the daemon's sync engine
+// and the browser client read the SAME functions. The daemon resolves them
+// through the manifest; the browser entry bundles them for the harnesses the
+// client build knows (CODE, never served — the wire descriptor carries DATA
+// only, spec §5 rule 6). Browser-safe by construction: a rule set imports
+// nothing beyond the types below and the shared composer vocabulary.
+// ---------------------------------------------------------------------------
+
+/** The rendered terminal grid as one string per visible row, top→bottom. */
+export type ComposerScreenLines = readonly string[]
+
+/** Post-injection check. 'placeholder' = the harness collapsed the paste to its
+ *  own marker (acceptable — it expands on submit). */
+export type ComposerVerify = 'match' | 'placeholder' | 'mismatch'
+
+export interface HarnessComposer {
+  /** Whether the screen must be read with dim cells blanked before extraction.
+   *  Codex renders its rotating placeholder + hints DIM, so a scraper must strip
+   *  them (else it mistakes a suggestion for typed text); claude reads raw. This
+   *  is the harness-specific screen-read choice, kept behind the rules. */
+  dimStripped: boolean
+  /** The current composer text, or null = no clean composer on screen
+   *  (overlay/splash/menu/streaming) — the engine must NEVER clobber on null. */
+  extract(screen: ComposerScreenLines): string | null
+  /** Composer present and safe to write (no overlay; agent not mid-stream). */
+  injectable(screen: ComposerScreenLines): boolean
+  /** Bytes clearing the WHOLE composer for its current text; null = cannot/should
+   *  not clear now (e.g. codex empty composer). */
+  clearSequence(currentText: string): string | null
+  /** Bytes entering `text` into the composer WITHOUT submitting it. */
+  typeSequence(text: string): string
+  /** Post-injection check over the scraped screen. */
+  verify(screen: ComposerScreenLines, expected: string): ComposerVerify
+  /** Empty-composer heuristic over (dim-stripped) screen lines, for harnesses
+   *  whose composer can paint before input is safe. Absent ⇒ the client runs
+   *  no heuristic for this harness — never another harness's. */
+  inputReady?(screen: ComposerScreenLines): boolean
+}
+
+// ---------------------------------------------------------------------------
 // The runtime axis — how this CLI can be DRIVEN (POD-1761 W1).
 // docs/2026-08-07-agent-runtime-architecture.html §2, §3 "Manifest integration".
 // ---------------------------------------------------------------------------
@@ -1476,6 +1525,10 @@ export interface AgentManifest {
    *  back (no chat switcher, no BTW); the session still runs. POD-398 folds the
    *  per-CLI record→items mappers in behind this field. */
   transcript: Declared<HarnessTranscript>
+  /** Pure composer scrape/inject/verify rules (POD-4477). Unsupported ⇒ this
+   *  harness has no composer Podium can read or drive: composer sync stays off
+   *  and the browser client runs no input-ready heuristic for it. */
+  composer: Declared<HarnessComposer>
   /** Harness-specific browser-open classification (this harness's known login
    *  vs plain-link URLs), consulted BEFORE the daemon's generic redirect_uri
    *  heuristic. Unsupported (or returning undefined) ⇒ generic fallback decides.

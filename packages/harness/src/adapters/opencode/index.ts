@@ -373,6 +373,8 @@ export const opencodeManifest: AgentManifest = {
 
   transcript: opencodeTranscript,
 
+  composer: unsupported('opencode has no composer scrape rules; sessions drive through its server protocol'),
+
   handoffTranscript: unsupported('cross-machine handoff is not supported for opencode sessions'),
 
   classifyBrowserOpen: unsupported(

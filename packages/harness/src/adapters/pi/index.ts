@@ -326,6 +326,8 @@ export const piManifest: AgentManifest = {
 
   transcript: piTranscript,
 
+  composer: unsupported('pi has no composer scrape rules yet'),
+
   handoffTranscript: unsupported('cross-machine handoff is not supported for pi sessions'),
 
   classifyBrowserOpen: unsupported(

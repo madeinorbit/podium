@@ -29,6 +29,7 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { codexTranscript } from './transcript.js'
+import { codexComposer } from './composer.js'
 import { codexInstrumentation } from './instrumentation.js'
 import { codexCredentials } from './credentials.js'
 import { codexInstall } from './install.js'
@@ -700,6 +701,8 @@ export const codexManifest: AgentManifest = {
   }),
 
   transcript: codexTranscript,
+
+  composer: supported(codexComposer),
 
   // Codex login goes through auth.openai.com (loopback redirect to :1455);
   // chatgpt.com / platform.openai.com opens are plain links. Unknown hosts

@@ -209,6 +209,8 @@ export const fixtureManifest: AgentManifest = {
 
   transcript: fixtureTranscript,
 
+  composer: unsupported('the fixture CLI double has no composer to scrape'),
+
   handoffTranscript: supported(fixtureHandoffTranscript),
 
   classifyBrowserOpen: unsupported(
