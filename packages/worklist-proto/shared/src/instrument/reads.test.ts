@@ -3,13 +3,18 @@
  * can see. Each counting rule has a case that would read 0 if the rule were
  * deleted.
  */
+import { autorun, computed, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import type { RowSource } from '../arm'
 import type { RowRecord, RowSourceEvent } from '../stats'
 import { createReadFence, DISABLED_READ_FENCE, type RelationReader } from './reads'
 
 function sessionRow(id: string, issueId = 'i1'): RowRecord {
-  return { kind: 'session', id, value: { sessionId: id, issueId, lastActiveAt: '2026-09-22T00:00:00Z' } as never }
+  return {
+    kind: 'session',
+    id,
+    value: { sessionId: id, issueId, lastActiveAt: '2026-09-22T00:00:00Z' } as never,
+  }
 }
 
 function staticSource(rows: RowRecord[]): RowSource & { emit(event: RowSourceEvent): void } {
@@ -27,7 +32,10 @@ function staticSource(rows: RowRecord[]): RowSource & { emit(event: RowSourceEve
 }
 
 /** Borrow `n` session rows through the fence's feed door, as a pool would. */
-function borrowedSessions(fence: ReturnType<typeof createReadFence>, n: number): Map<string, unknown> {
+function borrowedSessions(
+  fence: ReturnType<typeof createReadFence>,
+  n: number,
+): Map<string, unknown> {
   const rows = Array.from({ length: n }, (_, index) => sessionRow(`s${index}`))
   const source = fence.wrapSource(staticSource(rows))
   const table = new Map<string, unknown>()
@@ -74,7 +82,10 @@ describe('feed door', () => {
     const inner = staticSource([])
     const events: RowSourceEvent[] = []
     fence.wrapSource(inner).subscribe((event) => events.push(event))
-    inner.emit({ type: 'update', rows: [sessionRow('s9'), { kind: 'session', id: 's8', value: undefined }] })
+    inner.emit({
+      type: 'update',
+      rows: [sessionRow('s9'), { kind: 'session', id: 's8', value: undefined }],
+    })
     expect(fence.isBorrowed(events[0]!.rows[0]!.value)).toBe(true)
     expect(events[0]!.rows[1]!.value).toBeUndefined()
   })
@@ -97,7 +108,9 @@ describe('table door', () => {
       (t: ReadonlyMap<string, unknown>) => [...t.keys()],
       (t: ReadonlyMap<string, unknown>) => [...t.entries()],
       (t: ReadonlyMap<string, unknown>) => [...t],
-      (t: ReadonlyMap<string, unknown>) => t.forEach(() => undefined),
+      (t: ReadonlyMap<string, unknown>) => {
+        t.forEach(() => {})
+      },
     ]) {
       const fence = createReadFence({ enabled: true })
       const { session } = fence.wrapTables({ session: borrowedSessions(fence, 40) })
@@ -128,7 +141,9 @@ describe('table door', () => {
   it('returns one wrapper per raw table, so identity memos still hit', () => {
     const fence = createReadFence({ enabled: true })
     const raw = borrowedSessions(fence, 1)
-    expect(fence.wrapTables({ session: raw }).session).toBe(fence.wrapTables({ session: raw }).session)
+    expect(fence.wrapTables({ session: raw }).session).toBe(
+      fence.wrapTables({ session: raw }).session,
+    )
   })
 
   it('THROWS when a table holds a row the feed did not hand out (a copy)', () => {
@@ -147,10 +162,90 @@ describe('table door', () => {
   })
 })
 
+describe('keys() reads no value (POD-4621)', () => {
+  /**
+   * A MobX pool over a fenced shallow observable map, fed borrowed session
+   * rows. `feed` hands out a fresh borrowed row for `id`, as an update would.
+   */
+  function mobxTable(n: number) {
+    const fence = createReadFence({ enabled: true })
+    const source = staticSource([])
+    const fed = fence.wrapSource(source)
+    const raw = observable.map<string, unknown>(new Map(), { deep: false })
+    fed.subscribe((event) => {
+      runInAction(() => {
+        for (const record of event.rows) {
+          if (record.value === undefined) raw.delete(record.id)
+          else raw.set(record.id, record.value)
+        }
+      })
+    })
+    const feed = (id: string, issueId = 'i1') =>
+      source.emit({ type: 'update', rows: [sessionRow(id, issueId)] })
+    for (let index = 0; index < n; index += 1) feed(`s${index}`)
+    const { session } = fence.wrapTables({ session: raw as ReadonlyMap<string, unknown> })
+    fence.reset()
+    return {
+      fence,
+      session,
+      feed,
+      remove: (id: string) =>
+        source.emit({ type: 'update', rows: [{ kind: 'session', id, value: undefined }] }),
+    }
+  }
+
+  /** How many times a computed over `walk(session)` re-ran, kept alive by a reaction. */
+  function runsOf(
+    session: ReadonlyMap<string, unknown>,
+    walk: (t: ReadonlyMap<string, unknown>) => unknown[],
+  ) {
+    let runs = 0
+    const derived = computed(() => {
+      runs += 1
+      return walk(session).length
+    })
+    const dispose = autorun(() => derived.get())
+    return { runs: () => runs, dispose }
+  }
+
+  it('a computed over keys() does NOT re-run when one row value changes, and does on add and remove', () => {
+    const { session, feed, remove } = mobxTable(20)
+    const keys = runsOf(session, (t) => [...t.keys()])
+    expect(keys.runs()).toBe(1)
+    feed('s3', 'i2')
+    expect(keys.runs()).toBe(1)
+    feed('s20')
+    expect(keys.runs()).toBe(2)
+    remove('s0')
+    expect(keys.runs()).toBe(3)
+    keys.dispose()
+  })
+
+  it('a computed over values() DOES re-run when one row value changes', () => {
+    const { session, feed } = mobxTable(20)
+    const values = runsOf(session, (t) => [...t.values()])
+    expect(values.runs()).toBe(1)
+    feed('s3', 'i2')
+    expect(values.runs()).toBe(2)
+    values.dispose()
+  })
+
+  it('still counts every id a keys() walk yields, once per change', () => {
+    const { fence, session } = mobxTable(40)
+    expect([...session.keys()]).toHaveLength(40)
+    expect([...session.keys()]).toHaveLength(40)
+    expect(fence.stats().rows).toBe(40)
+    expect(fence.stats().byEntity.session).toBe(40)
+    expect(fence.stats().accesses.iterate).toBe(80)
+  })
+})
+
 describe('violations are sticky', () => {
   it('stats() re-throws a violation even when the throw itself was swallowed, and reset keeps it', () => {
     const fence = createReadFence({ enabled: true })
-    const { session } = fence.wrapTables({ session: new Map<string, unknown>([['s0', { sessionId: 's0' }]]) })
+    const { session } = fence.wrapTables({
+      session: new Map<string, unknown>([['s0', { sessionId: 's0' }]]),
+    })
     try {
       session.get('s0')
     } catch {
@@ -259,14 +354,18 @@ describe('copy sweep', () => {
     const fence = createReadFence({ enabled: true })
     const { sessions, tables } = pool(fence)
     const admin = Symbol('admin')
-    const model = { [admin]: { values: new Map([['value', { ...(sessions.get('s2') as object) }]]) } }
+    const model = {
+      [admin]: { values: new Map([['value', { ...(sessions.get('s2') as object) }]]) },
+    }
     expect(() => fence.assertNoCopies({ tables, models: [model] })).toThrow(/sessionId=s2/)
   })
 
   it('fails when the walk reaches no wrapped table: silence would be blindness', () => {
     const fence = createReadFence({ enabled: true })
     pool(fence)
-    expect(() => fence.assertNoCopies({ unrelated: new Map() })).toThrow(/reached none of the arm's wrapped tables/)
+    expect(() => fence.assertNoCopies({ unrelated: new Map() })).toThrow(
+      /reached none of the arm's wrapped tables/,
+    )
   })
 
   it('refuses to run with the fence disabled', () => {

@@ -17,10 +17,12 @@
  * 2. The TABLES. `fence.wrapTables(tables)` wraps the arm's entity tables
  *    (`ReadonlyMap`s or arrays). `get`/`has` count the id; EVERY iteration
  *    (`keys`, `values`, `entries`, `forEach`, `for…of`, array index reads)
- *    counts EVERY element it yields. Any other member throws: a fenced table
- *    is a read-only view, and an uncounted escape hatch would be the bypass.
- *    By default a table must hold borrowed rows; a value the feed did not hand
- *    out (a copy) throws on first read.
+ *    counts EVERY element it yields. `keys()` counts each id WITHOUT reading
+ *    its value (POD-4621): an id walk touches membership only, so under MobX
+ *    it does not subscribe the walker to every row. Any other member throws: a
+ *    fenced table is a read-only view, and an uncounted escape hatch would be
+ *    the bypass. By default a table must hold borrowed rows; a value the feed
+ *    did not hand out (a copy) throws on first read.
  * 3. The RELATIONS. `fence.wrapRelations(reader)` wraps the shared
  *    {@link RelationReader} accessor the pools implement (Ma2/Ha2). A relation
  *    name is checked against the declared schema; `one` counts its target,
@@ -60,7 +62,7 @@
  */
 
 import type { RowSource } from '../arm'
-import { SCHEMA, type EntityName } from '../schema'
+import { type EntityName, SCHEMA } from '../schema'
 import type { RowRecord, RowSourceEvent } from '../stats'
 
 /** How a row was reached. Raw counts per door, for diagnosis. */
@@ -119,7 +121,10 @@ export interface ReadFence {
   /** Hand the arm the feed through the fence: every row value arrives borrowed. */
   wrapSource(source: RowSource): RowSource
   /** Wrap entity tables, keyed by entity (or table) name. Identity when disabled. */
-  wrapTables<T extends Readonly<Record<string, ReadTable>>>(tables: T, options?: WrapTablesOptions): T
+  wrapTables<T extends Readonly<Record<string, ReadTable>>>(
+    tables: T,
+    options?: WrapTablesOptions,
+  ): T
   /** Wrap the shared relation accessor. Identity when disabled. */
   wrapRelations(reader: RelationReader): RelationReader
   /** Record one read directly (for adapters whose tables are not a map or an array). */
@@ -211,7 +216,12 @@ function defaultKeyOf(entity: string): (row: unknown, index: number) => string {
 }
 
 function isIndex(prop: PropertyKey): prop is string {
-  return typeof prop === 'string' && prop.length > 0 && String(Number(prop)) === prop && Number(prop) >= 0
+  return (
+    typeof prop === 'string' &&
+    prop.length > 0 &&
+    String(Number(prop)) === prop &&
+    Number(prop) >= 0
+  )
 }
 
 export function createReadFence(options: { enabled: boolean }): ReadFence {
@@ -270,10 +280,14 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         return Reflect.getOwnPropertyDescriptor(target, prop)
       },
       set() {
-        violate(`[reads] borrowed ${kind}:${id} is read-only; the pool stores the row, it does not edit it`)
+        violate(
+          `[reads] borrowed ${kind}:${id} is read-only; the pool stores the row, it does not edit it`,
+        )
       },
       deleteProperty() {
-        violate(`[reads] borrowed ${kind}:${id} is read-only; the pool stores the row, it does not edit it`)
+        violate(
+          `[reads] borrowed ${kind}:${id} is read-only; the pool stores the row, it does not edit it`,
+        )
       },
     })
     borrowedByRaw.set(value, proxy)
@@ -325,14 +339,23 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
       get size(): number {
         return target.size
       },
+      // Counts each id without reading its value (POD-4621): under MobX a
+      // value read subscribes the enumerating derivation to that row, so a
+      // walk over ids would re-run on every row change, not only membership.
       *keys(): Generator<string> {
-        for (const [id] of iterateEntries()) yield id
+        for (const id of target.keys()) {
+          touch(entity, id, 'iterate')
+          yield id
+        }
       },
       *values(): Generator<unknown> {
         for (const [, value] of iterateEntries()) yield value
       },
       entries: iterateEntries,
-      forEach(callback: (value: unknown, id: string, map: unknown) => void, thisArg?: unknown): void {
+      forEach(
+        callback: (value: unknown, id: string, map: unknown) => void,
+        thisArg?: unknown,
+      ): void {
         for (const [id, value] of iterateEntries()) callback.call(thisArg, value, id, proxy)
       },
       [Symbol.iterator]: iterateEntries,
@@ -439,7 +462,8 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     const copies: string[] = []
     const Node = (globalThis as { Node?: new () => object }).Node
     const push = (value: unknown): void => {
-      if ((typeof value === 'object' && value !== null) || typeof value === 'function') queue.push(value as object)
+      if ((typeof value === 'object' && value !== null) || typeof value === 'function')
+        queue.push(value as object)
     }
     while (queue.length > 0) {
       const current = queue.pop() as object
@@ -457,10 +481,14 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
       if (Object.hasOwn(current, '_internalRoot')) continue
       seenObjects.add(current)
       if (seenObjects.size > SWEEP_LIMIT) {
-        violate(`[copies] the sweep passed ${SWEEP_LIMIT} objects without finishing; it cannot vouch for this arm`)
+        violate(
+          `[copies] the sweep passed ${SWEEP_LIMIT} objects without finishing; it cannot vouch for this arm`,
+        )
       }
       if (current instanceof Map) {
-        for (const [key, value] of Map.prototype.entries.call(current) as Iterable<[unknown, unknown]>) {
+        for (const [key, value] of Map.prototype.entries.call(current) as Iterable<
+          [unknown, unknown]
+        >) {
           push(key)
           push(value)
         }
@@ -508,7 +536,8 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     wrapTables(tables, options = {}) {
       if (!enabled) return tables
       const out: Record<string, object> = {}
-      for (const [entity, table] of Object.entries(tables)) out[entity] = wrapTable(entity, table, options)
+      for (const [entity, table] of Object.entries(tables))
+        out[entity] = wrapTable(entity, table, options)
       return out as typeof tables
     },
     wrapRelations(reader: RelationReader): RelationReader {
@@ -546,18 +575,29 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     },
     assertNoCopies(root) {
       if (!enabled) {
-        throw new Error('[copies] the read fence is disabled (timing mode); a count run must enable it')
+        throw new Error(
+          '[copies] the read fence is disabled (timing mode); a count run must enable it',
+        )
       }
       return sweep(root)
     },
     stats(): ReadStats {
       if (!enabled) {
-        throw new Error('[reads] the read fence is disabled (timing mode); a count run must enable it')
+        throw new Error(
+          '[reads] the read fence is disabled (timing mode); a count run must enable it',
+        )
       }
       if (violations.length > 0) {
-        throw new Error(`[reads] fence violated ${violations.length} time(s); first: ${violations[0]}`)
+        throw new Error(
+          `[reads] fence violated ${violations.length} time(s); first: ${violations[0]}`,
+        )
       }
-      return { rows: seen.size, byEntity: { ...byEntity }, accesses: { ...accesses }, sample: [...sample] }
+      return {
+        rows: seen.size,
+        byEntity: { ...byEntity },
+        accesses: { ...accesses },
+        sample: [...sample],
+      }
     },
     reset(): void {
       seen.clear()
