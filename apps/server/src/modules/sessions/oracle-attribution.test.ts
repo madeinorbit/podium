@@ -14,14 +14,16 @@
  */
 
 import { firstAdminMemberId, type SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
+import { attachTestClient } from '../../test-support/client-transport'
 import {
   disposeOracles,
   MUST_NOT_CHANGE,
   makeOracle,
-  paintOracleTui,
-  waitFor,
+  PASTE_END,
+  PASTE_START,
+  ptyFrames,
   willChange,
 } from './oracle-support'
 
@@ -224,47 +226,38 @@ describe('oracle: who typed into this session', () => {
   it(`${NO_PERSON}: PTY frames carry inputOrigin — 'human' for direct terminal input, 'controller' for a chat send`, async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
-      type: 'bind',
-      sessionId,
-      cmd: 'claude',
-      cwd: '/p',
-      agentKind: 'claude-code',
-      geometry: { cols: 80, rows: 24 },
+    // Shells keep the raw PTY transport (POD-4427): harness sends ride the
+    // runtime gateway and never produce input frames, so the wire attribution
+    // is pinned here, where the bytes still exist. The property is unchanged:
+    // direct keystrokes stamp human, chat sends stamp controller.
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const clientId = attachTestClient(o.reg.clientGateway, () => {})
+    await o.reg.clientGateway.routeClientFrame(clientId, {
+      type: 'hello',
+      wireVersion: CLIENT_WIRE_VERSION,
+      clientId: '',
+      viewport: { cols: 80, rows: 24, dpr: 1 },
     })
-    await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
-      type: 'agentState',
-      sessionId,
-      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
-    })
+    await o.reg.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
+    await o.reg.clientGateway.routeClientFrame(clientId, { type: 'requestControl', sessionId })
     o.daemon.length = 0
 
-    await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1] }] })
-    const sending = o.call.sessions.sendText({ sessionId, text: 'via the substrate' })
+    await o.reg.clientGateway.routeClientFrame(clientId, {
+      type: 'input',
+      sessionId,
+      data: Buffer.from('x').toString('base64'),
+    })
+    await o.call.sessions.sendText({ sessionId, text: 'via the substrate' })
 
-    // A fresh Claude bind intentionally holds chat sends until the TUI has
-    // painted and settled. That readiness policy is orthogonal to this oracle;
-    // cross its boundary, then snapshot the exact input sequence before the
-    // later submit-verification carriage return can add another frame.
-    paintOracleTui(o, sessionId)
-    await sending
-    let origins: (string | undefined)[] = []
-    await waitFor(
-      () => {
-        const next = o.daemon
-          .filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
-          .map((m) => m.inputOrigin)
-        if (!next.includes('controller')) return false
-        origins = next
-        return true
-      },
-      'the attributed chat send to reach the PTY',
-      20_000,
-    )
     // Both are the SAME operator; the field distinguishes direct terminal input
     // from controller-mediated user input. Agent/system delivery remains 'mail'.
-    expect(origins).toEqual(['human', 'controller'])
+    // EXACT sequence, not a substring: one human keystroke, one bracketed-paste
+    // controller frame carrying the text and nothing else, plus its submit CR.
+    expect(ptyFrames(o.daemon)).toEqual([
+      { inputOrigin: 'human', data: 'x' },
+      { inputOrigin: 'controller', data: `${PASTE_START}via the substrate${PASTE_END}` },
+      { inputOrigin: 'controller', data: '\r' },
+    ])
   })
 })
 
