@@ -169,8 +169,9 @@ throws, so a count run with the fence off fails instead of reporting zero.
 
 **What the runtime does not close.** An arm that copies each borrowed row
 into an object of its own, keeps it in a second container the fence never
-wraps, and reads only that is counted once at the copy. That shape is a lint
-and shape-review item for L6a (POD-4563), not something the fence detects.
+wraps, and reads only that is counted once at the copy. L6a (POD-4563) closes
+the reachable form with the copy sweep (next section); closure-held copies stay
+a review item.
 The fence also counts ENTITY rows, not the arm's own derived values: a sort
 over cached per-row rank keys reads no entity row, and neither does a walk
 over any other per-row cache the arm keeps. That is legitimate for a sort
@@ -241,6 +242,74 @@ bun run test:file -- packages/worklist-proto/shared/src/instrument/reads.test.ts
   packages/worklist-proto/harness/src/count-harness.test.ts \
   packages/worklist-proto/harness/src/reads-probe.test.tsx \
   packages/worklist-proto/harness/src/legacy-control/control.test.tsx
+```
+
+## Exact commits, the copy sweep and the lint fence (POD-4563)
+
+Three fences every round-three arm meets identically, each proven to fail.
+
+**Exact commits** (`assertCommits`, `harness/src/count-harness.tsx`). The rows
+an arm redraws must EQUAL the rows whose row view changed: set equality, no
+allowance list. The oracle is the row-view oracle
+(`harness/src/oracle/row-views.ts`): every `RowView` field, projected from the
+same legacy derivation as parity (the `SliceRow` half IS the parity row;
+`selected`, the origin tick, `activityAt`, `workingSince` and the placement
+inputs cite their legacy source). A `CountInput` supplies it as `views()`; the
+harness calls it before and after the change and compares rows visible in
+both. "Redrew" is a non-mount commit, or a REmount of a row visible before and
+after (the commit log now records mounts). Over-commit is the work round two
+hid behind "≤ budget"; under-commit is a stale screen parity cannot see,
+because parity reads `snapshot()`, not what was drawn. No `views` = no commit
+cell = the assertion throws. Round two's `allowOver` list (the #4 origin tick)
+is gone: the tick is a view field.
+
+`harness/src/fence-scenarios.ts` is the one scenario list (#1–#10 with the #9
+steps, one engine, methodology order; row-view locals come from the engine's
+selection and clock). `harness/src/fences.test.tsx` runs it:
+
+- the REFERENCE arm (`harness/src/reference-arm/`: the oracle drawn through
+  memoised `RowShell` rows) passes `assertCommits` on every step — the fence
+  can say YES through a real React tree; `#2 #3 #4 #5 #7 #10` must change at
+  least one visible row, so the pass is not 0 == 0. At 1x (seed 4443),
+  changed = drawn: #2 1, #3 1, #4 1, #5 1, #7 2, #10 54, every other step 0.
+- every arm in `harness/src/roster.ts` must pass, on every step, the exact
+  commit fence, parity, the L5a reads budget where one is fixed, and the copy
+  sweep. The roster must name exactly the `arms/*` folders with a
+  `fence.json`.
+- the NO: the legacy control fails `assertCommits` on the heartbeat
+  (`control.test.tsx`: changed 0, drawn every visible row). Mutants of the
+  reference arm, each red with parity green: an unmemoised slot (#1: over, all
+  211 rows), a stale view (#2: under=[i17]), a remount per render (#1: over via
+  remounts, `rowsCommitted` 0 — the round-two isolation fence passes it).
+
+**The copy sweep** (`fence.assertNoCopies(handle)`, `shared/src/instrument/
+reads.ts`). Walks everything reachable from the arm handle by reflection (own
+data properties, symbol keys, Map/Set entries; never a getter, never a
+borrowed row or a fenced table) and fails on an object carrying a fed row's key
+plus two or more of that row's own values outside the row-view vocabulary —
+a copy the reads fence would count once and never again. It also fails when it
+reaches no wrapped table: then it is blind, and silence is not a pass. It
+cannot see closures, `#private` fields or weak collections; the lint forbids
+module-scope state and `#private` fields, and closures stay a review item, as
+do walks over an arm's own per-row caches.
+
+**The lint fence** (`harness/lint/`, README there). One ESLint plugin over
+every folder under `arms/` (frozen round-two `hand`/`mobx` get only the
+wall-clock rule): a manifest per arm (`fence.json`: exactly one enumeration
+module, named in the arm README), no table walk outside it, no store reached
+from a component or row module by value import (transitively, chain named),
+the `RowShell` component a module-scope identifier, no `Date.now` in `arms/`,
+no module-scope state or `#private` fields. `bun run lint` in the package runs
+it; `fence-lint.test.ts` runs in the test lane, plants each mistake next to its
+clean twin, and lints the real `arms/` through the package config.
+
+```bash
+bun run test:file -- packages/worklist-proto/harness/src/fences.test.tsx \
+  packages/worklist-proto/harness/lint/fence-lint.test.ts \
+  packages/worklist-proto/harness/src/count-harness.test.ts \
+  packages/worklist-proto/harness/src/legacy-control/control.test.tsx \
+  packages/worklist-proto/shared/src/instrument/reads.test.ts \
+  packages/worklist-proto/harness/src/oracle/row-views.test.ts
 ```
 
 ## The control and what its failure looks like

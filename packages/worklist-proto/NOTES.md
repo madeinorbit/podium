@@ -1,5 +1,49 @@
 # worklist-proto — package notes
 
+## POD-4563 (L6a) — equal commit and lint fences · 2026-09-22
+
+What landed and how each is proven: `docs/plans/pod-4441-harness.md`, "Exact
+commits, the copy sweep and the lint fence".
+
+### Decisions
+
+- **The commit oracle is the ROW VIEW, not `SliceSnapshot`.** Set equality
+  with an empty allowance list is only honest against every field a row
+  draws; `SliceSnapshot` omits selection, the origin tick and the stamps
+  (round two's `allowOver`). New `harness/src/oracle/row-views.ts`; the L1b
+  differential test now reads its views from it.
+- **A remount of a row visible before and after counts as a redraw.** Without
+  it a list that remounts every row on every change commits nothing and passes
+  (mutant proven: `rowsCommitted` 0, 211 remounts). The commit log records
+  mounts; `CommitBoundary` reports them.
+- **Rows entering or leaving are not compared** (a mount is not a redraw).
+- **Under happy-dom an arm must draw every visible row** (no layout: the
+  round-two lists already degrade to a full render). A windowing arm that
+  drew fewer would read as under-commit.
+- **Row-view locals come from the engine** (`selectedIssueId`, `coarseNow`),
+  because #3 and #8 are engine writes. Parity stays the unselected baseline.
+- **No new reads budgets.** L5a fixed #1–#5; #6–#10 carry none, and this issue
+  did not invent any (pitfall g).
+- **Copy sweep threshold:** key + 2 raw field values outside the row-view
+  vocabulary. A RowView shares title/seq/createdAt/sortKey/pinned by contract,
+  hence the exemption list.
+- **Lint scope:** every folder under `arms/` except frozen `hand`/`mobx`; a
+  new folder without `fence.json` is red, and a `fence.json` without a roster
+  entry is red in `fences.test.tsx`, so an arm cannot skip either fence.
+
+### Open questions (for the coordinator)
+
+1. `ArmHandle`/`Arm.create` has no channel for locals after creation. The
+   fence's #3 (selection) and #8 (clock tick) expect the rows the ENGINE's
+   selection and clock change; a round-three arm cannot follow them through
+   the contract as it stands. Needs a contract decision before Ma1/Ha1 run
+   the fence (a locals subscription on the create call, or a `setLocals`).
+2. `RowView.workingSince` cites `workingSinceMs`, which has no production
+   caller in the web app (only its own test). The oracle mirrors the function
+   over the row's own working seats.
+3. The fence suite is web-lane only; the native lane (`harness/native/`) has
+   no row-view oracle wiring yet.
+
 ## POD-4550 (L2a) — one corpus everywhere · 2026-09-22
 
 ### What changed
