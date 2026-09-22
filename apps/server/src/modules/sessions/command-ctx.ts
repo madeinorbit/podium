@@ -123,6 +123,9 @@ export async function sessionCommandCtx(
     issueOwner: async (issueId) => (await issues.ownedTarget(issueId, 'read'))?.owner ?? undefined,
     access: {
       sessionById: async (sessionId) => await sessions.sessionById(sessionId),
+      // Unambiguous prefix only (POD-4536) — ids from the cheap in-memory facts
+      // read, never the full projection. Consulted only after an exact miss.
+      listSessionIds: () => sessions.sessionFacts().map((s) => s.sessionId),
       issues: asyncSessionIssueAccess(issues),
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },

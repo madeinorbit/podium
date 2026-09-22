@@ -73,6 +73,13 @@ export interface SessionAccessDeps {
   sessionById(
     sessionId: SessionId,
   ): Promise<SessionTargetRow | undefined>
+  /** ALL live session ids, for unambiguous prefix resolution only.
+   *  OPTIONAL so narrow fixtures that never exercise a prefix keep working.
+   *  Production wires it from the cheap in-memory facts read — ids only, never
+   *  the full reader-scoped projection POD-3857 deleted. It is consulted ONLY
+   *  after the exact-match fast path misses, so a full uuid never pays for a
+   *  scan. */
+  listSessionIds?: () => Promise<readonly SessionId[]> | readonly SessionId[]
   /** Issue index for the subtree gate, and cwd → issue derivation. */
   /** `issueForCwd` is `string | null` on IssueService and `undefined` on the
    *  narrow test fixtures; both spellings mean "no issue owns this cwd". */
@@ -98,20 +105,53 @@ export type SessionTarget =
   | { kind: 'visible'; session: SessionTargetRow }
   /** Nonexistent, or invisible to the delegating human — deliberately one case. */
   | { kind: 'absent' }
+  /** A prefix naming more than one VISIBLE session — never silently picked. */
+  | { kind: 'ambiguous'; prefix: string; candidates: SessionId[] }
 
 /** The message every absent target produces, on every command. */
 export const SESSION_NOT_FOUND = 'session not found'
 
-/** Resolve a caller-supplied session id. Never throws; the caller decides shape. */
+/** The message an ambiguous prefix produces — names the candidates, so it can
+ *  never be mistaken for "the session is gone". Sorted for determinism. */
+export function ambiguousSessionPrefixMessage(prefix: string, candidates: readonly SessionId[]): string {
+  const sorted = [...candidates].sort()
+  return `ambiguous session id prefix '${prefix}' matches ${sorted.length} sessions: ${sorted.join(', ')}`
+}
+
+/** Resolve a caller-supplied session id. Never throws; the caller decides shape.
+ *
+ *  Exact match first (fast path, no scan). On a miss, an unambiguous id PREFIX
+ *  resolves when exactly one VISIBLE session starts with it. Invisible matches
+ *  are dropped before counting, so a hidden session neither resolves nor makes
+ *  a visible one ambiguous — both would be an existence oracle. */
 export async function resolveSessionTarget(
   principal: CommandPrincipal,
   sessionId: SessionId,
   deps: SessionAccessDeps,
 ): Promise<SessionTarget> {
   const session = await deps.sessionById(sessionId)
-  if (!session) return { kind: 'absent' }
-  const visible = await (deps.visibility ?? everythingVisible)(principal, session)
-  return visible ? { kind: 'visible', session } : { kind: 'absent' }
+  if (session) {
+    const visible = await (deps.visibility ?? everythingVisible)(principal, session)
+    return visible ? { kind: 'visible', session } : { kind: 'absent' }
+  }
+  if (!sessionId || !deps.listSessionIds) return { kind: 'absent' }
+  const allIds = await deps.listSessionIds()
+  const prefixed = allIds.filter((id) => id.startsWith(sessionId))
+  if (prefixed.length === 0) return { kind: 'absent' }
+  const visibleRows: SessionTargetRow[] = []
+  const visibleIds: SessionId[] = []
+  for (const id of prefixed) {
+    const row = await deps.sessionById(id)
+    if (!row) continue
+    const visible = await (deps.visibility ?? everythingVisible)(principal, row)
+    if (visible) {
+      visibleRows.push(row)
+      visibleIds.push(id)
+    }
+  }
+  if (visibleRows.length === 0) return { kind: 'absent' }
+  if (visibleRows.length === 1) return { kind: 'visible', session: visibleRows[0] as SessionTargetRow }
+  return { kind: 'ambiguous', prefix: sessionId, candidates: [...visibleIds].sort() }
 }
 
 /**

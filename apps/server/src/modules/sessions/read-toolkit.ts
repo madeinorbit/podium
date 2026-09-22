@@ -30,6 +30,7 @@ import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { buildBtwDelta, buildBtwRecap, lineForItem } from '../superagent/btw'
 import type { SessionFacts } from './facts'
+import { ambiguousSessionPrefixMessage } from './session-access'
 
 /** Hard caps: transcript lines per read call and turns per window. */
 export const READ_LINE_CAP = 200
@@ -209,6 +210,22 @@ export class SessionReadToolkit {
   ): Promise<SessionFacts | undefined> {
     const direct = all.find((session) => session.sessionId === identifier)
     if (direct) return direct
+    // Unambiguous id PREFIX (POD-4536) — the short id the UI shows. Exact first
+    // so a full uuid never scans; a prefix matching exactly one session resolves,
+    // several throws naming the candidates (never silently picks), none falls
+    // through to the birth-ref / issue-ref arms below.
+    if (identifier) {
+      const prefixed = all.filter((session) => session.sessionId.startsWith(identifier))
+      if (prefixed.length === 1) return prefixed[0]
+      if (prefixed.length > 1) {
+        throw new Error(
+          ambiguousSessionPrefixMessage(
+            identifier,
+            prefixed.map((s) => s.sessionId),
+          ),
+        )
+      }
+    }
     const parsed = parseSessionRef(identifier)
     if (!parsed) return undefined
     const candidates = all.filter((session) =>

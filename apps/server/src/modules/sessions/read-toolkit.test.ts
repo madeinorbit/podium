@@ -230,6 +230,31 @@ describe('session status (tier 1)', () => {
     const s = await toolkit.status(birthRef, 'operator')
     expect(s.sessionId).toBe('dc9086cd-8bc9-4eb5-b1da-83094fafa7e4')
   })
+
+  it('resolves an 8-char id prefix like the full uuid (POD-4536)', async () => {
+    const full = 'e10d1055-e770-44a6-bfd4-993c4867297d'
+    const { toolkit } = harness({
+      sessions: [session({ sessionId: asSessionId(full), issueId: ISSUE.id })],
+    })
+    const byFull = await toolkit.status(full, 'operator')
+    const byPrefix = await toolkit.status(full.slice(0, 8), 'operator')
+    expect(byFull.sessionId).toBe(full)
+    expect(byPrefix.sessionId).toBe(full)
+    expect(byPrefix.sessionId).toBe(byFull.sessionId)
+  })
+
+  it('refuses an ambiguous prefix naming the candidates (POD-4536)', async () => {
+    const a = 'aaaaaaaa-1111-4111-8111-111111111111'
+    const b = 'aaaaaaaa-2222-4222-8222-222222222222'
+    const { toolkit } = harness({
+      sessions: [session({ sessionId: asSessionId(a) }), session({ sessionId: asSessionId(b) })],
+    })
+    await expect(toolkit.status('aaaaaaaa', 'operator')).rejects.toThrow(/ambiguous/)
+    await expect(toolkit.status('aaaaaaaa', 'operator')).rejects.toThrow(a)
+    await expect(toolkit.status('aaaaaaaa', 'operator')).rejects.toThrow(b)
+    // Still not-found for a prefix matching nothing — distinct from ambiguous.
+    await expect(toolkit.status('bbbbbbbb', 'operator')).rejects.toThrow(/no session found/)
+  })
 })
 
 describe('session read (tier 2)', () => {

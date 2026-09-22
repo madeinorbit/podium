@@ -76,6 +76,7 @@ import type { SendDisposition } from '../messages/service'
 import { type AnswerChoice, inboxPrincipalFromCommand } from './inbox'
 import type { SessionLifecycle } from './lifecycle'
 import {
+  ambiguousSessionPrefixMessage,
   assertMayCommandSession,
   resolveSessionTarget,
   SESSION_NOT_FOUND,
@@ -243,6 +244,9 @@ export class SessionCommandCtx {
    * Resolve an existing target through the ONE shared helper, run both gates,
    * and hand back the row — or `undefined` when the target is absent, which is
    * the caller's cue to produce that command's pinned not-found shape.
+   *
+   * An ambiguous prefix THROWS naming the candidates, so it can never read as
+   * "the session is gone".
    */
   async target(
     sessionId: SessionId,
@@ -250,6 +254,9 @@ export class SessionCommandCtx {
   ): Promise<(SessionTargetRow & { machineId?: MachineId }) | undefined> {
     const resolved = await resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
+    if (resolved.kind === 'ambiguous') {
+      throw new Error(ambiguousSessionPrefixMessage(resolved.prefix, resolved.candidates))
+    }
     await assertMayCommandSession(
       this.principal,
       resolved.session,
