@@ -60,13 +60,17 @@ Numbers: `docs/measurements/POD-4441-fixture-shape.md`, "Shape at every scale".
 
 ### Open
 
-- **Round-two arms: 18 tests in 13 files are `it.fails`** (coordinator
-  ruling, option 1). Each diverged only on the tie root (`i286` at 1x),
+- **Round-two arms: 20 tests in 15 files are `it.fails`** (coordinator
+  ruling, option 1). 18 were marked by POD-4551; the native-lane pair
+  (`harness/native/hand.native.test.tsx` and `mobx.native.test.tsx`, "runs
+  count scenarios #1-#3 with parity; #1 commits zero") was marked by POD-4608,
+  because the POD-4551 suite run never reached the native lane. Red on the
+  integration branch from ca6e74377 until then. Each diverged only on the tie root (`i286` at 1x),
   because those arms never collapse resume twins. COST: `it.fails` passes on
-  ANY failure, not only the twin divergence. So these 18 tests no longer
+  ANY failure, not only the twin divergence. So these 20 tests no longer
   guard their other assertions (budgets, rebuild oracle, isolation) for the
   round-two arms. That is acceptable only because those arms are no longer
-  judged. Never copy the pattern onto a round-three arm. The 18 tests are
+  judged. Never copy the pattern onto a round-three arm. The 20 tests are
   deleted with the round-two code their pool replaces (pinned into Ma1/Ha1).
 - `gen/changes.ts` still filters malformed sort-key bounds. With valid corpus
   keys that filter never fires; left alone because POD-4556 builds on

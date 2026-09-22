@@ -22,7 +22,8 @@ import type { HandStore } from '../../arms/hand/store'
 import { fixedLocals } from '../../shared/src/locals-source'
 
 describe('hand-rolled arm on the native renderer', () => {
-  it('runs count scenarios #1-#3 with parity; #1 commits zero', async () => {
+  // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm. Marked by POD-4608: the POD-4551 sweep never reached the native lane.
+  it.fails('runs count scenarios #1-#3 with parity; #1 commits zero', async () => {
     await preloadHandNative()
     const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
