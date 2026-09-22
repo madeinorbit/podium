@@ -7,6 +7,7 @@ import {
   asThreadId,
   IssueIdField,
   isAgentKind,
+  MachineIdField,
   ResumeRef,
   SessionIdField,
   ThreadIdField,
@@ -444,6 +445,22 @@ export const appRouter = t.router({
     list: t.procedure.query(async ({ ctx }) =>
       await visibleMachinesFor(familyState(ctx).modules, ctx.capability),
     ),
+    /**
+     * Served harness descriptors for one machine (POD-4475): the daemon's
+     * last `inventoryReport` descriptors, or [] when none arrived (older
+     * daemon, no report yet) — clients fall back to the bundled copy in
+     * `@podium/harness/browser`. Visibility-scoped like `list`: a machine
+     * the principal cannot see yields nothing, never an error that leaks
+     * its existence.
+     */
+    descriptors: t.procedure
+      .input(z.object({ machineId: MachineIdField }))
+      .query(async ({ ctx, input }) => {
+        const modules = familyState(ctx).modules
+        const visible = await visibleMachinesFor(modules, ctx.capability)
+        if (!visible.some((machine) => machine.id === input.machineId)) return []
+        return modules.machines.harnessDescriptorsFor(input.machineId) ?? []
+      }),
     // rename · revoke · pairingCode — DERIVED (POD-384). All three are hub-role
     // by contract (`serverRole: 'hub'`), which is where the 404 now comes from.
     ...fleet.machines,

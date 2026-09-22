@@ -39,6 +39,7 @@ import {
 import type {
   DaemonHandshake,
   DaemonPtyInputBatch,
+  HarnessDescriptorWire,
   LiveServerMessage,
   MachineSupervisorControlMessage,
   MachineVerb,
@@ -369,7 +370,17 @@ export class MachinesService {
    * committed handoff leaves the sealed source untouched and the daemon reports
    * again when it reconnects to the promoted target.
    */
-  private readonly deferredInventoryByMachine = new Map<MachineId, string>()
+  private readonly deferredInventoryByMachine = new Map<
+    MachineId,
+    { json: string; descriptors: HarnessDescriptorWire[] }
+  >()
+  /**
+   * Last served harness descriptors per machine (POD-4475): the daemon's
+   * `inventoryReport` descriptors, forwarded to clients. In-memory like
+   * `daemonReadiness` (a daemon re-reports on every connect, so nothing
+   * persists), cleared with the incarnation.
+   */
+  private readonly harnessDescriptorsByMachine = new Map<MachineId, HarnessDescriptorWire[]>()
   /** The last inventory JSON persisted per machine; cleared with the incarnation. */
   private readonly lastInventoryJsonByMachine = new Map<MachineId, string>()
   /**
@@ -421,6 +432,7 @@ export class MachinesService {
     this.legacyBuilds.delete(id)
     this.inventoryPending.delete(id)
     this.lastInventoryJsonByMachine.delete(id)
+    this.harnessDescriptorsByMachine.delete(id)
     this.settleInventoryWaiters(id)
     this.clearPresenceGrace(id)
     const connections = this.credentialConnections.get(id)
@@ -1584,13 +1596,22 @@ export class MachinesService {
   }
 
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
-  async recordInventory(machineId: MachineId, inventory: Inventory): Promise<void> {
+  async recordInventory(
+    machineId: MachineId,
+    inventory: Inventory,
+    descriptors: HarnessDescriptorWire[] = [],
+  ): Promise<void> {
     const inventoryJson = JSON.stringify(inventory)
     if (this.deps.store.transferFenceActive) {
-      this.deferredInventoryByMachine.set(machineId, inventoryJson)
+      this.deferredInventoryByMachine.set(machineId, { json: inventoryJson, descriptors })
       return
     }
-    await this.persistInventory(machineId, inventoryJson)
+    await this.persistInventory(machineId, inventoryJson, descriptors)
+  }
+
+  /** Last served descriptors for a machine (POD-4475), if its daemon reported any. */
+  harnessDescriptorsFor(machineId: MachineId): HarnessDescriptorWire[] | undefined {
+    return this.harnessDescriptorsByMachine.get(machineId)
   }
 
   /** Reconcile daemon inventory after a recoverable transfer abort releases SQLite. */
@@ -1611,17 +1632,21 @@ export class MachinesService {
         supervisor.caps,
       )
     }
-    for (const [machineId, inventoryJson] of this.deferredInventoryByMachine) {
-      await this.persistInventory(machineId, inventoryJson)
+    for (const [machineId, deferred] of this.deferredInventoryByMachine) {
+      await this.persistInventory(machineId, deferred.json, deferred.descriptors)
       // A synchronous projection callback could have received a newer report.
       // Only remove the exact value just persisted so newest-wins remains true.
-      if (this.deferredInventoryByMachine.get(machineId) === inventoryJson) {
+      if (this.deferredInventoryByMachine.get(machineId) === deferred) {
         this.deferredInventoryByMachine.delete(machineId)
       }
     }
   }
 
-  private async persistInventory(machineId: MachineId, inventoryJson: string): Promise<void> {
+  private async persistInventory(
+    machineId: MachineId,
+    inventoryJson: string,
+    descriptors: HarnessDescriptorWire[] = [],
+  ): Promise<void> {
     // A REPEATED, IDENTICAL REPORT MUST NOT RE-PROJECT EVERY SESSION ON THE MACHINE.
     // The daemon re-reports on a timer and the gateway polls it every 10 s for
     // three minutes after each attach (POD-4259). `machine.metadataChanged` makes
@@ -1636,6 +1661,7 @@ export class MachinesService {
     // report of a new daemon always publishes.
     const unchanged = this.lastInventoryJsonByMachine.get(machineId) === inventoryJson
     this.lastInventoryJsonByMachine.set(machineId, inventoryJson)
+    this.harnessDescriptorsByMachine.set(machineId, descriptors)
     await this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)

@@ -42,6 +42,7 @@ import type {
   WorkState,
 } from '@podium/model'
 import type {
+  HarnessDescriptorWire,
   LockWire,
   ModelChoiceWire,
   SyncChangesSinceResult,
@@ -139,6 +140,15 @@ export interface PodiumClientApi {
         version?: number
       }
     >
+  }
+  /**
+   * Served harness descriptors (POD-4475): the daemon's last report per
+   * machine. [] means "no report yet" — clients render the bundled copy.
+   * Type-only mirror of the hand-written `machines` router in
+   * `apps/server/src/router.ts` (same shape as `models` above).
+   */
+  machines?: {
+    descriptors: ApiQuery<{ machineId: MachineId }, HarnessDescriptorWire[]>
   }
   sessions: {
     create: ApiMutation<

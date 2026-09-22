@@ -148,7 +148,7 @@ const DISPATCH: Dispatcher = {
 
   // ---- machines: the machine's own reported inventory, scoped by principal ----
   inventoryReport: (ports, principal, msg) =>
-    ports.machines.recordInventory(principal.machine, msg.inventory),
+    ports.machines.recordInventory(principal.machine, msg.inventory, msg.descriptors),
   machineHarnessVersion: (ports, principal, msg) =>
     ports.machines.recordHarnessVersion(principal.machine, msg),
   machineDiagnostic: (ports, principal, msg) =>
