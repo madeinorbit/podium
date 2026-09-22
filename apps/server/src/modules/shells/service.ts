@@ -170,7 +170,7 @@ export class DockShellService {
  * dead — the same session id resumes in place — and starting/reconnecting are
  * healthy transients that must never trigger a replacement loop.
  */
-function isLiveDockShell(view: DockShellSessionView | undefined): view is DockShellSessionView {
+function isLiveDockShell(view: DockShellSessionView | undefined): boolean {
   if (!view) return false
   if (view.agentKind !== 'shell') return false
   if (view.archived) return false

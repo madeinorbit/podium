@@ -211,6 +211,11 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   // POD-1380. Event-stream read positions — per-user-state for the same reason
   // as the layout row, and monotonic rather than last-writer-wins.
   { store: 'user_read_position', kind: 'drizzle-table', row: 'feed-read-cursor' },
+  // POD-4436. Server-owned dock-shell mapping — per-user-state for the same
+  // reason as the layout row: which shell belongs to a worktree follows the
+  // person across devices. One row per (user, worktree); tab shells never
+  // grow a row here.
+  { store: 'user_dock_shell', kind: 'drizzle-table', row: 'dock-shell-mapping' },
   {
     store: '<repo>/pspec/SP-xxxx.html',
     kind: 'filesystem',

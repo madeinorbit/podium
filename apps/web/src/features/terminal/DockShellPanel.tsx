@@ -18,10 +18,13 @@ import { useTerminalAppearance } from './use-terminal-appearance'
 /**
  * The right dock's Shell panel (#23) [spec:SP-75b1]: one shell session per
  * worktree, living IN the dock — not in the workspace tab strip (the strip
- * filters ids in `dockShells`). The mapping is persisted, so a reload (or
- * closing and reopening the panel) reattaches the same shell with its
- * scrollback; a dead shell is archived and replaced with a fresh one, while a
- * parked (hibernated) shell is resumed in place under the SAME id (POD-4429).
+ * filters ids in `dockShells`). The mapping is SERVER-OWNED (POD-4436,
+ * `shells.forWorktree`): the same dock shell opens on every device, and the
+ * device-local `dockShells` map is only the instant cache until the server
+ * answers, then the server wins. A reload (or closing and reopening the
+ * panel) reattaches the same shell with its scrollback; a dead shell is
+ * archived and replaced with a fresh one, while a parked (hibernated) shell
+ * is resumed in place under the SAME id (POD-4429).
  */
 export function DockShellPanel({
   cwd,
@@ -74,12 +77,13 @@ export function DockShellPanel({
     pendingId.current = null
   }
   // Create only when we can DISTINGUISH "dead" from "not synced yet":
-  //  - no mapping at all → fresh worktree, create (after boot data loaded);
-  //  - mapped and the session row is present but dead → replace;
-  //  - mapped but absent from a NON-EMPTY synced session list → gone, replace.
+  //  - no mapping at all → fresh worktree, resolve (after boot data loaded);
+  //  - mapped and the session row is present but dead → resolve (the server
+  //    archives and replaces under the same worktree key);
+  //  - mapped but absent from a NON-EMPTY synced session list → gone, resolve.
   // A mapped id with no session rows at all means the boot sync hasn't landed —
-  // render the connecting state and wait, don't spawn a duplicate.
-  // A parked shell never creates (POD-4429): it resumes the same id in place.
+  // render the connecting state and wait, don't resolve a duplicate.
+  // A parked shell never resolves (POD-4429): it resumes the same id in place.
   const needsCreate =
     !alive &&
     !parked &&
@@ -93,16 +97,13 @@ export function DockShellPanel({
     creating.current = true
     void (async () => {
       try {
-        // A mapped-but-dead shell can't be revived in place — archive it so it
-        // never resurfaces as a workspace tab once the map points elsewhere.
-        if (session && !session.archived) {
-          await trpc.sessions.setArchived
-            .mutate({ sessionId: session.sessionId, archived: true })
-            .catch(() => {})
-        }
-        const { sessionId } = await trpc.sessions.create.mutate({
-          agentKind: 'shell',
-          cwd,
+        // SERVER-OWNED mapping (POD-4436): returns-or-creates the dock shell
+        // for this worktree, so two devices opening the same worktree attach
+        // to the same session id. Creation stays a normal shell spawn; the
+        // device-local map is only refreshed from the answer (cache, server
+        // wins). A mapped-but-dead shell is archived and replaced server-side.
+        const { sessionId } = await trpc.shells.forWorktree.mutate({
+          worktreePath: cwd,
           ...(machineId ? { machineId } : {}),
         })
         pendingId.current = sessionId
@@ -114,7 +115,7 @@ export function DockShellPanel({
         creating.current = false
       }
     })()
-  }, [needsCreate, cwd, machineId, session, trpc, setDockShell])
+  }, [needsCreate, cwd, machineId, trpc, setDockShell])
 
   const terminalShown = alive && !!mapped && session.status !== 'starting'
   // Report the rendered dock shell in the viewState `visible` set: the server's
