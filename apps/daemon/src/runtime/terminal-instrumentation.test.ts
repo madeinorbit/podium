@@ -10,7 +10,7 @@ import {
   installTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
-} from '@podium/harness/driver/families/terminal/instrumentation'
+} from '@podium/harness/driver/host'
 
 const directories: string[] = []
 async function directory() {

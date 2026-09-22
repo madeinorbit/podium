@@ -8,7 +8,7 @@ import {
   type InstalledTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
-} from '@podium/harness/driver/families/terminal/instrumentation'
+} from '@podium/harness/driver/host'
 /**
  * THE TERMINAL DRIVER — today's PTY stack behind the Agent Runtime contract
  * (POD-1761 W3; spec §3, §9 phase 2 daemon half).

@@ -31,8 +31,8 @@ import {
   manifestFor,
   type SelectionContext,
 } from '@podium/harness'
-import type { TerminalInstrumentationSections } from '@podium/harness/driver/families/terminal/instrumentation'
-import type { TerminalComposerSections } from '@podium/harness/driver/families/terminal/composer-sync'
+import type { TerminalInstrumentationSections } from '@podium/harness/driver/host'
+import type { TerminalComposerSections } from '@podium/harness/driver/host'
 import type { AgentKind } from '@podium/model'
 import type { TerminalHarnessProfile } from './terminal-driver'
 

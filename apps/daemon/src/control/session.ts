@@ -79,7 +79,7 @@ import {
   installTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
-} from '@podium/harness/driver/families/terminal/instrumentation'
+} from '@podium/harness/driver/host'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import { appliedGeometryFor, bindFrame } from './applied-geometry'

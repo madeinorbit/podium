@@ -42,6 +42,16 @@ export * from './families/opencode2/index.js'
  *  `apps/daemon/src/runtime`, because it is composed of daemon internals this
  *  layer may not import. */
 export * from './families/terminal/index.js'
+/** The terminal family's host-only machinery, folded into this entry (POD-4498):
+ *  hook-install + ingest (`instrumentation.js`), the loopback bind + endpoint
+ *  policy (`loopback-listen.js`), and the composer-sync port
+ *  (`composer-sync.js`). The daemon reached these through three deep package
+ *  entries (`@podium/harness/driver/families/terminal/*`); those entries are
+ *  deleted, and the audit guard refuses any `./driver/families/` export key,
+ *  so this host entry is the only way to reach them. */
+export * from './families/terminal/instrumentation.js'
+export * from './families/terminal/loopback-listen.js'
+export * from './families/terminal/composer-sync.js'
 /** The supervision port every engine host is handed (1.5, spec §4.8): the
  *  supervisor owns spawn/re-attach/kill, families compose argv/env and bind
  *  protocol. Implemented once in the daemon's process-supervision wiring. */
