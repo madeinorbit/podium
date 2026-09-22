@@ -10,7 +10,8 @@ const buildInventory = vi.fn<() => Promise<Inventory>>()
 // it was handed, because "which home did it read the claude login from" is the
 // part of the daemon's wiring worth pinning.
 const probeModels = vi.fn<(opts: unknown) => Promise<Record<string, unknown[]>>>()
-vi.mock('@podium/harness', () => ({
+vi.mock('@podium/harness', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@podium/harness')>()),
   probeAllModels: (opts: unknown) => probeModels(opts),
 }))
 vi.mock('@podium/harness/driver/host', async (importOriginal) => ({
@@ -141,8 +142,25 @@ describe('daemon inventory reporting (#222)', () => {
     const { ctx, sent } = makeCtx()
     await reportInventory(ctx)
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
     ])
+  })
+
+  it('serves harness descriptors inside inventoryReport (POD-4475)', async () => {
+    const { ctx, sent } = makeCtx()
+    await reportInventory(ctx)
+    const report = sent.find((m) => m.type === 'inventoryReport')
+    expect(report?.descriptors?.find((d) => d.kind === 'claude-code')).toMatchObject({
+      label: 'Claude Code',
+      shortLabel: 'Claude',
+      available: { installed: true, loggedIn: true },
+    })
+    // A harness the inventory probe never saw is still described (from the
+    // registry), with availability honestly false.
+    expect(report?.descriptors?.find((d) => d.kind === 'codex')).toMatchObject({
+      label: 'Codex',
+      available: { installed: false, loggedIn: false },
+    })
   })
 
   it('re-probes the production runtime on reconnect instead of replaying its snapshot', async () => {
@@ -151,7 +169,7 @@ describe('daemon inventory reporting (#222)', () => {
     expect(reprobe).toHaveBeenCalledTimes(1)
     expect(current).not.toHaveBeenCalled()
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-runtime', inventory: withBaselineDrivers(INV) },
+      { type: 'inventoryReport', machineId: 'm-runtime', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
     ])
   })
 
@@ -196,6 +214,7 @@ describe('daemon inventory reporting (#222)', () => {
             { harness: 'opencode', id: 'opencode-server', family: 'server' },
           ],
         },
+        descriptors: expect.any(Array),
       },
     ])
   })
@@ -228,8 +247,9 @@ describe('daemon inventory reporting (#222)', () => {
         type: 'inventoryReport',
         machineId: 'm-test',
         inventory: withBaselineDrivers(TIMED_OUT_INV),
+        descriptors: expect.any(Array),
       },
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
     ])
   })
 
@@ -256,7 +276,7 @@ describe('daemon inventory reporting (#222)', () => {
       await vi.advanceTimersByTimeAsync(100)
       expect(buildInventory).toHaveBeenCalledTimes(1)
       expect(sent).toEqual([
-        { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+        { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
       ])
       stop()
       await vi.advanceTimersByTimeAsync(200)
@@ -291,7 +311,7 @@ describe('daemon inventory reporting (#222)', () => {
     await Promise.all([stale, fresh])
 
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
     ])
   })
 
@@ -323,7 +343,7 @@ describe('daemon inventory reporting (#222)', () => {
 
     expect(buildInventory).toHaveBeenCalledTimes(2)
     expect(sent).toEqual([
-      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV), descriptors: expect.any(Array) },
     ])
   })
 

@@ -1,5 +1,9 @@
 import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/harness/driver/host'
-import { type MachineHarnessInventory, probeAllModels } from '@podium/harness'
+import {
+  type MachineHarnessInventory,
+  buildServedDescriptors,
+  probeAllModels,
+} from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type Inventory } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -142,6 +146,9 @@ export async function reportInventory(
           ...snapshot.inventory,
           runtimeDrivers: runtimeDriverInventory(snapshot.inventory, opencode2Drivable),
         },
+        // Served descriptors (POD-4475): adapter DATA plus this machine's
+        // availability, so clients render harnesses they never shipped.
+        descriptors: buildServedDescriptors(snapshot.inventory),
       })
       reportHarnessInventory(ctx.send, snapshot.inventory)
     } catch (err) {
@@ -214,6 +221,8 @@ export async function reportInventory(
       type: 'inventoryReport',
       machineId: asMachineId(machineId),
       inventory: { ...inventory, runtimeDrivers: runtimeDriverInventory(inventory) },
+      // Served descriptors (POD-4475): see the harnessRuntime path above.
+      descriptors: buildServedDescriptors(inventory),
     })
     reportHarnessInventory(ctx.send, inventory)
   } catch (err) {
