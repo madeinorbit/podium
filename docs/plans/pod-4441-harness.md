@@ -13,10 +13,12 @@ so the detector is proven before any arm is trusted.
 | Path | What |
 |---|---|
 | `shared/src/row-shell.tsx` | Required per-row wrapper: `RowShell`, `CommitLogContext`, `createCommitLog`, ambient `withCommitLog` / `withCommitLogAsync`, `currentCommitLog` |
-| `harness/src/count-harness.tsx` | CI counting: `mountArmForCounts`, `mountElementForCounts`, `mountNativeForCounts`, `createReplaySource`, `runCountScenario`, `assertIsolation` |
+| `shared/src/instrument/reads.ts` | Reads-per-change fence (POD-4557): `createReadFence`, `wrapTables`, `RelationReader`, `DISABLED_READ_FENCE` |
+| `harness/src/count-harness.tsx` | CI counting: `mountArmForCounts`, `mountElementForCounts`, `mountNativeForCounts`, `createReplaySource`, `runCountScenario`, `assertIsolation`, `assertReads`, `READ_BUDGETS` |
+| `harness/src/reads-probe.test.tsx` | The reads fence end to end, both directions (probe arms, real engine) |
 | `shared/src/scenarios.ts` | THE scenario library (POD-4550): boot (`startScenarioEngine`, `startEngineOnCorpus`), rule-picked targets (`pickTargets`), every write (`write*` settled / `apply*` synchronous), the thirteen scenarios. Count runs, web entries and native lanes all use it |
 | `harness/src/fixture/` | The ONE corpus: `buildCorpus(scale, seed)` |
-| `harness/src/legacy-control/` | The control: `arm.ts` (`legacyControlArmFor`), `list.tsx`, `native.tsx`, `control.test.tsx` (armed), `control-1x.test.tsx` (CI budget + JSON) |
+| `harness/src/legacy-control/` | The control: `arm.ts` (`legacyControlArmFor`), `list.tsx`, `native.tsx`, `fenced-store.ts` (its store read through the reads fence), `control.test.tsx` (armed), `control-1x.test.tsx` (CI budget + JSON) |
 | `harness/src/oracle/` | G2 oracle, plus `projectSnapshot` and `snapshotFromStore` (parity over live engine state) |
 | `harness/web/` | Vite pages per arm/control (`entries/`), shared page wiring (`entrylib.ts`, `window.__proto`) |
 | `harness/browser/run.ts` | Chromium timing driver (one invocation per arm/scale) |
@@ -113,7 +115,7 @@ no per-scenario equivalent here; `records[]` (one per scenario sample) is new.
 | Goal | Budget | Asserted where |
 |---|---|---|
 | Idle client | zero derivation work except on the clock tick | count harness (`notifications` on settle-only runs) |
-| Unrelated heartbeat | 0 rows committed, 0 derivations, publish ≤ 2 ms | counts in CI (`assertIsolation` + `rollupsDerived`); publish wall in Chromium |
+| Unrelated heartbeat | 0 rows committed, 0 derivations, ≤ 3 rows read, publish ≤ 2 ms | counts in CI (`assertIsolation` + `rollupsDerived` + `assertReads`); publish wall in Chromium |
 | Any single hot-path event | ≤ 8 ms main-thread p95 at live corpus | `taskMs` p95 in driver JSON |
 | Row click, input to paint, inside the slice | ≤ 16 ms p95 at 1x, ≤ 32 ms at 4x | `inputToPaintMs` p95 in driver JSON |
 | Cost follows the change, not the corpus | per-event slope across 1x/2x/4x ≤ 1.2 | driver runs at three scales; counts must match at all three |
@@ -125,6 +127,118 @@ Per-scenario row budgets are methodology §5.8 (#1: 0 rows; #2: 1 + ancestors;
 #3: 2; #4: 1; #5–#7: affected + order; #10: bounded; #11–#13: full once).
 Counts are asserted in CI; walls in Chromium. The growth slope (§1a, scenario
 #14) is the performance differentiator among arms that pass.
+
+## Reads per change (POD-4557)
+
+Rows committed says how much the screen redrew; it cannot see an arm that
+walks the whole corpus to decide which one row to redraw. The reads fence
+counts that walk. It is shared code (`shared/src/instrument/reads.ts`), owned
+by the harness, and the arm cannot turn it off.
+
+**What is counted.** `readsPerChange` is the number of DISTINCT `entity:id`
+rows read between the scenario's reset and the end of its `act` — before the
+harness calls `snapshot()` for parity, so the projection is never charged to
+the arm. Three doors:
+
+1. **Feed.** `mountArmForCounts` passes the arm's `RowSource` through
+   `reads.wrapSource`. Every row value arrives as a borrowed, read-only
+   counting proxy; any property read on it, at any later time, counts that
+   row.
+2. **Tables.** The arm wraps its entity tables with `reads.wrapTables(tables)`
+   (a `ReadonlyMap` per entity). `get`/`has` count the id. Every iteration
+   (`keys`, `values`, `entries`, `forEach`, `for…of`; array index reads)
+   counts every element it yields. Any other member throws. A value that the
+   feed did not hand out (a copy) throws.
+3. **Relations.** Relation buckets are read only through the shared
+   `RelationReader` (`one`, `many`, `size`), wrapped with
+   `reads.wrapRelations`. The relation name must be declared in
+   `shared/src/schema.ts`. `one` counts its target; `many` counts every id it
+   yields; `size` is free.
+
+A refusal throws AND is recorded. The feed swallows a throwing listener
+(`row-source.ts` `emit`), so `stats()` re-throws the first recorded violation
+for the rest of the fence's life, and a count run on a violating arm fails.
+
+**What a round-three arm must do** (Ma1/Ha1 and later): take the third
+`create` argument `reads`; store the borrowed row objects from the feed, never
+a copy of their fields; read every entity table through
+`reads.wrapTables(...)` and every relation bucket through
+`reads.wrapRelations(...)`. Timing entries pass `DISABLED_READ_FENCE`, whose
+wrappers are the identity (no proxy cost in the browser) and whose `stats()`
+throws, so a count run with the fence off fails instead of reporting zero.
+
+**What the runtime does not close.** An arm that copies each borrowed row
+into an object of its own, keeps it in a second container the fence never
+wraps, and reads only that is counted once at the copy. That shape is a lint
+and shape-review item for L6a (POD-4563), not something the fence detects.
+The fence also counts ENTITY rows, not the arm's own derived values: a sort
+over cached per-row rank keys reads no entity row, and neither does a walk
+over any other per-row cache the arm keeps. That is legitimate for a sort
+whose keys are cached (only the moved row's key is recomputed from its row),
+and it is also how whole-collection work could hide from this count. The
+growth slope across 1x/2x/4x (walls, L5b) and review catch the second case;
+this fence does not.
+
+**Budgets.** Fixed here before any round-three arm is measured, in
+`READ_BUDGETS` (`count-harness.tsx`). None is re-read on another dimension
+after measuring.
+
+| Scenario | Budget (distinct rows read) | Why |
+|---|---|---|
+| #1 unrelated heartbeat | ≤ 3 | The changed session, and at most its issue and one relation hop. |
+| #2 visible phase change | ≤ 3 × (ancestors + 1) (`phaseChangeReadBudget`) | 3 rows per level of the changed session's issue chain: the issue itself plus each ancestor. A roll-up that re-reads a level's siblings grows with the family, not the chain, and fails. |
+| #3 selection click | 0 | Selection is a local. No table read. |
+| #4 visible title rename | ≤ 3 | The renamed issue, and at most two rows to place or label it. |
+| #5 stage move across groups | ≤ 24 (`stageMoveNeighbourhood`) | The **visible neighbourhood**: the moved row, two neighbours at the old position and two at the new, and the probes of a binary-search placement at 4x (log2 of ~13,000 visible rows ≈ 14), rounded up to 24. A re-sort of the visible collection reads every visible row and fails. |
+
+`assertReads(result, { readsPerChange })` throws with the per-entity
+breakdown when the budget is exceeded, and also when the result has no reads
+cell (fence disabled): a missing cell fails, never passes.
+
+**The legacy control fails it.** `legacyControlArmFor` reads its store
+through the fence (`legacy-control/fenced-store.ts`). SMALL corpus: 60
+issues, 50 sessions, 6 repos. Measured 2026-09-22 on this branch (`control.test.tsx`, happy-dom counts; load does not move them).
+
+| Scenario | Legacy reads | Of which | Budget |
+|---|---|---|---|
+| #1 unrelated heartbeat | 116 | 60 issues, 50 sessions, 6 repo-root lanes | 3 |
+| #2 visible phase change | 127 | 60 issues, 50 sessions, 6 lanes, 6 repo rows, 5 dep edges | 3 × (ancestors + 1) |
+| #3 selection click | 127 | same (the eager mark-read row republishes) | 0 |
+| #4 visible title rename | 116 | 60 issues, 50 sessions, 6 repo-root lanes | 3 |
+| #5 stage move | 127 | 60 issues, 50 sessions, 6 lanes, 6 repo rows, 5 dep edges | 24 |
+
+Every scenario reads the whole corpus: the derive is whole-world.
+`control.test.tsx` asserts the heartbeat reads exactly every session and every
+issue and that `assertReads` throws; a second case asserts all five scenarios
+exceed their budgets; a third asserts that the fence changes nothing the
+control does (rows committed, commits by row and `ArmStats` equal with the
+fence on and off; parity true in both).
+
+The adapter adds one thing in count runs only. The derive walks issues as
+view models that the replica view cache owns privately, so no outside wrapper
+can reach them. `fenced-store.ts` wraps `issues` and `issueProjections` fresh
+per store snapshot. The cache then runs its per-snapshot identity pass over
+every issue row (counted), reuses every unchanged model, and returns the same
+array. That is one extra O(N) identity pass per derive, with the same output.
+
+**Both directions** (`harness/src/reads-probe.test.tsx`, real engine, the
+same mount path an arm takes). Three probe arms differ in one dimension:
+- reads the changed session and its issue by id: 2 rows, `assertReads`
+  passes;
+- the same plus one walk over the sessions table: 50 rows, throws;
+- stores copies instead of borrowed rows: the count run throws on the sticky
+  violation, although the feed swallowed the original throw.
+
+`count-harness.test.ts` guards `assertReads` both ways on synthetic results,
+plus the missing-cell rule. `shared/src/instrument/reads.test.ts` covers each
+door and each refusal.
+
+```bash
+bun run test:file -- packages/worklist-proto/shared/src/instrument/reads.test.ts \
+  packages/worklist-proto/harness/src/count-harness.test.ts \
+  packages/worklist-proto/harness/src/reads-probe.test.tsx \
+  packages/worklist-proto/harness/src/legacy-control/control.test.tsx
+```
 
 ## The control and what its failure looks like
 
