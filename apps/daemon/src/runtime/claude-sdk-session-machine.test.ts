@@ -88,8 +88,11 @@ function claudeWorld(journalled?: ClaudeEngineJournalEntry) {
   const journal = new Map<string, ClaudeEngineJournalEntry>()
   if (journalled) journal.set(journalled.sessionId, journalled)
   const cleared: string[] = []
+  // ONE session registry for the family's driver slots and the daemon
+  // context, as in production: the handle lives on the session entry.
+  const sessions = testSessions()
   const claude = createClaudeSdkSessionRuntime({
-    driverSlots: driverSlotsOver(testSessions()),
+    driverSlots: driverSlotsOver(sessions),
     send: (message: DaemonMessage) => sent.push(message),
     emitBind: (bind: object) => {
       sent.push({ type: 'bind', ...bind } as DaemonMessage)
@@ -145,7 +148,7 @@ function claudeWorld(journalled?: ClaudeEngineJournalEntry) {
     },
     inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
   } as unknown as Parameters<typeof createDaemonMachineRuntime>[0])
-  return { sent, machine, journal, cleared }
+  return { sent, machine, journal, cleared, sessions }
 }
 
 describe('Claude SDK sessions through the machine root', () => {
@@ -221,7 +224,7 @@ describe('a surviving Claude engine rejoins through the generic server arm', () 
     const ctx = {
       send: (message: DaemonMessage) => world.sent.push(message),
       machineId: 'claude-machine-test',
-      sessions: testSessions(),
+      sessions: world.sessions,
       sessionBinding: {
         transition: vi.fn(async () => ({
           status: 'applied',
