@@ -16,7 +16,8 @@ export function testSessions(): SessionRegistry {
 
 /**
  * Hold a fake attachment as the session's Terminal, the way `wireBridge` holds
- * a real one: same factory, same slot, over the session's own screen.
+ * a real one: same factory, same slot (a predecessor is parked), over the
+ * session's own screen.
  */
 export function attachTestTerminal(
   ctx: Pick<DaemonContext, 'sessions'>,
@@ -26,6 +27,6 @@ export function attachTestTerminal(
 ): Terminal {
   const owned = ctx.sessions.ensure(sessionId)
   const terminal = Terminal.attach(attachment, owned.screen(), { onFrame: () => {} }, { kind })
-  owned.terminal = terminal
+  owned.replaceTerminal(terminal)
   return terminal
 }

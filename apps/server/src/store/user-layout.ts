@@ -181,13 +181,17 @@ export class UserLayoutRepository {
  * disk, not a per-user preference, so every device's dock must release it.
  *
  * ---------------------------------------------------------------------------
- * UNIQUENESS IS THE CONCURRENCY CONTROL, NOT CHECK-THEN-INSERT
+ * THE PRIMARY KEY KEEPS THE ROW SINGLE; IT DOES NOT ARBITRATE CREATION
  * ---------------------------------------------------------------------------
- * The `(user_id, worktree_key)` primary key arbitrates creation:
- * `tryClaim` inserts with ON CONFLICT DO NOTHING and reports whether THIS
- * caller won, so two devices opening the same worktree at once create exactly
- * one shell — the loser re-reads the winner's row and never spawns. `set` is
- * the upsert for replacing a dead shell, never the creation path.
+ * The `(user_id, worktree_key)` primary key keeps one row per user and
+ * worktree: `tryClaim` inserts with ON CONFLICT DO NOTHING and reports whether
+ * THIS caller's insert landed. That is not what makes two devices opening the
+ * same worktree at once create exactly one shell — the dock-shell service's
+ * in-process per-(user, worktree) mutex is (`modules/shells/service.ts`). A
+ * loser that re-reads between the winner's claim and the winner's create finds
+ * a row with no session, reads it as dead, and would replace it; only the
+ * mutex keeps it from getting there. `set` is the upsert for replacing a dead
+ * shell, never the creation path.
  */
 export class UserDockShellRepository {
   private readonly rootDb: StoreDrizzle

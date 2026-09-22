@@ -153,8 +153,6 @@ export class DaemonSession {
    * shape would bill the whole client TUI as the agent's memory.
    */
   clientLabel: string | undefined = undefined
-  /** The ONE live surface. Set while attached; undefined while parked. */
-  terminal: Terminal | undefined = undefined
   /** A viewer ask that arrived while no terminal could apply it (POD-628). */
   pendingResize: Geometry | undefined = undefined
   /**
@@ -216,6 +214,16 @@ export class DaemonSession {
 
   private screenState: TerminalScreen | undefined = undefined
 
+  /**
+   * THE ONE LIVE SURFACE (layers §1b): exactly one Terminal per session at a
+   * time, because the terminal stream is keyed by session id. Private so the
+   * rule is the entry's, not each caller's: a Terminal enters only through
+   * {@link DaemonSession.replaceTerminal}, which parks any predecessor, and
+   * leaves only through {@link DaemonSession.park} or
+   * {@link DaemonSession.dropTerminal}, which park what they remove.
+   */
+  private terminalSlot: Terminal | undefined = undefined
+
   constructor(init: DaemonSessionInit) {
     this.sessionId = init.sessionId
     this.label = init.label
@@ -226,9 +234,51 @@ export class DaemonSession {
     return this.label ?? labelFor(this.sessionId)
   }
 
+  /** The ONE live surface. Set while attached; undefined while parked. */
+  get terminal(): Terminal | undefined {
+    return this.terminalSlot
+  }
+
   /** Whether a live surface is attached right now. */
   get attached(): boolean {
-    return this.terminal !== undefined
+    return this.terminalSlot !== undefined
+  }
+
+  /**
+   * Hold `next` as this session's one Terminal. A predecessor still in the
+   * slot is PARKED here — detached and unwired — so two surfaces never both
+   * feed the session's frames or take its input, whichever caller lost a
+   * race (a reattach and an adopting spawn both wiring the same label).
+   * Returns the parked predecessor, if there was one.
+   */
+  replaceTerminal(next: Terminal): Terminal | undefined {
+    const previous = this.terminalSlot
+    if (previous === next) return undefined
+    if (previous) {
+      log.warn('a second Terminal replaced the live one; parking the old one', {
+        sessionId: this.sessionId,
+        replaced: previous.kind,
+        by: next.kind,
+      })
+      this.park()
+    }
+    this.terminalSlot = next
+    return previous
+  }
+
+  /**
+   * The Terminal's own attachment ended (its exit path). It is parked either
+   * way — unwired and settled — and it leaves the slot only if it still holds
+   * it: a Terminal that already lost the slot must not clear its successor.
+   * Returns whether it held the slot.
+   */
+  dropTerminal(gone: Terminal): boolean {
+    if (this.terminalSlot !== gone) {
+      gone.park()
+      return false
+    }
+    this.park()
+    return true
   }
 
   /** This session's screen, creating it at the default size on first use. */
@@ -253,8 +303,8 @@ export class DaemonSession {
    * same process. Returns the dropped Terminal, if there was one.
    */
   park(): Terminal | undefined {
-    const live = this.terminal
-    this.terminal = undefined
+    const live = this.terminalSlot
+    this.terminalSlot = undefined
     this.epoch += 1
     live?.park()
     return live
