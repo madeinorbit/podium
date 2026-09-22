@@ -3,10 +3,11 @@
  *
  * Timing tests (4x build) live here too; walls are recorded, counts verdict.
  */
+import { isSortKey } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import { expectedSnapshot } from '../oracle/index'
-import { BASE_COUNTS, buildCorpus, type CorpusStats, FIXED_NOW } from './index'
+import { BASE_COUNTS, buildCorpus, type CorpusStats, FIXED_NOW, type FixtureCorpus } from './index'
 
 describe('buildCorpus determinism', () => {
   it('two 1x builds with the same seed are deep-equal', () => {
@@ -97,6 +98,14 @@ describe('buildCorpus shape (1x)', () => {
   })
 })
 
+/** Every sort key the corpus carries (wire, projection, slice) that a real
+ *  server would refuse: `isSortKey` is the model's own well-formedness rule. */
+const malformedSortKeys = (corpus: FixtureCorpus): string[] =>
+  [...corpus.issues, ...corpus.issueProjections, ...corpus.sliceIssues].flatMap((row) => {
+    const key = (row as { sortKey?: string | null }).sortKey ?? null
+    return key === null || isSortKey(key) ? [] : [`${row.id}:${key}`]
+  })
+
 /** Depth proportions in percent of all issues, keyed by depth. */
 const depthShares = (stats: CorpusStats): Record<string, number> =>
   Object.fromEntries(
@@ -161,6 +170,23 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
     expect(ratio).toBeGreaterThan(0.04)
     expect(ratio).toBeLessThan(0.06)
     expect(corpus.issueDeps).toHaveLength(stats.withOriginEdge)
+  })
+
+  it('mints only sort keys the model accepts (isSortKey), on a meaningful share of rows', () => {
+    expect(malformedSortKeys(corpus)).toEqual([])
+    const keyed = corpus.sliceIssues.filter((i) => i.sortKey !== null).length
+    expect(keyed).toBeGreaterThan(40 * scale)
+  })
+
+  it('control: a planted a0 key fails the sort-key check', () => {
+    const target = corpus.sliceIssues.find((i) => i.sortKey !== null)!
+    const planted: FixtureCorpus = {
+      ...corpus,
+      sliceIssues: corpus.sliceIssues.map((i) =>
+        i.id === target.id ? { ...i, sortKey: 'a0' } : i,
+      ),
+    }
+    expect(malformedSortKeys(planted)).toEqual([`${target.id}:a0`])
   })
 
   it('carries 20 x scale invisible-but-edged askers under visible, non-asking roots', () => {

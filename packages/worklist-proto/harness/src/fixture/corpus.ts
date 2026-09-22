@@ -14,6 +14,7 @@
 
 import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-core/replica'
 import type { PinState } from '@podium/client-core/viewmodels'
+import { spreadSortKeys } from '@podium/model'
 import type {
   GitRepositoryWire,
   IssueDepProjection,
@@ -624,14 +625,22 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     siblingGroups.set(key, list)
   })
   const createdMs = (i: number): number => Date.parse(issues[i]!.createdAt)
-  vWorkIdx.forEach((root, k) => {
-    if (k % 3 === 0) setSortKey(root, `r${k}`)
-  })
+  // Keys are minted by the model's own `spreadSortKeys`, so each passes
+  // `isSortKey` exactly as a server-written key does (POD-4551): the two
+  // sibling keys first (oldest, then second-oldest), then one per keyed root,
+  // all ascending, so sibling keys sort ahead of root keys.
+  const keyedRoots = vWorkIdx.filter((_, k) => k % 3 === 0)
+  const [siblingFirst, siblingSecond, ...rootKeys] = spreadSortKeys(2 + keyedRoots.length) as [
+    string,
+    string,
+    ...string[],
+  ]
+  keyedRoots.forEach((root, j) => setSortKey(root, rootKeys[j]!))
   for (const group of siblingGroups.values()) {
     if (group.length < 2) continue
     const oldestFirst = [...group].sort((a, b) => createdMs(a) - createdMs(b))
-    setSortKey(oldestFirst[0]!, 'a0')
-    if (oldestFirst.length >= 3) setSortKey(oldestFirst[1]!, 'a1')
+    setSortKey(oldestFirst[0]!, siblingFirst)
+    if (oldestFirst.length >= 3) setSortKey(oldestFirst[1]!, siblingSecond)
   }
   // Tucked closed rows (explicit dismissal into the closed fold).
   let tucked = 0
