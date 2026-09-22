@@ -8,7 +8,7 @@
  */
 
 import { act } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { tracked } from '../../arms/mobx/pool/pool'
 import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
@@ -22,8 +22,17 @@ describe('mobx pool on the native renderer', () => {
     const handle = mobxPoolArm.create(feeds.rows.source, feeds.locals.source)
     const mounted = await mountNativeForCounts(handle)
     try {
-      const list = document.querySelector('[data-testid="mobx-pool-list"]')
-      expect(list).not.toBeNull()
+      // The native list is a lazy chunk (`React.lazy` in `pool/arm.ts`): it
+      // commits once the import resolves, after the mount's own act.
+      const list = await vi.waitFor(
+        async () => {
+          await act(async () => {})
+          const found = document.querySelector('[data-testid="mobx-pool-list"]')
+          if (found === null) throw new Error('native list not mounted yet')
+          return found
+        },
+        { timeout: 20_000, interval: 50 },
+      )
       const issues = tracked(() => handle.pool.issueIds.length)
       expect(list?.querySelectorAll('[data-testid^="row-"]').length).toBe(issues)
 
