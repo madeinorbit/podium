@@ -42,14 +42,22 @@ describe('engine-backed locals source', () => {
       locals.flush()
       expect(seen).toEqual([['coarseNow']])
       expect(locals.source.get().coarseNow).toBe(start.coarseNow + 60_000)
-      expect(locals.stats.keys).toEqual({ selectedIssueId: 0, selectedIssueWasFolded: 0, coarseNow: 1 })
+      expect(locals.stats.keys).toEqual({
+        selectedIssueId: 0,
+        selectedIssueWasFolded: 0,
+        coarseNow: 1,
+      })
 
       locals.stats.reset()
       const clicked = await writeSelectionClick(ctx)
       locals.flush()
       expect(seen).toEqual([['coarseNow'], ['selectedIssueId']])
       expect(locals.source.get().selectedIssueId).toBe(clicked)
-      expect(locals.stats.keys).toEqual({ selectedIssueId: 1, selectedIssueWasFolded: 0, coarseNow: 0 })
+      expect(locals.stats.keys).toEqual({
+        selectedIssueId: 1,
+        selectedIssueWasFolded: 0,
+        coarseNow: 0,
+      })
       expect(locals.stats.notifications).toBe(1)
     } finally {
       locals.dispose()

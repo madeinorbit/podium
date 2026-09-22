@@ -11,7 +11,9 @@ import type { LocalsKey, SliceLocals } from './slice-types'
 const NOW = 1_758_000_000_000
 const BASE: SliceLocals = { selectedIssueId: null, coarseNow: NOW }
 
-function record(handle: { source: { subscribe(l: (c: ReadonlySet<LocalsKey>) => void): () => void } }) {
+function record(handle: {
+  source: { subscribe(l: (c: ReadonlySet<LocalsKey>) => void): () => void }
+}) {
   const seen: LocalsKey[][] = []
   const off = handle.source.subscribe((changed) => seen.push([...changed].sort()))
   return { seen, off }
@@ -27,7 +29,11 @@ describe('settableLocals', () => {
     locals.flush()
     expect(seen).toEqual([['coarseNow'], ['selectedIssueId', 'selectedIssueWasFolded']])
     expect(locals.stats.notifications).toBe(2)
-    expect(locals.stats.keys).toEqual({ selectedIssueId: 1, selectedIssueWasFolded: 1, coarseNow: 1 })
+    expect(locals.stats.keys).toEqual({
+      selectedIssueId: 1,
+      selectedIssueWasFolded: 1,
+      coarseNow: 1,
+    })
   })
 
   it('coalesces one drain into one notification carrying the union of keys', async () => {
@@ -100,7 +106,11 @@ describe('settableLocals', () => {
     locals.stats.reset()
     expect(locals.stats.notifications).toBe(0)
     expect(locals.stats.flushes).toBe(0)
-    expect(locals.stats.keys).toEqual({ selectedIssueId: 0, selectedIssueWasFolded: 0, coarseNow: 0 })
+    expect(locals.stats.keys).toEqual({
+      selectedIssueId: 0,
+      selectedIssueWasFolded: 0,
+      coarseNow: 0,
+    })
   })
 })
 

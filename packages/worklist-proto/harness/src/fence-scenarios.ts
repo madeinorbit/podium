@@ -29,7 +29,11 @@
 
 import type { ArmHandle } from '../../shared/src/arm'
 import type { LocalsSourceHandle } from '../../shared/src/locals-source'
-import { createRowSource, type RowSourceHandle, type RowSourceMode } from '../../shared/src/row-source'
+import {
+  createRowSource,
+  type RowSourceHandle,
+  type RowSourceMode,
+} from '../../shared/src/row-source'
 import {
   armMarkReadRejection,
   type ScenarioEngine,

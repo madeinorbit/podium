@@ -97,9 +97,21 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
       // POD-4608: the locals-only steps reach the arm through the channel,
       // naming only their own keys; the plain tick moves no view.
       const cell = (m: string) => steps.find((step) => step.result.methodology === m)?.result
-      expect(cell('#3')?.locals?.keys).toEqual({ selectedIssueId: 1, selectedIssueWasFolded: 0, coarseNow: 0 })
-      expect(cell('#8')?.locals?.keys).toEqual({ selectedIssueId: 0, selectedIssueWasFolded: 0, coarseNow: 1 })
-      expect(cell('#8b')?.locals?.keys).toEqual({ selectedIssueId: 0, selectedIssueWasFolded: 0, coarseNow: 1 })
+      expect(cell('#3')?.locals?.keys).toEqual({
+        selectedIssueId: 1,
+        selectedIssueWasFolded: 0,
+        coarseNow: 0,
+      })
+      expect(cell('#8')?.locals?.keys).toEqual({
+        selectedIssueId: 0,
+        selectedIssueWasFolded: 0,
+        coarseNow: 1,
+      })
+      expect(cell('#8b')?.locals?.keys).toEqual({
+        selectedIssueId: 0,
+        selectedIssueWasFolded: 0,
+        coarseNow: 1,
+      })
       expect(changed['#8']).toBe(0)
       for (const { result } of steps) {
         if (['#3', '#8', '#8b'].includes(result.methodology)) continue

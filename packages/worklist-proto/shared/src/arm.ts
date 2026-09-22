@@ -5,10 +5,9 @@
  */
 
 import type { ReactElement } from 'react'
-import type { LocalsKey, SliceLocals, SliceSnapshot } from './slice-types'
-import type { RowRecord, RowSourceEvent } from './stats'
-import type { ArmStats } from './stats'
 import type { ReadFence } from './instrument/reads'
+import type { LocalsKey, SliceLocals, SliceSnapshot } from './slice-types'
+import type { ArmStats, RowRecord, RowSourceEvent } from './stats'
 
 /**
  * The kernel's effective per-row row stream, as the arms see it. Owned by G3

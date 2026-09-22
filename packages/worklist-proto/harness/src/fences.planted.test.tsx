@@ -130,7 +130,9 @@ describe('planted arms: the exact-commit fence catches what parity cannot', () =
       expect(result.drawnRows).toEqual([])
       expect(result.locals?.keys.coarseNow).toBe(1)
       expect(() => assertCommits(result)).toThrow(
-        new RegExp(`clockGraceCrossing \\(#8b\\): .* over=\\[\\] under=\\[${graceRows.slice(0, 8).join(',')}`),
+        new RegExp(
+          `clockGraceCrossing \\(#8b\\): .* over=\\[\\] under=\\[${graceRows.slice(0, 8).join(',')}`,
+        ),
       )
     }, 60_000)
   })
