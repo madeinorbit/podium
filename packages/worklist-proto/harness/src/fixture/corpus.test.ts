@@ -3,6 +3,7 @@
  *
  * Timing tests (4x build) live here too; walls are recorded, counts verdict.
  */
+import { dedupeSessions } from '@podium/client-core/engine'
 import { describe, expect, it } from 'vitest'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import { expectedSnapshot } from '../oracle/index'
@@ -111,6 +112,12 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
   const { stats } = corpus
   const locals: SliceLocals = { selectedIssueId: null, coarseNow: FIXED_NOW }
   const snapshot = expectedSnapshot(corpus, locals)
+  // The runtime collapses resume twins on every session read
+  // (runtime.ts:465, optimism.ts:876); the shared oracle feeds the raw rows
+  // today (routed to the oracle's owner, POD-4563). The twin cases compare a
+  // test-local collapse against the raw run: the collapse-on arm is what the
+  // app shows, the raw arm is the disabled-collapse control.
+  const collapsed = expectedSnapshot({ ...corpus, sessions: dedupeSessions(corpus.sessions) }, locals)
   const byId = new Map(corpus.issues.map((i) => [i.id as string, i]))
   const sessionById = new Map(corpus.sessions.map((s) => [s.sessionId as string, s]))
 
@@ -207,7 +214,7 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
 
   it('shows each twin group through the legacy collapse', () => {
     for (const group of corpus.resumeTwins) {
-      const row = snapshot.rowsById[group.issueId]!
+      const row = collapsed.rowsById[group.issueId]!
       if (group.kind === 'inactive') {
         // Rank beats recency: the older hibernated ask survives the exited run.
         expect(row.asking).toBe(true)
@@ -225,12 +232,17 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
   })
 
   it('control: the oracle with the collapse disabled changes exactly the tie rows', () => {
-    const raw = expectedSnapshot(corpus, locals, { collapseResumeTwins: false })
-    const changed = Object.keys(snapshot.rowsById).filter(
-      (id) => JSON.stringify(raw.rowsById[id]) !== JSON.stringify(snapshot.rowsById[id]),
+    // `snapshot` is the raw (collapse-off) run.
+    expect(Object.keys(snapshot.rowsById).sort()).toEqual(Object.keys(collapsed.rowsById).sort())
+    expect(snapshot.order).toEqual(collapsed.order)
+    const changed = Object.keys(collapsed.rowsById).filter(
+      (id) => JSON.stringify(snapshot.rowsById[id]) !== JSON.stringify(collapsed.rowsById[id]),
     )
     const ties = corpus.resumeTwins.filter((g) => g.kind === 'tie').map((g) => g.issueId)
     expect(changed.sort()).toEqual([...ties].sort())
-    for (const id of ties) expect(raw.rowsById[id]!.asking).toBe(true)
+    for (const id of ties) {
+      expect(snapshot.rowsById[id]!.asking).toBe(true)
+      expect(collapsed.rowsById[id]!.asking).toBe(false)
+    }
   })
 })

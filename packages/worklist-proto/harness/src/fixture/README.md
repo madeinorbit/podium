@@ -20,6 +20,15 @@ Shape notes (see `docs/measurements/POD-4441-fixture-shape.md` for counts):
   live sessions exercise the legacy nesting drop.
 - `FIXED_NOW` sits inside the defer band thresholds (past/future `deferUntil`
   both present) so bands 0/1/2 are all non-trivial.
-- No `startedBySession`, no `resume` refs (legacy `dedupeSessionsByResume`
-  would collapse shared refs), no `blocks` edges, no `supersededBy` /
+- Resume twins (POD-4551): one group per branch of `dedupeSessionsByResume`
+  per scale unit (`resumeTwins`: all-inactive, tie, live), each on its own
+  visible root. The runtime collapses them on every session read; the corpus
+  tests prove the collapse on and off differ on exactly the tie rows.
+- Hidden askers (POD-4551, the POD-4549 shape): 20 x scale asking sessions
+  on archived/proposed children of visible roots (`edgedAskers`); legacy
+  detaches the ask, so the roots do not ask.
+- The shape holds at 2x and 4x (`corpus.test.ts`, "shape at %ix"): visible
+  rows 211 x scale +/- 10%, depth shares within 5 points of 1x, ~10%
+  prefix-owned sessions, ~5% discovered-from edges.
+- No `startedBySession`, no `blocks` edges, no `supersededBy` /
   `duplicateOf` — the oracle drops or never reads those paths.

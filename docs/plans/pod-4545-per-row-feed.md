@@ -131,7 +131,8 @@ optimistic test and the real-runtime rejection test.
 - **Session resume twins.** The runtime hides all-parked legacy sessions that share a resume ref
   (`dedupeSessionsByResume`). That rule covers the whole kind, so a per-row feed cannot apply it
   without a resume-ref index. Such an index is a relation for the declared pool (POD-4546). The
-  fixture has no resume refs by design.
+  feed passes `resume` through; the pool applies the collapse. The fixture carries twin groups
+  for every branch of the rule (POD-4551); the oracle must collapse them as the runtime does.
 - **Discovery lanes.** A new `EngineState.repos` array from discovery sends no worktree event.
   This behaviour is inherited from round two, because discovery is not a kernel row. A `repos`
   prefix address sends only that repo's lanes.

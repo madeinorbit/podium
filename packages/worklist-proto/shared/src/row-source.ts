@@ -80,8 +80,11 @@
  * hides all-parked legacy sessions that share a resume ref
  * (`dedupeSessionsByResume`), a whole-kind rule. A per-row feed cannot apply
  * it without a resume-ref index, which is a relation for the declared pool
- * (POD-4546), not for the feed. The corpus carries no resume refs by design
- * (`harness/src/fixture/corpus.test.ts`), so no scenario reaches it.
+ * (POD-4546), not for the feed: the feed passes `resume` through on every
+ * session row and the pool applies the collapse. The corpus carries one
+ * twin group per branch of the rule per scale unit (`corpus.resumeTwins`,
+ * POD-4551); once the oracle collapses them as the runtime does, a pool that
+ * forgets the rule fails parity.
  *
  * DEP EDGES. An `issueDeps` address resolves through the dep row's `fromId`
  * to the owning issue and emits that issue's row. A dep removal whose row is
