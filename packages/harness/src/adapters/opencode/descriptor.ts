@@ -12,6 +12,7 @@ import type { HarnessDescriptorData } from '../../descriptor-types.js'
 
 export const opencodeDescriptor: HarnessDescriptorData = {
   kind: 'opencode',
+  provider: 'opencode',
   label: 'OpenCode',
   shortLabel: 'OpenCode',
   icon: {

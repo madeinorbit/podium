@@ -12,6 +12,7 @@ import type { HarnessDescriptorData } from '../../descriptor-types.js'
 
 export const codexDescriptor: HarnessDescriptorData = {
   kind: 'codex',
+  provider: 'openai',
   label: 'Codex',
   shortLabel: 'Codex',
   icon: {

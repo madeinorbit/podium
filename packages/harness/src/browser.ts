@@ -220,6 +220,10 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
     const iconId = asString(icon?.id) ?? kind
     const iconViewBox = asString(icon?.viewBox) ?? ''
     const iconD = asString(icon?.d) ?? ''
+    // POD-4529: the Accounts hub reads the provider off the served
+    // descriptor. A frame predating the field still renders — the kind is
+    // the honest fallback (true for the self-routing harnesses).
+    const provider = asString(entry.provider) ?? kind
     const models = Array.isArray(catalog?.models)
       ? catalog.models.flatMap((model) => {
           if (!isRecord(model)) return []
@@ -243,6 +247,7 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
     out.push({
       schemaVersion: typeof entry.schemaVersion === 'number' ? entry.schemaVersion : 1,
       kind,
+      provider,
       label,
       shortLabel: asString(entry.shortLabel) ?? label,
       icon: { id: iconId, viewBox: iconViewBox, d: iconD },

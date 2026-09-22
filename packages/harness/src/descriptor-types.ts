@@ -64,6 +64,11 @@ export interface HarnessLoginCopy {
  */
 export interface HarnessDescriptorData {
   kind: BuiltinHarnessKind
+  /** Vendor backend label the Accounts hub reads (POD-4529, spec §4.4): the
+   *  single-backend CLIs name their vendor; harnesses that route to many
+   *  backends name themselves. Podium API-key policy (`MANAGED_KEY_PROVIDERS`
+   *  in apps/server) is separate — this is Descriptor knowledge (lane 4.1). */
+  provider: string
   label: string
   shortLabel: string
   icon: HarnessIconData

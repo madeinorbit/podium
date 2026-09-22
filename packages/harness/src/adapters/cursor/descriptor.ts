@@ -17,6 +17,7 @@ import type { HarnessDescriptorData } from '../../descriptor-types.js'
 
 export const cursorDescriptor: HarnessDescriptorData = {
   kind: 'cursor',
+  provider: 'cursor',
   label: 'Cursor',
   shortLabel: 'Cursor',
   icon: {

@@ -135,6 +135,7 @@ function assembleDescriptor(
   return {
     schemaVersion: HARNESS_DESCRIPTOR_SCHEMA_VERSION,
     kind,
+    provider: data.provider,
     label: data.label,
     shortLabel: data.shortLabel,
     icon: { ...data.icon },

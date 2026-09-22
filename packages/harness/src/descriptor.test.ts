@@ -28,6 +28,8 @@ function futureCliDescriptor(): Record<string, unknown> {
   return {
     schemaVersion: 1,
     kind: 'future-cli',
+    // POD-4529: the provider rides the descriptor as known DATA.
+    provider: 'future',
     label: 'Future CLI',
     shortLabel: 'Future',
     icon: { id: 'future-cli', viewBox: '0 0 24 24', d: 'M12 2v20' },
@@ -41,7 +43,7 @@ function futureCliDescriptor(): Record<string, unknown> {
     login: { command: 'future login' },
     available: { installed: true, loggedIn: true },
     // Newer-schema field: an older client must ignore it, not choke on it.
-    provider: 'future',
+    futureCapability: { reason: 'shipped after this build' },
   }
 }
 
