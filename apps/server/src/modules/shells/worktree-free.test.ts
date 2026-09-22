@@ -18,8 +18,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testClientPrincipal } from '../../test-support/client-principal'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import type { ServerMessage } from '@podium/protocol'
+import type { ClientConn } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
+import type { Session } from '../sessions/session'
+import type { SessionLifecycle } from '../sessions/lifecycle'
 
 const registries: SessionRegistry[] = []
 
@@ -203,5 +208,72 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
     const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId: shellId })
     expect(r.ok).toBe(true)
     expect(await statusOf(reg, shellId)).toBe('hibernated')
+  })
+})
+
+describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () => {
+  function stubClient(id: string): ClientConn & { sent: ServerMessage[] } {
+    const sent: ServerMessage[] = []
+    return {
+      id,
+      principal: testClientPrincipal(id),
+      send: (m: ServerMessage) => sent.push(m),
+      viewports: new Map(),
+      viewportSeq: new Map(),
+      attached: new Set(),
+      caps: new Set(),
+      wireVersion: 1,
+      transcriptSubs: new Set(),
+      visible: true,
+      viewVisible: new Set(),
+      focused: null,
+      viewModes: {},
+      sent,
+    }
+  }
+
+  /** Type into the shell through its terminal: first attach becomes controller. */
+  function typeInto(session: Session, clientId: string, text: string): void {
+    session.terminal.attachClient(stubClient(clientId) as ClientConn)
+    session.terminal.handleInput(clientId, Buffer.from(text).toString('base64'))
+  }
+
+  function liveSession(reg: SessionRegistry, sessionId: SessionId): Session {
+    const session = (reg.modules.sessions as unknown as SessionLifecycle).sessions.get(sessionId)
+    if (!session) throw new Error(`no live session ${sessionId}`)
+    return session
+  }
+
+  async function statusOf(reg: SessionRegistry, sessionId: SessionId) {
+    return (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )?.status
+  }
+
+  async function setupDockShell(opts: { touched: boolean }) {
+    const { reg, store } = await makeRegistry(async () => ({ ok: true, output: '## issue/a\n' }))
+    const issueId = await makeIssueWithWorktree(reg)
+    const shell = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: WT })
+    if (opts.touched) typeInto(liveSession(reg, shell.sessionId), 'c-typer', 'echo hi\n')
+    await store.dockShells.set(firstAdminMemberId(), WT, shell.sessionId, new Date().toISOString())
+    return { reg, store, shellId: shell.sessionId, issueId }
+  }
+
+  it('a touched dock shell whose worktree is freed directly ends hibernated', async () => {
+    const { reg, store, shellId, issueId } = await setupDockShell({ touched: true })
+    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
+    expect(freed.ok).toBe(true)
+    expect(freed.worktreeFreed).toBe(true)
+    expect(await store.dockShells.get(firstAdminMemberId(), WT)).toBeUndefined()
+    expect(await statusOf(reg, shellId)).toBe('hibernated')
+  })
+
+  it('an untouched unheld dock shell whose worktree is freed directly ends tombstoned', async () => {
+    const { reg, store, shellId, issueId } = await setupDockShell({ touched: false })
+    const freed = await reg.modules.issues.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
+    expect(freed.ok).toBe(true)
+    expect(freed.worktreeFreed).toBe(true)
+    expect(await store.dockShells.get(firstAdminMemberId(), WT)).toBeUndefined()
+    expect(await statusOf(reg, shellId)).toBeUndefined()
   })
 })
