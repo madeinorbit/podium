@@ -1976,6 +1976,51 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     ).toHaveLength(1)
   })
 
+  it('a split file aggregates coverage by file — over-count fails, slack fails (POD-4601)', () => {
+    // The shape packages/runtime/src/settings.ts ships with: five leaks plus
+    // one policy default, six literals in one file. The lint counts
+    // occurrences, not categories, so the entries' counts sum to the file's
+    // allowance — while the leak/policy/total ratchet still sums by category.
+    const split = [
+      { file: 'apps/server/src/x.ts', count: 5, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
+      { file: 'apps/server/src/x.ts', count: 1, category: 'policy' as const, reason: 'r', policy: 'apps/server/src/x.ts' },
+    ]
+    const six = checkHarnessVendorLiterals(
+      'apps/server/src/x.ts',
+      `export const a = 'codex'\nexport const b = 'codex'\nexport const c = 'codex'\nexport const d = 'codex'\nexport const e = 'codex'\nexport const f = 'claude-code'\n`,
+      LITERALS,
+    )
+    expect(six).toHaveLength(6)
+    const atSix = applyHarnessBoundaryAllowlist(six, split)
+    expect(atSix.errors).toEqual([])
+    expect(atSix.stale).toEqual([])
+    expect(atSix.warnings).toHaveLength(6)
+    // A seventh literal in the split file still fails on the excess.
+    const seven = checkHarnessVendorLiterals(
+      'apps/server/src/x.ts',
+      `export const a = 'codex'\nexport const b = 'codex'\nexport const c = 'codex'\nexport const d = 'codex'\nexport const e = 'codex'\nexport const f = 'claude-code'\nexport const g = 'grok'\n`,
+      LITERALS,
+    )
+    const over = applyHarnessBoundaryAllowlist(seven, split)
+    expect(over.warnings).toHaveLength(6)
+    expect(over.errors).toHaveLength(1)
+    // One literal removed is slack on the file — the message names the file
+    // and the summed counts, since the lint cannot tell which half shrank.
+    const five = checkHarnessVendorLiterals(
+      'apps/server/src/x.ts',
+      `export const a = 'codex'\nexport const b = 'codex'\nexport const c = 'codex'\nexport const d = 'codex'\nexport const e = 'codex'\n`,
+      LITERALS,
+    )
+    const slack = applyHarnessBoundaryAllowlist(five, split)
+    expect(slack.errors).toEqual([])
+    expect(slack.stale).toHaveLength(1)
+    expect(slack.stale.join('\n')).toContain('apps/server/src/x.ts')
+    // Both halves gone is dead, once — not once per entry.
+    const dead = applyHarnessBoundaryAllowlist([], split)
+    expect(dead.stale).toHaveLength(1)
+    expect(dead.stale.join('\n')).toContain('dead')
+  })
+
   it('a grown leak total fails — bumping the allow-list cannot admit new behaviour', () => {
     const base: { file: string; count: number; category: 'leak' | 'policy'; reason: string; issue?: string; policy?: string }[] = [
       { file: 'apps/server/src/x.ts', count: 2, category: 'leak', reason: 'r', issue: 'POD-4414' },
@@ -2018,17 +2063,26 @@ describe('harness-vendor-boundary (POD-4467)', () => {
       (e) => e.file === 'packages/runtime/src/harness-defaults.ts',
     )
     expect(defaults?.category).toBe('policy')
-    // A remaining leak example stays leak: runtime settings still names a
-    // harness outside the homes. (The retyped enums in model/entities/cost.ts,
-    // model/entities/handoff.ts and protocol/messages/credentials.ts were
-    // derived from the single definition by POD-4476/4.2 and their entries
-    // deleted — the ratchet working as designed, not a category change.)
-    for (const file of ['packages/runtime/src/settings.ts']) {
-      expect(
-        HARNESS_BOUNDARY_ALLOWLIST.find((e) => e.file === file)?.category,
-        file,
-      ).toBe('leak')
-    }
+    // Runtime settings is the one SPLIT file (POD-4601): five
+    // provider-namespace 'codex' literals stay leak, while
+    // DEFAULT_HARNESS_KIND 'claude-code' is product policy — the default
+    // harness choice, never removable and unmovable (settings ↔
+    // harness-defaults would cycle). The entries' counts sum to the file's
+    // six literals; the lint aggregates coverage by file.
+    const settings = HARNESS_BOUNDARY_ALLOWLIST.filter(
+      (e) => e.file === 'packages/runtime/src/settings.ts',
+    )
+    expect(settings).toHaveLength(2)
+    const settingsLeak = settings.find((e) => e.category === 'leak')
+    const settingsPolicy = settings.find((e) => e.category === 'policy')
+    expect(settingsLeak?.count).toBe(5)
+    expect(settingsLeak?.issue?.trim().length ?? 0).toBeGreaterThan(0)
+    expect(settingsPolicy?.count).toBe(1)
+    expect(settingsPolicy?.policy?.trim().length ?? 0).toBeGreaterThan(0)
+    expect(
+      settings.reduce((n, e) => n + e.count, 0),
+      'packages/runtime/src/settings.ts',
+    ).toBe(6)
     // Baselines equal the seeded totals — the ratchet holds from here.
     const leak = HARNESS_BOUNDARY_ALLOWLIST.filter((e) => e.category === 'leak').reduce(
       (n, e) => n + e.count,
@@ -2065,14 +2119,19 @@ describe('harness-vendor-boundary (POD-4467)', () => {
       }
     }
     // Every actual file is listed, with the exact count — otherwise the lint
-    // would be red on the tree it ships with.
+    // would be red on the tree it ships with. Coverage is keyed by file, so
+    // a split file's entries sum to its literals (POD-4601).
+    const allowedByFile = new Map<string, number>()
+    for (const entry of HARNESS_BOUNDARY_ALLOWLIST) {
+      allowedByFile.set(entry.file, (allowedByFile.get(entry.file) ?? 0) + entry.count)
+    }
     for (const [file, n] of byFile) {
-      const entry = HARNESS_BOUNDARY_ALLOWLIST.find((e) => e.file === file)
-      expect(entry, `${file} holds ${n} harness literals but is not allow-listed`).toBeDefined()
-      expect(entry?.count, file).toBe(n)
+      const allowed = allowedByFile.get(file)
+      expect(allowed, `${file} holds ${n} harness literals but is not allow-listed`).toBeDefined()
+      expect(allowed, file).toBe(n)
     }
     for (const entry of HARNESS_BOUNDARY_ALLOWLIST) {
-      expect(byFile.get(entry.file) ?? 0, entry.file).toBe(entry.count)
+      expect(byFile.get(entry.file) ?? 0, entry.file).toBe(allowedByFile.get(entry.file))
     }
     const { errors, stale } = applyHarnessBoundaryAllowlist(
       [...byFile.entries()].flatMap(([file, n]) =>

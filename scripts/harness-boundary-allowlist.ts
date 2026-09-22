@@ -20,6 +20,13 @@
  *   e.g. packages/runtime/src/harness-defaults.ts superagent harness order).
  * Unsure = leak.
  *
+ * One file may carry TWO entries with different categories (POD-4601:
+ * packages/runtime/src/settings.ts holds five provider-namespace leaks plus
+ * one policy default). The lint aggregates coverage by file — the entries'
+ * counts sum to the file's allowance — while the leak/policy/total ratchet
+ * sums by category, so the split moves one literal from the remaining-work
+ * count to the stays count with the file total unchanged.
+ *
  * Ratchet (in scripts/check-boundaries.ts):
  * - a new literal outside the homes (file not listed, or over count) FAILS;
  * - an allow-list entry whose file no longer contains the literal (0 remain,
@@ -99,9 +106,15 @@ export interface HarnessBoundaryAllowlistEntry {
  *  headless-interrupt (2) leak → policy (driver families, not harnesses),
  *  and grew harness-defaults policy 4 → 6 (shipwright eval harness choice):
  *  leak 287 → 259, policy 31 → 35, total 318 → 294.
+ *  POD-4601 split the runtime/settings.ts entry in two without moving code:
+ *  the file holds five provider-namespace 'codex' literals (genuine leaks)
+ *  plus one DEFAULT_HARNESS_KIND 'claude-code' (product policy, the default
+ *  harness choice — never removable, and unmovable: settings ↔
+ *  harness-defaults would cycle). One file, two entries, file total
+ *  unchanged: leak 259 → 258, policy 35 → 36, total 294.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 259
-export const HARNESS_BASELINE_POLICY_COUNT = 35
+export const HARNESS_BASELINE_LEAK_COUNT = 258
+export const HARNESS_BASELINE_POLICY_COUNT = 36
 export const HARNESS_BASELINE_TOTAL = 294
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
@@ -184,7 +197,8 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/harness/src/session-title.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/janitor/src/janitor.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/runtime/src/harness-defaults.ts', count: 6, category: 'policy', reason: 'superagent harness order + shipwright eval harness choice are Podium policy, stay; must not move into an adapter (spec §5)', policy: 'packages/runtime/src/harness-defaults.ts' },
-  { file: 'packages/runtime/src/settings.ts', count: 6, category: 'leak', reason: 'remaining harness default + provider-namespace literals; AgentChoice derived (4.2 enums)', issue: 'POD-4414/4.2' },
+  { file: 'packages/runtime/src/settings.ts', count: 5, category: 'leak', reason: 'provider-namespace codex literals (ApiProvider + legacy harness migration + background mapping); AgentChoice derived (4.2 enums)', issue: 'POD-4414/4.1' },
+  { file: 'packages/runtime/src/settings.ts', count: 1, category: 'policy', reason: 'DEFAULT_HARNESS_KIND claude-code is the product default harness choice; stays', policy: 'packages/runtime/src/settings.ts' },
   { file: 'packages/sync/src/adapters/indexeddb/schema.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/sync/src/adapters/mobile-sqlite/schema.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/sync/src/conformance/suite.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
