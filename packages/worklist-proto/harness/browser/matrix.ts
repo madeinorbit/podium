@@ -11,7 +11,9 @@
  * on load is retried after the load drops (up to `--load-retries`, default 3;
  * the failed file stays beside it as `.tryN.json`, listed and never summarised
  * by `summarize.ts`). Any other failure fails the matrix (exit 2): a missing
- * cell is a failed run, not a gap.
+ * cell is a failed run, not a gap. `--resume` (same `--tag`) keeps every
+ * pair whose output already passed and runs only the rest, in the same
+ * rotated order; the SHA check in `summarize.ts` still sees every file.
  *
  *   bun packages/worklist-proto/harness/browser/matrix.ts \
  *     --arms noop,control --scales 1,2,4 --rounds 4 --samples 5 --tag floor
@@ -19,7 +21,7 @@
  *     packages/worklist-proto/harness/browser/results/floor
  */
 import { spawnSync } from 'node:child_process'
-import { readFileSync, renameSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadavg } from 'node:os'
 import { ARMS, type ArmName, type RunOutput, type Scale } from './records'
@@ -42,6 +44,7 @@ const scenarios = arg(argv, '--scenarios', '')
 const maxLoad = Number(arg(argv, '--max-load', '8'))
 const loadWaitMs = Number(arg(argv, '--load-wait-min', '20')) * 60_000
 const loadRetries = Number(arg(argv, '--load-retries', '3'))
+const resume = argv.includes('--resume')
 const tag = arg(argv, '--tag', new Date().toISOString().replace(/[:.]/g, '-'))
 const outDir = join('packages/worklist-proto/harness/browser/results', tag)
 
@@ -76,6 +79,16 @@ outer: for (let round = 0; round < rounds; round += 1) {
   const order = pairs.map((_, i) => pairs[(i + round) % pairs.length]!)
   for (const { arm, scale } of order) {
     const out = join(outDir, `r${round}-${arm}-${scale}x.json`)
+    if (resume && existsSync(out) && (JSON.parse(readFileSync(out, 'utf-8')) as RunOutput).status === 'ok') {
+      console.log(`[matrix] round ${round} ${arm} ${scale}x already passed; kept`)
+      continue
+    }
+    if (existsSync(out)) {
+      // A failed output from an earlier matrix: keep it beside the rerun.
+      let n = 0
+      while (existsSync(out.replace(/\.json$/, `.prior${n}.json`))) n += 1
+      renameSync(out, out.replace(/\.json$/, `.prior${n}.json`))
+    }
     for (let attempt = 0; ; attempt += 1) {
       if (!waitForLoad() || !lease('acquire')) {
         failed = true
@@ -104,7 +117,9 @@ outer: for (let round = 0; round < rounds; round += 1) {
         // no output: not a load failure
       }
       if (loadOnly && attempt < loadRetries) {
-        renameSync(out, out.replace(/\.json$/, `.try${attempt}.json`))
+        let n = attempt
+        while (existsSync(out.replace(/\.json$/, `.try${n}.json`))) n += 1
+        renameSync(out, out.replace(/\.json$/, `.try${n}.json`))
         console.log(`[matrix] round ${round} ${arm} ${scale}x failed on load; retrying`)
         continue
       }
