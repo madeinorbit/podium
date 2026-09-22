@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { bunTerminalBackend } from '@podium/process/pty'
-import { spawnAgent } from '@podium/process/screen'
+import { wrapPty } from '@podium/process/screen'
 
 const CLI = fileURLToPath(new URL('../src/cli.tsx', import.meta.url))
 const PKG_DIR = fileURLToPath(new URL('..', import.meta.url))
@@ -21,16 +21,18 @@ function nowMs(): number {
 }
 
 export function bootKeyecho(args: string[] = []): Keyecho {
-  const session = spawnAgent(
-    {
-      cmd: process.execPath,
+  // A bare pty on purpose: keyecho is a TUI fixture, not a session, so nothing
+  // here goes through a durable host (the screen door exports no spawn).
+  const session = wrapPty(
+    bunTerminalBackend().spawn({
+      file: process.execPath,
       args: [CLI, ...args],
       cols: 100,
       rows: 30,
       cwd: PKG_DIR,
-      env: process.env as Record<string, string>,
-    },
-    bunTerminalBackend(),
+      env: { ...(process.env as Record<string, string>), TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+    }),
+    { cols: 100, rows: 30 },
   )
   let raw = ''
   const decoder = new TextDecoder()
