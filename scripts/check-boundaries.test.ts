@@ -17,6 +17,7 @@ import {
   checkFlipUndeleted,
   checkHarnessAllowlistTotals,
   checkHarnessClassifierBoundary,
+  checkHarnessOwnAdapter,
   checkHarnessVendorLiterals,
   checkHostEdgeSeparationAll,
   checkManifestFile,
@@ -34,8 +35,11 @@ import {
   FLIP_UNDELETED,
   type FlipUndeletedEntry,
   HARNESS_DISPLAY_NAMES,
+  HARNESS_OWN_ADAPTER_RULE,
   HARNESS_VENDOR_RULE,
   harnessVendorLiterals,
+  loadFamilyAdapterMap,
+  loadHarnessOwnAdapterCtx,
   loadModelExportNames,
   STAGE_A_UNCONVERTED,
   type Violation,
@@ -2085,5 +2089,251 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     expect(errors).toEqual([])
     expect(stale).toEqual([])
     expect(checkHarnessAllowlistTotals(HARNESS_BOUNDARY_ALLOWLIST)).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Harness own-adapter boundary (POD-4530, epic POD-4414 §5 rule 4, 3.R D6)
+//
+// A driver family named after a harness may import its own adapter and no
+// other; the terminal family, driver/host.ts, driver/runtime.ts, store/,
+// inventory/ and observer.ts may not import any specific adapter. Every arm
+// gets a firing case and a quiet case: a rule with only one half either
+// refuses everything or nothing, and neither is evidence.
+// ---------------------------------------------------------------------------
+
+describe('harness-own-adapter (POD-4530)', () => {
+  const CTX = {
+    kinds: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'],
+    familyAdapter: new Map([
+      ['codex', 'codex'],
+      ['claude-sdk', 'claude-code'],
+      ['grok-acp', 'grok'],
+      ['opencode', 'opencode'],
+      ['opencode2', 'opencode'],
+    ]),
+  }
+
+  it('derives the family→adapter map from adapter-declared driverIds, not a list', () => {
+    // The map is COMPUTED from what each adapters/<h>/index.ts serves, so a
+    // new harness (adapter dir + driverId naming its family) grows the map
+    // with no edit to the rule. Asserted against the real tree: the four
+    // decided pairs, plus opencode2→opencode (the opencode manifest serves
+    // opencode2-server too — no product edge exists, and the derivation, not
+    // the decision's enumeration of current edges, is what the lint enforces).
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const map = loadFamilyAdapterMap(repoRoot)
+    expect(map.get('codex')).toBe('codex')
+    expect(map.get('claude-sdk')).toBe('claude-code')
+    expect(map.get('grok-acp')).toBe('grok')
+    expect(map.get('opencode')).toBe('opencode')
+    expect(map.get('opencode2')).toBe('opencode')
+    expect(map.has('terminal')).toBe(false)
+  })
+
+  it('grows the map for a new harness with no rule edit — the anti-rot control', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-own-adapter-'))
+    mkdirSync(join(root, 'packages/harness/src/adapters/zerp'), { recursive: true })
+    writeFileSync(
+      join(root, 'packages/harness/src/adapters/zerp/index.ts'),
+      "export const zerpManifest = { runtime: [{ driverId: 'zerp-acp' }] }\n",
+    )
+    mkdirSync(join(root, 'packages/harness/src/driver/families/zerp-acp'), { recursive: true })
+    expect(loadFamilyAdapterMap(root).get('zerp-acp')).toBe('zerp')
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('flags the two host.ts re-exports — the RED case this issue fixes', () => {
+    // The exact shape of packages/harness/src/driver/host.ts:63-68 on the tip.
+    const source = [
+      `export * from '../adapters/pi/stream.js'`,
+      `export { cursorCreateChatInvocation, parseCursorChatId } from '../adapters/cursor/chat.js'`,
+    ].join('\n')
+    const vs = checkHarnessOwnAdapter('packages/harness/src/driver/host.ts', source, CTX)
+    expect(vs.map((v) => v.rule)).toEqual([
+      HARNESS_OWN_ADAPTER_RULE,
+      HARNESS_OWN_ADAPTER_RULE,
+    ])
+    expect(vs.map((v) => v.specifier)).toEqual([
+      '../adapters/pi/stream.js',
+      '../adapters/cursor/chat.js',
+    ])
+  })
+
+  it('flags a dynamic import too — no async bypass', () => {
+    const vs = checkHarnessOwnAdapter(
+      'packages/harness/src/driver/host.ts',
+      `const m = await import('../adapters/pi/stream.js')\nexport const x = m\n`,
+      CTX,
+    )
+    expect(vs.map((v) => v.rule)).toEqual([HARNESS_OWN_ADAPTER_RULE])
+  })
+
+  it('passes a harness-named family importing its own adapter — the control a naive rule would fail', () => {
+    // A blanket "no mechanism imports any adapter" refuses all four of these;
+    // the amendment allows each family's own. claude-sdk→claude-code is the
+    // sharp one: no name heuristic relates them, only the manifest's driverId.
+    const cases: [string, string][] = [
+      [
+        'packages/harness/src/driver/families/codex/engine-host.ts',
+        `import { codexMcpArgs } from '../../../adapters/codex/index.js'`,
+      ],
+      [
+        'packages/harness/src/driver/families/claude-sdk/runtime.ts',
+        `import { claudeToolCallItem } from '../../../adapters/claude-code/transcript.js'`,
+      ],
+      [
+        'packages/harness/src/driver/families/grok-acp/runtime.ts',
+        `import { grokSessionPaths } from '../../../adapters/grok/instrumentation.js'`,
+      ],
+      [
+        'packages/harness/src/driver/families/opencode/map.ts',
+        `import { opencodeFileId } from '../../../adapters/opencode/transcript.js'`,
+      ],
+    ]
+    for (const [file, source] of cases) {
+      expect(checkHarnessOwnAdapter(file, source, CTX), file).toEqual([])
+    }
+  })
+
+  it('flags a family reaching for another harness adapter', () => {
+    const vs = checkHarnessOwnAdapter(
+      'packages/harness/src/driver/families/codex/engine-host.ts',
+      `import { grokSessionPaths } from '../../../adapters/grok/instrumentation.js'`,
+      CTX,
+    )
+    expect(vs.map((v) => v.rule)).toEqual([HARNESS_OWN_ADAPTER_RULE])
+    expect(vs[0]?.message).toContain(`family 'codex'`)
+  })
+
+  it('flags the terminal family, runtime, inventory and observer — even for transcript grammars', () => {
+    // No transcript exception outside store/: the one-reader design belongs to
+    // the Store, and a terminal family reading a grammar is still a backdoor.
+    const cases: [string, string][] = [
+      [
+        'packages/harness/src/driver/families/terminal/driver.ts',
+        `import { opencodeFileId } from '../../../adapters/opencode/transcript.js'`,
+      ],
+      [
+        'packages/harness/src/driver/runtime.ts',
+        `import { codexMcpArgs } from '../adapters/codex/index.js'`,
+      ],
+      [
+        'packages/harness/src/inventory/usage.ts',
+        `import { grokUsage } from '../adapters/grok/usage.js'`,
+      ],
+      [
+        'packages/harness/src/observer.ts',
+        `import { observeCursorState } from './adapters/cursor/state.js'`,
+      ],
+    ]
+    for (const [file, source] of cases) {
+      expect(checkHarnessOwnAdapter(file, source, CTX).map((v) => v.rule), file).toEqual([
+        HARNESS_OWN_ADAPTER_RULE,
+      ])
+    }
+  })
+
+  it('flags store/ reaching a non-grammar adapter module — the store arm has teeth', () => {
+    for (const source of [
+      `import { grokUsage } from '../adapters/grok/usage.js'`,
+      `import { codexManifest } from '../adapters/codex/index.js'`,
+      `import type { CursorHeadless } from '../adapters/cursor/index.js'`,
+    ]) {
+      expect(
+        checkHarnessOwnAdapter('packages/harness/src/store/slice.ts', source, CTX).map(
+          (v) => v.rule,
+        ),
+        source,
+      ).toEqual([HARNESS_OWN_ADAPTER_RULE])
+    }
+  })
+
+  it('lets the Store read transcript grammars — the POD-4522 one-reader', () => {
+    const source = [
+      `import { opencodeFileId, opencodePartToItems } from '../../adapters/opencode/transcript.js'`,
+    ].join('\n')
+    expect(
+      checkHarnessOwnAdapter('packages/harness/src/store/sources/sqlite.ts', source, CTX),
+    ).toEqual([])
+    // And the control that matters: the REAL sqlite source is quiet.
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const real = readFileSync(
+      join(repoRoot, 'packages/harness/src/store/sources/sqlite.ts'),
+      'utf8',
+    )
+    expect(
+      checkHarnessOwnAdapter(
+        'packages/harness/src/store/sources/sqlite.ts',
+        real,
+        loadHarnessOwnAdapterCtx(repoRoot),
+      ),
+    ).toEqual([])
+  })
+
+  it('lets the registry join all adapters — the one composition root', () => {
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const real = readFileSync(join(repoRoot, 'packages/harness/src/registry.ts'), 'utf8')
+    expect(
+      checkHarnessOwnAdapter(
+        'packages/harness/src/registry.ts',
+        real,
+        loadHarnessOwnAdapterCtx(repoRoot),
+      ),
+    ).toEqual([])
+  })
+
+  it('lets adapters share helpers across adapter dirs', () => {
+    // codex/transcript reaches claude-code/transcript today; the decision
+    // constrains mechanisms and families reaching in, not adapters sharing.
+    expect(
+      checkHarnessOwnAdapter(
+        'packages/harness/src/adapters/codex/transcript.ts',
+        `import { x } from '../claude-code/transcript.js'`,
+        CTX,
+      ),
+    ).toEqual([])
+  })
+
+  it('exempts tests — they wire real grammars on purpose', () => {
+    expect(
+      checkHarnessOwnAdapter(
+        'packages/harness/src/store/transcript.golden.test.ts',
+        `import { codexRecordToItems } from '../adapters/codex/transcript.js'`,
+        CTX,
+      ),
+    ).toEqual([])
+  })
+
+  it('ignores unknown adapter dirs and non-harness files', () => {
+    expect(
+      checkHarnessOwnAdapter(
+        'packages/harness/src/store/slice.ts',
+        `import { stringField } from '../adapters/shared/json-util.js'`,
+        CTX,
+      ),
+    ).toEqual([])
+    expect(
+      checkHarnessOwnAdapter(
+        'apps/server/src/store.ts',
+        `import { x } from '../../packages/harness/src/adapters/codex/index.js'`,
+        CTX,
+      ),
+    ).toEqual([])
+  })
+
+  it('is wired through checkFile so lint:boundaries cannot skip it', () => {
+    const bad = checkFile(
+      'packages/harness/src/driver/host.ts',
+      `export * from '../adapters/pi/stream.js'`,
+      CTX,
+    )
+    expect(bad.some((v) => v.rule === HARNESS_OWN_ADAPTER_RULE)).toBe(true)
+    const good = checkFile(
+      'packages/harness/src/driver/families/codex/engine-host.ts',
+      `import { codexMcpArgs } from '../../../adapters/codex/index.js'`,
+      CTX,
+    )
+    expect(good.some((v) => v.rule === HARNESS_OWN_ADAPTER_RULE)).toBe(false)
   })
 })

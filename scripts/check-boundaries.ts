@@ -724,6 +724,239 @@ export function checkHarnessAllowlistTotals(
   return problems
 }
 
+// ---------------------------------------------------------------------------
+// Harness own-adapter boundary (POD-4530, epic POD-4414 §5 rule 4 as amended
+// by the 3.R review, D6 — human decision 2026-09-22).
+//
+// Spec §5 says "nothing in a mechanism imports a specific adapter, only the
+// Adapter type". The amendment: a driver family whose directory is named after
+// a harness MAY import its own adapter directory and no other; the terminal
+// family, driver/host.ts, driver/runtime.ts, store/, inventory/ and
+// observer.ts may NOT import any specific adapter.
+//
+// TWO ARMS, because the decision has two halves and either alone is a gate
+// that cannot say no:
+//
+//  (a) FORBIDDEN IMPORTERS — the decision's list. Any import resolving into
+//      adapters/<h>/ (h a shipped harness) from one of these is a violation,
+//      value or type-only: naming the adapter's internals in the shared entry
+//      is the coupling, and values AND types must flow through the manifest or
+//      the registry instead (the store-raw-handle rule counts type-only for
+//      the same reason).
+//  (b) OWN-ADAPTER ONLY — a driver family directory may import adapters/<h>
+//      only where h is the family's own adapter. The terminal family owns no
+//      adapter, so every adapter import there fails under this arm too.
+//
+// WHAT IS NOT COVERED, said rather than left to be discovered:
+//
+//  - adapters/ importing adapters/ (shared grammar helpers, e.g.
+//    codex/transcript reaching claude-code/transcript): the decision
+//    constrains mechanisms and families reaching in, not adapters sharing.
+//  - registry.ts: the ONE composition root joining all adapters (spec §7:
+//    "one registry line" per harness). Without this the registry itself — the
+//    design's join point — would be the first violation.
+//  - store/ reading a TRANSCRIPT GRAMMAR (adapters/<h>/transcript.ts): the
+//    Store stays the one reader of transcript grammars (POD-4522, spec §6
+//    step 4, and the transcript-boundary guard's own "Store → grammar"
+//    direction). A store/ import of any other adapter module still fails.
+//  - tests and fixtures: they wire real grammars on purpose.
+//  - everything else (the root barrel, discovery/, manifests/,
+//    accept-correlation.ts, shared family helpers): out of scope. The decision
+//    enumerates the importer set; widening the set is a follow-up, not a
+//    silent extension of this rule.
+// ---------------------------------------------------------------------------
+
+export const HARNESS_OWN_ADAPTER_RULE = 'harness-own-adapter'
+
+const HARNESS_SRC_DIR = 'packages/harness/src/'
+const HARNESS_ADAPTERS_DIR = 'packages/harness/src/adapters/'
+const HARNESS_FAMILIES_DIR = 'packages/harness/src/driver/families/'
+const HARNESS_REGISTRY_FILE = 'packages/harness/src/registry.ts'
+
+/** The decision's forbidden importers (3.R D6, plus driver/runtime.ts). */
+function isOwnAdapterForbiddenImporter(file: string): boolean {
+  return (
+    file === `${HARNESS_SRC_DIR}driver/host.ts` ||
+    file === `${HARNESS_SRC_DIR}driver/runtime.ts` ||
+    file.startsWith(`${HARNESS_FAMILIES_DIR}terminal/`) ||
+    file.startsWith(`${HARNESS_SRC_DIR}store/`) ||
+    file.startsWith(`${HARNESS_SRC_DIR}inventory/`) ||
+    file === `${HARNESS_SRC_DIR}observer.ts`
+  )
+}
+
+export interface HarnessOwnAdapterCtx {
+  /** Shipped harness kinds: adapters/<h>/ is "a specific adapter" iff h is here. */
+  kinds: readonly string[]
+  /** Driver family dir -> the adapter dir named after the same harness. */
+  familyAdapter: ReadonlyMap<string, string>
+}
+
+export function loadHarnessOwnAdapterCtx(repoRoot: string): HarnessOwnAdapterCtx {
+  return {
+    kinds: loadHarnessLiterals(repoRoot),
+    familyAdapter: loadFamilyAdapterMap(repoRoot),
+  }
+}
+
+/**
+ * Driver family dir -> adapter dir, DERIVED rather than listed (POD-4518's
+ * shape): each adapters/<h>/index.ts declares the driverIds its manifest
+ * serves (`driverId: '...'` on the runtime axis), and a family dir F is named
+ * after h iff one of h's driverIds IS F or starts with F + '-'. The '-'
+ * boundary is load-bearing: family 'opencode' must not claim
+ * 'opencode2-server'. Exact matches resolve before prefix matches, and both
+ * passes run over sorted directories, so the map is deterministic.
+ *
+ * Adding a harness (adapters/<name>/ plus a driverId naming its family)
+ * grows this map with no edit to the rule — that is the property a
+ * hand-written list would lose on the first new harness.
+ */
+export function loadFamilyAdapterMap(repoRoot: string): Map<string, string> {
+  const driverIdsByAdapter = new Map<string, string[]>()
+  const adaptersDir = join(repoRoot, 'packages/harness/src/adapters')
+  let adapterDirs: string[] = []
+  try {
+    adapterDirs = readdirSync(adaptersDir, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          !entry.name.startsWith('.') &&
+          entry.name !== 'shared' &&
+          entry.name !== 'fixture',
+      )
+      .map((entry) => entry.name)
+      .sort()
+  } catch {
+    return new Map()
+  }
+  for (const adapter of adapterDirs) {
+    let index: string
+    try {
+      index = readFileSync(join(adaptersDir, adapter, 'index.ts'), 'utf8')
+    } catch {
+      continue
+    }
+    const ids = [...stripComments(index).matchAll(/driverId\s*:\s*['"]([^'"]+)['"]/g)]
+      .map((match) => match[1])
+      .filter((id): id is string => id !== undefined)
+    driverIdsByAdapter.set(adapter, ids)
+  }
+  const familiesDir = join(repoRoot, 'packages/harness/src/driver/families')
+  let familyDirs: string[] = []
+  try {
+    familyDirs = readdirSync(familiesDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => entry.name)
+      .sort()
+  } catch {
+    return new Map()
+  }
+  const map = new Map<string, string>()
+  for (const family of familyDirs) {
+    const exact = [...driverIdsByAdapter].find(([, ids]) => ids.includes(family))
+    if (exact !== undefined) {
+      map.set(family, exact[0] as string)
+      continue
+    }
+    const prefixed = [...driverIdsByAdapter].find(([, ids]) =>
+      ids.some((id) => id.startsWith(`${family}-`)),
+    )
+    if (prefixed !== undefined) map.set(family, prefixed[0] as string)
+  }
+  return map
+}
+
+/**
+ * Resolve a relative specifier against its importer to a repo-relative posix
+ * path, syntactically (no filesystem access): `../adapters/pi/stream.js`
+ * from `packages/harness/src/driver/host.ts` is
+ * `packages/harness/src/adapters/pi/stream`. Extensionless and `.js`
+ * spellings resolve identically; an unresolvable import is a type error, not
+ * this rule's business, so resolution never fails — it normalises.
+ */
+function resolveHarnessRelative(fromFile: string, specifier: string): string | null {
+  if (!specifier.startsWith('.')) return null
+  const base = specifier.replace(/\.js$/, '')
+  const parts = [...fromFile.split('/').slice(0, -1), ...base.split('/')]
+  const out: string[] = []
+  for (const part of parts) {
+    if (part === '' || part === '.') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  return out.join('/')
+}
+
+function isHarnessOwnAdapterExcluded(file: string): boolean {
+  if (isTestFile(file)) return true
+  if (
+    file.includes('__fixtures__/') ||
+    /(?:^|\/)fixtures\//.test(file) ||
+    file.endsWith('.fixtures.ts')
+  ) {
+    return true
+  }
+  return false
+}
+
+export function checkHarnessOwnAdapter(
+  file: string,
+  source: string,
+  ctx: HarnessOwnAdapterCtx = loadHarnessOwnAdapterCtx(process.cwd()),
+): Violation[] {
+  if (!file.startsWith(HARNESS_SRC_DIR) || isHarnessOwnAdapterExcluded(file)) return []
+  // Adapters share helpers freely; the registry is the one composition root.
+  if (file.startsWith(HARNESS_ADAPTERS_DIR) || file === HARNESS_REGISTRY_FILE) return []
+  // Without the closed harness set there is nothing to judge "a specific
+  // adapter" against. loadHarnessLiterals has its own drift guard
+  // (architecture-manifest.test.ts asserts the full set on the real repo),
+  // so an empty set here is a sandbox, not a passing rule.
+  if (ctx.kinds.length === 0) return []
+  const kinds = new Set(ctx.kinds)
+  let family: string | undefined
+  if (file.startsWith(HARNESS_FAMILIES_DIR)) {
+    const rest = file.slice(HARNESS_FAMILIES_DIR.length)
+    // Shared family helpers beside the family dirs are out of scope: the
+    // decision enumerates the importer set, and widening it silently is how a
+    // rule absorbs the next incident instead of catching it.
+    if (!rest.includes('/')) return []
+    family = rest.slice(0, rest.indexOf('/'))
+  }
+  const forbidden = isOwnAdapterForbiddenImporter(file)
+  if (family === undefined && !forbidden) return []
+  const violations: Violation[] = []
+  for (const ref of extractImports(source)) {
+    const target = resolveHarnessRelative(file, ref.specifier)
+    if (target === null || !target.startsWith(HARNESS_ADAPTERS_DIR)) continue
+    const adapter = target.slice(HARNESS_ADAPTERS_DIR.length).split('/')[0]
+    if (adapter === undefined || adapter === '' || !kinds.has(adapter)) continue
+    if (family !== undefined) {
+      if (ctx.familyAdapter.get(family) === adapter) continue
+      violations.push({
+        file,
+        specifier: ref.specifier,
+        rule: HARNESS_OWN_ADAPTER_RULE,
+        message: `${file}: driver family '${family}' imports adapters/${adapter}/ ('${ref.specifier}') — a family may import only its OWN adapter (spec §5 rule 4, 3.R D6). Take the value through the manifest or the registry instead.`,
+      })
+      continue
+    }
+    // The Store stays the one reader of transcript grammars (POD-4522): the
+    // sqlite/file-chain sources consume adapters/<h>/transcript.ts, which is
+    // a rule-2 narrow reader, not an adapter import. Any other adapter module
+    // from store/ is still refused below.
+    const basename = target.split('/').at(-1)
+    if (file.startsWith(`${HARNESS_SRC_DIR}store/`) && basename === 'transcript') continue
+    violations.push({
+      file,
+      specifier: ref.specifier,
+      rule: HARNESS_OWN_ADAPTER_RULE,
+      message: `${file}: imports adapters/${adapter}/ ('${ref.specifier}') — the terminal family, driver/host.ts, driver/runtime.ts, store/, inventory/ and observer.ts may not import any specific adapter (spec §5 rule 4, 3.R D6). Hand the value through the manifest or the registry instead.`,
+    })
+  }
+  return violations
+}
+
 /** Workspace a specifier points at, or null for external/std imports. */
 function targetWorkspace(file: string, specifier: string): string | null {
   if (specifier.startsWith('@podium/')) {
@@ -2808,8 +3041,13 @@ export function checkWorldIndexBoundary(file: string, source: string): Violation
   })
 }
 
-export function checkFile(file: string, source: string): Violation[] {
+export function checkFile(
+  file: string,
+  source: string,
+  ownAdapterCtx?: HarnessOwnAdapterCtx,
+): Violation[] {
   return [
+    ...checkHarnessOwnAdapter(file, source, ownAdapterCtx),
     ...checkWorldIndexBoundary(file, source),
     ...checkReplicaDirection(file, source),
     ...checkStoreRawHandles(file, source),
@@ -3276,12 +3514,13 @@ export function runCheck(repoRoot: string): {
   const modelExportNames = loadModelExportNames(repoRoot)
   const harnessLiterals = loadHarnessLiterals(repoRoot)
   const vendorLiterals = harnessVendorLiterals(harnessLiterals)
+  const ownAdapterCtx = loadHarnessOwnAdapterCtx(repoRoot)
   for (const rootDir of ['apps', 'packages', 'scripts']) {
     for (const abs of walk(join(repoRoot, rootDir))) {
       const file = relative(repoRoot, abs).split(sep).join('/')
       const source = readFileSync(abs, 'utf8')
       workspaces.add(workspaceOf(file))
-      violations.push(...checkFile(file, source))
+      violations.push(...checkFile(file, source, ownAdapterCtx))
       violations.push(...checkPrincipalFree(file, source))
       violations.push(...checkHarnessVendorLiterals(file, source, vendorLiterals))
       manifest.push(...checkManifestFile(file, source, harnessLiterals, modelExportNames))
