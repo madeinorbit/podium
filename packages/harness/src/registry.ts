@@ -70,9 +70,37 @@ export const HARNESS_KINDS: readonly BuiltinHarnessKind[] = Object.keys(
  * any string from an older or newer peer). Returns `undefined` for 'shell' (not a
  * harness) and for unknown harness names — callers MUST branch on that and
  * degrade, never substitute another harness's manifest.
+ *
+ * Tests may register a fixture manifest (POD-4474, spec §7) — checked AFTER the
+ * closed set, so a test double can never shadow a shipped harness.
  */
 export function manifestFor(kind: AgentKind | string): AgentManifest | undefined {
-  return isBuiltinHarnessKind(kind) ? AGENT_MANIFESTS[kind] : undefined
+  if (isBuiltinHarnessKind(kind)) return AGENT_MANIFESTS[kind]
+  return TEST_MANIFESTS.get(kind)
+}
+
+/**
+ * Test-only harness registration (POD-4474, spec §7: "a test adds a fixture
+ * harness this way" — `adapters/<name>/` plus one registry line).
+ *
+ * The closed `AGENT_MANIFESTS` record is untouched: totality, `HARNESS_KINDS`
+ * and the support matrix never see the fixture, and production never calls
+ * this (the map is empty outside tests). Returns an unregister function —
+ * tests that register MUST release, so a leaking fixture cannot make an
+ * unrelated suite believe a seventh harness ships.
+ */
+const TEST_MANIFESTS = new Map<string, AgentManifest>()
+
+export function registerTestManifest(manifest: AgentManifest): () => void {
+  TEST_MANIFESTS.set(manifest.kind as string, manifest)
+  return () => {
+    TEST_MANIFESTS.delete(manifest.kind as string)
+  }
+}
+
+/** Empty the test-manifest overlay (backstop for suites that register many). */
+export function clearTestManifests(): void {
+  TEST_MANIFESTS.clear()
 }
 
 /** Static feature declarations for a known harness. Unknown ids and `shell`
