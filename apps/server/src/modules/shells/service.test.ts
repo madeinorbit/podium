@@ -8,11 +8,12 @@
  */
 
 import { asSessionId, asUserId, firstAdminMemberId, type SessionId, type UserId } from '@podium/model'
+import { asIssueId, type IssueId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { createBunStoreExecutor } from '../../store/executor'
 import { UserDockShellRepository } from '../../store/user-layout'
-import { DockShellService, type DockShellSessionView } from './service'
+import { DockShellService, type DockShellSessionView, resolveDockShellOwner } from './service'
 
 const ALICE: UserId = firstAdminMemberId()
 const BOB: UserId = asUserId('user:bob')
@@ -191,5 +192,73 @@ describe('DockShellService passthrough reads', () => {
     expect(await service.get(ALICE, `${WT}/`)).toBe(created.sessionId)
     expect(await service.listForUser(ALICE)).toEqual({ [WT]: created.sessionId })
     expect(sessions.creates).toBe(1)
+  })
+})
+
+describe('resolveDockShellOwner (step 3)', () => {
+  const SHELL = asSessionId('33333333-3333-4333-8333-333333333333')
+  const ISSUE_A = asIssueId('iss_aaaaaaaaaaaaaaaaaaaaaaaaaa')
+  const ISSUE_B = asIssueId('iss_bbbbbbbbbbbbbbbbbbbbbbbbbb')
+
+  function ownerDeps(opts: {
+    rows?: Array<{ userId: UserId; worktreeKey: string }>
+    issueForKey?: IssueId | null
+  } = {}) {
+    return {
+      worktreeForSession: async () => opts.rows ?? [],
+      issueForCwd: async () => opts.issueForKey ?? null,
+    }
+  }
+
+  const shell = (overrides: { issueId?: IssueId | null } = {}) => ({
+    sessionId: SHELL,
+    agentKind: 'shell' as const,
+    ...(overrides.issueId ? { issueId: overrides.issueId } : {}),
+  })
+
+  it('a mapped shell resolves its worktree key and owning issue exactly', async () => {
+    const owner = await resolveDockShellOwner(
+      ownerDeps({ rows: [{ userId: ALICE, worktreeKey: WT }], issueForKey: ISSUE_A }),
+      shell({ issueId: ISSUE_B }),
+    )
+    // The mapping wins over the bound issue: the key is exact, the binding
+    // may be stale.
+    expect(owner).toEqual({ worktreeKey: WT, issueId: ISSUE_A })
+  })
+
+  it('an unmapped shell answers undefined (caller keeps its old answer)', async () => {
+    expect(await resolveDockShellOwner(ownerDeps(), shell({ issueId: ISSUE_B }))).toBeUndefined()
+  })
+
+  it('a non-shell never reads the mapping', async () => {
+    let reads = 0
+    const owner = await resolveDockShellOwner(
+      {
+        worktreeForSession: async () => {
+          reads += 1
+          return [{ userId: ALICE, worktreeKey: WT }]
+        },
+        issueForCwd: async () => ISSUE_A,
+      },
+      { sessionId: SHELL, agentKind: 'claude-code' },
+    )
+    expect(owner).toBeUndefined()
+    expect(reads).toBe(0)
+  })
+
+  it('a mapped shell whose worktree has no issue falls back to its bound issue', async () => {
+    const owner = await resolveDockShellOwner(
+      ownerDeps({ rows: [{ userId: ALICE, worktreeKey: WT }], issueForKey: null }),
+      shell({ issueId: ISSUE_B }),
+    )
+    expect(owner).toEqual({ worktreeKey: WT, issueId: ISSUE_B })
+  })
+
+  it('a mapped shell with no issue anywhere still names its worktree', async () => {
+    const owner = await resolveDockShellOwner(
+      ownerDeps({ rows: [{ userId: ALICE, worktreeKey: WT }], issueForKey: null }),
+      shell(),
+    )
+    expect(owner).toEqual({ worktreeKey: WT })
   })
 })

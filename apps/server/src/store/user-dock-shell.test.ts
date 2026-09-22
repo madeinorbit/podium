@@ -97,4 +97,14 @@ describe('UserDockShellRepository', () => {
     })
     expect(await shells.listForUser(BOB)).toEqual({})
   })
+
+  it('worktreeForSession resolves the owning rows for a shell (step 3 reverse lookup)', async () => {
+    await shells.set(ALICE, '/repo/.worktrees/a', SHELL_A, AT)
+    expect(await shells.worktreeForSession(SHELL_A)).toEqual([
+      { userId: ALICE, worktreeKey: '/repo/.worktrees/a' },
+    ])
+    expect(await shells.worktreeForSession(SHELL_B)).toEqual([])
+    await shells.removeBySession(SHELL_A)
+    expect(await shells.worktreeForSession(SHELL_A)).toEqual([])
+  })
 })

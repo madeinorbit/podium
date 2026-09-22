@@ -22,7 +22,13 @@
  * PK remains the cross-restart arbiter for the fresh-claim path.
  */
 
-import { normalizeDockWorktreeKey, type MachineId, type SessionId, type UserId } from '@podium/model'
+import {
+  normalizeDockWorktreeKey,
+  type IssueId,
+  type MachineId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { asSessionId } from '@podium/model'
 import type { UserDockShellRepository } from '../../store/user-layout'
@@ -176,4 +182,56 @@ function isLiveDockShell(view: DockShellSessionView | undefined): boolean {
   if (view.archived) return false
   if (view.status === 'exited') return false
   return true
+}
+
+/**
+ * THE POLICY'S OWNING-WORKTREE INPUT (POD-4436 step 3).
+ *
+ * The lifetime table takes an owning worktree per shell, and the stop path
+ * answered it from a cwd string (`issueForCwd(session.cwd)`). A dock shell's
+ * cwd can be a subdir, stale, or bound to a different issue than the worktree
+ * it serves — so the table learns the worktree from the server mapping
+ * instead: session id → worktree key (exact), then key → owning issue.
+ *
+ * Only shells can be mapped (tab shells from the + menu are unmapped by
+ * design, SP-75b1), so a non-shell answers undefined without touching the
+ * store and its caller falls back to exactly what it did before. An unmapped
+ * shell likewise answers undefined. A mapped shell whose key resolves to no
+ * issue (deleted out from under it) falls back to its bound issue, if any —
+ * the old answer is preserved rather than replaced with nothing.
+ */
+export interface DockShellOwnerSession {
+  sessionId: SessionId
+  agentKind: string
+  issueId?: IssueId | null | undefined
+}
+
+export interface DockShellOwnerDeps {
+  worktreeForSession(
+    sessionId: SessionId,
+  ): Promise<ReadonlyArray<{ userId: UserId; worktreeKey: string }>>
+  issueForCwd(cwd: string): Promise<IssueId | null | undefined>
+}
+
+export interface DockShellOwner {
+  /** The exact owning worktree key from the server mapping. */
+  worktreeKey: string
+  /** The top-level issue owning that worktree, when one still does. */
+  issueId?: IssueId | undefined
+}
+
+export async function resolveDockShellOwner(
+  deps: DockShellOwnerDeps,
+  session: DockShellOwnerSession,
+): Promise<DockShellOwner | undefined> {
+  if (session.agentKind !== 'shell') return undefined
+  const rows = await deps.worktreeForSession(session.sessionId)
+  const worktreeKey = rows[0]?.worktreeKey
+  if (!worktreeKey) return undefined
+  const owner = await deps.issueForCwd(worktreeKey)
+  return {
+    worktreeKey,
+    ...(owner ? { issueId: owner } : {}),
+    ...(!owner && session.issueId ? { issueId: session.issueId } : {}),
+  }
 }

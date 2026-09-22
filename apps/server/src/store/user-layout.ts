@@ -321,4 +321,21 @@ export class UserDockShellRepository {
   async removeBySession(sessionId: SessionId): Promise<void> {
     await this.db.delete(userDockShell).where(eq(userDockShell.sessionId, sessionId)).run()
   }
+
+  /**
+   * Every (user, worktree) row pointing at `sessionId` — the reverse lookup
+   * the lifetime policy reads to answer "owning worktree" exactly (POD-4436
+   * step 3), instead of containing a cwd string. Normally one row: one dock
+   * shell per worktree per user, and one claim wins each slot.
+   */
+  async worktreeForSession(
+    sessionId: SessionId,
+  ): Promise<Array<{ userId: UserId; worktreeKey: string }>> {
+    const rows = await this.db
+      .select({ userId: userDockShell.userId, worktreeKey: userDockShell.worktreeKey })
+      .from(userDockShell)
+      .where(eq(userDockShell.sessionId, sessionId))
+      .all()
+    return rows.map((r) => ({ userId: r.userId, worktreeKey: r.worktreeKey }))
+  }
 }

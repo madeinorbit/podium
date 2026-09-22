@@ -1,16 +1,20 @@
 /**
- * Freeing a worktree removes the dock-shell mapping (POD-4436 step 4).
+ * Freeing a worktree removes the dock-shell mapping (POD-4436 step 4), and the
+ * stop path answers the policy's owning worktree from the mapping (step 3).
  *
  * Both freed paths of `freeWorktreeKeepBranch` — removed from disk and
  * already-gone — release every user's mapping row for the path, so no dock
- * reattaches a shell whose worktree is gone. The retired session ids are what
- * the lifetime policy parks/kills per its rule once terminal-lifetime lands
- * (step 3, held by the coordinator); removal is the whole wire today.
+ * reattaches a shell whose worktree is gone.
+ *
+ * Step 3 at the stop trigger: a mapped shell is judged by its worktree's
+ * top-level issue, not by its bound issue or its cwd string. An untouched,
+ * unheld shell mapped to a CLOSED issue's worktree is killed on stop; the
+ * same shell without the mapping is parked.
  */
 
 import { asSessionId, asUserId, firstAdminMemberId, type SessionId, type UserId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -55,7 +59,10 @@ async function makeRegistry(statusImpl: () => Promise<{ ok: boolean; output: str
   await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId, 'git@github.com:example/r.git')
   const rpc = (
     reg.modules.sessions as unknown as {
-      rpc: { repoOp: (...args: unknown[]) => Promise<{ ok: boolean; output: string }> }
+      rpc: {
+        repoOp: (...args: unknown[]) => Promise<{ ok: boolean; output: string }>
+        runtimeLifecycle: (...args: never[]) => Promise<unknown>
+      }
     }
   ).rpc
   rpc.repoOp = (async (op: unknown, cwd: unknown) => {
@@ -73,6 +80,11 @@ async function makeRegistry(statusImpl: () => Promise<{ ok: boolean; output: str
     }
     return { ok: true, output: '' }
   }) as typeof rpc.repoOp
+  // Graceful stop settles without a daemon round trip.
+  rpc.runtimeLifecycle = (async () => ({
+    sessionId: 'stopped',
+    result: { ok: true, retirement: 'confirmed' },
+  })) as typeof rpc.runtimeLifecycle
   return { reg, store }
 }
 
@@ -133,5 +145,63 @@ describe('freeWorktreeKeepBranch releases dock shells', () => {
     const freed = await reg.modules.issues.freeWorktreeKeepBranch(issueId, systemPrincipal('stop'))
     expect(freed.ok).toBe(false)
     expect(await store.dockShells.get(alice, WT)).toBe(shellA)
+  })
+})
+
+describe('stopSession answers the policy from the mapping (step 3)', () => {
+  /**
+   * The shell under test is bound to OPEN issue B and runs its cwd OUTSIDE
+   * the worktree, so without the mapping the policy sees no closed owner
+   * (bound B is open, `/r` resolves to nothing). Mapped to the CLOSED issue
+   * A's worktree, the same untouched, unheld shell is killed on stop
+   * (row 8: untouched-shell-owner-gone) instead of parked (row 9).
+   *
+   * A live sibling session occupies the worktree so the stop never frees it:
+   * the free would remove the mapping first and hand row 8 the same verdict
+   * through `worktreeFreed`, proving nothing about the mapping.
+   */
+  async function setupMappedStop(mapped: boolean) {
+    const { reg, store } = await makeRegistry(async () => ({ ok: true, output: '## issue/a\n' }))
+    const issueA = await reg.modules.issues.create({ repoPath: '/r', title: 'Owner', startNow: false })
+    await reg.modules.issues.update(issueA.id, { worktreePath: WT, branch: 'issue/a' })
+    const issueB = await reg.modules.issues.create({ repoPath: '/r', title: 'Binding', startNow: false })
+    // A live occupant blocks the free so the verdict can only come from the mapping.
+    await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: WT })
+    const shell = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+      issueId: issueB.id,
+    })
+    await reg.modules.issues.update(issueA.id, { stage: 'done' })
+    await vi.waitFor(async () => {
+      expect((await reg.modules.issues.getMeta(issueA.id))?.stage).toBe('done')
+    })
+    // The close must have kept the worktree (occupied) and therefore the mapping.
+    expect((await reg.modules.issues.getMeta(issueA.id))?.worktreePath).toBe(WT)
+    if (mapped) {
+      await store.dockShells.set(firstAdminMemberId(), WT, shell.sessionId, new Date().toISOString())
+    }
+    return { reg, store, shellId: shell.sessionId }
+  }
+
+  async function statusOf(reg: SessionRegistry, sessionId: SessionId) {
+    return (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )?.status
+  }
+
+  it('a shell mapped to a closed issue worktree is killed on stop', async () => {
+    const { reg, shellId } = await setupMappedStop(true)
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId: shellId })
+    expect(r.ok).toBe(true)
+    expect(r.worktreeFreed).toBe(false)
+    expect(await statusOf(reg, shellId)).toBeUndefined()
+  })
+
+  it('the same shell without the mapping is parked, not killed', async () => {
+    const { reg, shellId } = await setupMappedStop(false)
+    const r = await reg.modules.issueSessionLifecycle.stopSession({ sessionId: shellId })
+    expect(r.ok).toBe(true)
+    expect(await statusOf(reg, shellId)).toBe('hibernated')
   })
 })
