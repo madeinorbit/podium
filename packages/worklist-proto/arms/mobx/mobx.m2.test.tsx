@@ -77,7 +77,7 @@ function changedRows(before: SliceSnapshot, after: SliceSnapshot): string[] {
 }
 
 describe('mobx arm milestone 2: structural scenarios', () => {
-  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
   it.fails('scenarios #4-#10 with parity and budgets', async () => {
     const started = performance.now()
     const ctx = await startScenarioEngine(1)

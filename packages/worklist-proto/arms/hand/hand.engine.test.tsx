@@ -47,7 +47,7 @@ function expectOracle(mounted: { handle: { snapshot(): unknown } }, store: HandS
 }
 
 describe('hand-rolled arm on the engine (fixture 1x)', () => {
-  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
   it.fails('scenarios #1-#3: parity green, rebuild oracle green, isolation within budget', async () => {
     const { ctx, source, locals, mounted } = await bootArm()
     // Reach the live store behind the mounted handle for the rebuild oracle.

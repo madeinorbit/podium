@@ -64,7 +64,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
       ? join(cwd, 'harness', 'browser', 'results')
       : join(cwd, 'packages', 'worklist-proto', 'harness', 'browser', 'results')
   }
-  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
   it.fails('lifecycle: cold bootstrap, fresh-replica principal switch, rescope, zero listeners survive', async () => {
     const lifecycle: Record<string, unknown> = {}
     // Cold bootstrap at live corpus: construction snapshots full, once.
@@ -273,7 +273,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     }
   }, 600_000)
 
-  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
   it.fails('growth scenario 14: scenarios 1, 2, 3, 5 at 1x, 2x, 4x with scans and phase split', async () => {
     const scales = [
       { name: '1x', scale: 1 as FixtureScale },
@@ -384,7 +384,7 @@ describe('hand-rolled arm milestone 3: lifecycle, growth, coexistence', () => {
     mkdirSync(resultsDir, { recursive: true })
     writeFileSync(join(resultsDir, 'hand-m3-growth.json'), JSON.stringify(table, null, 2))
   }, 600_000)
-  // POD-4551 coordinator ruling: expected failure. The corpus's resume-twin tie root (i286 at 1x) collapses in the runtime and the oracle (runtime.ts:465), and this retired round-two arm never implemented dedupeSessionsByResume, so it shows the stale ask.
+  // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
   it.fails('coexistence scenario 15: arm + control on one kernel match their solo counts', async () => {
     const soloHeartbeat = async (
       kind: 'arm' | 'control',
