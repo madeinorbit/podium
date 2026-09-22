@@ -125,8 +125,8 @@ describe('declared install scope', () => {
         }),
       ),
     )
-    expect(seenHomes).toEqual([home, home])
     expect(maxActive).toBe(1)
+    expect(seenHomes).toEqual([home, home])
   })
 
   it('does not serialize session-scoped installs', async () => {
