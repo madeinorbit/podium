@@ -88,6 +88,11 @@
       "@podium/source": "./src/adapters/grok/instrumentation.ts",
       "import": "./dist/adapters/grok/instrumentation.js",
       "types": "./dist/adapters/grok/instrumentation.d.ts"
+    },
+    "./adapters/fixture": {
+      "@podium/source": "./src/adapters/fixture/index.ts",
+      "import": "./dist/adapters/fixture/index.js",
+      "types": "./dist/adapters/fixture/index.d.ts"
     }
   },
   "files": [
