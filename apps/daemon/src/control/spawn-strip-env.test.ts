@@ -40,7 +40,7 @@ import { join } from 'node:path'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
-import { testSessions } from '../session/testing.js'
+import { stubDurable, testSessions } from '../session/testing.js'
 
 /** Claude's hook settings file is written here at spawn; nothing reads it back. */
 const settingsDir = mkdtempSync(join(tmpdir(), 'podium-strip-env-settings-'))
@@ -48,26 +48,21 @@ afterAll(() => rmSync(settingsDir, { recursive: true, force: true }))
 
 let captured: SpawnOptions | undefined
 
-vi.mock('@podium/process/screen', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/process/screen')>()
+/** Stands in for the pty: a context with no durable process refuses to spawn (POD-4617). */
+const fakeSpawn = (opts: SpawnOptions) => {
+  captured = opts
   return {
-    ...actual,
-    spawnAgent: (opts: SpawnOptions) => {
-      captured = opts
-      return {
-        pid: 4242,
-        onFrame: () => () => {},
-        onTitle: () => () => {},
-        onExit: () => () => {},
-        write: () => {},
-        resize: () => {},
-        redraw: () => {},
-        geometry: () => ({ cols: opts.cols, rows: opts.rows }),
-        dispose: () => {},
-      }
-    },
+    pid: 4242,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    resize: () => {},
+    redraw: () => {},
+    geometry: () => ({ cols: opts.cols, rows: opts.rows }),
+    dispose: () => {},
   }
-})
+}
 
 const { sessionHandlers } = await import('./session')
 
@@ -76,6 +71,7 @@ function contextForSpawn(): DaemonContext {
     send: () => {},
     instanceId: 'default',
     backend: 'none',
+    durable: stubDurable(fakeSpawn),
     machineId: 'strip-env-test-machine',
     settingsDir,
     launch: (_kind: string, opts: { cwd: string }) => ({

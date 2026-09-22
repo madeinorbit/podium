@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { PtyProcess } from '../src/backends/types'
-import { spawnAgent } from '../src/index'
+import { spawnAgent } from '../src/session'
 import { wrapPty } from '../src/session'
 import { collect, waitFor } from './helpers'
 

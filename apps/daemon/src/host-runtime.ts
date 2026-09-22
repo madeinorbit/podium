@@ -104,7 +104,7 @@ import {
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
-import { selectDurableBackend } from './durable-backend'
+import { noDurableBackendDiagnostic, selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
@@ -365,7 +365,16 @@ export async function createDaemonHostRuntime(args: {
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const { backend, available: durableAvailable } = selectDurableBackend(opts)
-  const durable = backend === 'none' ? undefined : createDurableProcess(backend, durableAvailable)
+  const durable =
+    opts.durable ?? (backend === 'none' ? undefined : createDurableProcess(backend, durableAvailable))
+  /**
+   * NO DURABLE PROCESS, NO SESSIONS (POD-4617). The daemon still boots — so the
+   * machine stays visible and inventory and credentials keep working — but
+   * every spawn refuses (`launchSpawn`), and the machine carries the reason as
+   * a standing diagnostic the app shows, replayed on every connect like the
+   * port conflicts below.
+   */
+  const backendDiagnostics = durable ? [] : [noDurableBackendDiagnostic()]
   /**
    * THE SERVER-FAMILY ENGINE DURABLE (POD-4433; added additively for the 2.1
    * lifecycle lane inheriting this file). Engines are never terminal sessions,
@@ -1713,7 +1722,9 @@ export async function createDaemonHostRuntime(args: {
       // inflate every later socket readdir. Sweep before the reattach storm.
       sweepStaleDurableBindTemps()
     }
-    for (const diagnostic of portConflicts) send({ type: 'machineDiagnostic', ...diagnostic })
+    for (const diagnostic of [...portConflicts, ...backendDiagnostics]) {
+      send({ type: 'machineDiagnostic', ...diagnostic })
+    }
     pushDurableSessionCensus()
     void reportInventory(ctx)
     void replayPendingBindingReceipts().catch((error) =>

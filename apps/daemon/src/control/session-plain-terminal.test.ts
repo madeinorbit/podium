@@ -8,7 +8,7 @@ import { asSessionId } from '@podium/model'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
-import { attachTestTerminal, testSessions } from '../session/testing.js'
+import { attachTestTerminal, stubDurable, testSessions } from '../session/testing.js'
 
 /** Keep any launch artifacts inside a disposable test directory. */
 const settingsDir = mkdtempSync(join(tmpdir(), 'podium-plain-terminal-'))
@@ -27,26 +27,21 @@ vi.mock('../runtime/registry', async (importOriginal) => {
   return { ...actual, terminalProfileFor: vi.fn(actual.terminalProfileFor) }
 })
 
-vi.mock('@podium/process/screen', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/process/screen')>()
+/** Stands in for the pty: a context with no durable process refuses to spawn (POD-4617). */
+const fakeSpawn = (opts: SpawnOptions) => {
+  captured = opts
   return {
-    ...actual,
-    spawnAgent: (opts: SpawnOptions) => {
-      captured = opts
-      return {
-        pid: 4242,
-        onFrame: () => () => {},
-        onTitle: () => () => {},
-        onExit: () => () => {},
-        write: () => {},
-        resize: () => {},
-        redraw: () => {},
-        geometry: () => ({ cols: opts.cols, rows: opts.rows }),
-        dispose,
-      }
-    },
+    pid: 4242,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    resize: () => {},
+    redraw: () => {},
+    geometry: () => ({ cols: opts.cols, rows: opts.rows }),
+    dispose,
   }
-})
+}
 
 const { launchSpawn, launchServerDriverSession, sessionHandlers } = await import('./session')
 const { terminalProfileFor } = await import('../runtime/registry')
@@ -56,6 +51,7 @@ function contextForSpawn(): DaemonContext {
     send: () => {},
     instanceId: 'default',
     backend: 'none',
+    durable: stubDurable(fakeSpawn),
     machineId: 'plain-terminal-test-machine',
     settingsDir,
     launch: (_kind: string, opts: { cwd: string }) => ({

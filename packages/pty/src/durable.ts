@@ -36,6 +36,11 @@ export {
   durableProcessFor,
   durableFor,
 } from './durable-process.js'
+// TESTS ONLY (POD-4617): the direct-pty stand-in for a durable process. A
+// daemon with no durable process refuses every spawn; this is the one place a
+// raw pty spawn is still reachable, and the durable-door allow-list keeps it
+// out of production daemon code.
+export { directPtyDurableForTests } from './direct-pty-durable.js'
 // The attachment handle both adapters implement, re-exported so the durable
 // door names the ONE interface (POD-4434). Type-only: it widens no runtime
 // capability, and the P2b value door above is unchanged.

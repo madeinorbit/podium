@@ -21,26 +21,21 @@ import {
 // The login-PTY launch test below exercises the real launch fork with the process
 // boundary mocked: no shell, login CLI, daemon or service starts.
 const spawned: { cmd: string; args: string[] }[] = []
-vi.mock('@podium/process/screen', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@podium/process/screen')>()
+/** Stands in for the pty: a context with no durable process refuses to spawn (POD-4617). */
+const fakeSpawn = (opts: { cmd: string; args?: string[] }) => {
+  spawned.push({ cmd: opts.cmd, args: opts.args ?? [] })
   return {
-    ...actual,
-    spawnAgent: (opts: { cmd: string; args: string[] }) => {
-      spawned.push({ cmd: opts.cmd, args: opts.args })
-      return {
-        pid: 4242,
-        onFrame: () => () => {},
-        onTitle: () => () => {},
-        onExit: () => () => {},
-        write: () => {},
-        resize: () => {},
-        redraw: () => {},
-        geometry: () => ({ cols: 80, rows: 24 }),
-        dispose: () => {},
-      }
-    },
+    pid: 4242,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    resize: () => {},
+    redraw: () => {},
+    geometry: () => ({ cols: 80, rows: 24 }),
+    dispose: () => {},
   }
-})
+}
 vi.mock('./runtime/server-reap', () => ({ beginServerDriverReap: vi.fn(async () => {}) }))
 vi.mock('./runtime/instance-process-reaper', () => ({
   reapInstanceSessionProcesses: vi.fn(async () => ({ examined: 0, remaining: 0 })),
@@ -53,7 +48,7 @@ import {
   runtimeDriverInventory,
 } from './control/inventory.js'
 import { scanHostUsageSources, scanQuotaHistory } from '@podium/harness/inventory'
-import { testSessions } from './session/testing.js'
+import { stubDurable, testSessions } from './session/testing.js'
 
 describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
   describe('resolveManagementCredentialHome prefers the provisioned account home', () => {
@@ -435,6 +430,7 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         instanceId: 'default',
         instanceUuid: 'uuid-mgmt',
         backend: 'none',
+        durable: stubDurable(fakeSpawn),
         machineId: 'm-login',
         settingsDir: tmpdir(),
         homeDir: '/instance/home',
@@ -487,6 +483,7 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         send: () => {},
         instanceId: 'default',
         backend: 'none',
+        durable: stubDurable(fakeSpawn),
         machineId: 'm-login',
         settingsDir: tmpdir(),
         launch: () => ({ cmd: '/bin/true', args: [], cwd: '/repo' }),
