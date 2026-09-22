@@ -20,7 +20,7 @@ const setActive = vi.fn()
 const dispose = vi.fn()
 
 // screenText returns a clean, EMPTY Claude composer box so flushDraftToNative's
-// scrape (extractClaudePromptDraft) reads '' (empty composer) and is allowed to
+// scrape (the claude composer rules' extract) reads '' (empty composer) and is
 // inject. A bare '' would parse to null (no box) and the flush would wait forever,
 // so render the rounded box with just the '>' marker. happy-dom doesn't run real
 // layout, so we also force the terminal container to "contain" the active element
