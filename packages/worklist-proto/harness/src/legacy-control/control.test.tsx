@@ -127,7 +127,7 @@ describe('legacy control (armed)', () => {
   it('commits and stats are identical with the reads fence on and off', async () => {
     async function heartbeatWith(reads: ReadFence | undefined): Promise<CountResult> {
       const ctx = await startScenarioEngine(1)
-      const source = createRowSource(ctx.engine, ctx.replica)
+      const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
       const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
       const mounted = mountArmForCounts(
         legacyControlArmFor(ctx.engine),
@@ -174,7 +174,7 @@ describe('legacy control (armed)', () => {
    */
   it('reads the whole corpus on every scenario #1–#5', async () => {
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
     const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, locals)
     const run = (scenario: string, methodology: string, write: (ctx: ScenarioEngine) => Promise<unknown>) =>

@@ -98,7 +98,7 @@ function probeArm(mode: ProbeMode): Arm {
 
 async function heartbeat(mode: ProbeMode): Promise<{ run: () => Promise<CountResult>; sessions: number; done: () => void }> {
   const ctx = await startScenarioEngine(1)
-  const source = createRowSource(ctx.engine, ctx.replica)
+  const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
   const mounted = mountArmForCounts(probeArm(mode), source.source, locals)
   return {
