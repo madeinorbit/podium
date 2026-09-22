@@ -13,6 +13,13 @@
  * every budget is stated on (`docs/plans/pod-4441-harness.md`, "Instrument
  * floor"). It is not a candidate; the oracle import here never reaches an arm
  * page's bundle.
+ *
+ * PLANTS (`?plant=` on the page; the timer's can-say-NO proof, never a
+ * floor run): `sync:<ms>` busy-waits that long inside every feed/locals
+ * notification and commits nothing; `late:<ms>` re-renders every drawn row
+ * from a timer that long after every notification, so the commit lands in a
+ * later task. The timer must charge both to `actionMs`, and a `late` longer
+ * than the settle must surface as `strayCommits` on the next record.
  */
 
 import { createElement, type ReactElement } from 'react'
@@ -58,12 +65,37 @@ function zeroStats(): ArmStats {
   }
 }
 
+export type NoopPlant = { kind: 'sync' | 'late'; ms: number } | null
+
+/** `?plant=sync:<ms>` / `late:<ms>`; null when absent. */
+export function readPlant(): NoopPlant {
+  const raw = new URLSearchParams(window.location.search).get('plant')
+  if (raw === null) return null
+  const [kind, ms] = raw.split(':')
+  if ((kind !== 'sync' && kind !== 'late') || !Number.isFinite(Number(ms))) {
+    throw new Error(`[noop] bad plant ${raw} (want sync:<ms> or late:<ms>)`)
+  }
+  return { kind, ms: Number(ms) }
+}
+
 /** `mustDraw`: rows drawn even when outside the first window (the library's click targets). */
-export function noopArmFor(boot: ScenarioEngine, mustDraw: readonly string[]): Arm {
+export function noopArmFor(boot: ScenarioEngine, mustDraw: readonly string[], plant: NoopPlant = null): Arm {
   return {
     create(source, locals): ArmHandle {
-      const offSource = source.subscribe(() => {})
-      const offLocals = locals.subscribe(() => {})
+      let redraw = (): void => {}
+      const onChange = (): void => {
+        if (plant === null) return
+        if (plant.kind === 'sync') {
+          const until = performance.now() + plant.ms
+          while (performance.now() < until) {
+            // planted synchronous work
+          }
+        } else {
+          setTimeout(() => redraw(), plant.ms)
+        }
+      }
+      const offSource = source.subscribe(onChange)
+      const offLocals = locals.subscribe(onChange)
       const store = boot.engine.getSnapshot()
       const frozen: SliceSnapshot = oracleSnapshot(store)
       const views = rowViewsFromStore(store, locals.get())
@@ -86,17 +118,20 @@ export function noopArmFor(boot: ScenarioEngine, mustDraw: readonly string[]): A
           const mounted = createRoot(el)
           root = mounted
           const log = currentCommitLog()
-          mounted.render(
-            createElement(
-              CommitLogContext.Provider,
-              { value: log },
+          const draw = (): void =>
+            mounted.render(
               createElement(
-                RowActionsContext.Provider,
-                { value: NOOP_ACTIONS },
-                rows.map((row) => createElement(RowShell, { key: row.id, row, component: NoopRow })),
+                CommitLogContext.Provider,
+                { value: log },
+                createElement(
+                  RowActionsContext.Provider,
+                  { value: NOOP_ACTIONS },
+                  rows.map((row) => createElement(RowShell, { key: row.id, row, component: NoopRow })),
+                ),
               ),
-            ),
-          )
+            )
+          draw()
+          redraw = draw
           return () => {
             mounted.unmount()
             if (root === mounted) root = null

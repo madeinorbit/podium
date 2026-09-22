@@ -21,6 +21,8 @@ export interface HeapUsage {
 
 export interface TimingRecord {
   arm: ArmName
+  /** A timer self-test plant (`--plant`), summarised under its own label. */
+  plant: string | null
   scale: Scale
   scenario: ScenarioName
   sample: number
@@ -56,6 +58,7 @@ export interface RunOutput {
   browser: string | null
   capturedAt: string
   arm: ArmName
+  plant: string | null
   scale: Scale
   maxLoad: number
   corpus: unknown

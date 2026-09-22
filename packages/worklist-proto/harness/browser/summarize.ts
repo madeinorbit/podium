@@ -24,7 +24,6 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   distribution,
-  type ArmName,
   type Distribution,
   type RunOutput,
   type Scale,
@@ -37,7 +36,8 @@ export const CLICK_ALLOWANCE_MS: Partial<Record<Scale, number>> = { 1: 16, 4: 32
 export const SLOPE_BUDGET = 1.2
 
 export interface Cell {
-  arm: ArmName
+  /** The arm, or `noop+<plant>` for a timer self-test run. */
+  arm: string
   scenario: ScenarioName
   scale: Scale
   actionMs: Distribution
@@ -77,7 +77,8 @@ export function cells(runs: RunOutput[]): Cell[] {
   for (const run of runs) {
     for (const record of run.records) {
       if (record.warmup) continue
-      const key = `${record.arm}|${record.scenario}|${record.scale}`
+      const label = record.plant ? `${record.arm}+${record.plant}` : record.arm
+      const key = `${label}|${record.scenario}|${record.scale}`
       const group = groups.get(key) ?? { records: [], runs: new Set() }
       group.records.push(record)
       group.runs.add(run)
@@ -87,7 +88,7 @@ export function cells(runs: RunOutput[]): Cell[] {
   return [...groups.values()].map(({ records, runs: from }) => {
     const first = records[0] as TimingRecord
     return {
-      arm: first.arm,
+      arm: first.plant ? `${first.arm}+${first.plant}` : first.arm,
       scenario: first.scenario,
       scale: first.scale,
       actionMs: distribution(records.map((r) => r.actionMs)),
@@ -152,10 +153,10 @@ function main(): void {
   console.log('')
   console.log('| Arm | Scenario | p50 1x / 2x / 4x | slope 4x/1x (budget ≤ 1.2) | excess over floor 4x/1x |')
   console.log('|---|---|---|---|---|')
-  const slopes: { arm: ArmName; scenario: ScenarioName; slope: number | null; excessSlope: number | null }[] = []
+  const slopes: { arm: string; scenario: ScenarioName; slope: number | null; excessSlope: number | null }[] = []
   const armScenarios = [...new Set(table.map((c) => `${c.arm}|${c.scenario}`))]
   for (const key of armScenarios) {
-    const [arm, scenario] = key.split('|') as [ArmName, ScenarioName]
+    const [arm, scenario] = key.split('|') as [string, ScenarioName]
     const at = (scale: Scale): number | null =>
       table.find((c) => c.arm === arm && c.scenario === scenario && c.scale === scale)?.actionMs.p50 ?? null
     const floorAt = (scale: Scale): number | null => floor(scenario, scale)?.actionMs.p50 ?? null

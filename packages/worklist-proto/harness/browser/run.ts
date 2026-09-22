@@ -63,6 +63,7 @@ interface Args {
   port: number
   serve: string
   lease: boolean
+  plant: string | null
 }
 
 function parseArgs(argv: string[]): Args {
@@ -72,6 +73,7 @@ function parseArgs(argv: string[]): Args {
     return argv[index + 1]
   }
   const arm = (get('--arm', 'control') ?? 'control') as string
+  if (get('--plant') !== undefined && arm !== 'noop') throw new Error('--plant is for --arm noop only')
   if (!(ARMS as readonly string[]).includes(arm)) {
     throw new Error(`--arm must be one of ${ARMS.join(', ')} (got ${arm})`)
   }
@@ -97,6 +99,8 @@ function parseArgs(argv: string[]): Args {
     serve: get('--serve', 'packages/worklist-proto/harness/web/dist') ?? '',
     // `matrix.ts` holds the lease around each invocation itself.
     lease: !argv.includes('--no-lease'),
+    // A timer self-test plant on the noop page (`noop-arm.tsx`); never a floor run.
+    plant: get('--plant') ?? null,
   }
 }
 
@@ -169,6 +173,7 @@ async function main(): Promise<number> {
     browser: null,
     capturedAt: new Date().toISOString(),
     arm: args.arm,
+    plant: args.plant,
     scale: args.scale,
     maxLoad: args.maxLoad,
     corpus: null,
@@ -203,7 +208,8 @@ async function main(): Promise<number> {
     server = await serveDist(args.serve, args.port)
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
     page.on('pageerror', (error) => fail(`page error: ${error.message}`))
-    const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}`
+    const plant = args.plant === null ? '' : `&plant=${encodeURIComponent(args.plant)}`
+    const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}${plant}`
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __proto?: { ready: boolean } }).__proto?.ready !== undefined,
@@ -241,6 +247,7 @@ async function main(): Promise<number> {
         const load = loadavg()[0] ?? 0
         const record: TimingRecord = {
           arm: args.arm,
+          plant: args.plant,
           scale: args.scale,
           scenario,
           sample,
@@ -267,7 +274,7 @@ async function main(): Promise<number> {
         output.records.push(record)
         if (load > args.maxLoad) fail(`load ${load.toFixed(2)} > ${args.maxLoad} at ${scenario}#${sample}`)
         console.log(
-          `[browser] ${args.arm} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
+          `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
             `actionMs=${record.actionMs.toFixed(2)} frameMs=${record.frameMs.toFixed(1)} ` +
             `by=${record.endedBy} commits=${record.commits} longTasks=${record.longTasks} ` +
             `stray=${record.strayCommits} load=${load.toFixed(2)}`,
