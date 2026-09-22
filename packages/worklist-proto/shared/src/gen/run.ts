@@ -23,10 +23,10 @@
  * the kernel mints, persists and sends them and fires its own outbox events;
  * the runner learns each edit's mutation id from the outbox it landed in.
  *
- * EVENTS. A row source over the current runtime collects the `RowSourceEvent`s
- * each step published (`StepResult.events`). A reload re-binds it. The feed is
- * injectable (`feed`) so L3a's per-row feed can replace it without touching
- * the generator.
+ * EVENTS. The per-row feed (POD-4553) over the current runtime collects the
+ * `RowSourceEvent`s each step published (`StepResult.events`); a reload
+ * re-binds it. Default mode `'truth'` (server rows, no overlay: what a
+ * phase-c arm reads, write contract W12); `feedMode`/`feed` override it.
  *
  * SETTLING. After each step the runner yields macrotasks until the engine is
  * quiet (no publication, no server call, no outbox movement for three turns):
@@ -154,8 +154,11 @@ export interface StepResult {
 
 export interface GenRunOptions {
   corpus?: FixtureCorpus
-  /** The feed whose events each step records. Default: the round-two row
-   *  source over the runtime's folded snapshot. */
+  /** The per-row feed's mode (POD-4553). Default `'truth'`: server rows with
+   *  no ledger overlay, what a phase-c arm reads (write contract W12).
+   *  `'overlaid'` is the legacy fold's view. */
+  feedMode?: 'truth' | 'overlaid'
+  /** Replace the feed outright (overrides `feedMode`). */
   feed?: (ctx: ScenarioEngine) => RowSourceHandle
   /** Called after every step settled, before the next (the L4b checker). */
   onStep?: (step: StepResult, run: GenRun) => void | Promise<void>
@@ -190,7 +193,8 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
     server: server.handlers,
     network: { isOnline: () => online, onlineEvents },
   })
-  const makeFeed = opts.feed ?? ((c: ScenarioEngine) => createRowSource(c.engine, c.replica))
+  const mode = opts.feedMode ?? 'truth'
+  const makeFeed = opts.feed ?? ((c: ScenarioEngine) => createRowSource(c.engine, c.replica, { mode }))
 
   let publications = 0
   let offEngine = ctx.engine.subscribe(() => {

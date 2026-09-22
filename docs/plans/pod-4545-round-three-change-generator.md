@@ -25,11 +25,12 @@ const { result } = await shrink(changes, (cs) => failsOn(cs))
   edit e7"). The runner re-resolves every target against the engine and
   **skips** a change whose target is gone (the step records why), so every
   subsequence the shrinker tries still runs.
-- `startGenRun({ onStep, feed })`: `onStep(step, run)` runs after each step has
-  settled, before the next — the L4b checker goes there. `feed` swaps the
-  event source: by default the round-two row source over the runtime's folded
-  snapshot; the phase-c arms need L3a's server-truth feed (write contract W12),
-  and this is where it plugs in.
+- `startGenRun({ onStep, feedMode, feed })`: `onStep(step, run)` runs after
+  each step has settled, before the next — the L4b checker goes there. Events
+  come from L3a's per-row feed (POD-4553), by default in `'truth'` mode: server
+  rows with no ledger overlay, what a phase-c arm reads (write contract W12).
+  `feedMode: 'overlaid'` gives the legacy fold's view; `feed` replaces the
+  source outright.
 - Each step settles by yielding macrotasks until the engine is quiet (no
   publication, no server call, no outbox movement for three turns). There is no
   wall-clock wait, and the same sequence gives the same events on a fresh engine
@@ -207,11 +208,13 @@ passes the same run and the same shrunk pair.
    when a third edit was enqueued. ("Partitions run concurrently" holds only
    within one pass.) This is production behaviour on web, and it lies outside
    round three.
-2. **The round-two row source does not publish worktree changes that arrive
-   through discovery.** After `worktreesChanged` → `refreshRepos`, the engine
-   holds the new worktree and `source.snapshot('worktree')` has it, but no
-   event fires: the source emits worktree lanes only for a kernel `repos`
-   address. This is for L3a (POD-4553).
+2. **Worktree changes that arrive through discovery reach no feed event.**
+   After `worktreesChanged` → `refreshRepos`, the engine holds the new
+   worktree and `source.snapshot('worktree')` has it, but no event fires. L3a
+   (POD-4553) documents this as inherited ("discovery is not a kernel row").
+   For the gate it means an arm hears about a new worktree lane only on the
+   next kernel `repos` address, so a checker must compare against the feed's
+   snapshot, not only its events.
 3. **The fixture's sort keys are malformed by the model's own rule.**
    `isSortKey('a0')` is false (a key may not end in the minimum digit), so a
    real server would never send `a0`, and `sortKeyBetween` refuses it as a

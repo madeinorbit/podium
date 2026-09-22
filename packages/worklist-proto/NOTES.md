@@ -177,7 +177,7 @@ mapping, audit §3.3 shapes, seed-1 coverage table, findings).
 
 1. Kernel outbox: a write enqueued while the single drain pass waits on a held
    call is not sent when it answers, even on another issue.
-2. Row source: discovery worktree changes publish no event (L3a).
+2. Row source: discovery worktree changes publish no event (documented by L3a as inherited).
 3. Fixture sort keys `a0` fail the model's `isSortKey` (trailing minimum digit).
 4. `scenarios.ts` `patchIssue`/`patchSession` build from the folded snapshot.
 5. Mark-read overlays stamp `Date.now()`: painted `readAt` differs run to run.

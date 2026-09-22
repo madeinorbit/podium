@@ -106,10 +106,10 @@ describe('gen through the engine', () => {
 
         // Every applied row change reached the feed under its own id: a real
         // change, not a synthesised one. EXCEPT a worktree: it arrives through
-        // discovery (`worktreesChanged` → `refreshRepos`), which the round-two
-        // row source does not publish (it emits worktree lanes only for a
-        // kernel `repos` address) — a feed gap reported to L3a (POD-4553). The
-        // engine's own repos prove the change landed.
+        // discovery (`worktreesChanged` → `refreshRepos`), which the per-row
+        // feed does not publish (worktree lanes emit only for a kernel `repos`
+        // address; POD-4553 documents it as inherited). The engine's own repos
+        // prove the change landed.
         const lanes = new Set(
           run.ctx.engine.getSnapshot().repos.flatMap((r) => (r.worktrees ?? []).map((w) => w.path)),
         )
