@@ -20,7 +20,7 @@
  * identity and its row does not redraw.
  */
 
-import { comparer, computed, makeObservable } from 'mobx'
+import { computedStruct, makeObservable } from 'mobx'
 import type { RowView } from '../../../shared/src/row-view'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
@@ -81,7 +81,7 @@ export interface IssueModel extends Readonly<Omit<SliceIssue, 'unread'>> {}
 export class IssueModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
-    makeObservable(this, { view: computed({ equals: comparer.structural }) })
+    makeObservable(this, { view: computedStruct })
   }
 
   /** The L1b row view (`views.ts`); undefined once the row has left. */

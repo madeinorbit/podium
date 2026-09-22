@@ -25,11 +25,14 @@
  * - `session` records: one component, one row.
  * - `worktree` records are the feed's lanes (`SliceWorktree`): the scan row
  *   joined with the replicated repo row. A lane is a `worktree` row keyed by
- *   `path`. A repo-ROOT lane (`path === repoPath`, with a `repoId`) is also
- *   the `repo` entity's row, keyed by `repoId`: it is the joined composite of
- *   the schema's `repo` (RepoProjection) and `repoScan` (GitRepositoryWire)
- *   components. The one field spelled differently on a lane is in
- *   `FEED_SPELLING` (`models.ts`).
+ *   `path`. Every lane with a `repoId` also carries its repo's joined facts
+ *   (the schema's `repo` component, RepoProjection: id and prefix; and its
+ *   `repoScan` component, GitRepositoryWire: the path), so the latest such
+ *   lane is the `repo` entity's row, keyed by `repoId`. The one field spelled
+ *   differently on a lane is in `FEED_SPELLING` (`models.ts`). Until Ma2's
+ *   `repo.worktrees` bucket, a repo whose holding lane is removed is dropped
+ *   even if another of its lanes remains; the live feed removes lanes only by
+ *   a `replace`, which reseeds every repo.
  * - A `worktree` record whose value has no `path` is the replicated repo row
  *   itself, which the feed sends for a repo the scan has not reported
  *   (`row-source.ts` `resolveReposFanout`); it is held as the repo's row until
@@ -109,22 +112,21 @@ export function drop(target: IngestTarget, entity: EntityName, id: string, out: 
   out.removed.push([entity, id])
 }
 
-type LaneLike = { readonly path?: unknown; readonly repoPath?: unknown; readonly repoId?: unknown }
+type LaneLike = { readonly path?: unknown; readonly repoId?: unknown }
 
 function isLane(row: StoredRow): boolean {
   return typeof (row as LaneLike).path === 'string'
 }
 
-/** The repo a lane is the root of, or null for a worktree lane. */
-function rootRepoId(row: StoredRow): string | null {
-  const lane = row as LaneLike
-  if (lane.path !== lane.repoPath) return null
-  return typeof lane.repoId === 'string' && lane.repoId.length > 0 ? lane.repoId : null
+/** The repo whose facts a lane carries, or null. */
+function laneRepoId(row: StoredRow): string | null {
+  const repoId = (row as LaneLike).repoId
+  return typeof repoId === 'string' && repoId.length > 0 ? repoId : null
 }
 
-/** The repo stops being held by `lane` (it moved or left); another root may still hold it. */
-function releaseRoot(target: IngestTarget, lane: StoredRow, out: IngestOut): void {
-  const repoId = rootRepoId(lane)
+/** The repo stops being held by `lane` (it moved or left). */
+function releaseRepo(target: IngestTarget, lane: StoredRow, out: IngestOut): void {
+  const repoId = laneRepoId(lane)
   if (repoId !== null && target.read.repo.get(repoId) === lane) drop(target, 'repo', repoId, out)
 }
 
@@ -133,7 +135,7 @@ function ingestWorktree(target: IngestTarget, id: string, value: StoredRow | und
   if (value === undefined) {
     if (previous !== undefined) {
       drop(target, 'worktree', id, out)
-      releaseRoot(target, previous, out)
+      releaseRepo(target, previous, out)
       return
     }
     // The raw repo row went away (the feed keys it by repoId).
@@ -147,9 +149,9 @@ function ingestWorktree(target: IngestTarget, id: string, value: StoredRow | und
     return
   }
   put(target, 'worktree', id, value, out)
-  const repoId = rootRepoId(value)
+  const repoId = laneRepoId(value)
   if (repoId !== null) put(target, 'repo', repoId, value, out)
-  if (previous !== undefined && previous !== value) releaseRoot(target, previous, out)
+  if (previous !== undefined && previous !== value) releaseRepo(target, previous, out)
 }
 
 /** Apply one feed record. */

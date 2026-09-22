@@ -24,7 +24,7 @@
  */
 
 import './enforce'
-import { autorun, comparer, computed, makeObservable, observable, type ObservableMap, runInAction } from 'mobx'
+import { autorun, computedStruct, makeObservable, observable, type ObservableMap, runInAction } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import { sliceRowOf } from '../../../shared/src/row-view'
 import type { EntityName } from '../../../shared/src/schema'
@@ -138,7 +138,7 @@ export class MobxPool {
       target: false,
       selectedId: false,
       reads: false,
-      issueIds: computed({ equals: comparer.structural }),
+      issueIds: computedStruct,
       model: false,
       issue: false,
       modelCount: false,

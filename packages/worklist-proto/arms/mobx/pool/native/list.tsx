@@ -5,12 +5,12 @@
  */
 
 import { observer } from 'mobx-react-lite'
-import type { ReactElement } from 'react'
+import { memo, type ReactElement } from 'react'
 import { ScrollView, Text, View } from 'react-native'
 import { type RowProps, RowShell } from '../../../../shared/src/row-shell'
 import type { MobxPool } from '../pool'
 
-const PoolNativeRow = observer(function PoolNativeRow({ row }: RowProps): ReactElement {
+const PoolNativeRow = memo(function PoolNativeRow({ row }: RowProps): ReactElement {
   return (
     <View testID={`row-${row.id}`} accessibilityState={{ selected: row.selected }}>
       <Text>
