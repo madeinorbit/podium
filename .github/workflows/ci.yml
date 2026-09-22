@@ -190,6 +190,11 @@ jobs:
       # place (the old block still called @podium/protocol a leaf).
       - name: ARCHITECTURE.md layer diagram is not stale
         run: bun run docs:layers:check
+      # The harness support matrix is RENDERED from the adapter registry
+      # (POD-4474, spec §4.7): a hand edit is lost at the next render, and a
+      # stale commit hides a decline the registry already records.
+      - name: harness support matrix is not stale
+        run: bun run docs:harness-matrix:check
 
   # [POD-758] Own blocking job — never fold into the continue-on-error lint
   # bundle above. A raw NUL makes the file binary: real grep is loud, but
