@@ -1,0 +1,6 @@
+{
+  "enumeration": ["visible.ts"],
+  "tables": ["issues", "sessions", "worktrees"],
+  "store": ["store.ts"],
+  "rows": ["row.tsx"]
+}
