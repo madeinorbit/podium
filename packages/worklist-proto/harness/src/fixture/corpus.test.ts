@@ -101,7 +101,10 @@ describe('buildCorpus shape (1x)', () => {
 /** Depth proportions in percent of all issues, keyed by depth. */
 const depthShares = (stats: CorpusStats): Record<string, number> =>
   Object.fromEntries(
-    Object.entries(stats.depthHistogram).map(([depth, count]) => [depth, (100 * count) / stats.issues]),
+    Object.entries(stats.depthHistogram).map(([depth, count]) => [
+      depth,
+      (100 * count) / stats.issues,
+    ]),
   )
 
 describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale) => {
@@ -117,7 +120,10 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
   // today (routed to the oracle's owner, POD-4563). The twin cases compare a
   // test-local collapse against the raw run: the collapse-on arm is what the
   // app shows, the raw arm is the disabled-collapse control.
-  const collapsed = expectedSnapshot({ ...corpus, sessions: dedupeSessions(corpus.sessions) }, locals)
+  const collapsed = expectedSnapshot(
+    { ...corpus, sessions: dedupeSessions(corpus.sessions) },
+    locals,
+  )
   const byId = new Map(corpus.issues.map((i) => [i.id as string, i]))
   const sessionById = new Map(corpus.sessions.map((s) => [s.sessionId as string, s]))
 
@@ -174,14 +180,20 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
     }
   })
 
-  it('control: un-hiding the askers\' children makes their roots ask', () => {
+  it("control: un-hiding the askers' children makes their roots ask", () => {
     // Proves the shape is edged, not vacuous: the same asks DO bubble once the
     // child is a visible member of the root's subtree.
     const hidden = new Set(corpus.edgedAskers.map((a) => a.childId))
     const unhide = <T extends { id: unknown }>(rows: T[]): T[] =>
-      rows.map((r) => (hidden.has(r.id as string) ? { ...r, archived: false, stage: 'in_progress' } : r))
+      rows.map((r) =>
+        hidden.has(r.id as string) ? { ...r, archived: false, stage: 'in_progress' } : r,
+      )
     const shown = expectedSnapshot(
-      { ...corpus, issues: unhide(corpus.issues), issueProjections: unhide(corpus.issueProjections) },
+      {
+        ...corpus,
+        issues: unhide(corpus.issues),
+        issueProjections: unhide(corpus.issueProjections),
+      },
       locals,
     )
     for (const { rootId } of corpus.edgedAskers) {
