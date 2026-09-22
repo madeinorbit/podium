@@ -4,6 +4,7 @@ import {
   AgentKind,
   BUILTIN_HARNESS_KINDS,
   type BuiltinHarnessKind,
+  CLOUD_HARNESS_KINDS,
   COST_FULL_ATTRIBUTION_HARNESS,
   COST_HARNESS_KINDS,
   HANDOFF_HARNESS_KINDS,
@@ -95,6 +96,7 @@ describe('derived harness subsets (4.2)', () => {
   const SLICES: readonly (readonly string[])[] = [
     COST_HARNESS_KINDS,
     HANDOFF_HARNESS_KINDS,
+    CLOUD_HARNESS_KINDS,
     USAGE_HARNESS_KINDS,
     OBSERVATION_PROVIDER_KINDS,
     PORTABLE_CREDENTIAL_HARNESS_KINDS,
@@ -117,6 +119,7 @@ describe('derived harness subsets (4.2)', () => {
 
   it('pins the handoff members and the spawn-choice offer (pi stays unoffered)', () => {
     expect([...HANDOFF_HARNESS_KINDS]).toEqual(['claude-code', 'codex'])
+    expect([...CLOUD_HARNESS_KINDS]).toEqual(['claude-code', 'codex'])
     expect([...AGENT_CHOICE_HARNESS_KINDS]).toEqual([
       'claude-code',
       'codex',

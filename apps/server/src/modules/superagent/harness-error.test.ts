@@ -39,14 +39,43 @@ describe('classifyHarnessError', () => {
     expect(expired.message).not.toMatch(/usage limit/i)
   })
 
-  it('classifies a model-side login expiry as provider-auth with a re-auth hint', () => {
+  it('classifies a model-side login expiry as provider-auth with a generic sign-in hint when the descriptor carries no command', () => {
     const r = classifyHarnessError(
       'harness exited 1: error: 401 Unauthorized — access token is expired',
       'codex',
     )
     // rmcp is absent, so this is the provider login case, not mcp-transport.
+    // codex carries no login.command in its descriptor (absence is a value),
+    // so the hint is generic — never another harness's command.
     expect(r.kind).toBe('provider-auth')
-    expect(r.message).toMatch(/codex login/)
+    expect(r.message).toMatch(/re-authenticate Codex/i)
+    expect(r.message).not.toMatch(/codex login/)
+  })
+
+  it('reads the re-auth command off the served descriptor when present', () => {
+    const opencode = classifyHarnessError(
+      'harness exited 1: error: 401 Unauthorized — access token is expired',
+      'opencode',
+    )
+    expect(opencode.kind).toBe('provider-auth')
+    expect(opencode.message).toMatch(/opencode auth login/)
+    const pi = classifyHarnessError(
+      'harness exited 1: error: 401 Unauthorized — access token is expired',
+      'pi',
+    )
+    expect(pi.kind).toBe('provider-auth')
+    expect(pi.message).toMatch(/run `pi`/)
+  })
+
+  it('never borrows another harness command when the descriptor carries none', () => {
+    const r = classifyHarnessError(
+      'harness exited 1: error: 401 Unauthorized — access token is expired',
+      'claude-code',
+    )
+    expect(r.kind).toBe('provider-auth')
+    expect(r.message).toMatch(/re-authenticate Claude/i)
+    expect(r.message).not.toMatch(/opencode auth login/)
+    expect(r.message).not.toMatch(/cursor-agent login/)
   })
 
   it('classifies a timeout', () => {
