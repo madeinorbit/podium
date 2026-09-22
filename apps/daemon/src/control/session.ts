@@ -2912,6 +2912,7 @@ export const sessionHandlers: Pick<
   | 'sessionResumeRefAck'
   | 'sessionPriority'
   | 'reclaimAttachments'
+  | 'closeClientTerminal'
   | 'sessionOpenUrlCallback'
   | 'sessionOpenUrlDismiss'
 > = {
@@ -3280,6 +3281,15 @@ export const sessionHandlers: Pick<
     // Host pressure, decided by the server that owns the threshold. Attachments
     // go BEFORE any session is parked (spec §5) — see the frame's own comment.
     void ctx.clientTerminals?.reclaimUnwatched()
+  },
+  closeClientTerminal: (ctx, msg) => {
+    // THE SERVER-OWNED WARM-PARK VERDICT (POD-4524): the shell lifetime
+    // table's attach-TUI row fired for this session, so its client terminal's
+    // warm window is closed. The same close the daemon's own timer used to
+    // call — the viewer process goes, the agent engine is untouched — now
+    // ordered per session by the server that owns the clock. Idempotent: a
+    // session with no client terminal answers with nothing to do.
+    void ctx.clientTerminals?.close(msg.sessionId)
   },
   sessionOpenUrlCallback: (ctx, msg) => {
     void ctx.browserOpen.callback(msg)

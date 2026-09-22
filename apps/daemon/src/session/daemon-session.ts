@@ -65,7 +65,6 @@ export interface ClientTerminalPolicy {
   /** The one Native generation allowed to accept input, plus what arrived
    *  while its process was starting. Replaced on every start. */
   generation?: { acceptingInput: boolean; pendingInput: Uint8Array[]; pendingBytes: number }
-  timer?: unknown
   /** An adopted master must ACK one replay redraw without forwarding it. */
   suppressNextReplayRedraw?: boolean
   /** The parked master evolved while no relay was attached: repaint on return. */
@@ -182,7 +181,7 @@ export class DaemonSession {
   keptEngine: KeptEngineRecord | undefined = undefined
 
   /** The client-terminal policy, while a native client is attached, parked
-   *  warm, or starting. Undefined otherwise; the relay disarms its timer first. */
+   *  warm, or starting. Undefined otherwise. */
   client: ClientTerminalPolicy | undefined = undefined
   /** Whether Native is requested (admission: a stream descriptor alone grants no input). */
   nativeRequested = false

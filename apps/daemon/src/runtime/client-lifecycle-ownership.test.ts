@@ -85,8 +85,6 @@ describe('client lifecycle ownership (§5: the session summons, the relay render
       sessions: new SessionRegistry(),
       clients,
       frames: () => {},
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
 
     await terminals.attach({ sessionId: SESSION, target: TARGET })

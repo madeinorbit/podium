@@ -119,6 +119,20 @@ describe('server-family native client control', () => {
     expect(clientTerminals.viewers).toHaveBeenLastCalledWith(SESSION, false)
   })
 
+  it('closes the client terminal on the server-owned warm-park order, and nothing else', () => {
+    // POD-4524: the shell lifetime table's attach-TUI row fired on the server,
+    // so this session's warm window is closed. The order reaches the client
+    // terminal's close and nothing else — no session teardown, no lease
+    // release, no priority change; the agent engine is untouched.
+    const { ctx, clientTerminals } = world()
+    sessionHandlers.closeClientTerminal(ctx, {
+      type: 'closeClientTerminal',
+      sessionId: SESSION,
+    })
+    expect(clientTerminals.close).toHaveBeenCalledWith(SESSION)
+    expect(clientTerminals.release).not.toHaveBeenCalled()
+  })
+
   it('routes terminal input, geometry, and redraw without a PTY bridge', () => {
     const { ctx, clientTerminals } = world()
     clientTerminals.input.mockReturnValue(true)
