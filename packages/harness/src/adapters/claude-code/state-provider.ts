@@ -1,3 +1,15 @@
+/**
+ * THE CLAUDE CODE STATE PROVIDER (POD-4520): the state section's live half
+ * (spec §4.5: "screen and hook-derived agent state, causal fingerprints").
+ *
+ * The provider the manifest's `state` section serves, the boot classifier,
+ * the provider-owned causal barrier (`ClaudeCausalObserver`), and the
+ * transcript-tail capture boot classification reads through. Pure screen and
+ * fingerprint rules live beside it in `./state.js`; the install layout and
+ * payload codec in `./instrumentation.js`; the transcript location in
+ * `./state-locate.js`. The event fold itself is generic (`observer.ts`) and
+ * names no harness.
+ */
 import { createHash } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import { basename } from 'node:path'
@@ -7,16 +19,16 @@ import type {
   ObservationInputOrigin,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { locateClaudeSessionFile } from './claude-locate.js'
-import { deterministicStateToEvents } from './deterministic.js'
-import { carryAcrossRebuild, reduceAgentState } from '../observer.js'
+import { locateClaudeSessionFile } from './state-locate.js'
+import { deterministicStateToEvents } from '../../agent-state/deterministic.js'
+import { carryAcrossRebuild, reduceAgentState } from '../../observer.js'
 import {
   type AgentInstrumentation,
   type AgentStateEvent,
   type AgentStateProvider,
   withStateChannel,
   withStateChannelEvent,
-} from './types.js'
+} from '../../agent-state/types.js'
 import {
   claudeCodeInstrumentation,
   claudeHookClassifier,
@@ -26,7 +38,7 @@ import {
   configureClaudeTranscriptClassifier,
   idleClassificationFromState,
   translateClaudeHookPayload,
-} from '../adapters/claude-code/instrumentation.js'
+} from './instrumentation.js'
 import {
   classifyClaudeScreen,
   claudePromptHookFingerprint,
@@ -34,7 +46,7 @@ import {
   isInterruptMarker,
   promptText,
   stripInjectedContext,
-} from '../adapters/claude-code/state.js'
+} from './state.js'
 
 export {
   claudeHookClassifier,
@@ -67,7 +79,7 @@ export const claudeCodeStateProvider: AgentStateProvider = {
   bootEvents: async (opts) => withStateChannel(await claudeBootEvents(opts), 'classifier'),
 }
 
-// claudeProjectSlug moved beside the locator (claude-locate.ts); the package
+// claudeProjectSlug moved beside the locator (state-locate.ts); the package
 // index re-exports both, so external importers are unaffected.
 
 export async function claudeBootEvents(opts: {

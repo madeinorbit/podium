@@ -16,13 +16,13 @@ const mocked = vi.hoisted(() => ({
   }>,
 }))
 
-vi.mock('../../agent-state/grok-locate.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../agent-state/grok-locate.js')>()
+vi.mock('./state-locate.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./state-locate.js')>()
   return { ...actual, locateGrokChatHistory: mocked.locate }
 })
 
-vi.mock('../../agent-state/grok.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../agent-state/grok.js')>()
+vi.mock('./state-provider.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./state-provider.js')>()
   return {
     ...actual,
     observeGrokState: vi.fn((opts) => {

@@ -82,10 +82,16 @@ export interface HarnessBoundaryAllowlistEntry {
  * registry): removed the seven 4.2 entries at zero literals and lowered
  * runtime/settings.ts 19 → 6 (provider-namespace 'codex' + one local default
  * remain): leak 438 → 402.
+ * POD-4472 retired dead entries: leak 402 → 394.
+ * POD-4520 (3.2 remainder) moved the per-harness state providers, causal
+ * observers and locate/binding helpers from `agent-state/` into
+ * `adapters/<h>/state.ts` + `state-*.ts` siblings: deleted the four
+ * agent-state entries (1+6+2+1 = 10) and lowered the baselines to match:
+ * leak 394 → 384, total 424 → 414.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 394
+export const HARNESS_BASELINE_LEAK_COUNT = 384
 export const HARNESS_BASELINE_POLICY_COUNT = 30
-export const HARNESS_BASELINE_TOTAL = 424
+export const HARNESS_BASELINE_TOTAL = 414
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -168,10 +174,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'packages/client-core/src/viewmodels/slices/machines/placement.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/client-core/src/viewmodels/usage.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'packages/commands/src/cloud/contracts.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/harness/src/agent-state/claude-code.ts', count: 1, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
-  { file: 'packages/harness/src/agent-state/codex.ts', count: 6, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
-  { file: 'packages/harness/src/agent-state/grok-causal.ts', count: 2, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
-  { file: 'packages/harness/src/agent-state/grok.ts', count: 1, category: 'leak', reason: 'hooks/instrumentation names a harness; move into adapter sections (3.2)', issue: 'POD-4414/3.2' },
   { file: 'packages/harness/src/browser.ts', count: 1, category: 'policy', reason: 'browser-safe no-tools table stays in browser entry; tested against manifests', policy: 'packages/harness/src/browser.ts' },
   { file: 'packages/harness/src/discovery/providers/claude-code.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
   { file: 'packages/harness/src/discovery/providers/codex.ts', count: 3, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },

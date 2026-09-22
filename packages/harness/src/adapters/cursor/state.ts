@@ -1,18 +1,27 @@
+/**
+ * THE CURSOR STATE SECTION (POD-4520): screen and hook-derived agent state
+ * for this harness (spec §4.5).
+ *
+ * Cursor has no hook channel, so the provider, the session-JSONL record
+ * translation, the idle classifier, and the polling observer that tails the
+ * session file live here together. The event fold itself is generic
+ * (`observer.ts`) and names no harness.
+ */
 import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { type StatTick, scheduleStatPoll } from '../store/index.js'
+import { type StatTick, scheduleStatPoll } from '../../store/index.js'
 import {
   type CursorSessionPaths,
   cursorProjectSlug,
   cursorRoot,
   cursorSessionPaths,
-} from '../cursor/paths.js'
-import { LineDecoder } from '../jsonl-stream.js'
-import { fileMtimeIso } from './boot-time.js'
-import { withEventTime } from '../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
+} from '../../cursor/paths.js'
+import { LineDecoder } from '../../jsonl-stream.js'
+import { fileMtimeIso } from '../../agent-state/boot-time.js'
+import { withEventTime } from '../../observer.js'
+import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
 
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024

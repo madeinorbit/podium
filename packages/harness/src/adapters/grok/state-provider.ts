@@ -1,16 +1,28 @@
+/**
+ * THE GROK STATE PROVIDER (POD-4520): the state section's live half
+ * (spec §4.5: "screen and hook-derived agent state, causal fingerprints").
+ *
+ * The provider the manifest's `state` section serves and the polling
+ * observer that tails the session dir. Binding choice lives in
+ * `./state-binding.js`, the provider-local causal fold in
+ * `./state-causal.js`, the session location in `./state-locate.js`, the idle
+ * and plan rules in `./state.js`, and the install layout plus payload codec
+ * in `./instrumentation.js`. The event fold itself is generic (`observer.ts`)
+ * and names no harness.
+ */
 import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentObservationAckMessage, ProviderCursor } from '@podium/protocol'
-import { type StatTick, scheduleStatPoll } from '../store/index.js'
-import { fileMtimeIso } from './boot-time.js'
-import { chooseGrokSessionDir } from './grok-binding.js'
-import { GrokCausalObserver, type GrokObservationLease } from './grok-causal.js'
-import { locateGrokSessionPaths } from './grok-locate.js'
-import { withEventTime } from '../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
+import { type StatTick, scheduleStatPoll } from '../../store/index.js'
+import { fileMtimeIso } from '../../agent-state/boot-time.js'
+import { chooseGrokSessionDir } from './state-binding.js'
+import { GrokCausalObserver, type GrokObservationLease } from './state-causal.js'
+import { locateGrokSessionPaths } from './state-locate.js'
+import { withEventTime } from '../../observer.js'
+import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
 import {
   type GrokSessionPaths,
   PODIUM_GROK_HOOK_URL_ENV,
@@ -23,12 +35,12 @@ import {
   readGrokChatHistoryTail,
   normalizeGrokProviderTimestamp,
   translateGrokUpdatePayload,
-} from '../adapters/grok/instrumentation.js'
+} from './instrumentation.js'
 import {
   type GrokPlanState,
   classifyGrokIdleTranscript,
   withGrokOpenTodos,
-} from '../adapters/grok/state.js'
+} from './state.js'
 
 export {
   type GrokSessionPaths,

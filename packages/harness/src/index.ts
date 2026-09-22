@@ -17,6 +17,20 @@
  */
 
 export * from './agent-state/index.js'
+// Per-harness state sections (POD-4520, spec §4.5): the providers, causal
+// observers, locate/binding helpers and fingerprints live in adapters/<h>/
+// and are re-exported here so daemon hosts keep one import surface —
+// `agent-state/` itself holds only harness-free vocabulary (see its barrel).
+export * from './adapters/claude-code/state-provider.js'
+export * from './adapters/claude-code/state-locate.js'
+export * from './adapters/codex/state-provider.js'
+export * from './adapters/cursor/state.js'
+export * from './adapters/grok/state-provider.js'
+export * from './adapters/grok/state-binding.js'
+export * from './adapters/grok/state-causal.js'
+export * from './adapters/grok/state-locate.js'
+export * from './adapters/opencode/state.js'
+export * from './adapters/pi/state.js'
 export type { AgentManifest as HarnessAdapter } from './adapter.js'
 export * from './codex-auth-identity.js'
 export * from './codex-credential-absence-grace.js'

@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
-import { observeOpencodeState, opencodeStateProvider } from '../../agent-state/opencode.js'
+import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { createOpencodeConversationProvider } from '../../discovery/providers/opencode.js'
 import { composeAgentInstructions } from '../../instructions.js'

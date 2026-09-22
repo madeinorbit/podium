@@ -1,22 +1,31 @@
+/**
+ * THE OPENCODE STATE SECTION (POD-4520): screen and hook-derived agent state
+ * for this harness (spec §4.5).
+ *
+ * Opencode has no hook channel and no file to tail (SQLite store), so the
+ * provider and its polling observer live here together: event translation
+ * off the session rows plus boot classification. The event fold itself is
+ * generic (`observer.ts`) and names no harness.
+ */
 import type { TranscriptItem } from '@podium/model'
-import { type StatTick, scheduleStatPoll } from '../store/index.js'
-import { withEventTime } from '../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from './types.js'
+import { type StatTick, scheduleStatPoll } from '../../store/index.js'
+import { withEventTime } from '../../observer.js'
+import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
 
 /** An opencode row's `time_updated` (epoch ms) as ISO event-time, or undefined. */
 function isoFromMs(ms: number | undefined): string | undefined {
   return typeof ms === 'number' && ms > 0 ? new Date(ms).toISOString() : undefined
 }
 
-type OpencodeDbModule = typeof import('../opencode/db.js')
-type OpencodeTranscriptModule = typeof import('../adapters/opencode/transcript.js')
+type OpencodeDbModule = typeof import('../../opencode/db.js')
+type OpencodeTranscriptModule = typeof import('./transcript.js')
 // The cursor-stamping helper lives in the Store's host-only sqlite source
 // (shared with the on-demand read path) so live deltas and reads carry
 // IDENTICAL cursors; lazy-load it the same way so observing opencode state
 // stays optional (no eager SQLite import).
-type OpencodeSourceModule = Pick<typeof import('../store/sources/sqlite.js'), 'stampOpencodeItems'>
+type OpencodeSourceModule = Pick<typeof import('../../store/sources/sqlite.js'), 'stampOpencodeItems'>
 type OpencodeRuntime = OpencodeDbModule & OpencodeTranscriptModule & OpencodeSourceModule
-type OpencodeSessionRow = import('../opencode/db.js').OpencodeSessionRow
+type OpencodeSessionRow = import('../../opencode/db.js').OpencodeSessionRow
 type OpencodeDb = ReturnType<OpencodeDbModule['openOpencodeDb']>
 
 const POLL_MS = 700
@@ -26,9 +35,9 @@ let runtimePromise: Promise<OpencodeRuntime> | undefined
 
 async function loadOpencodeRuntime(): Promise<OpencodeRuntime> {
   runtimePromise ??= Promise.all([
-    import('../opencode/db.js'),
-    import('../adapters/opencode/transcript.js'),
-    import('../store/sources/sqlite.js'),
+    import('../../opencode/db.js'),
+    import('./transcript.js'),
+    import('../../store/sources/sqlite.js'),
   ]).then(([db, transcript, source]) => ({ ...db, ...transcript, ...source }) as OpencodeRuntime)
   return runtimePromise
 }

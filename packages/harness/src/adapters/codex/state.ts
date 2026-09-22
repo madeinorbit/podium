@@ -3,7 +3,7 @@
  * harness (spec §4: "screen and hook-derived agent state, causal fingerprints").
  *
  * The install layout and payload translation live in `./instrumentation.js`;
- * the state provider in `agent-state/codex.ts` delegates to them. Codex posts
+ * the state provider beside it (`./state-provider.js`) delegates to them. Codex posts
  * no screen-classifiable prompt and no causal fingerprint — its verdict rule
  * (the provider-owned reading of the agent's last message) is the state
  * knowledge this section carries.

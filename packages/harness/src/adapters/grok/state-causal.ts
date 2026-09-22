@@ -1,3 +1,13 @@
+/**
+ * THE GROK CAUSAL FOLD (POD-4520): the provider-local durable observation
+ * gate (spec §4.5: "causal fingerprints").
+ *
+ * Disk records may be read ahead, but only one durable observation is
+ * released at a time; its successor waits for the exact server
+ * acknowledgement. Owned by the grok adapter and driven by its provider
+ * (`./state-provider.js`); the cross-harness acceptance gate it feeds is
+ * generic (`observer.ts`). [spec:SP-cdb2]
+ */
 import { createHash } from 'node:crypto'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type {
@@ -6,8 +16,8 @@ import type {
   ProviderCursor,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { initialAgentState, reduceAgentState } from '../observer.js'
-import { type AgentStateEvent, withStateChannelEvent } from './types.js'
+import { initialAgentState, reduceAgentState } from '../../observer.js'
+import { type AgentStateEvent, withStateChannelEvent } from '../../agent-state/types.js'
 
 export interface GrokObservationLease {
   podiumSessionId: SessionId

@@ -3,7 +3,7 @@ import { toolInputPreview } from '../claude-code/transcript.js'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
 import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
-import { locateGrokChatHistory } from '../../agent-state/grok-locate.js'
+import { locateGrokChatHistory } from './state-locate.js'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 
 /** Normalize one Grok chat_history.jsonl record into Podium chat transcript items. */

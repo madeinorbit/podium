@@ -3,17 +3,17 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { opencodeFileId } from '../adapters/opencode/transcript.js'
+import { opencodeFileId } from './transcript.js'
 import {
   loadOpencodeMessageParts,
   loadOpencodeTranscriptTail,
   opencodeSessionDbPath,
-} from '../opencode/db.js'
-import { agentStateProviderFor } from '../registry.js'
-import { encodeCursor } from '../store/cursor-codec.js'
-import { observeOpencodeState, opencodeStateProvider } from './opencode.js'
-import { initialAgentState, reduceAgentState } from '../observer.js'
-import type { AgentStateEvent } from './types.js'
+} from '../../opencode/db.js'
+import { agentStateProviderFor } from '../../registry.js'
+import { encodeCursor } from '../../store/cursor-codec.js'
+import { observeOpencodeState, opencodeStateProvider } from './state.js'
+import { initialAgentState, reduceAgentState } from '../../observer.js'
+import type { AgentStateEvent } from '../../agent-state/types.js'
 
 // Mock the opencode DB module so the gate test can (a) count handle opens and the
 // per-tick session query and (b) drive the mtime gate deterministically. The
@@ -30,8 +30,8 @@ const dbHooks = vi.hoisted(() => ({
   closed: [] as unknown[],
 }))
 
-vi.mock('../opencode/db.js', async (importOriginal) => {
-  const real = await importOriginal<typeof import('../opencode/db.js')>()
+vi.mock('../../opencode/db.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../opencode/db.js')>()
   return {
     ...real,
     openOpencodeDb: (homeDir?: string, databasePath?: string) => {

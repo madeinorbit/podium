@@ -1,5 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
-import { findCodexRolloutPath } from '../../agent-state/codex.js'
+import { findCodexRolloutPath } from './state-provider.js'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 // One authoritative definition (spec rule 2): the interview-preview helpers
 // live with the claude grammar and are reused here, never duplicated.

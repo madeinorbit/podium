@@ -8,8 +8,8 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentManifest, HarnessObserver, HarnessObserverHost } from '../manifest'
-import { grokManifest } from '../adapters/grok/index.js'
+import type { AgentManifest, HarnessObserver, HarnessObserverHost } from '../../manifest.js'
+import { grokManifest } from './index.js'
 
 /** grok declares `observer` supported; unwrap it once so the tests below read as
  *  observer behavior rather than as Declared plumbing. Throws (rather than
@@ -20,7 +20,7 @@ function declaredObserver(manifest: AgentManifest): HarnessObserver {
   return manifest.observer.value
 }
 
-import { acceptAgentObservation, type ObservationLease } from '../observer.js'
+import { acceptAgentObservation, type ObservationLease } from '../../observer.js'
 import {
   classifyGrokIdleTranscript,
   grokSessionPaths,
@@ -28,10 +28,10 @@ import {
   normalizeGrokProviderTimestamp,
   observeGrokState,
   translateGrokUpdatePayload,
-} from './grok'
-import { GrokCausalObserver } from './grok-causal'
-import { initialAgentState, reduceAgentState } from '../observer.js'
-import type { AgentStateEvent } from './types'
+} from './state-provider.js'
+import { GrokCausalObserver } from './state-causal.js'
+import { initialAgentState, reduceAgentState } from '../../observer.js'
+import type { AgentStateEvent } from '../../agent-state/types.js'
 
 const text = (value: string) => ({ type: 'text', text: value })
 

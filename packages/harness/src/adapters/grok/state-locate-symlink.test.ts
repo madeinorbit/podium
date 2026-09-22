@@ -27,7 +27,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 
-import { locateGrokChatHistory } from './grok-locate.js'
+import { locateGrokChatHistory } from './state-locate.js'
 
 describe('current Grok authority symlink confinement', () => {
   it('rejects in-root file and project symlinks through public root scanning', async () => {

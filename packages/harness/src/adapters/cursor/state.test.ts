@@ -6,7 +6,7 @@ import {
   classifyCursorIdleTranscript,
   cursorStateProvider,
   translateCursorRecord,
-} from './cursor.js'
+} from './state.js'
 
 describe('cursorStateProvider', () => {
   it('needs no argv instrumentation', () => {

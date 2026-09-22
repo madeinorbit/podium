@@ -17,8 +17,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { claudeProjectSlug } from '../agent-state/claude-locate.js'
-import { grokSessionPaths } from '../agent-state/grok.js'
+import { claudeProjectSlug } from '../adapters/claude-code/state-locate.js'
+import { grokSessionPaths } from '../adapters/grok/instrumentation.js'
 import { declaredValue, type TranscriptSourceInput } from '../manifest.js'
 import { manifestFor } from '../registry.js'
 import { decodeCursor } from './cursor-codec.js'
@@ -116,7 +116,7 @@ describe('resolveChain', () => {
   it('resolves a grok chain when the file lives in a different cwd bucket', async () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
     const sessionId = 'sess-other-bucket'
-    const { grokSessionPaths } = await import('../agent-state/grok.js')
+    const { grokSessionPaths } = await import('../adapters/grok/instrumentation.js')
     const chatHistoryPath = grokSessionPaths({
       cwd: '/repo',
       sessionId,
@@ -136,7 +136,7 @@ describe('resolveChain', () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
     const cwd = '/work/repo'
     const sessionId = 'sess-456'
-    const { grokSessionPaths } = await import('../agent-state/grok.js')
+    const { grokSessionPaths } = await import('../adapters/grok/instrumentation.js')
     const chatHistoryPath = grokSessionPaths({ cwd, sessionId, homeDir: home }).chatHistoryPath
     await mkdir(dirname(chatHistoryPath), { recursive: true })
     await writeFile(chatHistoryPath, '{}\n')

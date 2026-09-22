@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { agentStateProviderFor } from '../registry.js'
-import { acceptAgentObservation } from '../observer.js'
+import { agentStateProviderFor } from '../../registry.js'
+import { acceptAgentObservation } from '../../observer.js'
 import {
   ClaudeCausalObserver,
   captureClaudeTranscript,
@@ -16,10 +16,10 @@ import {
   claudeTranscriptSegmentId,
   parseClaudeTranscriptSegmentId,
   translateClaudeHookPayload,
-} from './claude-code'
-import { codexStateProvider } from './codex'
-import { grokStateProvider } from './grok'
-import { initialAgentState, reduceAgentState } from '../observer.js'
+} from './state-provider.js'
+import { codexStateProvider } from '../codex/state-provider.js'
+import { grokStateProvider } from '../grok/state-provider.js'
+import { initialAgentState, reduceAgentState } from '../../observer.js'
 
 const URL = 'http://127.0.0.1:45777/hooks/s1'
 

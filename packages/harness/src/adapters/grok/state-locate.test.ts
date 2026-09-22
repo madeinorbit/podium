@@ -2,8 +2,8 @@ import { mkdtemp, mkdir, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { grokSessionPaths } from './grok.js'
-import { locateGrokChatHistory, locateGrokSessionPaths } from './grok-locate.js'
+import { grokSessionPaths } from './instrumentation.js'
+import { locateGrokChatHistory, locateGrokSessionPaths } from './state-locate.js'
 
 // The wrong-bucket bug: Grok buckets sessions by the cwd the conversation was
 // CREATED under, while session.cwd is the current worktree. The locator must

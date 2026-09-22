@@ -2,14 +2,14 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { piSessionDir } from '../pi/paths.js'
+import { piSessionDir } from '../../pi/paths.js'
 import {
   classifyPiIdleTranscript,
   observePiState,
   piStateProvider,
   translatePiRecord,
-} from './pi.js'
-import type { AgentStateEvent } from './types.js'
+} from './state.js'
+import type { AgentStateEvent } from '../../agent-state/types.js'
 
 const at = '2026-09-02T09:48:47.822Z'
 const entry = (message: Record<string, unknown>) => ({

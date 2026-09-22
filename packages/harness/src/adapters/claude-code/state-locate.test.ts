@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { claudeProjectSlug, locateClaudeSessionFile } from './claude-locate.js'
+import { claudeProjectSlug, locateClaudeSessionFile } from './state-locate.js'
 
 // The wrong-bucket bug (docs/spec/conversation-registry.md §1.1): Claude buckets
 // transcripts by the cwd the conversation was CREATED under, while session.cwd is
