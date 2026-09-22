@@ -69,3 +69,27 @@ environment to answer — real-CLI interop (initialize payload acceptance,
 `--session-id` minting, permission round-trip, interrupt ack) is verified by
 a live run, recorded in VERIFY, and any divergence lands here as an
 amendment, not as a helper process.
+
+## Amendment 1 (POD-4612): the routing move landed, and the family is `server`
+
+The move deferred above is done. The Claude session runtime sits in the
+machine runtime's server list beside codex, opencode and grok; the
+bespoke daemon arm that adopted or resumed a Claude session
+(`control/session.ts`) and its separate kill branch are deleted. Reattach
+goes through the generic journal adopt (`adoptServerDriverSession`), which
+now also refuses a row whose resume ref names a different conversation than
+the journal — the one check the bespoke arm carried. Teardown goes through
+the generic server reap, measured against the engine's own identity: the
+handle binding carries the engine's durable label, its scope unit, and its
+pid while held. Hibernate-then-adopt wakes the session on its own
+conversation and model, as the server family's conformance properties
+require.
+
+The driver's family is `server`: there is no `embedded` family any more.
+The manifest keeps its `runtime.embedded` axis (the vendor ships no server
+mode; Podium hosts the CLI's engine), and that axis's driver classifies as
+`server`. Wire parsers still accept an older peer's `embedded` and
+normalize it to `server` where it enters (`DriverFamilyWire`); nothing in
+this build produces it. The server family now permits `no-attach`, pinned
+per driver (`NO_ATTACH_DRIVERS` = `claude-sdk`), the same pattern as
+`no-native-steer`.
