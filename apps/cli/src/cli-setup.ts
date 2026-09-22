@@ -2,6 +2,7 @@ import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
+import { describeCheckError, type CheckResult } from '@podium/runtime/connect-check'
 import {
   configPath,
   type EnvSource,
@@ -26,6 +27,7 @@ import {
 } from '@podium/runtime/setup'
 import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
+import { realCheckReachability } from './cli-reachability'
 import { isCancel, type SetupIO } from './setup-ui'
 
 export type { SetupIO } from './setup-ui'
@@ -76,6 +78,16 @@ export interface SetupDeps {
    * flow can offer install instructions instead of a command that cannot work.
    */
   hasCommand?: (binary: string) => boolean
+  /**
+   * Injected for testing; defaults to asking Podium Connect to probe the pasted URL from
+   * the outside (POD-4534 — see cli-reachability.ts for why it is a direct ConnectClient
+   * rather than the local server's `connect.check` router). `undefined` = "we could not
+   * ask" (Connect off, no installation identity yet, cloud unreachable): no opinion, and
+   * the flow proceeds exactly as it would with no check. A failed probe NEVER blocks —
+   * the flow warns and asks, and the operator's yes is honoured. Tests stub this, so no
+   * test performs network I/O.
+   */
+  checkReachability?: (url: string) => Promise<CheckResult | undefined>
 }
 
 const JOIN_CONNECT_TIMEOUT_MS = 30_000
@@ -328,9 +340,14 @@ async function reachabilityStep(
     save: boolean
     confirmUrlChange?: boolean
     hasCommand?: (binary: string) => boolean
+    checkReachability?: (url: string) => Promise<CheckResult | undefined>
   } = { save: true },
 ): Promise<ReachabilityChoice | undefined> {
   const hasCommand = opts.hasCommand ?? commandExists
+  // Advisory only (POD-4534): the real probe in production, a stub in tests. Bound here so
+  // the default can show its spinner on the live IO while a stub stays output-clean.
+  const checkReachability =
+    opts.checkReachability ?? ((url: string) => realCheckReachability(url, io))
   const opt = await io.select({
     message: 'How can clients reach this machine over the network?',
     options: NETWORK_OPTIONS.map((o) => {
@@ -350,37 +367,71 @@ async function reachabilityStep(
   const { hint } = networkOptionCommand(opt.id, port)
   // A URL is re-asked by the prompt itself until it validates, so there is no attempt
   // counter here any more: a cancelled prompt returns CANCEL rather than '' forever.
-  const pasted = await io.text({
-    message: hint,
-    placeholder: 'https://…',
-    validate: (v) =>
-      v.trim() === ''
-        ? 'Paste the URL, or press Ctrl-C to give up.'
-        : validatePublicUrl(v).ok
-          ? undefined
-          : (validatePublicUrl(v) as { error: string }).error,
-  })
-  if (isCancel(pasted)) {
-    io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
-    return undefined
-  }
-  const v = validatePublicUrl(pasted)
-  if (!v.ok) {
-    io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
-    return undefined
-  }
-  if (opts.save) {
-    if (!(await confirmUrlChange(io, v.normalized, opts.confirmUrlChange === true))) {
+  // The advisory probe below re-asks the same way on a declined override, so this is a
+  // loop now — and it still terminates, because every iteration either returns or
+  // consumes at least one more scripted answer before asking again.
+  let normalized: string
+  for (;;) {
+    const pasted = await io.text({
+      message: hint,
+      placeholder: 'https://…',
+      validate: (v) =>
+        v.trim() === ''
+          ? 'Paste the URL, or press Ctrl-C to give up.'
+          : validatePublicUrl(v).ok
+            ? undefined
+            : (validatePublicUrl(v) as { error: string }).error,
+    })
+    if (isCancel(pasted)) {
+      io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
       return undefined
     }
-    saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized, networkOption: opt.id })
-    io.success(`Saved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
-  } else {
-    io.step(`This instance will be reachable at ${v.normalized}.`)
+    const v = validatePublicUrl(pasted)
+    if (!v.ok) {
+      io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
+      return undefined
+    }
+    // THE ADVISORY PROBE (POD-4534): what the cloud says about this URL, shown as a hint
+    // the operator can overrule — never a gate. `undefined` and CONNECT_UNAVAILABLE both
+    // mean "we could not ask" and proceed silently, exactly as the flow did before the
+    // probe existed. Anything else failed: say what is wrong in plain words, then ask a
+    // confirm that appears ONLY on failure. Its default is the safe one (no — re-ask the
+    // URL), and yes is one keypress away. No back affordance, no magic word, no blank
+    // overloading: see the note at the top of this step.
+    const verdict = await checkReachability(v.normalized)
+    if (verdict === undefined || verdict.ok || verdict.error === 'CONNECT_UNAVAILABLE') {
+      if (verdict?.ok) io.success(`Reachable — an outside probe connected to ${v.normalized}.`)
+      normalized = v.normalized
+      break
+    }
+    const detail = verdict.detail.trim()
+    io.warn(
+      detail
+        ? `${describeCheckError(verdict.error)} The probe reported: ${detail}`
+        : describeCheckError(verdict.error),
+    )
+    const useAnyway = await io.confirm({ message: 'Use this URL anyway?', initialValue: false })
+    if (isCancel(useAnyway)) {
+      io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
+      return undefined
+    }
+    if (useAnyway) {
+      normalized = v.normalized
+      break
+    }
   }
-  const warning = ephemeralTunnelWarning(v.normalized)
+  if (opts.save) {
+    if (!(await confirmUrlChange(io, normalized, opts.confirmUrlChange === true))) {
+      return undefined
+    }
+    saveConfig({ ...loadConfig(), mode, publicUrl: normalized, networkOption: opt.id })
+    io.success(`Saved. This instance is reachable at ${normalized}. Restart podium to apply.`)
+  } else {
+    io.step(`This instance will be reachable at ${normalized}.`)
+  }
+  const warning = ephemeralTunnelWarning(normalized)
   if (warning) io.warn(warning)
-  return { publicUrl: v.normalized, networkOption: opt.id }
+  return { publicUrl: normalized, networkOption: opt.id }
 }
 
 /**
@@ -580,12 +631,14 @@ async function hostStep(
     /** `--confirm-url-change`: answer the "this strands joined machines" question ahead of time. */
     confirmUrlChange?: boolean
     hasCommand?: (binary: string) => boolean
+    checkReachability?: (url: string) => Promise<CheckResult | undefined>
   } = {},
 ): Promise<void> {
   if (deploymentOwns(io, 'mode') || deploymentOwns(io, 'publicUrl')) return
   const reachability = await reachabilityStep(io, port, mode, {
     save: false,
     ...(options.hasCommand ? { hasCommand: options.hasCommand } : {}),
+    ...(options.checkReachability ? { checkReachability: options.checkReachability } : {}),
   })
   if (!reachability) return
   const { publicUrl, networkOption } = reachability
@@ -635,6 +688,7 @@ export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {
       askTelemetry: false,
       activateImmediately: true,
       ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
+      ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
     },
   )
 }
@@ -773,6 +827,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
     ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
     ...(deps.activateImmediately ? { activateImmediately: true } : {}),
+    ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
   }
   if (choice === 'all-in-one') {
     await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
@@ -787,6 +842,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
       save: true,
       ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
       ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
+      ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
     })
   } else if (choice === 'password' && hostsServer) {
     await passwordStep(io, setPassword)
