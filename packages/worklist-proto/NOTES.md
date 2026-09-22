@@ -69,7 +69,6 @@ correctness gate".
   legacy derivation (~0.12 s / ~0.15 s at 1x), so the CI run compares at
   checkpoints every 10 steps and re-runs a failure densely over its prefix to
   name the exact step. Round-three arms run the defaults (rebuild every step).
-||||||| parent of 5be0d97e1 (POD-4609: reads budgets for fence scenarios #6-#10, derived from the change shape)
 ## POD-4608 (L1e) — the locals channel · 2026-09-22
 
 ### Decisions
@@ -103,7 +102,6 @@ correctness gate".
   used the value (hand/mobx: once, at creation; control: in `snapshot()`).
   They ignore `subscribe`. Their tests wrap the old value in `fixedLocals`.
   The browser page publishes its clock on a `settableLocals` source.
-||||||| parent of bc385697e (POD-4609: reads budgets for fence scenarios #6-#10, derived from the change shape)
 
 ## POD-4551 (L2b) — corpus shape at every scale · 2026-09-22
 
