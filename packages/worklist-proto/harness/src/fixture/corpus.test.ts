@@ -3,7 +3,6 @@
  *
  * Timing tests (4x build) live here too; walls are recorded, counts verdict.
  */
-import { dedupeSessions } from '@podium/client-core/engine'
 import { describe, expect, it } from 'vitest'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import { expectedSnapshot } from '../oracle/index'
@@ -115,13 +114,18 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
   const { stats } = corpus
   const locals: SliceLocals = { selectedIssueId: null, coarseNow: FIXED_NOW }
   const snapshot = expectedSnapshot(corpus, locals)
-  // The runtime collapses resume twins on every session read
-  // (runtime.ts:465, optimism.ts:876); the shared oracle feeds the raw rows
-  // today (routed to the oracle's owner, POD-4563). The twin cases compare a
-  // test-local collapse against the raw run: the collapse-on arm is what the
-  // app shows, the raw arm is the disabled-collapse control.
-  const collapsed = expectedSnapshot(
-    { ...corpus, sessions: dedupeSessions(corpus.sessions) },
+  // The oracle collapses resume twins as the runtime does (runtime.ts:465,
+  // oracle.ts runLegacyDerivation). The disabled-collapse control is
+  // test-local: the same corpus with every resume ref stripped leaves the
+  // collapse nothing to match, which is exactly a derivation that forgets it.
+  const raw = expectedSnapshot(
+    {
+      ...corpus,
+      sessions: corpus.sessions.map((s) => {
+        const { resume: _resume, ...rest } = s
+        return rest as typeof s
+      }),
+    },
     locals,
   )
   const byId = new Map(corpus.issues.map((i) => [i.id as string, i]))
@@ -226,7 +230,7 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
 
   it('shows each twin group through the legacy collapse', () => {
     for (const group of corpus.resumeTwins) {
-      const row = collapsed.rowsById[group.issueId]!
+      const row = snapshot.rowsById[group.issueId]!
       if (group.kind === 'inactive') {
         // Rank beats recency: the older hibernated ask survives the exited run.
         expect(row.asking).toBe(true)
@@ -243,18 +247,19 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
     }
   })
 
-  it('control: the oracle with the collapse disabled changes exactly the tie rows', () => {
-    // `snapshot` is the raw (collapse-off) run.
-    expect(Object.keys(snapshot.rowsById).sort()).toEqual(Object.keys(collapsed.rowsById).sort())
-    expect(snapshot.order).toEqual(collapsed.order)
-    const changed = Object.keys(collapsed.rowsById).filter(
-      (id) => JSON.stringify(snapshot.rowsById[id]) !== JSON.stringify(collapsed.rowsById[id]),
+  it('control: a derivation that forgets the collapse fails parity on exactly the tie rows', () => {
+    expect(raw).not.toEqual(snapshot)
+    expect(Object.keys(raw.rowsById).sort()).toEqual(Object.keys(snapshot.rowsById).sort())
+    expect(raw.order).toEqual(snapshot.order)
+    const changed = Object.keys(snapshot.rowsById).filter(
+      (id) => JSON.stringify(raw.rowsById[id]) !== JSON.stringify(snapshot.rowsById[id]),
     )
     const ties = corpus.resumeTwins.filter((g) => g.kind === 'tie').map((g) => g.issueId)
+    expect(ties).toHaveLength(scale)
     expect(changed.sort()).toEqual([...ties].sort())
     for (const id of ties) {
-      expect(snapshot.rowsById[id]!.asking).toBe(true)
-      expect(collapsed.rowsById[id]!.asking).toBe(false)
+      expect(raw.rowsById[id]!.asking).toBe(true)
+      expect(snapshot.rowsById[id]!.asking).toBe(false)
     }
   })
 })

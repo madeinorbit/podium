@@ -10,7 +10,7 @@
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { Store } from '@podium/client-core/engine'
+import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import type { Replica } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import {
@@ -76,13 +76,17 @@ function stubReplica(corpus: FixtureCorpus): Replica {
  */
 export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals): LegacyDerivation {
   const replica = stubReplica(corpus)
+  // The runtime's session list collapses all-parked resume twins
+  // (`runtime.ts:465` and `:1172` through `dedupeSessions`, optimism.ts:875);
+  // its replica keeps every row, so the stub replica stays raw (POD-4551).
+  const sessions = dedupeSessions(corpus.sessions)
   const store = {
     replica,
     issues: corpus.issues,
     issueProjections: corpus.issueProjections,
     repos: corpus.repos,
     machines: corpus.machines,
-    sessions: corpus.sessions,
+    sessions,
     pins: corpus.pins,
     coarseNow: locals.coarseNow,
   } as unknown as Store<PodiumClientApi>
@@ -90,7 +94,7 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
   // The same shared model cache the slice derived from: identical inputs, so
   // the progress fallback below reads the same objects, never a rebuild.
   const models = allIssueViewModels(replica, corpus.issueProjections, corpus.issues)
-  return { slice, models, sessions: corpus.sessions, allWorktreePaths: slice.allWorktreePaths }
+  return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths }
 }
 
 /** Every nested descendant as its own row, pre-order (parent before child). */
