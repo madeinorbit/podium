@@ -118,7 +118,9 @@ describe('a visible grandchild under a hidden child still reaches the root', () 
         // The asking session moves from the hidden child to the grandchild,
         // so the grandchild is the only possible source of the root's ask.
         sessions: cut.sessions.map((s) =>
-          s.sessionId === archivedAsker.sessionId ? { ...s, issueId: grandchildId } : s,
+          s.sessionId === archivedAsker.sessionId
+            ? ({ ...s, issueId: grandchildId } as typeof s)
+            : s,
         ),
       },
       LOCALS,

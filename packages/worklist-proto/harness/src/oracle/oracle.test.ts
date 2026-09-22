@@ -77,7 +77,7 @@ describe('manual sort keys among siblings (R-ORDER step 2, POD-4550)', () => {
   const visibleIds = Object.keys(snapshot.rowsById)
   const byId = new Map(corpus.issues.map((i) => [i.id as string, i]))
   const keyOf = (id: string): string | null =>
-    ((byId.get(id) as unknown as { sortKey?: string | null } | undefined)?.sortKey ?? null)
+    (byId.get(id) as unknown as { sortKey?: string | null } | undefined)?.sortKey ?? null
 
   it('keys a meaningful share of visible rows, with keyed and unkeyed siblings mixed', () => {
     const keyed = visibleIds.filter((id) => keyOf(id) !== null)
@@ -113,8 +113,7 @@ describe('manual sort keys among siblings (R-ORDER step 2, POD-4550)', () => {
   it('control: ignoring sortKey changes the order, so parity would go red', () => {
     // An implementation that drops the sortKey comparison orders exactly as
     // the legacy order does on a corpus with no keys at all.
-    const strip = <T,>(rows: T[]): T[] =>
-      rows.map((r) => ({ ...(r as object), sortKey: null }) as T)
+    const strip = <T>(rows: T[]): T[] => rows.map((r) => ({ ...(r as object), sortKey: null }) as T)
     const unkeyed: typeof corpus = {
       ...corpus,
       issues: strip(corpus.issues),
