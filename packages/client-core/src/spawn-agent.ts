@@ -1,5 +1,6 @@
 import type { DraftIssueArtifactInput } from '@podium/commands'
 import type { AgentKind, IssueId, MachineId, MutationId, RepoId, SessionId } from '@podium/model'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { PodiumClientApi } from './api'
 
 /** Where a new agent lands: a worktree path + its owning repo (+ machine). */
@@ -59,15 +60,19 @@ export class SpawnPlacementError extends Error {
   }
 }
 
-const ARGV_PROMPT_HARNESSES: ReadonlySet<AgentKind> = new Set(['claude-code', 'codex', 'grok'])
-
 /**
- * Harnesses whose first prompt is a launch argv token. Mirrors
- * `packages/harness` `capabilities.argvPrompt` without pulling that package into
- * client-core.
+ * Harnesses whose first prompt is a launch argv token, read off the served
+ * (or bundled) descriptors — never a client-side mirror of
+ * `packages/harness` `capabilities.argvPrompt` (the old `ARGV_PROMPT_HARNESSES`
+ * set drifted: it denied opencode an argv prompt its manifest declares).
+ * Injected, so client-core takes no harness dependency. Unknown harnesses
+ * and a missing report fail closed: the prompt travels the durable outbox.
  */
-export function agentAcceptsArgvPrompt(kind: AgentKind): boolean {
-  return ARGV_PROMPT_HARNESSES.has(kind)
+export function agentAcceptsArgvPrompt(
+  kind: string,
+  descriptors: readonly HarnessDescriptorWire[] | undefined,
+): boolean {
+  return descriptors?.some((d) => d.kind === kind && d.capabilities.argvPrompt) ?? false
 }
 
 /**

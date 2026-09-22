@@ -20,8 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { effortOptionsForModel } from '@/lib/agent-models'
-import { issueDefaultAgentKind } from '@/lib/issue-agents'
+import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { useModelCatalog } from '@/lib/use-model-catalog'
 
@@ -129,17 +130,15 @@ export function providerLabel(p: ApiProvider): string {
   }
 }
 
-const HARNESS_AGENT_LABELS: Record<HarnessAgent, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  grok: 'Grok',
-  opencode: 'OpenCode',
-  cursor: 'Cursor',
-  pi: 'Pi',
-}
-
-export function harnessAgentLabel(agent: HarnessAgent): string {
-  return HARNESS_AGENT_LABELS[agent]
+/**
+ * Native-harness label, read off descriptors (POD-4475). Unknown ids render
+ * verbatim rather than borrowing another harness's name.
+ */
+export function harnessAgentLabel(
+  agent: HarnessAgent | string,
+  descriptors?: readonly HarnessDescriptorWire[],
+): string {
+  return issueAgentDescriptors(descriptors).find((d) => d.kind === agent)?.label ?? String(agent)
 }
 
 export function clampInt(raw: string, min: number, max: number, fallback: number): number {
@@ -154,14 +153,20 @@ export function clampNumber(raw: string, min: number, max: number, fallback: num
   return Math.min(max, Math.max(min, n))
 }
 
-const NATIVE_HARNESSES: { harness: HarnessAgent; label: string }[] = [
-  { harness: 'claude-code', label: 'Claude Code' },
-  { harness: 'codex', label: 'Codex (ChatGPT)' },
-  { harness: 'grok', label: 'Grok' },
-  { harness: 'opencode', label: 'OpenCode' },
-  { harness: 'cursor', label: 'Cursor' },
-  { harness: 'pi', label: 'Pi' },
-]
+/**
+ * Native-harness options, read off descriptors (POD-4475): every harness the
+ * report (or bundled copy) names, in registry order. The old table qualified
+ * codex as 'Codex (ChatGPT)'; the descriptor label ('Codex') now applies
+ * everywhere, and discovered logins still carry their identity/machine
+ * suffix below — one name per harness, no second list.
+ */
+function nativeHarnesses(
+  descriptors?: readonly HarnessDescriptorWire[],
+): { harness: HarnessAgent; label: string }[] {
+  return issueAgentDescriptors(descriptors)
+    .filter((d) => d.kind !== 'shell')
+    .map((d) => ({ harness: d.kind as HarnessAgent, label: d.label }))
+}
 const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; label: string }[] = [
   { provider: 'anthropic', label: 'Anthropic API' },
   { provider: 'openai', label: 'OpenAI API' },
@@ -181,6 +186,12 @@ const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; labe
  * so `managed:openrouter` is deliberately NOT offered here — presenting it would
  * spawn an agent that silently falls back to whatever login the machine happens
  * to have. It stays available for the API-backed background role below.
+ */
+/**
+ * Which harness a managed credential can authenticate (POD-4475 note): this
+ * credential→harness pairing is the pending `provider` descriptor decision —
+ * it is account topology, not presentation, so it stays hand-written until
+ * that decision lands. Do NOT derive it from display labels.
  */
 export const MANAGED_CODING_ACCOUNTS: {
   id: AccountId
@@ -213,8 +224,9 @@ export function managedCodingHarnesses(accountId: AccountId): HarnessAgent[] {
 export function accountOptions(
   role: 'coding' | 'superagent' | 'background' | 'shipwright',
   accounts: AccountView[] = [],
+  descriptors?: readonly HarnessDescriptorWire[],
 ): { id: AccountId; label: string }[] {
-  const native = NATIVE_HARNESSES.map((o) => ({
+  const native = nativeHarnesses(descriptors).map((o) => ({
     id: asAccountId('native:' + o.harness),
     label: o.label,
   }))
@@ -223,7 +235,7 @@ export function accountOptions(
     .map((account) => ({
       id: asAccountId(account.id),
       label:
-        harnessAgentLabel(account.harness as HarnessAgent) +
+        harnessAgentLabel(account.harness as HarnessAgent, descriptors) +
         (account.identity ? ' · ' + account.identity : '') +
         (account.machines?.length ? ' · ' + account.machines.join(', ') : ''),
     }))
@@ -339,10 +351,13 @@ export function RoleBackendEditor({
         your plan&apos;s included Codex capacity while limits allow.
       </>
     ) : isNative ? (
-      <>Runs a real {harness} agent with its own tool belt, using its local login on this server.</>
+      <>
+        Runs a real {harness ? harnessAgentLabel(harness, undefined) : 'agent'} agent with its own
+        tool belt, using its local login on this server.
+      </>
     ) : codingHarnesses.length > 0 ? (
       <>
-        Podium runs {managedHarness ? harnessAgentLabel(managedHarness) : 'a'} harness and injects
+        Podium runs {managedHarness ? harnessAgentLabel(managedHarness, undefined) : 'a'} harness and injects
         the credential you connected under Accounts into its environment — so this session runs on
         that account from any connected machine.
       </>
@@ -399,7 +414,9 @@ export function RoleBackendEditor({
             }
           >
             <SelectTrigger className="w-full flex-1">
-              <SelectValue>{managedHarness ? harnessAgentLabel(managedHarness) : ''}</SelectValue>
+              <SelectValue>
+                {managedHarness ? harnessAgentLabel(managedHarness, undefined) : ''}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {codingHarnesses.map((h) => (

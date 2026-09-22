@@ -17,12 +17,14 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
 import { useStoreSelector } from '@/app/store'
+import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import {
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
   issueAgentIcon,
   issueAgentKind,
   issueAgentLabel,
+  issueDefaultAgentKind,
 } from '@/lib/issue-agents'
 import { cn } from '@/lib/utils'
 import { ActivationShell } from './ActivationShell'
@@ -37,30 +39,22 @@ import {
 import { persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
 
-/** The one-line sign-in command shown when a harness is missing (copied to the
- *  clipboard). Harnesses whose sign-in is inside the TUI name the TUI itself. */
-const SETUP_COMMANDS: Partial<Record<IssueAgentKind, string>> = {
-  opencode: 'opencode auth login',
-  cursor: 'cursor-agent login',
-  pi: 'pi',
-}
-
-function setupHint(agent: IssueAgentKind, readiness: ActivationAgentReadiness): string {
-  if (agent === 'opencode' && readiness.state === 'logged-out') {
-    return 'Installed but not signed in. You can continue now and sign in before you run it.'
-  }
-  if (readiness.state !== 'missing')
-    return activationReadinessCopy(readiness, issueAgentLabel(agent))
-  if (agent === 'opencode') {
-    return 'Install OpenCode on this machine, then run “opencode auth login”. Podium will detect it automatically.'
-  }
-  if (agent === 'cursor') {
-    return 'Install the Cursor CLI on this machine, then run “cursor-agent login”. Podium will detect it automatically.'
-  }
-  if (agent === 'pi') {
-    return 'Install Pi on this machine, then run “pi” and sign in with its /login command. Podium will detect it automatically.'
-  }
-  return activationReadinessCopy(readiness, issueAgentLabel(agent))
+/**
+ * Sign-in copy, read off the harness descriptors (POD-4475): the one-line
+ * command (copied to the clipboard) and the missing/signed-out hints.
+ * Harnesses whose sign-in is inside the TUI carry no login copy and fall
+ * through to the generic readiness copy.
+ */
+function setupHint(
+  agent: IssueAgentKind,
+  readiness: ActivationAgentReadiness,
+  login: { command?: string | null; installHint?: string | null; signedOutHint?: string | null } | undefined,
+  label: string,
+): string {
+  if (readiness.state === 'logged-out' && login?.signedOutHint) return login.signedOutHint
+  if (readiness.state !== 'missing') return activationReadinessCopy(readiness, label)
+  if (login?.installHint) return login.installHint
+  return activationReadinessCopy(readiness, label)
 }
 
 interface TelemetryStateWire {
@@ -163,12 +157,13 @@ export function FirstTaskActivation({
       .then((settings) => {
         if (!cancelled) {
           setConfiguredAgent(
-            issueAgentKind(resolveRole(settings, 'coding').harness) ?? 'claude-code',
+            issueAgentKind(resolveRole(settings, 'coding').harness) ??
+              issueDefaultAgentKind(undefined),
           )
         }
       })
       .catch(() => {
-        if (!cancelled) setConfiguredAgent('claude-code')
+        if (!cancelled) setConfiguredAgent(issueDefaultAgentKind(undefined))
       })
     return () => {
       cancelled = true
@@ -381,12 +376,18 @@ export function FirstTaskActivation({
     machines.find((machine) => machine.id === selectedRepo?.machineId) ??
     machinesFor(machines, HOST_REPOS).find((machine) => machine.online) ??
     machinesFor(machines, HOST_REPOS)[0]
+  // Served descriptors for the machine under setup (POD-4475): login copy,
+  // labels, icons and brand all render from here, bundled copy offline.
+  const descriptors = useResolvedDescriptors([selectedMachine?.id])
+  const descriptorByKind = new Map(descriptors.map((d) => [d.kind, d]))
+  const agentLogin = (agent: IssueAgentKind) => descriptorByKind.get(agent)?.login
+  const agentBrand = (agent: IssueAgentKind) => descriptorByKind.get(agent)?.brand
   const otherAgents = ISSUE_AGENT_KINDS.filter(
     (agent) => !activationAgentIsReady(readinessByAgent[agent]),
   )
   const copySetupCommand = (agent: IssueAgentKind): void => {
-    const command = SETUP_COMMANDS[agent] ?? 'opencode auth login'
-    void navigator.clipboard?.writeText(command)
+    const command = agentLogin(agent)?.command
+    if (command) void navigator.clipboard?.writeText(command)
   }
 
   const renderAgentRows = (agents: readonly IssueAgentKind[]): JSX.Element[] =>
@@ -394,7 +395,9 @@ export function FirstTaskActivation({
       const readiness = readinessByAgent[agent]
       const ready = activationAgentIsReady(readiness)
       const needsLogin = readiness.state === 'logged-out'
-      const setupCommand = readiness.state === 'missing' ? (SETUP_COMMANDS[agent] ?? null) : null
+      const setupCommand =
+        readiness.state === 'missing' ? (agentLogin(agent)?.command ?? null) : null
+      const brand = agentBrand(agent)
       const status = ready ? 'Ready' : needsLogin ? 'Sign-in optional' : 'Waiting'
 
       return (
@@ -408,14 +411,11 @@ export function FirstTaskActivation({
           <div
             className={cn(
               'flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] shadow-[inset_0_0_0_1px_#333842]',
-              agent === 'claude-code'
-                ? '[&_svg]:text-[#d97757]'
-                : ready
-                  ? '[&_svg]:text-[#e6e8ec]'
-                  : '[&_svg]:text-[#8a9099]',
+              !brand && (ready ? '[&_svg]:text-[#e6e8ec]' : '[&_svg]:text-[#8a9099]'),
             )}
+            {...(brand ? { style: { color: brand.fg } } : {})}
           >
-            {issueAgentIcon(agent, agent === 'claude-code' ? 18 : 17)}
+            {issueAgentIcon(agent, brand ? 18 : 17, descriptors)}
           </div>
 
           {/* basis-full below `sm` sends the action button to its own line
@@ -429,10 +429,10 @@ export function FirstTaskActivation({
                   ready ? 'text-[#f2f3f5]' : 'text-[#d7dae0]',
                 )}
               >
-                {issueAgentLabel(agent)}
+                {issueAgentLabel(agent, descriptors)}
               </span>
             </div>
-            {agent === 'cursor' && setupCommand ? (
+            {setupCommand ? (
               <p className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[13px] leading-[1.45] text-[#9ba1ab]">
                 <span>Install the CLI, then run</span>
                 {/* No fixed height, and never broken across lines: on a phone
@@ -449,7 +449,7 @@ export function FirstTaskActivation({
                  full width there now, so ellipsising a sentence that fits is
                  just hiding the instruction it carries (POD-1200). */
               <p className="mt-[5px] truncate text-[13px] leading-[1.45] text-[#9ba1ab] max-sm:whitespace-normal">
-                {setupHint(agent, readiness)}
+                {setupHint(agent, readiness, agentLogin(agent), issueAgentLabel(agent, descriptors))}
               </p>
             )}
           </div>

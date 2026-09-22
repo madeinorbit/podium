@@ -17,6 +17,7 @@ import {
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
 import { useModelCatalog } from './use-model-catalog'
+import { useHarnessDescriptors } from '@podium/client-core/react'
 import { cn } from './utils'
 
 /**
@@ -118,18 +119,21 @@ export function ModelPicker({
   // Live models from the agent's own CLI (grok/cursor/opencode), fetched + cached by
   // the server; falls back to the static catalog for claude/codex or before it loads.
   const live = useModelCatalog(machineId)[agentKind]
+  // Served harness descriptors (POD-4475): the picker renders names, models
+  // and effort support from the machine's report, bundled fallback offline.
+  const { served } = useHarnessDescriptors(machineId)
   return (
     <PropertyMenu
       trigger={
         <PickerTrigger
           variant={variant}
           icon={cpuIcon}
-          label={modelLabel(agentKind, value, live)}
+          label={modelLabel(agentKind, value, live, served)}
           aria-label="Model"
           {...(className ? { className } : {})}
         />
       }
-      options={modelOptions(agentKind, live)}
+      options={modelOptions(agentKind, live, served)}
       selectedValue={value || 'auto'}
       allowFreeText
       placeholder="Model name…"
@@ -158,6 +162,7 @@ export function AllConnectorsModelPicker({
   machineId?: MachineId
 }): JSX.Element {
   const live = useModelCatalog(machineId)
+  const { served } = useHarnessDescriptors(machineId)
   const selected = value && value !== AUTO && agentKind ? encodeModelPick(agentKind, value) : AUTO
   return (
     <PropertyMenu
@@ -165,11 +170,11 @@ export function AllConnectorsModelPicker({
         <PickerTrigger
           variant={variant}
           icon={cpuIcon}
-          label={allConnectorModelLabel(agentKind, value, live)}
+          label={allConnectorModelLabel(agentKind, value, live, served)}
           aria-label="Model"
         />
       }
-      options={allConnectorModelOptions(live)}
+      options={allConnectorModelOptions(live, served)}
       selectedValue={selected}
       allowFreeText
       placeholder="Model name…"
@@ -211,9 +216,10 @@ export function EffortPicker({
   machineId?: MachineId
 }): JSX.Element | null {
   const live = useModelCatalog(machineId)[agentKind]
+  const { served } = useHarnessDescriptors(machineId)
   // Auto model uses the agent's effort ladder; a concrete model can narrow it or
   // explicitly report no effort support (e.g. Claude Haiku).
-  const options = effortOptionsForModel(agentKind, model, live)
+  const options = effortOptionsForModel(agentKind, model, live, served)
   if (options.length === 0) return null
   return (
     <PropertyMenu

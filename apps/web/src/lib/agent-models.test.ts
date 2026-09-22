@@ -18,7 +18,12 @@ describe('agent-models catalog', () => {
   it('lists Auto first for every agent (model + effort)', () => {
     for (const kind of ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'] as const) {
       expect(modelOptions(kind)[0]).toEqual({ value: AUTO, label: 'Auto' })
-      expect(effortOptions(kind)[0]).toEqual({ value: AUTO, label: 'Auto' })
+      // Cursor has no effort flag: no picker at all (not even Auto).
+      if (kind === 'cursor') {
+        expect(effortOptions(kind)).toEqual([])
+      } else {
+        expect(effortOptions(kind)[0]).toEqual({ value: AUTO, label: 'Auto' })
+      }
     }
   })
 
@@ -58,8 +63,9 @@ describe('agent-models catalog', () => {
   it('cursor has no effort flag', () => {
     expect(agentSupportsEffort('cursor')).toBe(false)
     expect(agentSupportsEffort('claude-code')).toBe(true)
-    // Only the auto sentinel is offered.
-    expect(effortOptions('cursor')).toEqual([{ value: AUTO, label: 'Auto' }])
+    // No effort flag means no picker at all (POD-4475 unifies effortOptions
+    // with effortOptionsForModel, which already returned [] here).
+    expect(effortOptions('cursor')).toEqual([])
   })
 
   it('labels known values, falls back to raw for custom, Auto for the sentinel', () => {
@@ -70,11 +76,16 @@ describe('agent-models catalog', () => {
     expect(effortLabel('claude-code', 'xhigh')).toBe('Extra high')
   })
 
-  it('isEffortValid rejects an out-of-ladder value (codex tops at xhigh, no max)', () => {
+  it('isEffortValid accepts per-model rungs beyond the kind ladder', () => {
+    // Unified with mobile (POD-4475): the per-KIND ladder is the floor, but
+    // codex frontier models carry `max`/`ultra` — checking only the generic
+    // table would silently reset a legitimate pick back to Auto.
     expect(isEffortValid('claude-code', 'max')).toBe(true)
     expect(isEffortValid('codex', 'xhigh')).toBe(true)
-    expect(isEffortValid('codex', 'max')).toBe(false)
+    expect(isEffortValid('codex', 'max')).toBe(true)
+    expect(isEffortValid('codex', 'ultra')).toBe(true)
     expect(isEffortValid('codex', 'auto')).toBe(true)
+    expect(isEffortValid('codex', 'off')).toBe(false)
   })
 })
 
