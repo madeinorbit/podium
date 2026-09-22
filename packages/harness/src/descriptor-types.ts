@@ -75,7 +75,7 @@ export interface HarnessDescriptorData {
   /** Null = neutral chip (inherits the surrounding tone). */
   brand: HarnessBrandTone | null
   login: HarnessLoginCopy
-  defaults: { model: string | null; effort: string | null }
+  defaults: { model: string | null; effort: string | null; panelMode: 'native' | 'chat' | null }
 }
 
 /**
