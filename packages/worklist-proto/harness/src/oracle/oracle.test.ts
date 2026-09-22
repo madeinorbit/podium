@@ -81,10 +81,14 @@ describe('manual sort keys among siblings (R-ORDER step 2, POD-4550)', () => {
   it('keys a meaningful share of visible rows, with keyed and unkeyed siblings mixed', () => {
     const keyed = visibleIds.filter((id) => keyOf(id) !== null)
     const siblings = new Map<string, string[]>()
+    // Siblings the order compares directly: children of one parent, and
+    // roots sharing a repo group.
     for (const id of visibleIds) {
-      const parent = byId.get(id)?.parentId
-      if (!parent) continue
-      siblings.set(parent, [...(siblings.get(parent) ?? []), id])
+      const issue = byId.get(id)!
+      const key = issue.parentId
+        ? `p:${issue.parentId}`
+        : `repo:${String(issue.repoId ?? issue.repoPath)}`
+      siblings.set(key, [...(siblings.get(key) ?? []), id])
     }
     const mixed = [...siblings.values()].filter(
       (ids) => ids.some((id) => keyOf(id) !== null) && ids.some((id) => keyOf(id) === null),
@@ -97,8 +101,12 @@ describe('manual sort keys among siblings (R-ORDER step 2, POD-4550)', () => {
         `${mixed.length} mixed sibling groups; ${keyedPairs.length} with two keyed siblings`,
     )
     expect(keyed.length / visibleIds.length).toBeGreaterThan(0.15)
-    expect(mixed.length).toBeGreaterThanOrEqual(10)
-    expect(keyedPairs.length).toBeGreaterThanOrEqual(5)
+    // At 1x the worklist shows ~24 sibling groups of two or more rows (half
+    // children of one parent, half roots sharing a repo group); nearly all
+    // of them mix keyed and unkeyed rows, and the three-plus groups carry
+    // two keyed siblings whose key order runs against creation order.
+    expect(mixed.length).toBeGreaterThanOrEqual(15)
+    expect(keyedPairs.length).toBeGreaterThanOrEqual(2)
   })
 
   it('control: ignoring sortKey changes the order, so parity would go red', () => {
