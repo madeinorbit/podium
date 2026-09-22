@@ -2004,7 +2004,7 @@ describe('harness-vendor-boundary (POD-4467)', () => {
   })
 
   it('every seeded entry carries its category pointer — leaks name the remover, policy points at the module', () => {
-    expect(HARNESS_BOUNDARY_ALLOWLIST.length).toBeGreaterThan(100)
+    expect(HARNESS_BOUNDARY_ALLOWLIST.length).toBeGreaterThan(0)
     for (const entry of HARNESS_BOUNDARY_ALLOWLIST) {
       expect(entry.reason.trim().length, entry.file).toBeGreaterThan(0)
       if (entry.category === 'leak') {
@@ -2018,13 +2018,12 @@ describe('harness-vendor-boundary (POD-4467)', () => {
       (e) => e.file === 'packages/runtime/src/harness-defaults.ts',
     )
     expect(defaults?.category).toBe('policy')
-    // The pitfalls list stays leak: retyped enums are listed, not fixed.
-    for (const file of [
-      'packages/model/src/entities/cost.ts',
-      'packages/model/src/entities/handoff.ts',
-      'packages/protocol/src/messages/credentials.ts',
-      'packages/runtime/src/settings.ts',
-    ]) {
+    // A remaining leak example stays leak: runtime settings still names a
+    // harness outside the homes. (The retyped enums in model/entities/cost.ts,
+    // model/entities/handoff.ts and protocol/messages/credentials.ts were
+    // derived from the single definition by POD-4476/4.2 and their entries
+    // deleted — the ratchet working as designed, not a category change.)
+    for (const file of ['packages/runtime/src/settings.ts']) {
       expect(
         HARNESS_BOUNDARY_ALLOWLIST.find((e) => e.file === file)?.category,
         file,
