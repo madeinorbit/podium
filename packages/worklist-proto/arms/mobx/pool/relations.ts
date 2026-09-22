@@ -43,8 +43,9 @@ function specOf(from: EntityName, relation: string): RelationSpec {
  * the declared membership filter, WITHOUT checking the target is present.
  * Reading it costs the source row only; `one` adds the presence check.
  */
-export function relationRef(from: EntityName, relation: string, row: Readonly<Record<string, unknown>>): string | null {
+export function relationRef(from: EntityName, relation: string, source: object): string | null {
   const spec = specOf(from, relation)
+  const row = source as Readonly<Record<string, unknown>>
   if (spec.where !== undefined && !spec.where.test(row)) return null
   let target: unknown
   if (spec.kind === 'belongsTo') {
