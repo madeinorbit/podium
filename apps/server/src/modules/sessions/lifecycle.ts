@@ -145,6 +145,7 @@ import type { TurnPreviewAccumulator } from './turn-preview'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
 import { decideShellLifetime, shellQuietMs } from './terminal-lifetime'
+import { resolveDockShellOwner } from '../shells/service'
 
 export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 export type { SessionSpawnResult }
@@ -767,7 +768,19 @@ export class SessionLifecycle {
       return
     }
     const cfg = (await this.store.settings.getSettings()).hibernation
-    const issue = session.issueId ? await this.deps.issueAccess.getMeta(session.issueId) : undefined
+    // The policy's owning issue comes from the server mapping when this shell
+    // has one (POD-4436 step 3): an unbound dock shell still belongs to its
+    // worktree's top-level issue, instead of reading as ownerless. Unmapped
+    // shells fall back to the bound issue exactly as before.
+    const dockOwner = await resolveDockShellOwner(
+      {
+        worktreeForSession: (id) => this.store.dockShells.worktreeForSession(id),
+        issueForCwd: (cwd) => this.deps.issueAccess.issueForCwd(cwd),
+      },
+      session,
+    )
+    const ownerIssueId = dockOwner?.issueId ?? session.issueId
+    const issue = ownerIssueId ? await this.deps.issueAccess.getMeta(ownerIssueId) : undefined
     const lastHeld = this.state.lastHeldAtMs(sessionId)
     const decision = decideShellLifetime({
       purpose: session.loginHarness !== undefined ? 'login' : 'shell',

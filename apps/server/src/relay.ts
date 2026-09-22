@@ -152,7 +152,7 @@ import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
-import { DockShellService } from './modules/shells/service'
+import { DockShellService, resolveDockShellOwner } from './modules/shells/service'
 import {
   bridgeConfigChanged,
   SettingsService,
@@ -1592,7 +1592,29 @@ export class SessionRegistry {
           // live on every call, which is what the re-read after a hibernate
           // attempt depends on.
           const closed = await closedIssueIdsInScope()
-          return [...liveSessions.values()].map((session) => {
+          const samples = [...liveSessions.values()]
+          // Dock shells without a bound issue resolve their owner through the
+          // server mapping (POD-4436 step 3) so the reaper binds them to their
+          // worktree's top-level issue instead of the no-issue tier. Only
+          // unbound shells pay for a lookup — usually none — so the
+          // one-statement-per-projection doctrine above still holds for
+          // everything else.
+          const dockOwners = new Map<SessionId, IssueId>()
+          await Promise.all(
+            samples
+              .filter((s) => s.agentKind === 'shell' && s.issueId == null)
+              .map(async (s) => {
+                const owner = await resolveDockShellOwner(
+                  {
+                    worktreeForSession: (id) => this.store.dockShells.worktreeForSession(id),
+                    issueForCwd: (cwd) => issueAccess.issueForCwd(cwd),
+                  },
+                  s,
+                )
+                if (owner?.issueId) dockOwners.set(s.sessionId, owner.issueId)
+              }),
+          )
+          return samples.map((session) => {
             // The bound driver's FAMILY, so the park gate can tell a terminal
             // it may read quiet off from a contract it must not (this issue).
             // Same lookup as the client wire (session.ts toMeta): bound wins
@@ -1600,6 +1622,9 @@ export class SessionRegistry {
             const driverFamily = driverFamilyForId(
               session.driverId ?? session.selectedDriverId ?? '',
             )
+            // Bound issue wins; a mapped dock shell without one reads its
+            // worktree's owner from the map above (POD-4436 step 3).
+            const ownerIssueId = session.issueId ?? dockOwners.get(session.sessionId)
             return {
               sessionId: session.sessionId,
               machineId: session.machineId,
@@ -1621,11 +1646,13 @@ export class SessionRegistry {
               lastInputAtMs: session.terminal.lastInputAtMs,
               lastOutputAtMs: session.terminal.lastOutputAtMs,
               ...(driverFamily ? { driverFamily } : {}),
-              // Bound issue only. A session whose cwd merely sits INSIDE some
-              // issue's worktree resolves through `issueForCwd`, which is a
-              // per-session durable read; it would land in the no-issue tier,
-              // which is already above open work and below closed work.
-              ...(session.issueId != null ? { issueClosed: closed.has(session.issueId) } : {}),
+              // Bound issue only — except dock shells, whose owner the server
+              // mapping answers exactly (see above). A session whose cwd merely
+              // sits INSIDE some issue's worktree still resolves through
+              // `issueForCwd`, which is a per-session durable read; it would
+              // land in the no-issue tier, which is already above open work
+              // and below closed work.
+              ...(ownerIssueId != null ? { issueClosed: closed.has(ownerIssueId) } : {}),
             }
           })
         },
