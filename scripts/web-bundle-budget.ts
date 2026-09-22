@@ -218,6 +218,17 @@ const BROWSER_HOSTILE_EXCEPTIONS = [
   'packages/harness/src/store/cursor-codec.ts',
   'packages/harness/src/store/stream-identity.ts',
   'packages/harness/src/driver/families/terminal/composer-sync.ts',
+  // Browser-safe adapter SECTIONS (spec rev 2 §4.1/§4.5, ADR 10 Decision D). The
+  // composer rules moved into adapters/<h>/composer.ts (POD-4477) and the bundled
+  // descriptor fallback into adapters/bundled-descriptors.generated.ts
+  // (POD-4538/4541); all four are imported by src/browser.ts, a declared entrypoint
+  // whose full closure `audit:browser-reach` bundles for the browser and proves
+  // Node-free. They were never added here, so every web build — and therefore every
+  // integration suite, which builds the clients first — failed from POD-4477 on.
+  'packages/harness/src/adapters/bundled-descriptors.generated.ts',
+  'packages/harness/src/adapters/shared/composer.ts',
+  'packages/harness/src/adapters/claude-code/composer.ts',
+  'packages/harness/src/adapters/codex/composer.ts',
 ] as const
 
 /**
