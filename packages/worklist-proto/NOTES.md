@@ -1,5 +1,37 @@
 # worklist-proto — package notes
 
+## POD-4551 (L2b) — corpus shape at every scale · 2026-09-22
+
+Numbers: `docs/measurements/POD-4441-fixture-shape.md`, "Shape at every scale".
+
+### Decisions
+
+- **No generator change for scale.** Every proportion held at 2x/4x as minted
+  (211/422/844 rows; depth shares within 1.5 points; 10.0% prefix-owned;
+  5.1–5.5% edges). The assertions went in and the generator stayed as it was.
+- **New shapes reuse rows and draw no `rng`.** Askers and twins reseat
+  sessions from the closed-bulk decayed tail and reparent existing
+  archived/proposed leaves. Counts stay exact, and every untouched row is
+  byte-identical (diffed against the previous corpus).
+- **Askers and twins sit on sessionless, non-review visible roots.** A review
+  root asks on its own account, which would hide the shape's verdict.
+- **The oracle dedupes resume twins** (coordinator ruling, runtime.ts:465 and
+  :1172). Its stub replica stays raw. The disabled-collapse control is
+  test-local (resume refs stripped).
+- **Sort keys come from `spreadSortKeys`**: sibling keys first, then roots.
+- **Scenario server writes read the kernel cache**, never the painted
+  snapshot.
+- **Schema `session.resume`** is declared (with `ResumeRef` as a cited
+  schema), so a pool can build the twin index from the schema.
+
+### Open
+
+- The round-two arms fail parity on the tie root (18 tests, 13 files). How to
+  mark them is waiting on the coordinator (recommended: `it.fails`).
+- `gen/changes.ts` still filters malformed sort-key bounds. With valid corpus
+  keys that filter never fires; left alone because POD-4556 builds on
+  `gen/*`.
+
 ## POD-4563 (L6a) — equal commit and lint fences · 2026-09-22
 
 What landed and how each is proven: `docs/plans/pod-4441-harness.md`, "Exact
