@@ -463,7 +463,8 @@ export class SessionTeardown {
   }
 
   /** Immediate process kill for a session already parked by stop. */
-  private killStoppedSession(session: Session): void {    this.ports.toMachine(session.machineId, {
+  private killStoppedSession(session: Session): void {
+    this.ports.toMachine(session.machineId, {
       type: 'kill',
       sessionId: session.sessionId,
       durableLabel: session.durableLabel,

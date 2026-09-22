@@ -1635,7 +1635,6 @@ export class SessionRegistry {
               machineId: session.machineId,
               status: session.status,
               agentKind: session.agentKind,
-              autoHibernateProtected: session.loginHarness !== undefined,
               // THE SHELL POLICY'S INPUTS (POD-4435): held/watched read from
               // the same viewer state the priority fan-out reads, so the
               // reaper and the tab-release trigger cannot disagree.

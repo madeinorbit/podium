@@ -73,8 +73,6 @@ export interface HostSessionView {
   status: string
   /** Distinguishes shells (no observer, no resume) from harness agents. */
   agentKind: string
-  /** Purpose-bound shells (currently native login) are never auto-parked. */
-  autoHibernateProtected?: boolean | undefined
   /**
    * THE SHELL POLICY'S INPUTS (POD-4435). The reaper no longer decides for
    * shells from quiet time — it builds these per live shell and asks
@@ -495,17 +493,16 @@ export class HostsService {
     }
 
     // Shells never enter hibernateSession (no resume ref). The shell lifetime
-    // policy owns them (POD-4435): null switches the reaper trigger off, while
-    // the release and close/free triggers still fire.
-    if (cfg.idleShellMinutes !== null) {
-      await this.applyShellIdlePressure(
-        machineId,
-        cfg.idleShellMinutes,
-        cfg.backstopMinutes,
-        now,
-        failed,
-      )
-    }
+    // policy owns them (POD-4435): the reaper evaluates every live shell and
+    // a null idle grace disables only row 6 (the unheld grace) — the
+    // release, close/free, backstop and owner-gone rows still fire.
+    await this.applyShellIdlePressure(
+      machineId,
+      cfg.idleShellMinutes,
+      cfg.backstopMinutes,
+      now,
+      failed,
+    )
 
     if (cfg.backstopMinutes !== null) {
       await this.applyIdleBackstop(
@@ -621,7 +618,7 @@ export class HostsService {
    */
   private async applyShellIdlePressure(
     machineId: MachineId,
-    idleShellMinutes: number,
+    idleShellMinutes: number | null,
     backstopMinutes: number | null,
     now: number,
     failed: Set<string>,
@@ -732,7 +729,7 @@ export class HostsService {
         session.machineId === machineId &&
         session.status === 'live' &&
         !failed.has(session.sessionId) &&
-        !session.autoHibernateProtected &&
+        session.purpose !== 'login' &&
         this.quietSinceMs(session) <= cutoff,
     )
     const unscheduled: HostSessionView[] = []
@@ -805,8 +802,11 @@ export class HostsService {
    * would make OBSERVED agents pay a debt that never retires, and the loop would
    * then sit in `reportCapUnmet` permanently. Two such classes are excluded:
    *
-   *  - a SHELL while `idleShellMinutes` is null, because `applyShellIdlePressure`
-   *    is the only thing that can park one and it is switched off;
+   *  - a SHELL while `idleShellMinutes` is null, because the cap retires
+   *    through `hibernateSession` and that path never parks a shell. The
+   *    reaper still evaluates owner-gone and backstop rows for shells with
+   *    the grace off (row 6 disables itself); those retire on the reaper
+   *    tick, not through this overage.
    *  - an unobserved session with NO resume ref, because `hibernateSession`
    *    refuses without one.
    *
@@ -842,7 +842,7 @@ export class HostsService {
 
   /** Whether some policy that is currently ON could park this unobserved session. */
   private unobservedIsParkable(session: HostSessionView, idleShellMinutes: number | null): boolean {
-    if (session.autoHibernateProtected) return false
+    if (session.purpose === 'login') return false
     if (session.agentKind === 'shell') return idleShellMinutes !== null
     return session.resume !== undefined
   }
