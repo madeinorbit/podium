@@ -489,6 +489,19 @@ describe('accountViews provider source (POD-4529)', () => {
     expect(views.find((view) => view.id === 'native:claude-code')!.provider).toBe('anthropic')
     expect(views.find((view) => view.id === 'native:opencode')!.provider).toBe('opencode')
   })
+
+  it('an older daemon descriptor without provider falls back to kind (POD-4542)', async () => {
+    // Cross-version acceptance at the server reader: a POD-4475 frame
+    // carries no `provider`, and nativePairs resolves it through the ONE
+    // shared `providerOf` rule — the same rule the parsers use.
+    const [served] = servedWithProvider('claude-code', 'served-provider-x')
+    const { provider: _p, ...older } = served!
+    void _p
+    const views = await accountViews(settings(), accounts, [machineWithLogin('in', 'mike@example.com')], [
+      older,
+    ])
+    expect(views.find((view) => view.id === 'native:claude-code')!.provider).toBe('claude-code')
+  })
 })
 
 describe('AccountConnectInput', () => {

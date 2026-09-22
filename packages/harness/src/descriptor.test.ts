@@ -17,6 +17,7 @@ import {
   effortOptionsForDescriptor,
   modelOptionsForDescriptor,
   parseServedDescriptors,
+  providerOf,
   refuseUnsupportedOperation,
   resolveDescriptors,
   type ResolvedDescriptor,
@@ -92,6 +93,18 @@ describe('unknown harness renders from the served descriptor', () => {
   it('a garbage frame renders nothing and crashes nothing', () => {
     expect(parseServedDescriptors([null, 42, 'x', { kind: 7 }])).toEqual([])
     expect(parseServedDescriptors('nope')).toEqual([])
+  })
+
+  it('an older daemon frame without provider resolves to kind (POD-4542)', () => {
+    // The cross-version acceptance at the browser parser: a POD-4475 frame
+    // carries no `provider`, and the ONE shared rule resolves it to kind —
+    // the same rule the zod parser's readers use, so the parsers agree.
+    const { provider: _p, ...older } = futureCliDescriptor()
+    void _p
+    const [parsed] = parseServedDescriptors([older])
+    expect(parsed?.provider).toBe('future-cli')
+    expect(providerOf({ kind: 'future-cli' })).toBe('future-cli')
+    expect(providerOf({ kind: 'future-cli', provider: 'future' })).toBe('future')
   })
 })
 
