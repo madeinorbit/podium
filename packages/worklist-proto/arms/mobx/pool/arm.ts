@@ -26,9 +26,7 @@ export interface MobxPoolHandle extends CheckableArmHandle {
   readonly pool: MobxPool
 }
 
-export const mobxPoolArm: CheckableArm & {
-  create(source: RowSource, locals: LocalsSource, reads?: ReadFence): MobxPoolHandle
-} = {
+export const mobxPoolArm = {
   create(source: RowSource, locals: LocalsSource, reads: ReadFence = DISABLED_READ_FENCE): MobxPoolHandle {
     const pool = new MobxPool(reads, locals.get())
     pool.apply({
@@ -64,4 +62,4 @@ export const mobxPoolArm: CheckableArm & {
       },
     }
   },
-}
+} satisfies CheckableArm

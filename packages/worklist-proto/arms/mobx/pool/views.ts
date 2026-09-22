@@ -60,12 +60,44 @@ export interface RepoRow {
   readonly prefix?: string | null
 }
 
+/**
+ * One issue's derived parts. Each is its own memo in the live pool (a
+ * computed on the issue model), so a change re-runs only the parts that read
+ * it: an origin's rename re-runs its spin-offs' `originTick`, which reads the
+ * origin's parts, and never re-reads the spin-off's own row. The rebuild
+ * computes them directly (`directParts`).
+ */
+export interface IssueParts {
+  /** The row-only fields; undefined when the issue is not in the pool. */
+  readonly own: OwnPart | undefined
+  readonly displayRef: string | undefined
+  readonly displayTitle: string | undefined
+  readonly originId: string | null
+  readonly originTick: RowOriginTick | null
+  readonly activityAt: number
+}
+
+/** The fields a row view takes from its own row (and the clock). */
+export interface OwnPart {
+  readonly band: 0 | 1 | 2
+  readonly repoKey: string
+  readonly closed: boolean
+  readonly dismissed: boolean
+  readonly pinned: boolean
+  readonly sortKey: string | null
+  readonly createdAt: string
+  readonly seq: number
+  readonly foldAt: string
+}
+
 /** Everything a row view reads. Tracked in the live pool; plain in the rebuild. */
 export interface ViewInputs {
   readonly relations: RelationReader
   issue(id: string): SliceIssue | undefined
   session(id: string): SliceSession | undefined
   repo(id: string): RepoRow | undefined
+  /** Another issue's parts (the origin of a spin-off). */
+  parts(id: string): IssueParts | undefined
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
   /** `coarseNow >= t`. */
@@ -165,7 +197,25 @@ export function foldAtOf(issue: SliceIssue): string {
   return issue.tuckedAt ?? issue.closedAt ?? issue.updatedAt
 }
 
-// ------------------------------------------------------------ one-hop rules
+// ------------------------------------------------------------------- parts
+
+/** The row-only fields of issue `id` (spec §3 R-ORDER, R-GROUP). */
+export function ownPartOf(input: ViewInputs, id: string): OwnPart | undefined {
+  const issue = input.issue(id)
+  if (issue === undefined) return undefined
+  const closed = closedOf(issue, STUB_WAITING, input)
+  return {
+    band: bandOf(issue, input),
+    repoKey: issue.repoId ?? issue.repoPath,
+    closed,
+    dismissed: closed && (issueAbandoned(issue) || issue.tuckedAt != null),
+    pinned: issue.pinned === true,
+    sortKey: issue.sortKey ?? null,
+    createdAt: issue.createdAt,
+    seq: issue.seq,
+    foldAt: foldAtOf(issue),
+  }
+}
 
 function firstMemberOf(input: ViewInputs, id: string): SliceSession | undefined {
   for (const sessionId of input.relations.many('issue', id, 'sessions')) {
@@ -175,57 +225,84 @@ function firstMemberOf(input: ViewInputs, id: string): SliceSession | undefined 
   return undefined
 }
 
-function prefixOf(input: ViewInputs, id: string): string | null | undefined {
+/** `displayRef` through the declared `issue.repo` relation (one hop). */
+export function displayRefPartOf(input: ViewInputs, id: string): string | undefined {
+  const issue = input.issue(id)
+  if (issue === undefined) return undefined
   const repoId = input.relations.one('issue', id, 'repo')
-  return repoId === null ? null : input.repo(repoId)?.prefix
+  return displayRefOf(issue.seq, repoId === null ? null : input.repo(repoId)?.prefix)
 }
 
-function originTickOf(input: ViewInputs, id: string): RowOriginTick | null {
-  const originId = input.relations.one('issue', id, 'discoveredFrom')
+export function displayTitlePartOf(input: ViewInputs, id: string): string | undefined {
+  const issue = input.issue(id)
+  return issue === undefined ? undefined : displayTitleOf(issue, firstMemberOf(input, id))
+}
+
+/** The spin-off origin through the declared `issue.discoveredFrom` edge. */
+export function originIdPartOf(input: ViewInputs, id: string): string | null {
+  return input.relations.one('issue', id, 'discoveredFrom')
+}
+
+/** The ⤷ tick: a flat copy of the origin's parts (spec §3 R-ORIGIN). */
+export function originTickPartOf(input: ViewInputs, originId: string | null): RowOriginTick | null {
   if (originId === null) return null
-  const origin = input.issue(originId)
-  if (origin === undefined) return null
-  return {
-    id: originId,
-    seq: origin.seq,
-    title: displayTitleOf(origin, firstMemberOf(input, originId)),
-    ref: displayRefOf(origin.seq, prefixOf(input, originId)),
-  }
+  const origin = input.parts(originId)
+  const own = origin?.own
+  if (origin === undefined || own === undefined) return null
+  return { id: originId, seq: own.seq, title: origin.displayTitle ?? '', ref: origin.displayRef ?? '' }
 }
 
 /** Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec R-BAND). */
-function activityAtOf(input: ViewInputs, id: string, issue: SliceIssue): number {
+export function activityAtPartOf(input: ViewInputs, id: string): number {
   let latest: number | null = null
   for (const sessionId of input.relations.many('issue', id, 'sessions')) {
     const at = parseMs(input.session(sessionId)?.lastActiveAt)
     if (at !== null && (latest === null || at > latest)) latest = at
   }
-  return latest ?? parseMs(issue.updatedAt) ?? 0
+  return latest ?? parseMs(input.issue(id)?.updatedAt) ?? 0
+}
+
+/** The parts of `id` computed directly, no memo (the rebuild). */
+export function directParts(input: ViewInputs, id: string): IssueParts {
+  return {
+    get own() {
+      return ownPartOf(input, id)
+    },
+    get displayRef() {
+      return displayRefPartOf(input, id)
+    },
+    get displayTitle() {
+      return displayTitlePartOf(input, id)
+    },
+    get originId() {
+      return originIdPartOf(input, id)
+    },
+    get originTick() {
+      return originTickPartOf(input, originIdPartOf(input, id))
+    },
+    get activityAt() {
+      return activityAtPartOf(input, id)
+    },
+  }
 }
 
 // ------------------------------------------------------------------ the view
 
-/** The row view of issue `id`, or undefined when the issue is not in the pool. */
-export function buildRowView(input: ViewInputs, id: string): RowView | undefined {
-  const issue = input.issue(id)
-  if (issue === undefined) return undefined
-  const closed = closedOf(issue, STUB_WAITING, input)
+/**
+ * The row view of issue `id` from its parts, or undefined when the issue is
+ * not in the pool. Reads no row: only `self`'s parts and the selection.
+ */
+export function buildRowView(input: ViewInputs, id: string, self: IssueParts): RowView | undefined {
+  const own = self.own
+  if (own === undefined) return undefined
   return {
     id,
-    displayRef: displayRefOf(issue.seq, prefixOf(input, id)),
-    title: displayTitleOf(issue, firstMemberOf(input, id)),
+    displayRef: self.displayRef ?? '',
+    title: self.displayTitle ?? '',
     ...STUB_ROLLUPS,
-    band: bandOf(issue, input),
-    repoKey: issue.repoId ?? issue.repoPath,
-    closed,
+    ...own,
     selected: input.selected(id),
-    originTick: originTickOf(input, id),
-    activityAt: activityAtOf(input, id, issue),
-    pinned: issue.pinned === true,
-    sortKey: issue.sortKey ?? null,
-    createdAt: issue.createdAt,
-    seq: issue.seq,
-    foldAt: foldAtOf(issue),
-    dismissed: closed && (issueAbandoned(issue) || issue.tuckedAt != null),
+    originTick: self.originTick,
+    activityAt: self.activityAt,
   }
 }

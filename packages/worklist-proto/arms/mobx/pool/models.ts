@@ -15,18 +15,31 @@
  * row's property of the same name, or its feed spelling (`FEED_SPELLING`).
  * `models.test.ts` iterates the schema and reads every field off a model.
  *
- * DERIVED VALUES are computed getters. Ma1 has one, `IssueModel.view` (the
- * L1b row view), compared structurally so an unchanged view keeps its
- * identity and its row does not redraw.
+ * DERIVED VALUES are computed getters. The issue model's `view` (the L1b row
+ * view) is assembled from per-part computeds (`views.ts` `IssueParts`), each
+ * reading only its own inputs; objects are compared structurally, so an
+ * unchanged part or view keeps its identity and its row does not redraw.
  */
 
-import { computedStruct, makeObservable } from 'mobx'
-import type { RowView } from '../../../shared/src/row-view'
+import { computed, computedStruct, makeObservable } from 'mobx'
+import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import type { StoredRow } from './tables'
-import { buildRowView, type RepoRow, type ViewInputs } from './views'
+import {
+  activityAtPartOf,
+  buildRowView,
+  displayRefPartOf,
+  displayTitlePartOf,
+  type IssueParts,
+  type OwnPart,
+  originIdPartOf,
+  originTickPartOf,
+  ownPartOf,
+  type RepoRow,
+  type ViewInputs,
+} from './views'
 
 /**
  * Where a feed row spells a schema field differently. Only the repo: its row
@@ -78,16 +91,48 @@ function installFields(prototype: EntityModel, entity: EntityName): void {
 // (the runtime getters come from the schema; see `installFields`).
 
 export interface IssueModel extends Readonly<Omit<SliceIssue, 'unread'>> {}
-export class IssueModel extends EntityModel {
+export class IssueModel extends EntityModel implements IssueParts {
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
-    makeObservable(this, { view: computedStruct })
+    makeObservable(this, {
+      own: computedStruct,
+      displayRef: computed,
+      displayTitle: computed,
+      originId: computed,
+      originTick: computedStruct,
+      activityAt: computed,
+      view: computedStruct,
+    })
   }
 
-  /** The L1b row view (`views.ts`); undefined once the row has left. */
+  get own(): OwnPart | undefined {
+    return ownPartOf(this.host.inputs, this.id)
+  }
+
+  get displayRef(): string | undefined {
+    return displayRefPartOf(this.host.inputs, this.id)
+  }
+
+  get displayTitle(): string | undefined {
+    return displayTitlePartOf(this.host.inputs, this.id)
+  }
+
+  get originId(): string | null {
+    return originIdPartOf(this.host.inputs, this.id)
+  }
+
+  get originTick(): RowOriginTick | null {
+    return originTickPartOf(this.host.inputs, this.originId)
+  }
+
+  get activityAt(): number {
+    return activityAtPartOf(this.host.inputs, this.id)
+  }
+
+  /** The L1b row view, from the parts above; undefined once the row has left. */
   get view(): RowView | undefined {
     this.host.stats.rowsDerived += 1
-    return buildRowView(this.host.inputs, this.id)
+    return buildRowView(this.host.inputs, this.id, this)
   }
 }
 
