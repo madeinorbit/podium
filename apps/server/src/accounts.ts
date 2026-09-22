@@ -5,8 +5,10 @@
 // its replicated, non-secret inventory record. Managed credentials remain in the
 // server-only accounts table and only their masked identities are projected.
 
+import { resolveDescriptors } from '@podium/harness/browser'
 import { harnessDetectLogin } from '@podium/harness/metadata'
 import { asAccountId, type HarnessAgent, type MachineId } from '@podium/model'
+import { isBuiltinHarnessKind, type HarnessDescriptorWire } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
 import type { AccountsRepository } from './store/accounts'
 import type { MachineRecord } from './store/types'
@@ -67,18 +69,30 @@ function detectNative(homeDir: string, kind: HarnessAgent, provider: string): Ac
   }
 }
 
-const NATIVE_HARNESSES: readonly [HarnessAgent, string][] = [
-  ['claude-code', 'anthropic'],
-  ['codex', 'openai'],
-  ['grok', 'xai'],
-  ['opencode', 'opencode'],
-]
+/**
+ * Native `{kind, provider}` pairs, read off the served descriptors over the
+ * bundled fallback (spec §4.4: accounts consume inventoryReport fields and
+ * stop naming a harness). Served wins by kind; a report-only kind this build
+ * never heard of is skipped — it cannot be typed `HarnessAgent`, and clients
+ * render those rows from the descriptor directly.
+ */
+function nativePairs(
+  served: readonly HarnessDescriptorWire[],
+): readonly { kind: HarnessAgent; provider: string }[] {
+  const pairs: { kind: HarnessAgent; provider: string }[] = []
+  for (const descriptor of resolveDescriptors(served)) {
+    if (!isBuiltinHarnessKind(descriptor.kind)) continue
+    pairs.push({ kind: descriptor.kind, provider: descriptor.provider })
+  }
+  return pairs
+}
 
 function nativeFromCatalog(
   catalog: LoginCatalog,
   machines: readonly MachineRecord[],
+  pairs: readonly { kind: HarnessAgent; provider: string }[],
 ): AccountView[] {
-  return NATIVE_HARNESSES.flatMap(([harness, provider]): AccountView[] => {
+  return pairs.flatMap(({ kind: harness, provider }): AccountView[] => {
     const entries = catalogEntriesForHarness(catalog, harness)
     if (entries.length === 0) {
       const reports = machines.filter((machine) => !machine.revokedAt).flatMap((machine) =>
@@ -149,16 +163,16 @@ export async function accountViews(
   legacyApiKey: (provider: string) => string | undefined | Promise<string | undefined>,
   accounts: AccountsRepository,
   machinesOrHome: readonly MachineRecord[] | string = [],
+  /** Served descriptors across the fleet (one `machines.descriptors` report
+   *  per machine); resolved over the bundled fallback, so an older daemon or
+   *  a test that passes none still renders every harness this build knows. */
+  servedDescriptors: readonly HarnessDescriptorWire[] = [],
 ): Promise<AccountView[]> {
+  const pairs = nativePairs(servedDescriptors)
   const native =
     typeof machinesOrHome === 'string'
-      ? [
-          detectNative(machinesOrHome, 'claude-code', 'anthropic'),
-          detectNative(machinesOrHome, 'codex', 'openai'),
-          detectNative(machinesOrHome, 'grok', 'xai'),
-          detectNative(machinesOrHome, 'opencode', 'opencode'),
-        ]
-      : nativeFromCatalog(buildLoginCatalog(machinesOrHome), machinesOrHome)
+      ? pairs.map(({ kind, provider }) => detectNative(machinesOrHome, kind, provider))
+      : nativeFromCatalog(buildLoginCatalog(machinesOrHome), machinesOrHome, pairs)
 
   const stored = new Map((await accounts.list()).map((a) => [a.id, a]))
   const managed: AccountView[] = await Promise.all(MANAGED_KEY_PROVIDERS.map(async (provider) => {

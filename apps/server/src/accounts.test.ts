@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountConnectInput } from '@podium/commands'
 import { asAccountId, asMachineId, Inventory } from '@podium/model'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { accountViews } from './accounts'
@@ -438,6 +439,55 @@ describe('accountViews catalog', () => {
       machines: ['linux-box'],
       status: 'connected',
     })
+  })
+})
+
+describe('accountViews provider source (POD-4529)', () => {
+  /** A served descriptor that disagrees with every hand-written table: the
+   *  row must carry the SERVED value, proving the server reads the report. */
+  function servedWithProvider(kind: string, provider: string): HarnessDescriptorWire[] {
+    return [
+      {
+        schemaVersion: 1,
+        kind,
+        provider,
+        label: `${kind} label`,
+        shortLabel: kind,
+        icon: { id: kind, viewBox: '0 0 24 24', d: 'M0 0h24v24H0z' },
+        capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
+        catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+      },
+    ]
+  }
+
+  it('reads the catalog-path provider off the served descriptor', async () => {
+    const views = await accountViews(
+      settings(),
+      accounts,
+      [machineWithLogin('in', 'mike@example.com')],
+      servedWithProvider('claude-code', 'served-provider-x'),
+    )
+    expect(views.find((view) => view.id === 'native:claude-code')!.provider).toBe(
+      'served-provider-x',
+    )
+  })
+
+  it('reads the legacy HOME-path provider off the served descriptor', async () => {
+    const views = await accountViews(
+      settings(),
+      accounts,
+      home,
+      servedWithProvider('codex', 'served-provider-y'),
+    )
+    expect(views.find((view) => view.id === 'native:codex')!.provider).toBe('served-provider-y')
+  })
+
+  it('falls back to the bundled descriptor when no machine reported one', async () => {
+    const views = await accountViews(settings(), accounts, [
+      machineWithLogin('in', 'mike@example.com'),
+    ])
+    expect(views.find((view) => view.id === 'native:claude-code')!.provider).toBe('anthropic')
+    expect(views.find((view) => view.id === 'native:opencode')!.provider).toBe('opencode')
   })
 })
 

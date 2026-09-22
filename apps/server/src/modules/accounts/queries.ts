@@ -37,11 +37,21 @@ export const ACCOUNT_QUERIES = {
   // that predated that, so the derived form is repointed here rather than the
   // blob read being reinstated — taking either side wholesale would have
   // silently undone one of the two.
-  list: query(noInput, async (state) =>
-    await Promise.all((await accountViews(
+  list: query(noInput, async (state) => {
+    const machines = await state.machines.listMachines()
+    // Served descriptors across the fleet for the provider labels (POD-4529):
+    // `accountViews` resolves these over the bundled fallback, so an older
+    // daemon that reported no descriptors still renders.
+    const served = (
+      await Promise.all(
+        machines.map(async (machine) => state.machineService.harnessDescriptorsFor(machine.id) ?? []),
+      )
+    ).flat()
+    return await Promise.all((await accountViews(
       async (provider) => await state.settings.apiKeyFor(provider),
       state.accounts,
-      await state.machines.listMachines(),
+      machines,
+      served,
     )).map(async (account) => {
       if (account.source !== 'native' || !account.harness) return account
       const harness = account.harness as import('@podium/model').HarnessAgent
@@ -60,8 +70,8 @@ export const ACCOUNT_QUERIES = {
         loginMachines,
         ...(attempt ? { loginAttempt: attempt } : {}),
       }
-    })),
-  ),
+    }))
+  }),
 } as const
 
 export type AccountQueryName = keyof typeof ACCOUNT_QUERIES

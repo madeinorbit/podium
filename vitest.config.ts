@@ -177,6 +177,15 @@ export const sharedVitestConfig = {
         find: /^@podium\/harness\/metadata$/,
         replacement: fileURLToPath(new URL('./packages/harness/src/metadata.ts', import.meta.url)),
       },
+      // Served/bundled wire descriptors (POD-4529): the only browser-entry
+      // import outside web/mobile — the server reads provider labels off the
+      // served report over this bundled fallback. Same anchored shape as
+      // every entry above: without it the subpath falls through to
+      // node_modules resolution and the unbuilt dist.
+      {
+        find: /^@podium\/harness\/browser$/,
+        replacement: fileURLToPath(new URL('./packages/harness/src/browser.ts', import.meta.url)),
+      },
       // The machine-inventory entry the daemon reads credentials, quota and
       // usage through (issue 3.3). Same anchored shape as every entry above:
       // without it the subpath falls through to node_modules resolution and
