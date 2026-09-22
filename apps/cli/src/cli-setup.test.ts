@@ -621,6 +621,21 @@ describe('runCliSetup', () => {
       }
     })
 
+    it('a cloud answer the CLI predates still asks instead of crashing', async () => {
+      // The verdict arrives as a cast: a newer code, or a missing detail, must degrade to a
+      // generic warning and the same override — never a throw inside setup.
+      const future = async (): Promise<CheckResult> =>
+        ({ ok: false, error: 'SOME_FUTURE_CODE', detail: undefined }) as unknown as CheckResult
+      const { output, prompts, done } = probeRun(
+        ['all-in-one', net(0), 'https://box.ts.net', true, 's3cret', false],
+        future,
+      )
+      await done
+      expect(output.join('\n')).toContain('SOME_FUTURE_CODE')
+      expect(prompts).toContain('Use this URL anyway?')
+      expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+    })
+
     it('a reachable URL is acknowledged in one line and the flow carries on', async () => {
       const { output, done } = probeRun(
         ['all-in-one', net(0), 'https://box.ts.net', 's3cret', false],

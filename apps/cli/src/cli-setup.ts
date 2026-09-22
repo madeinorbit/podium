@@ -2,7 +2,7 @@ import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
-import { describeCheckError, type CheckResult } from '@podium/runtime/connect-check'
+import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
 import {
   configPath,
   type EnvSource,
@@ -404,12 +404,14 @@ async function reachabilityStep(
       normalized = v.normalized
       break
     }
-    const detail = verdict.detail.trim()
-    io.warn(
-      detail
-        ? `${describeCheckError(verdict.error)} The probe reported: ${detail}`
-        : describeCheckError(verdict.error),
-    )
+    const detail = typeof verdict.detail === 'string' ? verdict.detail.trim() : ''
+    // The cloud's answer arrives as a cast, not a validated schema, and may know codes this
+    // CLI predates: an advisory hint must never crash setup on a newer vocabulary, so an
+    // unknown code falls back to naming itself rather than printing `undefined`.
+    const sentence =
+      (CHECK_ERROR_SENTENCES as Partial<Record<string, string>>)[verdict.error] ??
+      `The outside probe reported a problem it described as ${verdict.error}.`
+    io.warn(detail ? `${sentence} The probe reported: ${detail}` : sentence)
     const useAnyway = await io.confirm({ message: 'Use this URL anyway?', initialValue: false })
     if (isCancel(useAnyway)) {
       io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
