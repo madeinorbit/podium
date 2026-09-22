@@ -4,9 +4,21 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from '@podium/runtime/config'
+import {
+  CHECK_ERROR_SENTENCES,
+  describeCheckError,
+  type CheckError,
+  type CheckResult,
+} from '@podium/runtime/connect-check'
+import {
+  INSTALLATION_META_KEY,
+  INSTALLATION_PRIVATE_KEY,
+  mintInstallationIdentity,
+} from '@podium/runtime/installation-identity'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { encodeJoin } from '@podium/runtime/join'
 import { NETWORK_OPTIONS } from '@podium/runtime/setup'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   repairConfig,
@@ -16,6 +28,7 @@ import {
   shouldRunCliSetup,
   waitForDaemonEnrollment,
 } from './cli-setup'
+import { loadCheckIdentity, realCheckReachability } from './cli-reachability'
 import { scriptedIO } from './setup-ui'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
@@ -450,6 +463,260 @@ describe('runCliSetup', () => {
       expect(output.join('\n')).not.toContain('is not installed')
       expect(loadConfig().publicUrl).toBe('https://proxy.example')
     })
+  })
+
+  /**
+   * THE ADVISORY REACHABILITY PROBE (POD-4534). A failed check informs; the human decides:
+   * it must never block the flow, and "we could not ask" must be indistinguishable from
+   * the flow that never asked. Every test here drives the whole flow through scriptedIO
+   * with an injected stub — no test performs network I/O.
+   */
+  describe('advisory reachability probe (POD-4534)', () => {
+    const failWith =
+      (error: CheckError, detail = 'probe detail'): (() => Promise<CheckResult>) =>
+      async () => ({ ok: false, error, detail })
+    const succeed: () => Promise<CheckResult> = async () => ({
+      ok: true,
+      url: 'https://box.ts.net',
+      resolvedTo: ['203.0.113.7'],
+    })
+    const unavailable: () => Promise<CheckResult> = async () => ({
+      ok: false,
+      error: 'CONNECT_UNAVAILABLE',
+      detail: 'cloud down',
+    })
+    const noOpinion = async (): Promise<CheckResult | undefined> => undefined
+
+    const probeRun = (
+      answers: unknown[],
+      checkReachability: (url: string) => Promise<CheckResult | undefined>,
+      setPw: () => Promise<void> = vi.fn(async () => {}),
+    ) => {
+      const s = scriptedIO(answers)
+      return {
+        ...s,
+        setPw,
+        done: runCliSetup(s.io, 18787, {
+          setPassword: setPw,
+          startBackend: echoBackend,
+          waitForEnrollment: async () => {},
+          hasCommand: () => true,
+          checkReachability,
+        }),
+      }
+    }
+
+    /** The same flow in an isolated state dir, so transcript comparisons never see a previous run. */
+    const runFresh = async (
+      answers: unknown[],
+      deps: { checkReachability?: (url: string) => Promise<CheckResult | undefined> } = {},
+    ) => {
+      const fresh = mkdtempSync(join(tmpdir(), 'podium-probe-'))
+      const outer = process.env.PODIUM_STATE_DIR
+      process.env.PODIUM_STATE_DIR = fresh
+      try {
+        const s = scriptedIO(answers)
+        await runCliSetup(s.io, 18787, {
+          setPassword: vi.fn(async () => {}),
+          startBackend: echoBackend,
+          waitForEnrollment: async () => {},
+          hasCommand: () => true,
+          ...deps,
+        })
+        return { prompts: s.prompts, output: s.output, transcript: s.transcript }
+      } finally {
+        process.env.PODIUM_STATE_DIR = outer
+        rmSync(fresh, { recursive: true, force: true })
+      }
+    }
+
+    it('a failed probe answered YES saves the URL and completes the flow', async () => {
+      const setPw = vi.fn(async () => {})
+      const { output, prompts, done } = probeRun(
+        ['all-in-one', net(0), 'https://box.ts.net', true, 's3cret', false],
+        failWith('PORT_NOT_REACHABLE'),
+        setPw,
+      )
+      await done
+      expect(loadConfig()).toMatchObject({
+        mode: 'all-in-one',
+        publicUrl: 'https://box.ts.net',
+        networkOption: 'tailscale-funnel',
+        persistence: 'detached',
+      })
+      expect(setPw).toHaveBeenCalledWith('s3cret')
+      // Said in a sentence a non-expert can act on, with the cloud's detail kept.
+      expect(output.join('\n')).toContain('Nothing is listening on that port from the outside')
+      expect(output.join('\n')).toContain('The probe reported: probe detail')
+      expect(prompts).toContain('Use this URL anyway?')
+    })
+
+    it('a failed probe answered NO re-asks the URL rather than ending the run', async () => {
+      const checkReachability = async (url: string): Promise<CheckResult | undefined> =>
+        url === 'https://bad.example'
+          ? { ok: false, error: 'DNS_FAILED', detail: '' }
+          : { ok: true, url, resolvedTo: [] }
+      const { output, prompts, done } = probeRun(
+        ['all-in-one', net(0), 'https://bad.example', false, 'https://good.ts.net', true, 'pw', false],
+        checkReachability,
+      )
+      await done
+      // The declined URL was never saved; the re-asked one was, and the flow completed.
+      expect(loadConfig().publicUrl).toBe('https://good.ts.net')
+      expect(loadConfig().mode).toBe('all-in-one')
+      expect(loadConfig().persistence).toBe('detached')
+      expect(output.join('\n')).toContain('does not resolve to an address')
+      expect(prompts).toContain('Use this URL anyway?')
+      // Asked twice: once for the bad URL, once for the re-asked one, plus the success line.
+      expect(output.join('\n')).toContain(
+        'Reachable — an outside probe connected to https://good.ts.net.',
+      )
+    })
+
+    it('every CheckError maps to a sentence a non-expert can act on', async () => {
+      const all: CheckError[] = [
+        'INVALID_URL',
+        'DNS_FAILED',
+        'PRIVATE_ADDRESS',
+        'REDIRECTED',
+        'TLS_INVALID',
+        'PORT_NOT_REACHABLE',
+        'UNREACHABLE',
+        'NOT_PODIUM',
+        'IDENTITY_MISMATCH',
+        'CONNECT_UNAVAILABLE',
+      ]
+      // Total: the map covers the union exactly, so adding a code fails here (and at
+      // compile time, since the map is a Record over the union) until its sentence exists.
+      expect(Object.keys(CHECK_ERROR_SENTENCES).sort()).toEqual([...all].sort())
+      for (const error of all) {
+        const sentence = describeCheckError(error)
+        expect(sentence.trim().length).toBeGreaterThan(20)
+        expect(sentence).toMatch(/\.$/)
+        // The sentence is the translation — it never leaks the raw code.
+        expect(sentence).not.toContain(error)
+      }
+    })
+
+    it('CONNECT_UNAVAILABLE and no-opinion are byte-identical to the flow that never asked', async () => {
+      const answers = ['all-in-one', net(0), 'https://box.ts.net', 's3cret', false]
+      const base = await runFresh(answers, { checkReachability: noOpinion })
+      const down = await runFresh(answers, { checkReachability: unavailable })
+      expect(down.prompts).toEqual(base.prompts)
+      expect(down.output).toEqual(base.output)
+      expect(down.transcript).toEqual(base.transcript)
+      // And the REAL default on a fresh box (no podium.db, no installation identity yet)
+      // lands on the same transcript without touching the network.
+      const fetchMock = vi.fn(async () => {
+        throw new Error('the default probe must not fetch without an identity')
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        expect(loadCheckIdentity()).toBeUndefined()
+        const fresh = await runFresh(answers)
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(fresh.transcript).toEqual(base.transcript)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('a reachable URL is acknowledged in one line and the flow carries on', async () => {
+      const { output, done } = probeRun(
+        ['all-in-one', net(0), 'https://box.ts.net', 's3cret', false],
+        succeed,
+      )
+      await done
+      expect(output.join('\n')).toContain(
+        'Reachable — an outside probe connected to https://box.ts.net.',
+      )
+      expect(output.join('\n')).not.toContain('Use this URL anyway?')
+      expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+    })
+
+    it('Connect off short-circuits the default probe before any identity or network', async () => {
+      seedIdentity(dir)
+      const fetchMock = vi.fn(async () => {
+        throw new Error('Connect off must not fetch')
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      vi.stubEnv('PODIUM_CONNECT', 'off')
+      try {
+        const { io, output } = scriptedIO([])
+        expect(await realCheckReachability('https://box.ts.net', io)).toBeUndefined()
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(output).toEqual([])
+      } finally {
+        vi.unstubAllGlobals()
+        vi.unstubAllEnvs()
+      }
+    })
+
+    it('the default probe signs as this installation when it has an identity', async () => {
+      const identity = seedIdentity(dir)
+      const seen: string[] = []
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: unknown) => {
+          seen.push(String(url))
+          return Response.json({ ok: true, url: 'https://box.ts.net', resolvedTo: [] })
+        }),
+      )
+      try {
+        expect(loadCheckIdentity()?.installationId).toBe(identity.installationId)
+        const { io } = scriptedIO([])
+        const result = await realCheckReachability('https://box.ts.net', io)
+        expect(result).toEqual({ ok: true, url: 'https://box.ts.net', resolvedTo: [] })
+        expect(seen).toEqual([
+          `https://connect.podium.do/v1/installations/${identity.installationId}/check`,
+        ])
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('a cloud failure in the default probe answers CONNECT_UNAVAILABLE, never throws', async () => {
+      seedIdentity(dir)
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          throw new TypeError('fetch failed')
+        }),
+      )
+      try {
+        const { io } = scriptedIO([])
+        expect(await realCheckReachability('https://box.ts.net', io)).toEqual({
+          ok: false,
+          error: 'CONNECT_UNAVAILABLE',
+          detail: 'fetch failed',
+        })
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    /** Minimal podium.db carrying just an installation identity for the default-probe tests. */
+    function seedIdentity(stateDir: string) {
+      const identity = mintInstallationIdentity()
+      const { privateKey, ...metadata } = identity
+      const db = openDatabase(join(stateDir, 'podium.db'))
+      try {
+        db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)')
+        db.exec('CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)')
+        db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(
+          INSTALLATION_META_KEY,
+          JSON.stringify(metadata),
+        )
+        db.prepare('INSERT INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?)').run(
+          INSTALLATION_PRIVATE_KEY,
+          privateKey,
+          identity.createdAt,
+        )
+      } finally {
+        db.close()
+      }
+      return identity
+    }
   })
 
   describe('runJoinSetup — non-interactive `podium setup --join` (#20)', () => {
