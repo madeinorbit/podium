@@ -22,9 +22,15 @@
  * with `layout.set`'s input schema — three answers that must stay one.
  */
 
-import { isLayoutKey, type LayoutSnapshot, type UserId } from '@podium/model'
+import {
+  isLayoutKey,
+  type LayoutSnapshot,
+  normalizeDockWorktreeKey,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
 import { and, asc, eq } from 'drizzle-orm'
-import { userLayout } from '../migrations/schema'
+import { userDockShell, userLayout } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 
@@ -153,5 +159,166 @@ export class UserLayoutRepository {
       .orderBy(asc(userLayout.key))
       .all()
     return rows.map((r) => r.key)
+  }
+}
+
+/**
+ * SERVER-OWNED DOCK-SHELL MAPPING AT REST, KEYED BY (USER, WORKTREE) (POD-4436).
+ *
+ * "Which shell belongs to this worktree" is a server fact so the same dock
+ * shell opens on every device. One row per `(user_id, worktree_key)` where
+ * `worktree_key` is the normalized absolute path
+ * (`normalizeDockWorktreeKey`): `a` and `a/` are one row. Tab shells from the
+ * + menu are unmapped by design (SP-75b1) and never grow a row here.
+ *
+ * ---------------------------------------------------------------------------
+ * EVERY READ TAKES A USER, EXCEPT THE FREE-PATH DELETE. THERE IS NO OTHER
+ * METHOD THAT DOES NOT.
+ * ---------------------------------------------------------------------------
+ * Same posture as {@link UserLayoutRepository}: a caller's mapping is their
+ * own rows. The one exception is `removeByWorktree`, which deletes every
+ * user's row for a freed worktree path — freeing is a global fact about the
+ * disk, not a per-user preference, so every device's dock must release it.
+ *
+ * ---------------------------------------------------------------------------
+ * UNIQUENESS IS THE CONCURRENCY CONTROL, NOT CHECK-THEN-INSERT
+ * ---------------------------------------------------------------------------
+ * The `(user_id, worktree_key)` primary key arbitrates creation:
+ * `tryClaim` inserts with ON CONFLICT DO NOTHING and reports whether THIS
+ * caller won, so two devices opening the same worktree at once create exactly
+ * one shell — the loser re-reads the winner's row and never spawns. `set` is
+ * the upsert for replacing a dead shell, never the creation path.
+ */
+export class UserDockShellRepository {
+  private readonly rootDb: StoreDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
+
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): StoreDrizzle {
+    return currentTransaction() ?? this.rootDb
+  }
+
+  /** Resolve the normalized key or THROW — a relative cwd cannot name a worktree. */
+  private keyOf(worktreePath: string): string {
+    const key = normalizeDockWorktreeKey(worktreePath)
+    if (key === null) {
+      throw new Error(
+        `'${worktreePath}' is not an absolute worktree path, so it has no dock-shell row`,
+      )
+    }
+    return key
+  }
+
+  /** One user's dock shell for one worktree, or `undefined` when never mapped. */
+  async get(userId: UserId, worktreePath: string): Promise<SessionId | undefined> {
+    const key = normalizeDockWorktreeKey(worktreePath)
+    if (key === null) return undefined
+    const row = await this.db
+      .select({ sessionId: userDockShell.sessionId })
+      .from(userDockShell)
+      .where(and(eq(userDockShell.userId, userId), eq(userDockShell.worktreeKey, key)))
+      .get()
+    return row?.sessionId
+  }
+
+  /** Every worktree→shell entry for one user, as a plain map. */
+  async listForUser(userId: UserId): Promise<Record<string, SessionId>> {
+    const rows = await this.db
+      .select({ worktreeKey: userDockShell.worktreeKey, sessionId: userDockShell.sessionId })
+      .from(userDockShell)
+      .where(eq(userDockShell.userId, userId))
+      .orderBy(asc(userDockShell.worktreeKey))
+      .all()
+    const out: Record<string, SessionId> = {}
+    for (const row of rows) out[row.worktreeKey] = row.sessionId
+    return out
+  }
+
+  /**
+   * Claim the (user, worktree) slot for `sessionId`. Returns true when THIS
+   * caller won, false when a row already exists (winner's id survives — this
+   * never overwrites). The creation arbiter: callers mint an id, claim, and
+   * only the winner spawns.
+   */
+  async tryClaim(
+    userId: UserId,
+    worktreePath: string,
+    sessionId: SessionId,
+    updatedAt: string,
+  ): Promise<boolean> {
+    const key = this.keyOf(worktreePath)
+    await this.db
+      .insert(userDockShell)
+      .values({ userId, worktreeKey: key, sessionId, updatedAt })
+      .onConflictDoNothing({ target: [userDockShell.userId, userDockShell.worktreeKey] })
+      .run()
+    const row = await this.db
+      .select({ sessionId: userDockShell.sessionId })
+      .from(userDockShell)
+      .where(and(eq(userDockShell.userId, userId), eq(userDockShell.worktreeKey, key)))
+      .get()
+    return row?.sessionId === sessionId
+  }
+
+  /**
+   * Point (user, worktree) at `sessionId`, replacing a dead shell's row.
+   * Upsert, never the creation path — creation races go through `tryClaim`.
+   */
+  async set(
+    userId: UserId,
+    worktreePath: string,
+    sessionId: SessionId,
+    updatedAt: string,
+  ): Promise<void> {
+    const key = this.keyOf(worktreePath)
+    await this.db
+      .insert(userDockShell)
+      .values({ userId, worktreeKey: key, sessionId, updatedAt })
+      .onConflictDoUpdate({
+        target: [userDockShell.userId, userDockShell.worktreeKey],
+        set: { sessionId, updatedAt },
+      })
+      .run()
+  }
+
+  /** Forget one user's mapping for one worktree. */
+  async remove(userId: UserId, worktreePath: string): Promise<void> {
+    const key = normalizeDockWorktreeKey(worktreePath)
+    if (key === null) return
+    await this.db
+      .delete(userDockShell)
+      .where(and(eq(userDockShell.userId, userId), eq(userDockShell.worktreeKey, key)))
+      .run()
+  }
+
+  /**
+   * Forget EVERY user's mapping for a freed worktree path. Freeing is global:
+   * the disk fact holds for all devices, so every dock releases it. The
+   * lifetime policy parks/kills per its rule from the returned session ids.
+   */
+  async removeByWorktree(worktreePath: string): Promise<SessionId[]> {
+    const key = normalizeDockWorktreeKey(worktreePath)
+    if (key === null) return []
+    const rows = await this.db
+      .select({ sessionId: userDockShell.sessionId })
+      .from(userDockShell)
+      .where(eq(userDockShell.worktreeKey, key))
+      .all()
+    await this.db.delete(userDockShell).where(eq(userDockShell.worktreeKey, key)).run()
+    return rows.map((r) => r.sessionId)
+  }
+
+  /** Forget every mapping that points at `sessionId` (shell retired). */
+  async removeBySession(sessionId: SessionId): Promise<void> {
+    await this.db.delete(userDockShell).where(eq(userDockShell.sessionId, sessionId)).run()
   }
 }

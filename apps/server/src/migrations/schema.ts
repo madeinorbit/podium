@@ -2662,3 +2662,48 @@ export const quotaWindows = sqliteTable(
     }),
   ],
 )
+
+/**
+ * ONE PERSON'S DOCK SHELL FOR ONE WORKTREE (POD-4436, Phase 2 step 2 of
+ * POD-4414) — the server-owned worktree→shell mapping.
+ *
+ * "Which shell belongs to this worktree" is a server fact so the same dock
+ * shell opens on every device and the lifetime policy can bind a shell to its
+ * owning worktree (and therefore its top-level issue) instead of to a cwd
+ * string. One dock shell per worktree (SP-75b1); tab shells from the + menu
+ * are unmapped by design and never grow a row here.
+ *
+ * `(user_id, worktree_key)` IS THE UNIQUENESS CONSTRAINT the issue's DONE WHEN
+ * 2 is judged by: two devices opening the same worktree at once must not
+ * create two shells. `forWorktree` claims the row (INSERT ... ON CONFLICT DO
+ * NOTHING) before creating the session, so the row arbitrates creation rather
+ * than a check-then-insert. `worktree_key` is the normalized absolute path
+ * (`normalizeDockWorktreeKey` in `@podium/model`): `a` and `a/` are one row.
+ *
+ * NO foreign key to `users` or `sessions`, matching the per-user siblings:
+ * a per-user row follows the USER and is scrubbed by the user's own deletion
+ * path, and a session id is dangling-tolerant by design (a dead shell is
+ * replaced, not joined).
+ *
+ * No SQL backfill: legacy maps live in client ui-state (`podium.dockShells`)
+ * and remain valid as a cache until the server answers, then the server wins.
+ */
+export const userDockShell = sqliteTable(
+  'user_dock_shell',
+  {
+    userId: text('user_id').$type<UserId>().notNull(),
+    /** Normalized absolute worktree path — see `normalizeDockWorktreeKey`. */
+    worktreeKey: text('worktree_key').notNull(),
+    /** The dock shell session for this (user, worktree). */
+    sessionId: text('session_id').$type<SessionId>().notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.userId, table.worktreeKey],
+      name: 'user_dock_shell_pk',
+    }),
+    index('idx_user_dock_shell_session').on(table.sessionId),
+    index('idx_user_dock_shell_worktree').on(table.worktreeKey),
+  ],
+)

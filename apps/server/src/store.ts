@@ -104,7 +104,7 @@ import { SuperagentRepository } from './store/superagent'
 import { TableWrites } from './store/table-writes'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
 import { TranscriptCostsRepository } from './store/transcript-costs'
-import { UserLayoutRepository } from './store/user-layout'
+import { UserDockShellRepository, UserLayoutRepository } from './store/user-layout'
 import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
 import { WorkflowsRepository } from './store/workflows'
@@ -168,6 +168,10 @@ export class SessionStore {
    *  that follows a person across devices. Device-local route/selection/geometry
    *  stay in client ui-state. */
   readonly layout: UserLayoutRepository
+  /** Server-owned dock-shell mapping keyed `(user_id, worktree_key)` (POD-4436) —
+   *  which shell belongs to a worktree, so the same dock shell opens on every
+   *  device. Device-local `podium.dockShells` remains as a cache; the server wins. */
+  readonly dockShells: UserDockShellRepository
   /** Event-stream read positions keyed `(user_id, stream_id)` (POD-1380) — how far
    *  a person has read the issue-event log, on every device they use. */
   readonly readPositions: UserReadPositionRepository
@@ -403,6 +407,7 @@ export class SessionStore {
     this.superagent = new SuperagentRepository(this.queries)
     this.settings = new SettingsRepository(this.queries)
     this.layout = new UserLayoutRepository(this.queries)
+    this.dockShells = new UserDockShellRepository(this.queries)
     this.readPositions = new UserReadPositionRepository(this.queries)
     this.secrets = new ServerSecretsRepository(this.queries)
     this.settingsAudit = new SettingsAuditRepository(this.queries)
