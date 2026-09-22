@@ -557,7 +557,7 @@ describe('runCliSetup', () => {
           ? { ok: false, error: 'DNS_FAILED', detail: '' }
           : { ok: true, url, resolvedTo: [] }
       const { output, prompts, done } = probeRun(
-        ['all-in-one', net(0), 'https://bad.example', false, 'https://good.ts.net', true, 'pw', false],
+        ['all-in-one', net(0), 'https://bad.example', false, 'https://good.ts.net', 'pw', false],
         checkReachability,
       )
       await done
