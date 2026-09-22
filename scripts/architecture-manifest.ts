@@ -571,12 +571,6 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
       '@podium/harness/browser',
       '@podium/harness/driver',
       '@podium/harness/store',
-      // One narrow deep entry for the harness-free composer-sync port (POD-4477):
-      // the daemon's engine reads the composer rules through the manifest and
-      // the web fallback through `@podium/harness/browser`; the per-harness
-      // rules live in `adapters/<h>/composer.ts` and reach the browser only
-      // through that entry, never through a deep path.
-      '@podium/harness/driver/families/terminal/composer-sync',
     ],
     consumers: ['apps/daemon', 'apps/cli', 'apps/mobile', 'scripts'],
   },
@@ -721,11 +715,10 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   // `createRequire is not a function` before it could render. This row is what
   // keeps `./browser` the only reachable one, and holds it to importing nothing.
   ['@podium/harness/browser', 'packages/harness/src/browser.ts'],
-  // The harness-free composer-sync port both sync consumers share (POD-4477).
-  // Its closure is held to no-Node; the per-harness rules ride the browser
-  // entry (`adapters/<h>/composer.ts` bundled into `./browser`), so no second
-  // composer entrypoint exists to drift.
-  ['@podium/harness/driver/families/terminal/composer-sync', 'packages/harness/src/driver/families/terminal/composer-sync.ts'],
+  // No composer entrypoint (POD-4477): the family port is types-only (nothing
+  // to bundle), and the per-harness rules (`adapters/<h>/composer.ts`) ride
+  // INSIDE `./browser`'s closure above — the reach walk covers them there, so
+  // a second entrypoint would be a second surface to drift, not a second guard.
   // The store's cursor helpers ride the harness browser entry (POD-4469):
   // parsing, filesystem paging and tailing stay behind the host-only store
   // entry, and the opaque cursor/stream-item identity the feed needs is

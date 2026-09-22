@@ -17,7 +17,7 @@
  * sends — the one write path with no harness behind it — unwrapped, which is
  * why this copy stays.
  *
- * A THIRD BUILDER EXISTS AND IS NOT COVERED: the terminal family composer (`driver/families/terminal/composer-sync.ts`) exports the two
+ * A THIRD BUILDER EXISTS AND IS NOT COVERED: the shared composer vocabulary (`packages/harness/src/adapters/shared/composer.ts`) exports the two
  * markers publicly and wraps text in them without a strip. It ships dark, so it
  * is not the live hole this closes, but it is the copy the next person reaches
  * for — filed as POD-2733 rather than fixed here.

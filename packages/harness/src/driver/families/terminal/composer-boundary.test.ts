@@ -28,6 +28,8 @@ import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import type { AgentManifest } from '../../manifest.js'
+import type { TerminalComposerSections } from './composer-sync.js'
 
 const FAMILY_DIR = dirname(fileURLToPath(import.meta.url))
 const HARNESS_SRC = dirname(dirname(dirname(FAMILY_DIR)))
@@ -71,6 +73,22 @@ describe('composer-sync mechanism is harness-free (POD-4477)', () => {
       (kind) => source.includes(`'${kind}'`) || source.includes(`"${kind}"`),
     )
     expect(hits, 'quoted harness literals are a hand-written harness list').toEqual([])
+  })
+
+  it('rejects the whole Adapter where the typed subset is expected', () => {
+    // Compile-time proof (spec §5 rule 2): a consumer takes
+    // TerminalComposerSections, never the manifest. If the subset ever widens
+    // to accept the whole Adapter, the directive below goes unused and
+    // `tsc` fails the build (TS2578) — "tests still pass" is not the evidence
+    // for this claim, the typecheck gate is.
+    const takesSections = (sections: TerminalComposerSections): unknown => sections.composer
+    const manifest = {} as AgentManifest
+    expect(
+      takesSections(
+        // @ts-expect-error — the whole Adapter is not a valid subset
+        manifest,
+      ),
+    ).toBeUndefined()
   })
 })
 
