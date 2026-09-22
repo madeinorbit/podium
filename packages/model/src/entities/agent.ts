@@ -155,6 +155,13 @@ export const COST_FULL_ATTRIBUTION_HARNESS: BuiltinHarnessKind = 'claude-code'
  *  predicate (predicates/machine-handoff.ts). */
 export const HANDOFF_HARNESS_KINDS = ['claude-code', 'codex'] as const
 
+/** Harnesses that can move to a cloud runtime. Read by `CloudAgentKind`
+ *  (apps/server cloud-runtime) and the cloud-movable gate (cloud/service via
+ *  `harnessSupportsCloud`). Separate from {@link HANDOFF_HARNESS_KINDS} on
+ *  purpose: the two coincide today, but capability membership evolves per
+ *  concern, and sharing one const would couple unrelated wire compat. */
+export const CLOUD_HARNESS_KINDS = ['claude-code', 'codex'] as const
+
 /** Harnesses the usage harvest reads. Read by `UsageSourceWire`
  *  (entities/machine.ts). */
 export const USAGE_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const

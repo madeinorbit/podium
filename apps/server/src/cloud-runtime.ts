@@ -1,4 +1,5 @@
-import type { SessionId, MachineId, IssueId } from '@podium/model'
+import type { CLOUD_HARNESS_KINDS, SessionId, MachineId, IssueId } from '@podium/model'
+
 export type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent'
 export type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed'
 
@@ -21,7 +22,9 @@ export interface CloudRepoRequest {
 }
 
 export type CloudRuntimeSize = 'small' | 'medium' | 'large'
-export type CloudAgentKind = 'claude-code' | 'codex'
+/** Harnesses with a cloud counterpart — derived from the one closed set
+ *  (CLOUD_HARNESS_KINDS beside HarnessAgent), not retyped. */
+export type CloudAgentKind = (typeof CLOUD_HARNESS_KINDS)[number]
 
 /**
  * The session half of an outbound `/v1/cloud-agents` body — an EXTERNAL EGRESS

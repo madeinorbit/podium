@@ -17,6 +17,8 @@
  */
 
 import type { HarnessAgent } from '@podium/model'
+import { resolveDescriptors } from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { harnessDisplayName } from '../../harness-manifest'
 
 export type HarnessErrorKind =
@@ -33,12 +35,17 @@ export interface ClassifiedHarnessError {
   message: string
 }
 
-/** How the user re-authenticates each harness's provider. */
-const REAUTH_HINT: Partial<Record<HarnessAgent, string>> = {
-  codex: 'run `codex login` (or refresh your ChatGPT session)',
-  'claude-code': 'run `claude login`',
-  grok: 're-authenticate the Grok CLI',
-  pi: 'run `pi` and use its /login command',
+/** How the user re-authenticates: read off the served descriptor's
+ *  `login.command` (resolved over the bundled fallback, as accounts.ts does).
+ *  Absence is a value — a harness with no command gets the generic sign-in
+ *  line, never another harness's command. */
+function reauthHintFor(
+  agent: HarnessAgent,
+  served: readonly HarnessDescriptorWire[],
+): string | undefined {
+  const command = resolveDescriptors(served).find((descriptor) => descriptor.kind === agent)
+    ?.login?.command
+  return command ? `run \`${command}\`` : undefined
 }
 
 /** Collapse whitespace and keep a short, readable tail of a raw error. */
@@ -53,7 +60,11 @@ function shorten(raw: string, max = 300): string {
   return cleaned.length > max ? `…${cleaned.slice(-max)}` : cleaned
 }
 
-export function classifyHarnessError(raw: string, agent: HarnessAgent): ClassifiedHarnessError {
+export function classifyHarnessError(
+  raw: string,
+  agent: HarnessAgent,
+  servedDescriptors: readonly HarnessDescriptorWire[] = [],
+): ClassifiedHarnessError {
   const provider = harnessDisplayName(agent)
   const text = raw.toLowerCase()
 
@@ -87,7 +98,7 @@ export function classifyHarnessError(raw: string, agent: HarnessAgent): Classifi
       text,
     )
   ) {
-    const hint = REAUTH_HINT[agent]
+    const hint = reauthHintFor(agent, servedDescriptors)
     return {
       kind: 'provider-auth',
       message:

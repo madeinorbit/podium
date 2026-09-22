@@ -8,6 +8,8 @@ import type {
   DirectoryListingWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
+  HANDOFF_HARNESS_KINDS,
+  HarnessAgent,
   IssueId,
   MachineId,
   MachineQuotaWire,
@@ -1126,7 +1128,7 @@ export class DaemonRpcService {
       sessionId: SessionId
       cwd: string
       fallbackCwd?: string
-      agentKind: 'claude-code' | 'codex'
+      agentKind: (typeof HANDOFF_HARNESS_KINDS)[number]
       resume: { kind: string; value: string }
       branch: string
       baseShas: string[]
@@ -1296,7 +1298,7 @@ export class DaemonRpcService {
 
   /** One-shot `claude -p` / `codex exec` / `grok -p` on a dev machine. */
   async harnessExec(input: {
-    agent: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'pi'
+    agent: HarnessAgent
     model?: string
     effort?: string
     prompt: string
