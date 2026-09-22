@@ -617,12 +617,25 @@ export function checkHarnessVendorLiterals(
  * zero — stale entry that must be removed/lowered) fails. Same shape as
  * applyAllowlist, but over literal occurrences grouped by file, and scoped to
  * this rule so the two families never declare each other's entries dead.
+ *
+ * Coverage is keyed BY FILE, and one file may carry two entries with
+ * different categories (POD-4601: packages/runtime/src/settings.ts holds
+ * five provider-namespace leaks plus one policy default). The entries'
+ * counts sum to the file's allowance; the lint itself counts occurrences,
+ * not categories, so it cannot tell which half shrank — slack on a split
+ * file names the file and its summed counts, and whoever holds the ground
+ * lowers the entry whose literal went away.
  */
 export function applyHarnessBoundaryAllowlist(
   violations: readonly Violation[],
   allowlist: readonly HarnessBoundaryAllowlistEntry[] = HARNESS_BOUNDARY_ALLOWLIST,
 ): { warnings: Violation[]; errors: Violation[]; stale: string[] } {
-  const allowed = new Map(allowlist.map((e) => [e.file, e]))
+  const allowed = new Map<string, HarnessBoundaryAllowlistEntry[]>()
+  for (const entry of allowlist) {
+    allowed.set(entry.file, [...(allowed.get(entry.file) ?? []), entry])
+  }
+  const allowedCount = (file: string): number =>
+    (allowed.get(file) ?? []).reduce((n, e) => n + e.count, 0)
   const seen = new Map<string, Violation[]>()
   for (const v of violations) {
     if (v.rule !== HARNESS_VENDOR_RULE) continue
@@ -631,24 +644,35 @@ export function applyHarnessBoundaryAllowlist(
   const warnings: Violation[] = []
   const errors: Violation[] = []
   for (const [file, group] of seen) {
-    const entry = allowed.get(file)
-    if (!entry) {
+    if (!allowed.has(file)) {
       errors.push(...group)
       continue
     }
-    warnings.push(...group.slice(0, entry.count))
-    errors.push(...group.slice(entry.count))
+    const count = allowedCount(file)
+    warnings.push(...group.slice(0, count))
+    errors.push(...group.slice(count))
   }
   const stale: string[] = []
-  for (const entry of allowlist) {
-    const actual = seen.get(entry.file)?.length ?? 0
-    if (actual === 0) {
+  for (const [file, entries] of allowed) {
+    const actual = seen.get(file)?.length ?? 0
+    const count = entries.reduce((n, e) => n + e.count, 0)
+    if (entries.length === 1) {
+      if (actual === 0) {
+        stale.push(
+          `allowlist entry [${HARNESS_VENDOR_RULE}] ${file} is dead (0 literals) — remove it from scripts/harness-boundary-allowlist.ts`,
+        )
+      } else if (actual < count) {
+        stale.push(
+          `allowlist entry [${HARNESS_VENDOR_RULE}] ${file} allows ${count} but only ${actual} remain — lower the count to ${actual} to hold the ground you gained`,
+        )
+      }
+    } else if (actual === 0) {
       stale.push(
-        `allowlist entry [${HARNESS_VENDOR_RULE}] ${entry.file} is dead (0 literals) — remove it from scripts/harness-boundary-allowlist.ts`,
+        `allowlist entries [${HARNESS_VENDOR_RULE}] ${file} are dead (0 literals) — remove them from scripts/harness-boundary-allowlist.ts`,
       )
-    } else if (actual < entry.count) {
+    } else if (actual < count) {
       stale.push(
-        `allowlist entry [${HARNESS_VENDOR_RULE}] ${entry.file} allows ${entry.count} but only ${actual} remain — lower the count to ${actual} to hold the ground you gained`,
+        `allowlist entries [${HARNESS_VENDOR_RULE}] ${file} allow ${count} but only ${actual} remain — lower the entries' counts to sum ${actual} (the lint counts occurrences, not categories, so lower the entry whose literal went away)`,
       )
     }
   }
