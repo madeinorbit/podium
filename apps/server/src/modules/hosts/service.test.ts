@@ -780,10 +780,12 @@ describe('idle-session cap', () => {
     })
 
     it('a quiet shell does not inflate the cap while idleShellMinutes is off', async () => {
-      // With the shell policy off, applyShellIdlePressure never runs, so nothing
-      // on this host can park a shell. Counting it would make the known-idle
-      // agent pay for a session no policy is acting on. The POD-526 host had a
-      // shell quiet since Jul 21 sitting behind exactly this.
+      // With the shell grace off, the reaper still runs but row 6 disables
+      // itself — and this touched shell with an open issue is durable under
+      // every other row too, so nothing on this host parks it. Counting it
+      // would make the known-idle agent pay for a session no policy is acting
+      // on. The POD-526 host had a shell quiet since Jul 21 sitting behind
+      // exactly this.
       const sessions = [session(asSessionId('known-idle')), shell(asSessionId('old-shell'))]
       const { service, parked, shellParked } = harness({
         sessions,
@@ -931,11 +933,63 @@ describe('idle-session cap', () => {
       expect(shellKilled).toEqual([])
     })
 
+    it('parks a touched shell with a closed issue when idleShellMinutes is off', async () => {
+      // THE HEADER IS RIGHT (this issue): a null grace disables only row 6,
+      // so the reaper still evaluates rows 3 and 7 for shells. A touched
+      // shell whose issue closed is parked by the reaper tick even with the
+      // grace off (backstop raised out of the way to pin row 7).
+      const sessions = [
+        shell(asSessionId('finished-off'), {
+          lastActiveAt: new Date(NOW - 48 * HOUR).toISOString(),
+          lastInputAtMs: NOW - 48 * HOUR,
+          lastOutputAtMs: NOW - 48 * HOUR,
+          issueClosed: true,
+        }),
+      ]
+      const { service, shellParked, shellKilled } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+        backstopMinutes: 30 * 24 * 60,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual(['finished-off'])
+      expect(shellKilled).toEqual([])
+    })
+
+    it('keeps a login shell past the backstop when idleShellMinutes is off', async () => {
+      // Row 2 precedes row 3: the login exemption is one table line, so a
+      // login pane is kept however long it sits — no protection flag beside
+      // the table, and no grace needed.
+      const sessions = [
+        shell(asSessionId('login-past-backstop'), {
+          purpose: 'login',
+          lastActiveAt: new Date(NOW - 5 * 24 * HOUR).toISOString(),
+          lastInputAtMs: NOW - 5 * 24 * HOUR,
+          lastOutputAtMs: NOW - 5 * 24 * HOUR,
+        }),
+      ]
+      const { service, shellParked, shellKilled } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+        backstopMinutes: 2 * 24 * 60,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(shellParked).toEqual([])
+      expect(shellKilled).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
     it('never auto-parks a native login shell', async () => {
       // The login exemption is one line in the policy table now (purpose), not
       // a skip beside it — same verdict, single decision point.
       const sessions = [
-        shell(asSessionId('login-shell'), { autoHibernateProtected: true, purpose: 'login' }),
+        shell(asSessionId('login-shell'), { purpose: 'login' }),
         shell(asSessionId('ordinary-shell')),
       ]
       const { service, shellParked, shellKilled } = harness({
@@ -955,7 +1009,7 @@ describe('idle-session cap', () => {
     it('does not make an idle agent pay for a protected login shell', async () => {
       const sessions = [
         session(asSessionId('known-idle')),
-        shell(asSessionId('login-shell'), { autoHibernateProtected: true, purpose: 'login' }),
+        shell(asSessionId('login-shell'), { purpose: 'login' }),
       ]
       const { service, parked, shellParked } = harness({
         sessions,
@@ -971,6 +1025,9 @@ describe('idle-session cap', () => {
     })
 
     it('leaves shells alone when idleShellMinutes is explicitly off', async () => {
+      // The reaper still evaluates with the grace off (row 6 disables
+      // itself); this touched shell with an open issue is durable, so the
+      // outcome is still "alone".
       const sessions = [shell(asSessionId('ancient-shell'))]
       const { service, shellParked } = harness({
         sessions,
