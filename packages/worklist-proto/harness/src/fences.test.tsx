@@ -17,11 +17,18 @@
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import { assertCommits, assertReads, mountArmForCounts } from './count-harness'
-import { engineLocals, FENCE_SCENARIOS, type FenceStep, runFenceScenarios } from './fence-scenarios'
+import {
+  engineLocals,
+  FENCE_SCENARIOS,
+  type FenceStep,
+  runFenceScenarios,
+  runFenceStep,
+} from './fence-scenarios'
+import { rowViewsFromStore } from './oracle/index'
 import { referenceArmFor } from './reference-arm/arm'
 import { ROUND_THREE_ARMS } from './roster'
 
@@ -122,6 +129,67 @@ for (const entry of ROUND_THREE_ARMS) {
     }, 120_000)
   })
 }
+
+/**
+ * Coordinator (from L4a): mark-read overlays stamp `Date.now()`, so a PAINTED
+ * `readAt` differs between runs. No compared field is `readAt` (neither
+ * `RowView` nor `SliceRow` carries it); it can reach a comparison only through
+ * legacy visibility of FINISHED child issues. This proves the #9 cells and the
+ * whole row-view output do not depend on the wall clock: the same steps under
+ * two system clocks years apart give identical views, cells and parity.
+ */
+describe('wall-clock independence of the #9 steps', () => {
+  async function optimismUnder(systemTime: string) {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(systemTime))
+    const ctx = await startScenarioEngine(1)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const mounted = mountArmForCounts(referenceArmFor(ctx.engine), source.source, engineLocals(ctx))
+    try {
+      const cells = []
+      const views = []
+      const readAts: (string | null | undefined)[] = []
+      for (const entry of FENCE_SCENARIOS.filter((candidate) =>
+        candidate.methodology.startsWith('#9'),
+      )) {
+        const { result } = await runFenceStep(mounted, ctx, source.flush, entry)
+        assertCommits(result)
+        cells.push({
+          methodology: result.methodology,
+          changed: result.oracleChangedRows,
+          drawn: result.drawnRows,
+          visible: result.visibleRows,
+          parity: result.parity,
+        })
+        views.push(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)))
+        readAts.push(
+          ctx.engine.getSnapshot().issues.find((issue) => issue.id === ctx.targets.markReadId)
+            ?.readAt,
+        )
+      }
+      return { cells, views, readAts }
+    } finally {
+      mounted.unmount()
+      source.dispose()
+      ctx.engine.destroy()
+      vi.useRealTimers()
+    }
+  }
+
+  it('gives identical row views and cells under two wall clocks', async () => {
+    const early = await optimismUnder('2026-09-21T00:00:00Z')
+    const late = await optimismUnder('2031-03-01T00:00:00Z')
+    expect(early.cells).toHaveLength(3)
+    expect(late.cells).toEqual(early.cells)
+    expect(late.views).toEqual(early.views)
+    // Not vacuous: the press really painted the wall clock into readAt.
+    console.info(
+      `[fences] #9 readAt early=${JSON.stringify(early.readAts)} late=${JSON.stringify(late.readAts)}`,
+    )
+    expect(early.readAts[0]).toMatch(/^2026-09-21/)
+    expect(late.readAts[0]).toMatch(/^2031-03-01/)
+  }, 120_000)
+})
 
 describe('roster', () => {
   it('names exactly the arm folders that carry a fence manifest', () => {

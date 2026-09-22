@@ -286,6 +286,22 @@ selection and clock). `harness/src/fences.test.tsx` runs it:
   line reddens the remount test; forcing `over` empty reddens the unmemoised
   and remount tests; forcing `under` empty reddens the stale test.
 
+**Which stamps are compared** (coordinator, from L4a: mark-read overlays
+stamp `Date.now()`, so a PAINTED `readAt` differs between runs).
+
+| stamp | compared? | where it comes from |
+|---|---|---|
+| `activityAt` (row view) | yes | sessions' `lastActiveAt`, else the issue's `updatedAt`: scenario writes stamp both from the corpus clock (`ctx.stamp()`), server truth |
+| `workingSince` (row view) | yes | `agentState.since` / `lastActiveAt`, corpus clock |
+| `foldAt` (row view) | yes | `tuckedAt ?? closedAt ?? updatedAt`, corpus clock |
+| `createdAt` (row view) | yes | immutable |
+| `readAt`, `unread` | NO | no row-view or `SliceRow` field carries them. A painted `readAt` reaches a comparison only through legacy visibility of FINISHED child issues (the read-grace anchor); the #9 target is an open root |
+
+Proved, not argued: `fences.test.tsx` "wall-clock independence of the #9
+steps" runs #9a–#9c under system clocks of 2026-09-21 and 2031-03-01, asserts
+the painted `readAt` really differs (it carries each clock), and requires
+identical row views, cells and parity in both.
+
 **The copy sweep** (`fence.assertNoCopies(handle)`, `shared/src/instrument/
 reads.ts`). Walks everything reachable from the arm handle by reflection (own
 data properties, symbol keys, Map/Set entries; never a getter, never a
