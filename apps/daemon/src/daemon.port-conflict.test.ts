@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { directPtyDurableForTests } from '@podium/process/durable'
 import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { type DaemonMessage, parseDaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -98,6 +99,9 @@ describe('daemon boot with a taken hook port', () => {
       hooks: { port: opts.hookPort, settingsDir },
       agentRelay: { port: opts.relayPort },
       backend: 'none',
+      // This file is about ports: a stand-in durable keeps the no-podium-host
+      // diagnostic (POD-4617, daemon.no-podium-host.test.ts) out of its counts.
+      durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:' },
       workerClient: idleWorkerClient(),
     })
