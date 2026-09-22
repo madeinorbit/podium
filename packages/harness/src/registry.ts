@@ -637,6 +637,7 @@ const TOP_LEVEL_SECTIONS: Record<DeclaredKeys<AgentManifest>, string> = {
   instrumentation: 'instrumentation',
   observer: 'observer',
   transcript: 'transcript',
+  composer: 'composer',
   handoffTranscript: 'handoffTranscript',
   classifyBrowserOpen: 'classifyBrowserOpen',
 }
