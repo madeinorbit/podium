@@ -270,7 +270,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         this.links.set(`${from}.${name}`, link)
         this.collections.set(link.collection, link)
         this.outgoing.get(from)?.push(link)
-        if (prefix) this.prefixTargets.set(spec.to, [...(this.prefixTargets.get(spec.to) ?? []), link])
+        if (prefix)
+          this.prefixTargets.set(spec.to, [...(this.prefixTargets.get(spec.to) ?? []), link])
       }
     }
     // Every collection must be some link's inverse (the schema's duality rule).
@@ -333,7 +334,12 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   }
 
   /** One table write happened: maintain every relation it touches (doc §4). */
-  changed(entity: EntityName, id: string, prev: object | undefined, next: object | undefined): void {
+  changed(
+    entity: EntityName,
+    id: string,
+    prev: object | undefined,
+    next: object | undefined,
+  ): void {
     const before = prev as Row | undefined
     const after = next as Row | undefined
     const flipped = this.recollapse(entity, id, before, after)

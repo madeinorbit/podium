@@ -75,7 +75,9 @@ const relationChecked: CheckableArm & { snapshots: number } = {
         // every row, and a reaction would subscribe to all of them.
         const diff = runInAction(() => diffRelations(pool.graph, pool.tables))
         if (diff.length > 0) {
-          throw new Error(`relations diverged from the scan (snapshot ${relationChecked.snapshots}):\n${diff.join('\n')}`)
+          throw new Error(
+            `relations diverged from the scan (snapshot ${relationChecked.snapshots}):\n${diff.join('\n')}`,
+          )
         }
         return handle.snapshot()
       },

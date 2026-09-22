@@ -130,7 +130,11 @@ function rig(rows: RowRecord[], options: { fence?: boolean; schema?: ModelSchema
   const source = reads.wrapSource(replay.source)
   pool.apply({
     type: 'replace',
-    rows: [...source.snapshot('session'), ...source.snapshot('issue'), ...source.snapshot('worktree')],
+    rows: [
+      ...source.snapshot('session'),
+      ...source.snapshot('issue'),
+      ...source.snapshot('worktree'),
+    ],
   })
   const off = source.subscribe((event) => pool.apply(event))
   const schema = options.schema ?? SCHEMA
@@ -431,8 +435,20 @@ describe('the resume-twin collapse (session.collapse, declared in the schema)', 
     const r = rig([
       lane('/repo'),
       issue('I1'),
-      session('S1', { issueId: 'I1', cwd: '/repo', status: 'hibernated', lastActiveAt: at(1), resume: ref }),
-      session('S2', { issueId: 'I1', cwd: '/repo', status: 'exited', lastActiveAt: at(5), resume: ref }),
+      session('S1', {
+        issueId: 'I1',
+        cwd: '/repo',
+        status: 'hibernated',
+        lastActiveAt: at(1),
+        resume: ref,
+      }),
+      session('S2', {
+        issueId: 'I1',
+        cwd: '/repo',
+        status: 'exited',
+        lastActiveAt: at(5),
+        resume: ref,
+      }),
     ])
     try {
       // Rank beats recency: the hibernated row is kept.
@@ -442,12 +458,28 @@ describe('the resume-twin collapse (session.collapse, declared in the schema)', 
       expect(r.one('session', 'S2', 'worktree')).toBeNull()
       r.check()
       // The exited twin comes back live: the group is kept in full.
-      r.push(session('S2', { issueId: 'I1', cwd: '/repo', status: 'live', lastActiveAt: at(6), resume: ref }))
+      r.push(
+        session('S2', {
+          issueId: 'I1',
+          cwd: '/repo',
+          status: 'live',
+          lastActiveAt: at(6),
+          resume: ref,
+        }),
+      )
       expect(r.many('issue', 'I1', 'sessions')).toEqual(['S1', 'S2'])
       expect(r.many('worktree', '/repo', 'sessions')).toEqual(['S1', 'S2'])
       r.check()
       // It parks again, now more recent at the same rank: it is the one kept.
-      r.push(session('S2', { issueId: 'I1', cwd: '/repo', status: 'hibernated', lastActiveAt: at(6), resume: ref }))
+      r.push(
+        session('S2', {
+          issueId: 'I1',
+          cwd: '/repo',
+          status: 'hibernated',
+          lastActiveAt: at(6),
+          resume: ref,
+        }),
+      )
       expect(r.many('issue', 'I1', 'sessions')).toEqual(['S2'])
       // The kept row leaves: its twin is the only row, so it is back.
       r.push(gone('session', 'S2'))
@@ -460,14 +492,22 @@ describe('the resume-twin collapse (session.collapse, declared in the schema)', 
 })
 
 describe('the resume-twin collapse on the corpus, against the legacy dedupe', () => {
-  it("keeps exactly the rows dedupeSessions keeps, for every twin group, in both directions", () => {
+  it('keeps exactly the rows dedupeSessions keeps, for every twin group, in both directions', () => {
     const corpus = buildCorpus(1)
     const survivors = new Set(dedupeSessions(corpus.sessions).map((row) => row.sessionId as string))
     const r = rig(
       [
         ...corpus.sliceIssues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
-        ...corpus.sliceSessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
-        ...corpus.sliceWorktrees.map((value) => ({ kind: 'worktree' as const, id: value.path, value })),
+        ...corpus.sliceSessions.map((value) => ({
+          kind: 'session' as const,
+          id: value.sessionId,
+          value,
+        })),
+        ...corpus.sliceWorktrees.map((value) => ({
+          kind: 'worktree' as const,
+          id: value.path,
+          value,
+        })),
       ],
       { fence: false },
     )
@@ -591,7 +631,10 @@ describe('the reads fence and the write record', () => {
         ['session', 'S1', 'issue'],
       ] as const) {
         r.reads.reset()
-        expect(tracked(() => fenced.one(from, id, relation)), `${from}.${relation}`).not.toBeNull()
+        expect(
+          tracked(() => fenced.one(from, id, relation)),
+          `${from}.${relation}`,
+        ).not.toBeNull()
         expect(r.reads.stats().rows, `${from}.${relation}`).toBe(1)
       }
       r.reads.reset()
@@ -607,7 +650,11 @@ describe('the reads fence and the write record', () => {
 
   /** Each change kind, and exactly the relation slots it may write. */
   const KINDS: { name: string; change: RowRecord[]; writes: string[] }[] = [
-    { name: 'heartbeat', change: [session('S2', { issueId: 'I1', cwd: '/repo/y', lastActiveAt: at(3) })], writes: [] },
+    {
+      name: 'heartbeat',
+      change: [session('S2', { issueId: 'I1', cwd: '/repo/y', lastActiveAt: at(3) })],
+      writes: [],
+    },
     { name: 'rename', change: [issue('I4', { title: 'Renamed' })], writes: [] },
     {
       name: 'reparent',
@@ -627,7 +674,11 @@ describe('the reads fence and the write record', () => {
     {
       name: 'session moves lane',
       change: [session('S2', { issueId: 'I1', cwd: '/repo/.worktrees/a/q' })],
-      writes: ['session.worktree→S2', 'worktree.sessions:/repo', 'worktree.sessions:/repo/.worktrees/a'],
+      writes: [
+        'session.worktree→S2',
+        'worktree.sessions:/repo',
+        'worktree.sessions:/repo/.worktrees/a',
+      ],
     },
     {
       name: 'deps change',
@@ -637,12 +688,22 @@ describe('the reads fence and the write record', () => {
     {
       name: 'new session',
       change: [session('S9', { issueId: 'I4', cwd: '/repo/z' })],
-      writes: ['issue.sessions:I4', 'session.issue→S9', 'session.worktree→S9', 'worktree.sessions:/repo'],
+      writes: [
+        'issue.sessions:I4',
+        'session.issue→S9',
+        'session.worktree→S9',
+        'worktree.sessions:/repo',
+      ],
     },
     {
       name: 'remove session',
       change: [gone('session', 'S3')],
-      writes: ['issue.sessions:I4', 'session.issue→S3', 'session.worktree→S3', 'worktree.sessions:/repo/.worktrees/a'],
+      writes: [
+        'issue.sessions:I4',
+        'session.issue→S3',
+        'session.worktree→S3',
+        'worktree.sessions:/repo/.worktrees/a',
+      ],
     },
     {
       name: 'new lane',
@@ -686,7 +747,9 @@ describe('the reads fence and the write record', () => {
   it('a bucket the change does not touch keeps its array; a touched one is replaced once', () => {
     const r = rig(rows)
     try {
-      const untouched = tracked(() => r.pool.graph.many('worktree', '/repo/.worktrees/a', 'sessions'))
+      const untouched = tracked(() =>
+        r.pool.graph.many('worktree', '/repo/.worktrees/a', 'sessions'),
+      )
       const touched = tracked(() => r.pool.graph.many('issue', 'I1', 'children'))
       let runs = 0
       const stop = autorun(() => {
@@ -696,7 +759,9 @@ describe('the reads fence and the write record', () => {
       r.push(issue('I4', { parentId: 'I1' }), issue('I5', { parentId: 'I1' }))
       stop()
       expect(runs).toBe(2)
-      expect(tracked(() => r.pool.graph.many('worktree', '/repo/.worktrees/a', 'sessions'))).toBe(untouched)
+      expect(tracked(() => r.pool.graph.many('worktree', '/repo/.worktrees/a', 'sessions'))).toBe(
+        untouched,
+      )
       expect(tracked(() => r.pool.graph.many('issue', 'I1', 'children'))).not.toBe(touched)
     } finally {
       r.dispose()
@@ -748,7 +813,10 @@ describe('a relation added to the schema needs no arm code', () => {
     try {
       expect(r.many('session', 'S1', 'coordinates')).toEqual(['I1'])
       expect(r.one('issue', 'I1', 'coordinator')).toBe('S1')
-      r.push(issue('I2', { coordinatorSessionId: 'S1' }), issue('I1', { coordinatorSessionId: 'S2' }))
+      r.push(
+        issue('I2', { coordinatorSessionId: 'S1' }),
+        issue('I1', { coordinatorSessionId: 'S2' }),
+      )
       expect(r.many('session', 'S1', 'coordinates')).toEqual(['I2'])
       expect(r.many('session', 'S2', 'coordinates')).toEqual(['I1'])
       r.push(gone('issue', 'I2'))
@@ -793,8 +861,8 @@ const REFS = [{ kind: 'k', value: '1' }, { kind: 'k', value: '2' }, undefined]
 const STATUSES = ['live', 'starting', 'hibernated', 'exited', 'reconnecting']
 
 function randomRow(rand: () => number): RowRecord {
-  const pick = <T,>(list: readonly T[]): T => list[Math.floor(rand() * list.length)] as T
-  const maybe = <T,>(value: T): T | null => (rand() < 0.3 ? null : value)
+  const pick = <T>(list: readonly T[]): T => list[Math.floor(rand() * list.length)] as T
+  const maybe = <T>(value: T): T | null => (rand() < 0.3 ? null : value)
   const kind = pick(['issue', 'issue', 'session', 'session', 'session', 'worktree'] as const)
   if (rand() < 0.15) {
     const id = kind === 'issue' ? pick(ISSUES) : kind === 'session' ? pick(SESSIONS) : pick(PATHS)
@@ -807,7 +875,10 @@ function randomRow(rand: () => number): RowRecord {
       deletedAt: rand() < 0.1 ? T0 : null,
       repoId: maybe(pick(REPOS)),
       worktreePath: maybe(pick(PATHS)),
-      deps: rand() < 0.5 ? [{ id: pick(ISSUES), type: rand() < 0.8 ? 'discovered-from' : 'blocks' }] : [],
+      deps:
+        rand() < 0.5
+          ? [{ id: pick(ISSUES), type: rand() < 0.8 ? 'discovered-from' : 'blocks' }]
+          : [],
     })
   }
   if (kind === 'session') {
@@ -840,7 +911,9 @@ describe('random sequences against the from-scratch scan', () => {
           r.replay.push(event)
           const diff = tracked(() => diffRelations(r.pool.graph, r.pool.tables, SCHEMA, universe))
           if (diff.length > 0) {
-            throw new Error(`seed ${seed} step ${step} (${JSON.stringify(event)}):\n${diff.join('\n')}`)
+            throw new Error(
+              `seed ${seed} step ${step} (${JSON.stringify(event)}):\n${diff.join('\n')}`,
+            )
           }
         }
       } finally {

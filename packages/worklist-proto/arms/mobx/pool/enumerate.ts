@@ -195,7 +195,9 @@ export function diffRelations(
         const want = isLinkSpec(spec) ? scan.one(from, id, name) : [...scan.many(from, id, name)]
         if (JSON.stringify(got) === JSON.stringify(want)) continue
         if (out.length < 12) {
-          out.push(`${from}:${id}.${name}: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`)
+          out.push(
+            `${from}:${id}.${name}: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`,
+          )
         }
       }
     }
