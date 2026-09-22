@@ -281,7 +281,10 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     const m = mints[i]!
     if (k < VCLOSED_GRACE * scale) m.closedReason = 'done'
     else if (k < (VCLOSED_GRACE + VCLOSED_TUCKED) * scale) m.closedReason = 'done'
-    else m.closedReason = abandoned[(k - (VCLOSED_GRACE + VCLOSED_TUCKED) * scale) % abandoned.length] as string
+    else
+      m.closedReason = abandoned[
+        (k - (VCLOSED_GRACE + VCLOSED_TUCKED) * scale) % abandoned.length
+      ] as string
   })
   // archived: mostly done; deleted: mixed; proposed: mostly human.
   byRole('archived').forEach((i, k) => {
@@ -367,8 +370,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     const prefix = k < noPrefixFrom ? 'POD' : undefined
     repoProjections.push(
       prefix === undefined
-        ? ({ id: `r${k}` }) as RepoProjection
-        : ({ id: `r${k}`, prefix }) as RepoProjection,
+        ? ({ id: `r${k}` } as RepoProjection)
+        : ({ id: `r${k}`, prefix } as RepoProjection),
     )
     const wt = k < worktreeTarget ? wtPath(k) : null
     wtByRepo.push(wt)
@@ -709,7 +712,9 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     return `/repo-${repoOf[issueIdx] as number}`
   }
   const workingOn = (issueIdx: number, recent: boolean): void => {
-    const activeAt = recent ? ago(30 * 1000, 25 * 60 * 1000) : ago(25 * 60 * 1000, 3 * 60 * 60 * 1000)
+    const activeAt = recent
+      ? ago(30 * 1000, 25 * 60 * 1000)
+      : ago(25 * 60 * 1000, 3 * 60 * 60 * 1000)
     pushSession({
       ...baseSession(cwdFor(issueIdx)),
       issueId: idOf(issueIdx),
@@ -884,7 +889,11 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   const openCoverTarget = Math.floor(openBulk.length * 0.62)
   let covered = 0
   let guard = 0
-  while (covered < openCoverTarget && sessions.length < sessionTarget && guard < openCoverTarget * 20) {
+  while (
+    covered < openCoverTarget &&
+    sessions.length < sessionTarget &&
+    guard < openCoverTarget * 20
+  ) {
     guard++
     const i = openBulk[int(0, openBulk.length - 1)] as number
     if (sessionIssueIds.has(idOf(i))) continue
@@ -925,7 +934,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   const unscannedPath = `/w/unscanned-${idOf(unscannedIdx)}`
   issueWt[unscannedIdx] = unscannedPath
   ;(issues[unscannedIdx] as unknown as Record<string, unknown>)['worktreePath'] = unscannedPath
-  ;(issueProjections[unscannedIdx] as unknown as Record<string, unknown>)['worktreePath'] = unscannedPath
+  ;(issueProjections[unscannedIdx] as unknown as Record<string, unknown>)['worktreePath'] =
+    unscannedPath
   const unscannedOrphan = sessions.find(
     (s) =>
       s.issueId == null &&
@@ -933,7 +943,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       s.agentState?.phase === 'working' &&
       /\/sub(\/deep)?$/.test(s.cwd),
   )
-  if (unscannedOrphan === undefined) fail('no live working orphan to seat under the unscanned worktree')
+  if (unscannedOrphan === undefined)
+    fail('no live working orphan to seat under the unscanned worktree')
   ;(unscannedOrphan as unknown as Record<string, unknown>)['cwd'] = `${unscannedPath}/sub`
 
   // -- hidden askers and resume twins (POD-4551) ----------------------------------
@@ -998,19 +1009,27 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   const hiddenLeaf = (m: Mint, i: number): boolean =>
     !hasChild.has(i) && !originOf.has(i) && issueWt[i] === null && !m.closed
   const archivedLeaves = byRole('archived').filter((i) => hiddenLeaf(mints[i]!, i))
-  const proposedLeaves = byRole('proposed').filter((i) => hiddenLeaf(mints[i]!, i) && mints[i]!.parent === null)
+  const proposedLeaves = byRole('proposed').filter(
+    (i) => hiddenLeaf(mints[i]!, i) && mints[i]!.parent === null,
+  )
   const ASKERS_1X = 20
   const edgedAskers: EdgedAsker[] = []
   for (let k = 0; k < ASKERS_1X * scale; k++) {
     const pool = k % 2 === 0 && archivedLeaves.length > 0 ? archivedLeaves : proposedLeaves
     const child = pool.shift()
     const root = sessionlessRoots[k]
-    if (child === undefined || root === undefined) fail('not enough hidden leaves or roots for the askers')
+    if (child === undefined || root === undefined)
+      fail('not enough hidden leaves or roots for the askers')
     mints[child]!.parent = root
     mints[child]!.depth = mints[root]!.depth + 1
     ;(issues[child] as unknown as Record<string, unknown>)['parentId'] = idOf(root)
     ;(issueProjections[child] as unknown as Record<string, unknown>)['parentId'] = idOf(root)
-    const sessionId = reseat(child, { status: 'live', activeAgoMs: 20 * 60 * 1000 + k * 60 * 1000, phase: 'idle', offer: true })
+    const sessionId = reseat(child, {
+      status: 'live',
+      activeAgoMs: 20 * 60 * 1000 + k * 60 * 1000,
+      phase: 'idle',
+      offer: true,
+    })
     edgedAskers.push({ rootId: idOf(root), childId: idOf(child), sessionId })
   }
 
@@ -1033,13 +1052,35 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       const root = sessionlessRoots[ASKERS_1X * scale + 3 * k + g]
       if (root === undefined) fail('not enough sessionless roots for the resume twins')
       const ref = { kind: 'codex-thread', value: `thread-twin-${kind}-${k}` }
-      const ask = reseat(root, { status: 'hibernated', activeAgoMs: 6 * HOUR_MS, phase: 'idle', offer: true, resume: ref })
+      const ask = reseat(root, {
+        status: 'hibernated',
+        activeAgoMs: 6 * HOUR_MS,
+        phase: 'idle',
+        offer: true,
+        resume: ref,
+      })
       const other =
         kind === 'inactive'
-          ? reseat(root, { status: 'exited', activeAgoMs: 3 * HOUR_MS, phase: 'ended', stoppedAgoMs: 3 * HOUR_MS, resume: ref })
+          ? reseat(root, {
+              status: 'exited',
+              activeAgoMs: 3 * HOUR_MS,
+              phase: 'ended',
+              stoppedAgoMs: 3 * HOUR_MS,
+              resume: ref,
+            })
           : kind === 'tie'
-            ? reseat(root, { status: 'hibernated', activeAgoMs: 2 * HOUR_MS, phase: 'idle', resume: ref })
-            : reseat(root, { status: 'live', activeAgoMs: 60 * 1000, phase: 'working', resume: ref })
+            ? reseat(root, {
+                status: 'hibernated',
+                activeAgoMs: 2 * HOUR_MS,
+                phase: 'idle',
+                resume: ref,
+              })
+            : reseat(root, {
+                status: 'live',
+                activeAgoMs: 60 * 1000,
+                phase: 'working',
+                resume: ref,
+              })
       resumeTwins.push({
         kind,
         issueId: idOf(root),
@@ -1202,34 +1243,184 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
 function baseMint(role: BulkKind): Mint {
   switch (role) {
     case 'vWork':
-      return { role, stage: 'in_progress', audience: 'human', archived: false, deleted: false, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'in_progress',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'vChild':
-      return { role, stage: 'in_progress', audience: 'human', archived: false, deleted: false, closed: false, closedReason: null, parent: null, depth: 2 }
+      return {
+        role,
+        stage: 'in_progress',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 2,
+      }
     case 'vDoneChild':
-      return { role, stage: 'done', audience: 'human', archived: false, deleted: false, closed: true, closedReason: null, parent: null, depth: 2 }
+      return {
+        role,
+        stage: 'done',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: true,
+        closedReason: null,
+        parent: null,
+        depth: 2,
+      }
     case 'vSessless':
-      return { role, stage: 'in_progress', audience: 'human', archived: false, deleted: false, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'in_progress',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'vClosed':
-      return { role, stage: 'done', audience: 'human', archived: false, deleted: false, closed: true, closedReason: 'done', parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'done',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: true,
+        closedReason: 'done',
+        parent: null,
+        depth: 1,
+      }
     case 'vMerge':
-      return { role, stage: 'done', audience: 'human', archived: false, deleted: false, closed: true, closedReason: 'done', parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'done',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: true,
+        closedReason: 'done',
+        parent: null,
+        depth: 1,
+      }
     case 'rescueParent':
-      return { role, stage: 'backlog', audience: 'human', archived: false, deleted: false, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'backlog',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'agentBacklog':
-      return { role, stage: 'backlog', audience: 'agent', archived: false, deleted: false, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'backlog',
+        audience: 'agent',
+        archived: false,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'agentDone':
-      return { role, stage: 'done', audience: 'agent', archived: false, deleted: false, closed: true, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'done',
+        audience: 'agent',
+        archived: false,
+        deleted: false,
+        closed: true,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'humanBacklog':
-      return { role, stage: 'backlog', audience: 'human', archived: false, deleted: false, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'backlog',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'humanDone':
-      return { role, stage: 'done', audience: 'human', archived: false, deleted: false, closed: true, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'done',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: true,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'archived':
-      return { role, stage: 'backlog', audience: 'human', archived: true, deleted: false, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'backlog',
+        audience: 'human',
+        archived: true,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'deleted':
-      return { role, stage: 'backlog', audience: 'human', archived: false, deleted: true, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'backlog',
+        audience: 'human',
+        archived: false,
+        deleted: true,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'proposed':
-      return { role, stage: 'proposed', audience: 'human', archived: false, deleted: false, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'proposed',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
     case 'shipping':
-      return { role, stage: 'shipping', audience: 'human', archived: false, deleted: false, closed: false, closedReason: null, parent: null, depth: 1 }
+      return {
+        role,
+        stage: 'shipping',
+        audience: 'human',
+        archived: false,
+        deleted: false,
+        closed: false,
+        closedReason: null,
+        parent: null,
+        depth: 1,
+      }
   }
 }
