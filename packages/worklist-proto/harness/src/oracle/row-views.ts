@@ -60,7 +60,8 @@ function originTickOf(
   byId: ReadonlyMap<string, IssueNavigationModel>,
   derivation: LegacyDerivation,
 ): RowOriginTick | null {
-  const dep = issue.deps.find((edge) => edge.type === 'discovered-from')
+  // `deps` is absent on a freshly created issue's model (the #6a write).
+  const dep = issue.deps?.find((edge) => edge.type === 'discovered-from')
   if (dep === undefined) return null
   const origin = byId.get(dep.id)
   if (origin === undefined) return null

@@ -17,7 +17,6 @@
 
 import { readdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
@@ -26,7 +25,12 @@ import { engineLocals, FENCE_SCENARIOS, runFenceScenarios } from './fence-scenar
 import { referenceArmFor } from './reference-arm/arm'
 import { ROUND_THREE_ARMS } from './roster'
 
-const ARMS_DIR = fileURLToPath(new URL('../../arms', import.meta.url))
+// happy-dom rewrites `import.meta.url`; resolve from the lane's cwd instead
+// (the root lane runs at the repo root, the package lane in the package).
+const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
+  ? process.cwd()
+  : join(process.cwd(), 'packages', 'worklist-proto')
+const ARMS_DIR = join(PACKAGE_DIR, 'arms')
 
 function summary(steps: { result: { methodology: string; oracleChangedRows: string[] | null; drawnRows: string[] | null } }[]): string {
   return steps
