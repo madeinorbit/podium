@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type AgentManifest,
   type Declared,
+  type DeclaredKeys,
   declinedReasonIsValid,
   declaredValue,
   supported,
@@ -63,20 +64,29 @@ const CAPABILITY_FIELDS = [
 ] as const
 
 /** Every AgentManifest field POD-303 lets a harness leave UNIMPLEMENTED. It must
- *  still be DECLARED — that is what these tests check. */
-const DECLARED_FIELDS = [
-  'exec',
-  'headless',
-  'handoffTranscript',
-  'state',
-  'instrumentation',
-  'observer',
-  'transcript',
-  'classifyBrowserOpen',
-  'credentials',
-  'usage',
-  'install',
-] as const satisfies readonly (keyof AgentManifest)[]
+ *  still be DECLARED — that is what these tests check.
+ *
+ *  Guarded by `DeclaredKeys` (POD-4518), not by `keyof`: `satisfies keyof`
+ *  proves every entry IS a key but never that every key is an entry, so a new
+ *  `Declared<…>` field on `AgentManifest` used to pass the gate silently. The
+ *  `Record` below is incomplete the moment such a field lands, and `tsc`
+ *  fails here AND at the walker's own table — two loud errors, no silent skip.
+ *  The key sets agree by construction: both spell every `DeclaredKeys` member.
+ */
+const DECLARED_FIELD_SET: Record<DeclaredKeys<AgentManifest>, true> = {
+  credentials: true,
+  usage: true,
+  install: true,
+  exec: true,
+  headless: true,
+  state: true,
+  instrumentation: true,
+  observer: true,
+  transcript: true,
+  handoffTranscript: true,
+  classifyBrowserOpen: true,
+}
+const DECLARED_FIELDS = Object.keys(DECLARED_FIELD_SET) as DeclaredKeys<AgentManifest>[]
 
 describe('agent manifest registry', () => {
   it('has one manifest per builtin harness kind with every capability field declared', () => {

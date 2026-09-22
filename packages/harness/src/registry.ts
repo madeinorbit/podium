@@ -9,17 +9,25 @@ import type { TranscriptColorReader, TranscriptRecordMapper, TranscriptRuntimeRe
 import type { AgentStateProvider } from './agent-state/types.js'
 import {
   type AgentManifest,
+  type AgentRuntimeAxis,
   type ClientTerminalSpec,
   declaredValue,
   type Declared,
+  type DeclaredKeys,
   declinedReasonIsValid,
   canonicalDriverId,
   type DriverFamily,
   type HarnessCapabilities,
+  type HarnessCredentials,
   type HarnessEnvironment,
+  type HarnessHeadless,
+  type HarnessInventory,
   type HarnessLogin,
+  type HarnessTranscript,
+  type HarnessUsage,
   type PortableCredential,
   type AcceptedDriverId,
+  type ServerRuntimeSpec,
 } from './manifest.js'
 import { claudeCodeManifest } from './adapters/claude-code/index.js'
 import { codexManifest } from './adapters/codex/index.js'
@@ -575,8 +583,12 @@ export function harnessLoginNeedsInteractive(
 // ONE walker over every Declared in a manifest, shared by the registry check
 // and the matrix generator so the two can never disagree about what a harness
 // declares. Nested declarations (inventory probes, usage sub-sections, the
-// transcript grammar readers, headless buildExec, the server version floor)
-// are rows too: a placeholder hidden one level down is the same defect.
+// transcript grammar readers, headless buildExec, the server version floor
+// and client terminal, the credential transfer) are rows too: a placeholder
+// hidden one level down is the same defect. Every per-container table above is
+// a `Record<DeclaredKeys<…>, …>` (POD-4518), so a new Declared field fails
+// `tsc` instead of silently skipping the section. `runtime.terminal` is NOT a
+// row: it is required, never Declared, so there is no reason to gate.
 // ---------------------------------------------------------------------------
 
 /** One matrix row: a Declared section's standing for one harness. */
@@ -588,6 +600,71 @@ export interface ManifestSectionStatus {
   reason?: string
 }
 
+/**
+ * Section-path tables (POD-4518): one `Record<DeclaredKeys<Container>, string>`
+ * per container that holds Declared sections. The key sets are COMPUTED from
+ * the container types — never hand-listed unions — so adding a `Declared<…>`
+ * field to any container makes its table incomplete and `tsc` fails at the
+ * definition site. The walk below iterates these tables, so it cannot drift
+ * from them: table completeness IS walk completeness.
+ *
+ * Values are dotted section paths only. Readers index `container[key]` as
+ * `Declared<unknown>` and never constrain WHAT a section declares — the value
+ * shapes stay owned by the containers (notably the transcript section, whose
+ * grammar POD-4522 owns) and only the key sets are shared.
+ */
+const TOP_LEVEL_SECTIONS: Record<DeclaredKeys<AgentManifest>, string> = {
+  credentials: 'credentials',
+  usage: 'usage',
+  install: 'install',
+  exec: 'exec',
+  headless: 'headless',
+  state: 'state',
+  instrumentation: 'instrumentation',
+  observer: 'observer',
+  transcript: 'transcript',
+  handoffTranscript: 'handoffTranscript',
+  classifyBrowserOpen: 'classifyBrowserOpen',
+}
+
+const INVENTORY_SECTIONS: Record<DeclaredKeys<HarnessInventory>, string> = {
+  loginCommand: 'inventory.loginCommand',
+  loginCommandProbe: 'inventory.loginCommandProbe',
+  loginIdentity: 'inventory.loginIdentity',
+  portableCredential: 'inventory.portableCredential',
+}
+
+const RUNTIME_SECTIONS: Record<DeclaredKeys<AgentRuntimeAxis>, string> = {
+  server: 'runtime.server',
+  embedded: 'runtime.embedded',
+}
+
+const USAGE_SECTIONS: Record<DeclaredKeys<HarnessUsage>, string> = {
+  quota: 'usage.quota',
+  history: 'usage.history',
+  transcripts: 'usage.transcripts',
+}
+
+const HEADLESS_SECTIONS: Record<DeclaredKeys<HarnessHeadless>, string> = {
+  buildExec: 'headless.buildExec',
+}
+
+const SERVER_SECTIONS: Record<DeclaredKeys<ServerRuntimeSpec>, string> = {
+  versionRange: 'runtime.server.versionRange',
+  clientTerminal: 'runtime.server.clientTerminal',
+}
+
+const TRANSCRIPT_SECTIONS: Record<DeclaredKeys<HarnessTranscript>, string> = {
+  recordToItems: 'transcript.recordToItems',
+  recordRuntime: 'transcript.recordRuntime',
+  recordColor: 'transcript.recordColor',
+  chainPaths: 'transcript.chainPaths',
+}
+
+const CREDENTIALS_SECTIONS: Record<DeclaredKeys<HarnessCredentials>, string> = {
+  transfer: 'credentials.transfer',
+}
+
 /** Every Declared section of one manifest, top-level then nested, in matrix order. */
 export function sectionStatusesOf(manifest: AgentManifest): ManifestSectionStatus[] {
   const rows: ManifestSectionStatus[] = []
@@ -595,40 +672,44 @@ export function sectionStatusesOf(manifest: AgentManifest): ManifestSectionStatu
     if (declared.supported) rows.push({ section, supported: true })
     else rows.push({ section, supported: false, reason: declared.reason })
   }
-  row('credentials', manifest.credentials)
-  row('usage', manifest.usage)
-  row('install', manifest.install)
-  row('exec', manifest.exec)
-  row('headless', manifest.headless)
-  row('state', manifest.state)
-  row('instrumentation', manifest.instrumentation)
-  row('observer', manifest.observer)
-  row('transcript', manifest.transcript)
-  row('handoffTranscript', manifest.handoffTranscript)
-  row('classifyBrowserOpen', manifest.classifyBrowserOpen)
-  row('inventory.loginCommand', manifest.inventory.loginCommand)
-  row('inventory.loginCommandProbe', manifest.inventory.loginCommandProbe)
-  row('inventory.loginIdentity', manifest.inventory.loginIdentity)
-  row('inventory.portableCredential', manifest.inventory.portableCredential)
-  row('runtime.server', manifest.runtime.server)
-  row('runtime.embedded', manifest.runtime.embedded)
-  rows.push({ section: 'runtime.terminal', supported: true })
+  for (const key of Object.keys(TOP_LEVEL_SECTIONS) as DeclaredKeys<AgentManifest>[]) {
+    row(TOP_LEVEL_SECTIONS[key], manifest[key] as Declared<unknown>)
+  }
+  for (const key of Object.keys(INVENTORY_SECTIONS) as DeclaredKeys<HarnessInventory>[]) {
+    row(INVENTORY_SECTIONS[key], manifest.inventory[key] as Declared<unknown>)
+  }
+  for (const key of Object.keys(RUNTIME_SECTIONS) as DeclaredKeys<AgentRuntimeAxis>[]) {
+    row(RUNTIME_SECTIONS[key], manifest.runtime[key] as Declared<unknown>)
+  }
   const usage = declaredValue(manifest.usage)
   if (usage) {
-    row('usage.quota', usage.quota)
-    row('usage.history', usage.history)
-    row('usage.transcripts', usage.transcripts)
+    for (const key of Object.keys(USAGE_SECTIONS) as DeclaredKeys<HarnessUsage>[]) {
+      row(USAGE_SECTIONS[key], usage[key] as Declared<unknown>)
+    }
   }
   const headless = declaredValue(manifest.headless)
-  if (headless) row('headless.buildExec', headless.buildExec)
+  if (headless) {
+    for (const key of Object.keys(HEADLESS_SECTIONS) as DeclaredKeys<HarnessHeadless>[]) {
+      row(HEADLESS_SECTIONS[key], headless[key] as Declared<unknown>)
+    }
+  }
   const server = declaredValue(manifest.runtime.server)
-  if (server) row('runtime.server.versionRange', server.versionRange)
+  if (server) {
+    for (const key of Object.keys(SERVER_SECTIONS) as DeclaredKeys<ServerRuntimeSpec>[]) {
+      row(SERVER_SECTIONS[key], server[key] as Declared<unknown>)
+    }
+  }
   const transcript = declaredValue(manifest.transcript)
   if (transcript) {
-    row('transcript.recordToItems', transcript.recordToItems)
-    row('transcript.recordRuntime', transcript.recordRuntime)
-    row('transcript.recordColor', transcript.recordColor)
-    row('transcript.chainPaths', transcript.chainPaths)
+    for (const key of Object.keys(TRANSCRIPT_SECTIONS) as DeclaredKeys<HarnessTranscript>[]) {
+      row(TRANSCRIPT_SECTIONS[key], transcript[key] as Declared<unknown>)
+    }
+  }
+  const credentials = declaredValue(manifest.credentials)
+  if (credentials) {
+    for (const key of Object.keys(CREDENTIALS_SECTIONS) as DeclaredKeys<HarnessCredentials>[]) {
+      row(CREDENTIALS_SECTIONS[key], credentials[key] as Declared<unknown>)
+    }
   }
   return rows
 }

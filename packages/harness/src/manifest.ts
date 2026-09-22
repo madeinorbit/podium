@@ -97,6 +97,26 @@ export function declaredValue<T>(declared: Declared<T>): T | undefined {
   return declared.supported ? declared.value : undefined
 }
 
+/**
+ * The keys of `T` whose values are Declared sections (POD-4518).
+ *
+ * COMPUTED from the type, never hand-listed: a `Record<DeclaredKeys<T>, …>`
+ * over a container is incomplete the moment a `Declared<…>` field is added to
+ * that container, so the omission fails `tsc` at the definition site instead
+ * of silently skipping the new section. Value shapes stay the containers'
+ * own business — readers index `container[key]` as `Declared<unknown>` and
+ * never constrain what a section declares.
+ */
+export type DeclaredKeys<T> = {
+  // `-?` and `Exclude<…, undefined>` are load-bearing, not tidy: a homomorphic
+  // mapped type keeps `?` from optional members (`serverAlternatives?`,
+  // `secretEnvVar?`, …), so without `-?` each optional member contributes an
+  // `undefined` to the union and the `Record` key constraint fails. `Exclude`
+  // keeps an OPTIONAL `Declared<…>` member counted as declared rather than
+  // dropped via its `| undefined`.
+  [K in keyof T]-?: Exclude<T[K], undefined> extends Declared<unknown> ? K : never
+}[keyof T]
+
 // ---------------------------------------------------------------------------
 // Launch (interactive PTY spawn) — the agentLaunchCommand axis.
 // ---------------------------------------------------------------------------
