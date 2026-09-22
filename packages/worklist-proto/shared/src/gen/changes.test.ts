@@ -133,7 +133,7 @@ describe('gen through the engine', () => {
         }
 
         // The L1c §5 write-path events, each observed through the kernel.
-        const details = applied.map((s) => ({ kind: s.change.kind, ...s.detail }))
+        const details: Record<string, unknown>[] = applied.map((s) => ({ kind: s.change.kind, ...s.detail }))
         const echoes = details.filter((d) => d.kind === 'echo')
         expect(echoes.filter((d) => d['beforeReceipt'] === true).length, 'echo before the receipt').toBeGreaterThan(0)
         expect(echoes.filter((d) => d['beforeReceipt'] === false).length, 'echo after the receipt').toBeGreaterThan(0)
