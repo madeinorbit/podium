@@ -48,6 +48,10 @@ function harness(over: { publicUrl?: string | undefined; enabled?: boolean } = {
       calls.push(`check:${url}`)
       return { ok: true, url, resolvedTo: [] }
     },
+    async resolve(): Promise<LocatorRecord | undefined> {
+      calls.push('resolve')
+      return undefined
+    },
   }
   const timers: { fn: () => void; ms: number }[] = []
   const logs: string[] = []
