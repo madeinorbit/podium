@@ -134,6 +134,7 @@ function harness(input: {
   const parked: string[] = []
   const shellParked: string[] = []
   const shellKilled: string[] = []
+  const closedClientTerminals: string[] = []
   const hibernateRequireProof: Array<{ sessionId: string; requireTerminalProof?: boolean }> = []
   const toMachine: Array<{ machineId: string; type: string }> = []
   const deps: HostsDeps = {
@@ -185,6 +186,7 @@ function harness(input: {
       } as unknown as HostsDeps['daemonRequest']),
     toMachine: (machineId, message) => {
       toMachine.push({ machineId, type: message.type })
+      if (message.type === 'closeClientTerminal') closedClientTerminals.push(message.sessionId)
     },
   }
   return {
@@ -192,6 +194,7 @@ function harness(input: {
     parked,
     shellParked,
     shellKilled,
+    closedClientTerminals,
     hibernateRequireProof,
     toMachine,
   }
@@ -1069,6 +1072,121 @@ describe('idle-session cap', () => {
       expect(shellKilled).toEqual(['older'])
       expect(shellParked).toEqual([])
       expect(sessions[0]?.status).toBe('live')
+    })
+  })
+
+  /**
+   * THE ATTACH-TUI WARM-PARK ROW, FIRED BY THE SERVER (POD-4524). An unwatched
+   * server-family session past its warm TTL gets a per-session daemon close —
+   * the viewer dropped, the agent untouched. Never the server's park/kill.
+   */
+  describe('attach-TUI warm park (POD-4524)', () => {
+    const attachTui = (
+      sessionId: SessionId,
+      overrides: Partial<HostSessionView> = {},
+    ): HostSessionView =>
+      session(sessionId, {
+        purpose: 'attach-tui',
+        watched: false,
+        heldByTab: false,
+        lastUnwatchedAtMs: NOW - 31 * 60_000,
+        ...overrides,
+      })
+
+    it('orders a per-session daemon close for an unwatched TUI past its warm TTL, agent row untouched', async () => {
+      const sessions = [attachTui(asSessionId('cold-tui'))]
+      const { service, closedClientTerminals, parked, shellParked, shellKilled, toMachine } =
+        harness({
+          sessions,
+          maxIdleSessions: null,
+          idleShellMinutes: null,
+        })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(closedClientTerminals).toEqual(['cold-tui'])
+      expect(toMachine).toContainEqual({ machineId: 'local', type: 'closeClientTerminal' })
+      // THE TRAP the review named: the server's park/kill verbs must not apply
+      // here — the agent row stays live, nothing hibernated or tombstoned.
+      expect(parked).toEqual([])
+      expect(shellParked).toEqual([])
+      expect(shellKilled).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
+    it('keeps a watched TUI: the window is held off while somebody renders native', async () => {
+      const sessions = [
+        attachTui(asSessionId('watched-tui'), {
+          watched: true,
+          heldByTab: true,
+          lastUnwatchedAtMs: undefined,
+        }),
+      ]
+      const { service, closedClientTerminals } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(closedClientTerminals).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
+    it('keeps a TUI inside its warm window', async () => {
+      const sessions = [
+        attachTui(asSessionId('fresh-tui'), { lastUnwatchedAtMs: NOW - 5 * 60_000 }),
+      ]
+      const { service, closedClientTerminals } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(closedClientTerminals).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
+    it('keeps a TUI never seen watched-then-unwatched: no client terminal, nothing to do', async () => {
+      const sessions = [
+        attachTui(asSessionId('never-watched'), { lastUnwatchedAtMs: undefined }),
+      ]
+      const { service, closedClientTerminals } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+
+      expect(closedClientTerminals).toEqual([])
+      expect(sessions[0]?.status).toBe('live')
+    })
+
+    it('orders once per unwatched window, and re-arms when watched again', async () => {
+      const id = asSessionId('flapping-tui')
+      const sessions = [attachTui(id)]
+      const { service, closedClientTerminals } = harness({
+        sessions,
+        maxIdleSessions: null,
+        idleShellMinutes: null,
+      })
+
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+      expect(closedClientTerminals).toEqual([id])
+
+      // Watched again clears the one-shot; leaving once more orders again.
+      sessions[0] = attachTui(id, { watched: true, heldByTab: true, lastUnwatchedAtMs: undefined })
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+      expect(closedClientTerminals).toEqual([id])
+
+      sessions[0] = attachTui(id)
+      await service.onHostMetrics(asMachineId('local'), sample(10))
+      expect(closedClientTerminals).toEqual([id, id])
     })
   })
 

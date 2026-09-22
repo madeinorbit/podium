@@ -44,6 +44,12 @@
  *   close always stops what it finds, so the trigger maps keep to the existing
  *   stop (park) — the table's keep answers the passive question ("would the
  *   policy park this on its own?"), not whether an explicit close may stop it.
+ * - attach-TUI warm park (POD-4524): the reaper evaluates every live
+ *   server-family session with purpose 'attach-tui'. Park AND kill both map
+ *   onto the daemon's client-terminal close (never the server's park/kill —
+ *   the agent row is owned by the agent lifecycle, and ending it here would
+ *   end a process the warm TTL never touched). The trigger scopes its inputs
+ *   so only row 4 can fire: ownership and quiet stay with their owners.
  *
  * `lastTabReleased` is an EVENT EDGE, not a level: it is true only while
  * answering the explicit release. `heldByTab` is the level (any connected
@@ -59,6 +65,16 @@
 export type ShellLifetimeVerdict = 'keep' | 'park' | 'kill'
 
 export type ShellLifetimePurpose = 'shell' | 'login' | 'attach-tui'
+
+/**
+ * THE ATTACH-TUI WARM-PARK TTL (POD-4524): the server-side copy of the
+ * daemon's WARM_TTL_MS (`apps/daemon/src/runtime/opencode-attach.ts`). The
+ * table owns the decision — the daemon runs no clock — so this constant is
+ * the `warmTtlMs` input of row 4, and the two values must stay the same
+ * 30-minute window. The daemon's constant survives only as the informational
+ * `warm.ttlMs` its attach endpoint reports.
+ */
+export const ATTACH_TUI_WARM_TTL_MS = 30 * 60_000
 
 export interface ShellLifetimeInputs {
   /** No per-kind branches: a dock shell, a tab shell, a login pane and an
@@ -81,10 +97,10 @@ export interface ShellLifetimeInputs {
   quietMs: number
   /** Ms since anything held the shell. Absent (unknown) disables row 6. */
   unheldMs?: number | undefined
-  /** Ms since a viewer last rendered the attach TUI. */
-  unwatchedMs: number
-  /** The attach-TUI warm-park TTL (the daemon's WARM_TTL_MS). */
-  warmTtlMs: number
+  /** Ms since a viewer last rendered the attach TUI. Absent disables row 4. */
+  unwatchedMs?: number | undefined
+  /** The attach-TUI warm-park TTL (the daemon's WARM_TTL_MS). Absent disables row 4. */
+  warmTtlMs?: number | undefined
   /** The multi-day last resort. Absent disables row 3. */
   backstopMs?: number | undefined
   /** The idle grace for untouched, unheld shells. Absent disables row 6. */
@@ -121,12 +137,13 @@ export function shellQuietMs(
 /**
  * THE ONE INPUT BUILDER (POD-4525): every trigger constructs the table input
  * through this function, so the four call sites stop hand-copying 15 fields.
- * Behaviour-neutral by construction: unwatchedMs, warmTtlMs and exited are
- * the same constants every production trigger already passed (0, 0, false —
- * the attach-TUI warm TTL and the exited shortcut have no production
- * producer yet), and every other field rides through untouched. A trigger
- * that changes a verdict by moving onto this builder has a bug in the move,
- * not an improvement.
+ * Behaviour-neutral by construction for the shell triggers: unwatchedMs,
+ * warmTtlMs and exited ride through as the same absences every production
+ * trigger already passed (undefined, undefined, false — the exited shortcut
+ * still has no production producer), and every other field rides through
+ * untouched. The attach-TUI warm-park trigger (POD-4524) passes the real
+ * unwatched age and the warm TTL instead. A trigger that changes a verdict by
+ * moving onto this builder has a bug in the move, not an improvement.
  */
 export function buildShellLifetimeInputs(opts: {
   purpose: ShellLifetimePurpose
@@ -140,6 +157,8 @@ export function buildShellLifetimeInputs(opts: {
   unheldMs?: number | undefined
   backstopMs?: number | undefined
   idleGraceMs?: number | undefined
+  unwatchedMs?: number | undefined
+  warmTtlMs?: number | undefined
 }): ShellLifetimeInputs {
   return {
     purpose: opts.purpose,
@@ -151,8 +170,8 @@ export function buildShellLifetimeInputs(opts: {
     worktreeFreed: opts.worktreeFreed,
     quietMs: opts.quietMs,
     unheldMs: opts.unheldMs,
-    unwatchedMs: 0,
-    warmTtlMs: 0,
+    unwatchedMs: opts.unwatchedMs,
+    warmTtlMs: opts.warmTtlMs,
     backstopMs: opts.backstopMs,
     idleGraceMs: opts.idleGraceMs,
     exited: false,
@@ -171,10 +190,14 @@ export function decideShellLifetime(input: ShellLifetimeInputs): ShellLifetimeDe
   }
   // Row 4: the attach-TUI warm-park TTL, as an input to this table rather than
   // a second decision elsewhere. Park drops the TUI's Terminal; the process
-  // stays owned until a kill verdict.
+  // stays owned until a kill verdict. Absent measurements disable the row, as
+  // with the backstop and the unheld grace — a session the server never saw
+  // watched-then-unwatched has no client terminal to close.
   if (
     input.purpose === 'attach-tui' &&
     !input.watched &&
+    input.unwatchedMs !== undefined &&
+    input.warmTtlMs !== undefined &&
     input.unwatchedMs >= input.warmTtlMs
   ) {
     return { verdict: 'park', reason: 'attach-tui-unwatched-past-warm-ttl' }

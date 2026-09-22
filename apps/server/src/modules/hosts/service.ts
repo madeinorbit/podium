@@ -13,7 +13,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
-import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs } from '../sessions/terminal-lifetime'
+import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs, ATTACH_TUI_WARM_TTL_MS } from '../sessions/terminal-lifetime'
 
 const log = createLogger('server:hosts')
 
@@ -84,10 +84,16 @@ export interface HostSessionView {
   heldByTab: boolean
   /** Whether a viewer renders it in native mode right now. */
   watched: boolean
-  /** Shell purpose: login panes are kept until exit, as one table line. */
-  purpose: 'shell' | 'login'
+  /** Shell purpose: login panes are kept until exit, as one table line.
+   *  Attach TUIs go through the table as 'attach-tui' (POD-4524): a bound
+   *  server-family session whose native surface is a daemon-side client
+   *  terminal. Projected by relay.ts. */
+  purpose: 'shell' | 'login' | 'attach-tui'
   /** Ms since anything held it; undefined = never seen held (disables grace). */
   lastHeldAtMs: number | undefined
+  /** When native view last went away; undefined = never seen
+   *  watched-then-unwatched (disables the attach-TUI warm-park row). */
+  lastUnwatchedAtMs?: number | undefined
   resume?: { kind: string; value: string } | undefined
   agentState?: AgentRuntimeState | undefined
   lastActiveAt: string
@@ -202,6 +208,11 @@ export class HostsService {
   private readonly lastAutoHibernateMsByMachine = new Map<string, number>()
   private readonly countHibernateBudgetByMachine = new Map<string, CountHibernateBudget>()
   private readonly lastCapUnmetByMachine = new Map<string, string>()
+  /** Attach-TUI sessions already ordered closed (POD-4524): one close order per
+   *  unwatched window — the daemon's close is idempotent, but re-sending every
+   *  sample would spam a frame for a decision already delivered. Cleared when
+   *  the session is watched again (a fresh window) or stops being live. */
+  private readonly attachTuiParkOrdered = new Set<SessionId>()
   /** Dedup key for the unobserved-quiet log line (POD-565 step 1). */
   private readonly lastUnobservedCountByMachine = new Map<string, number>()
   private readonly missingProofLogged = new Set<string>()
@@ -504,6 +515,11 @@ export class HostsService {
       failed,
     )
 
+    // Attach TUIs never enter hibernateSession either (no row to hibernate).
+    // The table's warm-park row owns them (POD-4524): the reaper evaluates
+    // every live attach-TUI session on every sample, pressure or not.
+    await this.applyAttachTuiPressure(machineId, now)
+
     if (cfg.backstopMinutes !== null) {
       await this.applyIdleBackstop(
         machineId,
@@ -689,9 +705,84 @@ export class HostsService {
     )
   }
 
+  /**
+   * THE ATTACH-TUI WARM-PARK TRIGGER (POD-4524): the server owns row 4 of the
+   * shell lifetime table. Every live attach-TUI session — a bound server-family
+   * session, projected as purpose 'attach-tui' — goes through
+   * decideShellLifetime with the real unwatched age and the warm TTL.
+   *
+   * Park AND kill both map onto the daemon's per-session client-terminal
+   * close, never onto the server's park/kill: this trigger owns the viewer
+   * convenience, not the work, so the agent row is untouched however the table
+   * answers. The inputs are scoped (see decideForAttachTui) so only row 4 can
+   * fire; the kill mapping is insurance for a future widening, not a live arm.
+   */
+  private async applyAttachTuiPressure(machineId: MachineId, now: number): Promise<void> {
+    const live = [...(await this.deps.sessions())]
+      .filter(
+        (session) =>
+          session.machineId === machineId &&
+          session.status === 'live' &&
+          session.purpose === 'attach-tui',
+      )
+      .sort((a, b) => (a.lastUnwatchedAtMs ?? Number.POSITIVE_INFINITY) - (b.lastUnwatchedAtMs ?? Number.POSITIVE_INFINITY))
+    const liveIds = new Set(live.map((session) => session.sessionId))
+    for (const ordered of [...this.attachTuiParkOrdered]) {
+      if (!liveIds.has(ordered)) this.attachTuiParkOrdered.delete(ordered)
+    }
+    for (const session of live) {
+      // Watched again: a fresh warm window starts on the next unwatch, so the
+      // one-shot below re-arms.
+      if (session.watched) {
+        this.attachTuiParkOrdered.delete(session.sessionId)
+        continue
+      }
+      if (this.attachTuiParkOrdered.has(session.sessionId)) continue
+      const decision = this.decideForAttachTui(session, now)
+      if (decision.verdict === 'keep') continue
+      this.deps.toMachine(machineId, { type: 'closeClientTerminal', sessionId: session.sessionId })
+      this.attachTuiParkOrdered.add(session.sessionId)
+      log.info('attach-TUI lifetime policy — closing an unwatched client terminal', {
+        machine: await this.deps.machineName(machineId),
+        sessionId: session.sessionId,
+        reason: decision.reason,
+      })
+    }
+  }
+
+  /**
+   * One attach TUI's policy inputs: the real unwatched age against the warm
+   * TTL, and NOTHING else. hasInput true, a present owner, no edge, no grace
+   * and no backstop scope every other row out — ownership and quiet stay with
+   * the close/free triggers and the agent backstop, which own the agent row
+   * this trigger must never touch. Absent unwatched age (never seen
+   * watched-then-unwatched) disables row 4: no client terminal, nothing to do.
+   */
+  private decideForAttachTui(session: HostSessionView, now: number) {
+    return decideShellLifetime(
+      buildShellLifetimeInputs({
+        purpose: 'attach-tui',
+        hasInput: true,
+        heldByTab: session.heldByTab,
+        watched: session.watched,
+        lastTabReleased: false,
+        issueClosed: false,
+        worktreeFreed: false,
+        quietMs: 0,
+        unheldMs: undefined,
+        backstopMs: undefined,
+        idleGraceMs: undefined,
+        unwatchedMs:
+          session.lastUnwatchedAtMs === undefined
+            ? undefined
+            : Math.max(0, now - session.lastUnwatchedAtMs),
+        warmTtlMs: ATTACH_TUI_WARM_TTL_MS,
+      }),
+    )
+  }
+
   /** Park one shell through the teardown verb, recording races. */
-  private async parkShell(sessionId: SessionId, failed: Set<string>): Promise<boolean> {
-    const result = await this.deps.parkShellSession({ sessionId })
+  private async parkShell(sessionId: SessionId, failed: Set<string>): Promise<boolean> {    const result = await this.deps.parkShellSession({ sessionId })
     if (!result.ok) {
       failed.add(sessionId)
       return false
