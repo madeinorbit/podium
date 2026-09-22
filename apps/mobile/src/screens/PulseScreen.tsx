@@ -28,7 +28,9 @@ import {
   visibleFleetOperations,
   windowElapsedPercent,
 } from '@podium/client-core/viewmodels'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { AgentKind, QuotaWindowWire } from '@podium/model'
+import { agentDescriptors } from '../lib/agent-models'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { BarTrace, Meter, type MeterTone, Readout, SubReadout } from '../components/instruments'
@@ -926,12 +928,27 @@ const SEVERITY_TONE: Record<'ok' | 'warn' | 'critical', MeterTone> = {
   critical: 'crit',
 }
 
-/** Claude's terracotta is a BRAND mark, not a status colour — it never competes
- *  with the tones the meters use. Every other harness stays neutral. */
-const markColor = (agent: AgentKind): string =>
-  agent === 'claude-code' ? color.claudeText : color.body
-const markBorder = (agent: AgentKind): string =>
-  agent === 'claude-code' ? color.claudeText : color.border
+/** Brand marks, read off descriptors (POD-4475): Claude's terracotta is a
+ *  BRAND mark, not a status colour — it never competes with the tones the
+ *  meters use. Every other harness stays neutral. Keyed by brand-ground VALUE
+ *  (not harness name), so a newer brand falls back instead of mismatching. */
+const BRAND_MARK_TONE: Record<string, string> = { '#d97757': color.claudeText }
+function brandBgOf(
+  agent: AgentKind | string,
+  descriptors?: readonly HarnessDescriptorWire[],
+): string | undefined {
+  return agentDescriptors(descriptors).find((d) => d.kind === agent)?.brand?.bg
+}
+const markColor = (agent: AgentKind, descriptors?: readonly HarnessDescriptorWire[]): string =>
+  ((): string => {
+    const bg = brandBgOf(agent, descriptors)
+    return (bg && BRAND_MARK_TONE[bg]) ?? color.body
+  })()
+const markBorder = (agent: AgentKind, descriptors?: readonly HarnessDescriptorWire[]): string =>
+  ((): string => {
+    const bg = brandBgOf(agent, descriptors)
+    return (bg && BRAND_MARK_TONE[bg]) ?? color.border
+  })()
 
 const styles = StyleSheet.create({
   content: {

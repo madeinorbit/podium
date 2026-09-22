@@ -24,6 +24,7 @@ import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useMachines, useSessions, useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
+import { useHarnessDescriptors } from '@podium/client-core/react'
 import {
   AUTO,
   allConnectorModelLabel,
@@ -35,6 +36,7 @@ import {
   groupedCatalogOptions,
   type IssueAgentKind,
   isEffortValid,
+  issueDefaultAgentKind,
   spawnSelection,
 } from '../lib/agent-models'
 import { reposOnMachine } from '../lib/new-work'
@@ -138,6 +140,9 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   // The catalog is a fact about the machine this spawn will land on, so it is
   // read for THAT machine and re-read when the operator changes it.
   const catalog = useModelCatalog<MobileTrpc>(machineId ?? undefined)
+  // Served harness descriptors for the spawn target (POD-4475): names,
+  // models and effort support render from the report, bundled copy offline.
+  const { served } = useHarnessDescriptors<MobileTrpc>(machineId ?? undefined)
 
   const { repos, lastUsedByRepo } = useMemo(() => {
     const choices = [...sections.pinnedRepos, ...sections.repos]
@@ -201,7 +206,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
 
   const decoded = decodeModelPick(model)
   const isShell = model === SHELL_PICK
-  const harness: AgentKind = isShell ? 'shell' : (decoded.agentKind ?? 'claude-code')
+  const harness: AgentKind = isShell ? 'shell' : (decoded.agentKind ?? issueDefaultAgentKind(undefined))
 
   const start = (repo: RepoNavView, explicit?: MachineId) => {
     const targetMachine = resolveSpawnMachine(
@@ -237,16 +242,16 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
       return
     }
     const picked = decodeModelPick(value)
-    const kind = (picked.agentKind ?? 'claude-code') as IssueAgentKind
-    const options = effortOptionsForModel(kind, picked.model, catalog[kind])
-    if (options.length === 0 || !isEffortValid(kind, effort, catalog[kind])) setEffortPick(AUTO)
+    const kind = (picked.agentKind ?? issueDefaultAgentKind(undefined)) as IssueAgentKind
+    const options = effortOptionsForModel(kind, picked.model, catalog[kind], served)
+    if (options.length === 0 || !isEffortValid(kind, effort, catalog[kind], served)) setEffortPick(AUTO)
     setStep('launch')
   }
 
   // The shell rides at the END of the list: it is the escape hatch, not a peer
   // of the models above it.
   const modelOptions: CatalogOption[] = [
-    ...allConnectorModelOptions(catalog),
+    ...allConnectorModelOptions(catalog, served),
     { value: SHELL_PICK, label: 'Shell', group: 'No agent' },
   ]
   /**
@@ -260,7 +265,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
    * would fail at the daemon, several taps later, with nothing on screen that
    * explained why.
    */
-  const pickHarness = (decoded.agentKind ?? 'claude-code') as IssueAgentKind
+  const pickHarness = (decoded.agentKind ?? issueDefaultAgentKind(undefined)) as IssueAgentKind
   const retired =
     !isShell &&
     model !== AUTO &&
@@ -271,11 +276,11 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     ? 'Shell'
     : retired
       ? 'Auto'
-      : allConnectorModelLabel(decoded.agentKind, decoded.model, catalog)
+      : allConnectorModelLabel(decoded.agentKind, decoded.model, catalog, served)
   const effortChoices =
     effectiveModel === AUTO || isShell
       ? []
-      : effortOptionsForModel(pickHarness, decoded.model, catalog[pickHarness])
+      : effortOptionsForModel(pickHarness, decoded.model, catalog[pickHarness], served)
   const machineOk = !showMachine || selectedMachine?.availability === 'available'
   const canStart = machineOk && selectedRepo !== null
 
