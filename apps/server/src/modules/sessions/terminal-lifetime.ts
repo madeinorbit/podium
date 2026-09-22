@@ -67,14 +67,14 @@ export type ShellLifetimeVerdict = 'keep' | 'park' | 'kill'
 export type ShellLifetimePurpose = 'shell' | 'login' | 'attach-tui'
 
 /**
- * THE ATTACH-TUI WARM-PARK TTL (POD-4524): the server-side copy of the
- * daemon's WARM_TTL_MS (`apps/daemon/src/runtime/opencode-attach.ts`). The
- * table owns the decision — the daemon runs no clock — so this constant is
- * the `warmTtlMs` input of row 4, and the two values must stay the same
- * 30-minute window. The daemon's constant survives only as the informational
- * `warm.ttlMs` its attach endpoint reports.
+ * THE ATTACH-TUI WARM-PARK TTL (POD-4524): re-exported, not mirrored. The
+ * window's one source is `ATTACH_TUI_WARM_TTL_MS` in `@podium/protocol`: it
+ * is the `warmTtlMs` input of row 4 here and the value the daemon reports as
+ * the attach endpoint's informational `warmTtlMs`. Re-exported so the table
+ * reads the same literal the daemon advertises — there is no second number
+ * to keep in sync.
  */
-export const ATTACH_TUI_WARM_TTL_MS = 30 * 60_000
+export { ATTACH_TUI_WARM_TTL_MS } from '@podium/protocol'
 
 export interface ShellLifetimeInputs {
   /** No per-kind branches: a dock shell, a tab shell, a login pane and an

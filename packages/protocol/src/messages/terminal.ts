@@ -633,6 +633,16 @@ export const SessionPriorityMessage = z.object({
   nativeView: z.boolean().optional(),
 })
 /**
+ * THE ATTACH-TUI WARM WINDOW (POD-4524) — the ONE literal both sides read.
+ *
+ * The server's shell lifetime table owns the decision (attach-TUI row:
+ * unwatched past this TTL → park, ordered as `closeClientTerminal`), and the
+ * daemon reports this same value as the attach endpoint's informational
+ * `warmTtlMs`. One literal, imported by both — there is no second number to
+ * keep in sync, so the two can never silently disagree.
+ */
+export const ATTACH_TUI_WARM_TTL_MS = 30 * 60_000
+/**
  * Server→daemon: the shell lifetime table's attach-TUI row fired (POD-4524) —
  * this session's client terminal has been unwatched past its warm TTL, so
  * close it. Drops the Terminal and reclaims the client master; the agent
