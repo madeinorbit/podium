@@ -143,7 +143,29 @@ server's title. Mutation: building from the snapshot again makes it carry
 - `displayRef` covers both spellings (`POD-<seq>` and `#<seq>`); repo `r5`
   spans two paths (`/repo-5`, `/other-path-5`) for the group-merge rule.
 
-## Timings (bench lock held; box heavily loaded — see uptime)
+## Timings under load below 8 (POD-4551, as of 2ef9f6606)
+
+Bench lock `bench:ludovico` held for the run. `uptime` before: load average
+4.10, 6.77, 8.36; after: 5.39, 6.91, 8.37. The 1-minute load was read before
+each of the 15 records and stayed between 4.10 and 5.43. Five rounds, with
+the scale order rotated each round (1-2-4, 2-4-1, 4-1-2, 1-4-2, 2-1-4), after
+one unrecorded warm-up build. In-process `performance.now()` under bun, so
+these are wall times of generation and of the oracle, not browser work
+times. Medians (min–max):
+
+| scale | build | oracle (incl. twin collapse) |
+|---|---|---|
+| 1x | 47 ms (42–126) | 155 ms (110–332) |
+| 2x | 104 ms (80–110) | 657 ms (556–1,071) |
+| 4x | 207 ms (177–226) | 2,160 ms (1,887–2,601) |
+
+Build time grows about linearly with scale (47 → 104 → 207 ms, 2.2x then
+2.0x). The oracle grows faster than linearly (155 → 657 → 2,160 ms, 4.2x
+then 3.3x). That is the legacy derivation's own cost growth, the thing round
+three measures, not a property of the corpus. Budgets in `oracle.test.ts`
+(4x build < 10 s, 1x oracle < 5 s) hold with wide margin.
+
+## Timings, round two (bench lock held; box heavily loaded — see uptime)
 
 `uptime: 22:57:14 up 9 days, 5:35, 4 users, load average: 23.67, 20.18, 15.74`.
 Load was above 8 throughout, so counts carry the verdict; walls are recorded
