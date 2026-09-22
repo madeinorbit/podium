@@ -537,6 +537,9 @@ function installClaudeCodeInstrumentation(
 // ---------------------------------------------------------------------------
 
 export const claudeCodeInstrumentation: HarnessInstrumentation = {
+  // Per-session `--settings` file wiring; Claude has no shared hook home, so
+  // installs never serialize across sessions.
+  scope: { kind: 'session' },
   install: (destination) => Promise.resolve(installClaudeCodeInstrumentation(destination)),
   payloadCodec: {
     eventName: (raw) => hookField(raw, 'hook_event_name'),

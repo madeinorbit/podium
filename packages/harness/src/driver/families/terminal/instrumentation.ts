@@ -19,18 +19,16 @@
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { createServer, type RequestListener, type Server } from 'node:http'
 import { createConnection } from 'node:net'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { DriverCapabilities, SessionSpec } from '../../host.js'
 import {
-  type AgentManifest,
-  type HarnessCapabilities,
   type HarnessInstrumentation,
   type InstalledInstrumentation,
   type InstrumentationDestination,
+  type InstrumentationInstallScope,
 } from '../../../manifest.js'
 import {
   HOOK_INGEST_ENDPOINT,
@@ -53,12 +51,13 @@ export type InstalledTerminalInstrumentation = InstalledInstrumentation
  * supervision with `Pick<EngineSupervisor, 'scopeUnitFor'>`).
  */
 export interface TerminalInstrumentationSections {
-  /** The harness's own install layout, payload codec and transport. */
+  /**
+   * The harness's own install layout, payload codec, transport and install
+   * scope. The scope (`session` vs `home`) is adapter-declared: the mechanism
+   * looks one strategy up by `scope.kind` and never branches on a
+   * harness-shaped flag.
+   */
   instrumentation: HarnessInstrumentation
-  /** Only the home selector: which env var redirects the harness home. */
-  environment: Pick<AgentManifest['environment'], 'instanceHome'>
-  /** Which install layout applies: per-session args or a shared global home. */
-  hookInstall: HarnessCapabilities['hookInstall']
 }
 
 /**
@@ -378,7 +377,7 @@ export async function installTerminalInstrumentation(input: {
   const channel = spec.instrumentation
   if (!channel) throw new Error('missing terminal instrumentation channel')
   const instrumentation = sections.instrumentation
-  if (!instrumentation || sections.hookInstall === 'none') {
+  if (!instrumentation) {
     throw new Error(`no instrumentation installer for ${input.harness}`)
   }
   const destination: InstrumentationDestination = {
@@ -391,32 +390,31 @@ export async function installTerminalInstrumentation(input: {
     ...(spec.env ? { env: spec.env } : {}),
     ...(input.reportVersionProbe ? { reportVersionProbe: input.reportVersionProbe } : {}),
   }
+  // The install scope is adapter-declared: one strategy per `scope.kind`,
+  // looked up — never an `if` on a harness-shaped flag. The `home` strategy
+  // serializes by the home the adapter computed; the `session` strategy
+  // installs directly and touches no shared home.
+  const strategies: Record<
+    InstrumentationInstallScope['kind'],
+    (destination: InstrumentationDestination) => Promise<InstalledInstrumentation>
+  > = {
+    session: (destination) => instrumentation.install(destination),
+    home: (destination) => {
+      // The table lookup guarantees this arm runs only for a home scope, so
+      // the narrowing below cannot fail — it only recovers the `homeOf` the
+      // union type cannot carry through the `Record` index.
+      const homeScope = instrumentation.scope as Extract<
+        InstrumentationInstallScope,
+        { kind: 'home' }
+      >
+      const home = homeScope.homeOf(destination)
+      destination.harnessHome = home
+      return serialized(`${input.harness}:${home}`, () => instrumentation.install(destination))
+    },
+  }
   let wiring: InstalledInstrumentation
   try {
-    if (sections.hookInstall === 'global-env') {
-      // Match the child environment: instance-owned homes override session values.
-      // The selector is the handed environment section, never a registry read —
-      // this is the same rule `harnessInstanceHomeEnv` states, applied to what
-      // the family was given.
-      const selector = sections.environment.instanceHome
-      const env = {
-        ...process.env,
-        ...spec.env,
-        ...(selector && input.homeDir
-          ? { [selector.variable]: join(input.homeDir, selector.relativeDir) }
-          : {}),
-      }
-      const homeDir = input.homeDir ?? env.HOME ?? homedir()
-      const harnessHome = selector
-        ? env[selector.variable]?.trim() || join(homeDir, selector.relativeDir)
-        : homeDir
-      destination.harnessHome = harnessHome
-      wiring = await serialized(`${input.harness}:${harnessHome}`, () =>
-        instrumentation.install(destination),
-      )
-    } else {
-      wiring = await instrumentation.install(destination)
-    }
+    wiring = await strategies[instrumentation.scope.kind](destination)
   } catch (error) {
     // A throwing install degrades like a refused one: the session starts
     // poll-only with the reason reported, it is not refused. (Refusal is the

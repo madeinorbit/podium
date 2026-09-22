@@ -911,6 +911,20 @@ export interface HookPayloadCodec {
   decode(raw: unknown): Promise<ProviderAgentStateEvent[]>
 }
 
+/**
+ * Where an instrumentation install serializes.
+ *
+ * Declared by the adapter, never branched on by the family (spec §3
+ * "Mechanism varies how we use it"): the terminal family's install mechanism
+ * looks one strategy up by `kind`. `session` installs directly — the wiring
+ * touches no shared home. `home` installs share one harness home across every
+ * session in it, so the mechanism serializes by the home the adapter computed
+ * and leaves the result in place on spawn failure (spec §4.8 step 2).
+ */
+export type InstrumentationInstallScope =
+  | { kind: 'session' }
+  | { kind: 'home'; homeOf(destination: InstrumentationDestination): string }
+
 export interface HarnessInstrumentation {
   /** Install the hook wiring for one session: global layout (where the
    *  harness has one) plus the per-session callback wiring. */
@@ -919,6 +933,8 @@ export interface HarnessInstrumentation {
   /** How hook payloads reach the daemon. `none` ⇒ this harness posts nothing;
    *  the family starts no per-session wiring for it. */
   hookTransport: 'loopback-http' | 'none'
+  /** The install scope the family's strategy table reads — no harness flag. */
+  scope: InstrumentationInstallScope
 }
 
 // ---------------------------------------------------------------------------

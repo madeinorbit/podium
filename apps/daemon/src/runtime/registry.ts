@@ -88,15 +88,13 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
 export function terminalInstrumentationSectionsFor(kind: string): TerminalInstrumentationSections {
   const manifest = manifestFor(kind)
   const instrumentation = manifest ? declaredValue(manifest.instrumentation) : undefined
-  if (!manifest || !instrumentation || manifest.capabilities.hookInstall === 'none') {
+  if (!manifest || !instrumentation) {
     throw new Error(`no instrumentation installer for ${kind}`)
   }
-  const instanceHome = manifest.environment.instanceHome
-  return {
-    instrumentation,
-    environment: { ...(instanceHome ? { instanceHome } : {}) },
-    hookInstall: manifest.capabilities.hookInstall,
-  }
+  // The install scope travels inside the instrumentation section itself —
+  // the family looks its strategy up by `scope.kind`, so no environment or
+  // capability flag is handed here.
+  return { instrumentation }
 }
 
 // ---------------------------------------------------------------------------
