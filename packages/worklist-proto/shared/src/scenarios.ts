@@ -798,9 +798,16 @@ export function remove(ctx: ScenarioEngine, entity: string, entityId: string): v
   ctx.replica.onKernelEvent({ type: 'removed', entity, entityId } as never)
 }
 
+// Server writes build on SERVER truth: the kernel cache the replica reads,
+// never the runtime snapshot. The snapshot is painted: it carries the
+// client's pending overlays, so a write built from it would echo a pending
+// value back as if the server had written it (POD-4551, as the change
+// generator does, gen/run.ts). The cache also keeps every resume twin the
+// snapshot's session list collapses.
+
 function patchSession(ctx: ScenarioEngine, sessionId: string, patch: Record<string, unknown>): void {
-  const current = ctx.engine.getSnapshot().sessions.find((s) => s.sessionId === sessionId)
-  if (!current) throw new Error(`session ${sessionId} missing from snapshot`)
+  const current = ctx.cache.read('session', sessionId)?.value as object | undefined
+  if (!current) throw new Error(`session ${sessionId} missing from the server cache`)
   upsert(ctx, 'session', sessionId, { ...current, ...patch })
 }
 
@@ -811,8 +818,8 @@ function patchIssue(
   wirePatch: Record<string, unknown>,
   projectionPatch: Record<string, unknown> = {},
 ): void {
-  const wire = ctx.engine.getSnapshot().issues.find((i) => i.id === id)
-  if (!wire) throw new Error(`issue ${id} missing from snapshot`)
+  const wire = ctx.cache.read('issue', id)?.value as object | undefined
+  if (!wire) throw new Error(`issue ${id} missing from the server cache`)
   const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
   ctx.replica.batch(() => {
     upsert(ctx, 'issue', id, { ...wire, ...wirePatch })

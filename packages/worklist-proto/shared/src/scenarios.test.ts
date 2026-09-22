@@ -7,10 +7,12 @@
  *
  * Counts only — no walls under box load (methodology §5.7).
  */
+import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { expectedSnapshot } from '../../harness/src/oracle/index'
 import {
+  applyStageMove,
   archiveIssue,
   burst50,
   clockTick,
@@ -28,6 +30,7 @@ import {
   rescopeGrowth,
   SCENARIOS,
   selectionClick,
+  startScenarioEngine,
   stageMoveAcrossGroups,
   unrelatedHeartbeat,
   visibleSessionPhaseChange,
@@ -337,6 +340,30 @@ describe('scenarios on the fixture at 1x', () => {
     expect(result.after.issues.map((i) => i.id).sort()).toEqual(
       result.before.issues.map((i) => i.id).sort(),
     )
+  }, 60_000)
+})
+
+describe('scenario server writes build on server truth (POD-4551)', () => {
+  it('a server write on another field of a row with a pending edit keeps the server value', async () => {
+    // A server that never answers keeps the title edit pending, so the
+    // runtime snapshot paints it while the server cache does not have it.
+    const ctx = await startScenarioEngine(1, { server: { issueUpdate: () => new Promise(() => {}) } })
+    try {
+      const id = ctx.targets.stageMoveId
+      const serverTitle = (ctx.cache.read('issue', id)?.value as { title: string }).title
+      void ctx.engine.getSnapshot().updateIssue(asIssueId(id), { title: 'Pending title' } as never)
+      await new Promise((r) => setTimeout(r, ctx.settleMs))
+      const painted = ctx.engine.getSnapshot().issues.find((i) => i.id === id) as { title: string }
+      expect(painted.title, 'the edit is pending and painted').toBe('Pending title')
+
+      applyStageMove(ctx, id)
+
+      const wire = ctx.cache.read('issue', id)?.value as { title: string; stage: string }
+      expect(wire.stage).toBe('done')
+      expect(wire.title, 'the server write carries the server title, not the painted one').toBe(serverTitle)
+    } finally {
+      ctx.engine.destroy()
+    }
   }, 60_000)
 })
 
