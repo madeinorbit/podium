@@ -305,9 +305,9 @@ export function resolveRuntimeDriver(input: {
     }
     return { ok: true, driverId: 'headless' }
   }
-  // The embedded SDK is an operator experiment, never a policy/default choice:
-  // only the explicit per-spawn spelling selects it, so no default can silently
-  // move Claude sessions off the interactive PTY path.
+  // The Claude stream engine is an operator experiment, never a policy/default
+  // choice: only the explicit per-spawn spelling selects it, so no default can
+  // silently move Claude sessions off the interactive PTY path.
   if (input.requested === 'claude-sdk') {
     const embedded = declaredValue(manifest.runtime.embedded)
     if (!embedded || embedded.driverId !== 'claude-sdk') {
@@ -342,12 +342,15 @@ export function runtimeDriverIntentForSpawn(input: {
   return { requested, preferred: requested ?? declaredServer?.driverId }
 }
 
-/** Does this harness declare a server driver at all, and is it the one selected?
- *  Read off the manifest rather than by comparing strings at each call site.
- *  `headless` counts as server-family here: its binding family is `server`
- *  (no PTY, protocol/event-stream driven) and every harness declares the
- *  headless axis, so a spawn that names it must take the server launch path
- *  rather than falling through to the PTY one. */
+/** Does this harness declare a server-family driver at all, and is it the one
+ *  selected? Read off the manifest rather than by comparing strings at each
+ *  call site. `headless` counts as server-family here: its binding family is
+ *  `server` (no PTY, protocol/event-stream driven) and every harness declares
+ *  the headless axis, so a spawn that names it must take the server launch path
+ *  rather than falling through to the PTY one. So does the engine a harness
+ *  declares on its `runtime.embedded` axis (Claude's stream engine): the axis
+ *  says the vendor ships no server mode, the driver is server-family all the
+ *  same, and it launches, adopts and reaps through the same arms (POD-4612). */
 export function isServerDriver(agentKind: AgentKind, driverId: AcceptedDriverId): boolean {
   if (canonicalDriverId(driverId) === 'headless') {
     const headless = manifestFor(agentKind)?.headless
@@ -357,14 +360,9 @@ export function isServerDriver(agentKind: AgentKind, driverId: AcceptedDriverId)
   if (!runtime) return false
   return (
     declaredValue(runtime.server)?.driverId === driverId ||
-    runtime.serverAlternatives?.some((server) => server.driverId === driverId) === true
+    runtime.serverAlternatives?.some((server) => server.driverId === driverId) === true ||
+    declaredValue(runtime.embedded)?.driverId === driverId
   )
-}
-
-/** Is this the harness's declared embedded driver? */
-export function isEmbeddedDriver(agentKind: AgentKind, driverId: AcceptedDriverId): boolean {
-  const embedded = manifestFor(agentKind)?.runtime.embedded
-  return embedded !== undefined && declaredValue(embedded)?.driverId === driverId
 }
 
 /**

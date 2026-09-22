@@ -192,7 +192,7 @@ describe('createAgentRuntime', () => {
       binding: {
         sessionId,
         driver: 'claude-sdk',
-        family: 'embedded',
+        family: 'server',
         harness: 'claude-code',
         workdir: '/tmp/claude-root',
         resume,
@@ -204,7 +204,7 @@ describe('createAgentRuntime', () => {
     const driver = {
       id: 'claude-sdk',
       harness: 'claude-code',
-      family: 'embedded',
+      family: 'server',
       capabilities: () => ({}),
     } as unknown as RuntimeDriver
     const resumeWithId = vi.fn(async (id: SessionId, ref: ResumeRef, sessionSpec: SessionSpec) => {

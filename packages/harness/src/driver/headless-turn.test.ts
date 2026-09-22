@@ -108,8 +108,8 @@ describe('headless contract fields', () => {
     expect(spec.accountId).toBe(ACCOUNT)
   })
 
-  it('runs on every dispatch family (server, terminal, embedded)', async () => {
-    for (const family of ['server', 'terminal', 'embedded'] as const) {
+  it('runs on every dispatch family (server, terminal)', async () => {
+    for (const family of ['server', 'terminal'] as const) {
       resetFakeRuntime()
       const driver = createFakeDriver({ family })
       const handle = await driver.create(SPEC)

@@ -12,9 +12,12 @@ import {
 import type { ClaudeEngineHost } from './engine-host.js'
 import { claudeEngineProcessKey, type ClaudeEngineFacts } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
-import type { ServerSessionFramePorts } from '../server-family.js'
+import type {
+  ServerFamilyJournalEntry,
+  ServerFamilyRuntime,
+  ServerSessionFramePorts,
+} from '../server-family.js'
 import type { SessionDriverSlots } from '../session-slots.js'
-import type { ServerFamilyJournalEntry } from '../server-family.js'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import {
@@ -86,8 +89,20 @@ export async function ensureClaudeBindingPublished(
   await emitClaudeBinding(ports, input, handle)
 }
 
-export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
+/**
+ * A SERVER FAMILY LIKE THE OTHERS (POD-4612). The supervisor composes this in
+ * its server list beside codex, opencode and grok: one engine child under
+ * podium-host per session, journalled, adopted and reaped through the same
+ * generic arms. What it adds is {@link ServerFamilyRuntime.launchResumed} —
+ * the Claude conversation outlives any engine, so a resume ref alone is enough
+ * to continue it.
+ */
+export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime, ServerFamilyRuntime {
   launch(input: ClaudeSdkSessionLaunch): Promise<AgentSessionHandle>
+  launchResumed(
+    input: Omit<ClaudeSdkSessionLaunch, 'resume'>,
+    resume: ResumeRef,
+  ): Promise<AgentSessionHandle>
   /** Every session this runtime currently holds. */
   has(sessionId: SessionId): boolean
   /**
@@ -97,10 +112,11 @@ export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
    */
   journal: ClaudeEngineHost['journal']
   /**
-   * Re-bind a session after a daemon restart, from the journal alone. The
+   * Re-bind a session, from the journal alone after a daemon restart. The
    * engine re-attach itself stays lazy (first turn adopts the survivor, or
    * spawns fresh with `--resume` when nothing survived), so adopt never fails
-   * for a missing engine — only for a missing journal.
+   * for a missing engine — only for a missing journal. A session this daemon
+   * still holds re-adopts its own core instead: never a second one.
    */
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
   /** Uniform server-family shape: the supervisor composes families without
@@ -300,11 +316,29 @@ export function createClaudeSdkSessionRuntime(
     journal: deps.engine.journal,
     journalEntry(sessionId) {
       const entry = deps.engine.journal.read(sessionId)
-      if (!entry) return undefined
+      if (entry) {
+        return {
+          workdir: entry.workdir,
+          process: entry.process,
+          bindingVersion: entry.bindingVersion,
+          resume: { kind: 'claude-session', value: entry.claudeSessionId },
+        }
+      }
+      /**
+       * HELD BUT NOT YET JOURNALLED. The engine starts lazily and the journal
+       * is written once the CLI names its session, so a live session that has
+       * not run a turn has no entry — and every generic arm asks this method
+       * whether the session is ours. Answering from the live binding keeps a
+       * zero-turn session reattachable on a server reconnect, which the
+       * bespoke arm this replaced did from its handle (POD-4612).
+       */
+      const live = contractRuntime.handleFor(sessionId)
+      if (!live) return undefined
       return {
-        workdir: entry.workdir,
-        process: entry.process,
-        bindingVersion: entry.bindingVersion,
+        workdir: live.binding.workdir,
+        process: live.binding.process,
+        bindingVersion: live.binding.bindingVersion,
+        ...(live.binding.resume ? { resume: live.binding.resume } : {}),
       }
     },
     clearJournal(sessionId) {
@@ -323,6 +357,15 @@ export function createClaudeSdkSessionRuntime(
     has: (sessionId) => contractRuntime.handleFor(sessionId) !== undefined,
 
     async adoptFromJournal(sessionId) {
+      // SAME-DAEMON FIRST. A reconnect re-sends reattach for sessions this
+      // daemon still holds; the exact identity is the live core, so adoption
+      // bumps its binding rather than resuming a second core beside it.
+      const live = contractRuntime.handleFor(sessionId)
+      if (live) {
+        const handle = await contractRuntime.adopt(live.binding)
+        reportResumeRef(sessionId, handle)
+        return handle
+      }
       const entry = deps.engine.journal.read(sessionId)
       // No entry is "not mine" — every terminal session reaches reattach paths
       // too, and answering anything else would hijack a PTY session's
@@ -367,6 +410,10 @@ export function createClaudeSdkSessionRuntime(
       pump(sessionId)
       reportResumeRef(sessionId, handle)
       return handle
+    },
+
+    async launchResumed(input, resume) {
+      return runtime.launch({ ...input, resume })
     },
 
     async launch(input) {

@@ -95,11 +95,7 @@ const roundedMs = (value: number): number => Math.round(value * 1_000) / 1_000
 const runtimeMode = (
   family: SessionBinding['family'] | undefined,
 ): 'headed' | 'headless' | undefined =>
-  family === 'terminal'
-    ? 'headed'
-    : family === 'server' || family === 'embedded'
-      ? 'headless'
-      : undefined
+  family === 'terminal' ? 'headed' : family === 'server' ? 'headless' : undefined
 
 /** Stateful only so an event can be measured from the request that caused it. */
 export class DriverTimingRecorder {

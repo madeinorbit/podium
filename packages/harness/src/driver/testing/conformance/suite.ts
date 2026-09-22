@@ -48,10 +48,12 @@ import {
   type DriverFamily,
   type DriverId,
   isDriverRefusal,
+  NO_ATTACH_DRIVERS,
   NO_NATIVE_STEER_DRIVERS,
   PERMITTED_FAILURES,
   type PendingInteraction,
   permits,
+  permitsNoAttach,
   permitsNoNativeSteer,
   type RefusalReason,
   type ResumeRefTiming,
@@ -2330,12 +2332,18 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const declared = driver.capabilities().attach
         const endpoint = await session.attach({ mode: 'peek', holder: 'viewer' })
         if (!declared.supported) {
-          // The embedded family has no terminal at all and says so — chat is
-          // the answer, not a fabricated stream.
-          expect(permits(target.family, 'no-attach')).toBe(true)
+          // A driver with no terminal at all says so — chat is the answer, not
+          // a fabricated stream — and only a driver pinned as entitled may.
+          assertNoAttachEntitled(target.family, driver.id)
           expect(endpoint).toMatchObject({ reason: 'unsupported' })
           return
         }
+        // An entitlement records an absence; a driver that attaches must not
+        // keep one (the same both-directions rule as NO_NATIVE_STEER_DRIVERS).
+        expect(
+          permitsNoAttach(driver.id),
+          `driver '${driver.id}' attaches AND is listed as entitled to decline it — remove it from NO_ATTACH_DRIVERS`,
+        ).toBe(false)
         expect('kind' in endpoint).toBe(true)
         if ('kind' in endpoint) expect(declared.value.kinds).toContain(endpoint.kind)
       })
@@ -2386,8 +2394,8 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const { handle, control, driver } = setup()
         const session = await handle
         if (driver.family !== 'server') {
-          // Terminal and embedded sessions expose no network endpoint, so there
-          // is nothing to authenticate. Stated rather than skipped silently.
+          // Terminal sessions expose no network endpoint, so there is nothing
+          // to authenticate. Stated rather than skipped silently.
           expect(control.connectWithoutSecret(session.binding.sessionId).refused).toBe(false)
           return
         }
@@ -2703,7 +2711,7 @@ export async function assertAttachHonoursOneControlLease(
     // terminal declines every mode, not just the one the older property happened
     // to ask for — an `attach` that refused `peek` and then handed out a
     // take-over endpoint would be a fabricated stream with a lease attached.
-    expect(permits(family, 'no-attach')).toBe(true)
+    assertNoAttachEntitled(family, session.binding.driver)
     expect(await session.attach({ mode: 'takeover', holder: 'operator' })).toMatchObject({
       reason: 'unsupported',
     })
@@ -2878,6 +2886,28 @@ export function assertSteerJoinedOpenTurn(observed: {
     textDeliveries.afterFence,
     'a steer was delivered a SECOND time when the turn fenced — its words were queued behind the turn they claimed to join',
   ).toBe(textDeliveries.before + 1)
+}
+
+/**
+ * A driver may decline `attach` only if its family permits it AND it is on the
+ * pinned list (POD-4612). The family gate alone admits every server driver
+ * since the Claude stream engine joined that family; the pin in
+ * `NO_ATTACH_DRIVERS` is what keeps a codex, opencode or grok driver that
+ * stopped producing its client terminal from passing. Exported so the corpus's
+ * own negative tests can watch it refuse.
+ */
+export function assertNoAttachEntitled(
+  family: DriverFamily,
+  driverId: DriverId | (string & {}),
+): void {
+  expect(
+    permits(family, 'no-attach'),
+    `family '${family}' is not permitted to decline attach`,
+  ).toBe(true)
+  expect(
+    permitsNoAttach(driverId as DriverId),
+    `driver '${driverId}' declined attach without being on the entitled list (${NO_ATTACH_DRIVERS.join(', ')}) — a client terminal is a per-harness fact, so add it there WITH the reason or declare attach`,
+  ).toBe(true)
 }
 
 /**

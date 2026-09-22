@@ -24,10 +24,9 @@ import {
   type SessionSpec,
 } from '@podium/harness/driver/host'
 import type { AcceptedDriverId } from '@podium/harness'
-import type { AgentKind, SessionId } from '@podium/model'
+import type { AgentKind, ResumeRef, SessionId } from '@podium/model'
 import type { DaemonMessage, RuntimeWatchLevel } from '@podium/protocol/daemon'
 import {
-  type DaemonClaudeSdkRuntime,
   HEADLESS_DRIVER_ID,
   type HeadlessRuntime,
   type HostedTurnIdentity,
@@ -71,6 +70,13 @@ export type JournalledAdoption =
        * for every non-bind failure, exactly as before.
        */
       bindFailure?: EngineBindUnrecoverable
+      /**
+       * THE JOURNAL NAMES A DIFFERENT CONVERSATION than the caller asked for
+       * (POD-4612). Nothing was adopted, and nothing may be reaped: the engine
+       * is still the one its journal describes, and it is the REQUEST that is
+       * wrong. Set only when both sides name a conversation.
+       */
+      conversationMismatch?: string
     }
 
 export type DaemonDriverResolution =
@@ -104,7 +110,23 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
     platform: NodeJS.Platform
     auth?: Parameters<typeof resolveRuntimeDriver>[0]['auth']
   }): DaemonDriverResolution
-  adoptJournalled(sessionId: SessionId): Promise<JournalledAdoption>
+  /**
+   * Adopt the session a server family journals. `expect.resume` is the
+   * conversation the caller's row names; a journal naming a different one is
+   * refused before any adopt (see `conversationMismatch`).
+   */
+  adoptJournalled(
+    sessionId: SessionId,
+    expect?: { resume?: ResumeRef },
+  ): Promise<JournalledAdoption>
+  /**
+   * Can this driver start a session that continues an existing conversation
+   * under a host-minted id? True where its source offers `resumeWithId` — the
+   * headless driver and the server families that declare `launchResumed`.
+   * Asked of the source, never of a harness name, so the spawn path's resume
+   * branch follows the declaration (POD-4612).
+   */
+  resumesAtLaunch(harness: AgentKind, driverId: DriverId): boolean
   serverHandleFor(sessionId: SessionId): AgentSessionHandle | undefined
   /**
    * Reconcile one session's DESIRED watch level (POD-2293).
@@ -130,7 +152,6 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
 
 export function createDaemonMachineRuntime(input: {
   terminal: TerminalRuntime
-  claude: DaemonClaudeSdkRuntime
   servers: readonly ServerFamilyRuntime[]
   headless: HeadlessRuntime
   inventory(): ReturnType<MachineAgentRuntime['inventory']>
@@ -210,26 +231,22 @@ export function createDaemonMachineRuntime(input: {
       if (!handle) throw new Error(`server session '${binding.sessionId}' could not be rebound`)
       return handle
     },
+    // Only a family that can continue a conversation from its ref alone
+    // declares this; the rest resume from their own journal.
+    ...(server.launchResumed
+      ? {
+          async resumeWithId(sessionId: SessionId, ref: ResumeRef, spec: SessionSpec) {
+            if (journalled(sessionId).length > 0) {
+              throw new Error(`session '${sessionId}' already has a persisted server journal`)
+            }
+            await server.launchResumed?.(serverLaunchFor(sessionId, spec), ref)
+            const handle = server.handleFor(sessionId)
+            if (!handle) throw new Error(`server runtime did not index session '${sessionId}'`)
+            return handle
+          },
+        }
+      : {}),
   })
-
-  const embeddedSource: AgentRuntimeDriverSource = {
-    driverFor(harness, driver) {
-      return input.claude.driver.harness === harness && input.claude.driver.id === driver
-        ? input.claude.driver
-        : undefined
-    },
-    handleFor: (sessionId) => input.claude.handleFor(sessionId),
-    bindings: () => input.claude.bindings(),
-    async createWithId(sessionId, spec) {
-      return input.claude.launch(serverLaunchFor(sessionId, spec))
-    },
-    async resumeWithId(sessionId, ref, spec) {
-      return input.claude.launch({ ...serverLaunchFor(sessionId, spec), resume: ref })
-    },
-    adopt(binding) {
-      return input.claude.driver.adopt(binding)
-    },
-  }
 
   /**
    * THE HEADLESS SOURCE (POD-4392): process-per-turn harness sessions behind
@@ -264,7 +281,7 @@ export function createDaemonMachineRuntime(input: {
 
   let runtime!: MachineAgentRuntime
   runtime = createAgentRuntime({
-    sources: () => [terminalSource, embeddedSource, ...serverSources, headlessSource],
+    sources: () => [terminalSource, ...serverSources, headlessSource],
     primitiveSupport: {
       import: {
         supported: false,
@@ -374,7 +391,6 @@ export function createDaemonMachineRuntime(input: {
       // in two runtimes at once: this is a lookup, not a broadcast — each
       // `reportOomKill` returns immediately for a session it does not have.
       input.terminal.reportOomKill(sessionId, scopeUnit)
-      input.claude.processEvent(sessionId, { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) })
       for (const server of servers) server.reportOomKill(sessionId, scopeUnit)
     },
     resolveDriver(selection) {
@@ -392,7 +408,7 @@ export function createDaemonMachineRuntime(input: {
         }
       }
     },
-    async adoptJournalled(sessionId) {
+    async adoptJournalled(sessionId, expect) {
       const found = journalled(sessionId)
       if (found.length === 0) return { found: false }
       if (found.length > 1) throw new Error(`session '${sessionId}' has duplicate server journals`)
@@ -400,6 +416,19 @@ export function createDaemonMachineRuntime(input: {
       if (!match) return { found: false }
       const { server, entry } = match
       const what = server.describe
+      const asked = expect?.resume
+      if (
+        asked &&
+        entry.resume &&
+        (entry.resume.kind !== asked.kind || entry.resume.value !== asked.value)
+      ) {
+        return {
+          found: true,
+          what,
+          workdir: entry.workdir,
+          conversationMismatch: `the ${what} session recorded in the binding journal continues a different conversation than this session names`,
+        }
+      }
       const binding: SessionBinding = {
         sessionId,
         driver: server.driver.id,
@@ -429,6 +458,15 @@ export function createDaemonMachineRuntime(input: {
         ...(bindFailure ? { bindFailure } : {}),
       }
     },
+    resumesAtLaunch(harness, driverId) {
+      if (driverId === HEADLESS_DRIVER_ID) return true
+      return servers.some(
+        (server) =>
+          server.driver.harness === harness &&
+          server.driver.id === driverId &&
+          server.launchResumed !== undefined,
+      )
+    },
     serverHandleFor(sessionId) {
       for (const server of servers) {
         const handle = server.handleFor(sessionId)
@@ -454,7 +492,6 @@ export function createDaemonMachineRuntime(input: {
     dispose() {
       watches.dispose()
       input.terminal.dispose()
-      input.claude.dispose()
       for (const server of servers) server.dispose()
     },
   }
