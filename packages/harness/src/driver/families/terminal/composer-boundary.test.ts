@@ -28,7 +28,7 @@ import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { AgentManifest } from '../../manifest.js'
+import type { AgentManifest } from '../../../manifest.js'
 import type { TerminalComposerSections } from './composer-sync.js'
 
 const FAMILY_DIR = dirname(fileURLToPath(import.meta.url))
