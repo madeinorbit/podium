@@ -45,7 +45,7 @@ oracle in `shared/src/scenarios.test.ts`:
 | Target | Rule |
 |---|---|
 | `heartbeatSessionId` (#1) | lowest-id session bound to a closed, childless agent root — a row the worklist never shows |
-| `visibleRootId` (#2 #3 #4, #7 destination) | lowest-id open human root in an active stage with children and a live working session |
+| `visibleRootId` (#2 #3 #4, #7 destination) | lowest-id open human root in an active stage with children, exactly one live working bound session and no working orphan seated under its worktree (so #2 flips `working` at every scale; oracle-checked at 1x/2x/4x) |
 | `phaseSessionId` (#2) | that root's first live working session |
 | `stageMoveId`, `archiveId`, `evictId`, `markReadId` (#5 #6b #6c #9) | the next distinct childless, unpinned open human roots |
 | `keeperLeafId` / `keeperParentId` (#6d) | an open leaf that is the ONLY child of a sessionless `backlog` rescue parent (the fixture carries ten such pairs) |
