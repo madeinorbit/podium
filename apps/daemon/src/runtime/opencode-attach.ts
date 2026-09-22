@@ -667,7 +667,7 @@ export function createOpencodeClientTerminals(
         // by a redeploy — that survival is what "warm" means. Park the Terminal
         // (unwire + detach) and let the next attach reconnect; the reaper still
         // owns the deadline.
-        if (owned.terminal === terminal) owned.park()
+        owned.dropTerminal(terminal)
         if (session.adopted) policy.suppressNextReplayRedraw = true
       },
     },
@@ -859,6 +859,8 @@ export function createOpencodeClientTerminals(
       // change. A start that hangs leaves its master to the server's warm-park
       // order (or the pressure sweep, or session teardown) rather than to a
       // timer here.
+      // Attached already: nothing to start. The slot itself parks any other
+      // Terminal when `started` replaces it below.
       if (!owned.terminal) {
         let generation = policy.generation
         let pending = policy.starting
@@ -900,7 +902,7 @@ export function createOpencodeClientTerminals(
               : 'the client terminal generation was revoked while it was starting',
           )
         }
-        owned.terminal = started
+        owned.replaceTerminal(started)
         const buffered = generation.pendingInput
         generation.pendingInput = []
         generation.pendingBytes = 0

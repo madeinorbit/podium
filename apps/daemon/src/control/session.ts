@@ -643,10 +643,10 @@ export function wireBridge(
           }
         : {}),
       onExit: (code) => {
-        // Drop the surface only if it is still this one: a reattach that won
-        // the race already replaced it, and the old attachment's exit must not
-        // clear the new Terminal (the epoch on the session says the same).
-        if (owned.terminal === terminal) owned.terminal = undefined
+        // Drop the surface through the entry, which parks it and clears the
+        // slot only if it is still this one: a Terminal that lost the slot
+        // must not clear its successor (the epoch on the session says the same).
+        owned.dropTerminal(terminal)
         // THE PTY THAT WAS AT THAT SIZE IS GONE, so the daemon holds no applied
         // grid for this session any more (POD-3290). Dropped here rather than left
         // to be overwritten: a later bind must not report a size that belongs to a
@@ -685,7 +685,7 @@ export function wireBridge(
     },
     { kind: 'headed', hardRepaint: agentKind === 'shell' },
   )
-  owned.terminal = terminal
+  owned.replaceTerminal(terminal)
   if (pending) terminal.applied = { cols: pending.cols, rows: pending.rows }
   else if (reported) terminal.applied = { cols: reported.cols, rows: reported.rows }
   return pending ? { cols: pending.cols, rows: pending.rows } : reported
@@ -2479,7 +2479,10 @@ export async function recoverTerminalHost(
     return
   }
   await ctx.reattachGate(async () => {
-    if (ctx.sessions.get(msg.sessionId)?.attached) return // raced with another reattach for this id
+    // Raced with another reattach for this id: skip a second host attach and
+    // bind. Not the one-Terminal rule — the entry's slot keeps that, parking a
+    // predecessor, for a spawn that lands while this reattach awaits the host.
+    if (ctx.sessions.get(msg.sessionId)?.attached) return
     // Re-pin a survivor (POD-665). Pins live in daemon memory, so a daemon restart
     // would otherwise leave every reattached session unpinned and free to be dragged
     // out of its worktree by the next `cd`. `msg.cwd` is the row's persisted cwd —
@@ -2657,7 +2660,9 @@ export async function stealTerminalWriter(
   owned.label = label
   // Park first: the losing attachment detaches while the master, the screen,
   // the held resize and the replay cursor stay owned. The stolen attachment
-  // replaces the surface below; nothing is reaped.
+  // replaces the surface below; nothing is reaped. The slot would park it on
+  // replace too — first is about ORDER: the old connection lets go before the
+  // lease is taken over.
   owned.park()
   const durable = durableProcessFor(ctx)
   if (!durable) throw new Error('durable backend unavailable')
