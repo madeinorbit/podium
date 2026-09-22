@@ -12,6 +12,7 @@ import type { HarnessDescriptorData } from '../../descriptor-types.js'
 
 export const grokDescriptor: HarnessDescriptorData = {
   kind: 'grok',
+  provider: 'xai',
   label: 'Grok',
   shortLabel: 'Grok',
   icon: {

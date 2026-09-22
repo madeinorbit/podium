@@ -13,6 +13,9 @@ describe('harness descriptor wire (POD-4475)', () => {
   const descriptor = {
     schemaVersion: 1,
     kind: 'future-cli',
+    // POD-4529: the Accounts hub reads the vendor backend label off the
+    // served descriptor instead of a hand-written table.
+    provider: 'future',
     label: 'Future CLI',
     shortLabel: 'Future',
     icon: { id: 'future-cli', viewBox: '0 0 24 24', d: 'M12 2v20' },
@@ -34,10 +37,12 @@ describe('harness descriptor wire (POD-4475)', () => {
   })
 
   it('ignores an extra field from a newer daemon', () => {
-    const parsed = HarnessDescriptorWire.parse({ ...descriptor, provider: 'future', nested: { x: 1 } })
-    expect('provider' in parsed).toBe(false)
+    const parsed = HarnessDescriptorWire.parse({ ...descriptor, futureFlag: true, nested: { x: 1 } })
+    expect('futureFlag' in parsed).toBe(false)
     expect('nested' in parsed).toBe(false)
     expect(parsed.label).toBe('Future CLI')
+    // ...while the provider it states is kept, not stripped.
+    expect(parsed.provider).toBe('future')
   })
 
   it('renders when every optional field is missing', () => {

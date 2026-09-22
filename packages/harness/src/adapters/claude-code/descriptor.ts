@@ -12,6 +12,7 @@ import type { HarnessDescriptorData } from '../../descriptor-types.js'
 
 export const claudeCodeDescriptor: HarnessDescriptorData = {
   kind: 'claude-code',
+  provider: 'anthropic',
   label: 'Claude Code',
   shortLabel: 'Claude',
   icon: {

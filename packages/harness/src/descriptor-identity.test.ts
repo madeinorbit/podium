@@ -38,13 +38,19 @@ describe('adapter descriptor rows track their manifests', () => {
     expect([...BUNDLED_DESCRIPTORS]).toEqual(buildBundledDescriptors())
     expect(AGENT_MANIFESTS).toBeDefined()
   })
-  it('rows carry drawable presentation (label, icon, catalog rule)', () => {
+  it('rows carry drawable presentation (label, icon, catalog rule) and a provider', () => {
     for (const data of descriptorDataByKind().values()) {
       expect(data.label.length).toBeGreaterThan(0)
       expect(data.shortLabel.length).toBeGreaterThan(0)
       expect(data.icon.id.length).toBeGreaterThan(0)
       expect(data.icon.viewBox.length).toBeGreaterThan(0)
       expect(data.icon.d.length).toBeGreaterThan(0)
+      // POD-4529: the Accounts hub reads the provider off the served
+      // descriptor instead of a hand-written table, so every row states one.
+      const provider = (data as { provider?: unknown }).provider
+      expect(typeof provider === 'string' && provider.length > 0, `${data.kind} provider`).toBe(
+        true,
+      )
     }
     for (const catalog of catalogDataByKind().values()) {
       expect(catalog.liveMerge.length).toBeGreaterThan(0)

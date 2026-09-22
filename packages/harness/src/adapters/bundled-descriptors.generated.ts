@@ -14,6 +14,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
     {
       "schemaVersion": 1,
       "kind": "claude-code",
+      "provider": "anthropic",
       "label": "Claude Code",
       "shortLabel": "Claude",
       "icon": {
@@ -73,6 +74,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
     {
       "schemaVersion": 1,
       "kind": "codex",
+      "provider": "openai",
       "label": "Codex",
       "shortLabel": "Codex",
       "icon": {
@@ -155,6 +157,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
     {
       "schemaVersion": 1,
       "kind": "grok",
+      "provider": "xai",
       "label": "Grok",
       "shortLabel": "Grok",
       "icon": {
@@ -195,6 +198,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
     {
       "schemaVersion": 1,
       "kind": "opencode",
+      "provider": "opencode",
       "label": "OpenCode",
       "shortLabel": "OpenCode",
       "icon": {
@@ -240,6 +244,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
     {
       "schemaVersion": 1,
       "kind": "cursor",
+      "provider": "cursor",
       "label": "Cursor",
       "shortLabel": "Cursor",
       "icon": {
@@ -277,6 +282,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
     {
       "schemaVersion": 1,
       "kind": "pi",
+      "provider": "pi",
       "label": "Pi",
       "shortLabel": "Pi",
       "icon": {

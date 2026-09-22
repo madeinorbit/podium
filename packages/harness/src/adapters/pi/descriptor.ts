@@ -15,6 +15,7 @@ import type { HarnessDescriptorData } from '../../descriptor-types.js'
 
 export const piDescriptor: HarnessDescriptorData = {
   kind: 'pi',
+  provider: 'pi',
   label: 'Pi',
   shortLabel: 'Pi',
   icon: {

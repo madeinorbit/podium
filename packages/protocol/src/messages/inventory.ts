@@ -102,6 +102,11 @@ export const HarnessDescriptorWire = z.object({
   schemaVersion: z.number(),
   /** OPEN harness id: a kind this build never heard of still renders. */
   kind: z.string().min(1),
+  /** Vendor backend label (POD-4529): stated per harness in
+   *  `adapters/<harness>/descriptor.ts`, read by the Accounts hub. Identity
+   *  core like `kind`/`label`, so required — a harness that routes to many
+   *  backends names itself. */
+  provider: z.string().min(1),
   label: z.string().min(1),
   shortLabel: z.string().min(1),
   icon: HarnessDescriptorIconWire,

@@ -801,6 +801,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       {
         schemaVersion: 1,
         kind: 'claude-code',
+        provider: 'anthropic',
         label: 'Claude Code',
         shortLabel: 'Claude',
         icon: { id: 'claude-code', viewBox: '0 0 24 24', d: 'M0 0h24v24H0z' },
