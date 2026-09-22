@@ -217,12 +217,15 @@ describe('AgentPanel panel-mode persistence', () => {
     expect(container.querySelector('[role="status"]')?.textContent).toContain("isn't logged in")
   })
 
-  it('opens a PTY login session for a logged-out embedded driver, then navigates after its row arrives', async () => {
+  it('opens a PTY login session for a logged-out attach-less driver, then navigates after its row arrives', async () => {
     storePanelMode = { s1: 'chat' }
     storeSessions = [
       meta({
         condition: 'logged-out',
-        driverFamily: 'embedded',
+        // The Claude stream engine as it binds since POD-4612: server family,
+        // no client terminal declared.
+        driverFamily: 'server',
+        attachKinds: [],
         machineId: 'machine-1',
       }),
     ]
@@ -534,8 +537,8 @@ describe('AgentPanel on a server-family client terminal', () => {
     expect(chatSurface?.className).not.toContain('hidden')
   })
 
-  it('keeps an embedded session chat-only', async () => {
-    storeSessions = [meta({ driverFamily: 'embedded' })]
+  it('keeps an attach-less server session (the Claude stream engine) chat-only', async () => {
+    storeSessions = [meta({ driverFamily: 'server', attachKinds: [] })]
     await render({ active: true })
     expect(mountSessionMock).not.toHaveBeenCalled()
     expect(container.querySelector('[data-testid="mode-native"]')).toBeNull()

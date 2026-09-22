@@ -1101,7 +1101,7 @@ export class Session {
   lifecycleDriverRequest(): string | undefined {
     if (this.requestedDriverId) return this.requestedDriverId
     const selectedFamily = driverFamilyForId(this.selectedDriverId ?? '')
-    if (this.selectedDriverId && (selectedFamily === 'server' || selectedFamily === 'embedded')) {
+    if (this.selectedDriverId && selectedFamily === 'server') {
       return this.selectedDriverId
     }
     return undefined
