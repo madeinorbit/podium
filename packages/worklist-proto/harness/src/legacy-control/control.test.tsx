@@ -17,6 +17,9 @@
  *   the exact-commit fence's changed set is empty and every row the control
  *   redraws is an over-commit: `assertCommits` throws.
  *
+ * - POD-4609: every #6–#10 step reads the whole corpus too, the clock tick
+ *   included, and exceeds its budget.
+ *
  * NEVER weaken this test (no raised budget, no `skip`, no filtering the
  * heartbeat to a visible session). If it goes green without a control change,
  * the detector is blind — treat that as the emergency, not the relief. If it
@@ -37,6 +40,7 @@ import {
   runCountScenario,
   type CountResult,
 } from '../count-harness'
+import { engineLocals, FENCE_SCENARIOS, runFenceStep } from '../fence-scenarios'
 import { rowViewsFromStore, snapshotFromStore } from '../oracle/index'
 import {
   startScenarioEngine,
@@ -237,4 +241,59 @@ describe('legacy control (armed)', () => {
       ctx.engine.destroy()
     }
   }, 60_000)
+
+  /**
+   * POD-4609 — the NO for the #6–#10 budgets: every fence scenario in order
+   * (`fence-scenarios.ts`, the list every arm runs), each with the budget the
+   * scenario computes from its targets. The control reads the whole corpus on
+   * every one of them — the clock tick included, which publishes the store
+   * although the feed emits nothing — so each budget can say NO.
+   */
+  it('reads the whole corpus on every scenario #6–#10 and exceeds every budget', async () => {
+    const ctx = await startScenarioEngine(1)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
+    const mounted = mountArmForCounts(
+      legacyControlArmFor(ctx.engine),
+      source.source,
+      engineLocals(ctx),
+    )
+    try {
+      const steps = []
+      for (const entry of FENCE_SCENARIOS)
+        steps.push(await runFenceStep(mounted, ctx, source.flush, entry))
+      const store = ctx.engine.getSnapshot()
+      const corpus =
+        new Set(store.issueProjections.map((issue) => issue.id)).size + store.sessions.length
+      const mine = steps.filter(({ result }) => /^#(6|7|8|9|10)/.test(result.methodology))
+      expect(mine.map(({ result }) => result.methodology)).toEqual([
+        '#6a',
+        '#6b',
+        '#6c',
+        '#6d',
+        '#7',
+        '#8',
+        '#9a',
+        '#9b',
+        '#9c',
+        '#10',
+      ])
+      for (const { result, readsBudget } of mine) {
+        console.info(
+          `[control reads] ${result.methodology} ${result.scenario}: read ${result.readsPerChange} ` +
+            `budget ${readsBudget} (corpus ${corpus}) byEntity=${JSON.stringify(result.reads?.byEntity)}`,
+        )
+        expect(readsBudget).toBeLessThan(corpus)
+        expect(result.readsPerChange).toBeGreaterThanOrEqual(corpus)
+        expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
+          new RegExp(
+            `${result.scenario} \\(${result.methodology}\\): read \\d+ rows, budget ${readsBudget}`,
+          ),
+        )
+      }
+    } finally {
+      mounted.unmount()
+      source.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
 })

@@ -18,8 +18,13 @@ import {
   assertCommits,
   assertIsolation,
   assertReads,
+  burstReadBudget,
+  evictKeeperReadBudget,
+  newIssueReadBudget,
+  parentReassignmentReadBudget,
   phaseChangeReadBudget,
   READ_BUDGETS,
+  removeOneReadBudget,
 } from './count-harness'
 
 const result = {
@@ -88,6 +93,23 @@ it('budget helpers: phase change scales with the chain, never the family', () =>
   expect(ancestorCount('x', (id) => parents[id])).toBe(1)
   expect(phaseChangeReadBudget(0)).toBe(READ_BUDGETS.phaseChangePerLevel)
   expect(phaseChangeReadBudget(2)).toBe(3 * READ_BUDGETS.phaseChangePerLevel)
+})
+
+// POD-4609 — the #6–#10 budgets are the sums their derivations state
+// (`docs/plans/pod-4441-harness.md`, "Reads per change"). A changed term
+// changes a number here, where a reviewer sees it.
+it('budget helpers: #6–#10 are the derived sums', () => {
+  expect(READ_BUDGETS.placeOne).toBe(12)
+  expect(newIssueReadBudget()).toBe(3 + 1 + 12)
+  expect(removeOneReadBudget(0)).toBe(3 + 12)
+  expect(removeOneReadBudget(2)).toBe(9 + 12)
+  expect(evictKeeperReadBudget(1)).toBe(6 + 24)
+  expect(parentReassignmentReadBudget(1, 0)).toBe(6 + 3 + 12)
+  expect(READ_BUDGETS.clockTick).toBe(0)
+  expect(READ_BUDGETS.markRead).toBe(3)
+  // Chains, not families: fifty roots cost 150, fifty depth-2 children 300.
+  expect(burstReadBudget(Array.from({ length: 50 }, () => 0))).toBe(150)
+  expect(burstReadBudget(Array.from({ length: 50 }, () => 1))).toBe(300)
 })
 
 // ------------------------------------------------------------------ POD-4563

@@ -1,5 +1,35 @@
 # worklist-proto — package notes
 
+## POD-4609 (L5g) — reads budgets for #6–#10 · 2026-09-22
+
+Derivations and evidence: `docs/plans/pod-4441-harness.md`, "Reads per
+change". Budgets in `READ_BUDGETS` and the `*ReadBudget` helpers
+(`count-harness.tsx`); every `FENCE_SCENARIOS` step now has one, so the
+roster run asserts reads on every step.
+
+### Decisions
+
+- **Three terms, no new kinds of allowance:** a level (#2's 3 per level), one
+  placement (12: two neighbours and ~10 binary-search probes at 4x), and the
+  rows the feed names. Chain terms follow the targets' depth; the placement
+  term is flat.
+- **#8 is 0**, like #3: a local, no feed event, no crossing at any scale
+  (asserted).
+- **The reference arm is the wrong YES** for reads: it never touches the
+  fence (0 on every step, pinned in `fences.test.tsx`). The YES is a shape
+  arm (`reads-budgets.test.tsx`) that reads only through the fence, at 1x,
+  2x and 4x; the NO is the legacy control (`control.test.tsx`) plus the shape
+  arm with one table walk.
+- **Wall clock frozen** in the shape-arm runs and the roster run: the #3
+  click's un-echoed mark-read is swept by the runtime's 60 s wall-clock
+  awaiting-truth TTL and lands in a later step (#6b or #8 at 4x).
+
+### Open (sent to the coordinator)
+
+- L5a's #3 budget (0) cannot be met by an arm that reads the rows its events
+  name: the click's event names the clicked row. Same shape as #9a (3).
+- The #3 overlay sweep is a step-isolation leak in the scenario sequence, not
+  only in these tests: any runner that takes over 60 s sees it.
 ## POD-4556 (L4b) — incremental-versus-rebuild checker · 2026-09-22
 
 What landed and how it is proven: `docs/plans/pod-4441-harness.md`, "The
@@ -32,6 +62,7 @@ correctness gate".
   legacy derivation (~0.12 s / ~0.15 s at 1x), so the CI run compares at
   checkpoints every 10 steps and re-runs a failure densely over its prefix to
   name the exact step. Round-three arms run the defaults (rebuild every step).
+||||||| parent of 5be0d97e1 (POD-4609: reads budgets for fence scenarios #6-#10, derived from the change shape)
 ## POD-4608 (L1e) — the locals channel · 2026-09-22
 
 ### Decisions
@@ -65,6 +96,7 @@ correctness gate".
   used the value (hand/mobx: once, at creation; control: in `snapshot()`).
   They ignore `subscribe`. Their tests wrap the old value in `fixedLocals`.
   The browser page publishes its clock on a `settableLocals` source.
+||||||| parent of bc385697e (POD-4609: reads budgets for fence scenarios #6-#10, derived from the change shape)
 
 ## POD-4551 (L2b) — corpus shape at every scale · 2026-09-22
 
@@ -133,7 +165,7 @@ commits, the copy sweep and the lint fence".
 - **Row-view locals come from the engine** (`selectedIssueId`, `coarseNow`),
   because #3 and #8 are engine writes. Parity stays the unselected baseline.
 - **No new reads budgets.** L5a fixed #1–#5; #6–#10 carry none, and this issue
-  did not invent any (pitfall g).
+  did not invent any (pitfall g). Fixed since by POD-4609 (L5g), below.
 - **Copy sweep threshold:** key + 2 raw field values outside the row-view
   vocabulary. A RowView shares title/seq/createdAt/sortKey/pinned by contract,
   hence the exemption list.

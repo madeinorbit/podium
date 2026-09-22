@@ -2,7 +2,7 @@
  * POD-4563 (L6a) — the round-three arms every fence runs on.
  *
  * One entry per candidate arm. `fences.test.tsx` runs each through every
- * scenario in `fence-scenarios.ts` with the exact-commit fence, the L5a reads
+ * scenario in `fence-scenarios.ts` with the exact-commit fence, the reads
  * budgets, parity and the copy sweep; the lint fence (`harness/lint/`) covers
  * the same folders. The two lists cannot drift: an `arms/<folder>/fence.json`
  * with no entry here, or an entry here with no manifest, fails the suite.

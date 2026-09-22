@@ -482,7 +482,8 @@ export function assertCommits(result: CountResult): void {
  * POD-4557 — rows an arm may READ to handle one change, per scenario. Fixed
  * here, BEFORE any round-three arm is measured (pitfall g: no budget is
  * re-read on another dimension afterwards). Rationale per line in
- * `docs/plans/pod-4441-harness.md` ("Reads per change").
+ * `docs/plans/pod-4441-harness.md` ("Reads per change"). #1–#5 are L5a's;
+ * POD-4609 fixed #6–#10 the same way, before any Phase M arm ran them.
  */
 export const READ_BUDGETS = {
   /** #1: the changed session, and at most its issue and one relation hop. */
@@ -501,7 +502,96 @@ export const READ_BUDGETS = {
    * re-reads every visible row fails.
    */
   stageMoveNeighbourhood: 24,
+  /**
+   * POD-4609 — one row entering OR leaving one position (#6, #7): two
+   * neighbours, plus the probes of a binary search at 4x (~850 visible rows,
+   * or ~700 groups when the group re-places on its first member: log2 ≈ 10).
+   * The same terms #5 counts for its entering position. A constant.
+   */
+  placeOne: 12,
+  /**
+   * POD-4609 #6a: the new session's lane (`session.worktree`, a prefix
+   * relation every session keeps, lazy: false), on top of the new issue's own
+   * level and its placement (see `newIssueReadBudget`).
+   */
+  newIssueLane: 1,
+  /**
+   * POD-4609 #8: a coarse tick is a local, like #3. The feed emits nothing; the
+   * only rows a tick may re-derive are those whose time-derived fields (band on
+   * a lapsing defer, the finished grace, retention windows) cross at this tick,
+   * and this tick crosses none (asserted at every scale in
+   * `reads-budgets.test.tsx`). Deadlines are derived keys, not entity reads.
+   */
+  clockTick: 0,
+  /**
+   * POD-4609 #9a/#9b/#9c: a mark-read press, its echo, its rollback. An
+   * own-field change (`readAt`) of one issue that no row-view field reads — the
+   * #4 shape: the issue, and at most two rows to place or label it. The
+   * rollback's two events name the same row; distinct counting makes it one.
+   */
+  markRead: 3,
 } as const
+
+/**
+ * POD-4609 #6a budget: the new issue's own level (the issue, its session, its
+ * repo: `phaseChangeReadBudget(0)`), the session's lane, one placement. The
+ * scenario writes a root (`freshIssue`: `parentId: null`), so the chain is one
+ * level at every scale: 3 + 1 + 12 = 16.
+ */
+export function newIssueReadBudget(): number {
+  return phaseChangeReadBudget(0) + READ_BUDGETS.newIssueLane + READ_BUDGETS.placeOne
+}
+
+/**
+ * POD-4609 #6b (archive) and #6c (evict) budget: one row leaves. Its chain
+ * loses the row's roll-up contribution (`phaseChangeReadBudget(ancestors)`:
+ * the row's own level plus each ancestor's), and the row leaves one position
+ * (`placeOne`; the probes re-place the group when the row was its first
+ * member). The targets are childless roots by rule, so 3 + 12 = 15.
+ */
+export function removeOneReadBudget(ancestors: number): number {
+  return phaseChangeReadBudget(ancestors) + READ_BUDGETS.placeOne
+}
+
+/**
+ * POD-4609 #6d budget: the evicted leaf's chain (the leaf, its rescue
+ * parent, their ancestors), and TWO rows leaving (the leaf, and the parent
+ * that was visible only through it). The parent's other members are sizes
+ * (`children`, `sessions`: free), not reads. `ancestors` is the leaf's.
+ */
+export function evictKeeperReadBudget(ancestors: number): number {
+  return phaseChangeReadBudget(ancestors) + 2 * READ_BUDGETS.placeOne
+}
+
+/**
+ * POD-4609 #7 budget: the moved row's OLD chain (the row and its old
+ * ancestors: they lose its cached subtree roll-up), the NEW parent's chain
+ * (the new parent and its ancestors: they gain it), and one placement (a row
+ * that becomes or stops being top-level changes fold eligibility). The moved
+ * subtree's own roll-up moves as one cached value: no descendant is read.
+ */
+export function parentReassignmentReadBudget(
+  movedAncestors: number,
+  newParentAncestors: number,
+): number {
+  return (
+    phaseChangeReadBudget(movedAncestors) +
+    phaseChangeReadBudget(newParentAncestors) +
+    READ_BUDGETS.placeOne
+  )
+}
+
+/**
+ * POD-4609 #10 budget: fifty #2-shaped changes in one event — each new working
+ * session flips `working`/`phase` up its issue's chain — so the sum of the #2
+ * budget over the burst issues' chains. Distinct counting only lowers it
+ * where chains share ancestors. Working and phase never move a row (`rankOf`
+ * reads no activity), so there is no placement term. Flat in scale: the burst
+ * is always fifty issues.
+ */
+export function burstReadBudget(ancestorsPerIssue: readonly number[]): number {
+  return ancestorsPerIssue.reduce((sum, ancestors) => sum + phaseChangeReadBudget(ancestors), 0)
+}
 
 /**
  * #2 budget: `phaseChangePerLevel × levels`, where `levels` is the changed

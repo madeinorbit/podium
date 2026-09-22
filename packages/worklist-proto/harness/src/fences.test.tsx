@@ -7,7 +7,7 @@
  *   Its changed sets must be non-empty where the scenario changes a visible
  *   row, so a pass is not 0 == 0.
  * - Every ROUND-THREE arm (`roster.ts`) must pass, on every scenario: the
- *   exact-commit fence, parity, the L5a reads budget where one is fixed, and
+ *   exact-commit fence, parity, the reads budget (every step has one), and
  *   the copy sweep (no row held outside the wrapped tables).
  * - The roster and the `arms/<folder>/fence.json` manifests the lint fence
  *   reads name the same folders.
@@ -83,6 +83,11 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
         assertCommits(result)
       })
       console.info(`[fences] reference changed/drawn per scenario: ${summary(steps)}`)
+      // POD-4609: the reference arm reads the engine store, never the feed or a
+      // fenced table, so it cannot carry a reads YES — it would meet any budget
+      // blind. Pinned so the claim is re-examined if that ever changes; the
+      // reads YES is `reads-budgets.test.tsx`'s shape arm.
+      expect(steps.map((step) => step.result.readsPerChange)).toEqual(steps.map(() => 0))
       writeResults('fences-reference-1x.json', steps)
       expect(steps.map((step) => step.result.methodology)).toEqual(
         FENCE_SCENARIOS.map((entry) => entry.methodology),
@@ -128,6 +133,11 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
 for (const entry of ROUND_THREE_ARMS) {
   describe(`fences: ${entry.name}`, () => {
     it('passes the exact-commit fence, parity, the reads budgets and the copy sweep on every scenario', async () => {
+      // POD-4609: wall clock held still, so the runtime's 60 s awaiting-truth
+      // sweep of the #3 click's un-echoed mark-read cannot land in a later
+      // step and charge it a row it did not change (#8's budget is 0). See
+      // STEP ISOLATION in `reads-budgets.test.tsx`.
+      vi.useFakeTimers({ toFake: ['Date'] })
       const ctx = await startScenarioEngine(1)
       const feeds = openFenceFeeds(ctx, entry.mode)
       const mounted = mountArmForCounts(entry.armFor(ctx), feeds.rows.source, feeds.locals)
@@ -139,7 +149,7 @@ for (const entry of ROUND_THREE_ARMS) {
           ({ result, readsBudget }) => {
             expect(result.parity, `${result.scenario}: ${result.parityDiff ?? ''}`).toBe(true)
             assertCommits(result)
-            if (readsBudget !== null) assertReads(result, { readsPerChange: readsBudget })
+            assertReads(result, { readsPerChange: readsBudget })
             mounted.reads.assertNoCopies(mounted.handle)
           },
         )
@@ -149,6 +159,7 @@ for (const entry of ROUND_THREE_ARMS) {
         mounted.unmount()
         feeds.dispose()
         ctx.engine.destroy()
+        vi.useRealTimers()
       }
     }, 120_000)
   })

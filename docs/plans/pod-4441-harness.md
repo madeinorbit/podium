@@ -193,6 +193,37 @@ after measuring.
 | #4 visible title rename | ≤ 3 | The renamed issue, and at most two rows to place or label it. |
 | #5 stage move across groups | ≤ 24 (`stageMoveNeighbourhood`) | The **visible neighbourhood**: the moved row, two neighbours at the old position and two at the new (5), plus the probes of a binary-search placement at 4x (211 visible rows at 1x, so ~850 at 4x: log2 ≈ 10), is 15; rounded up to 24 for a group-header lookup and the closed-fold boundary. A constant: it does not grow with the corpus. A re-sort of the visible collection reads every visible row and fails. |
 
+**#6–#10 (POD-4609).** Fixed before any Phase M arm ran these scenarios,
+the way L5a derived its five: from the rows the change necessarily touches,
+never from a measured arm. Three terms, each already used above:
+
+- **A level** (`phaseChangeReadBudget`, 3 per level): a roll-up input moved
+  at one issue, so that issue and every ancestor re-compose from cached
+  child results. Per level: the level's issue and at most two rows to label
+  it (a session, the repo). Grows with the chain, never with a family.
+- **One placement** (`READ_BUDGETS.placeOne`, 12): one row entering or
+  leaving one position: two neighbours, plus the probes of a binary search
+  at 4x (844 visible rows or 691 groups at 4x: log2 ≈ 10; a group re-places
+  on its first member). #5 counts the same terms for its entering position.
+  A constant: flat across 1x/2x/4x.
+- **The rows the feed names**: always read; they are the change.
+
+| Scenario | Budget | 1x / 2x / 4x | Derivation |
+|---|---|---|---|
+| #6a new issue | `newIssueReadBudget()` = level(0) + 1 + `placeOne` | 16 / 16 / 16 | The new issue's own level (the issue, its session, its repo: 3), the new session's lane (`session.worktree` is a prefix relation every session keeps, lazy: false: 1), and the new row entering one position (12). The scenario writes a root, so one level at every scale. |
+| #6b archive | `removeOneReadBudget(ancestors)` = level(ancestors) + `placeOne` | 15 / 15 / 15 | The archived row's chain loses its contribution (an archived issue contributes no parent edge, schema `issue.parent` `where`), and the row leaves one position. The target is a childless root by rule (`pickTargets`), so level(0) = 3. A child would surface as a root; the rule rules that out. |
+| #6c evict | `removeOneReadBudget(ancestors)` | 15 / 15 / 15 | The same shape through a delete: the stored row (read before it is dropped), its chain, one position. Evict carries no tombstone; dropping the row from its buckets reads nothing. |
+| #6d evict keeper | `evictKeeperReadBudget(ancestors)` = level(ancestors) + 2 × `placeOne` | 30 / 30 / 30 | The evicted leaf's chain (the leaf, its rescue parent, their ancestors: 2 levels at every scale), and TWO rows leaving: the leaf and the parent that was visible only through it. Whether the parent still has a member is a `size` (free), not a read. |
+| #7 parent reassignment | `parentReassignmentReadBudget(moved, newParent)` = level(moved) + level(newParent) + `placeOne` | 21 / 21 / 21 | The moved row's OLD chain loses its cached subtree roll-up (the row and its old ancestors: 2 levels), the NEW parent's chain gains it (1 level), and one placement (a row that becomes or stops being top-level changes fold eligibility). The subtree moves as one cached value: no descendant is read. |
+| #8 clock tick | `READ_BUDGETS.clockTick` = 0 | 0 / 0 / 0 | A local, like #3: the feed emits nothing (a coarse tick that moves no band). The only rows a tick may re-derive are those whose time-derived fields cross at this tick (a lapsing defer, the finished grace, retention windows); deadlines are derived keys, not entity reads. This tick crosses none at any scale (asserted: no view changes, no row enters or leaves). |
+| #9a press, #9b echo, #9c rejection | `READ_BUDGETS.markRead` = 3 | 3 / 3 / 3 | An own-field change (`readAt`) of one issue that no row-view field reads — the #4 shape: the issue and at most two rows to place or label it. The rejection's two events name the same row; distinct counting makes it one. |
+| #10 burst of 50 | `burstReadBudget(ancestors per issue)` = Σ level(ancestorsᵢ) | 171 / 195 / 243 | Fifty #2-shaped changes in one event: each new working session flips `working`/`phase` up its issue's chain. The sum of the #2 budget over the fifty chains; distinct counting only lowers it where chains share ancestors. No placement term: `rankOf` reads no activity. Bounded by fifty chains, not by N: at 4x, 243 against 844 visible rows. |
+
+The per-scale values are what `FENCE_SCENARIOS` computes from the targets
+before each write (#10 after #6–#7 reshaped the tree). #10 moves with the
+depth of the fifty burst issues' chains (57, 65 and 81 levels at the step), not with the
+corpus.
+
 `assertReads(result, { readsPerChange })` throws with the per-entity
 breakdown when the budget is exceeded, and also when the result has no reads
 cell (fence disabled): a missing cell fails, never passes.
@@ -238,10 +269,71 @@ same mount path an arm takes). Three probe arms differ in one dimension:
 plus the missing-cell rule. `shared/src/instrument/reads.test.ts` covers each
 door and each refusal.
 
+**#6–#10 in both directions (POD-4609).**
+
+*NO — the legacy control exceeds every one.* `control.test.tsx` runs every
+fence scenario in order with the budget each computes, and asserts that each
+#6–#10 step reads at least the whole corpus and that `assertReads` throws.
+Measured at 1x on this branch (happy-dom counts):
+
+| Scenario | Legacy reads | Budget |
+|---|---|---|
+| #6a new issue | 9,922 | 16 |
+| #6b archive | 9,922 | 15 |
+| #6c evict | 9,921 | 15 |
+| #6d evict keeper | 9,920 | 30 |
+| #7 parent reassignment | 9,920 | 21 |
+| #8 clock tick | 9,920 (the store publishes; the feed emits nothing) | 0 |
+| #9a / #9b / #9c | 9,669 / 9,669 / 9,920 | 3 |
+| #10 burst | 9,719 | 171 |
+
+At 2x and 4x the control reads 19,338–19,880 and 38,676–39,752 on the same
+steps (a one-off measurement, not a test).
+
+*YES — the reference arm cannot carry it; a shape arm does.* The L6a
+reference arm reads the engine store, never the feed or a fenced table: its
+reads cell is 0 on every step (pinned in `fences.test.tsx`). It would meet
+any budget blind, so it is the wrong arm for this fence (by design: it is
+exempt and not a candidate), not evidence that the budgets are right.
+`harness/src/reads-budgets.test.tsx` carries the YES instead: a probe arm
+that stores the borrowed rows, reads them only through `wrapTables` and
+`wrapRelations`, and on each event does exactly the reads the derivations
+name — the named rows, the chains it climbs through `issue.parent`, the
+neighbours it reads to leave a position, and a binary search that READS
+every probed row to enter one. At 1x, 2x and 4x it meets every #6–#10 budget,
+and each cell is at least the rows the change names (not a blind 0):
+
+| Scale | #6a | #6b | #6c | #6d | #7 | #8 | #9a/b/c | #10 |
+|---|---|---|---|---|---|---|---|---|
+| 1x | 3/16 | 1/15 | 2/15 | 3/30 | 3/21 | 0/0 | 1/3 | 108/171 |
+| 2x | 4/16 | 1/15 | 2/15 | 2/30 | 3/21 | 0/0 | 1/3 | 116/195 |
+| 4x | 5/16 | 1/15 | 2/15 | 3/30 | 3/21 | 0/0 | 1/3 | 132/243 |
+
+The same arm plus ONE walk over the issue table per event fails every #6–#10
+budget with an event; #8 has no event, and its NO is the control's.
+
+**Step isolation: the wall clock is held still.** The #3 click's eager
+mark-read is acknowledged by the scenario server but never echoed as truth,
+so the runtime keeps it awaiting truth until a 60 s WALL-CLOCK sweep
+(`AWAITING_TRUTH_TTL_MS`, `client-core/src/engine/overlay.ts`). The sweep
+retires the overlay, and the feed emits that row in whichever step runs 60 s
+later: never at 1x (the run is shorter); at 4x it landed in #6b on one run
+and in #8 on another, where it read 1 against a budget of 0. That row is #3's,
+not the step's. `reads-budgets.test.tsx` and the roster run in
+`fences.test.tsx` therefore fake `Date` (frozen), so the sweep never comes
+due; the row views do not read the wall clock ("wall-clock independence" in
+`fences.test.tsx`). With `Date` frozen, #8 read 0 at 4x.
+
+**#3 cannot be met by an arm that reads its events.** Not changed here (it
+is L5a's): the click's feed event names the clicked row (the eager
+mark-read), so the shape arm reads 1 on #3 against L5a's budget of 0 — the
+same shape #9a has, budgeted 3 above. Raised with the coordinator.
+
 ```bash
 bun run test:file -- packages/worklist-proto/shared/src/instrument/reads.test.ts \
   packages/worklist-proto/harness/src/count-harness.test.ts \
   packages/worklist-proto/harness/src/reads-probe.test.tsx \
+  packages/worklist-proto/harness/src/reads-budgets.test.tsx \
   packages/worklist-proto/harness/src/legacy-control/control.test.tsx
 ```
 
@@ -282,7 +374,7 @@ arm deaf to the clock. `harness/src/fences.test.tsx` runs it:
   step 0. The locals channel notified on #3, #8 and #8b only, with only their
   own keys (asserted).
 - every arm in `harness/src/roster.ts` must pass, on every step, the exact
-  commit fence, parity, the L5a reads budget where one is fixed, and the copy
+  commit fence, parity, the reads budget (every step has one), and the copy
   sweep. The roster must name exactly the `arms/*` folders with a
   `fence.json`.
 - the NO: the legacy control fails `assertCommits` on the heartbeat

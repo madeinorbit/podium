@@ -5,7 +5,7 @@
  * #11–#13 replace the whole slice and are L5e's), in methodology order, on ONE
  * engine, as the scenario writes intend. Each step is a `CountInput` carrying
  * the row-view oracle, so `assertCommits` can hold the arm to the exact set of
- * rows whose view changed, and the L5a reads budget where L5a fixed one.
+ * rows whose view changed, and the reads budget (L5a #1–#5, POD-4609 #6–#10).
  *
  * LOCALS COME FROM THE ENGINE. The row-view oracle reads selection and the
  * coarse clock from the engine store (`engineLocals`), because the #3 click
@@ -55,10 +55,15 @@ import {
 import type { SliceLocals } from '../../shared/src/slice-types'
 import {
   ancestorCount,
+  burstReadBudget,
   type CountResult,
+  evictKeeperReadBudget,
   type MountedArm,
+  newIssueReadBudget,
+  parentReassignmentReadBudget,
   phaseChangeReadBudget,
   READ_BUDGETS,
+  removeOneReadBudget,
   runCountScenario,
 } from './count-harness'
 import { createEngineLocals, localsOfEngine } from './engine-locals'
@@ -70,8 +75,11 @@ export interface FenceScenario {
   methodology: string
   /** The write, settled. */
   write(ctx: ScenarioEngine): Promise<unknown>
-  /** L5a's reads budget for this change, or null where L5a fixed none. */
-  readsBudget(ctx: ScenarioEngine): number | null
+  /**
+   * The reads budget for this change (#1–#5 L5a, POD-4557; #6–#10 POD-4609),
+   * computed from the targets BEFORE the write. Every scenario has one.
+   */
+  readsBudget(ctx: ScenarioEngine): number
 }
 
 /** Selection and clock as the engine holds them: what the row views show. */
@@ -118,7 +126,10 @@ function parentOf(ctx: ScenarioEngine): (id: string) => string | null | undefine
     ctx.engine.getSnapshot().issueProjections.find((issue) => issue.id === id)?.parentId
 }
 
-const none = (): null => null
+/** Ancestors above `id` in the engine's issue tree, before the write. */
+function ancestorsOf(ctx: ScenarioEngine, id: string): number {
+  return ancestorCount(id, parentOf(ctx))
+}
 
 export const FENCE_SCENARIOS: readonly FenceScenario[] = [
   {
@@ -156,37 +167,41 @@ export const FENCE_SCENARIOS: readonly FenceScenario[] = [
     scenario: 'newIssue',
     methodology: '#6a',
     write: (ctx) => writeNewIssue(ctx),
-    readsBudget: none,
+    readsBudget: () => newIssueReadBudget(),
   },
   {
     scenario: 'archiveIssue',
     methodology: '#6b',
     write: (ctx) => writeArchiveIssue(ctx),
-    readsBudget: none,
+    readsBudget: (ctx) => removeOneReadBudget(ancestorsOf(ctx, ctx.targets.archiveId)),
   },
   {
     scenario: 'evictWithoutRevision',
     methodology: '#6c',
     write: (ctx) => writeEvictIssue(ctx),
-    readsBudget: none,
+    readsBudget: (ctx) => removeOneReadBudget(ancestorsOf(ctx, ctx.targets.evictId)),
   },
   {
     scenario: 'evictKeeperWithoutRevision',
     methodology: '#6d',
     write: (ctx) => writeEvictKeeperIssue(ctx),
-    readsBudget: none,
+    readsBudget: (ctx) => evictKeeperReadBudget(ancestorsOf(ctx, ctx.targets.keeperLeafId)),
   },
   {
     scenario: 'parentReassignment',
     methodology: '#7',
     write: (ctx) => writeParentReassignment(ctx),
-    readsBudget: none,
+    readsBudget: (ctx) =>
+      parentReassignmentReadBudget(
+        ancestorsOf(ctx, ctx.targets.reparentId),
+        ancestorsOf(ctx, ctx.targets.reparentToId),
+      ),
   },
   {
     scenario: 'clockTick',
     methodology: '#8',
     write: (ctx) => writeClockTick(ctx),
-    readsBudget: none,
+    readsBudget: () => READ_BUDGETS.clockTick,
   },
   {
     scenario: 'clockGraceCrossing',
@@ -198,13 +213,13 @@ export const FENCE_SCENARIOS: readonly FenceScenario[] = [
     scenario: 'optimisticPress',
     methodology: '#9a',
     write: (ctx) => writeOptimisticPress(ctx),
-    readsBudget: none,
+    readsBudget: () => READ_BUDGETS.markRead,
   },
   {
     scenario: 'optimisticEcho',
     methodology: '#9b',
     write: (ctx) => writeOptimisticEcho(ctx),
-    readsBudget: none,
+    readsBudget: () => READ_BUDGETS.markRead,
   },
   {
     scenario: 'optimisticPressRejected',
@@ -213,15 +228,21 @@ export const FENCE_SCENARIOS: readonly FenceScenario[] = [
       armMarkReadRejection(ctx)
       await writeOptimisticPress(ctx)
     },
-    readsBudget: none,
+    readsBudget: () => READ_BUDGETS.markRead,
   },
-  { scenario: 'burst50', methodology: '#10', write: writeBurst50, readsBudget: none },
+  {
+    scenario: 'burst50',
+    methodology: '#10',
+    write: writeBurst50,
+    readsBudget: (ctx) =>
+      burstReadBudget(ctx.targets.burstIssueIds.map((id) => ancestorsOf(ctx, id))),
+  },
 ]
 
 /** One fenced step: the count result plus the budget that applied. */
 export interface FenceStep {
   result: CountResult
-  readsBudget: number | null
+  readsBudget: number
 }
 
 /**
