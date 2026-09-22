@@ -84,6 +84,32 @@ describe('harness descriptor wire (POD-4475)', () => {
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
 
+  it('an older daemon frame without provider parses and falls back to kind', () => {
+    // POD-4542: a daemon at the POD-4475 build serves descriptors with no
+    // `provider` field. The wire schema widens the parser first (§5), so the
+    // field is optional and the reader falls back to kind — the same rule
+    // `providerOf` in `@podium/harness/browser` states once for every reader
+    // (protocol sits below harness and must not import it; the test spells
+    // the expectation, not the rule).
+    const { provider: _p, ...older } = descriptor
+    void _p
+    const parsed = HarnessDescriptorWire.parse(older)
+    expect(parsed.provider).toBeUndefined()
+    expect(parsed.provider ?? parsed.kind).toBe('future-cli')
+  })
+
+  it('an older daemon inventoryReport without provider parses end to end', () => {
+    const { provider: _p, ...older } = descriptor
+    void _p
+    const msg = {
+      type: 'inventoryReport' as const,
+      machineId: asMachineId('m1'),
+      inventory: { os: 'linux' as const, arch: 'x64' as const, agents: [], tools: [] },
+      descriptors: [older],
+    }
+    const parsed = parseDaemonMessage(encode(msg as never))
+    expect(parsed.type).toBe('inventoryReport')
+  })
   it('an older daemon that sends no descriptors still parses', () => {
     const msg = {
       type: 'inventoryReport' as const,
