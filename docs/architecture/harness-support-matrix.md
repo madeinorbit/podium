@@ -25,7 +25,6 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 | `inventory.portableCredential` | supported | supported | supported | declined | declined | declined |
 | `runtime.server` | declined | supported | supported | supported | declined | declined |
 | `runtime.embedded` | supported | declined | declined | declined | declined | declined |
-| `runtime.terminal` | supported | supported | supported | supported | supported | supported |
 | `usage.quota` | supported | supported | supported | declined | declined | declined |
 | `usage.history` | declined | declined | supported | declined | declined | declined |
 | `usage.transcripts` | supported | supported | supported | declined | declined | declined |
@@ -34,7 +33,9 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 | `transcript.recordRuntime` | supported | supported | supported | declined | declined | supported |
 | `transcript.recordColor` | supported | declined | declined | declined | declined | declined |
 | `transcript.chainPaths` | supported | supported | supported | declined | supported | supported |
+| `credentials.transfer` | supported | declined | declined | declined | declined | declined |
 | `runtime.server.versionRange` | declined | supported | supported | supported | declined | declined |
+| `runtime.server.clientTerminal` | declined | supported | supported | supported | declined | declined |
 
 ## claude-code — supported 23/26
 
@@ -42,20 +43,22 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `usage.history`: Claude Code writes no recoverable quota history — its usage endpoint is read live and cached nowhere, by Podium or by Claude Code
 - `headless.buildExec`: the Claude Agent SDK builds its own invocation in-process
 
-## codex — supported 23/27
+## codex — supported 23/28
 
 - `inventory.loginCommandProbe`: Codex login detection still uses its guarded local auth file
 - `runtime.embedded`: Codex ships a server, not a library to host in-process
 - `usage.history`: Recovered Codex windows disagree with live sampling (used_percent resets inside a window while resets_at moves backwards); Codex history is left to live sampling
 - `transcript.recordColor`: this harness does not report an identity colour in its records
+- `credentials.transfer`: Codex credentials live in a plain file; no platform transfer applies
 
-## grok — supported 22/27
+## grok — supported 22/28
 
 - `handoffTranscript`: cross-machine handoff is not supported for grok sessions
 - `classifyBrowserOpen`: no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommandProbe`: Grok login detection still uses its local credential file
 - `runtime.embedded`: grok ships no library to host in-process
 - `transcript.recordColor`: this harness does not report an identity colour in its records
+- `credentials.transfer`: Grok credentials live in a plain file; no platform transfer applies
 
 ## opencode — supported 10/24
 
@@ -74,7 +77,7 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `transcript.recordColor`: opencode has no identity-colour record
 - `transcript.chainPaths`: opencode stores transcripts in SQLite — there are no files to chain
 
-## cursor — supported 9/23
+## cursor — supported 8/22
 
 - `credentials`: Cursor credential portability is not supported yet
 - `usage`: Cursor exposes no declared quota endpoint or transcript harvest layout yet
@@ -91,7 +94,7 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `transcript.recordRuntime`: this harness does not report model, effort or context use in its records
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 
-## pi — supported 11/23
+## pi — supported 10/22
 
 - `credentials`: Pi credential portability is not supported yet
 - `usage`: Pi exposes no declared quota endpoint or transcript harvest layout yet
