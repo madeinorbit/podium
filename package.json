@@ -152,7 +152,9 @@
     "migration:check": "drizzle-kit check",
     "migration:manifest": "bun run scripts/build-drizzle-manifest.ts",
     "docs:layers": "bun scripts/render-layer-diagram.ts",
-    "docs:layers:check": "bun scripts/render-layer-diagram.ts --check"
+    "docs:layers:check": "bun scripts/render-layer-diagram.ts --check",
+    "docs:harness-matrix": "bun --conditions=@podium/source scripts/harness-matrix.ts",
+    "docs:harness-matrix:check": "bun --conditions=@podium/source scripts/harness-matrix.ts --check"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
