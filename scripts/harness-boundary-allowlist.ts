@@ -113,9 +113,9 @@ export interface HarnessBoundaryAllowlistEntry {
  *  harness-defaults would cycle). One file, two entries, file total
  *  unchanged: leak 259 → 258, policy 35 → 36, total 294.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 258
+export const HARNESS_BASELINE_LEAK_COUNT = 253
 export const HARNESS_BASELINE_POLICY_COUNT = 36
-export const HARNESS_BASELINE_TOTAL = 294
+export const HARNESS_BASELINE_TOTAL = 289
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -152,7 +152,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/web/harness/setup-store.ts', count: 5, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/harness/sidebar-store.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/harness/usage-tasks-fixture.ts', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/app/NewPanelMenu.tsx', count: 1, category: 'leak', reason: 'opencode headed-native panel intent; drive from descriptor or move into family', issue: 'POD-4414/4.1' },
   { file: 'apps/web/src/components/RefMiniview.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/automations/NewAutomationDialog.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/cost/TaskCostSection.tsx', count: 4, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
@@ -160,7 +159,6 @@ export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[
   { file: 'apps/web/src/features/issues/NewIssueDialog.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/machines/QuotaIndicator.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/machines/QuotaPanel.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'apps/web/src/features/settings/sections/shared.tsx', count: 4, category: 'leak', reason: 'provider-namespace codex + managed credential-harness pairing; serve via provider field once decided (4.1)', issue: 'POD-4414/4.1' },
   { file: 'apps/web/src/features/setup/ColdStartComposer.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/usage/UsageTasks.tsx', count: 5, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/web/src/features/workflows/ExecutionProfiles.tsx', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
