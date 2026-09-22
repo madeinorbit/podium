@@ -22,8 +22,11 @@ Shape notes (see `docs/measurements/POD-4441-fixture-shape.md` for counts):
   both present) so bands 0/1/2 are all non-trivial.
 - Resume twins (POD-4551): one group per branch of `dedupeSessionsByResume`
   per scale unit (`resumeTwins`: all-inactive, tie, live), each on its own
-  visible root. The runtime collapses them on every session read; the corpus
-  tests prove the collapse on and off differ on exactly the tie rows.
+  visible root. The oracle collapses them as the runtime does on every
+  session read; the corpus tests prove a derivation that forgets the
+  collapse fails parity on exactly the tie rows.
+- Sort keys are minted by the model's `spreadSortKeys`, so every key passes
+  `isSortKey` as a server-written one does (asserted at every scale).
 - Hidden askers (POD-4551, the POD-4549 shape): 20 x scale asking sessions
   on archived/proposed children of visible roots (`edgedAskers`); legacy
   detaches the ask, so the roots do not ask.

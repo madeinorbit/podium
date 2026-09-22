@@ -65,13 +65,28 @@ root, sharing a `codex-thread` resume ref:
 | tie | hibernated ask (6 h ago) + hibernated quiet (2 h ago) | the quiet row (most recent) | queued, not asking |
 | live | live working (1 min ago) + hibernated ask (6 h ago) | both (a live row keeps the group whole) | working and asking |
 
-Disabled-collapse control (test-local, per the coordinator's lane ruling):
-the oracle over the raw rows differs from the oracle over
-`dedupeSessions(sessions)` on exactly the tie roots (1 / 2 / 4 rows at
-1x / 2x / 4x): the stale ask shows. The shared oracle
-(`harness/src/oracle/oracle.ts`) still feeds raw rows as `store.sessions`,
-whereas the runtime dedupes them (`runtime.ts:465`). That change has been
-routed to the oracle's owner (POD-4563).
+**The oracle changed.** `runLegacyDerivation` (`harness/src/oracle/oracle.ts`)
+used to pass `corpus.sessions` raw as `store.sessions`. The runtime does
+not: it sets `store.sessions = dedupeSessions(replica sessions)` at boot
+(`client-core/src/engine/runtime.ts:465`) and on every session change
+(`:1172`), through `dedupeSessions` (`engine/optimism.ts:875`). With twins
+in the corpus, the raw oracle disagreed with the app on exactly the tie
+rows, so parity was inverted: a pool that implemented the collapse would
+have failed, and one that forgot it would have passed. The oracle now
+dedupes the same way. Its stub replica stays raw, as the runtime replica
+keeps every row. Every parity result from this commit on depends on it
+(coordinator ruling on POD-4551).
+
+Proved both ways, at every scale (`corpus.test.ts`):
+- the oracle shows each tie root the way the app does (queued, not asking);
+- a derivation that forgets the collapse (the same corpus with the resume
+  refs stripped, a test-local switch) fails parity on exactly the tie roots,
+  1 / 2 / 4 rows at 1x / 2x / 4x;
+- mutation: reverting the oracle to raw sessions fails both twin tests at
+  all three scales (6 failures);
+- the round-two arms, which never implemented the collapse, now fail parity
+  on the tie root (`i286` at 1x) in 18 tests across 13 files. They were
+  green on the integration tip before this change.
 
 Both shapes reuse rows the corpus already had: sessions come from the tail
 of the closed-bulk decayed remainder, the children are existing archived

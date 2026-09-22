@@ -83,8 +83,8 @@
  * (POD-4546), not for the feed: the feed passes `resume` through on every
  * session row and the pool applies the collapse. The corpus carries one
  * twin group per branch of the rule per scale unit (`corpus.resumeTwins`,
- * POD-4551); once the oracle collapses them as the runtime does, a pool that
- * forgets the rule fails parity.
+ * POD-4551) and the oracle collapses them as the runtime does, so a pool
+ * that forgets the rule fails parity.
  *
  * DEP EDGES. An `issueDeps` address resolves through the dep row's `fromId`
  * to the owning issue and emits that issue's row. A dep removal whose row is

@@ -132,7 +132,7 @@ optimistic test and the real-runtime rejection test.
   (`dedupeSessionsByResume`). That rule covers the whole kind, so a per-row feed cannot apply it
   without a resume-ref index. Such an index is a relation for the declared pool (POD-4546). The
   feed passes `resume` through; the pool applies the collapse. The fixture carries twin groups
-  for every branch of the rule (POD-4551); the oracle must collapse them as the runtime does.
+  for every branch of the rule (POD-4551), and the oracle collapses them as the runtime does.
 - **Discovery lanes.** A new `EngineState.repos` array from discovery sends no worktree event.
   This behaviour is inherited from round two, because discovery is not a kernel row. A `repos`
   prefix address sends only that repo's lanes.
