@@ -147,12 +147,7 @@ export function expectedSnapshot(corpus: FixtureCorpus, locals: SliceLocals): Sl
  * implementation to drift.
  */
 export function projectSnapshot(derivation: LegacyDerivation, locals: SliceLocals): SliceSnapshot {
-  // Flat slice: one row per visible issue, in legacy banded order. Worktree
-  // rows have no slice rendering and are dropped before ordering.
-  const flat = sortUnifiedWorkRows(
-    flattenIssueRows(derivation.slice.work),
-    locals.coarseNow,
-  ).filter((row): row is UnifiedIssueRow => row.kind === 'issue')
+  const flat = visibleIssueRows(derivation, locals)
   const { pinned, rest } = splitPinnedWork(flat)
   const pinnedIds = pinned.flatMap((row) => (row.kind === 'issue' ? [row.issue.id] : []))
   const restIndex = new Map(rest.map((row, index) => [rowKeyOf(row), index]))
@@ -174,6 +169,17 @@ export function projectSnapshot(derivation: LegacyDerivation, locals: SliceLocal
   return { order, rowsById }
 }
 
+/**
+ * The flat slice: one legacy row per visible issue, in legacy banded order.
+ * Worktree rows have no slice rendering and are dropped before ordering. The
+ * row-view oracle (`row-views.ts`) projects the same rows.
+ */
+export function visibleIssueRows(derivation: LegacyDerivation, locals: SliceLocals): UnifiedIssueRow[] {
+  return sortUnifiedWorkRows(flattenIssueRows(derivation.slice.work), locals.coarseNow).filter(
+    (row): row is UnifiedIssueRow => row.kind === 'issue',
+  )
+}
+
 function rowKeyOf(row: UnifiedWorkRow): string {
   return row.kind === 'issue' ? row.issue.id : row.worktree.path
 }
@@ -184,15 +190,22 @@ function rowKeyOf(row: UnifiedWorkRow): string {
  * projects it with the same `projectSnapshot` the fixture oracle uses, so an
  * engine-backed arm (or the legacy control) checks parity against exactly what
  * the current app shows for the engine's present state.
- *
- * Model resolution mirrors `runLegacyDerivation`'s store assembly: the shared
- * issue-view cache when a replica and projections are present, else the
- * store's own issue rows (the POD-1053 fallback inside the slice).
  */
 export function snapshotFromStore(
   store: Store<PodiumClientApi>,
   locals: SliceLocals,
 ): SliceSnapshot {
+  return projectSnapshot(legacyDerivationFromStore(store), locals)
+}
+
+/**
+ * The legacy derivation over a LIVE engine store (`snapshotFromStore` and the
+ * row-view oracle project it). Model resolution mirrors `runLegacyDerivation`'s
+ * store assembly: the shared issue-view cache when a replica and projections
+ * are present, else the store's own issue rows (the POD-1053 fallback inside
+ * the slice).
+ */
+export function legacyDerivationFromStore(store: Store<PodiumClientApi>): LegacyDerivation {
   const replica = store.replica
   const projections = store.issueProjections ?? []
   const models =
@@ -200,13 +213,5 @@ export function snapshotFromStore(
       ? allIssueViewModels(replica, projections, store.issues)
       : store.issues
   const slice = worklistSlice.derive(store)
-  return projectSnapshot(
-    {
-      slice,
-      models,
-      sessions: store.sessions,
-      allWorktreePaths: slice.allWorktreePaths,
-    },
-    locals,
-  )
+  return { slice, models, sessions: store.sessions, allWorktreePaths: slice.allWorktreePaths }
 }

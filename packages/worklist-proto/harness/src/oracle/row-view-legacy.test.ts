@@ -12,7 +12,7 @@
  * (manual key, latch) and asserts the result then DISAGREES with legacy on the
  * same corpus — a differential that cannot fail proves nothing.
  */
-import { issueAbandoned, issueClosedFoldAt, rowInClosedFold, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/viewmodels'
+import { rowInClosedFold, type UnifiedIssueRow, type UnifiedWorkRow } from '@podium/client-core/viewmodels'
 import { describe, expect, it } from 'vitest'
 import {
   compareClosedFold,
@@ -24,7 +24,7 @@ import {
 } from '../../../shared/src/row-view'
 import type { SliceLocals, SliceOrder } from '../../../shared/src/slice-types'
 import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../fixture/index'
-import { projectSnapshot, runLegacyDerivation } from './index'
+import { projectRowViews, projectSnapshot, runLegacyDerivation } from './index'
 
 const HOUR = 3_600_000
 
@@ -70,22 +70,12 @@ function buildCase(coarseNow: number, seed = 4443): Case {
   const derivation = runLegacyDerivation(corpus, locals)
   const snapshot = projectSnapshot(derivation, locals)
   const legacy = flatten(derivation.slice.work)
+  // POD-4563: the views are the row-view oracle's, field for field.
+  const byId = projectRowViews(derivation, locals)
   const views = legacy.map((row): RowView => {
-    const s = snapshot.rowsById[row.issue.id]
-    if (s === undefined) throw new Error(`no oracle row for ${row.issue.id}`)
-    return {
-      ...s,
-      selected: false,
-      originTick: null,
-      activityAt: row.activityAt,
-      workingSince: null,
-      pinned: row.issue.pinned === true,
-      sortKey: row.issue.sortKey ?? null,
-      createdAt: row.issue.createdAt,
-      seq: row.issue.seq,
-      foldAt: issueClosedFoldAt(row.issue),
-      dismissed: s.closed && (issueAbandoned(row.issue) || row.issue.tuckedAt != null),
-    }
+    const view = byId[row.issue.id]
+    if (view === undefined) throw new Error(`no oracle row for ${row.issue.id}`)
+    return view
   })
   return { locals, legacy, views, expected: snapshot.order }
 }
