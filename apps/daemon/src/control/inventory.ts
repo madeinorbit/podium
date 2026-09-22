@@ -71,7 +71,7 @@ export function runtimeDriverInventory(
   const opencode = versionFor('opencode')
   return [
     ...terminalRuntimeDriverInventory(),
-    { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
+    { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
     ...(codex && gateCodexVersion(codex) === null
       ? ([{ harness: 'codex', id: 'codex-app-server', family: 'server' }] as const)
       : []),

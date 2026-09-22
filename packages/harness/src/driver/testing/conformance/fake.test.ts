@@ -14,6 +14,7 @@ import { unsupported } from '../../../manifest.js'
 import { describe, expect, it } from 'vitest'
 import type { SessionSpec } from '../../host.js'
 import {
+  NO_ATTACH_DRIVERS,
   NO_NATIVE_STEER_DRIVERS,
   PERMITTED_FAILURES,
   permits,
@@ -28,6 +29,7 @@ import {
 import {
   assertAttachHonoursOneControlLease,
   assertInteractionDeliveryClaim,
+  assertNoAttachEntitled,
   assertNoNativeSteerEntitled,
   assertSteerJoinedOpenTurn,
   assertUnverifiedClaimHonest,
@@ -160,7 +162,10 @@ describe('the permitted-failures table', () => {
      * here, and an exact-equality check on the whole row is what stops a third
      * name arriving without the same argument this one had to make.
      */
-    expect(PERMITTED_FAILURES.server).toEqual(['no-native-steer'])
+    // `no-attach` is the one argued addition since (POD-4612): the Claude
+    // stream engine joined this family with no client terminal, and the
+    // per-driver pin in `NO_ATTACH_DRIVERS` carries the entitlement.
+    expect(PERMITTED_FAILURES.server).toEqual(['no-native-steer', 'no-attach'])
     expect(PERMITTED_FAILURES.server).not.toContain('unverified-send')
     expect(PERMITTED_FAILURES.server).not.toContain('at-least-once-interactions')
   })
@@ -181,7 +186,7 @@ describe('the permitted-failures table', () => {
      * measurement it has to bring. `manifest-axis.test.ts` pins a version range
      * per driver on the same argument.
      */
-    for (const family of ['server', 'embedded', 'terminal'] as const) {
+    for (const family of ['server', 'terminal'] as const) {
       expect(permits(family, 'no-native-steer')).toBe(true)
     }
     expect([...NO_NATIVE_STEER_DRIVERS]).toEqual([
@@ -197,12 +202,18 @@ describe('the permitted-failures table', () => {
     expect(permitsNoNativeSteer('claude-pty')).toBe(true)
   })
 
-  it('lets only the embedded family decline attach', () => {
-    // Terminal has a real terminal by definition; server gets a TUI client. An
-    // embedded session has neither, and chat is the honest answer.
-    expect(PERMITTED_FAILURES.embedded).toContain('no-attach')
-    expect(PERMITTED_FAILURES.server).not.toContain('no-attach')
+  it('lets only the pinned server drivers decline attach', () => {
+    // Terminal has a real terminal by definition. The server family permits
+    // declining it, but a client terminal is a per-harness fact, so only the
+    // driver somebody pinned — the Claude stream engine — is entitled.
+    expect(PERMITTED_FAILURES.server).toContain('no-attach')
     expect(PERMITTED_FAILURES.terminal).not.toContain('no-attach')
+    expect([...NO_ATTACH_DRIVERS]).toEqual(['claude-sdk'])
+    expect(() => assertNoAttachEntitled('server', 'claude-sdk')).not.toThrow()
+    for (const driverId of ['codex-app-server', 'opencode-server', 'grok-acp'] as const) {
+      expect(() => assertNoAttachEntitled('server', driverId)).toThrow()
+    }
+    expect(() => assertNoAttachEntitled('terminal', 'claude-sdk')).toThrow()
   })
 })
 
@@ -231,9 +242,9 @@ describe('the corpus has teeth', () => {
     // of `send.native` and inherits the family's permission in silence. Its
     // app-server has `turn/steer`, so the corpus must not let it.
     expect(() => assertNoNativeSteerEntitled('server', 'codex-app-server')).toThrow()
-    // The embedded family still has to name the exact measured driver; the
-    // family-level exemption is not permission for future adapters.
-    expect(() => assertNoNativeSteerEntitled('embedded', 'fake-embedded')).toThrow()
+    // A future server adapter still has to name the exact measured driver;
+    // the family-level exemption is not permission for it.
+    expect(() => assertNoNativeSteerEntitled('server', 'fake-server')).toThrow()
   })
 
   it('ACCEPTS the drivers somebody actually measured', () => {
@@ -241,7 +252,7 @@ describe('the corpus has teeth', () => {
     // open turn. Both arguments are in `../../permitted-failures.ts`.
     expect(() => assertNoNativeSteerEntitled('server', 'opencode-server')).not.toThrow()
     expect(() => assertNoNativeSteerEntitled('terminal', 'generic-pty')).not.toThrow()
-    expect(() => assertNoNativeSteerEntitled('embedded', 'claude-sdk')).not.toThrow()
+    expect(() => assertNoNativeSteerEntitled('server', 'claude-sdk')).not.toThrow()
   })
 
   /**
@@ -425,7 +436,7 @@ describe('the tier boundary', () => {
 })
 
 describe('interaction delivery claim boundaries', () => {
-  it.each(['server', 'embedded'] as const)('rejects duplicate hook asks for %s', (family) => {
+  it.each(['server'] as const)('rejects duplicate hook asks for %s', (family) => {
     const driver = createFakeTerminalDriver({ interactionSource: 'hook' })
     expect(() => assertInteractionDeliveryClaim(family, driver.capabilities())).toThrow()
   })

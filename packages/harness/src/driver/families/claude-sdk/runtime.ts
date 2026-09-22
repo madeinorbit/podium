@@ -1029,7 +1029,7 @@ export function createClaudeSdkRuntime(
         },
       },
       async attach() {
-        return refuse('unsupported', 'the embedded SDK has no attach endpoint')
+        return refuse('unsupported', 'the Claude stream engine has no attach endpoint')
       },
       lease: {
         async acquire(holder, kind) {
@@ -1047,10 +1047,10 @@ export function createClaudeSdkRuntime(
       },
       draft: {
         async get() {
-          return refuse('unsupported', 'the embedded SDK has no composer')
+          return refuse('unsupported', 'the Claude stream engine has no composer')
         },
         async set() {
-          return refuse('unsupported', 'the embedded SDK has no composer')
+          return refuse('unsupported', 'the Claude stream engine has no composer')
         },
       },
       /**
@@ -1113,7 +1113,7 @@ export function createClaudeSdkRuntime(
       binding: {
         sessionId,
         driver: CLAUDE_SDK_DRIVER_ID,
-        family: 'embedded',
+        family: 'server',
         harness: 'claude-code',
         workdir: spec.workdir,
         resume,
@@ -1184,7 +1184,7 @@ export function createClaudeSdkRuntime(
     },
     id: CLAUDE_SDK_DRIVER_ID,
     harness: 'claude-code',
-    family: 'embedded',
+    family: 'server',
     capabilities: claudeSdkCapabilities,
     async create(spec) {
       return createWithId(host.mintSessionId(), spec)

@@ -14,7 +14,7 @@
 // supervisor generation, with driver ids (mechanism vocabulary) as the only
 // identities that cross it.
 
-import type { HarnessAgent, SessionId } from '@podium/model'
+import type { HarnessAgent, ResumeRef, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { ProcessIdentity, SessionBinding } from '../binding.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../driver.js'
@@ -73,6 +73,14 @@ export interface ServerFamilyJournalEntry {
   readonly workdir: string
   readonly process: ProcessIdentity
   readonly bindingVersion: number
+  /**
+   * The harness conversation this session continues, where the family can
+   * name it. The reattach arm refuses a row that asks for a DIFFERENT one
+   * before adopting anything (POD-4612 — the check the bespoke Claude arm
+   * carried): rebinding the wrong conversation under a session id is worse
+   * than failing the reattach. Absent ⇒ no check, never a guess.
+   */
+  readonly resume?: ResumeRef
   readonly probe?: {
     readonly baseUrl: string
     readonly secret: string
@@ -94,10 +102,19 @@ export interface ServerFamilyRuntime {
   bindings(): readonly SessionBinding[]
   /** Start a session on this family and put it behind the contract. */
   launch(input: ServerFamilyLaunch): Promise<void>
+  /**
+   * Start a session that CONTINUES an existing harness conversation, under the
+   * server's session id. Absent ⇒ this family resumes only from its own
+   * journal ({@link adoptFromJournal}), and a spawn carrying a resume ref it
+   * cannot honour creates instead — unchanged behaviour for the vendor
+   * servers. The Claude stream engine declares it: its conversation outlives
+   * any engine, so `--resume` works from the ref alone.
+   */
+  launchResumed?(input: ServerFamilyLaunch, resume: ResumeRef): Promise<void>
   /** Re-bind a session after a supervisor restart, from the journal alone. */
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
-  /** The journal's normalized facts, or `undefined` when this family never
-   *  held the session. */
+  /** The journal's normalized facts, or `undefined` when this family does
+   *  not hold the session and never journalled it. */
   journalEntry(sessionId: SessionId): ServerFamilyJournalEntry | undefined
   clearJournal(sessionId: SessionId): void
   reportOomKill(sessionId: SessionId, scopeUnit?: string): void

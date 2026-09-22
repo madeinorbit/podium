@@ -521,10 +521,7 @@ export function createFakeDriver(options: FakeDriverOptions = {}): FakeDriver {
       ? supported({ history: true })
       : unsupported('this harness streams its turns and keeps no readable history'),
     staging: supported({ kinds: ['image', 'file'], promptForm: 'file-part' }),
-    attach:
-      family === 'embedded'
-        ? unsupported('the embedded family hosts the loop in a worker; there is no terminal')
-        : supported({ kinds: family === 'terminal' ? ['engine'] : ['client'] }),
+    attach: supported({ kinds: family === 'terminal' ? ['engine'] : ['client'] }),
     lease: supported({ humanTakeover: true }),
     snapshot: supported({ includesDraft: true }),
     archive: resumable

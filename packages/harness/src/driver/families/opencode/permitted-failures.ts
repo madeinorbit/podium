@@ -28,8 +28,13 @@ import { PERMITTED_FAILURES, type PermittedFailure } from '../../permitted-failu
 export const SERVER_PERMITTED_FAILURES: readonly PermittedFailure[] = PERMITTED_FAILURES.server
 
 /**
- * The one name, written out ONCE so a test can assert the derivation above still
- * yields exactly it — and so a future widening of the server row is a visible,
- * argued edit rather than a green suite nobody re-read.
+ * The names, written out ONCE so a test can assert the derivation above still
+ * yields exactly them — and so a future widening of the server row is a visible,
+ * argued edit rather than a green suite nobody re-read. `no-attach` joined the
+ * row with the Claude stream engine (POD-4612); opencode has a client terminal
+ * and is not in `NO_ATTACH_DRIVERS`, so the row does not entitle it.
  */
-export const SERVER_EXEMPTION_NAMES = ['no-native-steer'] as const satisfies readonly PermittedFailure[]
+export const SERVER_EXEMPTION_NAMES = [
+  'no-native-steer',
+  'no-attach',
+] as const satisfies readonly PermittedFailure[]

@@ -375,11 +375,11 @@ export function driverIdIsServerFamily(driverId: string): boolean {
  * Every caller must therefore have an answer for "unknown", and the honest one
  * is whatever it would have done before driver families existed.
  *
- * WHY A FAMILY AND NOT A BOOLEAN. The question a client actually asks is "does
- * this session have a terminal", and `server` is only one of the two answers
- * that mean no — `embedded` (the SDK loop in a runtime-owned worker) has no PTY
- * either. A `isServerFamily`-shaped flag would have to be re-derived, or gain a
- * second flag beside it, the day the first embedded driver binds.
+ * A FAMILY IS A SHAPE, NOT A TELL FOR A TERMINAL. `server` answers "one engine
+ * child under podium-host, protocol-driven"; whether that session also has a
+ * client terminal is the driver's declared `attach` capability (reported on
+ * bind as `attachKinds`), which is how the Claude stream engine — server
+ * family, no terminal of any kind — stays distinguishable from codex.
  */
 export function driverFamilyForId(driverId: string): DriverFamily | undefined {
   // Retired aliases remain accepted during rolling upgrades. Remove this entry only after no supported daemon can still emit the legacy id.
@@ -395,7 +395,9 @@ export function driverFamilyForId(driverId: string): DriverFamily | undefined {
     if (declaredValue(manifest.runtime.server)?.driverId === driverId) return 'server'
     if (manifest.runtime.serverAlternatives?.some((server) => server.driverId === driverId))
       return 'server'
-    if (declaredValue(manifest.runtime.embedded)?.driverId === driverId) return 'embedded'
+    // The hosted-engine axis is a manifest declaration, not a third shape: its
+    // driver is one engine child under podium-host like the servers above.
+    if (declaredValue(manifest.runtime.embedded)?.driverId === driverId) return 'server'
     if (manifest.runtime.terminal.driverId === driverId) return 'terminal'
   }
   return undefined

@@ -1030,8 +1030,11 @@ export interface AgentRuntimeAxis {
   /** Additional server mechanisms shipped by the same harness. */
   serverAlternatives?: readonly ServerRuntimeSpec[]
   /**
-   * The harness ships a library rather than a server, and the runtime hosts the
-   * agent loop in a worker child it owns. Unsupported ⇒ no SDK to host.
+   * The harness ships no server mode, and Podium hosts the vendor CLI's own
+   * engine child for it (Claude's stream-json engine, ADR 11). Unsupported ⇒
+   * nothing to host. The NAME is historical: the driver declared here has the
+   * `server` family — one engine child under podium-host, like the vendor
+   * servers above — and is routed exactly as they are (POD-4612).
    */
   embedded: Declared<EmbeddedRuntimeSpec>
   /** ALWAYS PRESENT: today's `launch()` + composer + state providers, named as a
@@ -1071,8 +1074,18 @@ export interface AgentRuntimeAxis {
  * new id is a deliberate edit here rather than a string that typos silently.
  */
 /**
- * The three ways a harness can be driven (spec §2). A harness may support
- * several; `select()` picks one per session at spawn.
+ * The two shapes a driven session takes (spec §2; layers page principle 6).
+ * A harness may support several drivers; `select()` picks one per session at
+ * spawn, and each driver's binding says which shape it has.
+ *
+ * `server` is one long-lived engine child under podium-host `--no-pty`, spoken
+ * to over a protocol. The vendor server engines (codex, opencode, grok) are
+ * this shape, and since POD-4612 so is the Claude stream engine that the
+ * manifest still declares on its `runtime.embedded` axis: that axis says the
+ * harness ships no server mode of its own, not that the driver has a third
+ * shape. There is no `embedded` family any more — older peers that still
+ * report one are normalized to `server` where the value enters the wire
+ * (`DriverFamilyWire` in `@podium/model`).
  *
  * `terminal` IS A PERMANENT TIER, NOT A DEPRECATION PATH: it is the fallback
  * for Claude when the SDK is not admitted, the interactive login path, and the
@@ -1080,7 +1093,7 @@ export interface AgentRuntimeAxis {
  * RANK — it stops being the definition of a session and becomes one driver
  * behind one contract.
  */
-export type DriverFamily = 'server' | 'embedded' | 'terminal'
+export type DriverFamily = 'server' | 'terminal'
 
 export const DRIVER_IDS = [
   /** `codex app-server` over JSON-RPC on a per-session unix socket (W6). */
