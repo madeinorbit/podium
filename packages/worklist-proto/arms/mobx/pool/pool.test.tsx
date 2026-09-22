@@ -8,6 +8,7 @@ import { _getGlobalState, autorun, getObserverTree, type IReactionDisposer, runI
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
+import { writeResult } from '../../../harness/src/results'
 import { buildCorpus } from '../../../harness/src/fixture/index'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence, type ReadFence } from '../../../shared/src/instrument/reads'
@@ -303,7 +304,11 @@ describe('locals', () => {
       expect(pool.stats.rowsDerived).toBeGreaterThan(0)
       expect(pool.stats.rowsDerived).toBeLessThan(corpus.sliceIssues.length / 4)
       expect(changed).toBeGreaterThan(0)
-      console.info(`[pool] grace tick: ${pool.stats.rowsDerived} rows re-derived, ${changed} changed, of ${corpus.sliceIssues.length}; deadlines waited on ${waiting}`)
+      writeResult('mobx-pool-tick-1x', {
+        issues: corpus.sliceIssues.length,
+        deadlinesWaitedOn: waiting,
+        graceTick: { rowsDerived: pool.stats.rowsDerived, viewsChanged: changed, crossings: pool.clock.crossings - crossings },
+      })
     } finally {
       all.stop()
       r.dispose()

@@ -1,4 +1,109 @@
-# POD-4447 NOTES — MobX arm, milestone 1
+# arms/mobx — notes
+
+## Round three: the pool, a1 (POD-4565) · 2026-09-23
+
+Decisions, findings and open questions for `pool/`. The idiom, write path,
+stats and "how to add a field" are in `README.md`.
+
+### Decisions
+
+- **Placement (coordinator ruling on my question).** The pool lives in
+  `arms/mobx/pool/`; the round-two files stay frozen until the pool's
+  worklist replaces them (the browser entries and the native lane still import
+  them). The lint thaws `mobx/pool` (`fenceConfig({ thawed })`), so every
+  fence rule runs on the pool against `arms/mobx/fence.json`, plus an IMPORT
+  FENCE (`fence/thawed-import-fence`): nothing in `pool/` may import anything
+  under `arms/` outside `pool/` (type imports, re-exports and dynamic imports
+  included), proven red on planted files in `harness/lint/fence-lint.test.ts`.
+  The roster check names `mobx` as pending until POD-4568 (Ma4) adds the
+  roster entry with parity.
+- **Tables are shallow observable maps of borrowed rows; models on first
+  access.** One `ObservableMap` per schema entity (one box per row, no
+  per-field observables, no model). Bootstrap builds zero models
+  (`pool.test.tsx`); the first read builds one. A model holds no row: it
+  reads its table slot, so evict → re-add reaches the same observers
+  (`pool.test.tsx`, "removes a row with its model…").
+- **The model cache is a plain `Map` read inside derivations.** It is an
+  identity memo only: a model's every value reads the tracked slot, so the
+  cache cannot make a derived value stale. The one other untracked read is
+  the clock's `now` (`clock.ts`), paired with an atom for every answer.
+- **Every part of a row view is its own computed, and a relation is split
+  into reference and resolution** (`views.ts` `IssueParts`). Measured on the
+  live 1x engine, #4 (rename of `i17`, which has an origin and a hidden
+  spin-off): one view per part read 9 rows; splitting the view into parts
+  read 5; splitting each relation into its foreign-key reference and its
+  target resolution, and handing each slot its model, read **1** (budget 3).
+- **Single-valued relations (`belongsTo`, outgoing `edge`) are resolved from
+  the own row plus the target's presence** (`relations.ts` `relationRef`,
+  driven by the schema). No bucket is maintained; the coordinator's "no
+  hand-written buckets in a1" holds. `displayRef` (`issue.repo`) and
+  `originTick` (`issue.discoveredFrom`) are real one-hop values, not stubs.
+  Collections and prefix containment answer "none" through the shared
+  `RelationReader` until Ma2 (POD-4566), which can reuse `relationRef`.
+- **The repo entity's row is a lane.** The feed has no repo kind: every lane
+  (`SliceWorktree`) carries its repo's joined facts (RepoProjection id and
+  prefix, the scan's path). The latest lane with a `repoId` is the repo's
+  row; a raw repos row (the feed's signal for a repo with no lane yet) is
+  held until a lane arrives. `FEED_SPELLING` maps the repo's `path` to the
+  lane's `repoPath`.
+- **The clock is deadlines** (`clock.ts`): a tick fires only the deadlines it
+  crosses (binary search over the registered ones); a rewind fires one atom.
+  #8b-shaped test: a 24 h tick re-derived 2 of the corpus's ~1,000 rows.
+- **Selection is a one-entry observable map**: a click re-derives exactly two
+  views (`pool.test.tsx`).
+- **Replace** runs the new slice through the same ingest into plain maps,
+  then keeps unchanged objects, writes the changed, removes the rest, all in
+  one action: one observer transition (`pool.test.tsx`).
+- **L4b rebuild-only at a1** (`oracleEvery: 0`, ruled acceptable): the
+  oracle compares order and roll-ups. The gate's NO on this arm is the same
+  pool planted deaf to removals, which must fail every seed.
+- **Round-two `it.fails` tests stay** (18, POD-4551): the pool does not
+  replace the round-two code yet. They go with that code.
+
+### Findings
+
+1. **The fenced table's `keys()` reads every VALUE** (`reads.ts` `wrapMap`
+   iterates `entries()`). Under MobX that subscribes the enumerating computed
+   to every row, so a rename would re-run the id list and read the corpus.
+   `enumerate.ts` iterates the raw map's keys (tracks membership only) and
+   records each id with `reads.touch`. A fence change (`keys()` over
+   `target.keys()`) would let arms use the fenced view directly — L5a's call.
+2. **A repo read costs two fence keys** (`repo:<id>` for the table get,
+   `worktree:<lane path>` for the lane proxy's fields), because the feed
+   delivers repo facts on a lane. It shows only when the prefix resolution
+   re-runs (a repo or a lane change), never on an issue change.
+3. **The 1x fixture's `sliceWorktrees` carry no repo-root lanes; the live
+   feed does** (`row-source.ts` `lanesOf`). A repo taken from root lanes only
+   worked live and silently gave every replay row `#seq`; the pool takes any
+   lane with a `repoId`.
+4. **`ObservableMap.has` outside a reaction does not warn** (MobX's untracked
+   shortcut), so `observableRequiresReaction` cannot see an untracked
+   presence check. The pool reads presence only inside computeds.
+5. **An `observer` row over a plain `RowView` observes nothing** and trips
+   `reactionRequiresObservable`, which the pool's tests enforce, while
+   `eslint-plugin-mobx` `missing-observer` wants every component to be one.
+   The two row files (`pool/react/row.tsx`, `pool/native/row.tsx`) are
+   `memo` and exempt from that one rule in `eslint.config.mjs`; their slots
+   are the observers.
+6. **#4's commit fence needs the visible set.** The a1 list draws every
+   issue, and #4's rename changes the ⤷ tick of a HIDDEN spin-off (`i933`),
+   which the fence counts as an over-commit. The pool's own view of `i933`
+   really changed. `counts.test.tsx` asserts the commit fence on #1 only and
+   writes #4's cell; Mb1 asserts it.
+7. **`snapshot('worktree')` omits raw repos rows** (`row-source.ts`
+   `allLanes`), so a repo known only from a raw row would diverge between the
+   pool and its rebuild. No generator change produces one today.
+8. **Base defect, not mine:** the package `NOTES.md` carries two stray
+   conflict markers (`||||||| parent of …`, lines 69 and 103), landed by
+   `8d82d8dd0` (POD-4609). Reported to the coordinator.
+
+### Open
+
+- Draft titles read the first member session's `name` in round two; the
+  schema declares no `session.name`, so the pool's draft label uses
+  `agentKind` only. Matters from Ma2, when members exist.
+
+## Round two (frozen)
 
 ## Decisions
 
