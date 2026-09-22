@@ -48,7 +48,10 @@ stats and "how to add a field" are in `README.md`.
   lane's `repoPath`.
 - **The clock is deadlines** (`clock.ts`): a tick fires only the deadlines it
   crosses (binary search over the registered ones); a rewind fires one atom.
-  #8b-shaped test: a 24 h tick re-derived 2 of the corpus's ~1,000 rows.
+  Replay corpus at 1x (`pool.test.tsx`, `harness/browser/results/
+  mobx-pool-tick-1x.json`): 18 deadlines registered over 4,867 issues; a
+  60 s tick then a 24 h tick: the 24 h tick crossed 4 deadlines,
+  re-derived 4 views and changed 4 (#8b's four grace rows).
 - **Selection is a one-entry observable map**: a click re-derives exactly two
   views (`pool.test.tsx`).
 - **Replace** runs the new slice through the same ingest into plain maps,
@@ -56,7 +59,11 @@ stats and "how to add a field" are in `README.md`.
   one action: one observer transition (`pool.test.tsx`).
 - **L4b rebuild-only at a1** (`oracleEvery: 0`, ruled acceptable): the
   oracle compares order and roll-ups. The gate's NO on this arm is the same
-  pool planted deaf to removals, which must fail every seed.
+  pool planted deaf to removals, which must fail every seed. Measured with
+  `POD_POOL_GATE_SEEDS=5` (seeds 1-5 × 200 steps, every change kind, 1,005
+  rebuild comparisons, 2-7 arm creations per seed from reloads): green; the
+  plant failed every seed, at steps 15, 37, 7, 3 and 1. The default run is
+  seeds 1-3 (~3 min).
 - **Round-two `it.fails` tests stay** (18, POD-4551): the pool does not
   replace the round-two code yet. They go with that code.
 

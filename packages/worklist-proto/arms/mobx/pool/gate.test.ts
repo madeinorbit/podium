@@ -30,7 +30,8 @@ import { tracked } from './pool'
 
 installMobxWarnTrap()
 
-const SEEDS = [1, 2, 3, 4, 5]
+/** Three seeds by default (~3 min); `POD_POOL_GATE_SEEDS=<n>` runs seeds 1..n. */
+const SEEDS = Array.from({ length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) }, (_, i) => i + 1)
 const STEPS = 200
 
 /** The planted mistake: removals never reach the pool. */
