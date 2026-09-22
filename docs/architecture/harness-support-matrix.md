@@ -17,6 +17,7 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 | `instrumentation` | supported | supported | supported | declined | declined | declined |
 | `observer` | supported | supported | supported | supported | supported | supported |
 | `transcript` | supported | supported | supported | supported | supported | supported |
+| `composer` | supported | supported | declined | declined | declined | declined |
 | `handoffTranscript` | supported | supported | declined | declined | declined | declined |
 | `classifyBrowserOpen` | supported | supported | declined | declined | declined | declined |
 | `inventory.loginCommand` | supported | supported | supported | supported | declined | declined |
@@ -38,14 +39,14 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 | `runtime.server.versionRange` | declined | supported | supported | supported | declined | declined |
 | `runtime.server.clientTerminal` | declined | supported | supported | supported | declined | declined |
 
-## claude-code — supported 23/27
+## claude-code — supported 24/28
 
 - `runtime.server`: Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot
 - `usage.history`: Claude Code writes no recoverable quota history — its usage endpoint is read live and cached nowhere, by Podium or by Claude Code
 - `headless.buildExec`: the Claude Agent SDK builds its own invocation in-process
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## codex — supported 23/29
+## codex — supported 24/30
 
 - `inventory.loginCommandProbe`: Codex login detection still uses its guarded local auth file
 - `runtime.embedded`: Codex ships a server, not a library to host in-process
@@ -54,8 +55,9 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Codex credentials live in a plain file; no platform transfer applies
 
-## grok — supported 22/29
+## grok — supported 22/30
 
+- `composer`: grok has no composer scrape rules yet
 - `handoffTranscript`: cross-machine handoff is not supported for grok sessions
 - `classifyBrowserOpen`: no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommandProbe`: Grok login detection still uses its local credential file
@@ -64,12 +66,13 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Grok credentials live in a plain file; no platform transfer applies
 
-## opencode — supported 11/25
+## opencode — supported 11/26
 
 - `credentials`: OpenCode credential portability is not supported yet
 - `usage`: OpenCode exposes no vendor quota endpoint and stores transcripts in SQLite — no harvest layout to declare yet
 - `install`: OpenCode is distributed through npm, brew, and its own standalone installer — no single vendor install script to run
 - `instrumentation`: opencode posts no hook payloads; observation is poll-only over its event stream and store
+- `composer`: opencode has no composer scrape rules; sessions drive through its server protocol
 - `handoffTranscript`: cross-machine handoff is not supported for opencode sessions
 - `classifyBrowserOpen`: no catalogued opencode login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommandProbe`: OpenCode login detection still uses its local authentication database
@@ -81,12 +84,13 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `transcript.recordColor`: opencode has no identity-colour record
 - `transcript.chainPaths`: opencode stores transcripts in SQLite — there are no files to chain
 
-## cursor — supported 8/23
+## cursor — supported 8/24
 
 - `credentials`: Cursor credential portability is not supported yet
 - `usage`: Cursor exposes no declared quota endpoint or transcript harvest layout yet
 - `install`: cursor-agent is distributed through Cursor's own installer (curl https://cursor.com/install | bash)
 - `instrumentation`: Cursor posts no hook payloads; observation is poll-only over its transcript
+- `composer`: Cursor has no composer scrape rules yet
 - `handoffTranscript`: cross-machine handoff is not supported for cursor sessions
 - `classifyBrowserOpen`: no catalogued cursor login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommand`: Cursor does not expose a supported native login command yet
@@ -99,12 +103,13 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## pi — supported 10/23
+## pi — supported 10/24
 
 - `credentials`: Pi credential portability is not supported yet
 - `usage`: Pi exposes no declared quota endpoint or transcript harvest layout yet
 - `install`: Pi is distributed through npm, its standalone installer, and GitHub releases — no single vendor install script to run
 - `instrumentation`: pi posts no hook payloads; observation is poll-only over its stream
+- `composer`: pi has no composer scrape rules yet
 - `handoffTranscript`: cross-machine handoff is not supported for pi sessions
 - `classifyBrowserOpen`: no catalogued pi login/link domains yet — the daemon generic redirect_uri heuristic decides
 - `inventory.loginCommand`: Pi signs in through its interactive /login command
