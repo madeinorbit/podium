@@ -150,8 +150,17 @@ export const sharedVitestConfig = {
         replacement: fileURLToPath(
           new URL(
             './packages/harness/src/adapters/claude-code/instrumentation.ts',
-            import.meta.url,
+            import.meta.url),
           ),
+      },
+      // Fixture harness (POD-4474): the test-only seventh manifest the
+      // server→daemon route test registers. Same anchored shape as every
+      // entry above: without it the subpath falls through to node_modules
+      // resolution and the unbuilt dist.
+      {
+        find: /^@podium\/harness\/adapters\/fixture$/,
+        replacement: fileURLToPath(
+          new URL('./packages/harness/src/adapters/fixture/index.ts', import.meta.url),
         ),
       },
       {
