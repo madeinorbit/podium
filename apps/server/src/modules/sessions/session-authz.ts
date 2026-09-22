@@ -26,7 +26,11 @@ import type { SessionLifecycleDeps } from './session-lifecycle-types'
 import type { SessionAccessDeps } from './session-access'
 import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
 import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
-import { assertMayCommandSession, resolveSessionTarget } from './session-access'
+import {
+  ambiguousSessionPrefixMessage,
+  assertMayCommandSession,
+  resolveSessionTarget,
+} from './session-access'
 import type { Session } from './session'
 import type { SessionOwnerMemo } from './session-state/service'
 
@@ -174,6 +178,12 @@ export class SessionAuthz {
     }
     const resolved = await resolveSessionTarget(principal, input.sessionId, access)
     if (resolved.kind === 'absent') return refused
+    if (resolved.kind === 'ambiguous') {
+      return {
+        ok: false,
+        reason: ambiguousSessionPrefixMessage(resolved.prefix, resolved.candidates),
+      } as const
+    }
     /**
      * RIGHTS ARE RE-CHECKED; THE SCOPE CONFIRMATION IS NOT RE-ASKED (POD-3226).
      *

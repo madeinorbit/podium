@@ -40,7 +40,14 @@ import {
   spawnedByFor,
 } from './command-plane'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
-import { asyncSessionIssueAccess, type SessionVisibility } from './session-access'
+import {
+  ambiguousSessionPrefixMessage,
+  asyncSessionIssueAccess,
+  resolveSessionTarget,
+  type SessionAccessDeps,
+  type SessionTargetRow,
+  type SessionVisibility,
+} from './session-access'
 
 afterEach(() => disposeOracles())
 
@@ -128,6 +135,7 @@ async function ctxFor(
     issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
+      listSessionIds: () => modules.sessions.sessionFacts().map((s) => s.sessionId),
       issues: asyncSessionIssueAccess(modules.issues),
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
@@ -705,5 +713,109 @@ describe('attribution and ownership come from the principal', () => {
     expect(
       createdOwnership(agentFor('agent-1', COLLEAGUE), { id: asIssueId('draft-1') }).owner,
     ).toBe(COLLEAGUE)
+  })
+})
+
+describe('session id prefix (POD-4536)', () => {
+  function prefixAccess(
+    rows: Map<SessionId, SessionTargetRow>,
+    opts?: { listSpy?: SessionAccessDeps['listSessionIds'] & { mock?: unknown } },
+  ): SessionAccessDeps {
+    return {
+      sessionById: async (id) => rows.get(id),
+      listSessionIds: opts?.listSpy ?? (() => [...rows.keys()]),
+      issues: { has: () => false, ancestorIds: () => [], issueForCwd: async () => null },
+    }
+  }
+
+  function targetCtx(access: SessionAccessDeps, principal: CommandPrincipal): SessionCommandCtx {
+    const rowFor = async (id: SessionId) => {
+      const found = await access.sessionById(id)
+      // No machineId on the fake rows, so the machine `use` gate is skipped —
+      // this test is about id resolution, not placement.
+      return found ? { ...found } : undefined
+    }
+    return new SessionCommandCtx(
+      {
+        sessions: () => ({ sessionById: rowFor }) as never,
+        stageAttachment: async () => {
+          throw new Error('unused')
+        },
+        isAgentDriven: async () => false,
+        mailSend: () => Promise.resolve({ ok: false, disposition: 'dead_letter' }) as never,
+        createDraftIssue: async () => ({ id: asIssueId('x') }),
+        attachDraftArtifacts: async () => {},
+        discardUnlaunchedDraft: async () => false,
+        issueOwner: async () => undefined,
+        access,
+        rpc: () => ({}) as never,
+        ownership: { rowFor: () => undefined, delegatedMachines: () => undefined },
+        mutations: { once: async (_id: never, _proc: never, fn: () => unknown) => await fn() } as never,
+      },
+      principal,
+    )
+  }
+
+  it('resolves an unambiguous 8-char prefix through the shared target path', async () => {
+    const full = asSessionId('e10d1055-e770-44a6-bfd4-993c4867297d')
+    const rows = new Map<SessionId, SessionTargetRow>([
+      [full, { sessionId: full, cwd: '/p', status: 'hibernated', archived: false, agentKind: 'shell' } as SessionTargetRow],
+    ])
+    const principal = human(firstAdminMemberId())
+    const access = prefixAccess(rows)
+
+    const byFull = await resolveSessionTarget(principal, full, access)
+    const byPrefix = await resolveSessionTarget(principal, asSessionId(full.slice(0, 8)), access)
+
+    expect(byFull.kind).toBe('visible')
+    expect(byPrefix.kind).toBe('visible')
+    if (byFull.kind !== 'visible' || byPrefix.kind !== 'visible') throw new Error('expected visible')
+    expect(byPrefix.session.sessionId).toBe(full)
+    expect(byPrefix.session.sessionId).toBe(byFull.session.sessionId)
+
+    // And through the command-plane target every command rides.
+    const ctx = targetCtx(access, principal)
+    expect((await ctx.target(full, 'sessions.hibernate'))?.sessionId).toBe(full)
+    expect((await ctx.target(asSessionId(full.slice(0, 8)), 'sessions.hibernate'))?.sessionId).toBe(full)
+  })
+
+  it('keeps the exact-match fast path first — a full uuid never pays for a scan', async () => {
+    const full = asSessionId('e10d1055-e770-44a6-bfd4-993c4867297d')
+    const rows = new Map<SessionId, SessionTargetRow>([
+      [full, { sessionId: full, cwd: '/p', status: 'live', archived: false, agentKind: 'shell' } as SessionTargetRow],
+    ])
+    const listSpy = vi.fn(() => [...rows.keys()]) as SessionAccessDeps['listSessionIds'] & {
+      mock: unknown
+    }
+    const access = prefixAccess(rows, { listSpy })
+    const principal = human(firstAdminMemberId())
+
+    const resolved = await resolveSessionTarget(principal, full, access)
+    expect(resolved.kind).toBe('visible')
+    expect(listSpy).not.toHaveBeenCalled()
+  })
+
+  it('refuses an ambiguous prefix naming the candidates, never silently picking one', async () => {
+    const a = asSessionId('aaaaaaaa-1111-4111-8111-111111111111')
+    const b = asSessionId('aaaaaaaa-2222-4222-8222-222222222222')
+    const rows = new Map<SessionId, SessionTargetRow>([
+      [a, { sessionId: a, cwd: '/p', status: 'live', archived: false, agentKind: 'shell' } as SessionTargetRow],
+      [b, { sessionId: b, cwd: '/p', status: 'live', archived: false, agentKind: 'shell' } as SessionTargetRow],
+    ])
+    const access = prefixAccess(rows)
+    const principal = human(firstAdminMemberId())
+
+    const resolved = await resolveSessionTarget(principal, asSessionId('aaaaaaaa'), access)
+    expect(resolved.kind).toBe('ambiguous')
+    if (resolved.kind !== 'ambiguous') throw new Error('expected ambiguous')
+    expect(resolved.candidates).toEqual(expect.arrayContaining([a, b]))
+    expect(ambiguousSessionPrefixMessage('aaaaaaaa', resolved.candidates)).toContain(a)
+    expect(ambiguousSessionPrefixMessage('aaaaaaaa', resolved.candidates)).toContain(b)
+
+    // Through the shared target path it throws with the same candidates listed.
+    const ctx = targetCtx(access, principal)
+    await expect(ctx.target(asSessionId('aaaaaaaa'), 'sessions.hibernate')).rejects.toThrow(/ambiguous/)
+    await expect(ctx.target(asSessionId('aaaaaaaa'), 'sessions.hibernate')).rejects.toThrow(a)
+    await expect(ctx.target(asSessionId('aaaaaaaa'), 'sessions.hibernate')).rejects.toThrow(b)
   })
 })
