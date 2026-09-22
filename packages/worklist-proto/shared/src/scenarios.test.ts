@@ -333,9 +333,28 @@ describe('scenarios on the fixture at 1x', () => {
   }, 60_000)
 })
 
+describe('per-row feed on every scenario (POD-4553)', () => {
+  it('whole-slice passes happen only for a replace, once each', async () => {
+    const table: Record<string, { replaces: number; enumerations: number; rowsVisited: number }> =
+      {}
+    for (const entry of SCENARIOS) {
+      const result = await entry.run()
+      table[entry.name] = {
+        replaces: result.events.filter((e) => e.type === 'replace').length,
+        enumerations: result.stats.enumerations,
+        rowsVisited: result.stats.rowsVisited,
+      }
+    }
+    console.info(`ROW-SOURCE ENUMERATIONS ${JSON.stringify(table)}`)
+    for (const [name, cost] of Object.entries(table)) {
+      expect(cost.enumerations, `${name}: enumerations == replace events`).toBe(cost.replaces)
+    }
+  }, 300_000)
+})
+
 describe('heartbeat cost on the fixture at 1x, 2x, 4x (counts only)', () => {
   it('visits 1 row at every scale', async () => {
-    const table: Record<string, { rowsVisited: number; rebuilds: number; rows: number }> = {}
+    const table: Record<string, { rowsVisited: number; enumerations: number; rows: number }> = {}
     for (const scale of [1, 2, 4] as const) {
       table[`${scale}x`] = await measureHeartbeat(scale)
     }
@@ -343,11 +362,9 @@ describe('heartbeat cost on the fixture at 1x, 2x, 4x (counts only)', () => {
     for (const [scale, cost] of Object.entries(table)) {
       expect(cost.rows, `${scale}: one addressed row`).toBe(1)
       expect(cost.rowsVisited, `${scale}: O(addresses) visits`).toBe(1)
-      // Exactly one index rebuild: the sessions fold allocates a fresh array
-      // for one changed row (the legacy write-path cost). It is O(kind), not
-      // O(addresses) — pinned here so any new per-publication allocation
-      // fails loudly instead of hiding in the slope.
-      expect(cost.rebuilds, `${scale}: one kind rebuild`).toBe(1)
+      // POD-4553: the per-row feed reads the addressed row by id; no kind is
+      // re-indexed, so no whole-slice pass happens at any scale.
+      expect(cost.enumerations, `${scale}: no whole-slice pass`).toBe(0)
     }
   }, 300_000)
 })

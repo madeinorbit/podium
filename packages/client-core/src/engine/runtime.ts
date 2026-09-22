@@ -95,6 +95,7 @@ import { createEngineActions, type EngineActions, type EngineActionRuntime } fro
 import { planNavigation, type NavigationIntent } from './navigation'
 import { BootFetches } from './boot'
 import { dedupeSessions, OptimismLedger } from './optimism'
+import type { OverlayEntity, PendingOverlay } from './overlay'
 import { Reactions, WORKSPACE_PRUNE_GRACE_MS } from './reactions'
 import { sessionLinkProblem, sessionLinkSelection } from './session-link'
 import {
@@ -593,6 +594,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** useSyncExternalStore-shaped subscription. Bound so it can be passed bare. */
   readonly subscribe = (listener: () => void): (() => void) => this.subStore.subscribe(listener)
   readonly getSnapshot = (): Store<TApi> => this.subStore.getSnapshot()
+  /** The optimism ledger's pending overlays by row id (POD-4553), read-only:
+   *  lets a per-row reader fold one row over `replica.row()` instead of
+   *  diffing the snapshot's folded arrays. Derived at call time; retirement
+   *  runs in each recompute, so read it after a publication, not inside one. */
+  readonly pendingOverlaysByRow = (
+    entity: OverlayEntity,
+  ): ReadonlyMap<string, readonly PendingOverlay[]> => this.optimism.pendingByRow(entity)
 
   // ------------------------------------------------------------------ lifecycle
 

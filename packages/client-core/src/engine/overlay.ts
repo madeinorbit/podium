@@ -798,6 +798,32 @@ export function foldOverlays<T extends object>(
 }
 
 /**
+ * {@link foldOverlays} for ONE row (POD-4553): `base` is that row's server
+ * truth (undefined when absent) and `overlays` are that row's own pending
+ * overlays in fold order. Same rules — a base row wins against an insert,
+ * patches compose oldest-first, and a composition that moves no patched cell
+ * returns `base` itself — so a per-row reader agrees with the whole-entity fold
+ * without folding the entity.
+ */
+export function foldRowOverlays<T extends object>(
+  base: T | undefined,
+  overlays: readonly PendingOverlay[],
+): T | undefined {
+  if (overlays.length === 0) return base
+  let row = base
+  if (row === undefined) {
+    const insert = overlays.find((o) => o.op === 'insert')
+    if (insert === undefined) return undefined
+    row = insert.insert as T
+  }
+  const patches: OverlayPatch[] = []
+  for (const o of overlays) if (o.op === 'patch') patches.push(o.patch)
+  if (patches.length === 0) return row
+  const merged = Object.assign({}, row, ...patches) as T
+  return movedAnyCell(row, merged, patches) ? merged : row
+}
+
+/**
  * Apply retirement rule (a) to the awaiting-truth stage for one entity: drop
  * every entry whose target row is gone, is covered, had a patched cell move
  * past its enqueue baseline (oldest entry per row only — see below), or

@@ -1,12 +1,34 @@
 /**
- * POD-4444 — the kernel's effective per-row change stream, as the arms see it.
+ * POD-4444, rewritten per-row by POD-4553 — the kernel's effective per-row
+ * change stream, as the arms see it.
  *
- * One publication from the runtime is one {@link RowSourceEvent}: kernel
- * addresses collected from the facade's `subscribeAddressedBatch` seam are
- * resolved against the runtime's folded (post-optimism) snapshot, so arms
- * never diff collections and never read the kernel themselves. That isolation
- * is what round one lacked (methodology §3: the comparison measured the port,
- * not the approach).
+ * One publication from the runtime is one {@link RowSourceEvent}. Each row in
+ * it is read BY ID: the authority row from the kernel replica
+ * (`replica.row(kind, id)`), with that row's own pending optimistic overlays
+ * from the runtime's ledger (`runtime.pendingOverlaysByRow(entity)`) folded
+ * over it by `foldRowOverlays` — the ledger's own fold rules, applied to one
+ * row. Nothing here indexes a collection per publication: the work of one
+ * flush is the rows it names, never the corpus. Arms never diff collections
+ * and never read the kernel themselves (methodology §3: round one measured the
+ * port, not the approach).
+ *
+ * WHICH ROWS A FLUSH VISITS (the fence `row-source.test.ts` asserts at 1x and
+ * 4x): the distinct slice rows named by the kernel's addressed batch, plus the
+ * rows with pending overlays now or at the previous flush. Nothing else. The
+ * pending set is O(pending writes) — a handful — and it is the only way an
+ * optimistic-only publication (a press, an echo retirement, a rejection) can
+ * name its rows without diffing arrays.
+ *
+ * WHAT A FLUSH EMITS. Every kernel-addressed row, always (a heartbeat emits
+ * its row even when the fold hides the change). A row visited only because of
+ * the ledger is emitted only when its value identity moved from what the arms
+ * last received, so a durable commit that repaints the press's own overlay
+ * emits nothing (POD-1053).
+ *
+ * IDENTITY. With no overlay the value IS the replica's row object (borrowed),
+ * so identity-based commit counting holds and a rejection restores the prior
+ * object itself. A folded value that is shallow-equal to the one last emitted
+ * for that row keeps the earlier object, as the ledger's whole-list fold does.
  *
  * SPEC CITATIONS (frozen slice `docs/plans/pod-4441-round-two-slice.md`).
  * - §2 maintenance rule: evict carries no tombstone — a row with `value:
@@ -17,117 +39,110 @@
  * - Methodology §5.8: scenarios 1–13 drive this stream; §1a budgets judge it.
  *
  * ORDERING. The facade drains row listeners, then kind-batch listeners (which
- * is where the replica binding publishes the runtime snapshot), then addressed
- * listeners. A kernel batch therefore lands as: runtime publication FIRST,
- * addressed batch SECOND, in the same synchronous drain. Buffering addresses
- * and draining on the runtime publication would miss them, so this source
- * coalesces both signals into one microtask flush: whatever arrived
- * synchronously since the last flush — kernel addresses, a runtime
- * publication, or both — becomes exactly one event. "One publication, one
- * event" holds even when the runtime nests `apply()` calls inside a batch,
- * and a `replica.batch()` of 50 upserts yields exactly one update with 50
- * rows. Tests that need determinism call `flush()` synchronously instead of
- * awaiting the microtask; both go through the same drain.
+ * is where the replica binding publishes the runtime snapshot and the ledger
+ * recomputes), then addressed listeners. A kernel batch therefore lands as:
+ * runtime publication FIRST, addressed batch SECOND, in the same synchronous
+ * drain. This source coalesces both signals into one microtask flush:
+ * whatever arrived synchronously since the last flush — kernel addresses, a
+ * runtime publication, or both — becomes exactly one event, read after the
+ * ledger has retired whatever the batch covered. "One publication, one event"
+ * holds when the runtime nests `apply()` calls inside a batch, and a
+ * `replica.batch()` of 50 upserts yields one update with 50 rows. Tests that
+ * need determinism call `flush()` synchronously; both go through one drain.
  *
- * OPTIMISTIC-ONLY PUBLICATIONS (no kernel address — a press, an echo
- * retirement, a rejection) still emit: the touched ids are found by diffing
- * the folded snapshot against the previous flush's maps. That diff is O(N) in
- * the touched KIND's size and is counted in `rebuilds`; kernel-addressed
- * publications cost O(addresses) plus at most one index rebuild per kind
- * whose array identity moved (the legacy fold allocates fresh arrays even for
- * one row — that is the inherited write-path cost, reported in the cost
- * table, not charged to `rowsVisited`).
+ * REPLACE. A bootstrap or rescope is the one place a flush enumerates the
+ * slice (`replica.rows()` per kind, plus pending inserts); `snapshot()` is the
+ * other enumeration. Both count in `stats.enumerations`, which the scenarios
+ * assert is 0 on every non-replace publication.
  *
  * LOCALS-ONLY PUBLICATIONS (selection, drafts, host metrics, a coarse tick
- * that moved no band) carry no kernel address and no folded-row change, so
- * they emit NO event. Arms already receive locals (`SliceLocals`) out of
- * band; waking them with an empty update would rebuild the idle cost the
- * slice removes. `selectionClick (locals only)` therefore yields zero events.
+ * that moved no band) carry no kernel address and move no overlaid row, so
+ * they emit NO event. Arms receive locals (`SliceLocals`) out of band.
  *
  * OUT-OF-SLICE KINDS (`issueEvents`, `pendingInteractions`, `shipOrders`,
  * `conversations`, `automations`, `automationRuns`, `userLayouts`) never
  * produce rows. A publication touching only those kinds emits no event.
  *
- * ISSUE DUAL-WRITE ASSUMPTION. An `issue` row carries the wire row
+ * ISSUE DUAL-WRITE ASSUMPTION. An `issue` row carries the folded wire row
  * (`IssueWire`, cast to `SliceIssue` — the wire holds every slice field the
- * legacy views read). A projection-only address resolves to the wire row when
- * one exists, else to the projection row cast up. The scenarios keep wire and
- * projection dual-written, so a projection change always arrives with its
- * wire change in the same batch and dedupes to one row. A projection-only
- * write with a stale wire would paint stale — that has not been observed on
- * this branch; if it appears it is a finding for the write-path decision
+ * legacy views read), else the folded projection row cast up. The scenarios
+ * keep wire and projection dual-written, so a projection change arrives with
+ * its wire change in the same batch and dedupes to one row. A projection-only
+ * write under a stale wire would paint stale — a write-path finding
  * (methodology §6.4), not a silent miss.
  *
+ * SESSION RESUME TWINS (a known divergence, not a silent one). The runtime
+ * hides all-parked legacy sessions that share a resume ref
+ * (`dedupeSessionsByResume`), a whole-kind rule. A per-row feed cannot apply
+ * it without a resume-ref index, which is a relation for the declared pool
+ * (POD-4546), not for the feed. The corpus carries no resume refs by design
+ * (`harness/src/fixture/corpus.test.ts`), so no scenario reaches it.
+ *
  * DEP EDGES. An `issueDeps` address resolves through the dep row's `fromId`
- * to the owning issue and emits that issue's wire row. A dep removal whose
- * row is already gone cannot resolve its owner and is skipped; the scenarios
- * always update the wire alongside the edge, so the issue event still lands.
- * The full continuation walk is out of slice (§6) — R4 is the single edge.
+ * to the owning issue and emits that issue's row. A dep removal whose row is
+ * already gone cannot resolve its owner and is skipped; the scenarios always
+ * update the wire alongside the edge, so the issue event still lands.
  *
  * WORKTREE LANES. One `SliceWorktree` per repo root plus one per scanned
- * worktree, from `EngineState.repos` (`GitRepositoryWire`) joined with the
- * replica `repos` prefix map. A `repos` address (prefix change) emits only the
- * lanes of that repo — bounded fan-out; arms re-derive affected `displayRef`s
- * through their own prefix index. Lanes are memoized by path signature, so an
- * unrelated heartbeat rebuilds no lane object.
+ * worktree, from `EngineState.repos` (`GitRepositoryWire`, engine-local, not a
+ * replica kind) joined with the replica `repos` row's prefix, read by id. A
+ * `repos` address emits only that repo's lanes. The repoId → repos index is
+ * built when the engine's `repos` array identity moves (discovery), counted
+ * in `enumerations`; a new `repos` array from discovery alone emits no event
+ * (inherited from round two: discovery is not a kernel row).
  *
  * DISPOSAL. `dispose()` unsubscribes from both the runtime and the replica; a
  * disposed source never emits again (principal switch, methodology #11).
  */
 
-import type {
-  ReplicaAddressedBatch,
-  ReplicaKind,
-} from '@podium/client-core/replica'
+import {
+  foldRowOverlays,
+  type OverlayEntity,
+  type PendingOverlay,
+} from '@podium/client-core/engine'
+import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
+import { shallowEqual } from '@podium/client-core/store'
 import type { RowSource } from './arm'
-import type {
-  SliceIssue,
-  SliceSession,
-  SliceWorktree,
-} from './slice-types'
+import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
 import type { RowRecord, RowSourceEvent } from './stats'
 
+type AnyRow = { [k: string]: unknown }
+
+interface RepoEntry {
+  path: string
+  repoId?: string | null
+  worktrees?: readonly { path: string }[]
+}
+
 /** The runtime surface the row source reads. Structural so tests can drive it
- *  with a fake; the real `ClientRuntime` satisfies it by shape (`subscribe`,
- *  `getSnapshot` with the folded entity lists). */
+ *  with a fake; the real `ClientRuntime` satisfies it by shape. The snapshot is
+ *  read for `repos` (worktree lanes) only — entity rows come from the replica
+ *  and the ledger, by id. */
 export interface RowSourceRuntime {
   subscribe(listener: () => void): () => void
-  getSnapshot(): {
-    sessions: readonly { sessionId: string }[]
-    issues: readonly { id: string }[]
-    issueProjections: readonly { id: string }[]
-    repos: readonly {
-      path: string
-      repoId?: string | null
-      worktrees?: readonly { path: string }[]
-    }[]
-  }
+  getSnapshot(): { repos: readonly RepoEntry[] }
+  pendingOverlaysByRow(entity: OverlayEntity): ReadonlyMap<string, readonly PendingOverlay[]>
 }
 
-/** The replica surface the row source reads. The addressed seam is optional —
- *  without it the source still emits optimistic-only events, but kernel
- *  changes arrive kind-grained and resolve to per-kind refreshes rather than
- *  per-row addresses (documented degradation, not a silent miss). */
+/** The replica surface the row source reads. `row()` and the addressed seam
+ *  are optional on the replica contract; this source refuses to start without
+ *  them rather than degrading to kind-grained refreshes. */
 export interface RowSourceReplica {
-  subscribeAddressedBatch?(
-    cb: (batch: ReplicaAddressedBatch) => void,
-  ): () => void
-  subscribeRowBatch?(cb: (changed: ReadonlySet<ReplicaKind>) => void): () => void
-  rows<K extends ReplicaKind>(kind: K): readonly { [k: string]: unknown }[]
-  row?<K extends ReplicaKind>(
-    kind: K,
-    id: string,
-  ): { [k: string]: unknown } | undefined
+  subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
+  rows<K extends ReplicaKind>(kind: K): readonly AnyRow[]
+  row?<K extends ReplicaKind>(kind: K, id: string): AnyRow | undefined
 }
 
-/** Counts-first instrumentation (methodology §5.7). `rowsVisited` is the
- *  verdict-carrying counter: map gets per emitted row, O(addresses) on the
- *  kernel path. `rebuilds` counts per-kind index rebuilds forced by fresh
- *  array identities (the legacy fold cost). A heartbeat visits 1 row at every
- *  scale; if rebuilds dominate at 4x, that is a write-path finding (§6.4). */
+/** Counts-first instrumentation (methodology §5.7). `rowsVisited` counts slice
+ *  rows resolved (one per session, issue or lane read); per flush it equals
+ *  the addressed rows plus the pending-overlay rows. `enumerations` counts
+ *  whole-slice passes — one per replace, one per `snapshot()` call, one per
+ *  lane-index build — and is 0 on every ordinary publication. `flushes`
+ *  counts drains that had a signal, emitting or not. */
 export interface RowSourceStats {
   rowsVisited: number
-  rebuilds: number
+  enumerations: number
+  flushes: number
   events: number
   reset(): void
 }
@@ -141,8 +156,6 @@ export interface RowSourceHandle {
   dispose(): void
 }
 
-type PendingAddress = { kind: ReplicaKind; id: string }
-
 const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'sessions',
   'issues',
@@ -151,50 +164,66 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'repos',
 ])
 
+const OVERLAID: readonly OverlayEntity[] = ['sessions', 'issues', 'issueProjections']
+const NO_OVERLAYS: readonly PendingOverlay[] = []
+type PendingByRow = Record<OverlayEntity, ReadonlyMap<string, readonly PendingOverlay[]>>
+
 function repoNameOf(path: string): string {
   const tail = path.split('/').filter(Boolean).pop()
   return tail ?? path
+}
+
+function sessionIdOf(row: AnyRow): string | null {
+  return typeof row.sessionId === 'string' ? (row.sessionId as string) : null
+}
+
+function idOf(row: AnyRow): string | null {
+  return typeof row.id === 'string' ? (row.id as string) : null
 }
 
 export function createRowSource(
   runtime: RowSourceRuntime,
   replica: RowSourceReplica,
 ): RowSourceHandle {
+  const rowOf = replica.row?.bind(replica)
+  const addressedOf = replica.subscribeAddressedBatch?.bind(replica)
+  if (rowOf === undefined || addressedOf === undefined) {
+    throw new Error(
+      'createRowSource: the per-row feed needs replica.row() and replica.subscribeAddressedBatch() ' +
+        '(the kernel facade has both). A replica without them would force a per-kind rebuild.',
+    )
+  }
+
+  const readRow: NonNullable<RowSourceReplica['row']> = rowOf
+  const subscribeAddressed: NonNullable<RowSourceReplica['subscribeAddressedBatch']> = addressedOf
   const listeners = new Set<(event: RowSourceEvent) => void>()
   let disposed = false
 
   // Pending signals since the last flush.
-  const pending = new Map<string, PendingAddress>()
+  const pendingAddresses = new Map<string, { kind: ReplicaKind; id: string }>()
   let pendingReplace: 'bootstrap' | 'rescope' | null = null
   let runtimeDirty = false
   let scheduled = false
 
-  // Memoized per-kind indexes over the folded snapshot. Rebuilt only when the
-  // array identity moves; a heartbeat re-indexes the sessions kind once and
-  // visits exactly its addressed row.
-  let sessionArray: readonly { sessionId: string }[] | null = null
-  let sessionMap = new Map<string, { sessionId: string }>()
-  let wireArray: readonly { id: string }[] | null = null
-  let wireMap = new Map<string, { id: string }>()
-  let projectionArray: readonly { id: string }[] | null = null
-  let projectionMap = new Map<string, { id: string }>()
-  let reposSnapshotArray: readonly {
-    path: string
-    repoId?: string | null
-    worktrees?: readonly { path: string }[]
-  }[] | null = null
-  let prefixArray: readonly { [k: string]: unknown }[] | null = null
-  let prefixByRepoId = new Map<string, string | null>()
+  /** The value last emitted for each slice row that had overlays at the last
+   *  flush, keyed `session:id` / `issue:id`. Bounded by pending writes: rows
+   *  without overlays are borrowed from the replica and never held here. */
+  const overlaid = new Map<string, RowRecord['value']>()
+
   // Worktree lanes memoized by path signature (path|repoId|repoPath|name|prefix).
   const laneCache = new Map<string, { sig: string; lane: SliceWorktree }>()
+  let reposIndexedFrom: readonly RepoEntry[] | null = null
+  let reposById = new Map<string, RepoEntry[]>()
 
   const stats: RowSourceStats = {
     rowsVisited: 0,
-    rebuilds: 0,
+    enumerations: 0,
+    flushes: 0,
     events: 0,
     reset() {
       stats.rowsVisited = 0
-      stats.rebuilds = 0
+      stats.enumerations = 0
+      stats.flushes = 0
       stats.events = 0
     },
   }
@@ -212,28 +241,13 @@ export function createRowSource(
     if (disposed) return
     if (batch.type === 'replace') {
       pendingReplace = batch.reason
-      pending.clear()
+      pendingAddresses.clear()
     } else {
       if (pendingReplace !== null) return
       for (const row of batch.rows) {
         if (!SLICE_KINDS.has(row.kind)) continue
-        pending.set(`${row.kind}:${row.id}`, { kind: row.kind, id: row.id })
+        pendingAddresses.set(`${row.kind}:${row.id}`, { kind: row.kind, id: row.id })
       }
-    }
-    schedule()
-  }
-
-  function onKindBatch(changed: ReadonlySet<ReplicaKind>): void {
-    if (disposed) return
-    // Degradation path when the addressed seam is absent: refresh per kind.
-    // Kept coarse on purpose — without addresses there is no per-row truth to
-    // resolve, and inventing one would be the silent miss. The facade on this
-    // branch always carries the seam, so this path is untested by the budgets.
-    if (replica.subscribeAddressedBatch !== undefined) return
-    if (pendingReplace !== null) return
-    for (const kind of changed) {
-      if (!SLICE_KINDS.has(kind)) continue
-      pending.set(`${kind}:*`, { kind, id: '*' })
     }
     schedule()
   }
@@ -244,55 +258,63 @@ export function createRowSource(
     schedule()
   }
 
-  function rebuildIndexes(
-    snap: ReturnType<RowSourceRuntime['getSnapshot']>,
-  ): void {
-    if (snap.sessions !== sessionArray) {
-      sessionArray = snap.sessions
-      sessionMap = new Map(snap.sessions.map((row) => [row.sessionId, row]))
-      stats.rebuilds += 1
-    }
-    if (snap.issues !== wireArray) {
-      wireArray = snap.issues
-      wireMap = new Map(snap.issues.map((row) => [row.id, row]))
-      stats.rebuilds += 1
-    }
-    if (snap.issueProjections !== projectionArray) {
-      projectionArray = snap.issueProjections
-      projectionMap = new Map(snap.issueProjections.map((row) => [row.id, row]))
-      stats.rebuilds += 1
-    }
-    if (snap.repos !== reposSnapshotArray) {
-      reposSnapshotArray = snap.repos
-      stats.rebuilds += 1
-    }
-    let prefixRows: readonly { [k: string]: unknown }[] = EMPTY
-    try {
-      prefixRows = replica.rows('repos')
-    } catch {
-      prefixRows = EMPTY
-    }
-    if (prefixRows !== prefixArray) {
-      prefixArray = prefixRows
-      prefixByRepoId = new Map()
-      for (const row of prefixRows) {
-        const id = typeof row['id'] === 'string' ? (row['id'] as string) : null
-        if (id === null) continue
-        const prefix =
-          typeof row['prefix'] === 'string' ? (row['prefix'] as string) : null
-        prefixByRepoId.set(id, prefix)
-      }
-      stats.rebuilds += 1
+  function readPending(): PendingByRow {
+    return {
+      sessions: runtime.pendingOverlaysByRow('sessions'),
+      issues: runtime.pendingOverlaysByRow('issues'),
+      issueProjections: runtime.pendingOverlaysByRow('issueProjections'),
     }
   }
 
-  function laneFor(
-    path: string,
-    repoId: string | null,
-    repoPath: string,
-  ): SliceWorktree {
+  function authority(kind: OverlayEntity, id: string): AnyRow | undefined {
+    try {
+      return readRow(kind, id)
+    } catch {
+      // The facade's row() never throws; a fake that does reads as gone.
+      return undefined
+    }
+  }
+
+  function folded(
+    kind: OverlayEntity,
+    id: string,
+    pending: PendingByRow | null,
+  ): AnyRow | undefined {
+    const overlays = pending?.[kind].get(id) ?? NO_OVERLAYS
+    return foldRowOverlays(authority(kind, id), overlays)
+  }
+
+  /** One slice row's current value. `pending: null` resolves server truth
+   *  alone — the value the arms hold for a row that had no overlay. */
+  function resolve(
+    kind: 'session' | 'issue',
+    id: string,
+    pending: PendingByRow | null,
+  ): RowRecord['value'] {
+    if (kind === 'session') return folded('sessions', id, pending) as SliceSession | undefined
+    const wire = folded('issues', id, pending)
+    if (wire !== undefined) return wire as unknown as SliceIssue
+    return folded('issueProjections', id, pending) as unknown as SliceIssue | undefined
+  }
+
+  function hasOverlays(kind: 'session' | 'issue', id: string, pending: PendingByRow): boolean {
+    if (kind === 'session') return pending.sessions.has(id)
+    return pending.issues.has(id) || pending.issueProjections.has(id)
+  }
+
+  function prefixOf(repoId: string): string | null {
+    let row: AnyRow | undefined
+    try {
+      row = readRow('repos', repoId)
+    } catch {
+      row = undefined
+    }
+    return typeof row?.prefix === 'string' ? (row.prefix as string) : null
+  }
+
+  function laneFor(path: string, repoId: string | null, repoPath: string): SliceWorktree {
     const repoName = repoNameOf(repoPath)
-    const prefix = repoId !== null ? (prefixByRepoId.get(repoId) ?? null) : null
+    const prefix = repoId !== null ? prefixOf(repoId) : null
     const sig = `${path}|${repoId ?? ''}|${repoPath}|${repoName}|${prefix ?? ''}`
     const cached = laneCache.get(path)
     if (cached !== undefined && cached.sig === sig) return cached.lane
@@ -307,236 +329,208 @@ export function createRowSource(
     return lane
   }
 
-  function currentLanes(): SliceWorktree[] {
-    const repos = reposSnapshotArray ?? []
-    const lanes: SliceWorktree[] = []
-    for (const repo of repos) {
-      const repoId =
-        typeof repo.repoId === 'string' && repo.repoId.length > 0
-          ? repo.repoId
-          : null
-      lanes.push(laneFor(repo.path, repoId, repo.path))
-      for (const wt of repo.worktrees ?? []) {
-        lanes.push(laneFor(wt.path, repoId, repo.path))
-      }
-    }
+  function repoIdOf(repo: RepoEntry): string | null {
+    return typeof repo.repoId === 'string' && repo.repoId.length > 0 ? repo.repoId : null
+  }
+
+  function lanesOf(repo: RepoEntry): SliceWorktree[] {
+    const repoId = repoIdOf(repo)
+    const lanes = [laneFor(repo.path, repoId, repo.path)]
+    for (const wt of repo.worktrees ?? []) lanes.push(laneFor(wt.path, repoId, repo.path))
     return lanes
   }
 
-  function resolveAddress(address: PendingAddress): RowRecord | null {
-    const { kind, id } = address
-    if (kind === 'sessions') {
-      const value = sessionMap.get(id) as unknown as SliceSession | undefined
-      stats.rowsVisited += 1
-      return { kind: 'session', id, value }
+  function currentRepos(): readonly RepoEntry[] {
+    try {
+      return runtime.getSnapshot().repos
+    } catch {
+      return EMPTY
     }
-    if (kind === 'issues' || kind === 'issueProjections') {
-      const wire = wireMap.get(id) as unknown as SliceIssue | undefined
-      stats.rowsVisited += 1
-      if (wire !== undefined) return { kind: 'issue', id, value: wire }
-      const projection = projectionMap.get(id) as unknown as
-        | SliceIssue
-        | undefined
-      return { kind: 'issue', id, value: projection }
-    }
-    if (kind === 'issueDeps') {
-      // A star address from the kind-batch degradation path cannot resolve an
-      // owner; skip rather than emit an unusable row.
-      if (id === '*') return null
-      let fromId: string | null = null
-      try {
-        const dep = replica.row?.('issueDeps', id) as
-          | { fromId?: unknown; from?: unknown }
-          | undefined
-        const raw = dep?.fromId ?? dep?.from
-        if (typeof raw === 'string') fromId = raw
-      } catch {
-        fromId = null
-      }
-      if (fromId === null) return null
-      const wire = wireMap.get(fromId) as unknown as SliceIssue | undefined
-      stats.rowsVisited += 1
-      if (wire !== undefined) return { kind: 'issue', id: fromId, value: wire }
-      const projection = projectionMap.get(fromId) as unknown as
-        | SliceIssue
-        | undefined
-      return { kind: 'issue', id: fromId, value: projection }
-    }
-    if (kind === 'repos') {
-      if (id === '*') return null
-      stats.rowsVisited += 1
-      // A prefix change fans out to the repo's lanes (bounded by that repo's
-      // lane count); the lanes themselves are memoized, so untouched repos
-      // keep their object identities. Emit the first changed lane here and
-      // the rest below — callers dedupe by id, so returning one row per lane
-      // needs the fan-out list, which `resolveReposFanout` provides.
-      void id
-      return null
-    }
-    return null
   }
 
-  /** Lanes of the repo whose `repos` row moved. Bounded by that repo's lane
-   *  count, never the corpus. */
-  function resolveReposFanout(repoId: string): RowRecord[] {
-    const lanes = currentLanes()
-    const out: RowRecord[] = []
-    for (const lane of lanes) {
-      if (lane.repoId !== repoId) continue
-      stats.rowsVisited += 1
-      out.push({ kind: 'worktree', id: lane.path, value: lane })
+  /** repoId → the engine's repo entries, rebuilt only when discovery hands the
+   *  engine a new `repos` array. Counted: it is a whole-list pass. */
+  function reposFor(repoId: string): readonly RepoEntry[] {
+    const repos = currentRepos()
+    if (repos !== reposIndexedFrom) {
+      reposIndexedFrom = repos
+      reposById = new Map()
+      for (const repo of repos) {
+        const id = repoIdOf(repo)
+        if (id === null) continue
+        const list = reposById.get(id)
+        if (list) list.push(repo)
+        else reposById.set(id, [repo])
+      }
+      stats.enumerations += 1
     }
-    // Fall back to the raw projection row when no lane matches (a repo the
-    // scan has not reported yet): the prefix change is still signalled.
+    return reposById.get(repoId) ?? EMPTY
+  }
+
+  /** Lanes of the repo whose `repos` row moved — bounded by that repo's lanes. */
+  function resolveReposFanout(repoId: string): RowRecord[] {
+    const out: RowRecord[] = []
+    for (const repo of reposFor(repoId)) {
+      for (const lane of lanesOf(repo)) {
+        stats.rowsVisited += 1
+        out.push({ kind: 'worktree', id: lane.path, value: lane })
+      }
+    }
+    // No lane yet (a repo the scan has not reported): the prefix change is
+    // still signalled with the raw row.
     if (out.length === 0) {
-      const raw = prefixArray?.find((row) => row['id'] === repoId) as unknown as
-        | SliceWorktree
-        | undefined
-      out.push({ kind: 'worktree', id: repoId, value: raw })
+      stats.rowsVisited += 1
+      let raw: AnyRow | undefined
+      try {
+        raw = readRow('repos', repoId)
+      } catch {
+        raw = undefined
+      }
+      out.push({ kind: 'worktree', id: repoId, value: raw as unknown as SliceWorktree | undefined })
     }
     return out
   }
 
-  // The optimistic diff needs the PREVIOUS maps, but `rebuildIndexes` replaces
-  // them in place. Keep the previous references across the rebuild for the
-  // diff, then drop them.
-  let prevSessionMap: Map<string, { sessionId: string }> | null = null
-  let prevWireMap: Map<string, { id: string }> | null = null
-  let prevProjectionMap: Map<string, { id: string }> | null = null
+  /** The issue a dep edge belongs to, read through the edge row by id. */
+  function depOwner(depId: string): string | null {
+    try {
+      const dep = readRow('issueDeps', depId) as { fromId?: unknown; from?: unknown } | undefined
+      const raw = dep?.fromId ?? dep?.from
+      return typeof raw === 'string' ? raw : null
+    } catch {
+      return null
+    }
+  }
+
+  /** Keep the previously emitted object when the fold recomposed an equal one. */
+  function retain(key: string, value: RowRecord['value']): RowRecord['value'] {
+    if (!overlaid.has(key)) return value
+    const previous = overlaid.get(key)
+    return previous !== undefined && value !== undefined && shallowEqual(previous, value)
+      ? previous
+      : value
+  }
+
+  /** Every row of one kind, once: server truth folded with pending overlays,
+   *  plus pending inserts no server row covers yet. Resets that kind's memo
+   *  entries (the caller hands every value it returns to the arms). */
+  function enumerate(kind: 'session' | 'issue', pending: PendingByRow): RowRecord[] {
+    for (const key of [...overlaid.keys()]) if (key.startsWith(`${kind}:`)) overlaid.delete(key)
+    const ids: string[] = []
+    const seen = new Set<string>()
+    const add = (id: string | null): void => {
+      if (id === null || seen.has(id)) return
+      seen.add(id)
+      ids.push(id)
+    }
+    if (kind === 'session') {
+      for (const row of replica.rows('sessions')) add(sessionIdOf(row))
+      for (const id of pending.sessions.keys()) add(id)
+    } else {
+      for (const row of replica.rows('issues')) add(idOf(row))
+      // Projections without a wire row still install (a wire that arrives a
+      // beat later upserts over them).
+      for (const row of replica.rows('issueProjections')) add(idOf(row))
+      for (const id of pending.issues.keys()) add(id)
+      for (const id of pending.issueProjections.keys()) add(id)
+    }
+    const out: RowRecord[] = []
+    for (const id of ids) {
+      stats.rowsVisited += 1
+      const value = resolve(kind, id, pending)
+      if (hasOverlays(kind, id, pending)) overlaid.set(`${kind}:${id}`, value)
+      // An insert a server row already covers, or a patch on a row that is
+      // gone, resolves to nothing: not a row.
+      if (value !== undefined) out.push({ kind, id, value })
+    }
+    return out
+  }
+
+  function allLanes(): RowRecord[] {
+    const out: RowRecord[] = []
+    for (const repo of currentRepos()) {
+      for (const lane of lanesOf(repo)) {
+        stats.rowsVisited += 1
+        out.push({ kind: 'worktree', id: lane.path, value: lane })
+      }
+    }
+    return out
+  }
 
   function flush(): RowSourceEvent | null {
     if (disposed) return null
     const hadReplace = pendingReplace
-    const addresses = [...pending.values()]
+    const addresses = [...pendingAddresses.values()]
     const hadRuntime = runtimeDirty
-    pending.clear()
+    pendingAddresses.clear()
     pendingReplace = null
     runtimeDirty = false
     if (!hadReplace && addresses.length === 0 && !hadRuntime) return null
 
-    const snap = runtime.getSnapshot()
-    prevSessionMap = sessionMap
-    prevWireMap = wireMap
-    prevProjectionMap = projectionMap
-    rebuildIndexes(snap)
+    const pending = readPending()
 
+    stats.flushes += 1
     if (hadReplace) {
-      const rows: RowRecord[] = []
-      for (const row of sessionMap.values()) {
-        stats.rowsVisited += 1
-        const value = row as unknown as SliceSession
-        rows.push({ kind: 'session', id: row.sessionId, value })
+      stats.enumerations += 1
+      const event: RowSourceEvent = {
+        type: 'replace',
+        rows: [...enumerate('session', pending), ...enumerate('issue', pending), ...allLanes()],
       }
-      for (const row of wireMap.values()) {
-        stats.rowsVisited += 1
-        const value = row as unknown as SliceIssue
-        rows.push({ kind: 'issue', id: row.id, value })
-      }
-      // Projections without a wire row still install (a wire that arrives a
-      // beat later upserts over them).
-      for (const [id, row] of projectionMap) {
-        if (wireMap.has(id)) continue
-        stats.rowsVisited += 1
-        const value = row as unknown as SliceIssue
-        rows.push({ kind: 'issue', id, value })
-      }
-      for (const lane of currentLanes()) {
-        stats.rowsVisited += 1
-        rows.push({ kind: 'worktree', id: lane.path, value: lane })
-      }
-      const event: RowSourceEvent = { type: 'replace', rows }
       emit(event)
       return event
     }
 
-    if (addresses.length > 0) {
-      const byId = new Map<string, RowRecord>()
-      for (const address of addresses) {
-        if (address.kind === 'repos') {
-          if (address.id === '*') continue
-          for (const row of resolveReposFanout(address.id)) {
-            byId.set(`${row.kind}:${row.id}`, row)
-          }
-          continue
-        }
-        const row = resolveAddress(address)
-        if (row === null) continue
-        byId.set(`${row.kind}:${row.id}`, row)
+    const byKey = new Map<string, RowRecord>()
+    // 1. Kernel-addressed rows: always emitted.
+    const addressed = new Map<string, { kind: 'session' | 'issue'; id: string }>()
+    for (const address of addresses) {
+      if (address.kind === 'repos') {
+        for (const row of resolveReposFanout(address.id)) byKey.set(`${row.kind}:${row.id}`, row)
+        continue
       }
-      if (byId.size === 0) return null
-      const event: RowSourceEvent = { type: 'update', rows: [...byId.values()] }
-      emit(event)
-      return event
+      if (address.kind === 'sessions') {
+        addressed.set(`session:${address.id}`, { kind: 'session', id: address.id })
+        continue
+      }
+      const issueId = address.kind === 'issueDeps' ? depOwner(address.id) : address.id
+      if (issueId !== null) addressed.set(`issue:${issueId}`, { kind: 'issue', id: issueId })
+    }
+    for (const [key, { kind, id }] of addressed) {
+      stats.rowsVisited += 1
+      const value = retain(key, resolve(kind, id, pending))
+      if (hasOverlays(kind, id, pending)) overlaid.set(key, value)
+      else overlaid.delete(key)
+      byKey.set(key, { kind, id, value })
     }
 
-    // Optimistic-only publication: diff folded rows against the pre-rebuild maps.
-    const rows: RowRecord[] = []
-    if (sessionArray !== null && prevSessionMap !== null) {
-      for (const [id, row] of sessionMap) {
-        if (prevSessionMap.get(id) !== row) {
-          stats.rowsVisited += 1
-          rows.push({
-            kind: 'session',
-            id,
-            value: row as unknown as SliceSession,
-          })
-        }
-      }
-      for (const [id, prev] of prevSessionMap) {
-        void prev
-        if (!sessionMap.has(id)) {
-          stats.rowsVisited += 1
-          rows.push({ kind: 'session', id, value: undefined })
-        }
-      }
+    // 2. Rows the ledger names — overlaid now, or overlaid at the last flush —
+    //    emitted only when their value moved from what the arms hold.
+    const ledgerRows = new Map<string, { kind: 'session' | 'issue'; id: string }>()
+    for (const id of pending.sessions.keys())
+      ledgerRows.set(`session:${id}`, { kind: 'session', id })
+    for (const id of pending.issues.keys()) ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
+    for (const id of pending.issueProjections.keys())
+      ledgerRows.set(`issue:${id}`, { kind: 'issue', id })
+    for (const key of overlaid.keys()) {
+      if (ledgerRows.has(key)) continue
+      const colon = key.indexOf(':')
+      ledgerRows.set(key, {
+        kind: key.slice(0, colon) as 'session' | 'issue',
+        id: key.slice(colon + 1),
+      })
     }
-    if (wireArray !== null && prevWireMap !== null) {
-      for (const [id, row] of wireMap) {
-        if (prevWireMap.get(id) !== row) {
-          stats.rowsVisited += 1
-          rows.push({
-            kind: 'issue',
-            id,
-            value: row as unknown as SliceIssue,
-          })
-        }
-      }
-      for (const [id, prev] of prevWireMap) {
-        void prev
-        if (!wireMap.has(id)) {
-          stats.rowsVisited += 1
-          rows.push({ kind: 'issue', id, value: undefined })
-        }
-      }
+    for (const [key, { kind, id }] of ledgerRows) {
+      if (addressed.has(key)) continue
+      stats.rowsVisited += 1
+      const held = overlaid.has(key) ? overlaid.get(key) : resolve(kind, id, null)
+      const value = retain(key, resolve(kind, id, pending))
+      if (hasOverlays(kind, id, pending)) overlaid.set(key, value)
+      else overlaid.delete(key)
+      if (value !== held) byKey.set(key, { kind, id, value })
     }
-    if (projectionArray !== null && prevProjectionMap !== null) {
-      for (const [id, row] of projectionMap) {
-        if (wireMap.has(id)) continue
-        if (prevProjectionMap.get(id) !== row) {
-          stats.rowsVisited += 1
-          rows.push({
-            kind: 'issue',
-            id,
-            value: row as unknown as SliceIssue,
-          })
-        }
-      }
-      for (const [id, prev] of prevProjectionMap) {
-        void prev
-        if (!projectionMap.has(id) && !wireMap.has(id)) {
-          stats.rowsVisited += 1
-          rows.push({ kind: 'issue', id, value: undefined })
-        }
-      }
-    }
-    prevSessionMap = null
-    prevWireMap = null
-    prevProjectionMap = null
-    if (rows.length === 0) return null
-    // One row per issue id: a wire change shadows its projection twin.
-    const byId = new Map<string, RowRecord>()
-    for (const row of rows) byId.set(`${row.kind}:${row.id}`, row)
-    const event: RowSourceEvent = { type: 'update', rows: [...byId.values()] }
+
+    if (byKey.size === 0) return null
+    const event: RowSourceEvent = { type: 'update', rows: [...byKey.values()] }
     emit(event)
     return event
   }
@@ -554,31 +548,9 @@ export function createRowSource(
   }
 
   function snapshot(kind: RowRecord['kind']): RowRecord[] {
-    const snap = runtime.getSnapshot()
-    rebuildIndexes(snap)
-    if (kind === 'session') {
-      return [...sessionMap.values()].map((row) => ({
-        kind,
-        id: row.sessionId,
-        value: row as unknown as SliceSession,
-      }))
-    }
-    if (kind === 'issue') {
-      const out: RowRecord[] = []
-      for (const row of wireMap.values()) {
-        out.push({
-          kind,
-          id: row.id,
-          value: row as unknown as SliceIssue,
-        })
-      }
-      for (const [id, row] of projectionMap) {
-        if (wireMap.has(id)) continue
-        out.push({ kind, id, value: row as unknown as SliceIssue })
-      }
-      return out
-    }
-    return currentLanes().map((lane) => ({ kind, id: lane.path, value: lane }))
+    stats.enumerations += 1
+    if (kind === 'worktree') return allLanes()
+    return enumerate(kind, readPending())
   }
 
   const source: RowSource = {
@@ -592,24 +564,22 @@ export function createRowSource(
   }
 
   const offs: Array<() => void> = []
-  if (replica.subscribeAddressedBatch !== undefined) {
-    offs.push(replica.subscribeAddressedBatch(onAddressed))
-  } else if (replica.subscribeRowBatch !== undefined) {
-    offs.push(replica.subscribeRowBatch(onKindBatch))
-  }
+  offs.push(subscribeAddressed(onAddressed))
   offs.push(runtime.subscribe(onRuntimePublication))
 
-  // Prime the maps against the current snapshot so creation itself emits
-  // nothing; the first change diffs against this baseline. A source created
-  // BEFORE `runtime.start()` primes empty and therefore reports the initial
-  // install as a `replace` — which is exactly the cold-bootstrap event.
+  // Seed the overlaid memo with the rows already painted at creation, so the
+  // first flush compares against what `snapshot()` would have served. O(pending).
   try {
-    rebuildIndexes(runtime.getSnapshot())
+    const pending = readPending()
+    for (const kind of OVERLAID) {
+      for (const id of pending[kind].keys()) {
+        const row = kind === 'sessions' ? 'session' : 'issue'
+        overlaid.set(`${row}:${id}`, resolve(row, id, pending))
+      }
+    }
   } catch {
-    // A runtime that cannot snapshot yet primes empty; the first flush heals.
+    // A runtime that cannot answer yet seeds empty; the first flush heals.
   }
-  // Priming is bookkeeping, not measurement: the cost table starts clean.
-  stats.rebuilds = 0
 
   return {
     source,
@@ -626,7 +596,8 @@ export function createRowSource(
         }
       }
       listeners.clear()
-      pending.clear()
+      pendingAddresses.clear()
+      overlaid.clear()
     },
   }
 }

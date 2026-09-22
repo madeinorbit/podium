@@ -22,6 +22,7 @@ import {
   type AwaitingTruth,
   EMPTY_ID_SET,
   foldOverlays,
+  foldRowOverlays,
   insertOverlay,
   overlayForOutboxEntry,
   type PendingOverlay,
@@ -547,6 +548,71 @@ describe('foldOverlays', () => {
     )
     expect(rows[0]?.name).toBe('named')
   })
+})
+
+describe('foldRowOverlays (POD-4553: the per-row fold agrees with foldOverlays)', () => {
+  const keyOf = (s: SessionMeta): string => s.sessionId
+  const rename = (id: string, name: string) =>
+    overlayForOutboxEntry(entry('rename', { sessionId: id, name })) as PendingOverlay
+  const unread = (id: string) =>
+    overlayForOutboxEntry(entry('sessionMarkUnread', { sessionId: id })) as PendingOverlay
+  const cases: { name: string; base: SessionMeta[]; overlays: PendingOverlay[] }[] = [
+    { name: 'no overlays', base: [sess()], overlays: [] },
+    { name: 'patch on a missing row', base: [sess()], overlays: [rename('ghost', 'x')] },
+    {
+      name: 'composed patches',
+      base: [sess()],
+      overlays: [rename('s1', 'a'), unread('s1'), rename('s1', 'b')],
+    },
+    {
+      name: 'no-op paint',
+      base: [sess({ name: 'n' } as Partial<SessionMetaInput>), sess({ sessionId: 's2' })],
+      overlays: [rename('s1', 'n')],
+    },
+    {
+      name: 'composition back to base',
+      base: [sess({ name: 'settled' } as Partial<SessionMetaInput>)],
+      overlays: [rename('s1', 'away'), rename('s1', 'settled')],
+    },
+    {
+      name: 'insert absent',
+      base: [],
+      overlays: [insertOverlay('sessions', 'new-1', sess({ sessionId: 'new-1' }))],
+    },
+    {
+      name: 'insert covered by base',
+      base: [sess({ sessionId: 'new-1' })],
+      overlays: [
+        insertOverlay('sessions', 'new-1', sess({ sessionId: 'new-1', title: 'placeholder' })),
+      ],
+    },
+    {
+      name: 'patch over an insert',
+      base: [],
+      overlays: [
+        insertOverlay('sessions', 'new-1', sess({ sessionId: 'new-1' })),
+        rename('new-1', 'named'),
+      ],
+    },
+  ]
+  for (const { name, base, overlays } of cases) {
+    it(`agrees row by row: ${name}`, () => {
+      const whole = foldOverlays(base, overlays, keyOf).rows
+      const ids = new Set([...base.map(keyOf), ...overlays.map((o) => o.id)])
+      for (const id of ids) {
+        const expected = whole.find((row) => keyOf(row) === id)
+        const baseRow = base.find((row) => keyOf(row) === id)
+        const actual = foldRowOverlays(
+          baseRow,
+          overlays.filter((o) => o.id === id),
+        )
+        expect(actual).toEqual(expected)
+        // Identity: an unmoved row is the base object in both folds.
+        if (expected === baseRow) expect(actual).toBe(baseRow)
+        else expect(actual).not.toBe(baseRow)
+      }
+    })
+  }
 })
 
 describe('rowFingerprint', () => {

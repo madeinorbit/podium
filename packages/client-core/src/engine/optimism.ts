@@ -318,6 +318,20 @@ export class OptimismLedger<TApi extends PodiumClientApi> {
     return out
   }
 
+  /** {@link overlaysFor} grouped by target row id, each list in fold order
+   *  (POD-4553). O(pending entries), never the entity's row count: a per-row
+   *  reader looks one row's overlays up here and folds them with
+   *  `foldRowOverlays` instead of diffing the folded arrays. */
+  pendingByRow(entity: OverlayEntity): ReadonlyMap<string, readonly PendingOverlay[]> {
+    const byRow = new Map<string, PendingOverlay[]>()
+    for (const overlay of this.overlaysFor(entity)) {
+      const list = byRow.get(overlay.id)
+      if (list) list.push(overlay)
+      else byRow.set(overlay.id, [overlay])
+    }
+    return byRow
+  }
+
   /** Fold the seed (construction-time) session/issue/projection lists without
    *  publishing — the very first snapshot must already carry queued optimism. */
   foldSeed<T extends object>(

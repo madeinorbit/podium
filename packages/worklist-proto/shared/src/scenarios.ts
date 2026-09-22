@@ -602,7 +602,7 @@ export interface ScenarioResult {
   events: RowSourceEvent[]
   before: ScenarioSnapshot
   after: ScenarioSnapshot
-  stats: { rowsVisited: number; rebuilds: number; events: number }
+  stats: { rowsVisited: number; enumerations: number; events: number }
 }
 
 export const EMPTY_SNAPSHOT: ScenarioSnapshot = {
@@ -648,7 +648,7 @@ async function runWithSource(
       after,
       stats: {
         rowsVisited: handle.stats.rowsVisited,
-        rebuilds: handle.stats.rebuilds,
+        enumerations: handle.stats.enumerations,
         events: handle.stats.events,
       },
     }
@@ -1202,16 +1202,15 @@ export const SCENARIOS: ScenarioEntry[] = [
 ]
 
 /** Heartbeat cost at one fixture scale: rows visited must be 1 (the
- *  addressed row) at every scale; rebuilds count the legacy fold's
- *  fresh-array cost. Counts only — no walls under box load (methodology
- *  §5.7). */
+ *  addressed row) and enumerations (whole-slice passes) 0 at every scale.
+ *  Counts only — no walls under box load (methodology §5.7). */
 export async function measureHeartbeat(
   scale: FixtureScale,
-): Promise<{ rowsVisited: number; rebuilds: number; rows: number }> {
+): Promise<{ rowsVisited: number; enumerations: number; rows: number }> {
   const result = await unrelatedHeartbeat(scale)
   return {
     rowsVisited: result.stats.rowsVisited,
-    rebuilds: result.stats.rebuilds,
+    enumerations: result.stats.enumerations,
     rows: result.events[0]?.rows.length ?? 0,
   }
 }
