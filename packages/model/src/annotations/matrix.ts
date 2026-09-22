@@ -109,6 +109,9 @@ export const ROW = {
   /** How far a person has read an event stream (POD-1380) — a POSITION in an
    *  ordered log, not the per-entity `readAt` markers above it. */
   feedReadCursor: id('feed-read-cursor'),
+  /** Which shell belongs to a person's worktree (POD-4436) — the server-owned
+   *  dock-shell mapping, one row per (user, worktree). */
+  dockShellMapping: id('dock-shell-mapping'),
 
   preferencesPersonal: id('preferences-personal-keys'),
   preferencesInstance: id('preferences-instance-keys'),
@@ -1873,6 +1876,19 @@ const REPO_ROWS: readonly MatrixRow[] = [
     conflictNote:
       "How far a person has read an ordered log, so it is theirs by definition (readiness §3.3). NOT the `readAt` rows above: those are per-ENTITY timestamps and merge last-writer-wins, while a cursor is a POSITION and merges MONOTONICALLY — `max(stored, proposed)`, executed by advanceReadPosition and declared as `readPosition.advance`'s `cmd` conflict rule. Under LWW a device writing before its hydration lands would move the marker backward and re-mark read events unread.",
     tombstoneNote: 'Cascades on user deletion. No entity lifecycle owns these rows.',
+  }),
+  perUserState({
+    id: ROW.dockShellMapping,
+    section: 'repos-pins-tabs',
+    title: 'Dock shell per worktree',
+    sites: [
+      '`user_dock_shell` — keyed `(user_id, worktree_key)` (POD-4436; device-local `podium.dockShells` cache until then)',
+      'packages/model/src/user-state/layout-state.ts — `normalizeDockWorktreeKey`, the one spelling for the key',
+    ],
+    conflictNote:
+      'Which shell belongs to a worktree is per person by definition, and the (user, worktree) primary key arbitrates creation so two devices opening the same worktree at once create exactly one shell. Tab shells from the + menu are unmapped by design (SP-75b1) and never grow a row here.',
+    tombstoneNote:
+      'Cascades on user deletion; freed worktrees release every user row via `removeByWorktree`. No entity lifecycle owns these rows.',
   }),
   // -------------------------------------------------------------------------
   // POD-1211 — two per-machine FILESYSTEM stores. Neither appears in any
