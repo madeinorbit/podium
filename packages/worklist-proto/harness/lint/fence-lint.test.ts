@@ -1,3 +1,5 @@
+// @vitest-environment node
+// (ESLint reads files with a Node AbortSignal; happy-dom replaces the global.)
 /**
  * POD-4563 (L6a) — the lint fence can say NO and YES.
  *
