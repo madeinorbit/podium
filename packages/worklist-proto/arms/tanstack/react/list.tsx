@@ -24,7 +24,7 @@ import {
   type CSSProperties,
   type ReactElement,
 } from 'react'
-import { RowShell } from '../../../shared/src/row-shell'
+import { CommitBoundary } from '../../../shared/src/row-shell'
 import type { SliceRow } from '../../../shared/src/slice-types'
 import type { TanStackStore } from '../store'
 
@@ -50,7 +50,7 @@ const TanStackRow = memo(function TanStackRow({
   if (row === null) return null
   const tick = store.rollup.ticks.get(id) ?? null
   return (
-    <RowShell id={id}>
+    <CommitBoundary id={id}>
       <div data-issue-row={id} data-selected={selected ? 'true' : 'false'}>
         <button type="button" data-pressable onClick={() => store.setSelection(id)}>
           {row.displayRef} {row.title} [{row.phase}
@@ -59,7 +59,7 @@ const TanStackRow = memo(function TanStackRow({
           {tick !== null ? ` ⤷${tick.ref}` : ''}
         </button>
       </div>
-    </RowShell>
+    </CommitBoundary>
   )
 })
 

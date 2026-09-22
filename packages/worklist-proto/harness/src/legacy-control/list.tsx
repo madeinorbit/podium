@@ -28,7 +28,7 @@ import {
 } from '@podium/client-core/viewmodels'
 import type { Store } from '@podium/client-core/engine'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { RowShell } from '../../../shared/src/row-shell'
+import { CommitBoundary } from '../../../shared/src/row-shell'
 import type { LegacyControlEngine } from './arm'
 
 export type ControlSliceDef = SliceDefinition<Store<PodiumClientApi>, WorklistSlice>
@@ -61,14 +61,14 @@ export function LegacyControlRow({
   const self = issues.find((issue) => issue.id === row.issue.id)
   const id = row.issue.id
   return (
-    <RowShell id={id}>
+    <CommitBoundary id={id}>
       <div data-issue-row={id}>
         <button type="button" data-pressable onClick={onSelect}>
           {row.issue.displayRef ?? `#${row.issue.seq}`} {self?.title ?? row.issue.title} (
           {mine.length})
         </button>
       </div>
-    </RowShell>
+    </CommitBoundary>
   )
 }
 
@@ -132,9 +132,9 @@ export function LegacyControlList({ engine, sliceDef }: LegacyControlListProps):
   const renderRow = (row: UnifiedWorkRow): ReactElement | null => {
     if (row.kind !== 'issue') {
       return (
-        <RowShell key={rowKey(row)} id={row.worktree.path}>
+        <CommitBoundary key={rowKey(row)} id={row.worktree.path}>
           <div data-worktree-row={row.worktree.path}>{row.worktree.path}</div>
-        </RowShell>
+        </CommitBoundary>
       )
     }
     const issueRow = row

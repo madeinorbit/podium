@@ -14,7 +14,7 @@
 import type { ReactElement } from 'react'
 import { observer } from 'mobx-react-lite'
 import { ScrollView, Text, View } from 'react-native'
-import { RowShell } from '../../../shared/src/row-shell'
+import { CommitBoundary } from '../../../shared/src/row-shell'
 import type { SliceRow } from '../../../shared/src/slice-types'
 import type { IssueModel } from '../models/issue'
 import type { MobXStore } from '../store'
@@ -30,7 +30,7 @@ const MobxNativeRowView = observer(function MobxNativeRowView({
   const selected = model.isSelected
   if (row === null) return null
   return (
-    <RowShell id={row.id}>
+    <CommitBoundary id={row.id}>
       <View
         testID={`row-${row.id}`}
         accessibilityRole="button"
@@ -41,7 +41,7 @@ const MobxNativeRowView = observer(function MobxNativeRowView({
           {row.displayRef} {row.title} [{row.phase}] {row.progressDone}/{row.progressTotal}
         </Text>
       </View>
-    </RowShell>
+    </CommitBoundary>
   )
 })
 

@@ -14,7 +14,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react'
 import { observer } from 'mobx-react-lite'
-import { RowShell } from '../../../shared/src/row-shell'
+import { CommitBoundary } from '../../../shared/src/row-shell'
 import type { SliceRow } from '../../../shared/src/slice-types'
 import type { IssueModel } from '../models/issue'
 import type { MobXStore } from '../store'
@@ -34,7 +34,7 @@ const MobxRowView = observer(function MobxRowView({
   if (row === null) return null
   const tick = model.tick
   return (
-    <RowShell id={row.id}>
+    <CommitBoundary id={row.id}>
       <div data-issue-row={row.id} data-selected={selected ? 'true' : 'false'}>
         <button type="button" data-pressable onClick={() => store.setSelection(row.id)}>
           {row.displayRef} {row.title} [{row.phase}
@@ -43,7 +43,7 @@ const MobxRowView = observer(function MobxRowView({
           {tick !== null ? ` ⤷${tick.ref}` : ''}
         </button>
       </div>
-    </RowShell>
+    </CommitBoundary>
   )
 })
 

@@ -15,7 +15,7 @@
 import type { ReactElement } from 'react'
 import { memo, useSyncExternalStore } from 'react'
 import { ScrollView, Text, View } from 'react-native'
-import { RowShell } from '../../shared/src/row-shell'
+import { CommitBoundary } from '../../shared/src/row-shell'
 import type { SliceRow } from '../../shared/src/slice-types'
 import type { HandStore } from './store'
 
@@ -37,7 +37,7 @@ const NativeRow = memo(function NativeRow({
   const selected = useNativeKey<boolean>(store, `selected:${id}`)
   if (row === null) return null
   return (
-    <RowShell id={id}>
+    <CommitBoundary id={id}>
       <View
         testID={`row-${id}`}
         accessibilityRole="button"
@@ -48,7 +48,7 @@ const NativeRow = memo(function NativeRow({
           {row.displayRef} {row.title} [{row.phase}] {row.progressDone}/{row.progressTotal}
         </Text>
       </View>
-    </RowShell>
+    </CommitBoundary>
   )
 })
 

@@ -33,10 +33,13 @@ export interface ArmHandle {
   /**
    * Mount the arm's own windowed web list into `el`; returns the unmount.
    *
-   * Every row component in the list MUST render inside
-   * `RowShell` (`shared/src/row-shell.tsx`) keyed by its slice row id —
-   * that shell is how the G4 count harness observes per-row commits.
-   * Outside the harness the shell is a pass-through.
+   * Every row in the list MUST render through
+   * `RowShell` (`shared/src/row-shell.tsx`): `<RowShell row={view}
+   * component={Row} />`, where `Row` takes exactly `{ row: RowView }`
+   * (POD-4547). The shell is how the G4 count harness observes per-row
+   * commits and how the capability rule is enforced. Round-two arms and
+   * the legacy control use the unenforcing `CommitBoundary` instead.
+   * Outside the harness both are a pass-through.
    *
    * Because `mountWeb` renders through its own root, it MUST propagate the
    * harness log explicitly: capture `currentCommitLog()` at mount and wrap

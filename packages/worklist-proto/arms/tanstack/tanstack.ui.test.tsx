@@ -12,7 +12,7 @@ import { createElement, memo, useMemo } from 'react'
 import { describe, expect, it } from 'vitest'
 import { createLiveQueryCollection, eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
-import { RowShell, createCommitLog, withCommitLog } from '../../shared/src/row-shell'
+import { CommitBoundary, createCommitLog, withCommitLog } from '../../shared/src/row-shell'
 import { GC_TIME_MS } from './collections'
 import { asSource, type RowsRow } from './queries'
 import { testWorld, workedExample, row, issue, NOW } from './tanstack.test'
@@ -81,7 +81,7 @@ describe('tanstack arm: bindings (keyed vs findOne)', () => {
       void found
       const rowValue = useTanStackKey<{ title: string } | null>(store, id)
       return createElement(
-        RowShell,
+        CommitBoundary,
         { id, children: `keyed:${id}:${rowValue?.title ?? 'gone'}` },
       )
     })
@@ -104,7 +104,7 @@ describe('tanstack arm: bindings (keyed vs findOne)', () => {
         | { title?: string }
         | undefined
       return createElement(
-        RowShell,
+        CommitBoundary,
         { id, children: `findone:${id}:${current?.title ?? 'gone'}` },
       )
     })
