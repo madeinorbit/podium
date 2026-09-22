@@ -710,6 +710,7 @@
         "src/modules/settings/superagent-default.ts",
         "src/modules/shells/service.test.ts",
         "src/modules/shells/service.ts",
+        "src/modules/shells/shell-owner-precedence.test.ts",
         "src/modules/shipping/index.ts",
         "src/modules/shipping/lease-projection-fold.test.ts",
         "src/modules/shipping/lease-projection.test.ts",

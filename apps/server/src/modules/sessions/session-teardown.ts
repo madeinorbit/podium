@@ -52,7 +52,7 @@ import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
 import { decideShellLifetime, shellQuietMs } from './terminal-lifetime'
-import { resolveDockShellOwner } from '../shells/service'
+import { resolveShellOwningIssue } from '../shells/service'
 import type { SessionView } from './view'
 
 /** Only the ledger face killSession needs — avoids importing lifecycle for a type. */
@@ -292,22 +292,22 @@ export class SessionTeardown {
     const session = this.ports.sessions.get(input.sessionId)
     if (!session) return { ok: false, reason: 'unknown session' }
 
-    // The policy's owning worktree comes from the server mapping when this
-    // shell has one (POD-4436 step 3): session id → worktree key is exact,
-    // while containing a cwd string is a guess. Unmapped shells (agents, tab
-    // shells) answer undefined and fall back to exactly what follows.
-    const dockOwner =
-      session.agentKind === 'shell'
-        ? await resolveDockShellOwner(
-            {
-              worktreeForSession: (id) => this.ports.store.dockShells.worktreeForSession(id),
-              issueForCwd: (cwd) => this.ports.issueAccess.issueForCwd(cwd),
-            },
-            session,
-          )
-        : undefined
+    // The policy's owning issue is the one resolver (POD-4526, mapping-first):
+    // session id → worktree key is exact, while containing a cwd string is a
+    // guess. The same mapping-first answer targets `freeWorktreeKeepBranch`
+    // below AND feeds the policy: the shell serves its mapped worktree, so
+    // freeing the bound issue's worktree instead would free the wrong path.
+    // That is intended and pinned by the owner-precedence test. Only shells
+    // with neither a mapping owner nor a bound issue keep the old cwd guess.
+    const ownerIssueId = await resolveShellOwningIssue(
+      {
+        worktreeForSession: (id) => this.ports.store.dockShells.worktreeForSession(id),
+        issueForCwd: (cwd) => this.ports.issueAccess.issueForCwd(cwd),
+      },
+      session,
+    )
     const issueId =
-      dockOwner?.issueId ?? session.issueId ?? (await this.ports.issueAccess.issueForCwd(session.cwd))
+      ownerIssueId ?? (await this.ports.issueAccess.issueForCwd(session.cwd))
     const issue = issueId ? await this.ports.issueAccess.getMeta(issueId) : undefined
     const worktreePath = issue?.worktreePath ?? null
 

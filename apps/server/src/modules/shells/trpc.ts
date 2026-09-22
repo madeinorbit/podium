@@ -40,7 +40,8 @@ export function shellFamilyProcedures() {
      * Return-or-create the caller's dock shell for a worktree. The second
      * device opening the same worktree attaches to the same session id; two
      * overlapping opens create exactly one shell (claim-before-create in the
-     * service, arbitrated by the `(user_id, worktree_key)` primary key).
+     * service, arbitrated by the in-process per-(user, worktree) mutex — the
+     * `(user_id, worktree_key)` primary key keeps the row single-valued).
      */
     forWorktree: t.procedure
       .input(forWorktreeInput)
