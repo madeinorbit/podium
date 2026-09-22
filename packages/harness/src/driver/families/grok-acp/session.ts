@@ -9,7 +9,6 @@ import type { PendingInteraction } from '../../interactions.js'
 import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
 import {
   GROK_ACP_DRIVER_ID,
-  type GrokAcpJournal,
   type GrokAcpRuntime,
   type GrokAcpRuntimeHost,
   createGrokAcpRuntime,
@@ -41,7 +40,6 @@ export interface GrokSessionLaunch {
 export interface DaemonGrokRuntime extends GrokAcpRuntime {
   launch(input: GrokSessionLaunch): Promise<void>
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
-  journal: GrokAcpJournal
   /** Uniform server-family shape: the supervisor composes families without
    *  naming them. */
   readonly describe: string
@@ -148,7 +146,7 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
     ...runtime,
     describe: [deps.facts.command, ...deps.facts.serverArgs].join(' '),
     journalEntry(sessionId) {
-      const entry = deps.engine.journal.read(sessionId)
+      const entry = deps.engine.bindings.recorded(sessionId)
       if (!entry) return undefined
       return {
         workdir: entry.workdir,
@@ -157,17 +155,16 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
       }
     },
     clearJournal(sessionId) {
-      deps.engine.journal.clear(sessionId)
+      deps.engine.bindings.released(sessionId)
     },
     // STRAIGHT FROM THE RUNTIME'S HANDLE MAP, never a parallel Set (POD-2249;
     // the same repair `opencode-driver.ts` documents at its own `has`): the Set
     // this replaced survived the lifecycle verbs, so a parked session's bind
     // fact kept routing verbs onto a contract path answering `not_running`.
     has: (sessionId) => runtime.has(sessionId),
-    journal: deps.engine.journal,
 
     async adoptFromJournal(sessionId) {
-      const entry = deps.engine.journal.read(sessionId)
+      const entry = deps.engine.bindings.recorded(sessionId)
       if (!entry) return undefined
       const processKey = grokAcpProcessKey(deps.facts, sessionId)
       // The journal is evidence, not authority for identity. Its path is keyed

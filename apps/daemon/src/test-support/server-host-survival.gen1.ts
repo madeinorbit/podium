@@ -46,6 +46,7 @@ import {
 } from '../runtime/version-probe.js'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
+import { SessionRegistry } from '../session/registry.js'
 
 const root = process.env.GEN1_ROOT as string
 const workdir = `${root}/work`
@@ -53,7 +54,7 @@ const noResources = () => undefined
 const durable = createDurableProcess('host', { host: true, abduco: false })
 // Gen1 launches through the session layer's engine hold, exactly as the
 // daemon wires it.
-const sessionEngines = createSessionEngineScope(durable)
+const sessionEngines = createSessionEngineScope(durable, { sessions: new SessionRegistry(), socketRoot: engineSocketRoot })
 
 const ready = (engine: string, binding: unknown): void => {
   process.stdout.write(`READY ${engine} ${JSON.stringify(binding)}\n`)
@@ -66,16 +67,14 @@ const flavor = opencodeFlavor(manifestFor('opencode')!)
 
 const codexHost = createCodexEngineHost({
   facts: codexFacts,
-  engines: sessionEngines,
+  engines: sessionEngines.ownerFor<CodexJournalEntry>(codexFacts.journalNamespace),
   supervision: sessionEngines,
-  journal: sessionEngines.journalFor<CodexJournalEntry>(codexFacts.journalNamespace),
   stageAttachment: stageRuntimeAttachment,
   resources: noResources,
   buildEnv: composeEngineEnv,
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
   checkVersion: () => codexAppServerVersionProbe(),
-  socketRoot: engineSocketRoot(),
-  dialSocket: dialEngineSocket,
+  dialSocket: sessionEngines.dialerFor(dialEngineSocket),
 })
 const codexRuntime = createCodexRuntime(codexHost, driverSlotsOver(testSessions()))
 const codexHandle = await codexRuntime.driver.create({
@@ -98,9 +97,8 @@ ready('codex', codexHandle.binding)
 
 const opencodeHost = createOpencodeEngineHost({
   flavor,
-  engines: sessionEngines,
+  engines: sessionEngines.ownerFor<OpencodeJournalEntry>(flavor.journalNamespace),
   supervision: sessionEngines,
-  journal: sessionEngines.journalFor<OpencodeJournalEntry>(flavor.journalNamespace),
   stageAttachment: stageRuntimeAttachment,
   resources: noResources,
   buildEnv: composeEngineEnv,
@@ -126,9 +124,8 @@ ready('opencode', opencodeHandle.binding)
 
 const grokHost = createGrokEngineHost({
   facts: grokFacts,
-  engines: sessionEngines,
+  engines: sessionEngines.ownerFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
   supervision: sessionEngines,
-  journal: sessionEngines.journalFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
   resources: noResources,
   buildEnv: composeEngineEnv,
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
@@ -156,9 +153,8 @@ ready('grok', grokHandle.binding)
 // for, so generation 2 never adopts a label with nothing behind it.
 const claudeEngine = createClaudeEngineHost({
   facts: claudeFacts,
-  engines: sessionEngines,
+  engines: sessionEngines.ownerFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
   supervision: sessionEngines,
-  journal: sessionEngines.journalFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
   buildEnv: composeEngineEnv,
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
 })
@@ -184,11 +180,11 @@ const claudeHandle = await claudeRuntime.launch({
   initialPrompt: 'survive this',
 })
 const claudeReadySince = Date.now()
-let claudeEntry = claudeEngine.journal.read('claude-surv-1' as SessionId)
+let claudeEntry = claudeEngine.bindings.recorded('claude-surv-1' as SessionId)
 while (!claudeEntry?.process.pid) {
   if (Date.now() - claudeReadySince > 60_000) throw new Error('claude engine never bound')
   await new Promise<void>((resolve) => setTimeout(resolve, 100))
-  claudeEntry = claudeEngine.journal.read('claude-surv-1' as SessionId)
+  claudeEntry = claudeEngine.bindings.recorded('claude-surv-1' as SessionId)
 }
 // The READY line carries the ENGINE identity (journal process key + pid,
 // written once the engine binds): generation 2 adopts by journal and must

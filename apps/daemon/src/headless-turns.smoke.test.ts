@@ -26,6 +26,7 @@ import {
 import { headlessTurnEnv } from './control/session-env.js'
 import { createSessionEngineScope } from './session/engines.js'
 import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
+import { SessionRegistry } from './session/registry.js'
 
 /**
  * REAL-BINARY smoke (repo rule from the #84 post-mortem): every constructed
@@ -40,7 +41,7 @@ import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
  * Each turn gets a fresh session label; a resumed turn is a new session turn
  * on the same harness conversation, exactly as the server sends it.
  */
-const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }))
+const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }), { sessions: new SessionRegistry() })
 let smokeTurns = 0
 function runHeadlessTurn(
   spec: Omit<HeadlessTurnSpec, 'durableLabel'>,

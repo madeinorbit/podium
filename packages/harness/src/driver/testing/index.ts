@@ -50,6 +50,13 @@ export {
 
 /** Supervisor-less driver slots, for a family runtime built outside a daemon. */
 export { createMemoryDriverSlots } from './driver-slots.js'
+/** Session-layer-less binding records, for a family built outside a daemon. */
+export {
+  createMemoryBindingRecords,
+  createTestEngineOwner,
+  type MemoryBindingRecords,
+  type TestEngineVerbs,
+} from './binding-records.js'
 
 export { describeTerminalEvidenceConformance } from './conformance/terminal-evidence.js'
 export type { TerminalEvidenceControl, TerminalEvidenceTarget } from './conformance/terminal-evidence.js'

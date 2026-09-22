@@ -106,12 +106,6 @@ export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime, ServerFamilyRu
   /** Every session this runtime currently holds. */
   has(sessionId: SessionId): boolean
   /**
-   * THE BINDING JOURNAL, so the reattach path can ask whether a session was
-   * ours before it tries to adopt it. The ENTRY'S EXISTENCE is the statement
-   * that this session was engine-driven.
-   */
-  journal: ClaudeEngineHost['journal']
-  /**
    * Re-bind a session, from the journal alone after a daemon restart. The
    * engine re-attach itself stays lazy (first turn adopts the survivor, or
    * spawns fresh with `--resume` when nothing survived), so adopt never fails
@@ -315,9 +309,8 @@ export function createClaudeSdkSessionRuntime(
   runtime = {
     ...contractRuntime,
     describe: `${deps.facts.command} --input-format stream-json (streaming engine)`,
-    journal: deps.engine.journal,
     journalEntry(sessionId) {
-      const entry = deps.engine.journal.read(sessionId)
+      const entry = deps.engine.bindings.recorded(sessionId)
       if (entry) {
         return {
           workdir: entry.workdir,
@@ -344,7 +337,7 @@ export function createClaudeSdkSessionRuntime(
       }
     },
     clearJournal(sessionId) {
-      deps.engine.journal.clear(sessionId)
+      deps.engine.bindings.released(sessionId)
     },
     reportOomKill(sessionId, scopeUnit) {
       contractRuntime.processEvent(sessionId, { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) })
@@ -368,7 +361,7 @@ export function createClaudeSdkSessionRuntime(
         reportResumeRef(sessionId, handle)
         return handle
       }
-      const entry = deps.engine.journal.read(sessionId)
+      const entry = deps.engine.bindings.recorded(sessionId)
       // No entry is "not mine" — every terminal session reaches reattach paths
       // too, and answering anything else would hijack a PTY session's
       // reattach. The process key is derived independently (never trusted

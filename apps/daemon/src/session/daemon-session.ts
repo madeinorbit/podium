@@ -40,6 +40,20 @@ import type { Terminal } from '../terminal/terminal.js'
 
 const log = createLogger('daemon:session')
 
+/** The session's engine binding, as the session layer holds it (see
+ *  {@link DaemonSession.engine}). */
+export interface SessionEngineBinding {
+  /** The engine's durable label, once the session layer started or
+   *  re-attached it in this daemon's life. */
+  readonly label?: string
+  /** The listener the session layer minted for the engine, when it has one. */
+  readonly address?: string
+  /** The binding-journal namespace of the family that reported `facts`. */
+  readonly namespace?: string
+  /** The family's last reported binding facts. */
+  readonly facts?: { readonly sessionId: SessionId }
+}
+
 /** The size a screen is born at when nothing applied one yet. */
 const DEFAULT_MODEL_SIZE = { cols: 80, rows: 24 } as const
 
@@ -203,6 +217,16 @@ export class DaemonSession {
   driver: AgentSessionHandle | undefined = undefined
 
   /**
+   * THE SESSION'S ENGINE BINDING (spec §4.8, layers §1b): the address the
+   * session layer minted for its engine, and the binding facts the family
+   * last reported. Written only by `SessionEngineScope` (`session/engines.ts`)
+   * — the family reports through its owner view and never holds this. The
+   * durable copy under the state dir is what a restarted daemon adopts from;
+   * this is the live one.
+   */
+  engine: SessionEngineBinding | undefined = undefined
+
+  /**
    * THE §4.8 ENGINE POLICY (spec §4.8 steps 2–6): the per-session half of
    * engine ownership lives here — the kept-engine record and `bindFailed`
    * below. The process acts themselves (spawn, re-attach, probe, reap) live
@@ -333,6 +357,7 @@ export class DaemonSession {
     this.clientLabel = undefined
     this.client = undefined
     this.keptEngine = undefined
+    this.engine = undefined
     this.nativeRequested = false
     this.nativeRetryCount = undefined
     // LAST, in the §4.8 step 6 order: the handle's own teardown runs against a

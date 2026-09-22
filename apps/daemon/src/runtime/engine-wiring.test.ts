@@ -14,7 +14,6 @@ import { asSessionId, type SessionId } from '@podium/model'
 import { unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/abduco-socket'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  codexClientSocketPath,
   codexScopeLabel,
   codexEngineFacts,
   opencodeScopeLabel,
@@ -23,6 +22,7 @@ import {
 import { runtimeDriverIdFor, sessionIsBehindContract } from './handlers'
 import { manifestFor } from '@podium/harness'
 import { createEngineJournal, engineSocketRoot } from './host'
+import { engineSocketPath } from '../session/engines.js'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const OC_FLAVOR = opencodeFlavor(manifestFor('opencode')!)
@@ -78,7 +78,7 @@ describe('the engine socket root and the Codex path budget', () => {
 
     process.env.PODIUM_INSTANCE = lastAccepted
     const lastRoot = engineSocketRoot()
-    const lastPath = codexClientSocketPath(
+    const lastPath = engineSocketPath(
       lastRoot,
       asSessionId('019edef7-3e34-7513-92b9-35f3a0dac891'),
       'abcdefabcdef-123456789012',
@@ -86,14 +86,14 @@ describe('the engine socket root and the Codex path budget', () => {
     const maximumId = 'i'.repeat(32)
     process.env.PODIUM_INSTANCE = maximumId
     const maximumRoot = engineSocketRoot()
-    const maximumPath = codexClientSocketPath(
+    const maximumPath = engineSocketPath(
       maximumRoot,
       asSessionId('019edef7-3e34-7513-92b9-35f3a0dac891'),
       'abcdefabcdef-123456789012',
     )
     process.env.PODIUM_INSTANCE = firstRefused
     const firstRoot = engineSocketRoot()
-    const firstPath = codexClientSocketPath(
+    const firstPath = engineSocketPath(
       firstRoot,
       asSessionId('019edef7-3e34-7513-92b9-35f3a0dac891'),
       'abcdefabcdef-123456789012',

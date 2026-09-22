@@ -41,7 +41,7 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
   const servers: FakeOpencodeServer[] = []
   const bySession = new Map<SessionId, FakeOpencodeServer>()
   const endpoints = new Map<SessionId, OpencodeServerEndpoint>()
-  const entries = new Map<SessionId, Parameters<OpencodeRuntimeHost['journal']['write']>[0]>()
+  const entries = new Map<SessionId, Parameters<OpencodeRuntimeHost['bindings']['bound']>[0]>()
   let seq = 0
 
   return {
@@ -108,12 +108,12 @@ export function makeOpencodeTestHost(options: OpencodeTestHostOptions = {}): Ope
 
     ...(options.onQueueAbandoned ? { onQueueAbandoned: options.onQueueAbandoned } : {}),
 
-    journal: {
-      read: (sessionId) => entries.get(sessionId),
-      write: (entry) => {
+    bindings: {
+      recorded: (sessionId) => entries.get(sessionId),
+      bound: (entry) => {
         entries.set(entry.sessionId, entry)
       },
-      clear: (sessionId) => {
+      released: (sessionId) => {
         entries.delete(sessionId)
       },
     },

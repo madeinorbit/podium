@@ -56,7 +56,6 @@ export {
   createOpencodeRuntime,
   OPENCODE_EVENT_LOG_LIMIT,
   OPENCODE_SERVER_DRIVER_ID,
-  type OpencodeJournal,
   type OpencodeJournalEntry,
   type OpencodeRuntime,
   type OpencodeRuntimeHost,

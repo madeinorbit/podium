@@ -130,7 +130,7 @@ function createFakeHosts() {
     async startEngine(req) {
       const existing = hosts.get(req.label)
       // A live OR lingering host under the label is adopted, never replaced.
-      if (existing) return attach(existing, 'tail', true)
+      if (existing) return { attachment: attach(existing, 'tail', true) }
       starts.push(req)
       const env: Record<string, string> = { ...(process.env as Record<string, string>), ...req.env }
       for (const key of req.stripEnv) delete env[key]
@@ -168,11 +168,11 @@ function createFakeHosts() {
         for (const conn of host.conns) for (const cb of conn.exit) cb(host.exited.code, host.exited.signal)
         resolveExited()
       })
-      return attach(host, 'tail', true)
+      return { attachment: attach(host, 'tail', true) }
     },
     async reattachEngine(input) {
       const host = hosts.get(input.label)
-      return host ? attach(host, input.fromSeq, false) : noHost()
+      return { attachment: host ? attach(host, input.fromSeq, false) : noHost() }
     },
     async engineAlive(label) {
       const host = hosts.get(label)

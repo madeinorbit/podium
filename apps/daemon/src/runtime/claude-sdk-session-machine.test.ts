@@ -102,10 +102,10 @@ function claudeWorld(journalled?: ClaudeEngineJournalEntry) {
     startMailContinuation: () => () => {},
     facts: FACTS,
     engine: {
-      journal: {
-        read: (sessionId: SessionId) => journal.get(sessionId),
-        write: (entry: ClaudeEngineJournalEntry) => journal.set(entry.sessionId, entry),
-        clear: (sessionId: SessionId) => {
+      bindings: {
+        recorded: (sessionId: SessionId) => journal.get(sessionId),
+        bound: (entry: ClaudeEngineJournalEntry) => void journal.set(entry.sessionId, entry),
+        released: (sessionId: SessionId) => {
           cleared.push(sessionId)
           journal.delete(sessionId)
         },

@@ -87,7 +87,6 @@ export {
 export {
   CODEX_APP_SERVER_DRIVER_ID,
   CODEX_EVENT_LOG_LIMIT,
-  type CodexJournal,
   type CodexJournalEntry,
   type CodexRuntime,
   type CodexRuntimeHost,
@@ -100,7 +99,6 @@ export {
   type CodexRawSocket,
   CodexAppServerLaunchRefused,
   CODEX_HANDSHAKE_ATTEMPT_TIMEOUT_MS,
-  codexClientSocketPath,
   CodexEngineLeaseRefused,
   codexScopeLabel,
   connectCodexWebSocket,

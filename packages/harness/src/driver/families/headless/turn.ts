@@ -187,7 +187,7 @@ async function replayLabel(
 ): Promise<{ attachment: EngineAttachment; run: ObservedRun } | undefined> {
   let attachment: EngineAttachment
   try {
-    attachment = await owner.reattachEngine({ label, fromSeq: 0n })
+    attachment = (await owner.reattachEngine({ label, fromSeq: 0n })).attachment
   } catch {
     return undefined
   }
@@ -210,7 +210,7 @@ async function releaseLabel(owner: EngineProcessOwner, label: string): Promise<v
   while (Date.now() < deadline) {
     let attachment: EngineAttachment
     try {
-      attachment = await owner.reattachEngine({ label, fromSeq: 'tail' })
+      attachment = (await owner.reattachEngine({ label, fromSeq: 'tail' })).attachment
     } catch {
       return
     }
@@ -373,7 +373,7 @@ export function runHostedHeadlessTurn(
       ...(invocation.execEnv ? { execEnv: invocation.execEnv } : {}),
       ...(invocation.envOverlay ? { envOverlay: invocation.envOverlay } : {}),
     })
-    const writer = await deps.owner.startEngine({
+    const { attachment: writer } = await deps.owner.startEngine({
       label,
       cmd: wrapped.cmd,
       args: wrapped.args,

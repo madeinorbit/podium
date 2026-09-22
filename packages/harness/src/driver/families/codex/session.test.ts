@@ -78,10 +78,10 @@ function world(options: { sendThrows?: boolean } = {}) {
       mediaType: source.mediaType,
       kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
     }),
-    journal: {
-      read: (id) => entries.get(id) as never,
-      write: (entry) => void entries.set(entry.sessionId, entry),
-      clear: (id) => void entries.delete(id),
+    bindings: {
+      recorded: (id) => entries.get(id) as never,
+      bound: (entry) => void entries.set(entry.sessionId, entry),
+      released: (id) => void entries.delete(id),
     },
     now: () => Date.UTC(2026, 7, 14),
     mintSessionId: () => 'minted' as SessionId,

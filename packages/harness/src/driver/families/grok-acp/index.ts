@@ -16,7 +16,6 @@ export {
 export * from './protocol.js'
 export type {
   GrokAcpEndpoint,
-  GrokAcpJournal,
   GrokAcpJournalEntry,
   GrokAcpRuntime,
   GrokAcpRuntimeHost,

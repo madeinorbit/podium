@@ -49,6 +49,7 @@ import type { SessionSpec } from '../../session-spec.js'
 import type { AnswerOptions, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
 import { stampRuntimeEvent } from '../terminal/envelope.js'
 import type { SessionDriverSlots } from '../session-slots.js'
+import type { EngineBindingRecords } from '../engine-supervision.js'
 import { grokAcpCapabilities } from './capabilities.js'
 import {
   createGrokAcpClient,
@@ -129,7 +130,10 @@ export interface GrokAcpRuntimeHost {
   /** Opt-in wire evidence for a provider failure. The client has already
    * parsed the JSON-RPC frame, but no classification or projection has run. */
   onRawFrame?(sessionId: SessionId, frame: GrokAcpFrame): void
-  journal: GrokAcpJournal
+  /** The session layer's binding record for this family (spec §4.8): this
+   *  driver reports what a restart needs and reads it back, never holding
+   *  the store. */
+  bindings: EngineBindingRecords<GrokAcpJournalEntry>
   now(): number
   mintSessionId(): SessionId
   /** Poll cadence while a native Grok controller may append provider updates. */
@@ -146,12 +150,6 @@ export interface GrokAcpJournalEntry {
   seq: number
   turnEpoch: number
   bindingVersion: number
-}
-
-export interface GrokAcpJournal {
-  read(sessionId: SessionId): GrokAcpJournalEntry | undefined
-  write(entry: GrokAcpJournalEntry): void
-  clear(sessionId: SessionId): void
 }
 
 interface QueuedTurn {
@@ -227,7 +225,6 @@ export interface GrokAcpRuntime {
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   bindings(): readonly AgentSessionHandle['binding'][]
   has(sessionId: SessionId): boolean
-  readonly journal: GrokAcpJournal
   /**
    * THE SUPERVISOR OBSERVED A KERNEL OOM KILL in this session's scope
    * (POD-2413).
@@ -277,7 +274,7 @@ export function createGrokAcpRuntime(
   })
 
   const persist = (session: DriverSession): void => {
-    host.journal.write({
+    host.bindings.bound({
       sessionId: session.sessionId,
       grokSessionId: session.grokSessionId,
       workdir: session.spec.workdir,
@@ -1452,7 +1449,7 @@ export function createGrokAcpRuntime(
         endSession(session)
         session.client.close()
         await session.endpoint.kill()
-        host.journal.clear(session.sessionId)
+        host.bindings.released(session.sessionId)
         wakeIdle(session)
       },
 
@@ -2001,7 +1998,7 @@ export function createGrokAcpRuntime(
         observerGeneration: 1,
       }),
     async adopt(binding) {
-      const entry = host.journal.read(binding.sessionId)
+      const entry = host.bindings.recorded(binding.sessionId)
       if (!entry) {
         throw new Error(
           `grok-acp cannot adopt ${binding.sessionId}: no binding journal entry to resume from`,
@@ -2037,7 +2034,6 @@ export function createGrokAcpRuntime(
   return {
     driver,
     createWithId,
-    journal: host.journal,
     handleFor: (sessionId) => slots.get(sessionId),
     has: (sessionId) => slots.get(sessionId) !== undefined,
     bindings: () => slots.handles().map((handle) => handle.binding),

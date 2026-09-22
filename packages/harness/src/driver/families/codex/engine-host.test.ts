@@ -20,14 +20,20 @@ import { codexEngineFacts } from './engine-facts.js'
 import {
   type CodexEngineHostDeps,
   codexAppServerConfigArgs,
-  codexClientSocketPath,
   codexScopeLabel,
   CodexEngineLeaseRefused,
   createCodexEngineHost,
   evaluateCodexVersionProbe,
 } from './engine-host.js'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
-import type { EngineAttachment, EngineProcessOwner, EngineSupervisor } from '../engine-supervision.js'
+import type {
+  EngineAttachment,
+  EngineProcessOwner,
+  EngineSupervisor,
+  SessionEngineOwner,
+} from '../engine-supervision.js'
+import { createMemoryBindingRecords } from '../../testing/binding-records.js'
+import type { CodexJournalEntry } from './runtime.js'
 
 const FACTS = codexEngineFacts(manifestFor('codex')!)
 // Tests read the manifest directly (they are not mechanisms); production code
@@ -37,13 +43,11 @@ const STRIPPED_CODEX_CREDENTIALS = manifestFor('codex')!.inventory.foreignCreden
 function engineHost(extra: Partial<CodexEngineHostDeps> = {}) {
   return createCodexEngineHost({
     facts: FACTS,
-    journal: { read: () => undefined, write: () => {}, clear: () => {} },
     stageAttachment: async () => { throw new Error('attachments are not under test') },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
-    socketRoot: tmpdir(),
     dialSocket: () => Promise.reject(new Error('no listener in this test')),
     ...extra,
   })
@@ -276,17 +280,47 @@ describe('headless engine lifecycle (POD-4433)', () => {
     reattachEngine?: (opts: { label: string; fromSeq: 'tail' }) => Promise<EngineAttachment>
     engineAlive?: (label: string) => Promise<boolean>
     destroyed?: (label: string) => void
+    /** The session layer's socket root the fake mints listener addresses under. */
+    socketRoot?: string
+    /** What the session layer recorded for the session (address included). */
+    recorded?: Array<Parameters<SessionEngineOwner<CodexJournalEntry>['bound']>[0] & { address?: string }>
+    /** Every fact set the family reported as bound. */
+    reported?: CodexJournalEntry[]
   }): {
     supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
-    engines: EngineProcessOwner
+    engines: SessionEngineOwner<CodexJournalEntry>
   } {
+    const records = createMemoryBindingRecords<CodexJournalEntry>(hooks.recorded ?? [])
+    const addresses = new Map<string, string>()
     return {
       supervision: { scopeUnitFor: () => undefined },
       engines: {
-        startEngine:
-          hooks.startEngine ?? (() => Promise.reject(new Error('unexpected startEngine'))),
-        reattachEngine:
-          hooks.reattachEngine ?? (() => Promise.reject(new Error('no engine host answers'))),
+        ...records,
+        bound: (facts) => {
+          hooks.reported?.push(facts)
+          records.bound(facts)
+        },
+        startEngine: async (req) => {
+          if (!hooks.startEngine) throw new Error('unexpected startEngine')
+          // Stand-in for the session layer: mint the address, tell the engine.
+          const address = req.listen
+            ? `unix://${join(hooks.socketRoot ?? tmpdir(), `${addresses.size}-engine.sock`)}`
+            : undefined
+          if (address) addresses.set(req.label, address)
+          const { listen: _listen, sessionId: _sessionId, ...spawn } = req
+          const attachment = await hooks.startEngine({
+            ...spawn,
+            args: [...spawn.args, ...(req.listen && address ? req.listen.argv(address) : [])],
+          })
+          return { attachment, ...(address ? { address } : {}) }
+        },
+        reattachEngine: async (input) => {
+          if (!hooks.reattachEngine) throw new Error('no engine host answers')
+          const attachment = await hooks.reattachEngine({ label: input.label, fromSeq: 'tail' })
+          const address =
+            input.sessionId !== undefined ? records.recorded(input.sessionId)?.address : undefined
+          return { attachment, ...(address ? { address } : {}) }
+        },
         engineAlive: hooks.engineAlive ?? (async () => false),
         destroyEngine: async (label: string) => {
           hooks.destroyed?.(label)
@@ -294,6 +328,8 @@ describe('headless engine lifecycle (POD-4433)', () => {
       },
     }
   }
+
+  const socketFile = (address: string): string => address.slice('unix://'.length)
 
   /** Raw WS acceptor: answers the upgrade and records post-handshake bytes. */
   function listen(path: string): { frames: Buffer[]; close(): void } {
@@ -341,12 +377,11 @@ describe('headless engine lifecycle (POD-4433)', () => {
     rmSync(runtimeRoot, { recursive: true, force: true })
   })
 
-  const journalledEntry = (clientAddress: string | undefined) => ({
+  const journalledEntry = (address: string | undefined) => ({
     sessionId: SESSION,
-    threadId: 'thr-journalled',
+    threadId: 'thr-journalled' as never,
     workdir: '/tmp',
-    rolloutPath: undefined,
-    ...(clientAddress ? { clientAddress } : {}),
+    ...(address ? { address } : {}),
     process: { key: codexScopeLabel(FACTS, SESSION), pid: 4242 },
     seq: 7,
     turnEpoch: 2,
@@ -368,11 +403,11 @@ describe('headless engine lifecycle (POD-4433)', () => {
     let listener: { frames: Buffer[]; close(): void } | undefined
     const { session } = fakeEngineSession()
     const host = engineHost({
-      socketRoot: runtimeRoot,
       checkVersion: async () => evaluateCodexVersionProbe('0.147.0', true),
-      dialSocket: async (path) => {
+      dialSocket: async (address) => {
         // The engine the launch describes listens where it was told: serve
         // that address so the connect below completes against a real upgrade.
+        const path = socketFile(address)
         listener = listen(path)
         const { default: WebSocket } = await import('ws')
         return new WebSocket(`ws+unix://${path}:/rpc`, {
@@ -381,6 +416,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
         }) as never
       },
       ...fakePorts({
+        socketRoot: runtimeRoot,
         startEngine: async (opts) => {
           launched.push(opts)
           return session
@@ -415,14 +451,9 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const spawned: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
     const { session, exits } = fakeEngineSession({ childPid: 7777 })
     const host = engineHost({
-      journal: {
-        read: () => journalledEntry(clientAddress),
-        write: () => {},
-        clear: () => {},
-      },
-      dialSocket: async (path) => {
+      dialSocket: async (address) => {
         const { default: WebSocket } = await import('ws')
-        return new WebSocket(`ws+unix://${path}:/rpc`, {
+        return new WebSocket(`ws+unix://${socketFile(address)}:/rpc`, {
           maxPayload: 128 << 20,
           perMessageDeflate: false,
         }) as never
@@ -434,6 +465,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
         },
         reattachEngine: async () => session,
         engineAlive: async () => true,
+        recorded: [journalledEntry(clientAddress)],
       }),
     })
     try {
@@ -455,12 +487,10 @@ describe('headless engine lifecycle (POD-4433)', () => {
 
   it('adopt returns undefined when no host holds the label', async () => {
     const host = engineHost({
-      journal: {
-        read: () => journalledEntry('unix:///tmp/nowhere.sock'),
-        write: () => {},
-        clear: () => {},
-      },
-      ...fakePorts({ engineAlive: async () => false }),
+      ...fakePorts({
+        engineAlive: async () => false,
+        recorded: [journalledEntry('unix:///tmp/nowhere.sock')],
+      }),
     })
     await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   })
@@ -470,14 +500,9 @@ describe('headless engine lifecycle (POD-4433)', () => {
     // construction) before adopt gives up and lets the driver resume fresh.
     const { session } = fakeEngineSession()
     const host = engineHost({
-      journal: {
-        read: () => journalledEntry('unix:///tmp/nowhere.sock'),
-        write: () => {},
-        clear: () => {},
-      },
-      dialSocket: async (path) => {
+      dialSocket: async (address) => {
         const { default: WebSocket } = await import('ws')
-        return new WebSocket(`ws+unix://${path}:/rpc`, {
+        return new WebSocket(`ws+unix://${socketFile(address)}:/rpc`, {
           maxPayload: 128 << 20,
           perMessageDeflate: false,
         }) as never
@@ -485,6 +510,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
       ...fakePorts({
         reattachEngine: async () => session,
         engineAlive: async () => true,
+        recorded: [journalledEntry('unix:///tmp/nowhere.sock')],
       }),
     })
     await expect(host.adopt?.(binding)).resolves.toBeUndefined()
@@ -493,14 +519,10 @@ describe('headless engine lifecycle (POD-4433)', () => {
   it('adopt refuses loudly when the writer lease is held elsewhere', async () => {
     const { session } = fakeEngineSession({ lease: false })
     const host = engineHost({
-      journal: {
-        read: () => journalledEntry('unix:///tmp/nowhere.sock'),
-        write: () => {},
-        clear: () => {},
-      },
       ...fakePorts({
         reattachEngine: async () => session,
         engineAlive: async () => true,
+        recorded: [journalledEntry('unix:///tmp/nowhere.sock')],
       }),
     })
     await expect(host.adopt?.(binding)).rejects.toBeInstanceOf(CodexEngineLeaseRefused)
@@ -508,10 +530,12 @@ describe('headless engine lifecycle (POD-4433)', () => {
 
   it('adopt returns undefined for entries predating the journalled address', async () => {
     const host = engineHost({
-      journal: { read: () => journalledEntry(undefined), write: () => {}, clear: () => {} },
-      ...fakePorts({ engineAlive: async () => {
-        throw new Error('liveness must not be consulted without an address')
-      } }),
+      ...fakePorts({
+        engineAlive: async () => {
+          throw new Error('liveness must not be consulted without an address')
+        },
+        recorded: [journalledEntry(undefined)],
+      }),
     })
     await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   })
@@ -527,20 +551,16 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
     const root = mkdtempSync(join(tmpdir(), 'pod-4470-cx-48-'))
     try {
       const killed: string[] = []
-      const written: string[] = []
+      const written: CodexJournalEntry[] = []
       const { session } = fakeEngineSession()
       const host = engineHost({
-        socketRoot: root,
         checkVersion: async () => ({ drivable: true as const }),
         dialSocket: () => Promise.reject(new Error('listener silent')),
-        journal: {
-          read: () => undefined,
-          write: (entry) => void written.push(entry.sessionId),
-          clear: () => {},
-        },
         ...fakePorts({
+          socketRoot: root,
           startEngine: async () => session,
           destroyed: (label) => void killed.push(label),
+          reported: written,
         }),
       })
       const error = await host.launch({ sessionId: SESSION48, workdir: '/tmp' }).then(

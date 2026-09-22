@@ -132,7 +132,8 @@ export interface DurableAdapter {
 /**
  * What a headless engine spawn carries: everything a pty spawn does except the
  * geometry. The engine's address (socket path, port+secret) travels beside the
- * label in the family's own journal, never here — this stays harness-agnostic.
+ * label in the session layer's binding record, never here — this stays
+ * harness-agnostic.
  */
 export type HeadlessSpawnOptions = Omit<AbducoSpawnOptions, 'cols' | 'rows' | 'noPty' | 'backend'> &
   HostRetention

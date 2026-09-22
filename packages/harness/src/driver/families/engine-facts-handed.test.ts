@@ -12,8 +12,7 @@
  * family/flavor, not the harness), so they are asserted unchanged.
  */
 
-import { tmpdir } from 'node:os'
-import { asSessionId } from '@podium/model'
+import { asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { declaredValue, supported } from '../../manifest.js'
 import { manifestFor } from '../../registry.js'
@@ -23,7 +22,8 @@ import { grokEngineFacts } from './grok-acp/engine-facts.js'
 import { createGrokEngineHost, grokAcpProcessKey } from './grok-acp/engine-host.js'
 import { opencode2Flavor, opencodeFlavor } from './opencode/engine-facts.js'
 import { createOpencodeEngineHost, opencodeScopeLabel } from './opencode/engine-host.js'
-import type { EngineAttachment, EngineProcessOwner } from './engine-supervision.js'
+import type { EngineAttachment, SessionEngineOwner } from './engine-supervision.js'
+import { createTestEngineOwner } from '../testing/binding-records.js'
 
 function requireManifest(kind: 'codex' | 'grok' | 'opencode') {
   const manifest = manifestFor(kind)
@@ -146,23 +146,23 @@ function fakeEngineSession(): EngineAttachment {
   }
 }
 
-type SpawnOpts = Parameters<EngineProcessOwner['startEngine']>[0]
+type SpawnOpts = Parameters<SessionEngineOwner<{ sessionId: SessionId }>['startEngine']>[0]
 
 /**
  * The session-owned process verbs, capturing the composed spec and refusing
  * the start — plus the scope port the families read beside it. Spread at the
  * call site alongside `supervision: { scopeUnitFor: ... }` where given.
  */
-function capturingOwner(captured: SpawnOpts[], marker: Error): EngineProcessOwner {
-  return {
+function capturingOwner<TFacts extends { sessionId: SessionId }>(
+  captured: SpawnOpts[],
+  marker: Error,
+): SessionEngineOwner<TFacts> {
+  return createTestEngineOwner<TFacts>({
     startEngine: async (opts) => {
       captured.push(opts)
       throw marker
     },
-    reattachEngine: () => Promise.reject(new Error('no engine host answers')),
-    engineAlive: async () => false,
-    destroyEngine: async () => {},
-  }
+  })
 }
 
 describe('engine facts come from handed sections', () => {
@@ -181,7 +181,6 @@ describe('engine facts come from handed sections', () => {
     const marker = new Error('stop after argv capture')
     const host = createCodexEngineHost({
       facts,
-      journal: { read: () => undefined, write: () => {}, clear: () => {} },
       stageAttachment: async () => {
         throw new Error('attachments are not under test')
       },
@@ -189,7 +188,6 @@ describe('engine facts come from handed sections', () => {
       buildEnv: () => ({}),
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
-      socketRoot: tmpdir(),
       dialSocket: () => Promise.reject(new Error('no listener in this test')),
       supervision: { scopeUnitFor: () => undefined },
       engines: capturingOwner(captured, marker),
@@ -215,21 +213,17 @@ describe('engine facts come from handed sections', () => {
     const captured: SpawnOpts[] = []
     const host = createGrokEngineHost({
       facts,
-      journal: { read: () => undefined, write: () => {}, clear: () => {} },
       resources: () => undefined,
       buildEnv: () => ({}),
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
       supervision: { scopeUnitFor: () => undefined },
-      engines: {
+      engines: createTestEngineOwner({
         startEngine: async (opts) => {
           captured.push(opts)
           return fakeEngineSession()
         },
-        reattachEngine: () => Promise.reject(new Error('no engine host answers')),
-        engineAlive: async () => false,
-        destroyEngine: async () => {},
-      },
+      }),
     })
     const endpoint = await host.launch({ sessionId, workdir: '/tmp' })
     expect(captured).toHaveLength(1)
@@ -252,7 +246,6 @@ describe('engine facts come from handed sections', () => {
     const marker = new Error('stop after argv capture')
     const host = createOpencodeEngineHost({
       flavor,
-      journal: { read: () => undefined, write: () => {}, clear: () => {} },
       stageAttachment: async () => {
         throw new Error('attachments are not under test')
       },
@@ -287,7 +280,6 @@ describe('engine facts come from handed sections', () => {
     const marker = new Error('stop after argv capture')
     const host = createOpencodeEngineHost({
       flavor,
-      journal: { read: () => undefined, write: () => {}, clear: () => {} },
       stageAttachment: async () => {
         throw new Error('attachments are not under test')
       },

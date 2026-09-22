@@ -12,6 +12,8 @@ import type { DaemonMachineRuntime } from './runtime/machine-runtime'
 import { isServerDriver } from './runtime/registry'
 import { SERVER_HANDLE_VERB_TIMEOUT_MS } from './runtime/server-teardown-budget'
 import type { ServerReapIo } from './runtime/server-reap'
+import { driverSlotsOver } from './session/driver-slots.js'
+import type { SessionRegistry } from './session/registry.js'
 
 const SESSION = 'full-reap-session' as SessionId
 
@@ -44,7 +46,7 @@ type TestAgentRuntime = Pick<
 >
 
 async function createCloseHost(
-  runtime: TestAgentRuntime,
+  runtime: TestAgentRuntime | ((sessions: SessionRegistry) => TestAgentRuntime),
   io: ServerReapIo,
   legacy = false,
 ): Promise<{
@@ -121,6 +123,65 @@ async function createCloseHost(
     throw error
   }
 }
+
+describe('full-reap daemon close, with the handle only on its session entry (POD-4611)', () => {
+  /**
+   * THE REORDER POD-4610 MADE, SLOT-BACKED. A server family keeps no handle
+   * index: its live handle sits in the session entry's driver slot, and the
+   * machine runtime's bindings are a read of those slots. `close()` empties
+   * every entry, so the server reaps must START before that loop — a reap
+   * begun after it finds no binding to reap and the engine is orphaned on
+   * every daemon shutdown. The fakes above hold their bindings in a list and
+   * cannot see that order; this runtime reads the daemon's own registry.
+   */
+  it.each(SERVER_FAMILIES)('$driver: the engine is reaped, not orphaned', async ({ driver, harness }) => {
+    const state = { alive: true }
+    const calls: string[] = []
+    const handle = {
+      binding: {
+        sessionId: SESSION,
+        driver,
+        family: 'server',
+        harness,
+        workdir: '/tmp/full-reap',
+        resume: null,
+        process: { key: `full-reap:${SESSION}`, pid: 4321 },
+        bindingVersion: 1,
+      },
+      async kill() {
+        calls.push('kill')
+      },
+    } as unknown as AgentSessionHandle
+    const disposed = vi.fn()
+    const slotBacked = (sessions: SessionRegistry): TestAgentRuntime => {
+      const slots = driverSlotsOver(sessions)
+      slots.set(SESSION, handle)
+      return {
+        registeredBindings: () => slots.handles().map((held) => held.binding),
+        serverHandleFor: (sessionId: SessionId) => slots.get(sessionId),
+        journalledServerProcess: () => undefined,
+        dispose: disposed,
+      } as unknown as TestAgentRuntime
+    }
+
+    const io = reapIo(state)
+    const { host, sent, cleanup } = await createCloseHost(slotBacked, io)
+    try {
+      await host.close({ reapSessions: true })
+      expect(calls[0]).toBe('kill')
+      expect(state.alive).toBe(false)
+      expect(io.signals).toEqual(['SIGKILL'])
+      expect(sent.find((message) => message.type === 'sessionKillResult')).toMatchObject({
+        killed: true,
+        sessionId: SESSION,
+      })
+      expect(disposed).toHaveBeenCalledOnce()
+    } finally {
+      await host?.close().catch(() => undefined)
+      cleanup()
+    }
+  })
+})
 
 describe('full-reap daemon close', () => {
   it.each(SERVER_FAMILIES)('$driver leaves no live child behind', async ({ driver, harness }) => {

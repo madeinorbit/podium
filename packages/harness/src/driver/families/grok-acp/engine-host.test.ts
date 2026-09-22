@@ -24,14 +24,16 @@ import type {
   EngineAttachment,
   EngineProcessOwner,
   EngineSupervisor,
+  SessionEngineOwner,
 } from '../engine-supervision.js'
+import { createTestEngineOwner } from '../../testing/binding-records.js'
+import type { GrokAcpJournalEntry } from './runtime.js'
 
 const FACTS = grokEngineFacts(manifestFor('grok')!)
 
 function engineHost(extra: Partial<GrokEngineHostDeps> = {}) {
   return createGrokEngineHost({
     facts: FACTS,
-    journal: { read: () => undefined, write: () => {}, clear: () => {} },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
@@ -118,17 +120,13 @@ describe('headless engine lifecycle (POD-4433)', () => {
     }) => Promise<EngineAttachment>
   }): {
     supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
-    engines: EngineProcessOwner
+    engines: SessionEngineOwner<GrokAcpJournalEntry>
   } {
     return {
       supervision: { scopeUnitFor: () => undefined },
-      engines: {
-        startEngine:
-          hooks.startEngine ?? (() => Promise.reject(new Error('unexpected startEngine'))),
-        reattachEngine: () => Promise.reject(new Error('no engine host answers')),
-        engineAlive: async () => false,
-        destroyEngine: async () => {},
-      },
+      engines: createTestEngineOwner<GrokAcpJournalEntry>(
+        hooks.startEngine ? { startEngine: hooks.startEngine } : {},
+      ),
     }
   }
 

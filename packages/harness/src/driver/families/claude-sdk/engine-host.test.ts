@@ -15,8 +15,12 @@ import {
   ClaudeEngineLeaseRefused,
   createClaudeEngineHost,
   type ClaudeEngineHostDeps,
-  type ClaudeEngineJournal,
+  type ClaudeEngineJournalEntry,
 } from './engine-host.js'
+import {
+  createMemoryBindingRecords,
+  type MemoryBindingRecords,
+} from '../../testing/binding-records.js'
 import { claudeEngineFacts } from './engine-facts.js'
 import { manifestFor } from '../../../registry.js'
 import type { ClaudeSdkTurnHandle } from './runtime.js'
@@ -101,11 +105,11 @@ function fakePorts(hooks: {
       startEngine: async (req) => {
         spawned.push(req)
         if (!hooks.spawn) throw new Error('unexpected startEngine')
-        return hooks.spawn
+        return { attachment: hooks.spawn }
       },
       reattachEngine: async () => {
         if (!hooks.attach) throw new Error('unexpected reattachEngine')
-        return hooks.attach
+        return { attachment: hooks.attach }
       },
       engineAlive: async () => hooks.engineAlive ?? false,
       destroyEngine: async (label) => {
@@ -115,29 +119,25 @@ function fakePorts(hooks: {
   }
 }
 
-function journalStore(): ClaudeEngineJournal & { entries: Map<SessionId, { sessionId: SessionId; claudeSessionId: string; workdir: string; process: { key: string }; bindingVersion: number } & Record<string, unknown>> } {
-  const entries = new Map()
-  return {
-    entries,
-    read: (sessionId: SessionId) => entries.get(sessionId),
-    write: (entry) => {
-      entries.set(entry.sessionId, entry)
-    },
-    clear: (sessionId: SessionId) => {
-      entries.delete(sessionId)
-    },
-  }
+/** The session layer's binding record for this family, in memory. */
+function journalStore(): MemoryBindingRecords<ClaudeEngineJournalEntry> {
+  return createMemoryBindingRecords<ClaudeEngineJournalEntry>()
 }
 
 function hostDeps(
-  ports: Pick<ClaudeEngineHostDeps, 'supervision' | 'engines'>,
-  journal: ClaudeEngineJournal,
+  ports: { supervision: Pick<EngineSupervisor, 'scopeUnitFor'>; engines: EngineProcessOwner },
+  journal: MemoryBindingRecords<ClaudeEngineJournalEntry>,
   extra: Partial<ClaudeEngineHostDeps> = {},
 ): ClaudeEngineHostDeps {
   return {
     facts: FACTS,
-    ...ports,
-    journal,
+    supervision: ports.supervision,
+    engines: {
+      ...ports.engines,
+      bound: journal.bound,
+      released: journal.released,
+      recorded: journal.recorded,
+    },
     buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
     gracefulExitMs: 50,
     homeDir: '/state/agent-home',
@@ -218,7 +218,7 @@ describe('the claude stream engine host', () => {
       resumeValue: 'claude-native-1',
       output: 'answered',
     })
-    const entry = journal.read(SESSION_ID)
+    const entry = journal.recorded(SESSION_ID)
     expect(entry).toMatchObject({
       sessionId: SESSION_ID,
       claudeSessionId: 'claude-native-1',
@@ -334,7 +334,7 @@ describe('the claude stream engine host', () => {
       resumeValue: 'claude-native-1',
       output: 'survived',
     })
-    expect(journal.read(SESSION_ID)?.process).toMatchObject({
+    expect(journal.recorded(SESSION_ID)?.process).toMatchObject({
       key: 'podium-cl-claude-engine-session',
       pid: 9999,
     })
@@ -371,7 +371,7 @@ describe('the claude stream engine host', () => {
     )
     await expect(handle.done).rejects.toBeInstanceOf(EngineBindUnrecoverable)
     await vi.waitFor(() => expect(destroyed).toEqual(['podium-cl-claude-engine-session']))
-    expect(journal.read(SESSION_ID)).toBeUndefined()
+    expect(journal.recorded(SESSION_ID)).toBeUndefined()
   })
 
   it('stops the engine with a scope sweep, retiring the journal only on retire', async () => {
@@ -394,7 +394,7 @@ describe('the claude stream engine host', () => {
     await stopping
     expect(attachment.signals).toContain(15)
     expect(destroyed).toEqual(['podium-cl-claude-engine-session'])
-    expect(journal.read(SESSION_ID)).toBeDefined()
+    expect(journal.recorded(SESSION_ID)).toBeDefined()
 
     // Retire: the journal goes with the session.
     const attachment2 = fakeAttachment({ childPid: 5555 })
@@ -404,11 +404,11 @@ describe('the claude stream engine host', () => {
     void handle2
     await vi.waitFor(() => expect(spawned2).toHaveLength(1))
     answerHandshake(attachment2, 'claude-native-2')
-    await vi.waitFor(() => expect(journal.read(SESSION_ID)?.claudeSessionId).toBe('claude-native-2'))
+    await vi.waitFor(() => expect(journal.recorded(SESSION_ID)?.claudeSessionId).toBe('claude-native-2'))
     const retiring = host2.stopEngine(SESSION_ID, true)
     attachment2.exit(0, 0)
     await retiring
-    expect(journal.read(SESSION_ID)).toBeUndefined()
+    expect(journal.recorded(SESSION_ID)).toBeUndefined()
     await handle.done.catch(() => {})
   })
 
@@ -425,7 +425,7 @@ describe('the claude stream engine host', () => {
     expect(destroyed).toEqual([])
     // The journal stays: the next generation adopts the survivor.
     answerHandshake(attachment, 'claude-native-1')
-    await vi.waitFor(() => expect(journal.read(SESSION_ID)).toBeDefined())
+    await vi.waitFor(() => expect(journal.recorded(SESSION_ID)).toBeDefined())
   })
 
   it('escalates a silent interrupt with SIGINT through the host', async () => {
