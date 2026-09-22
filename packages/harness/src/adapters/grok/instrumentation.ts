@@ -638,7 +638,7 @@ function installerDegradedKind(
  * section — it only looks the `home` strategy up by scope.
  */
 function grokHomeOf(destination: InstrumentationDestination): string {
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     ...(destination.env ?? {}),
     ...(destination.homeDir ? { GROK_HOME: join(destination.homeDir, '.grok') } : {}),

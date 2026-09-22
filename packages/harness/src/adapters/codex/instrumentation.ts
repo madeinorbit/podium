@@ -787,7 +787,7 @@ function installerDegradedKind(
  * section — it only looks the `home` strategy up by scope.
  */
 function codexHomeOf(destination: InstrumentationDestination): string {
-  const env = {
+  const env: Record<string, string | undefined> = {
     ...process.env,
     ...(destination.env ?? {}),
     ...(destination.homeDir ? { CODEX_HOME: join(destination.homeDir, '.codex') } : {}),
