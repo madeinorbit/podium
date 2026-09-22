@@ -175,6 +175,7 @@ async function main(): Promise<number> {
     arm: args.arm,
     plant: args.plant,
     scale: args.scale,
+    quietMs: null,
     maxLoad: args.maxLoad,
     corpus: null,
     scenarios: args.scenarios,
@@ -222,6 +223,9 @@ async function main(): Promise<number> {
       return 2
     }
     output.corpus = await page.evaluate(() => window.__proto.corpus)
+    output.quietMs = await page.evaluate(() => window.__proto.quietMs)
+    // Boot commits land before the first change, never in its record.
+    await page.evaluate(() => window.__proto.settle())
     const cdp = await page.context().newCDPSession(page)
     await cdp.send('HeapProfiler.enable')
     const heap = async (): Promise<HeapUsage> => {
@@ -273,6 +277,9 @@ async function main(): Promise<number> {
         }
         output.records.push(record)
         if (load > args.maxLoad) fail(`load ${load.toFixed(2)} > ${args.maxLoad} at ${scenario}#${sample}`)
+        if (record.strayCommits > 0) {
+          fail(`${scenario}#${sample}: ${record.strayCommits} commit signals landed after the previous settle (work deferred past ${output.quietMs} ms cannot be attributed)`)
+        }
         console.log(
           `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
             `actionMs=${record.actionMs.toFixed(2)} frameMs=${record.frameMs.toFixed(1)} ` +

@@ -43,10 +43,15 @@
  * - `frameMs`: start to the first animation frame after `actionMs`'s end.
  *   Reported, never budgeted: its vsync phase is not the arm's.
  *
- * The settle (untimed) waits until one whole frame, plus a task, passes with
- * no new commit signal; it fails loudly after `SETTLE_CAP_MS`. Signals that
+ * The settle (untimed) waits until `QUIET_MS` (and at least two frames) pass
+ * with no new commit signal, so work an arm defers to a later task inside
+ * that window is charged; it fails loudly after `SETTLE_CAP_MS`. Signals that
  * arrive AFTER a settle and before the next change are counted into the next
- * record as `strayCommits` — a late commit is visible, never attributed.
+ * record as `strayCommits`, and the driver FAILS the run on any: work
+ * deferred past the quiet window cannot be attributed, so it is never
+ * silently dropped. (The first cut settled after one quiet frame; the
+ * `late:30` plant — a commit 30 ms after the change — escaped `actionMs`
+ * entirely and surfaced only as strays. POD-4558 NOTES.)
  * Long tasks are those overlapping the change's window, taken synchronously
  * from the observer (`takeRecords`) after the settle.
  */
@@ -108,6 +113,10 @@ export interface ProtoPage {
   corpus: ProtoCorpusCounts
   runtimeSha: string
   runScenario(name: ProtoScenarioName): Promise<ProtoScenarioResult>
+  /** Wait (untimed) until the page is quiet; the driver calls it before the first change. */
+  settle(): Promise<void>
+  /** The settle's quiet window, ms. */
+  quietMs: number
   snapshotHash(): string
   stats(): ProtoScenarioResult['stats']
 }
@@ -120,6 +129,8 @@ declare global {
 
 /** A settle that has not gone quiet by then is a failed record, not a wait. */
 const SETTLE_CAP_MS = 5_000
+/** No commit signal for this long (and two frames) ends a settle. `?quiet=` overrides. */
+const QUIET_MS = Number(new URLSearchParams(window.location.search).get('quiet') ?? 250)
 
 function hashString(value: string): string {
   let hash = 5381
@@ -356,6 +367,31 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
   let settledSignals = signals()
   let running = false
 
+  /** Untimed: resolves with every frame time seen, once `QUIET_MS` and two
+   *  frames pass with no new commit signal. Throws past `SETTLE_CAP_MS`. */
+  async function settleQuiet(): Promise<number[]> {
+    const began = performance.now()
+    const frames: number[] = []
+    let seen = signals()
+    let lastChange = began
+    for (;;) {
+      frames.push(await nextFrame())
+      const at = await nextTask()
+      const now = signals()
+      if (now !== seen) {
+        seen = now
+        lastChange = at
+      } else if (frames.length >= 2 && at - lastChange >= QUIET_MS) {
+        break
+      }
+      if (at - began > SETTLE_CAP_MS) {
+        throw new Error(`[proto] did not settle within ${SETTLE_CAP_MS} ms (still committing)`)
+      }
+    }
+    settledSignals = signals()
+    return frames
+  }
+
   /** Time one change: `prepare` runs untimed and returns the dispatch. */
   async function measure(prepare: () => { target: string | null; dispatch: () => void }): Promise<ProtoScenarioResult> {
     if (running) throw new Error('[proto] runScenario is not re-entrant')
@@ -375,19 +411,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
         dispatch()
         const drainEnd = await nextTask()
 
-        const frames: number[] = []
-        let seen = signals()
-        for (;;) {
-          frames.push(await nextFrame())
-          await nextTask()
-          const now = signals()
-          if (now === seen) break
-          seen = now
-          if (performance.now() - start > SETTLE_CAP_MS) {
-            throw new Error(`[proto] change did not settle within ${SETTLE_CAP_MS} ms (still committing)`)
-          }
-        }
-        settledSignals = signals()
+        const frames = await settleQuiet()
         const settleEnd = performance.now()
 
         const committed = signals() !== windowSignals
@@ -453,6 +477,10 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     corpus: { ...counts, rows: Object.keys(handle.snapshot().rowsById).length },
     runtimeSha,
     runScenario,
+    settle: async () => {
+      await settleQuiet()
+    },
+    quietMs: QUIET_MS,
     snapshotHash: () => hashString(JSON.stringify(handle.snapshot())),
     stats: statsOf,
   }
@@ -469,6 +497,8 @@ export function mountStub(arm: string, reason: string, runtimeSha: string): void
     corpus: { issues: 0, sessions: 0, repos: 0, worktrees: 0, rows: 0 },
     runtimeSha,
     runScenario: () => Promise.reject(new Error(`[proto] ${arm} not implemented: ${reason}`)),
+    settle: () => Promise.resolve(),
+    quietMs: 0,
     snapshotHash: () => 'pending',
     stats: () => ({ rowsDerived: 0, rollupsDerived: 0, indexUpdates: 0, notifications: 0 }),
   }

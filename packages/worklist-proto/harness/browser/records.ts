@@ -60,6 +60,8 @@ export interface RunOutput {
   arm: ArmName
   plant: string | null
   scale: Scale
+  /** The page settle's quiet window, ms. */
+  quietMs: number | null
   maxLoad: number
   corpus: unknown
   scenarios: ScenarioName[]
