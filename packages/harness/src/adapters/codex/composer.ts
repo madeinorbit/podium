@@ -15,7 +15,7 @@
  */
 
 import type { ComposerScreenLines, HarnessComposer } from '../../manifest.js'
-import { CTRL_C, normalizeForVerify, PASTE_END, PASTE_START } from '../shared/composer.js'
+import { CTRL_C, normalizeForVerify, PASTE_END, PASTE_START } from '../shared/composer'
 
 // Codex's composer prompt marker (U+203A, ›). Unlike Claude, Codex draws no box —
 // the in-progress prompt is a `› <text>` row near the bottom, with dim hint/status

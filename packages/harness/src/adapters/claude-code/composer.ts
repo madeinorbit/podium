@@ -13,7 +13,7 @@
  */
 
 import type { ComposerScreenLines, HarnessComposer } from '../../manifest.js'
-import { CTRL_U, normalizeForVerify } from '../shared/composer.js'
+import { CTRL_U, normalizeForVerify } from '../shared/composer'
 
 /**
  * Claude Code's in-progress prompt. The prompt is a rounded box near the bottom:
