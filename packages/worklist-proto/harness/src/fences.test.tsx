@@ -15,13 +15,13 @@
  * The fence's NO is the legacy control's heartbeat (`control.test.tsx`).
  */
 
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import { assertCommits, assertReads, mountArmForCounts } from './count-harness'
-import { engineLocals, FENCE_SCENARIOS, runFenceScenarios } from './fence-scenarios'
+import { engineLocals, FENCE_SCENARIOS, type FenceStep, runFenceScenarios } from './fence-scenarios'
 import { referenceArmFor } from './reference-arm/arm'
 import { ROUND_THREE_ARMS } from './roster'
 
@@ -31,6 +31,25 @@ const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
   ? process.cwd()
   : join(process.cwd(), 'packages', 'worklist-proto')
 const ARMS_DIR = join(PACKAGE_DIR, 'arms')
+
+/** Per-scenario cells to the (git-ignored) results folder: the evidence behind a green run. */
+function writeResults(name: string, steps: FenceStep[]): void {
+  const dir = join(PACKAGE_DIR, 'harness', 'browser', 'results')
+  mkdirSync(dir, { recursive: true })
+  const cells = steps.map(({ result, readsBudget }) => ({
+    methodology: result.methodology,
+    scenario: result.scenario,
+    oracleChanged: result.oracleChangedRows,
+    drawn: result.drawnRows,
+    remounted: result.remountedRows,
+    rowsCommitted: result.rowsCommitted,
+    visibleRows: result.visibleRows,
+    readsPerChange: result.readsPerChange,
+    readsBudget,
+    parity: result.parity,
+  }))
+  writeFileSync(join(dir, name), `${JSON.stringify({ scale: 1, cells }, null, 2)}\n`)
+}
 
 function summary(
   steps: {
@@ -56,6 +75,7 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
         assertCommits(result)
       })
       console.info(`[fences] reference changed/drawn per scenario: ${summary(steps)}`)
+      writeResults('fences-reference-1x.json', steps)
       expect(steps.map((step) => step.result.methodology)).toEqual(
         FENCE_SCENARIOS.map((entry) => entry.methodology),
       )
@@ -93,6 +113,7 @@ for (const entry of ROUND_THREE_ARMS) {
           },
         )
         console.info(`[fences] ${entry.name} changed/drawn per scenario: ${summary(steps)}`)
+        writeResults(`fences-${entry.folder}-1x.json`, steps)
       } finally {
         mounted.unmount()
         source.dispose()
