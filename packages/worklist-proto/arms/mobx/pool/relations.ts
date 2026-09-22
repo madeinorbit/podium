@@ -37,6 +37,34 @@ function specOf(from: EntityName, relation: string): RelationSpec {
   return spec
 }
 
+/**
+ * The target key a single-valued relation names on `row` (`belongsTo`: the
+ * foreign key; outgoing `edge`: the first edge of the declared type), after
+ * the declared membership filter, WITHOUT checking the target is present.
+ * Reading it costs the source row only; `one` adds the presence check.
+ */
+export function relationRef(from: EntityName, relation: string, row: Readonly<Record<string, unknown>>): string | null {
+  const spec = specOf(from, relation)
+  if (spec.where !== undefined && !spec.where.test(row)) return null
+  let target: unknown
+  if (spec.kind === 'belongsTo') {
+    if (spec.targetKey !== SCHEMA[spec.to].key) {
+      throw new Error(`[pool] ${from}.${relation} joins on a non-key field; not a keyed read`)
+    }
+    target = row[spec.foreignKey]
+  } else if (spec.kind === 'edge' && spec.direction === 'out') {
+    const edges = row[spec.edgeField]
+    if (!Array.isArray(edges)) return null
+    const hit = (edges as readonly Readonly<Record<string, unknown>>[]).find(
+      (edge) => edge[spec.edgeTypeKey] === spec.edgeType,
+    )
+    target = hit?.[spec.edgeIdKey]
+  } else {
+    throw new Error(`[pool] ${from}.${relation} is not resolved from its own row (${spec.kind})`)
+  }
+  return typeof target === 'string' && target.length > 0 ? target : null
+}
+
 export class PoolRelations implements RelationReader {
   constructor(private readonly tables: ReadableTables) {}
 
@@ -50,22 +78,8 @@ export class PoolRelations implements RelationReader {
     }
     const row = this.tables[from].get(id) as Readonly<Record<string, unknown>> | undefined
     if (row === undefined) return null
-    if (spec.where !== undefined && !spec.where.test(row)) return null
-    let target: unknown
-    if (spec.kind === 'belongsTo') {
-      if (spec.targetKey !== SCHEMA[spec.to].key) {
-        throw new Error(`[pool] ${from}.${relation} joins on a non-key field; not a keyed read`)
-      }
-      target = row[spec.foreignKey]
-    } else {
-      const edges = row[spec.edgeField]
-      if (!Array.isArray(edges)) return null
-      const hit = (edges as readonly Readonly<Record<string, unknown>>[]).find(
-        (edge) => edge[spec.edgeTypeKey] === spec.edgeType,
-      )
-      target = hit?.[spec.edgeIdKey]
-    }
-    return typeof target === 'string' && this.tables[spec.to].has(target) ? target : null
+    const target = relationRef(from, relation, row)
+    return target !== null && this.tables[spec.to].has(target) ? target : null
   }
 
   many(from: EntityName, _id: string, relation: string): Iterable<string> {

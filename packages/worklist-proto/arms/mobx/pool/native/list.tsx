@@ -8,6 +8,7 @@ import { observer } from 'mobx-react-lite'
 import { memo, type ReactElement } from 'react'
 import { ScrollView, Text, View } from 'react-native'
 import { type RowProps, RowShell } from '../../../../shared/src/row-shell'
+import type { IssueModel } from '../models'
 import type { MobxPool } from '../pool'
 
 const PoolNativeRow = memo(function PoolNativeRow({ row }: RowProps): ReactElement {
@@ -20,8 +21,8 @@ const PoolNativeRow = memo(function PoolNativeRow({ row }: RowProps): ReactEleme
   )
 })
 
-const PoolNativeSlot = observer(function PoolNativeSlot({ pool, id }: { pool: MobxPool; id: string }): ReactElement | null {
-  const view = pool.issue(id)?.view
+const PoolNativeSlot = observer(function PoolNativeSlot({ model }: { model: IssueModel }): ReactElement | null {
+  const view = model.view
   if (view === undefined) return null
   return <RowShell row={view} component={PoolNativeRow} />
 })
@@ -29,9 +30,10 @@ const PoolNativeSlot = observer(function PoolNativeSlot({ pool, id }: { pool: Mo
 const PoolNativeList = observer(function PoolNativeList({ pool }: { pool: MobxPool }): ReactElement {
   return (
     <ScrollView testID="mobx-pool-list">
-      {pool.issueIds.map((id) => (
-        <PoolNativeSlot key={id} pool={pool} id={id} />
-      ))}
+      {pool.issueIds.map((id) => {
+        const model = pool.issue(id)
+        return model === undefined ? null : <PoolNativeSlot key={id} model={model} />
+      })}
     </ScrollView>
   )
 })

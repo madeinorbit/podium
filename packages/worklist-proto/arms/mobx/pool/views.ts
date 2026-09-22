@@ -2,18 +2,18 @@
  * POD-4565 (Ma1) — one issue's `RowView` (L1b, `shared/src/row-view.ts`) as a
  * pure function of its inputs.
  *
- * ONE RULE, TWO CALLERS. The live pool calls `buildRowView` from each issue
- * model's `view` computed with tracked inputs (`pool.ts`); the rebuild calls
- * it with plain maps built from the feed's snapshot (`rebuild.ts`). Nothing
- * here knows which: a rule cannot drift between the incremental result and
- * its own oracle.
+ * ONE RULE, TWO CALLERS. The live pool runs every part below in its own
+ * computed on the issue model, over tracked inputs (`models.ts`, `pool.ts`);
+ * the rebuild runs the same functions directly over plain maps built from the
+ * feed's snapshot (`directParts`, `rebuild.ts`). Nothing here knows which: a
+ * rule cannot drift between the incremental result and its own oracle.
  *
  * WHAT Ma1 DERIVES (inputs per L1b):
  * - own row: `title` (non-draft), `band`, `repoKey`, `pinned`, `sortKey`,
  *   `createdAt`, `seq`, `foldAt`;
- * - one hop through a declared single-valued relation (`relations.ts`):
- *   `displayRef` (`issue.repo` prefix) and `originTick`
- *   (`issue.discoveredFrom`);
+ * - one hop through a declared single-valued relation (`relations.ts`
+ *   `relationRef`, then the target's presence): `displayRef` (`issue.repo`
+ *   prefix) and `originTick` (`issue.discoveredFrom`);
  * - locals: `selected` (selection), and the clock through deadlines
  *   (`band`'s defer lapse, `closed`'s grace crossing).
  *
@@ -33,7 +33,9 @@
 
 import type { RelationReader } from '../../../shared/src/instrument/reads'
 import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
+import type { EntityName } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
+import { relationRef } from './relations'
 
 /** The finished-row grace before the closed fold (spec §3 R-GROUP). */
 export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
@@ -63,15 +65,24 @@ export interface RepoRow {
 /**
  * One issue's derived parts. Each is its own memo in the live pool (a
  * computed on the issue model), so a change re-runs only the parts that read
- * it: an origin's rename re-runs its spin-offs' `originTick`, which reads the
- * origin's parts, and never re-reads the spin-off's own row. The rebuild
- * computes them directly (`directParts`).
+ * it, and a part whose value did not move stops the propagation there.
+ *
+ * Relations are split in two: the REFERENCE (`repoRef`, `originRef`: the
+ * declared foreign key read off the own row, a string) and its RESOLUTION
+ * (`prefix`, `originId`: the target's presence and fields). A rename re-runs
+ * the reference, which returns the same string, so the resolution — and the
+ * target read it costs — does not run; an origin's rename re-runs only its
+ * spin-offs' `originTick`, never their own rows. The rebuild computes the
+ * same parts directly (`directParts`).
  */
 export interface IssueParts {
   /** The row-only fields; undefined when the issue is not in the pool. */
   readonly own: OwnPart | undefined
+  readonly repoRef: string | null
+  readonly prefix: string | null
   readonly displayRef: string | undefined
   readonly displayTitle: string | undefined
+  readonly originRef: string | null
   readonly originId: string | null
   readonly originTick: RowOriginTick | null
   readonly activityAt: number
@@ -96,6 +107,8 @@ export interface ViewInputs {
   issue(id: string): SliceIssue | undefined
   session(id: string): SliceSession | undefined
   repo(id: string): RepoRow | undefined
+  /** Whether a row of `entity` is in the pool (tracks presence only). */
+  present(entity: EntityName, id: string): boolean
   /** Another issue's parts (the origin of a spin-off). */
   parts(id: string): IssueParts | undefined
   /** The selection local: `selectedIssueId === id`. */
@@ -225,12 +238,20 @@ function firstMemberOf(input: ViewInputs, id: string): SliceSession | undefined 
   return undefined
 }
 
-/** `displayRef` through the declared `issue.repo` relation (one hop). */
-export function displayRefPartOf(input: ViewInputs, id: string): string | undefined {
+/** The `issue.repo` foreign key off the own row (declared in the schema). */
+export function repoRefPartOf(input: ViewInputs, id: string): string | null {
   const issue = input.issue(id)
-  if (issue === undefined) return undefined
-  const repoId = input.relations.one('issue', id, 'repo')
-  return displayRefOf(issue.seq, repoId === null ? null : input.repo(repoId)?.prefix)
+  return issue === undefined ? null : relationRef('issue', 'repo', issue)
+}
+
+/** The resolved repo's prefix (one hop), or null. */
+export function prefixPartOf(input: ViewInputs, repoRef: string | null): string | null {
+  return repoRef === null ? null : (input.repo(repoRef)?.prefix ?? null)
+}
+
+/** `prefix-seq`, else `#seq`, from the parts (spec §3 R-SUM). */
+export function displayRefPartOf(own: OwnPart | undefined, prefix: string | null): string | undefined {
+  return own === undefined ? undefined : displayRefOf(own.seq, prefix)
 }
 
 export function displayTitlePartOf(input: ViewInputs, id: string): string | undefined {
@@ -238,9 +259,15 @@ export function displayTitlePartOf(input: ViewInputs, id: string): string | unde
   return issue === undefined ? undefined : displayTitleOf(issue, firstMemberOf(input, id))
 }
 
-/** The spin-off origin through the declared `issue.discoveredFrom` edge. */
-export function originIdPartOf(input: ViewInputs, id: string): string | null {
-  return input.relations.one('issue', id, 'discoveredFrom')
+/** The `issue.discoveredFrom` edge target off the own row (declared in the schema). */
+export function originRefPartOf(input: ViewInputs, id: string): string | null {
+  const issue = input.issue(id)
+  return issue === undefined ? null : relationRef('issue', 'discoveredFrom', issue)
+}
+
+/** The origin, when it is in the pool. */
+export function originIdPartOf(input: ViewInputs, originRef: string | null): string | null {
+  return originRef !== null && input.present('issue', originRef) ? originRef : null
 }
 
 /** The ⤷ tick: a flat copy of the origin's parts (spec §3 R-ORIGIN). */
@@ -264,26 +291,36 @@ export function activityAtPartOf(input: ViewInputs, id: string): number {
 
 /** The parts of `id` computed directly, no memo (the rebuild). */
 export function directParts(input: ViewInputs, id: string): IssueParts {
-  return {
+  const parts: IssueParts = {
     get own() {
       return ownPartOf(input, id)
     },
+    get repoRef() {
+      return repoRefPartOf(input, id)
+    },
+    get prefix() {
+      return prefixPartOf(input, parts.repoRef)
+    },
     get displayRef() {
-      return displayRefPartOf(input, id)
+      return displayRefPartOf(parts.own, parts.prefix)
     },
     get displayTitle() {
       return displayTitlePartOf(input, id)
     },
+    get originRef() {
+      return originRefPartOf(input, id)
+    },
     get originId() {
-      return originIdPartOf(input, id)
+      return originIdPartOf(input, parts.originRef)
     },
     get originTick() {
-      return originTickPartOf(input, originIdPartOf(input, id))
+      return originTickPartOf(input, parts.originId)
     },
     get activityAt() {
       return activityAtPartOf(input, id)
     },
   }
+  return parts
 }
 
 // ------------------------------------------------------------------ the view

@@ -33,6 +33,7 @@ export function rebuildSnapshot(source: RowSource, locals: LocalsSource): SliceS
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
     session: (id) => tables.session.get(id) as SliceSession | undefined,
     repo: (id) => tables.repo.get(id) as RepoRow | undefined,
+    present: (entity, id) => tables[entity].has(id),
     parts: (id) => (tables.issue.has(id) ? directParts(inputs, id) : undefined),
     selected: (id) => id === selectedIssueId,
     reached: (t) => coarseNow >= t,

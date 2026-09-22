@@ -122,6 +122,7 @@ export class MobxPool {
       issue: (id) => fenced.issue.get(id) as SliceIssue | undefined,
       session: (id) => fenced.session.get(id) as SliceSession | undefined,
       repo: (id) => fenced.repo.get(id) as RepoRow | undefined,
+      present: (entity, id) => fenced[entity].has(id),
       parts: (id) => this.issue(id),
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),

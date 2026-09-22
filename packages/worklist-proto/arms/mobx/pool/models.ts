@@ -35,9 +35,12 @@ import {
   type IssueParts,
   type OwnPart,
   originIdPartOf,
+  originRefPartOf,
   originTickPartOf,
   ownPartOf,
+  prefixPartOf,
   type RepoRow,
+  repoRefPartOf,
   type ViewInputs,
 } from './views'
 
@@ -96,8 +99,11 @@ export class IssueModel extends EntityModel implements IssueParts {
     super('issue', id, host)
     makeObservable(this, {
       own: computedStruct,
+      repoRef: computed,
+      prefix: computed,
       displayRef: computed,
       displayTitle: computed,
+      originRef: computed,
       originId: computed,
       originTick: computedStruct,
       activityAt: computed,
@@ -109,16 +115,28 @@ export class IssueModel extends EntityModel implements IssueParts {
     return ownPartOf(this.host.inputs, this.id)
   }
 
+  get repoRef(): string | null {
+    return repoRefPartOf(this.host.inputs, this.id)
+  }
+
+  get prefix(): string | null {
+    return prefixPartOf(this.host.inputs, this.repoRef)
+  }
+
   get displayRef(): string | undefined {
-    return displayRefPartOf(this.host.inputs, this.id)
+    return displayRefPartOf(this.own, this.prefix)
   }
 
   get displayTitle(): string | undefined {
     return displayTitlePartOf(this.host.inputs, this.id)
   }
 
+  get originRef(): string | null {
+    return originRefPartOf(this.host.inputs, this.id)
+  }
+
   get originId(): string | null {
-    return originIdPartOf(this.host.inputs, this.id)
+    return originIdPartOf(this.host.inputs, this.originRef)
   }
 
   get originTick(): RowOriginTick | null {
