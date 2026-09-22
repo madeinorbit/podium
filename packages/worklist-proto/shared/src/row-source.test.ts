@@ -874,15 +874,15 @@ async function runFence(spec: {
       readmitted: false,
     } as never)
   }
-  const session = (n: number) => replica.row('sessions', `s${n}`) as object
-  const issue = (n: number) => replica.row('issues', `i${n}`) as object
+  const session = (n: number) => replica.row?.('sessions', `s${n}`) as object
+  const issue = (n: number) => replica.row?.('issues', `i${n}`) as object
   try {
     await step('heartbeat', () => upsert('session', 's0', { ...session(0), lastActiveAt: at(9e9) }))
     await step('rename (wire+projection)', () =>
       replica.batch(() => {
         upsert('issue', 'i3', { ...issue(3), title: 'Renamed' })
         upsert('issueProjection', 'i3', {
-          ...(replica.row('issueProjections', 'i3') as object),
+          ...(replica.row?.('issueProjections', 'i3') as object),
           title: 'Renamed',
         })
       }),
