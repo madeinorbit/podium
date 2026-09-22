@@ -9,6 +9,11 @@ import {
   resolveSetting,
   saveConfig,
 } from './config'
+import {
+  fetchVersionIdentity,
+  isLocatorInstallationId,
+  isLocatorInstallationPublicKey,
+} from './connect-locator'
 import { decodeJoin } from './join'
 import { accessSync, constants } from 'node:fs'
 import { delimiter, join } from 'node:path'
@@ -239,6 +244,80 @@ export async function fetchTargetAppUrl(input: string): Promise<string | undefin
 }
 
 /**
+ * WHAT THE SERVER AT `serverUrl` CLAIMS TO BE — its installation id and,
+ * when it advertises one, its wire-form public key (POD-4533).
+ *
+ * The identity a re-pointed box persists next to `serverUrl`/`uiUrl`: when
+ * the known URL later goes dark, the locator resolver only adopts a candidate
+ * whose `/version` names this same installation. NEVER THROWS — `undefined`
+ * for every failure — so a join or re-point never fails because of an
+ * optional best-effort probe. An unreachable or silent server, or one older
+ * than the advertisement, simply means "no identity learned".
+ */
+export interface ServerIdentity {
+  installationId?: string
+  installationPublicKey?: string
+}
+
+export async function fetchServerIdentity(
+  serverUrl: string,
+  timeoutMs = 3_000,
+): Promise<ServerIdentity | undefined> {
+  const identity = await fetchVersionIdentity({ serverUrl, timeoutMs })
+  if (!identity) return undefined
+  return identity.installationPublicKey
+    ? { installationId: identity.installationId, installationPublicKey: identity.installationPublicKey }
+    : { installationId: identity.installationId }
+}
+
+/**
+ * The token-or-URL twin of {@link fetchServerIdentity}, for the same callers
+ * that use {@link fetchTargetAppUrl}: `podium set-server`, `podium
+ * join-config`, and the setup screen.
+ */
+export async function fetchTargetServerIdentity(
+  input: string,
+  timeoutMs = 3_000,
+): Promise<ServerIdentity | undefined> {
+  const trimmed = input.trim()
+  let serverUrl: string
+  try {
+    serverUrl = decodeJoin(trimmed).serverUrl
+  } catch {
+    serverUrl = trimmed
+  }
+  return fetchServerIdentity(serverUrl, timeoutMs)
+}
+
+/**
+ * Patch the paired-server identity onto a config the caller is about to save.
+ *
+ * `undefined` PRESERVES whatever is there: legacy callers that never probed
+ * keep working byte-for-byte as before. A probed answer REPLACES both-or-
+ * neither — an installation id without its key, or the reverse, is not an
+ * identity, so a partial answer clears rather than keeps a stale half. A box
+ * that never learned both halves resolves nothing and dials as it always has.
+ */
+function withServerIdentity<T extends PodiumConfig>(
+  config: T,
+  identity: ServerIdentity | undefined,
+): T {
+  if (identity === undefined) return config
+  const { installationId: _previousId, installationPublicKey: _previousKey, ...rest } = config
+  if (
+    isLocatorInstallationId(identity.installationId) &&
+    isLocatorInstallationPublicKey(identity.installationPublicKey)
+  ) {
+    return {
+      ...rest,
+      installationId: identity.installationId,
+      installationPublicKey: identity.installationPublicKey,
+    } as T
+  }
+  return rest as T
+}
+
+/**
  * Accept an advertised UI origin only in the one shape the desktop shell can
  * actually load: a bare `https:` origin.
  *
@@ -313,6 +392,13 @@ export function applyServerUrl(
    * and the previous server's UI origin is then simply wrong.
    */
   uiUrl?: string,
+  /**
+   * What the NEW server says it is ({@link fetchServerIdentity}). `undefined`
+   * preserves the stored identity — the locator rescue path re-points within
+   * one installation, so it passes nothing here. A probed answer replaces
+   * both-or-neither; see {@link withServerIdentity}.
+   */
+  identity?: ServerIdentity,
 ): {
   serverUrl: string
   pairCode?: string
@@ -347,15 +433,18 @@ export function applyServerUrl(
     serverUrl = wssFrom(v.normalized)
   }
   saveConfig(
-    withUiUrl(
-      {
-        ...prev,
-        workspaceId: fromJoinCode ? workspaceId : prev.workspaceId,
-        serverUrl,
-        ...(pairCode ? { pairCode } : {}),
-        ...(workspaceId ? { workspaceId } : {}),
-      },
-      uiUrl,
+    withServerIdentity(
+      withUiUrl(
+        {
+          ...prev,
+          workspaceId: fromJoinCode ? workspaceId : prev.workspaceId,
+          serverUrl,
+          ...(pairCode ? { pairCode } : {}),
+          ...(workspaceId ? { workspaceId } : {}),
+        },
+        uiUrl,
+      ),
+      identity,
     ),
   )
   const warning = ephemeralTunnelWarning(serverUrl)
@@ -507,6 +596,8 @@ export function applyJoin(
   token: string,
   /** Where the joined server says its UI is ({@link fetchRemoteAppUrl}). */
   uiUrl?: string,
+  /** What the joined server says it is ({@link fetchServerIdentity}). */
+  identity?: ServerIdentity,
 ): { name: string; warning?: string } {
   assertConfigWritable()
   assertModeWritable()
@@ -520,20 +611,23 @@ export function applyJoin(
     ...prev
   } = loadConfig()
   saveConfig(
-    withUiUrl(
-      {
-        ...prev,
-        mode: 'daemon',
-        serverUrl: p.serverUrl,
-        pairCode: p.pairCode,
-        ...(p.workspaceId ? { workspaceId: p.workspaceId } : {}),
-        ...(p.podiumManaged !== undefined ? { podiumManaged: p.podiumManaged } : {}),
-        // See applySetup: web/join-config surfaces can't start the backend themselves,
-        // so they record the CHOICE and the next `podium` invocation brings it up.
-        // CLI setup overwrites it right after with the effective result.
-        ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
-      },
-      uiUrl,
+    withServerIdentity(
+      withUiUrl(
+        {
+          ...prev,
+          mode: 'daemon',
+          serverUrl: p.serverUrl,
+          pairCode: p.pairCode,
+          ...(p.workspaceId ? { workspaceId: p.workspaceId } : {}),
+          ...(p.podiumManaged !== undefined ? { podiumManaged: p.podiumManaged } : {}),
+          // See applySetup: web/join-config surfaces can't start the backend themselves,
+          // so they record the CHOICE and the next `podium` invocation brings it up.
+          // CLI setup overwrites it right after with the effective result.
+          ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
+        },
+        uiUrl,
+      ),
+      identity,
     ),
   )
   const warning = ephemeralTunnelWarning(p.serverUrl)
@@ -551,6 +645,8 @@ export function applyMode(input: {
   serverUrl?: string
   /** Where the connected server says its UI is ({@link fetchRemoteAppUrl}). */
   uiUrl?: string
+  /** What the connected server says it is ({@link fetchServerIdentity}). */
+  identity?: ServerIdentity
 }): PodiumConfig {
   assertConfigWritable()
   assertModeWritable()
@@ -558,13 +654,16 @@ export function applyMode(input: {
   if (input.mode === 'client' && !serverUrl) {
     throw new Error('client mode needs a server URL')
   }
-  const cfg: PodiumConfig = withUiUrl(
-    {
-      ...loadConfig(),
-      mode: input.mode,
-      ...(serverUrl ? { serverUrl } : {}),
-    },
-    input.uiUrl,
+  const cfg: PodiumConfig = withServerIdentity(
+    withUiUrl(
+      {
+        ...loadConfig(),
+        mode: input.mode,
+        ...(serverUrl ? { serverUrl } : {}),
+      },
+      input.uiUrl,
+    ),
+    input.identity,
   )
   saveConfig(cfg)
   return cfg

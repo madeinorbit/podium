@@ -329,6 +329,15 @@ export function registerVersionRoute(
      *  assembled without one (the version-route suite) answers as before. */
     installationId?: string
     /**
+     * The installation's wire-form public key (POD-4533), advertised next to
+     * the id so a client that resolved a locator record can confirm the
+     * candidate is the installation it paired with — id AND key must both
+     * match before the URL is adopted. Public by design: every mobile client
+     * already receives it in its pairing envelope. Both-or-neither with the
+     * id; an old caller passing only the id answers exactly as before.
+     */
+    installationPublicKey?: string
+    /**
      * The grade of the visibility policy this server actually runs (POD-376).
      * ON THE PRE-BOOT PROBE, and that placement is the decision. The client must
      * resolve its replica-path flag BEFORE it constructs a replica or opens a
@@ -493,6 +502,9 @@ export function registerVersionRoute(
       instanceId: deps.instanceId,
       ...(deps.workspaceId?.() ? { workspaceId: deps.workspaceId() } : {}),
       ...(deps.installationId ? { installationId: deps.installationId } : {}),
+      ...(deps.installationId && deps.installationPublicKey
+        ? { installationPublicKey: deps.installationPublicKey }
+        : {}),
       ...(deps.appUrl?.() ? { appUrl: deps.appUrl() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
@@ -1401,6 +1413,7 @@ export async function startServer(
     workspaceId: () => opts.workspaceId,
     instanceId,
     installationId: installation.installationId,
+    installationPublicKey,
     appUrl: () => resolveAppUrl(loadConfig(), process.env),
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,

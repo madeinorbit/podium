@@ -1,9 +1,16 @@
 /**
- * The SIGNED HTTP CLIENT for Podium Connect (PDM-51). Four calls, one
- * signature scheme: every write carries `Podium-Installation`,
- * `Podium-Timestamp` and `Podium-Signature`, the last an Ed25519 signature by
- * the installation key over `METHOD\nPATH\nTIMESTAMP\nhex(sha256(body))` under
- * the request prefix. Connect verifies against the key registered for the id.
+ * The SIGNED HTTP CLIENT for Podium Connect (PDM-51), plus the one UNSIGNED
+ * read. Every WRITE carries `Podium-Installation`, `Podium-Timestamp` and
+ * `Podium-Signature`, the last an Ed25519 signature by the installation key
+ * over `METHOD\nPATH\nTIMESTAMP\nhex(sha256(body))` under the request prefix.
+ * Connect verifies against the key registered for the id.
+ *
+ * `resolve` is the exception: `GET /v1/installations/:id` carries no
+ * signature because the id IS the capability — a reader holds no installation
+ * key to sign with, and only that key may write the record being read. It
+ * delegates to `@podium/runtime/connect-locator`, the entry point daemons and
+ * phones share, so the caps (4 endpoints, https-only, body limit) and the
+ * never-throw contract live in exactly one place.
  *
  * Pure over its inputs: `fetch`, the clock and the identity are injected, so
  * the test proves the bytes on the wire against the shared vectors rather than
@@ -17,18 +24,13 @@ import {
   installationPublicKeyWire,
   signWithInstallation,
 } from '@podium/runtime/installation-identity'
+import {
+  type LocatorEndpoint,
+  type LocatorRecord,
+  resolveLocatorRecord,
+} from '@podium/runtime/connect-locator'
 
-export interface LocatorEndpoint {
-  url: string
-  priority: number
-}
-
-export interface LocatorRecord {
-  generation: number
-  issuedAt: string
-  expiresAt: string | null
-  endpoints: LocatorEndpoint[]
-}
+export type { LocatorEndpoint, LocatorRecord }
 
 export type CheckError =
   | 'INVALID_URL'
@@ -68,6 +70,12 @@ export interface ConnectClient {
   publish(record: LocatorRecord): Promise<ConnectOutcome>
   clear(): Promise<ConnectOutcome>
   check(url: string): Promise<CheckResult>
+  /**
+   * The unsigned read of this installation's own record. Caps and the
+   * never-throw contract are `@podium/runtime/connect-locator`'s; this is the
+   * thin wrapper that supplies the base URL, the id and the fetch.
+   */
+  resolve(): Promise<LocatorRecord | undefined>
 }
 
 const failure = async (res: Response): Promise<ConnectOutcome> => {
@@ -136,6 +144,20 @@ export function connectClient(deps: ConnectClientDeps): ConnectClient {
   }
 
   return {
+    resolve: () => {
+      let installationId: string
+      try {
+        installationId = deps.identity().installationId
+      } catch {
+        return Promise.resolve(undefined)
+      }
+      return resolveLocatorRecord({
+        baseUrl: base,
+        installationId,
+        fetch: fetchImpl,
+        timeoutMs,
+      })
+    },
     register: () =>
       attempt(() => {
         const identity = deps.identity()

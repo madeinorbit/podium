@@ -1,4 +1,4 @@
-import { applyJoin, fetchTargetAppUrl } from '@podium/runtime/setup'
+import { applyJoin, fetchTargetAppUrl, fetchTargetServerIdentity } from '@podium/runtime/setup'
 
 /**
  * Decode a join token and persist a daemon config. Returns the resolved machine name.
@@ -11,5 +11,9 @@ import { applyJoin, fetchTargetAppUrl } from '@podium/runtime/setup'
  * never fails a join; an unreachable server simply means "the UI is the server".
  */
 export async function applyJoinToken(token: string): Promise<{ name: string; warning?: string }> {
-  return applyJoin(token, await fetchTargetAppUrl(token))
+  const [uiUrl, identity] = await Promise.all([
+    fetchTargetAppUrl(token),
+    fetchTargetServerIdentity(token),
+  ])
+  return applyJoin(token, uiUrl, identity)
 }

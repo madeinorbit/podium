@@ -1666,11 +1666,19 @@ export async function main(
       return
     }
     case 'set-server': {
-      const { applyServerUrl, fetchTargetAppUrl } = await import('@podium/runtime/setup')
+      const { applyServerUrl, fetchTargetAppUrl, fetchTargetServerIdentity } = await import(
+        '@podium/runtime/setup'
+      )
       try {
         // Re-point the UI origin with the server URL (PDM-34): a rotated URL can be a
         // different deployment, and the previous one's app host would then be wrong.
-        const res = applyServerUrl(plan.target, await fetchTargetAppUrl(plan.target))
+        // The identity probe is the same idea for POD-4533: an explicit re-point
+        // adopts what the new server claims, so the locator rescue stays armed.
+        const [uiUrl, identity] = await Promise.all([
+          fetchTargetAppUrl(plan.target),
+          fetchTargetServerIdentity(plan.target),
+        ])
+        const res = applyServerUrl(plan.target, uiUrl, identity)
         console.log(`podium server URL set to ${res.serverUrl}`)
         if (res.warning) console.warn(`\nWarning: ${res.warning}`)
         console.log('Restart the daemon to apply (e.g. `podium stop && podium`).')
