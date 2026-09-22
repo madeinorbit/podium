@@ -72,6 +72,24 @@ export function unsupported(reason: string): Declared<never> {
   return { supported: false, reason }
 }
 
+/**
+ * Placeholder decline reasons the registry check refuses (POD-4474, spec §5:
+ * "an empty reason fails the registry check"; §8: "invites declined('n/a')").
+ *
+ * Compared against the WHOLE reason after trim + lowercase — a reason that
+ * merely MENTIONS one of these words ("no todo endpoint yet") is fine; a
+ * reason that IS one of them is a placeholder, not a reason. Keep this list
+ * short and exact: every entry must be something a reviewer would accept as
+ * proof the author wrote nothing.
+ */
+export const DECLINED_REASON_DENYLIST: readonly string[] = ['n/a', 'na', 'todo', 'tbd', 'tba']
+
+/** A decline reason the registry check accepts: non-empty and not a placeholder. */
+export function declinedReasonIsValid(reason: string): boolean {
+  const normalized = reason.trim().toLowerCase()
+  return normalized.length > 0 && !DECLINED_REASON_DENYLIST.includes(normalized)
+}
+
 /** The declared value, or `undefined` when unsupported — for the many call sites
  *  whose degraded path is simply "don't do it". Keeps `supported` checks from
  *  sprawling without ever inventing a substitute default. */
