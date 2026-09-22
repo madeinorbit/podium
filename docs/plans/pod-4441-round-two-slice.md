@@ -174,7 +174,7 @@ each field's derivation was read from):
   `replica/issue-views.ts:233-236`).
 - `title`: the display title, never the raw title on a draft
   (`issueDisplayTitle`, `slices/issues.ts:236`; `UnifiedIssueRow.tsx:178-185`).
-- `phase`: `waiting` if anything in the formal subtree (R1) waits on the
+- `phase`: `waiting` if anything in the visible formal subtree waits on the
   human, else `working` if any session in the subtree computes, else `done`
   if the subtree's sessions are all finished runs, else `queued`
   (`rowMotionPhase` / `aggregateMotionPhase`, `row-attention.ts:45-78`;
@@ -182,9 +182,9 @@ each field's derivation was read from):
 - `working`: any session in the subtree computing right now — asked
   separately from `phase` because an ask outranks `working` in it
   (`rowHasWorkingSession`, `row-attention.ts:95-97`).
-- `asking`: subtree waiting sessions (offer-only sessions on an already
+- `asking`: visible-subtree waiting sessions (offer-only sessions on an already
   counted review decision counted once, `row-attention.ts:116-125`) plus
-  pending decisions in the subtree (`rowPendingDecision`,
+  pending decisions in the visible subtree (`rowPendingDecision`,
   `row-attention.ts:136-152`; a `review` decision withdrawn while a session
   works, and while the continuation holds — the continuation itself is out,
   so in-slice the withdrawal is on working sessions only).
@@ -198,11 +198,59 @@ each field's derivation was read from):
 - `repoKey`: `repoId ?? repoPath` (`folds.ts:194-197`).
 - `closed`: in the closed fold (see R-GROUP).
 
-"Subtree" above is always the **formal** parent-child closure (R1). The
+"Subtree" in `phase`, `working` and `asking` is always the **visible
+formal subtree**: the row's own sessions plus those of every formal
+descendant (R1) that has a row of its own (R-VIS). A descendant with no row
+adds nothing, and the walk continues past it to its own descendants. The
 legacy additionally bubbles through started-by provenance children
 (`aggregateSessions`, `row-types.ts:128-132`); that nesting is out (§6), so
 in-slice there are no `startedByChildren` and no aggregate — own sessions
-plus formal descendants.
+plus visible formal descendants. `progressDone`/`progressTotal` are not
+affected: they keep R-ROLL's member set and `missionRollup`'s own exclusions.
+
+> AMENDED 2026-09-23 (POD-4549, round three L1d). This paragraph used to say
+> "the formal parent-child closure (R1)". Round two's hand and MobX arms read
+> that as "bubble every formal descendant's ask, hidden ones included", and
+> their parity stayed green only because no probe corpus had an asking
+> session on a hidden descendant. The legacy derivation does not bubble those
+> asks. The decision document settles it
+> (`docs/decisions/4441-round-two-decision.md`, "Change exercise: the
+> bubbling contradiction, adjudicated"): asks bubble through the visible
+> formal subtree only. Read from the source (`packages/client-core/src/viewmodels/slices/worklist/`):
+>
+> - The flat pass skips archived, deleted, `proposed`-stage and system-stage
+>   issues before any row object exists (`rows.ts:62-69`). The rescue walk
+>   stops at such a parent (`rows.ts:137-146`).
+> - The nesting pass builds its lookup from visible rows only
+>   (`nestStartedByIssues`, `rows.ts:262-266`). `attach` drops a child id
+>   that has no row (`rows.ts:323-327`).
+> - A row's session aggregate is its own sessions plus its ATTACHED
+>   children's aggregates (`rows.ts:331-334`). `rowMotionPhase`,
+>   `rowHasWorkingSession` and `rowWaitingCount` read that aggregate
+>   (`rowSessions`, `row-types.ts:129-132`; `row-attention.ts:45-65`,
+>   `:95-97`, `:116-125`).
+> - The pending-decision walk (`pendingDecisionStats`,
+>   `row-attention.ts:162-187`) and the attention-source walk
+>   (`deepAttentionSource`, `row-attention.ts:193-210`) follow attached
+>   children only.
+> - A hidden issue's sessions are also kept out of the worktree lanes
+>   (`rows.ts:196-210`), so the ask shows up nowhere on the list.
+>
+> So an asking session on an archived or proposed child of a visible root
+> leaves the root quiet: not asking, and not `waiting`. Hiding detaches only
+> the hidden issue's OWN sessions, not its visible descendants. Nesting walks
+> past a parent with no row to the nearest visible ancestor
+> (`rows.ts:272-283`), so a visible grandchild under a hidden child still
+> bubbles to the root. An arm drops hidden issues from the attention roll-up
+> at ingest and keeps walking R1 through them.
+>
+> Checked by: the fixture's hidden askers (`corpus.edgedAskers`, 20 × scale,
+> POD-4551); `oracle.test.ts` "asks bubble through the visible formal subtree
+> only (POD-4549)", which requires every such root to read not asking and
+> goes red on the planted formal-subtree rule
+> (`oracle/hidden-askers.ts` `plantFormalSubtreeBubbling`); and the isolated
+> cases in `oracle/hidden-askers.test.ts` (archived child, proposed child,
+> un-hide control, visible grandchild under a hidden child).
 
 ### R-ROLL — recursive subtree rollup
 
@@ -415,9 +463,9 @@ and projects it onto `SliceSnapshot` field by field. The projection:
 | `row.id` | issue id |
 | `row.displayRef` | `issueDisplayRef` (`replica/issue-views.ts:233-236`) |
 | `row.title` | `issueDisplayTitle` (`slices/issues.ts:236`) |
-| `row.phase` | `rowMotionPhase` (`row-attention.ts:45-65`) over own + formal-subtree sessions |
-| `row.working` | `rowHasWorkingSession` (`row-attention.ts:95-97`) over the formal subtree |
-| `row.asking` | `rowWaitingCount > 0` (`row-attention.ts:116-125`) or subtree pending decision (`row-attention.ts:136-152`) |
+| `row.phase` | `rowMotionPhase` (`row-attention.ts:45-65`) over own + visible-formal-subtree sessions (R-SUM amendment) |
+| `row.working` | `rowHasWorkingSession` (`row-attention.ts:95-97`) over the visible formal subtree |
+| `row.asking` | `rowWaitingCount > 0` (`row-attention.ts:116-125`) or visible-subtree pending decision (`row-attention.ts:136-152`) |
 | `row.progressDone/Total` | `missionRollup(...).progress` (`mission.ts:1329-1343`) |
 | `row.band` | `unifiedRowBand` (`row-order.ts:16-22`) |
 | `row.repoKey` | `repoId ?? repoPath` (`folds.ts:194-197`) |

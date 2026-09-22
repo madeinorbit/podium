@@ -327,3 +327,31 @@ mapping, audit §3.3 shapes, seed-1 coverage table, findings).
 3. Fixture sort keys `a0` fail the model's `isSortKey` (trailing minimum digit).
 4. `scenarios.ts` `patchIssue`/`patchSession` build from the folded snapshot.
 5. Mark-read overlays stamp `Date.now()`: painted `readAt` differs run to run.
+
+## POD-4549 (L1d) — bubbling rule correction · 2026-09-23
+
+### Decisions
+
+- **No second corpus shape.** L2b (POD-4551) already mints the hidden askers
+  (`corpus.edgedAskers`, 20 × scale) by coordinator ruling; this issue adds the
+  spec amendment and the oracle checks only.
+- **Spec wording.** R-SUM's "subtree" for `phase`/`working`/`asking` is now
+  "the visible formal subtree", with the legacy citations in an AMENDED block.
+  Progress keeps R-ROLL's member set: the rule changes attention only.
+- **The planted rule lives beside the check** (`oracle/hidden-askers.ts`
+  `plantFormalSubtreeBubbling`): OR into each row's `asking` any waiting
+  session in its formal subtree, hidden members included. It is the rule the
+  round-two hand and MobX bubbling diffs used.
+- **Pinned beyond the brief:** a visible grandchild under a hidden child still
+  bubbles to the root (nesting walks past a parent with no row,
+  `rows.ts:272-283`). An arm that prunes the whole hidden branch would pass
+  the hidden-asker check and fail this case.
+
+### Evidence
+
+- `oracle.test.ts` "asks bubble through the visible formal subtree only
+  (POD-4549)": 20 hidden askers at 1x (archived and proposed both present), 20
+  roots, none asking; on the planted rule all 20 read asking.
+- Mutation (planted rule swapped into the assertions): 4 tests red (the two
+  oracle.test.ts cases and both "no row, and the root reads quiet" unit cases);
+  restored: 20/20 green.

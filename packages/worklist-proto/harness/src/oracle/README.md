@@ -33,3 +33,10 @@ out-of-scope list, spec §6): `startedByChildren` structure (flattened away),
 `missionRollup.fromChildren` detail beyond done/total, `activityAt`
 (display-only R-BAND input), the `WORKING` partition, worktree-kind rows, and
 the snoozed lane as a separate lane.
+
+Bubbling rule (POD-4549): `phase`/`working`/`asking` roll up through the
+VISIBLE formal subtree only (spec R-SUM amendment). `hidden-askers.ts` holds
+the check over the fixture's hidden askers (`rootsAskingOverHiddenAskers`)
+and the planted formal-subtree rule it must catch
+(`plantFormalSubtreeBubbling`); `hidden-askers.test.ts` pins the isolated
+cases.
