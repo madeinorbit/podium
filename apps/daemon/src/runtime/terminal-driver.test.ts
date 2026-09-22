@@ -1,12 +1,12 @@
 import { composeMailContext, createMailInjector, createAckReminderInjector } from '../mail-injector'
-import { startHookIngest } from '@podium/harness/driver/families/terminal/instrumentation'
+import { startHookIngest } from '@podium/harness/driver/host'
 import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { pageHistory } from '@podium/harness/driver/host'
 import { primeHookResponse } from '../prime-injector'
-import { installTerminalInstrumentation } from '@podium/harness/driver/families/terminal/instrumentation'
+import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
  *

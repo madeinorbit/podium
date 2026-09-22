@@ -39,7 +39,7 @@ import { transcriptForExport } from '../handoff-package'
 import { stageRuntimeAttachment } from './attachment-staging'
 import { reportHarnessProbe } from '../harness-version-reporting'
 import type { TerminalRuntimeHost } from './terminal-driver'
-import { installTerminalInstrumentation } from '@podium/harness/driver/families/terminal/instrumentation'
+import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import { terminalInstrumentationSectionsFor } from './registry'
 
 /**

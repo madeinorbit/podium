@@ -9,7 +9,7 @@ import { createBoundaryContext } from '@podium/harness/driver/host'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { asSessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
-import { startHookIngest } from '@podium/harness/driver/families/terminal/instrumentation'
+import { startHookIngest } from '@podium/harness/driver/host'
 import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from '@podium/harness/adapters/grok/instrumentation'
 import { primeHookResponse } from './prime-injector'
 
