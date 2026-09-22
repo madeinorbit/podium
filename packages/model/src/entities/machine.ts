@@ -95,7 +95,7 @@
 
 import { z } from 'zod'
 import { MachineIdField, RepoIdField, SessionIdField } from '../ids'
-import { AgentKind, HarnessAgent, USAGE_HARNESS_KINDS } from './agent'
+import { AgentKind, DriverFamilyWire, HarnessAgent, USAGE_HARNESS_KINDS } from './agent'
 import { LoopMinuteWire } from './loop'
 
 // ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ export const Inventory = z.object({
       z.object({
         harness: HarnessAgent,
         id: z.string().min(1),
-        family: z.enum(['terminal', 'server', 'embedded']),
+        family: DriverFamilyWire,
       }),
     )
     .optional(),

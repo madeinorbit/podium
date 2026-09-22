@@ -39,7 +39,7 @@ const { conversationSearch, createSession, feature, machine, opened, setPanelMod
       ],
       runtimeDrivers: [
         { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
-        { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
+        { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
         { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
         { harness: 'opencode', id: 'opencode-server', family: 'server' },
       ],

@@ -60,7 +60,7 @@ const withBaselineDrivers = (inventory: Inventory): Inventory => ({
   ...inventory,
   runtimeDrivers: [
     ...terminalRuntimeDriverInventory(),
-    { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
+    { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
   ],
 })
 const HEADLESS_INV: Inventory = {
@@ -208,7 +208,7 @@ describe('daemon inventory reporting (#222)', () => {
           ...HEADLESS_INV,
           runtimeDrivers: [
             ...terminalRuntimeDriverInventory(),
-            { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
+            { harness: 'claude-code', id: 'claude-sdk', family: 'server' },
             { harness: 'codex', id: 'codex-app-server', family: 'server' },
             { harness: 'grok', id: 'grok-acp', family: 'server' },
             { harness: 'opencode', id: 'opencode-server', family: 'server' },

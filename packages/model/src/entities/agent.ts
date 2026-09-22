@@ -192,3 +192,20 @@ export const AGENT_CHOICE_HARNESS_KINDS = [
   'opencode',
   'cursor',
 ] as const
+
+/**
+ * A DRIVER FAMILY AS IT ARRIVES ON THE WIRE — the shape of the engine behind a
+ * session: `server` (one engine child under podium-host, protocol-driven) or
+ * `terminal` (a PTY).
+ *
+ * `embedded` IS ACCEPTED AND NORMALIZED HERE, NEVER PRODUCED (POD-4612). A
+ * daemon or server built before the Claude stream engine joined the server
+ * family reports it as `embedded`; this build parses that as `server`, where
+ * the value enters, so no consumer downstream has a third case to branch on.
+ * Widened rather than tightened because peers upgrade out of order — a
+ * parser that refused the older value would drop the whole frame.
+ */
+export const DriverFamilyWire = z
+  .enum(['server', 'terminal', 'embedded'])
+  .transform((family): 'server' | 'terminal' => (family === 'embedded' ? 'server' : family))
+export type DriverFamilyWire = z.infer<typeof DriverFamilyWire>

@@ -68,7 +68,7 @@ const state = {
   runtimeDrivers: [] as Array<{
     harness: 'claude-code' | 'opencode'
     id: string
-    family: 'terminal' | 'server' | 'embedded'
+    family: 'terminal' | 'server'
   }>,
 }
 

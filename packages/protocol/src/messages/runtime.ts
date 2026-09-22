@@ -1,6 +1,6 @@
 import { NativeBindingReceipt } from './native-binding'
 export { NativeBindingReceipt } from './native-binding'
-import { ResumeRef, SessionIdField, TranscriptItem } from '@podium/model'
+import { DriverFamilyWire, ResumeRef, SessionIdField, TranscriptItem } from '@podium/model'
 import { z } from 'zod'
 import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
 import {
@@ -630,7 +630,7 @@ export type RuntimeConfigureRequestMessage = z.infer<typeof RuntimeConfigureRequ
 export const SessionBinding = z.object({
   sessionId: z.string().min(1).pipe(SessionIdField),
   driver: z.string().min(1),
-  family: z.enum(['server', 'embedded', 'terminal']),
+  family: DriverFamilyWire,
   harness: z.string().min(1),
   workdir: z.string(),
   /** NULLABLE, not optional: a harness that mints its resume ref lazily (Codex

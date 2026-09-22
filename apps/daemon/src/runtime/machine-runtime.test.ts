@@ -77,23 +77,6 @@ function server(
   }
 }
 
-function claude() {
-  return {
-    driver: {
-      id: 'claude-sdk',
-      harness: 'claude-code',
-      family: 'embedded',
-      capabilities: () => ({ placement: 'dedicated' }),
-      adopt: vi.fn(),
-    } as unknown as RuntimeDriver,
-    handleFor: () => undefined,
-    bindings: () => [],
-    launch: vi.fn(),
-    processEvent: vi.fn(),
-    dispose: vi.fn(),
-  }
-}
-
 describe('daemon machine runtime composition', () => {
   it('routes inventory, capabilities, launch, lookup, and journal adoption through one root', async () => {
     const handle = {
@@ -135,7 +118,6 @@ describe('daemon machine runtime composition', () => {
 
     const runtime = createDaemonMachineRuntime({
       terminal,
-      claude: claude(),
       servers: [opencode, opencode2, codex, grok],
       headless: {
         driverFor: () => undefined,
@@ -245,7 +227,6 @@ describe('daemon machine runtime composition', () => {
     }
     const runtime = createDaemonMachineRuntime({
       terminal,
-      claude: claude(),
       servers: [opencode, opencode2, codex, grok],
       headless: {
         driverFor: () => undefined,
@@ -303,7 +284,6 @@ describe('daemon machine runtime adoption failures', () => {
     }
     const runtime = createDaemonMachineRuntime({
       terminal,
-      claude: claude(),
       servers: [grok],
       headless: {
         driverFor: () => undefined,
@@ -369,7 +349,6 @@ describe('daemon machine runtime adoption failures', () => {
     }
     const runtime = createDaemonMachineRuntime({
       terminal,
-      claude: claude(),
       servers: [grok],
       headless: {
         driverFor: () => undefined,

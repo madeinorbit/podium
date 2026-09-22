@@ -264,7 +264,7 @@ describe('contract facts gate (fix)', () => {
     expect(parked).toEqual(['contract-old'])
     expect(hibernateRequireProof).toEqual([{ sessionId: 'contract-old', requireTerminalProof: true }])
   })
-  it.each(['terminal', 'server', 'embedded'] as const)(
+  it.each(['terminal', 'server'] as const)(
     'keeps the unknown-phase four-hour floor for %s even with proof', async (driverFamily) => {
       const sessions = [unobservedContract(asSessionId('recent'), {
         driverFamily,
