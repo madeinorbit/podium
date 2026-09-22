@@ -200,7 +200,7 @@ describe('Claude SDK sessions through the machine root', () => {
 /**
  * THE TWO BEHAVIOURS THE BESPOKE ARM CARRIED, NOW THE GENERIC ARM'S (POD-4612).
  *
- * The deleted `adoptOrResumeEmbeddedClaudeSession` re-adopted a surviving
+ * The deleted bespoke Claude adopt/resume arm re-adopted a surviving
  * Claude session and refused a reattach whose resume ref did not match the
  * survivor. Both now go through `adoptServerDriverSession` — the arm codex,
  * opencode and grok take — driven here end to end: the daemon's reattach
