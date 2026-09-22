@@ -94,8 +94,8 @@ or the detector is blind.
 # production build (heavy):
 bun scripts/test-heavy.ts -- bunx vite build --config packages/worklist-proto/harness/web/vite.config.ts
 # the interleaved matrix: one run.ts invocation per (arm, scale) per round, pair
-# order rotated each round, load-gated, bench lease per invocation:
-bun scripts/test-heavy.ts -- bun packages/worklist-proto/harness/browser/matrix.ts \
+# order rotated each round, load-gated, bench and heavy-test leases per invocation:
+bun packages/worklist-proto/harness/browser/matrix.ts \
   --arms noop,control --scales 1,2,4 --rounds 4 --samples 5 --tag floor
 bun packages/worklist-proto/harness/browser/summarize.ts packages/worklist-proto/harness/browser/results/floor
 ```
