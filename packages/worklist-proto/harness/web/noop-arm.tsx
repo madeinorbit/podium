@@ -39,8 +39,9 @@ import type { ArmStats } from '../../shared/src/stats'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
 import { oracleSnapshot, rowViewsFromStore } from '../src/oracle/index'
 
-/** Rows drawn: about one window, plus every row a page scenario aims at. */
-const DRAWN_ROWS = 50
+/** Rows drawn: about one window of the arms' lists (17 at 1600×1000), plus
+ *  the library's click targets. */
+const DRAWN_ROWS = 20
 
 const NOOP_ACTIONS: RowActions = { select: () => {} }
 

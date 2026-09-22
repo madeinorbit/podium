@@ -19,8 +19,9 @@
  *   sample clicks a row this page has never selected, so every sample is a
  *   selection change plus the eager mark-read (POD-4619); a second click on a
  *   read row would time a selection alone and mix two workloads in one cell.
- *   The row is the library's `visibleRootId`, then `markReadId`, then the
- *   corpus's other childless open roots in id order, the first one mounted.
+ *   The row is the library's `visibleRootId` or `markReadId` if the list has
+ *   them mounted, else the mounted issue row with the lowest id: chosen by id,
+ *   never by the arm's draw order, and never a row a stage move has taken.
  *
  * The writes are the scenario library's own (`applyHeartbeat`,
  * `applyTitleRename`, `applyStageMove`: the synchronous half, so the engine
@@ -193,14 +194,13 @@ function createTimedCommitLog(): TimedCommitLog {
 }
 
 /**
- * Fresh per-sample targets: childless open human roots, in id order,
- * excluding every other scenario target, split alternately between the stage
- * move and the click so the two never share a row. The rule is the scenario
- * library's `childlessRoot` (`pickTargets`), so the rows are visible and a
- * stage move crosses into the closed fold on every arm; they are chosen from
- * the corpus, never from an arm's output order.
+ * Fresh stage-move targets, one per sample: childless open human roots, in
+ * id order, excluding every other scenario target. The rule is the scenario
+ * library's `childlessRoot` (`pickTargets`), so the rows are visible and the
+ * move crosses into the closed fold on every arm; they are chosen from the
+ * corpus, never from an arm's output order.
  */
-function freshTargets(boot: ScenarioEngine): { stageMoves: string[]; clicks: string[] } {
+function stageMoveSequence(boot: ScenarioEngine): string[] {
   type Facts = {
     id: string
     parentId?: string | null
@@ -229,7 +229,7 @@ function freshTargets(boot: ScenarioEngine): { stageMoves: string[]; clicks: str
     ...t.burstIssueIds,
   ])
   const active = new Set(['in_progress', 'planning', 'review'])
-  const pool = issues
+  return issues
     .filter(
       (i) =>
         i.audience === 'human' &&
@@ -245,11 +245,9 @@ function freshTargets(boot: ScenarioEngine): { stageMoves: string[]; clicks: str
     )
     .map((i) => i.id)
     .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
-  return {
-    stageMoves: pool.filter((_, i) => i % 2 === 0),
-    clicks: [t.visibleRootId, t.markReadId, ...pool.filter((_, i) => i % 2 === 1)],
-  }
 }
+
+const byNumericId = (a: string, b: string): number => Number(a.slice(1)) - Number(b.slice(1))
 
 export interface MountPageOptions {
   arm: string
@@ -325,15 +323,17 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     return id
   }
 
-  const { stageMoves, clicks } = freshTargets(boot)
-  let stageMoveNext = 0
-  /** A fresh row every sample, so every sample measures a real group move. */
+  const stageMoves = stageMoveSequence(boot)
+  const moved = new Set<string>()
+  const clicked = new Set<string>()
+  /** A fresh row every sample (never one a click selected), so every sample
+   *  measures a real group move of an unselected row. */
   function nextStageMove(): string {
-    const id = stageMoves[stageMoveNext]
+    const id = stageMoves.find((candidate) => !moved.has(candidate) && !clicked.has(candidate))
     if (id === undefined) {
       throw new Error(`[proto] stagemove: ${stageMoves.length} targets used up; load a fresh page`)
     }
-    stageMoveNext += 1
+    moved.add(id)
     return id
   }
 
@@ -351,11 +351,15 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     if (store?.setCoarseNow !== undefined) store.setCoarseNow(pageNow)
   }
 
-  const clicked = new Set<string>()
-  /** The first never-clicked candidate the list has mounted, and its pressable. */
+  /** The first never-clicked, never-moved mounted row, and its pressable. */
   function nextClick(): { id: string; button: HTMLElement } {
-    for (const id of clicks) {
-      if (clicked.has(id)) continue
+    const mounted = [...el.querySelectorAll('[data-issue-row]')]
+      .map((row) => row.getAttribute('data-issue-row') ?? '')
+      .filter((id) => /^i\d+$/.test(id))
+      .sort(byNumericId)
+    const candidates = [boot.targets.visibleRootId, boot.targets.markReadId, ...mounted]
+    for (const id of candidates) {
+      if (clicked.has(id) || moved.has(id)) continue
       const button = el.querySelector(`[data-issue-row="${CSS.escape(id)}"] [data-pressable]`)
       if (!(button instanceof HTMLElement)) continue
       clicked.add(id)

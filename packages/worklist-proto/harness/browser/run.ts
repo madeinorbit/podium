@@ -32,7 +32,7 @@
  *
  * Run (heavy — browser + production build traffic):
  *   bun scripts/test-heavy.ts -- bun packages/worklist-proto/harness/browser/run.ts \
- *     --arm noop --scale 1 --samples 20 --out packages/worklist-proto/harness/browser/results/noop-1x.json
+ *     --arm noop --scale 1 --samples 5 --out packages/worklist-proto/harness/browser/results/noop-1x.json
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -91,7 +91,8 @@ function parseArgs(argv: string[]): Args {
     arm: arm as ArmName,
     scale: scale as Scale,
     scenarios: scenarios as ScenarioName[],
-    samples: Number(get('--samples', '20')),
+    // Per page load: each click takes a fresh mounted row (a window holds ~17).
+    samples: Number(get('--samples', '5')),
     warmup: Number(get('--warmup', '1')),
     maxLoad: Number(get('--max-load', '8')),
     out: get('--out', `packages/worklist-proto/harness/browser/results/${arm}-${scale}x.json`) ?? '',
