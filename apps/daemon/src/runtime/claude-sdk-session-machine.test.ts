@@ -90,9 +90,9 @@ function claudeWorld(journalled?: ClaudeEngineJournalEntry) {
   const cleared: string[] = []
   const claude = createClaudeSdkSessionRuntime({
     driverSlots: driverSlotsOver(testSessions()),
-    send: (message) => sent.push(message),
-    emitBind: (bind) => {
-      sent.push({ type: 'bind', ...bind })
+    send: (message: DaemonMessage) => sent.push(message),
+    emitBind: (bind: object) => {
+      sent.push({ type: 'bind', ...bind } as DaemonMessage)
     },
     sessionReady: () => {},
     traceRuntimeEvent: () => {},

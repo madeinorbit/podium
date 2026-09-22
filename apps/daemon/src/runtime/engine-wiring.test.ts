@@ -372,9 +372,11 @@ describe('the driver bind fact', () => {
      * fallback), the surviving-server adopt, the two terminal reattach arms,
      * and the stealWriter takeover (POD-4434) — plus one `emitBind` per server
      * family (codex, grok-acp, opencode serving both flavours, claude-sdk).
-     * The three port lambdas (two Claude adopt arms in `control/session.ts`,
-     * one supervisor port in `host-runtime.ts`) forward `input` and state
-     * nothing, and are counted separately.
+     * The one port lambda (the supervisor port in `host-runtime.ts`) forwards
+     * `input` and states nothing, and is counted separately. There were three
+     * until POD-4612 deleted the bespoke Claude adopt/resume arm in
+     * `control/session.ts`: a surviving Claude engine now binds through the
+     * surviving-server adopt above, like every other server family.
      *
      * EVERY ONE STATES `driverId` (outright, or — on the terminal paths — the
      * conditional spread a shell predictably empties), which is what the count
@@ -384,7 +386,7 @@ describe('the driver bind fact', () => {
      * reports.
      */
     expect(bindSites).toBe(12)
-    expect(portForwarders).toBe(3)
+    expect(portForwarders).toBe(1)
   })
 })
 
