@@ -43,7 +43,12 @@ import {
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type AgentKind, type MachineId, type SessionId } from '@podium/model'
-import { createDurableProcess, durableProcessFor, sweepStaleDurableBindTemps } from '@podium/process/durable'
+import {
+  createDurableProcess,
+  durableProcessFor,
+  isHostAvailable,
+  sweepStaleDurableBindTemps,
+} from '@podium/process/durable'
 import { driverSlotsOver } from './session/driver-slots.js'
 import { SessionRegistry } from './session/registry.js'
 import { createSessionEngineScope } from './session/engines.js'
@@ -1187,7 +1192,12 @@ export async function createDaemonHostRuntime(args: {
    * (For POD-4506: this edit touches nothing near the
    * native-client maps at ~1003-1005; their construction is unchanged.)
    */
-  const sessionEngines = createSessionEngineScope(engineDurable)
+  const sessionEngines = createSessionEngineScope(engineDurable, {
+    // Engines never follow the terminal `--backend`, so an explicit `none`
+    // (which skips the boot probe) must not refuse them: probe lazily, the
+    // same memoized resolve the host adapter itself runs at first spawn.
+    hostAvailable: () => durableAvailable.host || isHostAvailable(),
+  })
   const opencode2Executable = generationInventory?.commandEnvironment.resolve(oc2Facts.executableName)
   // Session-frame ports shared by the four headless families: the frame sink,
   // the one bind builder, timing stages and the mail continuation. The

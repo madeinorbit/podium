@@ -30,6 +30,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
+import { directPtyDurableForTests } from '@podium/process/durable'
 import { SpawnMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -96,13 +97,16 @@ function makeHarness(settingsDir: string): Harness {
   let lastFrameAt = Date.now()
   const ctx = {
     send: (m: DaemonMessage) => sent.push(m),
-    // 'none' = a bare Bun.Terminal child. No durable master can survive this test.
+    // 'none' + the direct-pty test double = a bare Bun.Terminal child. No durable
+    // master can survive this test. A daemon with no durable process refuses to
+    // spawn at all (POD-4617), so the double is what stands in for one.
     machineId: 'local',
     instanceId: 'blue',
     durableLabelFor: (id: string) => `podium-blue-${id}`,
     sessions: new SessionRegistry(),
     homeDir: home,
     backend: 'none',
+    durable: directPtyDurableForTests(),
     // The REAL launch table: agentKind 'shell' -> $SHELL, no args.
     launch: agentLaunchCommand,
     settingsDir,

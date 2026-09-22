@@ -1,7 +1,8 @@
 /**
- * Runtime PTY smoke for the bare (non-abduco) session path — the exact path Windows
- * uses in production (durable backend 'none' → spawnAgent → bun-terminal backend →
- * ConPTY [spec:SP-7f2c]). Run: `bun --conditions=@podium/source scripts/conpty-smoke.ts`
+ * Runtime PTY smoke for the bare (non-durable) pty layer — spawnAgent → bun-terminal
+ * backend → ConPTY on Windows [spec:SP-7f2c]. Since POD-4617 no daemon runs a session
+ * on this layer directly (a daemon with no podium-host refuses to spawn); it is what
+ * a Windows podium-host would sit on, and this keeps it proven. Run: `bun --conditions=@podium/source scripts/conpty-smoke.ts`
  * (the condition resolves the @podium/* workspace imports straight to src).
  *
  * Proves, against a real interactive shell:
