@@ -86,6 +86,8 @@ export interface SliceSession {
   agentState?: SliceAgentState
   /** Standing offer; only its `createdAt` participates in the slice (waiting-age anchor). */
   offer?: { createdAt?: string }
+  /** Native resume ref. Sessions sharing one collapse per `dedupeSessionsByResume` (POD-4551). */
+  resume?: { kind: string; value: string }
 }
 
 /**

@@ -72,6 +72,31 @@ export interface CorpusStats {
   /** Sessions with no `issueId` (R3 prefix ownership candidates). */
   prefixOwnedSessions: number
   maxDepth: number
+  /** Resume-twin groups (sessions sharing one resume ref), all three kinds. */
+  resumeTwinGroups: number
+  /** Asking sessions on hidden (archived/proposed) children of visible roots. */
+  edgedAskers: number
+}
+
+/** POD-4551: which branch of `dedupeSessionsByResume` a twin group covers. */
+export type ResumeTwinKind = 'inactive' | 'tie' | 'live'
+
+/** One resume-twin group: every session in it shares `ref`. */
+export interface ResumeTwinGroup {
+  kind: ResumeTwinKind
+  /** The visible root the group is attached to. */
+  issueId: string
+  ref: { kind: string; value: string }
+  sessionIds: string[]
+  /** What the legacy collapse keeps: one row, or the whole group when live. */
+  keptSessionIds: string[]
+}
+
+/** POD-4551 (the L1d shape): an asking session on a hidden child of a visible root. */
+export interface EdgedAsker {
+  rootId: string
+  childId: string
+  sessionId: string
 }
 
 /** Everything the oracle and the row stream need, in both spellings. */
@@ -103,6 +128,10 @@ export interface FixtureCorpus {
    *  with one live orphan session seated under it only by the prefix
    *  relation. */
   unscannedWorktree: { issueId: string; path: string; sessionId: string }
+  /** POD-4551: session groups sharing a resume ref, one of each kind per scale unit. */
+  resumeTwins: ResumeTwinGroup[]
+  /** POD-4551: asking sessions the visible root must NOT bubble (hidden child). */
+  edgedAskers: EdgedAsker[]
   stats: CorpusStats
 }
 
@@ -862,6 +891,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     orphanCount++
   }
   // Remainder onto closed bulk, round-robin.
+  const remainderStart = sessions.length
   let closedCursor = 0
   while (sessions.length < sessionTarget) {
     if (closedBulk.length === 0) fail('no closed bulk to absorb decayed sessions')
@@ -896,6 +926,120 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   )
   if (unscannedOrphan === undefined) fail('no live working orphan to seat under the unscanned worktree')
   ;(unscannedOrphan as unknown as Record<string, unknown>)['cwd'] = `${unscannedPath}/sub`
+
+  // -- hidden askers and resume twins (POD-4551) ----------------------------------
+  // Both shapes reuse rows the corpus already has instead of minting new ones,
+  // so every count stays exact, and they draw nothing from `rng`, so every row
+  // they do not touch is byte-identical to the corpus without them. Sessions
+  // come from the tail of the closed-bulk remainder (decayed, invisible rows
+  // on closed issues); the roots are sessionless visible roots (active human
+  // stage, no sessions, no children, no worktree), so each shape alone decides
+  // what its root's row shows.
+  const donors = sessions.slice(remainderStart).reverse()
+  const takeDonor = (): Record<string, unknown> => {
+    const donor = donors.shift()
+    if (donor === undefined) fail('closed-bulk remainder too small for the POD-4551 shapes')
+    return donor as unknown as Record<string, unknown>
+  }
+  const reseat = (
+    issueIdx: number,
+    fields: {
+      status: string
+      activeAgoMs: number
+      phase: string
+      offer?: boolean
+      stoppedAgoMs?: number
+      resume?: { kind: string; value: string }
+    },
+  ): string => {
+    const s = takeDonor()
+    const activeAt = iso(FIXED_NOW - fields.activeAgoMs)
+    s['issueId'] = idOf(issueIdx)
+    s['cwd'] = cwdFor(issueIdx)
+    s['status'] = fields.status
+    s['archived'] = false
+    s['lastActiveAt'] = activeAt
+    s['readAt'] = iso(FIXED_NOW - fields.activeAgoMs + 5 * 60 * 1000)
+    s['unread'] = false
+    s['agentState'] = { phase: fields.phase, since: activeAt, nativeSubagentCount: 0 }
+    if (fields.stoppedAgoMs === undefined) delete s['stoppedAt']
+    else s['stoppedAt'] = iso(FIXED_NOW - fields.stoppedAgoMs)
+    if (fields.offer) s['offer'] = { message: 'Needs input', actions: [], createdAt: activeAt }
+    else delete s['offer']
+    if (fields.resume) s['resume'] = fields.resume
+    return s['sessionId'] as string
+  }
+  // Not `review`: a review-stage root asks on its own account (a pending
+  // decision), which would hide whether the shape's ask reached it.
+  const sessionlessRoots = byRole('vSessless').filter(
+    (i) => i !== unscannedIdx && mints[i]!.stage !== 'review',
+  )
+  const HOUR_MS = 60 * 60 * 1000
+
+  // Hidden askers (the L1d shape, POD-4549): an asking session on an archived
+  // or proposed child of a visible root. The legacy flat pass skips hidden
+  // issues (rows.ts:63-69) and the worktree lanes suppress their sessions
+  // (rows.ts:201-210), so the ask detaches: the root must NOT read asking. A
+  // pool that bubbles through the formal subtree turns the root amber.
+  const hasChild = new Set(mints.flatMap((m) => (m.parent === null ? [] : [m.parent])))
+  // Open leaves only (a closed child's offer no longer asks, motionPhase), with
+  // no origin edge and no worktree; an archived leaf may leave a bulk parent
+  // (it is a leaf, so only its own depth moves). Archived and proposed
+  // alternate until the scarcer runs out.
+  const hiddenLeaf = (m: Mint, i: number): boolean =>
+    !hasChild.has(i) && !originOf.has(i) && issueWt[i] === null && !m.closed
+  const archivedLeaves = byRole('archived').filter((i) => hiddenLeaf(mints[i]!, i))
+  const proposedLeaves = byRole('proposed').filter((i) => hiddenLeaf(mints[i]!, i) && mints[i]!.parent === null)
+  const ASKERS_1X = 20
+  const edgedAskers: EdgedAsker[] = []
+  for (let k = 0; k < ASKERS_1X * scale; k++) {
+    const pool = k % 2 === 0 && archivedLeaves.length > 0 ? archivedLeaves : proposedLeaves
+    const child = pool.shift()
+    const root = sessionlessRoots[k]
+    if (child === undefined || root === undefined) fail('not enough hidden leaves or roots for the askers')
+    mints[child]!.parent = root
+    mints[child]!.depth = mints[root]!.depth + 1
+    ;(issues[child] as unknown as Record<string, unknown>)['parentId'] = idOf(root)
+    ;(issueProjections[child] as unknown as Record<string, unknown>)['parentId'] = idOf(root)
+    const sessionId = reseat(child, { status: 'live', activeAgoMs: 20 * 60 * 1000 + k * 60 * 1000, phase: 'idle', offer: true })
+    edgedAskers.push({ rootId: idOf(root), childId: idOf(child), sessionId })
+  }
+
+  // Resume twins (dedupeSessionsByResume, session-identity.ts:45; the runtime
+  // applies it to every session read, optimism.ts:876). One group of each
+  // kind per scale unit, each on its own sessionless visible root:
+  // - inactive: an older hibernated ask + a newer exited run. Rank beats
+  //   recency, so the collapse keeps the ask: the root reads asking. A pool
+  //   that breaks on recency alone keeps the exited run and loses the ask.
+  // - tie: two hibernated rows, an older ask and a newer quiet one. Equal
+  //   rank, so the most recent wins: the root reads NOT asking. Without the
+  //   collapse the stale ask shows (the disabled-collapse control).
+  // - live: a live working run + an older hibernated ask. A group touching a
+  //   live row is kept in full: the root reads working AND asking. A pool
+  //   that collapses it anyway loses the ask.
+  const resumeTwins: ResumeTwinGroup[] = []
+  for (let k = 0; k < scale; k++) {
+    const kinds: ResumeTwinKind[] = ['inactive', 'tie', 'live']
+    kinds.forEach((kind, g) => {
+      const root = sessionlessRoots[ASKERS_1X * scale + 3 * k + g]
+      if (root === undefined) fail('not enough sessionless roots for the resume twins')
+      const ref = { kind: 'codex-thread', value: `thread-twin-${kind}-${k}` }
+      const ask = reseat(root, { status: 'hibernated', activeAgoMs: 6 * HOUR_MS, phase: 'idle', offer: true, resume: ref })
+      const other =
+        kind === 'inactive'
+          ? reseat(root, { status: 'exited', activeAgoMs: 3 * HOUR_MS, phase: 'ended', stoppedAgoMs: 3 * HOUR_MS, resume: ref })
+          : kind === 'tie'
+            ? reseat(root, { status: 'hibernated', activeAgoMs: 2 * HOUR_MS, phase: 'idle', resume: ref })
+            : reseat(root, { status: 'live', activeAgoMs: 60 * 1000, phase: 'working', resume: ref })
+      resumeTwins.push({
+        kind,
+        issueId: idOf(root),
+        ref,
+        sessionIds: [ask, other],
+        keptSessionIds: kind === 'live' ? [ask, other] : kind === 'inactive' ? [ask] : [other],
+      })
+    })
+  }
 
   // -- unread rollups (same derivation the replica runs) -------------------------
   const sessionInputs = sessions.map((s) => ({
@@ -981,6 +1125,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
         }
       : undefined,
     offer: s.offer ? { createdAt: s.offer.createdAt } : undefined,
+    ...(s.resume ? { resume: { kind: s.resume.kind, value: s.resume.value } } : {}),
   }))
   const sliceWorktrees: SliceWorktree[] = []
   wtByRepo.forEach((wt, k) => {
@@ -1012,6 +1157,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     depthHistogram,
     prefixOwnedSessions: sessions.filter((s) => s.issueId == null).length,
     maxDepth,
+    resumeTwinGroups: resumeTwins.length,
+    edgedAskers: edgedAskers.length,
   }
   if (stats.issues !== issueTarget) fail('issue count drift')
   if (stats.repos !== repoTarget) fail('repo count drift')
@@ -1037,6 +1184,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       path: unscannedPath,
       sessionId: unscannedOrphan.sessionId,
     },
+    resumeTwins,
+    edgedAskers,
     stats,
   }
 }

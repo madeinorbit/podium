@@ -22,6 +22,7 @@ import {
   IssueProjection,
   IssueWire,
   RepoProjection,
+  ResumeRef,
   SessionMeta,
   SessionOffer,
 } from '@podium/model'
@@ -44,6 +45,7 @@ export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
   SessionMeta,
   AgentRuntimeState,
   SessionOffer,
+  ResumeRef,
   RepoProjection,
   GitRepositoryWire,
   GitWorktreeWire,

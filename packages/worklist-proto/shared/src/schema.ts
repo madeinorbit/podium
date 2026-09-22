@@ -48,6 +48,7 @@ export type ModelSchemaName =
   | 'SessionMeta'
   | 'AgentRuntimeState'
   | 'SessionOffer'
+  | 'ResumeRef'
   | 'RepoProjection'
   | 'GitRepositoryWire'
   | 'GitWorktreeWire'
@@ -486,6 +487,16 @@ export const SCHEMA: ModelSchema = defineSchema({
         source: meta(),
         parts: {
           createdAt: { type: 'isoDate', optional: true, source: { schema: 'SessionOffer' }, why: 'Waiting-age anchor; the only property of the offer in scope.' },
+        },
+      },
+      resume: {
+        type: 'object',
+        optional: true,
+        source: meta(),
+        note: "Resume twins: sessions sharing a ref collapse to one unless any is live/starting/reconnecting (dedupeSessionsByResume, session-identity.ts:45; the runtime applies it to every session read, optimism.ts:876). A whole-kind rule, so the per-row feed cannot apply it; the pool must (POD-4551).",
+        parts: {
+          kind: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },
+          value: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },
         },
       },
     },

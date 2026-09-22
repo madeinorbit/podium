@@ -10,7 +10,7 @@
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { Store } from '@podium/client-core/engine'
+import { dedupeSessions, type Store } from '@podium/client-core/engine'
 import type { Replica } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import {
@@ -65,6 +65,14 @@ function stubReplica(corpus: FixtureCorpus): Replica {
   } as unknown as Replica
 }
 
+/** Oracle knobs. Defaults are what the app does; a `false` is a control arm. */
+export interface OracleOptions {
+  /** Collapse resume twins as the runtime does on every session read
+   *  (`runtime.ts:465`, `dedupeSessions`). `false` feeds the raw rows: the
+   *  disabled-collapse control (POD-4551). */
+  collapseResumeTwins?: boolean
+}
+
 /**
  * Run the legacy published worklist derivation against the corpus.
  *
@@ -74,15 +82,23 @@ function stubReplica(corpus: FixtureCorpus): Replica {
  * `replica`, `issues`, `issueProjections`, `repos`, `machines`, `sessions`,
  * `pins` and `coarseNow`, and nothing else.
  */
-export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals): LegacyDerivation {
+export function runLegacyDerivation(
+  corpus: FixtureCorpus,
+  locals: SliceLocals,
+  options: OracleOptions = {},
+): LegacyDerivation {
   const replica = stubReplica(corpus)
+  // `store.sessions` is the runtime's deduped view of the replica's session
+  // rows (`runtime.ts:465`, `:1172`); the replica itself keeps every row.
+  const sessions =
+    options.collapseResumeTwins === false ? corpus.sessions : dedupeSessions(corpus.sessions)
   const store = {
     replica,
     issues: corpus.issues,
     issueProjections: corpus.issueProjections,
     repos: corpus.repos,
     machines: corpus.machines,
-    sessions: corpus.sessions,
+    sessions,
     pins: corpus.pins,
     coarseNow: locals.coarseNow,
   } as unknown as Store<PodiumClientApi>
@@ -90,7 +106,7 @@ export function runLegacyDerivation(corpus: FixtureCorpus, locals: SliceLocals):
   // The same shared model cache the slice derived from: identical inputs, so
   // the progress fallback below reads the same objects, never a rebuild.
   const models = allIssueViewModels(replica, corpus.issueProjections, corpus.issues)
-  return { slice, models, sessions: corpus.sessions, allWorktreePaths: slice.allWorktreePaths }
+  return { slice, models, sessions, allWorktreePaths: slice.allWorktreePaths }
 }
 
 /** Every nested descendant as its own row, pre-order (parent before child). */
@@ -134,8 +150,12 @@ function projectRow(
  * and groups. Deterministic in `(corpus, locals.coarseNow)`; selection stays
  * out (unselected baseline, spec §7).
  */
-export function expectedSnapshot(corpus: FixtureCorpus, locals: SliceLocals): SliceSnapshot {
-  return projectSnapshot(runLegacyDerivation(corpus, locals), locals)
+export function expectedSnapshot(
+  corpus: FixtureCorpus,
+  locals: SliceLocals,
+  options: OracleOptions = {},
+): SliceSnapshot {
+  return projectSnapshot(runLegacyDerivation(corpus, locals, options), locals)
 }
 
 /**
