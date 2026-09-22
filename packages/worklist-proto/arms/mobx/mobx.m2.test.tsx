@@ -224,9 +224,14 @@ describe('mobx arm milestone 2: structural scenarios', () => {
         // over-commit above). Derivation bodies arm-relative (methodology
         // Q-H3/M3: the cross-arm metric is rows committed). One event, one
         // notification.
-        expect(rename.rowsCommitted).toBe(2)
-        expect(rename.commitsByRow).toEqual({ i0: 1, i1: 1 })
-        expect(rename.stats.rowsDerived).toBe(2)
+        // POD-4550: the fixture's #4 root has no visible spin-off, so only
+        // the renamed row commits (`spinOffs` is empty); the retired corpus
+        // committed i0 + its spin-off i1.
+        expect(rename.rowsCommitted).toBe(1 + spinOffs.length)
+        expect(rename.commitsByRow).toEqual(
+          Object.fromEntries([ctx.targets.visibleRootId, ...spinOffs].map((id) => [id, 1])),
+        )
+        expect(rename.stats.rowsDerived).toBe(1 + spinOffs.length)
         expect(rename.stats.rollupsDerived).toBe(3)
         expect(rename.stats.notifications).toBe(1)
         // #5: the moved row only (its child's aggregate reads its own
@@ -240,10 +245,12 @@ describe('mobx arm milestone 2: structural scenarios', () => {
         expect(newIssue.rowsCommitted).toBe(0)
         expect(newIssue.stats.rowsDerived).toBe(1)
         expect(newIssue.stats.notifications).toBe(1)
-        // #6b: the leaving row unmounts (likewise uncounted); its parent's
-        // chain commits. #6c: the evicted row unmounts with no chain effect.
-        expect(archive.rowsCommitted).toBe(1)
-        expect(archive.stats.rowsDerived).toBe(2)
+        // #6b: the leaving row unmounts (likewise uncounted). POD-4550: the
+        // fixture's #6b target is a childless ROOT, so no parent chain
+        // re-renders (the retired corpus archived i4, a child, whose parent
+        // committed). #6c: the evicted row unmounts with no chain effect.
+        expect(archive.rowsCommitted).toBe(0)
+        expect(archive.stats.rowsDerived).toBe(1)
         expect(archive.stats.notifications).toBe(1)
         expect(evict.rowsCommitted).toBe(0)
         expect(evict.stats.notifications).toBe(1)

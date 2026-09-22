@@ -234,10 +234,12 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
         expect(newIssue.stats.rowsDerived).toBe(1)
         expect(newIssue.rowsCommitted).toBe(0)
         expect(newIssue.stats.notifications).toBe(1)
-        // #6b: the leaving row unmounts (likewise uncounted); its parent's
-        // chain commits. #6c: the evicted row unmounts with no chain effect.
-        expect(archive.stats.rowsDerived).toBe(2)
-        expect(archive.rowsCommitted).toBe(1)
+        // #6b: the leaving row unmounts (likewise uncounted). POD-4550: the
+        // fixture's #6b target is a childless ROOT, so no parent chain
+        // re-renders (the retired corpus archived i4, a child, whose parent
+        // committed). #6c: the evicted row unmounts with no chain effect.
+        expect(archive.stats.rowsDerived).toBe(1)
+        expect(archive.rowsCommitted).toBe(0)
         expect(archive.stats.notifications).toBe(1)
         expect(evict.stats.rowsDerived).toBe(1)
         expect(evict.rowsCommitted).toBe(0)
@@ -259,10 +261,10 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
         expect(tick.rowsCommitted).toBe(0)
         expect(tick.stats.notifications).toBe(1)
         // #9: every step bounded like a phase change; the rollback restores
-        // the echo step's object identity; never a full rebuild. POD-4496:
-        // i6 is VISIBLE at 1x (R3 anchor s6 joins i6 after the projection
-        // dual-carry), so its steps touch all three bodies like the visible
-        // supplement (3 evals per press); press2 carries two presses (6).
+        // the echo step's object identity; never a full rebuild. The #9
+        // target is a visible row, so its steps touch all three bodies like
+        // the visible supplement (3 evals per press); press2 carries two
+        // presses (6).
         for (const [name, r] of [
           ['press1', press1],
           ['echo', echo],
