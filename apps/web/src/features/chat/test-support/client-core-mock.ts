@@ -6,5 +6,8 @@ import { vi } from 'vitest'
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
   useModelCatalog: () => ({}),
+  // Served harness descriptors (POD-4475): provider-free suites render
+  // against the bundled copy.
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
   useStoreHandle: () => ({ getSnapshot: () => ({ issues: [] }) }),
 }))
