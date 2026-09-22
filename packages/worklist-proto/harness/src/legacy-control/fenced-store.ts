@@ -9,13 +9,24 @@
  * (`replica/issue-view-cache.ts` `relevantKinds`). This adapter hands
  * `worklistSlice.derive` a store whose tables are counted.
  *
- * INSTRUMENTATION, NEVER A BEHAVIOUR CHANGE. Array elements come back as the
- * raw rows (identity kept); each array and the store and replica are wrapped
- * ONCE per raw object, so identity memos inside the legacy code key on stable
- * wrappers. The legacy caches keyed on the store or replica object do see the
- * wrapper as a new key, so the first derive after mount rebuilds its caches;
- * the harness resets the fence after mount, and a disabled fence (timing runs)
- * never builds this adapter at all.
+ * THE ISSUE ROWS. The derive walks every issue as an `IssueViewModel`
+ * (`sidebarSections`, `unifiedWorkList`), and that model array is private to
+ * the view cache (`issue-view-cache.ts` `modelsFor`): no wrapper from outside
+ * can reach it. The cache's own per-snapshot pass can: `modelsFor` compares
+ * each projection row with the input it built the model from and reuses the
+ * model when nothing moved. So `issues` and `issueProjections` are wrapped
+ * FRESH PER STORE SNAPSHOT. The cache sees a new array identity, runs its
+ * identity pass over every issue row (counted), reuses every unchanged model,
+ * and returns the same `all` array — same output, same identities (the
+ * control test asserts commits and stats are equal with the fence on and
+ * off). That is the one extra O(N) identity pass this adapter adds, in count
+ * runs only; it counts the same distinct issue rows the derive walks as
+ * models.
+ *
+ * Everything else — `sessions`, `repos`, the replica's row collections — is
+ * wrapped ONCE per raw array, so identity memos key on stable wrappers
+ * exactly as they key on the raw arrays. Elements come back raw. A disabled
+ * fence (timing runs) never builds this adapter at all.
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -27,8 +38,13 @@ const STORE_TABLES: Readonly<Record<string, string>> = {
   issues: 'issue',
   issueProjections: 'issue',
   sessions: 'session',
-  repos: 'repo',
+  // The machine scan (`GitRepositoryWire`): repo-root lanes, keyed by path —
+  // the schema's `worktree` entity, not the replicated `repo` row.
+  repos: 'worktree',
 }
+
+/** Wrapped fresh per store snapshot (see "THE ISSUE ROWS" above). */
+const PER_SNAPSHOT: ReadonlySet<string> = new Set(['issues', 'issueProjections'])
 
 /** Replica kind → entity name. One entity per logical row, so a wire row and
  *  its projection twin count as ONE issue read. */
@@ -53,9 +69,9 @@ function rowKey(row: unknown, index: number): string {
   return `#${index}`
 }
 
-function countedArray(fence: ReadFence, entity: string, rows: unknown): unknown {
+function countedArray(fence: ReadFence, entity: string, rows: unknown, reuse = true): unknown {
   if (!Array.isArray(rows)) return rows
-  return fence.wrapTables({ [entity]: rows as readonly unknown[] }, { borrowed: false, keyOf: rowKey })[entity]
+  return fence.wrapTables({ [entity]: rows as readonly unknown[] }, { borrowed: false, keyOf: rowKey, reuse })[entity]
 }
 
 const storesByFence = new WeakMap<ReadFence, WeakMap<object, object>>()
@@ -110,11 +126,17 @@ export function fencedLegacyStore(
   const cache = memo(fence)
   const existing = cache.get(store)
   if (existing !== undefined) return existing as Store<PodiumClientApi>
+  // Per-snapshot wrappers, stable for every read of THIS snapshot.
+  const perSnapshot = new Map<string, unknown>()
   const proxy = new Proxy(store as object, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver) as unknown
       if (typeof prop !== 'string') return value
       const entity = STORE_TABLES[prop]
+      if (entity !== undefined && PER_SNAPSHOT.has(prop)) {
+        if (!perSnapshot.has(prop)) perSnapshot.set(prop, countedArray(fence, entity, value, false))
+        return perSnapshot.get(prop)
+      }
       if (entity !== undefined) return countedArray(fence, entity, value)
       if (prop === 'replica' && value !== null && typeof value === 'object') {
         return fencedReplica(fence, value)

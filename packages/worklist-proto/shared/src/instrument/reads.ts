@@ -37,6 +37,10 @@
  * raw objects) and makes `stats()` THROW, so a count run that forgot to enable
  * the fence fails instead of reporting zero reads.
  *
+ * VIOLATIONS ARE STICKY. Every refusal above throws AND is recorded; the
+ * feed swallows listener errors, so `stats()` re-throws the first recorded
+ * violation, forever, and a count run on a violating arm fails.
+ *
  * WHAT THE RUNTIME DOES NOT CLOSE. An arm that copies every borrowed row's
  * fields into objects of its own at insert time is counted once at the copy
  * and never again. The wrapped tables refuse such values, but an arm could
@@ -91,6 +95,13 @@ export interface WrapTablesOptions {
   borrowed?: boolean
   /** Key of an array element. Default: the schema key of the table's entity, else `id`/`sessionId`/`path`. */
   keyOf?: (row: unknown, index: number) => string
+  /**
+   * Hand back the one wrapper this fence already made for this raw table.
+   * Default true, so identity memos keyed on a table hit exactly as they do
+   * unwrapped. False makes a fresh wrapper the caller must cache itself (the
+   * legacy adapter caches per store snapshot — see `fenced-store.ts`).
+   */
+  reuse?: boolean
 }
 
 export interface ReadFence {
@@ -154,6 +165,15 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
   const borrowedByRaw = new WeakMap<object, object>()
   const borrowed = new WeakSet<object>()
   const tableByRaw = new WeakMap<object, Map<string, object>>()
+  // Sticky: `reset()` never clears them. The feed swallows a throwing listener
+  // (`row-source.ts` `emit`), so a throw alone could vanish; `stats()` re-throws
+  // the first violation, and a poisoned fence fails every later count.
+  const violations: string[] = []
+
+  function violate(message: string): never {
+    violations.push(message)
+    throw new Error(message)
+  }
 
   function touch(entity: string, id: string, via: ReadVia): void {
     accesses[via] += 1
@@ -185,10 +205,10 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         return Reflect.getOwnPropertyDescriptor(target, prop)
       },
       set() {
-        throw new Error(`[reads] borrowed ${kind}:${id} is read-only; the pool stores the row, it does not edit it`)
+        violate(`[reads] borrowed ${kind}:${id} is read-only; the pool stores the row, it does not edit it`)
       },
       deleteProperty() {
-        throw new Error(`[reads] borrowed ${kind}:${id} is read-only; the pool stores the row, it does not edit it`)
+        violate(`[reads] borrowed ${kind}:${id} is read-only; the pool stores the row, it does not edit it`)
       },
     })
     borrowedByRaw.set(value, proxy)
@@ -208,7 +228,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
   function checkBorrowed(entity: string, id: string, value: unknown, required: boolean): void {
     if (!required || value === undefined || value === null) return
     if (typeof value === 'object' && borrowed.has(value)) return
-    throw new Error(
+    violate(
       `[reads] table "${entity}" returned ${entity}:${id}, which the feed did not hand out. ` +
         `The pool must store the borrowed row object, never a copy.`,
     )
@@ -255,7 +275,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     const proxy: object = new Proxy(view, {
       get(viewTarget, prop, receiver) {
         if (!TABLE_MEMBERS.has(prop)) {
-          throw new Error(
+          violate(
             `[reads] table "${entity}" has no counted member ${String(prop)}; a fenced table is a read-only ReadonlyMap`,
           )
         }
@@ -288,13 +308,18 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         return Reflect.get(target, prop, receiver)
       },
       set() {
-        throw new Error(`[reads] table "${entity}" is a read-only view`)
+        violate(`[reads] table "${entity}" is a read-only view`)
       },
     })
   }
 
   function wrapTable(entity: string, raw: ReadTable, options: WrapTablesOptions): object {
     const required = options.borrowed ?? true
+    if (options.reuse === false) {
+      return Array.isArray(raw)
+        ? wrapArray(entity, raw, required, options.keyOf ?? defaultKeyOf(entity))
+        : wrapMap(entity, raw as ReadonlyMap<string, unknown>, required)
+    }
     const cacheKey = `${entity}|${required ? 'b' : 'r'}`
     let perRaw = tableByRaw.get(raw)
     if (perRaw === undefined) {
@@ -313,7 +338,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
   function relationTarget(from: EntityName, relation: string): EntityName {
     const spec = SCHEMA[from]?.relations[relation]
     if (spec === undefined) {
-      throw new Error(`[reads] ${from}.${relation} is not a declared relation (shared/src/schema.ts)`)
+      violate(`[reads] ${from}.${relation} is not a declared relation (shared/src/schema.ts)`)
     }
     return spec.to
   }
@@ -375,6 +400,9 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     stats(): ReadStats {
       if (!enabled) {
         throw new Error('[reads] the read fence is disabled (timing mode); a count run must enable it')
+      }
+      if (violations.length > 0) {
+        throw new Error(`[reads] fence violated ${violations.length} time(s); first: ${violations[0]}`)
       }
       return { rows: seen.size, byEntity: { ...byEntity }, accesses: { ...accesses }, sample: [...sample] }
     },
