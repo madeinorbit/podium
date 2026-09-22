@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   auditClosureAt,
   auditDirectAt,
+  auditPackageExportsAt,
   auditServerClosureAt,
   extractImports,
   isForbiddenModule,
@@ -136,6 +137,42 @@ describe('auditClosureAt', () => {
     })
     try {
       expect(auditClosureAt(dir, 'probe', 'entry.ts')).toEqual([])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('auditPackageExportsAt', () => {
+  it('fails any export key under ./driver/families/ — the red run', () => {
+    const dir = plant({
+      'packages/harness/package.json': JSON.stringify({
+        exports: {
+          './driver/host': { import: './dist/driver/host.js' },
+          './driver/families/terminal/composer-sync': { import: './dist/x.js' },
+        },
+      }),
+    })
+    try {
+      const findings = auditPackageExportsAt(dir)
+      expect(findings.map((f) => f.kind)).toEqual(['family-export'])
+      expect(findings[0]?.detail).toContain('./driver/families/terminal/composer-sync')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('stays quiet when no export key offers a family path — the control', () => {
+    const dir = plant({
+      'packages/harness/package.json': JSON.stringify({
+        exports: {
+          './driver/host': { import: './dist/driver/host.js' },
+          './adapters/shared/composer': { import: './dist/y.js' },
+        },
+      }),
+    })
+    try {
+      expect(auditPackageExportsAt(dir)).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

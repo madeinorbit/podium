@@ -26,11 +26,16 @@
  * (and `@podium/pty`, its real package name), and any driver-family module
  * (`packages/harness/src/driver/families/`).
  *
- * A third arm walks the SERVER closure from `apps/server/src/index.ts` and
- * refuses any reachable `driver/families/` module: the server bundle must
- * include no families. Before the dissolve this arm was red (the server
- * reached the agent-runtime barrel); the contract entry is what turns it
- * green.
+  * A third arm walks the SERVER closure from `apps/server/src/index.ts` and
+  * refuses any reachable `driver/families/` module: the server bundle must
+  * include no families. Before the dissolve this arm was red (the server
+  * reached the agent-runtime barrel); the contract entry is what turns it
+  * green.
+  *
+  * A fourth arm reads the `exports` map in `packages/harness/package.json`
+  * and refuses ANY key under `./driver/families/` (POD-4498): no family path
+  * may be offered to clients again. The daemon takes the same machinery
+  * through `@podium/harness/driver/host`, which re-exports it.
  *
  * NON-VACUITY, same shape as audit-browser-reach: a resolver that followed
  * nothing would report zero findings for every entry and pass perfectly. So
@@ -50,7 +55,7 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 export interface EntryFinding {
   entry: string
-  kind: 'direct' | 'transitive' | 'server-reaches-family' | 'vacuous'
+  kind: 'direct' | 'transitive' | 'server-reaches-family' | 'family-export' | 'vacuous'
   detail: string
 }
 
@@ -63,6 +68,17 @@ const FORBIDDEN_BARE = new Set([
 ])
 
 const FAMILY_PREFIX = 'packages/harness/src/driver/families/'
+
+/**
+ * No package export may offer a driver-family path (POD-4498). The daemon
+ * reached `instrumentation`, `loopback-listen` and `composer-sync` through
+ * three deep entries; those entries are deleted and the daemon takes the
+ * same modules through `@podium/harness/driver/host`. Any `exports` key
+ * under `./driver/families/` would re-offer a family path to clients, so it
+ * is a finding on sight — no closure walk needed.
+ */
+const FAMILY_EXPORT_PREFIX = './driver/families/'
+const HARNESS_PACKAGE_JSON = 'packages/harness/package.json'
 
 const ENTRIES: Readonly<Record<string, string>> = {
   '@podium/harness': 'packages/harness/src/index.ts',
@@ -287,6 +303,33 @@ export function auditServerClosure(): EntryFinding[] {
   return findings
 }
 
+export function auditPackageExportsAt(
+  root: string,
+  pkgPath: string = HARNESS_PACKAGE_JSON,
+): EntryFinding[] {
+  const findings: EntryFinding[] = []
+  let parsed: { exports?: Record<string, unknown> }
+  try {
+    parsed = JSON.parse(readFileSync(join(root, pkgPath), 'utf8'))
+  } catch {
+    return findings
+  }
+  for (const key of Object.keys(parsed.exports ?? {})) {
+    if (key === FAMILY_EXPORT_PREFIX || key.startsWith(FAMILY_EXPORT_PREFIX)) {
+      findings.push({
+        entry: '@podium/harness',
+        kind: 'family-export',
+        detail: `${pkgPath}: export '${key}' offers a driver-family path — clients must never be offered a family path; the daemon takes this machinery through @podium/harness/driver/host.`,
+      })
+    }
+  }
+  return findings
+}
+
+export function auditPackageExports(): EntryFinding[] {
+  return auditPackageExportsAt(REPO)
+}
+
 export function auditHarnessEntries(): EntryFinding[] {
   const findings: EntryFinding[] = []
   for (const [entry, file] of Object.entries(ENTRIES)) {
@@ -296,6 +339,7 @@ export function auditHarnessEntries(): EntryFinding[] {
     findings.push(...auditClosureAt(REPO, entry, ENTRIES[entry]!))
   }
   findings.push(...auditServerClosure())
+  findings.push(...auditPackageExports())
   return findings
 }
 
@@ -310,7 +354,7 @@ export function plant(files: Record<string, string>): string {
 
 /**
  * `--probe`: prove every arm can fail. Plants fixture trees that MUST be
- * refused and exits non-zero unless all three arms fire. A green from a check
+ * refused and exits non-zero unless all four arms fire. A green from a check
  * that cannot go red proves nothing (POD-732), so the probe runs first in the
  * `audit:harness-entries` script, exactly like `audit:browser-reach --probe`.
  */
@@ -355,6 +399,19 @@ export function runProbe(): boolean {
   check('server-reaches-family', srvFindings, 'server-reaches-family')
   rmSync(srvDir, { recursive: true, force: true })
 
+  // Arm D (export map): a package export offering a family path. Uses the
+  // REAL export-map walk on a fixture root.
+  const expDir = plant({
+    'packages/harness/package.json': JSON.stringify({
+      exports: {
+        './driver/host': { import: './dist/driver/host.js' },
+        './driver/families/terminal/composer-sync': { import: './dist/x.js' },
+      },
+    }),
+  })
+  check('family-export-key', auditPackageExportsAt(expDir), 'family-export')
+  rmSync(expDir, { recursive: true, force: true })
+
   return ok
 }
 
@@ -377,4 +434,4 @@ if (findings.length > 0) {
   )
   process.exit(1)
 }
-console.log('harness entry audit: clean (4 entries direct, 3 closures, server closure)')
+console.log('harness entry audit: clean (4 entries direct, 3 closures, server closure, export map)')
