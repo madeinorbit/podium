@@ -40,7 +40,9 @@ function readManifest(root) {
     try {
       const raw = JSON.parse(readFileSync(file, 'utf8'))
       const lists = ['enumeration', 'tables', 'store', 'rows']
-      const bad = lists.filter((key) => !Array.isArray(raw[key]) || raw[key].some((entry) => typeof entry !== 'string'))
+      const bad = lists.filter(
+        (key) => !Array.isArray(raw[key]) || raw[key].some((entry) => typeof entry !== 'string'),
+      )
       result =
         bad.length > 0
           ? { manifest: null, problem: `fence.json needs string arrays ${bad.join(', ')}` }
@@ -93,7 +95,11 @@ function nameOf(node) {
   if (target.type === 'Identifier') return target.name
   if (target.type === 'MemberExpression' || target.type === 'OptionalMemberExpression') {
     if (!target.computed && target.property.type === 'Identifier') return target.property.name
-    if (target.computed && target.property.type === 'Literal' && typeof target.property.value === 'string') {
+    if (
+      target.computed &&
+      target.property.type === 'Literal' &&
+      typeof target.property.value === 'string'
+    ) {
       return target.property.value
     }
     if (target.computed && target.property.type === 'StringLiteral') return target.property.value
@@ -119,7 +125,10 @@ function isMember(node, objectName, propertyName) {
 const armManifest = {
   meta: {
     type: 'problem',
-    docs: { description: 'Every arm folder carries a valid fence.json with exactly one enumeration module, named in its README' },
+    docs: {
+      description:
+        'Every arm folder carries a valid fence.json with exactly one enumeration module, named in its README',
+    },
     schema: [],
   },
   create(context) {
@@ -186,18 +195,28 @@ const noTableWalk = {
     return {
       CallExpression(node) {
         const callee = unwrap(node.callee)
-        if (callee && (callee.type === 'MemberExpression' || callee.type === 'OptionalMemberExpression')) {
+        if (
+          callee &&
+          (callee.type === 'MemberExpression' || callee.type === 'OptionalMemberExpression')
+        ) {
           const method = nameOf(callee)
-          if (method !== null && WALK_METHODS.has(method)) check(node, callee.object, `.${method}()`)
-          if (isMember(callee, 'Array', 'from') && node.arguments[0]) check(node, node.arguments[0], 'Array.from')
+          if (method !== null && WALK_METHODS.has(method))
+            check(node, callee.object, `.${method}()`)
+          if (isMember(callee, 'Array', 'from') && node.arguments[0])
+            check(node, node.arguments[0], 'Array.from')
           for (const method of ['keys', 'values', 'entries']) {
-            if (isMember(callee, 'Object', method) && node.arguments[0]) check(node, node.arguments[0], `Object.${method}`)
+            if (isMember(callee, 'Object', method) && node.arguments[0])
+              check(node, node.arguments[0], `Object.${method}`)
           }
         }
       },
       NewExpression(node) {
         const callee = unwrap(node.callee)
-        if (callee?.type === 'Identifier' && ['Map', 'Set', 'WeakMap', 'WeakSet'].includes(callee.name) && node.arguments[0]) {
+        if (
+          callee?.type === 'Identifier' &&
+          ['Map', 'Set', 'WeakMap', 'WeakSet'].includes(callee.name) &&
+          node.arguments[0]
+        ) {
           check(node, node.arguments[0], `new ${callee.name}(…)`)
         }
       },
@@ -233,7 +252,11 @@ function valueImports(text) {
         const clause = match[4] ?? ''
         // `import { type A, type B } from` carries no value.
         const inner = clause.match(/^\s*\{([^}]*)\}\s*from\s+$/)
-        if (inner && inner[1].split(',').every((part) => part.trim() === '' || part.trim().startsWith('type '))) continue
+        if (
+          inner &&
+          inner[1].split(',').every((part) => part.trim() === '' || part.trim().startsWith('type '))
+        )
+          continue
         out.push(match[5])
       } else {
         out.push(match[1])
@@ -300,7 +323,9 @@ function hasJsx(sourceCode) {
 const noStoreInComponent = {
   meta: {
     type: 'problem',
-    docs: { description: 'A component or row module may not reach a store module through a value import' },
+    docs: {
+      description: 'A component or row module may not reach a store module through a value import',
+    },
     schema: [],
   },
   create(context) {
@@ -354,7 +379,8 @@ const rowComponentModuleScope = {
       if (!target || target.type !== 'Identifier') {
         context.report({
           node,
-          message: 'RowShell component must be an identifier declared at module scope, not an inline expression (a closure is how a store gets in)',
+          message:
+            'RowShell component must be an identifier declared at module scope, not an inline expression (a closure is how a store gets in)',
         })
         return
       }
@@ -372,7 +398,10 @@ const rowComponentModuleScope = {
         if (node.name.type !== 'JSXIdentifier' || node.name.name !== 'RowShell') return
         for (const attribute of node.attributes) {
           if (attribute.type !== 'JSXAttribute' || attribute.name.name !== 'component') continue
-          const value = attribute.value?.type === 'JSXExpressionContainer' ? attribute.value.expression : attribute.value
+          const value =
+            attribute.value?.type === 'JSXExpressionContainer'
+              ? attribute.value.expression
+              : attribute.value
           checkValue(attribute, value)
         }
       },
@@ -380,13 +409,20 @@ const rowComponentModuleScope = {
         const callee = unwrap(node.callee)
         const isCreate =
           (callee?.type === 'Identifier' && callee.name === 'createElement') ||
-          ((callee?.type === 'MemberExpression') && nameOf(callee) === 'createElement')
+          (callee?.type === 'MemberExpression' && nameOf(callee) === 'createElement')
         if (!isCreate) return
         const [type, props] = node.arguments
         if (unwrap(type)?.type !== 'Identifier' || unwrap(type).name !== 'RowShell') return
         if (props?.type !== 'ObjectExpression') return
         for (const property of props.properties) {
-          if (property.type === 'Property' && nameOf({ type: 'MemberExpression', computed: property.computed, property: property.key }) === 'component') {
+          if (
+            property.type === 'Property' &&
+            nameOf({
+              type: 'MemberExpression',
+              computed: property.computed,
+              property: property.key,
+            }) === 'component'
+          ) {
             checkValue(property, property.value)
           }
         }
@@ -411,7 +447,12 @@ const noWallClock = {
         if (isMember(node, 'Date', 'now')) context.report({ node, message })
       },
       NewExpression(node) {
-        if (!isTest && node.callee.type === 'Identifier' && node.callee.name === 'Date' && node.arguments.length === 0) {
+        if (
+          !isTest &&
+          node.callee.type === 'Identifier' &&
+          node.callee.name === 'Date' &&
+          node.arguments.length === 0
+        ) {
           context.report({ node, message: `${message} (new Date() reads it too)` })
         }
       },
@@ -441,23 +482,37 @@ const noHiddenState = {
   create(context) {
     const arm = fencedArm(context)
     if (arm === null) return {}
-    const moduleScope = 'module-scope state in an arm (pitfall j: untracked state read inside a derivation); keep state on the pool'
+    const moduleScope =
+      'module-scope state in an arm (pitfall j: untracked state read inside a derivation); keep state on the pool'
     const checkDeclaration = (declaration) => {
       if (declaration.kind !== 'const') {
-        context.report({ node: declaration, message: `${moduleScope}: module-scope \`${declaration.kind}\`` })
+        context.report({
+          node: declaration,
+          message: `${moduleScope}: module-scope \`${declaration.kind}\``,
+        })
         return
       }
       for (const declarator of declaration.declarations) {
         const init = unwrap(declarator.init)
         if (!init) continue
-        if (init.type === 'NewExpression' && init.callee.type === 'Identifier' && CONTAINERS.has(init.callee.name)) {
-          context.report({ node: declarator, message: `${moduleScope}: module-scope new ${init.callee.name}()` })
+        if (
+          init.type === 'NewExpression' &&
+          init.callee.type === 'Identifier' &&
+          CONTAINERS.has(init.callee.name)
+        ) {
+          context.report({
+            node: declarator,
+            message: `${moduleScope}: module-scope new ${init.callee.name}()`,
+          })
         }
         if (init.type === 'CallExpression') {
           const callee = unwrap(init.callee)
           const root = callee?.type === 'MemberExpression' ? unwrap(callee.object) : callee
           if (root?.type === 'Identifier' && OBSERVABLE_FACTORIES.has(root.name)) {
-            context.report({ node: declarator, message: `${moduleScope}: module-scope ${root.name}(…)` })
+            context.report({
+              node: declarator,
+              message: `${moduleScope}: module-scope ${root.name}(…)`,
+            })
           }
         }
       }
@@ -468,7 +523,8 @@ const noHiddenState = {
           const declaration =
             statement.type === 'VariableDeclaration'
               ? statement
-              : (statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration') &&
+              : (statement.type === 'ExportNamedDeclaration' ||
+                    statement.type === 'ExportDefaultDeclaration') &&
                   statement.declaration?.type === 'VariableDeclaration'
                 ? statement.declaration
                 : null
@@ -477,11 +533,19 @@ const noHiddenState = {
       },
       PropertyDefinition(node) {
         if (node.key.type === 'PrivateIdentifier' || node.key.type === 'PrivateName') {
-          context.report({ node, message: 'a #private field hides state from the copy sweep; use a plain (TypeScript `private`) field' })
+          context.report({
+            node,
+            message:
+              'a #private field hides state from the copy sweep; use a plain (TypeScript `private`) field',
+          })
         }
       },
       ClassPrivateProperty(node) {
-        context.report({ node, message: 'a #private field hides state from the copy sweep; use a plain (TypeScript `private`) field' })
+        context.report({
+          node,
+          message:
+            'a #private field hides state from the copy sweep; use a plain (TypeScript `private`) field',
+        })
       },
     }
   },

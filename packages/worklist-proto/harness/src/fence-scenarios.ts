@@ -16,6 +16,7 @@
 import type { ArmHandle } from '../../shared/src/arm'
 import {
   armMarkReadRejection,
+  type ScenarioEngine,
   writeArchiveIssue,
   writeBurst50,
   writeClockTick,
@@ -30,16 +31,15 @@ import {
   writeSelectionClick,
   writeStageMove,
   writeTitleRename,
-  type ScenarioEngine,
 } from '../../shared/src/scenarios'
 import type { SliceLocals } from '../../shared/src/slice-types'
 import {
   ancestorCount,
+  type CountResult,
+  type MountedArm,
   phaseChangeReadBudget,
   READ_BUDGETS,
   runCountScenario,
-  type CountResult,
-  type MountedArm,
 } from './count-harness'
 import { rowViewsFromStore, snapshotFromStore } from './oracle/index'
 
@@ -65,30 +65,92 @@ export function parityLocals(ctx: ScenarioEngine): SliceLocals {
 }
 
 function parentOf(ctx: ScenarioEngine): (id: string) => string | null | undefined {
-  return (id) => ctx.engine.getSnapshot().issueProjections.find((issue) => issue.id === id)?.parentId
+  return (id) =>
+    ctx.engine.getSnapshot().issueProjections.find((issue) => issue.id === id)?.parentId
 }
 
 const none = (): null => null
 
 export const FENCE_SCENARIOS: readonly FenceScenario[] = [
-  { scenario: 'unrelatedHeartbeat', methodology: '#1', write: writeHeartbeat, readsBudget: () => READ_BUDGETS.unrelatedHeartbeat },
+  {
+    scenario: 'unrelatedHeartbeat',
+    methodology: '#1',
+    write: writeHeartbeat,
+    readsBudget: () => READ_BUDGETS.unrelatedHeartbeat,
+  },
   {
     scenario: 'visibleSessionPhaseChange',
     methodology: '#2',
     write: writePhaseChange,
-    readsBudget: (ctx) => phaseChangeReadBudget(ancestorCount(ctx.targets.visibleRootId, parentOf(ctx))),
+    readsBudget: (ctx) =>
+      phaseChangeReadBudget(ancestorCount(ctx.targets.visibleRootId, parentOf(ctx))),
   },
-  { scenario: 'selectionClick', methodology: '#3', write: (ctx) => writeSelectionClick(ctx), readsBudget: () => READ_BUDGETS.selectionClick },
-  { scenario: 'visibleTitleRename', methodology: '#4', write: (ctx) => writeTitleRename(ctx), readsBudget: () => READ_BUDGETS.visibleTitleRename },
-  { scenario: 'stageMoveAcrossGroups', methodology: '#5', write: (ctx) => writeStageMove(ctx), readsBudget: () => READ_BUDGETS.stageMoveNeighbourhood },
-  { scenario: 'newIssue', methodology: '#6a', write: (ctx) => writeNewIssue(ctx), readsBudget: none },
-  { scenario: 'archiveIssue', methodology: '#6b', write: (ctx) => writeArchiveIssue(ctx), readsBudget: none },
-  { scenario: 'evictWithoutRevision', methodology: '#6c', write: (ctx) => writeEvictIssue(ctx), readsBudget: none },
-  { scenario: 'evictKeeperWithoutRevision', methodology: '#6d', write: (ctx) => writeEvictKeeperIssue(ctx), readsBudget: none },
-  { scenario: 'parentReassignment', methodology: '#7', write: (ctx) => writeParentReassignment(ctx), readsBudget: none },
-  { scenario: 'clockTick', methodology: '#8', write: (ctx) => writeClockTick(ctx), readsBudget: none },
-  { scenario: 'optimisticPress', methodology: '#9a', write: (ctx) => writeOptimisticPress(ctx), readsBudget: none },
-  { scenario: 'optimisticEcho', methodology: '#9b', write: (ctx) => writeOptimisticEcho(ctx), readsBudget: none },
+  {
+    scenario: 'selectionClick',
+    methodology: '#3',
+    write: (ctx) => writeSelectionClick(ctx),
+    readsBudget: () => READ_BUDGETS.selectionClick,
+  },
+  {
+    scenario: 'visibleTitleRename',
+    methodology: '#4',
+    write: (ctx) => writeTitleRename(ctx),
+    readsBudget: () => READ_BUDGETS.visibleTitleRename,
+  },
+  {
+    scenario: 'stageMoveAcrossGroups',
+    methodology: '#5',
+    write: (ctx) => writeStageMove(ctx),
+    readsBudget: () => READ_BUDGETS.stageMoveNeighbourhood,
+  },
+  {
+    scenario: 'newIssue',
+    methodology: '#6a',
+    write: (ctx) => writeNewIssue(ctx),
+    readsBudget: none,
+  },
+  {
+    scenario: 'archiveIssue',
+    methodology: '#6b',
+    write: (ctx) => writeArchiveIssue(ctx),
+    readsBudget: none,
+  },
+  {
+    scenario: 'evictWithoutRevision',
+    methodology: '#6c',
+    write: (ctx) => writeEvictIssue(ctx),
+    readsBudget: none,
+  },
+  {
+    scenario: 'evictKeeperWithoutRevision',
+    methodology: '#6d',
+    write: (ctx) => writeEvictKeeperIssue(ctx),
+    readsBudget: none,
+  },
+  {
+    scenario: 'parentReassignment',
+    methodology: '#7',
+    write: (ctx) => writeParentReassignment(ctx),
+    readsBudget: none,
+  },
+  {
+    scenario: 'clockTick',
+    methodology: '#8',
+    write: (ctx) => writeClockTick(ctx),
+    readsBudget: none,
+  },
+  {
+    scenario: 'optimisticPress',
+    methodology: '#9a',
+    write: (ctx) => writeOptimisticPress(ctx),
+    readsBudget: none,
+  },
+  {
+    scenario: 'optimisticEcho',
+    methodology: '#9b',
+    write: (ctx) => writeOptimisticEcho(ctx),
+    readsBudget: none,
+  },
   {
     scenario: 'optimisticPressRejected',
     methodology: '#9c',

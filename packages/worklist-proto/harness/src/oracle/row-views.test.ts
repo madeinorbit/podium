@@ -30,7 +30,9 @@ describe('row-view oracle', () => {
     const views = Object.values(viewsOf(buildCorpus(1)))
     const ticks = views.filter((view) => view.originTick !== null)
     const working = views.filter((view) => view.workingSince !== null)
-    console.info(`[row-views] 1x: ${views.length} rows, ${ticks.length} origin ticks, ${working.length} working stamps`)
+    console.info(
+      `[row-views] 1x: ${views.length} rows, ${ticks.length} origin ticks, ${working.length} working stamps`,
+    )
     expect(ticks.length).toBeGreaterThan(0)
     expect(working.length).toBeGreaterThan(0)
     // A working stamp only on a row that reads working (own seats ⊆ subtree).
@@ -43,7 +45,9 @@ describe('row-view oracle', () => {
     const before = viewsOf(corpus)
     const id = Object.keys(before)[3] as string
     const after = viewsOf(corpus, { ...LOCALS, selectedIssueId: id })
-    const changed = Object.keys(before).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+    const changed = Object.keys(before).filter(
+      (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
+    )
     expect(changed).toEqual([id])
     expect(after[id]?.selected).toBe(true)
   })

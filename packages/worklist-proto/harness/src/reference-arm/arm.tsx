@@ -17,15 +17,20 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
-import { createElement, memo, useSyncExternalStore, type ReactElement } from 'react'
+import { createElement, memo, type ReactElement, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Arm, ArmHandle } from '../../../shared/src/arm'
-import { CommitLogContext, currentCommitLog, RowShell, type RowProps } from '../../../shared/src/row-shell'
+import {
+  CommitLogContext,
+  currentCommitLog,
+  type RowProps,
+  RowShell,
+} from '../../../shared/src/row-shell'
 import type { RowView } from '../../../shared/src/row-view'
 import type { SliceLocals, SliceOrder, SliceSnapshot } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import type { LegacyControlEngine } from '../legacy-control/arm'
-import { rowViewsFromStore, snapshotFromStore, type RowViews } from '../oracle/index'
+import { type RowViews, rowViewsFromStore, snapshotFromStore } from '../oracle/index'
 
 interface ReferenceState {
   order: SliceOrder
@@ -123,7 +128,10 @@ export function referenceArmFor(engine: LegacyControlEngine): Arm {
       let webRoot: { unmount(): void } | null = null
       return {
         snapshot(): SliceSnapshot {
-          return snapshotFromStore(engine.getSnapshot(), { ...localsOf(engine), selectedIssueId: null })
+          return snapshotFromStore(engine.getSnapshot(), {
+            ...localsOf(engine),
+            selectedIssueId: null,
+          })
         },
         stats,
         dispose(): void {

@@ -1,3 +1,4 @@
+export type { LegacyDerivation } from './oracle'
 export {
   expectedSnapshot,
   legacyDerivationFromStore,
@@ -6,5 +7,4 @@ export {
   snapshotFromStore,
   visibleIssueRows,
 } from './oracle'
-export type { LegacyDerivation } from './oracle'
-export { projectRowViews, rowViewsFromStore, type RowViews } from './row-views'
+export { projectRowViews, type RowViews, rowViewsFromStore } from './row-views'

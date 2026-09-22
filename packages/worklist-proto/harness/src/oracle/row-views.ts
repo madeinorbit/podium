@@ -20,16 +20,21 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
 import {
+  type IssueNavigationModel,
+  isSessionWorking,
   issueAbandoned,
   issueClosedFoldAt,
   issueDisplayTitle,
-  isSessionWorking,
-  type IssueNavigationModel,
 } from '@podium/client-core/viewmodels'
 import type { SessionMeta } from '@podium/model'
 import { isRowSeat, type RowOriginTick, type RowView } from '../../../shared/src/row-view'
 import type { SliceLocals } from '../../../shared/src/slice-types'
-import { legacyDerivationFromStore, projectSnapshot, visibleIssueRows, type LegacyDerivation } from './oracle'
+import {
+  type LegacyDerivation,
+  legacyDerivationFromStore,
+  projectSnapshot,
+  visibleIssueRows,
+} from './oracle'
 
 /** Every visible row's view, keyed by issue id. */
 export type RowViews = Record<string, RowView>

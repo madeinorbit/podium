@@ -23,11 +23,16 @@ const fixtureLint = new ESLint({
   overrideConfigFile: true,
   overrideConfig: fenceConfig({ root: FIXTURES, frozen: [] }),
 })
-const realLint = new ESLint({ cwd: PACKAGE_DIR, overrideConfigFile: join(PACKAGE_DIR, 'eslint.config.mjs') })
+const realLint = new ESLint({
+  cwd: PACKAGE_DIR,
+  overrideConfigFile: join(PACKAGE_DIR, 'eslint.config.mjs'),
+})
 
 async function problems(code: string, filePath: string, eslint = fixtureLint): Promise<string[]> {
   const [result] = await eslint.lintText(code, { filePath: join(PACKAGE_DIR, filePath) })
-  return (result?.messages ?? []).map((message) => `${message.ruleId ?? 'parse'}: ${message.message}`)
+  return (result?.messages ?? []).map(
+    (message) => `${message.ruleId ?? 'parse'}: ${message.message}`,
+  )
 }
 
 const ROW = `import type { ReactElement } from 'react'
@@ -60,13 +65,21 @@ describe('clean', () => {
   it('the fixture arm lints clean as a whole (the rules can say YES)', async () => {
     const results = await fixtureLint.lintFiles([`${PLANTED}/**/*.{ts,tsx}`])
     expect(results.length).toBeGreaterThanOrEqual(6)
-    expect(results.flatMap((result) => result.messages.map((m) => `${result.filePath}: ${m.ruleId}: ${m.message}`))).toEqual([])
+    expect(
+      results.flatMap((result) =>
+        result.messages.map((m) => `${result.filePath}: ${m.ruleId}: ${m.message}`),
+      ),
+    ).toEqual([])
   })
 
   it('the real arms lint clean through the package config', async () => {
     const results = await realLint.lintFiles(['arms/**/*.{ts,tsx}'])
     expect(results.length).toBeGreaterThan(20)
-    expect(results.flatMap((result) => result.messages.map((m) => `${result.filePath}: ${m.ruleId}: ${m.message}`))).toEqual([])
+    expect(
+      results.flatMap((result) =>
+        result.messages.map((m) => `${result.filePath}: ${m.ruleId}: ${m.message}`),
+      ),
+    ).toEqual([])
   })
 })
 
@@ -74,20 +87,29 @@ describe('store in a row or component (L1b addendum)', () => {
   it('PLANTED: a row module importing the store is red; the same file without the import passes', async () => {
     const planted = `import { createPool } from './store'\n${ROW}\nexport const pool = createPool\n`
     expect(await problems(planted, `${PLANTED}/row.tsx`)).toEqual([
-      expect.stringMatching(/^fence\/no-store-in-component: row module imports the store: '\.\/store' reaches store\.ts/),
+      expect.stringMatching(
+        /^fence\/no-store-in-component: row module imports the store: '\.\/store' reaches store\.ts/,
+      ),
     ])
     expect(await problems(ROW, `${PLANTED}/row.tsx`)).toEqual([])
   })
 
   it('PLANTED: a row reaching the store through a helper is red, naming the chain', async () => {
-    const planted = ROW.replace("import { label } from './format'", "import { label } from './format'\nimport { usePool } from './hooks'") + '\nvoid usePool\n'
+    const planted =
+      ROW.replace(
+        "import { label } from './format'",
+        "import { label } from './format'\nimport { usePool } from './hooks'",
+      ) + '\nvoid usePool\n'
     expect(await problems(planted, `${PLANTED}/row.tsx`)).toEqual([
       expect.stringMatching(/reaches hooks\.ts → store\.ts/),
     ])
   })
 
   it('PLANTED: a component file (JSX) importing the store by value is red; `import type` passes', async () => {
-    const planted = LIST.replace("import type { Pool } from './store'", "import { Pool } from './store'")
+    const planted = LIST.replace(
+      "import type { Pool } from './store'",
+      "import { Pool } from './store'",
+    )
     expect(await problems(planted, `${PLANTED}/list.tsx`)).toEqual([
       expect.stringMatching(/component file imports the store/),
     ])
@@ -106,16 +128,25 @@ describe('table walk outside the enumeration module', () => {
     ['Array.from', 'n += Array.from(pool.sessions).length'],
   ]
   it.each(walks)('PLANTED: %s over a shared table in a component is red', async (how, walk) => {
-    const planted = LIST.replace('  return (\n', `  let n = 0\n  ${walk}\n  return (\n`).replace('data-rows={pool.issues.size}', 'data-rows={n}')
+    const planted = LIST.replace('  return (\n', `  let n = 0\n  ${walk}\n  return (\n`).replace(
+      'data-rows={pool.issues.size}',
+      'data-rows={n}',
+    )
     const found = await problems(planted, `${PLANTED}/list.tsx`)
-    expect(found).toEqual([expect.stringMatching(new RegExp(`^fence/no-table-walk: ${how.replace(/[.()[\]]/g, '\\$&')} over shared table`))])
+    expect(found).toEqual([
+      expect.stringMatching(
+        new RegExp(`^fence/no-table-walk: ${how.replace(/[.()[\]]/g, '\\$&')} over shared table`),
+      ),
+    ])
   })
 
   it('the same walk inside the declared enumeration module passes', async () => {
     const code = `import type { Pool } from './store'\nexport function count(pool: Pool): number {\n  let n = 0\n  for (const id of pool.issues.keys()) n += id.length\n  return n\n}\n`
     expect(await problems(code, `${PLANTED}/visible.ts`)).toEqual([])
     expect(await problems(code, `${PLANTED}/other.ts`)).toEqual([
-      expect.stringMatching(/^fence\/no-table-walk: \.keys\(\) over shared table "issues" outside the enumeration module \(visible\.ts\)/),
+      expect.stringMatching(
+        /^fence\/no-table-walk: \.keys\(\) over shared table "issues" outside the enumeration module \(visible\.ts\)/,
+      ),
     ])
   })
 
@@ -129,7 +160,9 @@ describe('RowShell component at module scope (L1b addendum)', () => {
   it('PLANTED: an inline closure is red', async () => {
     const planted = LIST.replace('component={Row}', 'component={(p) => <Row row={p.row} />}')
     expect(await problems(planted, `${PLANTED}/list.tsx`)).toEqual([
-      expect.stringMatching(/^fence\/row-component-module-scope: RowShell component must be an identifier/),
+      expect.stringMatching(
+        /^fence\/row-component-module-scope: RowShell component must be an identifier/,
+      ),
     ])
   })
 
@@ -145,16 +178,24 @@ describe('RowShell component at module scope (L1b addendum)', () => {
 
   it('PLANTED: createElement(RowShell, { component: inline }) is red', async () => {
     const code = `import { createElement } from 'react'\nimport { RowShell } from '../../../../../shared/src/row-shell'\nimport { Row } from './row'\nexport const make = (view: never) => createElement(RowShell, { row: view, component: (p: never) => createElement(Row, p) })\n`
-    expect(await problems(code, `${PLANTED}/make.ts`)).toEqual([expect.stringMatching(/must be an identifier/)])
+    expect(await problems(code, `${PLANTED}/make.ts`)).toEqual([
+      expect.stringMatching(/must be an identifier/),
+    ])
   })
 })
 
 describe('wall clock', () => {
   it('PLANTED: Date.now in an arm is red, in source and in tests, in frozen arms too', async () => {
     const code = 'export const now = (): number => Date.now()\n'
-    expect(await problems(code, `${PLANTED}/clock.ts`)).toEqual([expect.stringMatching(/^fence\/no-wall-clock/)])
-    expect(await problems(code, `${PLANTED}/clock.test.ts`)).toEqual([expect.stringMatching(/^fence\/no-wall-clock/)])
-    expect(await problems(code, 'arms/hand/clock.ts', realLint)).toEqual([expect.stringMatching(/^fence\/no-wall-clock/)])
+    expect(await problems(code, `${PLANTED}/clock.ts`)).toEqual([
+      expect.stringMatching(/^fence\/no-wall-clock/),
+    ])
+    expect(await problems(code, `${PLANTED}/clock.test.ts`)).toEqual([
+      expect.stringMatching(/^fence\/no-wall-clock/),
+    ])
+    expect(await problems(code, 'arms/hand/clock.ts', realLint)).toEqual([
+      expect.stringMatching(/^fence\/no-wall-clock/),
+    ])
     expect(await problems('export const t = new Date()\n', `${PLANTED}/clock.ts`)).toEqual([
       expect.stringMatching(/new Date\(\) reads it too/),
     ])
@@ -164,21 +205,34 @@ describe('wall clock', () => {
 
 describe('hidden state (the copy sweep cannot see it)', () => {
   it('PLANTED: module-scope let, new Map and observable() are red; a module-scope constant passes', async () => {
-    expect(await problems('export let cache = 0\n', `${PLANTED}/state.ts`)).toEqual([expect.stringMatching(/module-scope `let`/)])
-    expect(await problems('export const rows = new Map<string, object>()\n', `${PLANTED}/state.ts`)).toEqual([
-      expect.stringMatching(/module-scope new Map\(\)/),
+    expect(await problems('export let cache = 0\n', `${PLANTED}/state.ts`)).toEqual([
+      expect.stringMatching(/module-scope `let`/),
     ])
-    expect(await problems("import { observable } from 'mobx'\nexport const box = observable.box(0)\n", `${PLANTED}/state.ts`)).toEqual([
-      expect.stringMatching(/module-scope observable/),
-    ])
+    expect(
+      await problems('export const rows = new Map<string, object>()\n', `${PLANTED}/state.ts`),
+    ).toEqual([expect.stringMatching(/module-scope new Map\(\)/)])
+    expect(
+      await problems(
+        "import { observable } from 'mobx'\nexport const box = observable.box(0)\n",
+        `${PLANTED}/state.ts`,
+      ),
+    ).toEqual([expect.stringMatching(/module-scope observable/)])
     expect(await problems('export const LIMIT = 3\n', `${PLANTED}/state.ts`)).toEqual([])
   })
 
   it('PLANTED: a #private field is red; a TypeScript private field passes', async () => {
-    expect(await problems('export class Pool {\n  #rows = new Map()\n  size(): number { return this.#rows.size }\n}\n', `${PLANTED}/pool.ts`)).toEqual([
-      expect.stringMatching(/#private field hides state/),
-    ])
-    expect(await problems('export class Pool {\n  private rows = new Map()\n  size(): number { return this.rows.size }\n}\n', `${PLANTED}/pool.ts`)).toEqual([])
+    expect(
+      await problems(
+        'export class Pool {\n  #rows = new Map()\n  size(): number { return this.#rows.size }\n}\n',
+        `${PLANTED}/pool.ts`,
+      ),
+    ).toEqual([expect.stringMatching(/#private field hides state/)])
+    expect(
+      await problems(
+        'export class Pool {\n  private rows = new Map()\n  size(): number { return this.rows.size }\n}\n',
+        `${PLANTED}/pool.ts`,
+      ),
+    ).toEqual([])
   })
 })
 

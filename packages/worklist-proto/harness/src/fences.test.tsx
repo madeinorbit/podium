@@ -15,7 +15,7 @@
  * The fence's NO is the legacy control's heartbeat (`control.test.tsx`).
  */
 
-import { readdirSync, existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
@@ -32,9 +32,16 @@ const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
   : join(process.cwd(), 'packages', 'worklist-proto')
 const ARMS_DIR = join(PACKAGE_DIR, 'arms')
 
-function summary(steps: { result: { methodology: string; oracleChangedRows: string[] | null; drawnRows: string[] | null } }[]): string {
+function summary(
+  steps: {
+    result: { methodology: string; oracleChangedRows: string[] | null; drawnRows: string[] | null }
+  }[],
+): string {
   return steps
-    .map(({ result }) => `${result.methodology}:${result.oracleChangedRows?.length ?? '∅'}/${result.drawnRows?.length ?? '∅'}`)
+    .map(
+      ({ result }) =>
+        `${result.methodology}:${result.oracleChangedRows?.length ?? '∅'}/${result.drawnRows?.length ?? '∅'}`,
+    )
     .join(' ')
 }
 
@@ -49,9 +56,13 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
         assertCommits(result)
       })
       console.info(`[fences] reference changed/drawn per scenario: ${summary(steps)}`)
-      expect(steps.map((step) => step.result.methodology)).toEqual(FENCE_SCENARIOS.map((entry) => entry.methodology))
+      expect(steps.map((step) => step.result.methodology)).toEqual(
+        FENCE_SCENARIOS.map((entry) => entry.methodology),
+      )
       // Not 0 == 0: these scenarios change visible rows by construction.
-      const changed = Object.fromEntries(steps.map(({ result }) => [result.methodology, result.oracleChangedRows?.length ?? 0]))
+      const changed = Object.fromEntries(
+        steps.map(({ result }) => [result.methodology, result.oracleChangedRows?.length ?? 0]),
+      )
       for (const methodology of ['#2', '#3', '#4', '#5', '#7', '#10']) {
         expect(changed[methodology], `${methodology} must change a visible row`).toBeGreaterThan(0)
       }
@@ -70,12 +81,17 @@ for (const entry of ROUND_THREE_ARMS) {
       const source = createRowSource(ctx.engine, ctx.replica, { mode: entry.mode })
       const mounted = mountArmForCounts(entry.armFor(ctx), source.source, engineLocals(ctx))
       try {
-        const steps = await runFenceScenarios(mounted, ctx, source.flush, ({ result, readsBudget }) => {
-          expect(result.parity, `${result.scenario}: ${result.parityDiff ?? ''}`).toBe(true)
-          assertCommits(result)
-          if (readsBudget !== null) assertReads(result, { readsPerChange: readsBudget })
-          mounted.reads.assertNoCopies(mounted.handle)
-        })
+        const steps = await runFenceScenarios(
+          mounted,
+          ctx,
+          source.flush,
+          ({ result, readsBudget }) => {
+            expect(result.parity, `${result.scenario}: ${result.parityDiff ?? ''}`).toBe(true)
+            assertCommits(result)
+            if (readsBudget !== null) assertReads(result, { readsPerChange: readsBudget })
+            mounted.reads.assertNoCopies(mounted.handle)
+          },
+        )
         console.info(`[fences] ${entry.name} changed/drawn per scenario: ${summary(steps)}`)
       } finally {
         mounted.unmount()
@@ -89,7 +105,9 @@ for (const entry of ROUND_THREE_ARMS) {
 describe('roster', () => {
   it('names exactly the arm folders that carry a fence manifest', () => {
     const manifests = readdirSync(ARMS_DIR, { withFileTypes: true })
-      .filter((dirent) => dirent.isDirectory() && existsSync(join(ARMS_DIR, dirent.name, 'fence.json')))
+      .filter(
+        (dirent) => dirent.isDirectory() && existsSync(join(ARMS_DIR, dirent.name, 'fence.json')),
+      )
       .map((dirent) => dirent.name)
       .sort()
     expect(ROUND_THREE_ARMS.map((entry) => entry.folder).sort()).toEqual(manifests)
