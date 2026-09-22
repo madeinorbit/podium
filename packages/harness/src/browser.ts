@@ -51,6 +51,7 @@
  */
 
 import type { AgentKind, BuiltinHarnessKind } from '@podium/model'
+import type { HarnessDescriptorWire, ModelChoiceWire } from '@podium/protocol'
 
 /**
  * Which harnesses have a NATIVE all-tools-off mechanism.
@@ -117,3 +118,373 @@ export {
  */
 export { decodeCursor, encodeCursor } from './store/cursor-codec'
 export { streamIdOfCursor, streamItemIdOf } from './store/stream-identity'
+
+// ---------------------------------------------------------------------------
+// Wire descriptors (POD-4475): the DATA half of the harness contract.
+// ---------------------------------------------------------------------------
+//
+// The wire descriptor is serialisable DATA (label, brand, icon, catalog,
+// login copy, client capability flags); bundled browser CODE (composer
+// extract/injectable/clearSequence/verify) is NOT served and stays here, in
+// this entry, for harnesses the client build knows — composer interpretation
+// is authoritative on the daemon, which serves the resulting state.
+//
+// TWO READERS, ONE STATEMENT. The per-harness rows live in
+// `adapters/<harness>/{descriptor,catalog}.ts` (pure literals + a type-only
+// import, so this entry may bundle them without pulling the manifests, the
+// transcript grammars, or sqlite). The served builder (`descriptors.ts`,
+// host-only) reads the SAME rows and overlays machine availability; the
+// bundled fallback below reads them with availability unknown. An older
+// client renders a NEW harness from the served report inside the schema it
+// already has; it does not acquire a new interaction model.
+//
+// The imports below name no harness: each row keys itself by its own `kind`,
+// so adding a harness is adding two files, never editing a key set here.
+
+import { claudeCodeCatalog } from './adapters/claude-code/catalog.js'
+import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
+import { codexCatalog } from './adapters/codex/catalog.js'
+import { codexDescriptor } from './adapters/codex/descriptor.js'
+import { cursorCatalog } from './adapters/cursor/catalog.js'
+import { cursorDescriptor } from './adapters/cursor/descriptor.js'
+import { grokCatalog } from './adapters/grok/catalog.js'
+import { grokDescriptor } from './adapters/grok/descriptor.js'
+import { opencodeCatalog } from './adapters/opencode/catalog.js'
+import { opencodeDescriptor } from './adapters/opencode/descriptor.js'
+import { piCatalog } from './adapters/pi/catalog.js'
+import { piDescriptor } from './adapters/pi/descriptor.js'
+import type {
+  HarnessCatalogData,
+  HarnessDescriptorData,
+} from './descriptor-types.js'
+
+/** Wire schema version the bundled rows speak. */
+export const BUNDLED_DESCRIPTOR_SCHEMA_VERSION = 1
+
+const BUNDLED_ROWS: readonly (readonly [HarnessDescriptorData, HarnessCatalogData])[] = [
+  [claudeCodeDescriptor, claudeCodeCatalog],
+  [codexDescriptor, codexCatalog],
+  [grokDescriptor, grokCatalog],
+  [opencodeDescriptor, opencodeCatalog],
+  [cursorDescriptor, cursorCatalog],
+  [piDescriptor, piCatalog],
+]
+
+function bundledRowToWire(
+  data: HarnessDescriptorData,
+  catalog: HarnessCatalogData,
+): HarnessDescriptorWire {
+  return {
+    schemaVersion: BUNDLED_DESCRIPTOR_SCHEMA_VERSION,
+    kind: data.kind,
+    label: data.label,
+    shortLabel: data.shortLabel,
+    icon: { ...data.icon },
+    ...(data.brand ? { brand: { ...data.brand } } : {}),
+    capabilities: { ...data.capabilities },
+    catalog: {
+      models: catalog.models.map((model) => ({ ...model })),
+      efforts: [...catalog.efforts],
+      liveMerge: catalog.liveMerge,
+    },
+    ...(data.login.command !== null ||
+    data.login.installHint !== null ||
+    data.login.signedOutHint !== null
+      ? {
+          login: {
+            ...(data.login.command !== null ? { command: data.login.command } : {}),
+            ...(data.login.installHint !== null ? { installHint: data.login.installHint } : {}),
+            ...(data.login.signedOutHint !== null
+              ? { signedOutHint: data.login.signedOutHint }
+              : {}),
+          },
+        }
+      : {}),
+    ...(data.defaults.model !== null || data.defaults.effort !== null
+      ? {
+          defaults: {
+            ...(data.defaults.model !== null ? { model: data.defaults.model } : {}),
+            ...(data.defaults.effort !== null ? { effort: data.defaults.effort } : {}),
+          },
+        }
+      : {}),
+    // No `available` (no machine connected) and no `sections` (the matrix
+    // derivation is served-only): both are optional and their absence
+    // renders — availability unknown means enabled, refused honestly at
+    // spawn when the machine answers.
+  }
+}
+
+/**
+ * The bundled fallback: every harness THIS BUILD knows, without a machine.
+ * Served descriptors overlay these by kind (served wins); kinds only the
+ * report names are appended. Clients always render through
+ * {@link resolveDescriptors}, never this list directly.
+ */
+export const BUNDLED_DESCRIPTORS: readonly HarnessDescriptorWire[] = BUNDLED_ROWS.map(
+  ([data, catalog]) => bundledRowToWire(data, catalog),
+)
+
+/** The bundled row for a harness this build knows, or `undefined`. */
+export function bundledDescriptorFor(kind: string): HarnessDescriptorWire | undefined {
+  return BUNDLED_DESCRIPTORS.find((candidate) => candidate.kind === kind)
+}
+
+/** A served-or-bundled descriptor as clients render it. */
+export type ResolvedDescriptor = HarnessDescriptorWire
+
+/**
+ * Merge served descriptors over the bundled fallback. Served wins by kind;
+ * report-only kinds (a NEWER harness) are appended in report order. Pure and
+ * total: an empty report renders the bundled set, and unknown entries never
+ * throw — see {@link parseServedDescriptors}.
+ */
+export function resolveDescriptors(
+  served: readonly HarnessDescriptorWire[],
+): HarnessDescriptorWire[] {
+  const byKind = new Map(BUNDLED_DESCRIPTORS.map((data) => [data.kind, data]))
+  for (const descriptor of served) byKind.set(descriptor.kind, descriptor)
+  return [...byKind.values()]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+/**
+ * Parse a served `descriptors` frame field WITHOUT the registry, WITHOUT
+ * zod, and without throwing — this is what a client build that has never
+ * heard of the harness runs. Unknown fields are ignored; missing optionals
+ * fall back (capabilities fail closed to all-false, the catalog to empty,
+ * the icon to a blank mark the renderer replaces with an initial); an entry
+ * without a usable kind+label is skipped, never guessed. A non-array frame
+ * parses to no descriptors.
+ *
+ * No zod here on purpose: the mobile bundle does not carry it, and the
+ * tolerance (ignore extras, default missing, skip invalid) is three lines
+ * spelled out rather than a schema option set.
+ */
+export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] {
+  if (!Array.isArray(frame)) return []
+  const out: HarnessDescriptorWire[] = []
+  for (const entry of frame) {
+    if (!isRecord(entry)) continue
+    const kind = asString(entry.kind)
+    const label = asString(entry.label)
+    if (!kind || !label) continue
+    const icon = isRecord(entry.icon) ? entry.icon : undefined
+    const capabilities = isRecord(entry.capabilities) ? entry.capabilities : undefined
+    const catalog = isRecord(entry.catalog) ? entry.catalog : undefined
+    const brand = isRecord(entry.brand) ? entry.brand : undefined
+    const login = isRecord(entry.login) ? entry.login : undefined
+    const defaults = isRecord(entry.defaults) ? entry.defaults : undefined
+    const available = isRecord(entry.available) ? entry.available : undefined
+    const brandBg = asString(brand?.bg)
+    const brandFg = asString(brand?.fg)
+    const iconId = asString(icon?.id) ?? kind
+    const iconViewBox = asString(icon?.viewBox) ?? ''
+    const iconD = asString(icon?.d) ?? ''
+    const models = Array.isArray(catalog?.models)
+      ? catalog.models.flatMap((model) => {
+          if (!isRecord(model)) return []
+          const value = asString(model.value)
+          const modelLabel = asString(model.label)
+          if (!value || !modelLabel) return []
+          const efforts = Array.isArray(model.efforts)
+            ? model.efforts.filter((effort): effort is string => typeof effort === 'string')
+            : undefined
+          return [{ value, label: modelLabel, ...(efforts ? { efforts } : {}) }]
+        })
+      : []
+    const efforts = Array.isArray(catalog?.efforts)
+      ? catalog.efforts.filter((effort): effort is string => typeof effort === 'string')
+      : []
+    const command = asString(login?.command)
+    const installHint = asString(login?.installHint)
+    const signedOutHint = asString(login?.signedOutHint)
+    const defaultModel = asString(defaults?.model)
+    const defaultEffort = asString(defaults?.effort)
+    out.push({
+      schemaVersion: typeof entry.schemaVersion === 'number' ? entry.schemaVersion : 1,
+      kind,
+      label,
+      shortLabel: asString(entry.shortLabel) ?? label,
+      icon: { id: iconId, viewBox: iconViewBox, d: iconD },
+      ...(brandBg && brandFg ? { brand: { bg: brandBg, fg: brandFg } } : {}),
+      capabilities: {
+        argvPrompt: capabilities?.argvPrompt === true,
+        effort: capabilities?.effort === true,
+        systemPrompt: capabilities?.systemPrompt === true,
+      },
+      catalog: {
+        models,
+        efforts,
+        liveMerge:
+          typeof catalog?.liveMerge === 'string' && catalog.liveMerge.length > 0
+            ? catalog.liveMerge
+            : 'live-wins-when-non-empty',
+      },
+      ...(command !== undefined || installHint !== undefined || signedOutHint !== undefined
+        ? {
+            login: {
+              ...(command !== undefined ? { command } : {}),
+              ...(installHint !== undefined ? { installHint } : {}),
+              ...(signedOutHint !== undefined ? { signedOutHint } : {}),
+            },
+          }
+        : {}),
+      ...(defaultModel !== undefined || defaultEffort !== undefined
+        ? {
+            defaults: {
+              ...(defaultModel !== undefined ? { model: defaultModel } : {}),
+              ...(defaultEffort !== undefined ? { effort: defaultEffort } : {}),
+            },
+          }
+        : {}),
+      ...(available
+        ? {
+            available: {
+              installed: available.installed === true,
+              loggedIn: available.loggedIn === true,
+            },
+          }
+        : {}),
+      ...(Array.isArray(entry.sections)
+        ? {
+            sections: entry.sections.flatMap((section) => {
+              if (!isRecord(section)) return []
+              const name = asString(section.section)
+              if (!name || typeof section.supported !== 'boolean') return []
+              return [{ section: name, supported: section.supported }]
+            }),
+          }
+        : {}),
+    })
+  }
+  return out
+}
+
+/** Stored sentinel meaning "no override — the agent/harness decides". */
+export const DESCRIPTOR_AUTO = 'auto'
+
+export interface DescriptorChoice {
+  value: string
+  label: string
+}
+
+/**
+ * The models to offer for a harness: the live list (from the CLI's `models`
+ * command, fetched by the server) when non-empty, else the static catalog.
+ * The `liveMerge` rule travels as data; the one rule clients implement today
+ * is live-wins-when-non-empty, and any spelling they do not know falls back
+ * to it rather than to an empty picker.
+ */
+export function descriptorModels(
+  descriptor: HarnessDescriptorWire,
+  live?: readonly ModelChoiceWire[],
+): readonly ModelChoiceWire[] {
+  void descriptor.catalog.liveMerge
+  return live && live.length > 0 ? live : descriptor.catalog.models
+}
+
+/** Model options with the `auto` default first. */
+export function modelOptionsForDescriptor(
+  descriptor: HarnessDescriptorWire,
+  live?: readonly ModelChoiceWire[],
+): DescriptorChoice[] {
+  return [{ value: DESCRIPTOR_AUTO, label: 'Auto' }, ...descriptorModels(descriptor, live)]
+}
+
+const EFFORT_LEVEL_LABELS: Record<string, string> = {
+  off: 'Off',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  ultra: 'Ultra',
+}
+
+/** Display label for an effort value; unknown rungs render verbatim. */
+export function effortLevelLabel(level: string): string {
+  return EFFORT_LEVEL_LABELS[level] ?? level
+}
+
+/** Effort options for the harness ladder, with the `auto` default first. */
+export function effortOptionsForDescriptor(
+  descriptor: HarnessDescriptorWire,
+  modelValue?: string | null,
+  live?: readonly ModelChoiceWire[],
+): DescriptorChoice[] {
+  const withAuto = (levels: readonly string[]): DescriptorChoice[] => [
+    { value: DESCRIPTOR_AUTO, label: 'Auto' },
+    ...levels.map((level) => ({ value: level, label: effortLevelLabel(level) })),
+  ]
+  if (!modelValue || modelValue === DESCRIPTOR_AUTO) {
+    return descriptor.capabilities.effort ? withAuto(descriptor.catalog.efforts) : []
+  }
+  const efforts = descriptorModels(descriptor, live).find((m) => m.value === modelValue)?.efforts
+  if (efforts !== undefined) {
+    if (efforts.length === 0) return []
+    return withAuto(efforts)
+  }
+  return descriptor.capabilities.effort ? withAuto(descriptor.catalog.efforts) : []
+}
+
+/** Display label for a stored model value; falls back to the raw value. */
+export function modelLabelForDescriptor(
+  descriptor: HarnessDescriptorWire,
+  value: string | null | undefined,
+  live?: readonly ModelChoiceWire[],
+): string {
+  if (!value || value === DESCRIPTOR_AUTO) return 'Auto'
+  return descriptorModels(descriptor, live).find((m) => m.value === value)?.label ?? value
+}
+
+/** Whether an effort value is offered for this harness (ladder or live). */
+export function isEffortValidForDescriptor(
+  descriptor: HarnessDescriptorWire,
+  value: string | null | undefined,
+  live?: readonly ModelChoiceWire[],
+): boolean {
+  if (!value || value === DESCRIPTOR_AUTO) return true
+  if (descriptor.catalog.efforts.includes(value)) return true
+  return descriptorModels(descriptor, live).some((model) => model.efforts?.includes(value))
+}
+
+/** Client operations a descriptor gates. Unknown strings fail closed. */
+export type GatedHarnessOperation = 'argv-prompt' | 'effort' | 'system-prompt'
+
+/** A typed refusal: the harness cannot do this operation. */
+export interface HarnessOperationRefusal {
+  kind: 'harness-operation-unsupported'
+  harness: string
+  operation: string
+}
+
+/**
+ * Refuse an operation the descriptor does not implement, or `undefined`
+ * when it does. Callers render the refusal (disabled control + reason)
+ * instead of misrouting — e.g. a first prompt for a harness without
+ * `argvPrompt` travels the durable outbox, never a guessed argv token.
+ */
+export function refuseUnsupportedOperation(
+  descriptor: HarnessDescriptorWire,
+  operation: GatedHarnessOperation | (string & {}),
+): HarnessOperationRefusal | undefined {
+  const supported =
+    operation === 'argv-prompt'
+      ? descriptor.capabilities.argvPrompt
+      : operation === 'effort'
+        ? descriptor.capabilities.effort
+        : operation === 'system-prompt'
+          ? descriptor.capabilities.systemPrompt
+          : false
+  if (supported) return undefined
+  return { kind: 'harness-operation-unsupported', harness: descriptor.kind, operation }
+}
