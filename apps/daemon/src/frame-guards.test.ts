@@ -30,6 +30,40 @@ describe('daemon frame guards', () => {
     )
   })
 
+  /**
+   * POD-4524 — the older-peer rule for the new `closeClientTerminal` frame. A
+   * daemon running a build that never saw the frame parses it exactly the way
+   * this guard parses any unknown `type` literal: the zod union rejects it,
+   * the frame is dropped with a throttled warn, nothing is answered (no
+   * requestId rides an uncorrelated command), and the connection keeps
+   * dispatching afterwards. Degrades, never breaks.
+   */
+  it('drops a frame type it has never seen and keeps dispatching', () => {
+    const onResult = vi.fn()
+    const ctx = context()
+    ctx.agentRelayHub.onResult = onResult
+    const warn = vi.fn()
+    const guard = createFrameGuard(ctx, { warn })
+
+    guard.receive(
+      Buffer.from(JSON.stringify({ type: 'futureFrameFromANewerBuild', sessionId: 's1' })),
+    )
+    const valid: ControlMessage = {
+      type: 'agentRelayResult',
+      requestId: 'req-1',
+      ok: true,
+      result: null,
+    }
+    guard.receive(Buffer.from(JSON.stringify(valid)))
+
+    expect(warn).toHaveBeenCalledWith(
+      'dropped a malformed control frame',
+      expect.objectContaining({ direction: 'inbound' }),
+    )
+    expect(ctx.send).not.toHaveBeenCalled()
+    expect(onResult).toHaveBeenCalledWith(valid)
+  })
+
   it('tolerates the benign malformed reattach frame and keeps dispatching', () => {
     const onResult = vi.fn()
     const ctx = context()

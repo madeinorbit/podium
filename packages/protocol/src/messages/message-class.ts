@@ -234,6 +234,11 @@ export const CONTROL_PLANE_CLASS = {
   sessionResumeRefConflict: 'control.command',
   transcriptMirrorRead: 'bulk.bulk',
   sessionPriority: 'control.command',
+  // POD-4524: the server's attach-TUI warm-park verdict. A command: it asks the
+  // daemon to close one session's client terminal, and a lost one is simply a
+  // missed evaluation for that unwatched window (the server sends once per
+  // window and re-arms only when the session is watched again; the pressure
+  // sweep and session teardown still reclaim) — never retried.
   closeClientTerminal: 'control.command',
   reclaimAttachments: 'control.command',
   scanRequest: 'control.command',
