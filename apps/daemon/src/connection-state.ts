@@ -25,10 +25,16 @@ import {
   type PeerHelloRejected,
 } from '@podium/protocol'
 import { isDurableRuntimeEvent, type DaemonMessage } from '@podium/protocol/daemon'
-import { stateDir } from '@podium/runtime/config'
+import { stateDir, loadConfig, resolveConnectBaseUrl } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
-import { applyServerUrl, consumePairCode, wssFrom } from '@podium/runtime/setup'
+import { resolveServerUrl } from '@podium/runtime/connect-locator'
+import {
+  applyServerUrl,
+  consumePairCode,
+  fetchTargetAppUrl,
+  wssFrom,
+} from '@podium/runtime/setup'
 import {
   acceptsUpdateKeyRotation,
   type UpdateKeyRotation,
@@ -154,6 +160,12 @@ export interface DaemonConnectionDeps {
   ) => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
+  /**
+   * Fetch for the Podium Connect locator read and the candidate `/version`
+   * probes (POD-4533). Injected so tests never touch the network; production
+   * uses the global fetch.
+   */
+  readonly locatorFetch?: typeof fetch
   readonly restartAfterUpdate?: () => void
 }
 
@@ -245,6 +257,13 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let consecutiveDrops = 0
   let closing = false
   let started = false
+  /**
+   * Whether the locator was already consulted since the last successful
+   * handshake (POD-4533). One attempt per outage: a failed dial and every
+   * drop after it share the same answer, and a healthy link never resolves.
+   * Reset on `established`, so the NEXT outage resolves again.
+   */
+  let locatorAttemptedThisOutage = false
   let lastSocketError: string | undefined
   let convergedVersion: string | undefined
   let activeServerUrl = options.serverUrl
@@ -417,6 +436,76 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     scheduleRuntimeEventRetry()
   }
 
+  /**
+   * THE LOCATOR RESCUE (POD-4533): one attempt per outage to find the server
+   * again through Podium Connect, then dial the answer instead of the dead URL.
+   *
+   * Triggered from `scheduleReconnect` only — a failed dial on startup, or a
+   * dropped link — never on a timer and never while healthy. A box paired
+   * before it learned its installation identity has nothing to verify a
+   * candidate against, so it skips the whole thing and backs off exactly as
+   * before. The write goes through `applyServerUrl`, the same path
+   * `podium set-server` uses, so there is exactly one way this box re-points.
+   */
+  const attemptLocatorResolution = async (): Promise<void> => {
+    if (closing || state === 'unauthorized' || state === 'blocked') return
+    let installationId: string | undefined
+    let installationPublicKey: string | undefined
+    let connectBaseUrl: string
+    try {
+      const config = loadConfig()
+      installationId = config.installationId
+      installationPublicKey = config.installationPublicKey
+      connectBaseUrl = resolveConnectBaseUrl(config, process.env)
+    } catch {
+      return
+    }
+    if (!installationId || !installationPublicKey) return
+    const fetchImpl = deps.locatorFetch ?? fetch
+    let resolved: string | undefined
+    try {
+      resolved = await resolveServerUrl({
+        installationId,
+        installationPublicKey,
+        connectBaseUrl,
+        currentServerUrl: activeServerUrl,
+        fetch: fetchImpl,
+      })
+    } catch {
+      return
+    }
+    if (!resolved || closing) return
+    // The UI origin belongs to the new deployment, same as a manual re-point.
+    const uiUrl = await fetchTargetAppUrl(resolved).catch(() => undefined)
+    let applied: { serverUrl: string }
+    try {
+      // No identity argument: same installation, new address — preserve it.
+      applied = applyServerUrl(resolved, uiUrl)
+    } catch (error) {
+      log.warn('could not adopt the resolved server URL', { err: error })
+      return
+    }
+    if (applied.serverUrl === activeServerUrl) return
+    activeServerUrl = applied.serverUrl
+    log.info('daemon adopted the resolved server URL', { serverUrl: applied.serverUrl })
+    if (reconnectTimer !== undefined) {
+      timers.clearTimeout(reconnectTimer)
+      reconnectTimer = undefined
+    }
+    reconnectBackoffMs = RECONNECT_MIN_MS
+    report({ state: 'connecting' })
+    connectSocket()
+  }
+
+  const maybeResolveLocator = (): void => {
+    if (options.localLink) return
+    if (locatorAttemptedThisOutage) return
+    locatorAttemptedThisOutage = true
+    void attemptLocatorResolution().catch((error) => {
+      log.warn('locator resolution failed; keeping the configured server URL', { err: error })
+    })
+  }
+
   const scheduleReconnect = (): void => {
     if (closing || reconnectTimer !== undefined || state === 'unauthorized' || state === 'blocked')
       return
@@ -463,6 +552,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       else connectSocket()
     }, delay)
     reconnectBackoffMs = Math.min(delay * 2, RECONNECT_MAX_MS)
+    // After the backoff is armed, so a rescue that finds nothing changes
+    // nothing: the timer above still dials the configured URL on schedule.
+    maybeResolveLocator()
   }
 
   const terminal = (
@@ -567,6 +659,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const recoveredFrom = lastSocketError
     const droppedBefore = consecutiveDrops
     consecutiveDrops = 0
+    // The outage is over: the next one resolves afresh. While this link stays
+    // up `scheduleReconnect` never runs, so no resolution happens either.
+    locatorAttemptedThisOutage = false
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
     log.info('daemon link established', {

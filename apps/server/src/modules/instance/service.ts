@@ -40,7 +40,9 @@ import {
   applyMode,
   applySetup,
   fetchRemoteAppUrl,
+  fetchServerIdentity,
   fetchTargetAppUrl,
+  fetchTargetServerIdentity,
   NETWORK_OPTIONS,
   networkOptionCommand,
   validatePublicUrl,
@@ -392,9 +394,12 @@ export class InstanceService {
   async join(code: string) {
     this.assertNotForced('mode', 'mode')
     const token = code.trim()
-    const uiUrl = await fetchTargetAppUrl(token)
+    const [uiUrl, identity] = await Promise.all([
+      fetchTargetAppUrl(token),
+      fetchTargetServerIdentity(token),
+    ])
     try {
-      return applyJoin(token, uiUrl)
+      return applyJoin(token, uiUrl, identity)
     } catch (e) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
     }
@@ -409,12 +414,12 @@ export class InstanceService {
     serverUrl?: string | undefined
   }) {
     this.assertNotForced('mode', 'mode')
-    const uiUrl =
-      input.mode === 'client' && input.serverUrl
-        ? await fetchRemoteAppUrl(input.serverUrl)
-        : undefined
+    const serverUrl = input.mode === 'client' ? input.serverUrl : undefined
+    const [uiUrl, identity] = serverUrl
+      ? await Promise.all([fetchRemoteAppUrl(serverUrl), fetchServerIdentity(serverUrl)])
+      : [undefined, undefined]
     try {
-      return applyMode({ ...input, uiUrl })
+      return applyMode({ ...input, uiUrl, identity })
     } catch (e) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
     }

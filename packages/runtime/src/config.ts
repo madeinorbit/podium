@@ -217,6 +217,28 @@ export const PodiumConfig = z.object({
   configVersion: z.number().int().positive().optional(),
   mode: PodiumMode.optional(),
   serverUrl: z.string().optional(),
+  /**
+   * THE SERVER THIS BOX IS PAIRED WITH (POD-4533): the installation id and
+   * wire-form public key the server named at pairing time (mobile envelopes
+   * carry both; daemon/client boxes learn them from the joined server's
+   * `/version`). They sit beside `serverUrl`/`uiUrl` because they answer the
+   * same question — "which server do I dial" — one step later: when the known
+   * URL goes dark, the box resolves the locator record and only adopts a
+   * candidate whose `/version` names this same installation.
+   *
+   * ABSENT on every box paired before this shipped, and absent stays a fully
+   * supported state: without both halves resolution stays off and the box
+   * dials exactly as it always has. Both-or-neither — a key without its id,
+   * or the reverse, is not an identity.
+   */
+  installationId: z
+    .string()
+    .regex(/^pdm_[A-Za-z0-9_-]{43}$/)
+    .optional(),
+  installationPublicKey: z
+    .string()
+    .regex(/^ed25519:[A-Za-z0-9_-]{43}$/)
+    .optional(),
   /** Immutable hosted workspace registry id carried by joined machines. */
   workspaceId: z.string().min(1).optional(),
   port: z.number().int().positive().optional(),
