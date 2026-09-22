@@ -43,6 +43,7 @@ import {
   type ReadStats,
 } from '../../shared/src/instrument/reads'
 import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
+import type { RowViews } from './oracle/row-views'
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -230,6 +231,14 @@ export interface CountInput {
   apply(): void | Promise<void>
   /** The oracle snapshot the arm must equal afterwards. */
   expected(): SliceSnapshot
+  /**
+   * The row-view oracle for the present state (`rowViewsFromStore`, or
+   * `projectRowViews` over a replay corpus). Called once BEFORE `apply` and
+   * once after; the rows whose view differs are the rows that must commit
+   * (POD-4563, `assertCommits`). Absent means "no commit cell", and
+   * `assertCommits` fails on it.
+   */
+  views?(): RowViews
 }
 
 export interface CountStats {
@@ -252,6 +261,18 @@ export interface CountResult {
   /** The fence's breakdown behind `readsPerChange`. */
   reads: ReadStats | null
   commitsByRow: Record<string, number>
+  /**
+   * POD-4563 — rows visible before AND after whose row view changed: the exact
+   * set that must redraw. `null` when the input supplied no `views`.
+   */
+  oracleChangedRows: string[] | null
+  /**
+   * Rows visible before and after that redrew: committed, or REmounted (a
+   * remount redraws). Sorted. `null` with `oracleChangedRows`.
+   */
+  drawnRows: string[] | null
+  /** Of `drawnRows`, the ones that remounted instead of committing. */
+  remountedRows: string[]
   /** Visible rows in the arm snapshot after the scenario (the isolation denominator). */
   visibleRows: number
   stats: CountStats
@@ -283,6 +304,33 @@ function firstDiff(actual: SliceSnapshot, expected: SliceSnapshot): string | nul
 }
 
 /**
+ * Rows present in both oracle states: which changed view, and which the arm
+ * redrew (committed, or remounted). A row entering or leaving the list mounts
+ * or unmounts; neither is a redraw, and neither is compared.
+ */
+function changedViews(
+  before: RowViews,
+  after: RowViews,
+  log: CommitLog,
+): { changed: string[]; drawn: string[]; remounted: string[] } {
+  const changed: string[] = []
+  const drawn: string[] = []
+  const remounted: string[] = []
+  for (const id of Object.keys(before)) {
+    if (!(id in after)) continue
+    if (!isDeepStrictEqual(before[id], after[id])) changed.push(id)
+    if ((log.mounts.get(id) ?? 0) > 0 && !log.counts.has(id)) remounted.push(id)
+  }
+  const both = new Set(Object.keys(before).filter((id) => id in after))
+  for (const id of log.counts.keys()) drawn.push(id)
+  // A committed id outside `both` (a row the oracle does not show, or one
+  // entering or leaving) still counts as drawn: the arm drew a row the oracle
+  // says did not change, which is an over-commit.
+  for (const id of remounted) if (both.has(id)) drawn.push(id)
+  return { changed: changed.sort(), drawn: [...new Set(drawn)].sort(), remounted: remounted.sort() }
+}
+
+/**
  * Reset counters, run the scenario input inside `act` (flushing effects and
  * coalesced microtask publications), then read commits, stats and parity.
  */
@@ -290,6 +338,9 @@ export async function runCountScenario(
   mounted: MountedArm,
   input: CountInput,
 ): Promise<CountResult> {
+  // The oracle BEFORE the change, from the oracle's own input (never the
+  // arm), so the reads fence reset below still starts the change at zero.
+  const viewsBefore = input.views?.() ?? null
   mounted.handle.stats.reset()
   mounted.log.reset()
   if (mounted.reads.enabled) mounted.reads.reset()
@@ -310,6 +361,7 @@ export async function runCountScenario(
   const commitsByRow: Record<string, number> = {}
   for (const [id, count] of mounted.log.counts) commitsByRow[id] = count
   const stats = mounted.handle.stats
+  const exact = viewsBefore === null || input.views === undefined ? null : changedViews(viewsBefore, input.views(), mounted.log)
   return {
     scenario: input.scenario,
     methodology: input.methodology,
@@ -317,6 +369,9 @@ export async function runCountScenario(
     readsPerChange: reads === null ? null : reads.rows,
     reads,
     commitsByRow,
+    oracleChangedRows: exact?.changed ?? null,
+    drawnRows: exact?.drawn ?? null,
+    remountedRows: exact?.remounted ?? [],
     visibleRows: Object.keys(snapshot.rowsById).length,
     stats: {
       rowsDerived: stats.rowsDerived,
@@ -359,6 +414,40 @@ export function assertIsolation(result: CountResult, budget: IsolationBudget): v
         `parity=${result.parity ? 'pass' : `FAIL ${result.parityDiff ?? ''}`}`,
     )
   }
+}
+
+// ------------------------------------------------------------- exact commits
+
+/**
+ * POD-4563 (L6a) — the exact-commit fence. The rows the arm redrew must EQUAL
+ * the rows whose view the oracle changed: set equality, no allowance list.
+ * Over-commit (a row redrew with an unchanged view) is the whole-list and
+ * subtree-sized work round two hid behind "≤ budget"; under-commit (a changed
+ * row did not redraw) is a stale screen that parity cannot see, because parity
+ * reads the arm's `snapshot()`, not what it drew.
+ *
+ * Throws on a missing commit cell (no `views` in the input): a scenario that
+ * was not compared fails, it is never a pass. Both directions and the missing
+ * cell are guarded in `count-harness.test.ts`; the legacy control must FAIL it
+ * on `unrelatedHeartbeat` (`control.test.tsx`).
+ */
+export function assertCommits(result: CountResult): void {
+  if (result.oracleChangedRows === null || result.drawnRows === null) {
+    throw new Error(
+      `[commits] ${result.scenario} (${result.methodology}): no commit cell — the input supplied no row-view oracle`,
+    )
+  }
+  const changed = new Set(result.oracleChangedRows)
+  const drawn = new Set(result.drawnRows)
+  const over = result.drawnRows.filter((id) => !changed.has(id))
+  const under = result.oracleChangedRows.filter((id) => !drawn.has(id))
+  if (over.length === 0 && under.length === 0) return
+  const list = (ids: string[]) => `${ids.slice(0, 8).join(',')}${ids.length > 8 ? `,…(${ids.length})` : ''}`
+  throw new Error(
+    `[commits] ${result.scenario} (${result.methodology}): drew ${drawn.size} rows, the oracle changed ${changed.size}. ` +
+      `over=[${list(over)}] under=[${list(under)}] remounted=[${list(result.remountedRows)}] ` +
+      `rowsCommitted=${result.rowsCommitted} parity=${result.parity ? 'pass' : `FAIL ${result.parityDiff ?? ''}`}`,
+  )
 }
 
 // ------------------------------------------------------------ reads budgets

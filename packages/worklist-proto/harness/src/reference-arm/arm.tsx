@@ -1,0 +1,155 @@
+/**
+ * POD-4563 (L6a) — the REFERENCE arm: the fence suite's "can say YES" arm.
+ *
+ * It is the oracle drawn through the round-three row contract. On every engine
+ * publication it recomputes every row view with `rowViewsFromStore` (the same
+ * function the fence compares against), keeps the previous view object when
+ * the new one is deep-equal, and renders one flat keyed list of memoised
+ * `RowShell` rows. So it redraws exactly the rows whose view changed — if, and
+ * only if, the harness mechanics are right: commits counted per row, mounts
+ * not counted, a moved row not remounted, the before/after oracle taken at the
+ * right instants. `fences.test.tsx` requires it to pass `assertCommits` on
+ * every scenario; the legacy control is the arm that must fail.
+ *
+ * NOT A CANDIDATE. It reads the engine store, not the feed, and does
+ * whole-world work per change; it is exempt from the reads fence and the copy
+ * sweep, and it never appears in the round-three roster (`roster.ts`).
+ */
+
+import { isDeepStrictEqual } from 'node:util'
+import { createElement, memo, useSyncExternalStore, type ReactElement } from 'react'
+import { createRoot } from 'react-dom/client'
+import type { Arm, ArmHandle } from '../../../shared/src/arm'
+import { CommitLogContext, currentCommitLog, RowShell, type RowProps } from '../../../shared/src/row-shell'
+import type { RowView } from '../../../shared/src/row-view'
+import type { SliceLocals, SliceOrder, SliceSnapshot } from '../../../shared/src/slice-types'
+import type { ArmStats } from '../../../shared/src/stats'
+import type { LegacyControlEngine } from '../legacy-control/arm'
+import { rowViewsFromStore, snapshotFromStore, type RowViews } from '../oracle/index'
+
+interface ReferenceState {
+  order: SliceOrder
+  views: RowViews
+}
+
+function localsOf(engine: LegacyControlEngine): SliceLocals {
+  const store = engine.getSnapshot()
+  return { selectedIssueId: store.selectedIssueId ?? null, coarseNow: store.coarseNow }
+}
+
+function stateOf(engine: LegacyControlEngine, previous: ReferenceState | null): ReferenceState {
+  const store = engine.getSnapshot()
+  const locals = localsOf(engine)
+  const fresh = rowViewsFromStore(store, locals)
+  const views: RowViews = {}
+  for (const [id, view] of Object.entries(fresh)) {
+    const prior = previous?.views[id]
+    views[id] = prior !== undefined && isDeepStrictEqual(prior, view) ? prior : view
+  }
+  return { order: snapshotFromStore(store, locals).order, views }
+}
+
+const ReferenceRow = memo(function ReferenceRow({ row }: RowProps): ReactElement {
+  return (
+    <div data-issue-row={row.id} data-selected={row.selected ? 'true' : 'false'}>
+      {row.displayRef} {row.title} [{row.phase}
+      {row.working ? '*' : ''}
+      {row.asking ? '?' : ''}] {row.progressDone}/{row.progressTotal}
+      {row.originTick !== null ? ` ⤷${row.originTick.ref}` : ''}
+    </div>
+  )
+})
+
+const ReferenceSlot = memo(function ReferenceSlot({ view }: { view: RowView }): ReactElement {
+  return <RowShell row={view} component={ReferenceRow} />
+})
+
+function ReferenceList({
+  subscribe,
+  read,
+}: {
+  subscribe: (listener: () => void) => () => void
+  read: () => ReferenceState
+}): ReactElement {
+  const state = useSyncExternalStore(subscribe, read)
+  const ids = [
+    ...state.order.pinnedIds,
+    ...state.order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
+  ]
+  return (
+    <div data-reference-list>
+      {ids.map((id) => {
+        const view = state.views[id]
+        return view === undefined ? null : <ReferenceSlot key={id} view={view} />
+      })}
+    </div>
+  )
+}
+
+function zeroStats(): ArmStats {
+  const stats: ArmStats = {
+    rowsDerived: 0,
+    rollupsDerived: 0,
+    indexUpdates: 0,
+    notifications: 0,
+    reset(): void {
+      stats.rowsDerived = 0
+      stats.rollupsDerived = 0
+      stats.indexUpdates = 0
+      stats.notifications = 0
+    },
+  }
+  return stats
+}
+
+export function referenceArmFor(engine: LegacyControlEngine): Arm {
+  return {
+    create(): ArmHandle {
+      const stats = zeroStats()
+      let state = stateOf(engine, null)
+      const listeners = new Set<() => void>()
+      const off = engine.subscribe(() => {
+        stats.notifications += 1
+        state = stateOf(engine, state)
+        for (const listener of [...listeners]) listener()
+      })
+      const subscribe = (listener: () => void): (() => void) => {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      }
+      const read = (): ReferenceState => state
+      let webRoot: { unmount(): void } | null = null
+      return {
+        snapshot(): SliceSnapshot {
+          return snapshotFromStore(engine.getSnapshot(), { ...localsOf(engine), selectedIssueId: null })
+        },
+        stats,
+        dispose(): void {
+          off()
+          webRoot?.unmount()
+          webRoot = null
+        },
+        mountWeb(el: Element): () => void {
+          webRoot?.unmount()
+          const root = createRoot(el)
+          webRoot = root
+          const log = currentCommitLog()
+          root.render(
+            <CommitLogContext.Provider value={log}>
+              {createElement(ReferenceList, { subscribe, read })}
+            </CommitLogContext.Provider>,
+          )
+          return () => {
+            root.unmount()
+            if (webRoot === root) webRoot = null
+          }
+        },
+        mountNative(): ReactElement {
+          throw new Error('[reference] web lane only; the reference arm has no native list')
+        },
+      }
+    },
+  }
+}

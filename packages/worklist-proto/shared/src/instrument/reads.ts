@@ -41,12 +41,22 @@
  * feed swallows listener errors, so `stats()` re-throws the first recorded
  * violation, forever, and a count run on a violating arm fails.
  *
- * WHAT THE RUNTIME DOES NOT CLOSE. An arm that copies every borrowed row's
- * fields into objects of its own at insert time is counted once at the copy
- * and never again. The wrapped tables refuse such values, but an arm could
- * keep a second, unwrapped container. That shape is a review and lint item
- * (L6a), stated in `docs/plans/pod-4441-harness.md`, not something this module
- * pretends to catch.
+ * THE COPY SWEEP (POD-4563, L6a). An arm that copies a borrowed row's fields
+ * into an object of its own is counted once at the copy and never again. The
+ * wrapped tables refuse such values, so the copy would live in a second,
+ * unwrapped container. `fence.assertNoCopies(handle)` walks everything
+ * reachable from the arm handle by reflection (own data properties, symbol
+ * keys, Map and Set entries; getters are never invoked, borrowed rows and
+ * fenced tables are never touched) and fails on any object that carries a fed
+ * row's key plus two or more of that row's own field values outside the
+ * row-view vocabulary (`COPY_EXEMPT_FIELDS`). It also fails when the walk
+ * reaches none of the wrapped tables: then it cannot see the arm's state, and
+ * silence would be a pass by blindness.
+ *
+ * WHAT THE SWEEP CANNOT SEE: state held only in a closure, a `#private` class
+ * field, or a WeakMap/WeakSet. The lint fence (`harness/lint/`) forbids
+ * module-scope state and `#private` fields in arm code; closures and weak
+ * collections stay a review item.
  */
 
 import type { RowSource } from '../arm'
@@ -116,10 +126,61 @@ export interface ReadFence {
   touch(entity: string, id: string, via: ReadVia): void
   /** True when `value` is a row this fence's feed handed out. */
   isBorrowed(value: unknown): boolean
+  /**
+   * POD-4563 — walk everything reachable from `root` (the arm handle) and fail
+   * on a copy of a fed row held outside the wrapped tables, or when the walk
+   * reaches no wrapped table (see "THE COPY SWEEP" above). Returns what it
+   * walked. THROWS when the fence is disabled, like `stats()`.
+   */
+  assertNoCopies(root: object): CopySweep
   /** Reads since the last reset. THROWS when the fence is disabled. */
   stats(): ReadStats
   reset(): void
 }
+
+/** What one copy sweep walked. */
+export interface CopySweep {
+  /** Objects visited (borrowed rows and fenced tables excluded). */
+  objects: number
+  /** Wrapped tables (raw or fenced view) the walk reached. */
+  tables: number
+}
+
+/**
+ * Fields a derived object may legitimately share with a fed row: the row
+ * view's vocabulary (`RowView`, `RowOriginTick`), which copies an issue's
+ * title, seq, createdAt, sortKey and pinned by contract.
+ */
+export const COPY_EXEMPT_FIELDS: ReadonlySet<string> = new Set([
+  'id',
+  'displayRef',
+  'title',
+  'phase',
+  'progressDone',
+  'progressTotal',
+  'working',
+  'asking',
+  'band',
+  'repoKey',
+  'closed',
+  'selected',
+  'originTick',
+  'activityAt',
+  'workingSince',
+  'pinned',
+  'sortKey',
+  'createdAt',
+  'seq',
+  'foldAt',
+  'dismissed',
+  'ref',
+])
+
+/** Own field values a copy must share with its row, beyond the key, to count as one. */
+const COPY_THRESHOLD = 2
+/** A walk larger than this fails: an arm handle does not reach a million objects. */
+const SWEEP_LIMIT = 1_000_000
+const ROW_KEYS = ['id', 'sessionId', 'path'] as const
 
 const TABLE_MEMBERS = new Set<PropertyKey>([
   'get',
@@ -165,6 +226,10 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
   const borrowedByRaw = new WeakMap<object, object>()
   const borrowed = new WeakSet<object>()
   const tableByRaw = new WeakMap<object, Map<string, object>>()
+  // The copy sweep's inputs: fenced table views, and the latest raw value fed
+  // under each row key (raw, so comparing against it counts nothing).
+  const fencedViews = new WeakSet<object>()
+  const rawByKey = new Map<string, object>()
   // Sticky: `reset()` never clears them. The feed swallows a throwing listener
   // (`row-source.ts` `emit`), so a throw alone could vanish; `stats()` re-throws
   // the first violation, and a poisoned fence fails every later count.
@@ -213,6 +278,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     })
     borrowedByRaw.set(value, proxy)
     borrowed.add(proxy)
+    rawByKey.set(id, value)
     return proxy
   }
 
@@ -282,6 +348,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         return Reflect.get(viewTarget, prop, receiver)
       },
     })
+    fencedViews.add(proxy)
     return proxy
   }
 
@@ -293,7 +360,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
   ): object {
     // Array methods (`map`, `filter`, `find`, `for…of`) read through [[Get]]
     // on the receiver, so counting index reads counts every element they visit.
-    return new Proxy(raw as unknown[], {
+    const view = new Proxy(raw as unknown[], {
       get(target, prop, receiver) {
         if (isIndex(prop)) {
           const index = Number(prop)
@@ -311,6 +378,8 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         violate(`[reads] table "${entity}" is a read-only view`)
       },
     })
+    fencedViews.add(view)
+    return view
   }
 
   function wrapTable(entity: string, raw: ReadTable, options: WrapTablesOptions): object {
@@ -341,6 +410,84 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
       violate(`[reads] ${from}.${relation} is not a declared relation (shared/src/schema.ts)`)
     }
     return spec.to
+  }
+
+  /** The fed row `value` is a copy of, or null. Reads raw values only. */
+  function copyOf(value: object): string | null {
+    const own = value as Record<string, unknown>
+    for (const keyField of ROW_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, keyField)
+      if (descriptor === undefined || typeof descriptor.value !== 'string') continue
+      const raw = rawByKey.get(descriptor.value) as Record<string, unknown> | undefined
+      if (raw === undefined) continue
+      let shared = 0
+      for (const field of Object.keys(value)) {
+        if (field === keyField || COPY_EXEMPT_FIELDS.has(field)) continue
+        if (!Object.hasOwn(raw, field) || raw[field] === undefined) continue
+        const mine = Object.getOwnPropertyDescriptor(own, field)
+        if (mine !== undefined && 'value' in mine && mine.value === raw[field]) shared += 1
+      }
+      if (shared >= COPY_THRESHOLD) return `${keyField}=${descriptor.value} (${shared} fields)`
+    }
+    return null
+  }
+
+  function sweep(root: object): CopySweep {
+    const seenObjects = new Set<object>()
+    const queue: object[] = [root]
+    let tables = 0
+    const copies: string[] = []
+    const Node = (globalThis as { Node?: new () => object }).Node
+    const push = (value: unknown): void => {
+      if ((typeof value === 'object' && value !== null) || typeof value === 'function') queue.push(value as object)
+    }
+    while (queue.length > 0) {
+      const current = queue.pop() as object
+      if (seenObjects.has(current)) continue
+      if (borrowed.has(current)) continue
+      if (fencedViews.has(current) || tableByRaw.has(current)) {
+        tables += 1
+        seenObjects.add(current)
+        continue
+      }
+      // Functions (closures are invisible anyway), DOM nodes and React roots
+      // carry no arm state the sweep could judge.
+      if (typeof current === 'function') continue
+      if (Node !== undefined && current instanceof Node) continue
+      if (Object.hasOwn(current, '_internalRoot')) continue
+      seenObjects.add(current)
+      if (seenObjects.size > SWEEP_LIMIT) {
+        violate(`[copies] the sweep passed ${SWEEP_LIMIT} objects without finishing; it cannot vouch for this arm`)
+      }
+      if (current instanceof Map) {
+        for (const [key, value] of Map.prototype.entries.call(current) as Iterable<[unknown, unknown]>) {
+          push(key)
+          push(value)
+        }
+      } else if (current instanceof Set) {
+        for (const value of Set.prototype.values.call(current) as Iterable<unknown>) push(value)
+      } else if (!Array.isArray(current)) {
+        const copy = copyOf(current)
+        if (copy !== null && copies.length < 8) copies.push(copy)
+      }
+      for (const key of Reflect.ownKeys(current)) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, key)
+        if (descriptor !== undefined && 'value' in descriptor) push(descriptor.value)
+      }
+    }
+    if (copies.length > 0) {
+      violate(
+        `[copies] the arm holds copies of fed rows outside its wrapped tables: ${copies.join('; ')}. ` +
+          `The pool stores the borrowed row object; derived objects carry only row-view fields.`,
+      )
+    }
+    if (tables === 0) {
+      violate(
+        `[copies] the sweep reached none of the arm's wrapped tables from the handle, so it cannot see the ` +
+          `arm's state; expose the pool on the handle (e.g. \`handle.pool\`)`,
+      )
+    }
+    return { objects: seenObjects.size, tables }
   }
 
   const fence: ReadFence = {
@@ -396,6 +543,12 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     },
     isBorrowed(value) {
       return typeof value === 'object' && value !== null && borrowed.has(value)
+    },
+    assertNoCopies(root) {
+      if (!enabled) {
+        throw new Error('[copies] the read fence is disabled (timing mode); a count run must enable it')
+      }
+      return sweep(root)
     },
     stats(): ReadStats {
       if (!enabled) {

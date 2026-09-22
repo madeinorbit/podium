@@ -15,6 +15,7 @@
 import { expect, it } from 'vitest'
 import {
   ancestorCount,
+  assertCommits,
   assertIsolation,
   assertReads,
   phaseChangeReadBudget,
@@ -87,4 +88,38 @@ it('budget helpers: phase change scales with the chain, never the family', () =>
   expect(ancestorCount('x', (id) => parents[id])).toBe(1)
   expect(phaseChangeReadBudget(0)).toBe(READ_BUDGETS.phaseChangePerLevel)
   expect(phaseChangeReadBudget(2)).toBe(3 * READ_BUDGETS.phaseChangePerLevel)
+})
+
+// ------------------------------------------------------------------ POD-4563
+// `assertCommits`, both directions (over and under), plus the missing cell.
+
+const withCommits = (changed: string[] | null, drawn: string[] | null, remounted: string[] = []) =>
+  ({
+    scenario: 'assertCommits-guard',
+    methodology: 'unit',
+    rowsCommitted: drawn?.length ?? 0,
+    oracleChangedRows: changed,
+    drawnRows: drawn,
+    remountedRows: remounted,
+    commitsByRow: {},
+    stats: {},
+    parity: true,
+    parityDiff: null,
+  }) as never
+
+it('assertCommits passes when the drawn rows equal the changed rows', () => {
+  expect(() => assertCommits(withCommits(['a', 'b'], ['a', 'b']))).not.toThrow()
+  expect(() => assertCommits(withCommits([], []))).not.toThrow()
+})
+
+it('assertCommits throws on an over-commit, naming the row', () => {
+  expect(() => assertCommits(withCommits(['a'], ['a', 'x']))).toThrow(/assertCommits-guard.*over=\[x\] under=\[\]/)
+})
+
+it('assertCommits throws on an under-commit (a changed row that did not redraw)', () => {
+  expect(() => assertCommits(withCommits(['a', 'b'], ['a']))).toThrow(/over=\[\] under=\[b\]/)
+})
+
+it('assertCommits throws on a missing commit cell instead of passing it', () => {
+  expect(() => assertCommits(withCommits(null, null))).toThrow(/no commit cell/)
 })

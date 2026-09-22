@@ -13,6 +13,9 @@
  *   every issue row, through the fenced store (`fenced-store.ts`) — and
  *   `assertReads` (budget 3) throws. The reads cell must equal the corpus,
  *   not merely exceed 3: a fence that counted one table would still exceed 3.
+ * - POD-4563: the same heartbeat changes no row view (the row-view oracle), so
+ *   the exact-commit fence's changed set is empty and every row the control
+ *   redraws is an over-commit: `assertCommits` throws.
  *
  * NEVER weaken this test (no raised budget, no `skip`, no filtering the
  * heartbeat to a visible session). If it goes green without a control change,
@@ -25,6 +28,7 @@ import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../../shared/src/row-source'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import {
+  assertCommits,
   assertIsolation,
   assertReads,
   mountArmForCounts,
@@ -33,7 +37,7 @@ import {
   runCountScenario,
   type CountResult,
 } from '../count-harness'
-import { snapshotFromStore } from '../oracle/index'
+import { rowViewsFromStore, snapshotFromStore } from '../oracle/index'
 import {
   startScenarioEngine,
   writeHeartbeat,
@@ -70,6 +74,7 @@ describe('legacy control (armed)', () => {
           source.flush()
         },
         expected: () => snapshotFromStore(ctx.engine.getSnapshot(), locals),
+        views: () => rowViewsFromStore(ctx.engine.getSnapshot(), locals),
       })
 
       // The can-say-YES guard: parity true on an empty list would be vacuous.
@@ -90,6 +95,15 @@ describe('legacy control (armed)', () => {
       // THE ARMED ASSERTION: the control FAILS the #1 budget (0 rows).
       expect(() => assertIsolation(result, { rowsCommitted: 0 })).toThrow(
         /committed \d+ rows, budget 0/,
+      )
+
+      // POD-4563 — THE ARMED COMMIT ASSERTION: the heartbeat changes no row
+      // view, so the exact set is empty, and every row the control redrew is
+      // an over-commit.
+      expect(result.oracleChangedRows).toEqual([])
+      expect(result.drawnRows?.length).toBeGreaterThan(0)
+      expect(() => assertCommits(result)).toThrow(
+        /\[commits\] unrelatedHeartbeat \(#1\): drew \d+ rows, the oracle changed 0\. over=\[/,
       )
 
       // POD-4557 — reads = whole corpus. Every session row and every issue

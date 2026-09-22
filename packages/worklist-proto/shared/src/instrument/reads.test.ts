@@ -217,3 +217,59 @@ describe('disabled (timing runs)', () => {
     expect(() => DISABLED_READ_FENCE.stats()).toThrow(/disabled/)
   })
 })
+
+// ------------------------------------------------------------------ POD-4563
+// The copy sweep: a planted copy outside the wrapped tables fails, the same
+// pool without the copy passes, and a sweep that cannot reach the pool fails.
+
+describe('copy sweep', () => {
+  function pool(fence: ReturnType<typeof createReadFence>) {
+    const sessions = borrowedSessions(fence, 3)
+    const tables = fence.wrapTables({ session: sessions })
+    return { sessions, tables }
+  }
+
+  it('passes a pool that stores the borrowed rows, with derived row-view objects beside it', () => {
+    const fence = createReadFence({ enabled: true })
+    const handle = {
+      pool: pool(fence),
+      views: new Map([['i1', { id: 'i1', title: 'x', seq: 1, working: true }]]),
+      buckets: new Map([['i1', new Set(['s0', 's1'])]]),
+    }
+    const sweep = fence.assertNoCopies(handle)
+    expect(sweep.tables).toBeGreaterThan(0)
+    expect(sweep.objects).toBeGreaterThan(3)
+    // The sweep reads raw values only: it charges no row to the change.
+    expect(fence.stats().rows).toBe(0)
+  })
+
+  it('PLANTED: fails on copies kept in a second, unwrapped container', () => {
+    const fence = createReadFence({ enabled: true })
+    const { sessions, tables } = pool(fence)
+    const copies = new Map<string, object>()
+    for (const [id, row] of sessions) copies.set(id, { ...(row as object) })
+    expect(() => fence.assertNoCopies({ pool: { sessions, tables }, copies })).toThrow(
+      /\[copies\] the arm holds copies of fed rows outside its wrapped tables: sessionId=s\d/,
+    )
+    // Sticky, like every other violation.
+    expect(() => fence.stats()).toThrow(/fence violated/)
+  })
+
+  it('PLANTED: finds a copy behind a symbol-keyed admin object (the MobX layout)', () => {
+    const fence = createReadFence({ enabled: true })
+    const { sessions, tables } = pool(fence)
+    const admin = Symbol('admin')
+    const model = { [admin]: { values: new Map([['value', { ...(sessions.get('s2') as object) }]]) } }
+    expect(() => fence.assertNoCopies({ tables, models: [model] })).toThrow(/sessionId=s2/)
+  })
+
+  it('fails when the walk reaches no wrapped table: silence would be blindness', () => {
+    const fence = createReadFence({ enabled: true })
+    pool(fence)
+    expect(() => fence.assertNoCopies({ unrelated: new Map() })).toThrow(/reached none of the arm's wrapped tables/)
+  })
+
+  it('refuses to run with the fence disabled', () => {
+    expect(() => DISABLED_READ_FENCE.assertNoCopies({})).toThrow(/disabled/)
+  })
+})

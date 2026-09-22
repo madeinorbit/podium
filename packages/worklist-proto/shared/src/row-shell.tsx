@@ -62,6 +62,13 @@ export interface CommitSink {
 /** Counts per row id since construction or the last `reset()`. */
 export interface CommitLog extends CommitSink {
   readonly counts: ReadonlyMap<string, number>
+  /**
+   * Mount-phase renders per row id (POD-4563). Not commits: a row appearing is
+   * not a redraw. The exact-commit fence reads it only for rows visible both
+   * before and after a change — a REmount of such a row redraws it.
+   */
+  readonly mounts: ReadonlyMap<string, number>
+  recordMount(rowId: string): void
   /** Total committed renders across all rows. */
   total(): number
   reset(): void
@@ -69,10 +76,15 @@ export interface CommitLog extends CommitSink {
 
 export function createCommitLog(): CommitLog {
   const counts = new Map<string, number>()
+  const mounts = new Map<string, number>()
   return {
     counts,
+    mounts,
     record(rowId: string): void {
       counts.set(rowId, (counts.get(rowId) ?? 0) + 1)
+    },
+    recordMount(rowId: string): void {
+      mounts.set(rowId, (mounts.get(rowId) ?? 0) + 1)
     },
     total(): number {
       let sum = 0
@@ -81,6 +93,7 @@ export function createCommitLog(): CommitLog {
     },
     reset(): void {
       counts.clear()
+      mounts.clear()
     },
   }
 }
@@ -164,7 +177,8 @@ export function CommitBoundary({ id, children }: { id: string; children: ReactNo
     <Profiler
       id={`worklist-row:${id}`}
       onRender={(_profilerId, phase) => {
-        if (phase !== 'mount') log.record(id)
+        if (phase === 'mount') log.recordMount(id)
+        else log.record(id)
       }}
     >
       {children}
