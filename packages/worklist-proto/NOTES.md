@@ -13,9 +13,11 @@ commits, the copy sweep and the lint fence".
   (round two's `allowOver`). New `harness/src/oracle/row-views.ts`; the L1b
   differential test now reads its views from it.
 - **A remount of a row visible before and after counts as a redraw.** Without
-  it a list that remounts every row on every change commits nothing and passes
-  (mutant proven: `rowsCommitted` 0, 211 remounts). The commit log records
-  mounts; `CommitBoundary` reports them.
+  it a list that remounts every row on every change commits nothing and passes.
+  Kept as a planted arm (`fences.planted.test.tsx`, coordinator review): it
+  fails the new fence and passes round two's isolation fence on the same run,
+  and removing the remount-to-redraw line turns that test red. The commit log
+  records mounts; `CommitBoundary` reports them.
 - **Rows entering or leaving are not compared** (a mount is not a redraw).
 - **Under happy-dom an arm must draw every visible row** (no layout: the
   round-two lists already degrade to a full render). A windowing arm that

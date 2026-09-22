@@ -18,7 +18,12 @@
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
-import { assertCommits, assertIsolation, type CountResult, mountArmForCounts } from './count-harness'
+import {
+  assertCommits,
+  assertIsolation,
+  type CountResult,
+  mountArmForCounts,
+} from './count-harness'
 import { engineLocals, FENCE_SCENARIOS, runFenceStep } from './fence-scenarios'
 import { type ReferencePlant, referenceArmFor } from './reference-arm/arm'
 
@@ -28,7 +33,11 @@ async function plantedStep(
 ): Promise<{ result: CountResult; visibleRootId: string }> {
   const ctx = await startScenarioEngine(1)
   const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-  const mounted = mountArmForCounts(referenceArmFor(ctx.engine, plant(ctx.targets)), source.source, engineLocals(ctx))
+  const mounted = mountArmForCounts(
+    referenceArmFor(ctx.engine, plant(ctx.targets)),
+    source.source,
+    engineLocals(ctx),
+  )
   try {
     const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
     if (entry === undefined) throw new Error(`no fence scenario ${methodology}`)
@@ -55,11 +64,16 @@ describe('planted arms: the exact-commit fence catches what parity cannot', () =
   }, 60_000)
 
   it('stale view: #2 under-commits the changed row', async () => {
-    const { result, visibleRootId } = await plantedStep(({ visibleRootId }) => ({ kind: 'stale', id: visibleRootId }), '#2')
+    const { result, visibleRootId } = await plantedStep(
+      ({ visibleRootId }) => ({ kind: 'stale', id: visibleRootId }),
+      '#2',
+    )
     expect(result.parity, result.parityDiff ?? '').toBe(true)
     expect(result.oracleChangedRows).toEqual([visibleRootId])
     expect(result.drawnRows).toEqual([])
-    expect(() => assertCommits(result)).toThrow(new RegExp(`over=\\[\\] under=\\[${visibleRootId}\\]`))
+    expect(() => assertCommits(result)).toThrow(
+      new RegExp(`over=\\[\\] under=\\[${visibleRootId}\\]`),
+    )
   }, 60_000)
 
   it('remount on every render: #1 fails the new fence and PASSES round two isolation on the same run', async () => {

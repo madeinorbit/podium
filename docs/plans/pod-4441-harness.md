@@ -277,10 +277,14 @@ selection and clock). `harness/src/fences.test.tsx` runs it:
   sweep. The roster must name exactly the `arms/*` folders with a
   `fence.json`.
 - the NO: the legacy control fails `assertCommits` on the heartbeat
-  (`control.test.tsx`: changed 0, drawn every visible row). Mutants of the
-  reference arm, each red with parity green: an unmemoised slot (#1: over, all
-  211 rows), a stale view (#2: under=[i17]), a remount per render (#1: over via
-  remounts, `rowsCommitted` 0 — the round-two isolation fence passes it).
+  (`control.test.tsx`: changed 0, drawn every visible row).
+- PLANTED ARMS (`harness/src/fences.planted.test.tsx`, `ReferencePlant` in the
+  reference arm), each red with parity green: an unmemoised slot (#1: over,
+  all 211 rows), a stale view (#2: under=[i17]), a remount per render (#1:
+  over via 211 remounts, `rowsCommitted` 0 — and on the same run round two's
+  `assertIsolation` passes, asserted). Armed: removing the remount-to-redraw
+  line reddens the remount test; forcing `over` empty reddens the unmemoised
+  and remount tests; forcing `under` empty reddens the stale test.
 
 **The copy sweep** (`fence.assertNoCopies(handle)`, `shared/src/instrument/
 reads.ts`). Walks everything reachable from the arm handle by reflection (own
@@ -305,6 +309,7 @@ clean twin, and lints the real `arms/` through the package config.
 
 ```bash
 bun run test:file -- packages/worklist-proto/harness/src/fences.test.tsx \
+  packages/worklist-proto/harness/src/fences.planted.test.tsx \
   packages/worklist-proto/harness/lint/fence-lint.test.ts \
   packages/worklist-proto/harness/src/count-harness.test.ts \
   packages/worklist-proto/harness/src/legacy-control/control.test.tsx \

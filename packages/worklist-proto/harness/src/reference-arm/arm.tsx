@@ -44,7 +44,10 @@ import { type RowViews, rowViewsFromStore, snapshotFromStore } from '../oracle/i
  *   REMOUNTS every row and commits none (round two's isolation fence, which
  *   counts commits only, passes it).
  */
-export type ReferencePlant = { kind: 'unmemoised' } | { kind: 'stale'; id: string } | { kind: 'remount' }
+export type ReferencePlant =
+  | { kind: 'unmemoised' }
+  | { kind: 'stale'; id: string }
+  | { kind: 'remount' }
 
 interface ReferenceState {
   order: SliceOrder
@@ -156,7 +159,10 @@ function zeroStats(): ArmStats {
   return stats
 }
 
-export function referenceArmFor(engine: LegacyControlEngine, plant: ReferencePlant | null = null): Arm {
+export function referenceArmFor(
+  engine: LegacyControlEngine,
+  plant: ReferencePlant | null = null,
+): Arm {
   return {
     create(): ArmHandle {
       const stats = zeroStats()
