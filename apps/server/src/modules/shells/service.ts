@@ -7,19 +7,32 @@
  * unmapped by design and never enter this mapping.
  *
  * ---------------------------------------------------------------------------
- * WHY CLAIM-BEFORE-CREATE, NOT CHECK-THEN-INSERT
+ * WHY CLAIM-BEFORE-CREATE, NOT CHECK-THEN-INSERT — AND WHAT ARBITRATES WHAT
  * ---------------------------------------------------------------------------
  * Two devices opening the same worktree at once must not create two shells.
  * `forWorktree` mints an id, claims the `(user, worktree)` row with INSERT
- * ... ON CONFLICT DO NOTHING, and only the winner spawns — the loser re-reads
- * the winner's row and never calls `createShell`. A check-then-insert passes
- * two sequential calls and proves nothing; the concurrency test races two
- * overlapping calls with a delayed create to prove the loser never spawns.
+ * ... ON CONFLICT DO NOTHING, and only the claim winner spawns. A
+ * check-then-insert passes two sequential calls and proves nothing; the
+ * concurrency test races two overlapping calls with a delayed create to prove
+ * the loser never spawns.
  *
- * A per-(user, worktree) in-process mutex serializes overlapping calls in this
- * process (both devices land on this server), so dead-shell replacement — an
- * upsert, which the PK cannot arbitrate — also spawns exactly once here. The
- * PK remains the cross-restart arbiter for the fresh-claim path.
+ * THE IN-PROCESS MUTEX IS THE CREATION ARBITER, NOT THE PK. Both devices land
+ * on one server process, and the per-(user, worktree) mutex serializes their
+ * overlapping calls — that, and only that, is what makes exactly one spawn
+ * here. The PK keeps the ROW single-valued, and it arbitrates fresh claims
+ * only once the winner's session exists (a loser that re-reads a live row
+ * attaches and never spawns). It does NOT arbitrate the in-flight window: a
+ * loser that re-reads between the winner's claim and the winner's create
+ * finds a row with no session, reads it as dead, and takes the replacement
+ * branch — a second shell overwriting the winner's row. Disabling only the
+ * mutex makes the concurrency test fail with two ids, PK intact.
+ *
+ * So two server processes racing one worktree are OUTSIDE this guarantee (one
+ * deployment runs one server). A crash between claim and create is fine the
+ * other way: the orphan row reads as dead and the next call correctly
+ * replaces it. Closing the cross-process window — the loser waiting for the
+ * winner's session instead of replacing — is a behaviour change, deliberately
+ * not done here.
  */
 
 import {

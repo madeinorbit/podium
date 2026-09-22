@@ -195,6 +195,35 @@ describe('DockShellService passthrough reads', () => {
   })
 })
 
+describe('the in-flight claim window (review finding)', () => {
+  const WINNER = asSessionId('44444444-4444-4444-8444-444444444444')
+
+  it('a loser that re-reads before the winner creates replaces the row', async () => {
+    // Two service instances over one store = two server processes: no shared
+    // mutex, so the loser's re-read lands inside the winner's claim→create
+    // window. The winner's ROW exists but its SESSION does not, the loser
+    // reads that as dead and takes the replacement branch.
+    const winnerClaimed = await shells.tryClaim(ALICE, WT, WINNER, new Date().toISOString())
+    expect(winnerClaimed).toBe(true)
+
+    const otherSessions = makeStub()
+    const other = new DockShellService({ dockShells: shells, sessions: otherSessions })
+    const loser = await other.forWorktree(ALICE, WT)
+
+    expect(loser.created).toBe(true)
+    expect(loser.sessionId).not.toBe(WINNER)
+    expect(otherSessions.creates).toBe(1)
+    expect(sessions.creates).toBe(0)
+    expect(await shells.get(ALICE, WT)).toBe(loser.sessionId)
+
+    // The winner finishing late does not move the mapping back: its session
+    // is orphaned, the replacer's row stands. That is the documented cost of
+    // leaving the cross-process window open.
+    sessions.rows.set(WINNER, liveShell(WINNER))
+    expect(await shells.get(ALICE, WT)).toBe(loser.sessionId)
+  })
+})
+
 describe('resolveDockShellOwner (step 3)', () => {
   const SHELL = asSessionId('33333333-3333-4333-8333-333333333333')
   const ISSUE_A = asIssueId('iss_aaaaaaaaaaaaaaaaaaaaaaaaaa')
