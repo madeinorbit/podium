@@ -9,7 +9,7 @@
  *
  * WHAT a1 CANNOT MEET, and where it lands. Parity: the a1 snapshot has no
  * order and stubs the roll-ups; the roster entry with every scenario and
- * parity is Ma4's (POD-4568). The commit fence on #4: `assertCommits`
+ * parity is Mb4's (POD-4572). The commit fence on #4: `assertCommits`
  * compares against the oracle's VISIBLE rows, and the a1 list draws every
  * issue (the visible collection is Mb1, POD-4569). #4 renames an origin, so
  * its hidden spin-off's ⤷ tick changes and is drawn, which the fence counts as

@@ -277,6 +277,38 @@ Now three changes.
    `S2.worktree` becomes `W` and `W.sessions += S2`. Work touched: one issue and
    one session, not the corpus.
 
+### 4.6 The resume-twin collapse (added by Ma2, POD-4566)
+
+The legacy runtime collapses session rows that point at the same agent
+conversation before anything reads them: `dedupeSessionsByResume`
+(`model/src/identity/session-identity.ts:45`), applied to every session list
+(`client-core/src/engine/optimism.ts:876`). Rows sharing a resume ref collapse
+to the most useful one — live > starting/reconnecting > hibernated > exited,
+then the most recently active — EXCEPT that a group holding an active row is
+kept in full; a headless row never takes part. The per-row feed cannot apply a
+rule that reads a row's siblings, so the pool must (coordinator ruling on L3a,
+POD-4553).
+
+It is declared ONCE, as `session.collapse` in `schema.ts` (a `CollapseSpec`:
+the fields it reads, the group key, the keep-all test, the rank and the
+recency field, with the legacy source cited), and decided by one declared
+resolver, `collapseLosers`, beside `longestPrefixPath`. Its meaning for the
+graph: **a collapsed row contributes no edge to any of its entity's
+relations** — to every reader it is not there, as it is not in the runtime's
+list. Maintenance: when a row's collapse inputs change, the pool re-decides
+the group it left and the group it joined (bounded by the group, never the
+corpus) and re-links every row whose collapsed state flipped.
+
+One deliberate difference: on an exact tie of rank AND recency the legacy keeps
+the row earlier in the runtime's list, an order no pool has; the declared rule
+keeps the lower session id. `schema.test.ts` holds `collapseLosers` to
+`dedupeSessionsByResume` on hand-built groups (both directions), and the MobX
+pool's `relations.test.ts` holds its maintained collapse to `dedupeSessions` on
+every resume-twin group of the corpus (POD-4551).
+
+`validateStructure` checks that every collapse field and the recency field are
+declared fields of the entity, each with a negative control.
+
 ## 5. Residency: what "cold" means, and Rule L
 
 Linear's bootstrap cost was construction — "making 80–100k objects observable at

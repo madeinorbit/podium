@@ -224,10 +224,10 @@ describe('wall-clock independence of the #9 steps', () => {
  * Arm folders that carry a fence manifest (so the lint fence covers them) but
  * are not on the roster yet, each with the issue that adds the entry and
  * removes the exception. Coordinator ruling on POD-4565: the a1 MobX pool has
- * no order or roll-ups, so it cannot pass parity on every scenario until Ma4.
+ * no order or roll-ups, so it cannot pass parity on every scenario until Mb4.
  */
 const PENDING_ROSTER: Readonly<Record<string, string>> = {
-  mobx: 'POD-4568 (Ma4) adds the MobX pool with every scenario and parity, and removes this exception',
+  mobx: 'POD-4572 (Mb4) adds the MobX pool with every scenario and parity, and removes this exception',
 }
 
 describe('roster', () => {

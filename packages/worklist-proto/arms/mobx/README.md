@@ -11,9 +11,9 @@ when the pool's worklist replaces it.
 Built on the declared schema (`shared/src/schema.ts`, L1a), fed row by row
 by the kernel feed (`shared/src/row-source.ts`, `overlaid` mode), handing
 each row its L1b `RowView` (`shared/src/row-view.ts`). Phase a1 (POD-4565)
-holds the tables and the row views; relations (Ma2, POD-4566), cold rows
-(Ma3), the visible collection, order, groups and roll-ups (Mb1-Mb3) come
-next.
+holds the tables and the row views; Ma2 (POD-4566) maintains every declared
+relation; cold rows (Ma3), the visible collection, order, groups and roll-ups
+(Mb1-Mb3) come next.
 
 ### Idiom
 
@@ -48,10 +48,22 @@ next.
   any `console.warn` and fails the test on any recorded warning. No
   `keepAlive`. Out-of-reaction reads (`snapshot()`) go through `tracked`, a
   transient reaction.
-- **No relation buckets in a1**: single-valued relations are resolved from
-  the own row plus the target's presence; collections (`hasMany`, incoming
-  edges) and prefix containment answer "none" through the shared
-  `RelationReader` (`pool/relations.ts`) until Ma2.
+- **Relations from the schema** (`pool/relations.ts`, Ma2): the engine reads
+  `schema[entity].relations` at construction and names no relation. Each
+  single-valued relation (`belongsTo`, `prefix`, outgoing `edge`) is a link
+  with an observable `forward` map (source → target key, members only) and
+  observable `buckets` (target key → sorted frozen member array: its inverse
+  collection). Ingest tells the engine of every table write; it re-resolves
+  only links whose declared inputs moved (key/path/edge field and every
+  `where` field), detaches then attaches, and the action's one `flush`
+  replaces each touched bucket once. The `prefix` link keeps an ancestor
+  index (`under`) so a new root takes its sessions without a scan, and a
+  removed root hands them to the next-longest root. The session resume-twin
+  collapse is declared in the schema (`session.collapse`,
+  `collapseLosers`); a collapsed row contributes no edge. Derivations read
+  buckets only through the shared `RelationReader` (`one`: one read; `many`:
+  one per member; `size`: free). Adding a relation to the schema needs no
+  code here (`relations.test.ts`, the fixture-schema test).
 
 ### The enumeration module
 
@@ -59,6 +71,10 @@ next.
 (`fence.json` `enumeration`; the lint's `no-table-walk` refuses a walk
 anywhere else in `pool/`): `issueIdsOf` (every issue id, for the a1 list and
 `snapshot()`, until Mb1's visible collection) and `reseed` (a `replace`).
+It also holds the from-scratch relation resolution the live pool never
+runs: `scanRelations` (the rebuild's relations: the declared resolvers over
+whole tables) and `diffRelations` (the live engine against that scan, for
+the relation tests and the gate).
 
 ### Write path
 
@@ -70,7 +86,8 @@ named rows written, the rest removed) — observers see one transition. A
 locals notification → `MobxPool.applyLocals` → one `runInAction` over only
 the keys it names. `rebuildFromScratch` (`pool/rebuild.ts`) replays the
 feed's `snapshot(kind)` through the same ingest and the same part functions
-over plain maps.
+over plain maps, with relations resolved from scratch (`scanRelations`), not
+by the engine.
 
 ### Stats (what each counter counts)
 
@@ -80,8 +97,10 @@ over plain maps.
 - `notifications` — actions that changed pool state: one per feed event
   that wrote a table slot, one per locals notification naming a key the
   pool uses (selection, clock).
-- `rollupsDerived`, `indexUpdates` — 0 in a1: no roll-ups (Mb3) and no
-  relation buckets (Ma2) exist yet.
+- `indexUpdates` — relation slots written: one per `forward` entry set or
+  deleted, one per bucket array replaced (`PoolRelations.lastWrites` names
+  them for the last action).
+- `rollupsDerived` — 0 until the roll-ups (Mb3).
 - `stats.counters` (the pool's own): `modelsCreated` (first accesses),
   `tableWrites` (slots set to a different object or deleted), `rowsRemoved`.
 - Reads are never counted by the arm: every table read goes through

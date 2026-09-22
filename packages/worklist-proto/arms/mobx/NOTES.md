@@ -1,5 +1,69 @@
 # arms/mobx — notes
 
+## Round three: relations, a2 (POD-4566) · 2026-09-23
+
+### Decisions
+
+- **One engine, no relation named** (`pool/relations.ts`). Links are built
+  from `schema[entity].relations` at construction; each single-valued
+  relation owns an observable `forward` map and the observable `buckets` of
+  its inverse. A fixture schema with one extra relation
+  (`issue.coordinator` / `session.coordinates`) is maintained with zero
+  code change (`relations.test.ts`).
+- **`one()` reads the forward map, not the row.** Ma1 resolved `belongsTo`
+  from the own row; that answers correctly only while nothing but the row
+  decides membership. The resume-twin collapse and the prefix relation are
+  decided by OTHER rows, so every single-valued answer now comes from the
+  maintained forward map plus the target's presence: one counted read. The
+  row views keep Ma1's `relationRef` reference/resolution split for
+  `issue.repo` and `issue.discoveredFrom` (ruled acceptable; the engine
+  computes its forward key with the same function).
+- **Buckets are keyed by the reference, not by the target's presence.** An
+  evicted parent keeps its children's bucket; a re-add reads it back. A
+  holder of a deleted target keeps its reference id; `one()` answers null
+  until the target returns (doc §4.3).
+- **Bucket order is session/issue id order** (sorted on flush). History-free,
+  so the rebuild and the live pool agree on a draft's "first member". The
+  legacy order is the runtime's list order, which no pool has.
+- **One flush per action.** Moves collect in per-bucket pending sets; the
+  flush writes each touched bucket once, and not at all when its content
+  ended unchanged. A two-row push into one parent invalidates a reader of
+  that bucket once (`relations.test.ts`).
+- **Prefix without a scan.** A `prefix` link indexes each member under every
+  ancestor of its normalized path (`under`). A new root reads
+  `under[root]` and takes members at a shorter root or none; a removed root
+  hands its members to one probe of its own ancestors (their next root is
+  the same for all). Probes ask the RAW table (a miss reads no row) and count
+  the hit.
+- **Resume twins declared once, in the shared schema** (`session.collapse`,
+  `collapseLosers`; doc §4.6). Ha2 consumes that declaration. A collapsed row
+  contributes no edge. Exact rank-and-recency ties keep the lower session id
+  (the legacy keeps list order).
+- **The rebuild resolves relations from scratch** (`scanRelations` in
+  `enumerate.ts`, the one walking module): the declared resolvers over
+  whole tables. The gate additionally holds every relation of every row to
+  that scan at every compared step (`gate.test.ts`).
+- **A repo survives while any of its lanes remains** (`tables.ts`
+  `releaseRepo` asks `repo.worktrees`); Ma1 dropped it with its holding lane.
+- **`tracked()` rethrows** an error thrown inside its transient reaction;
+  before, MobX swallowed it and the caller saw "ran inside a batch".
+- **Roster exception** now names POD-4572 (Mb4), per the coordinator.
+
+### Findings
+
+- The warn trap throws INSIDE MobX when a reaction reads nothing
+  (`reactionRequiresObservable`); the throw escapes MobX mid-batch and
+  leaves global state broken for later tests in the file (they then fail
+  with "ran inside a batch"). Seen once while writing a test; the fix was
+  the test (call the throwing reader outside a reaction).
+
+### Open
+
+- Residency (cold rows, lazy relations) is Ma3's; the engine maintains
+  every row the feed delivers.
+- POD-4621 (fence `keys()`) has not landed; `issueIdsOf` keeps Ma1's
+  raw-keys-plus-`touch` workaround.
+
 ## Round three: the pool, a1 (POD-4565) · 2026-09-23
 
 Decisions, findings and open questions for `pool/`. The idiom, write path,
