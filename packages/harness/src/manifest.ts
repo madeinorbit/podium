@@ -16,6 +16,7 @@ import type {
 } from '@podium/protocol'
 import type {
   Declared,
+  OpencodeMessagePartRow,
   StatTick,
   TranscriptColorReader,
   TranscriptRecordMapper,
@@ -646,6 +647,16 @@ export interface HarnessObserveInput {
   cwd: string
   /** Daemon-owned shared cadence for transcript and native-state stat polls. */
   statTick?: StatTick
+  /**
+   * SQLite-backed harnesses only (today: opencode): loads the Store's
+   * host-only source implementation for live transcript deltas, so the
+   * adapter names nothing under store/ (spec §5). Supplied by the daemon
+   * host; runs lazily on first stamp need, never at import. Structural type
+   * only — naming the module would name the mechanism.
+   */
+  loadOpencodeSource?: () => Promise<{
+    stampOpencodeItems(rows: OpencodeMessagePartRow[], sessionId: string): TranscriptItem[]
+  }>
   /** Stable Podium row identity whose native session this observer must find. */
   podiumSessionId?: SessionId
   /** The known harness conversation id (resume / reattach / headless bind);

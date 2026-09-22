@@ -11,7 +11,7 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { type StatTick, scheduleStatPoll } from '../../store/index.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 import {
   type CursorSessionPaths,
   cursorProjectSlug,

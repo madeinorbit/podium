@@ -1503,6 +1503,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       startObservation(msg.sessionId, adapter, {
         cwd: msg.cwd,
         statTick,
+        // Unconditional (all harnesses): only the opencode adapter reads it.
+        // A closure, not a module — the sqlite source loads on first stamp,
+        // never at observation start, so non-opencode sessions pay nothing.
+        loadOpencodeSource: () =>
+          import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
         podiumSessionId: msg.sessionId,
         ...(msg.resume?.value
           ? { resumeValue: msg.resume.value }
@@ -1600,6 +1605,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     startObservation(sessionId, adapter, {
       cwd,
       statTick,
+      // Same unconditional port as the spawn path above — headless opencode
+      // binds need their stamper too.
+      loadOpencodeSource: () =>
+        import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
       podiumSessionId: sessionId,
       resumeValue,
       ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
