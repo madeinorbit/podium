@@ -1,69 +1,59 @@
 // @vitest-environment happy-dom
 /**
  * POD-4565 (Ma1) — the fence steps that need no relation, on the live
- * engine: #1 (an unrelated heartbeat) and #4 (a visible title rename), with
- * the reads budget, the copy sweep and the commit cell. Parity is not
- * asserted: the Ma1 snapshot has no order and stubs the roll-ups (the roster
- * entry, with every scenario and parity, is Ma4's).
+ * engine: #1 (an unrelated heartbeat) and #4 (a visible title rename).
  *
- * THE COMMIT CELL AT Ma1. The exact-commit fence (`assertCommits`) compares
- * against the oracle's VISIBLE rows, and the Ma1 list draws every issue (the
- * visible set is Mb1), so a change to a hidden row's view is drawn and the
- * fence calls it an over-commit (#4 renames an origin; its hidden spin-off's
- * ⤷ tick changes). The cell asserted here is the Ma1 truth: no row the
- * oracle changed is missed, and every other drawn row is one the oracle does
- * not show and whose pool view really changed. `assertCommits` itself is
- * Mb1's gate.
+ * ONLY THE SHARED FENCES (coordinator ruling): `assertCommits`,
+ * `assertReads` with the shared budgets (`FenceScenario.readsBudget`, from
+ * `READ_BUDGETS`) and `assertNoCopies`. No arm-local assertion.
+ *
+ * WHAT a1 CANNOT MEET, and where it lands. Parity: the a1 snapshot has no
+ * order and stubs the roll-ups; the roster entry with every scenario and
+ * parity is Ma4's (POD-4568). The commit fence on #4: `assertCommits`
+ * compares against the oracle's VISIBLE rows, and the a1 list draws every
+ * issue (the visible collection is Mb1, POD-4569). #4 renames an origin, so
+ * its hidden spin-off's ⤷ tick changes and is drawn, which the fence counts as
+ * an over-commit. #4's commit cell is written to the results file, not
+ * asserted; the fence asserts it from Mb1.
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { assertReads, mountArmForCounts } from '../../../harness/src/count-harness'
-import { engineLocals, FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../../../harness/src/fence-scenarios'
-import { rowViewsFromStore } from '../../../harness/src/oracle/index'
+import { assertCommits, assertReads, mountArmForCounts } from '../../../harness/src/count-harness'
+import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../../../harness/src/fence-scenarios'
 import { writeResult } from '../../../harness/src/results'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
-import type { RowView } from '../../../shared/src/row-view'
-import { type MobxPoolHandle, mobxPoolArm } from './arm'
+import { mobxPoolArm } from './arm'
 import { installMobxWarnTrap } from './mobx-trap'
-import { tracked } from './pool'
-
-function poolViews(handle: MobxPoolHandle): Map<string, RowView | undefined> {
-  return tracked(() => new Map(handle.pool.issueIds.map((id) => [id, handle.pool.issue(id)?.view])))
-}
 
 installMobxWarnTrap()
 
+/** The steps a1 runs, and whether the commit fence applies yet. */
+const STEPS: readonly { methodology: string; commits: boolean }[] = [
+  { methodology: '#1', commits: true },
+  { methodology: '#4', commits: false },
+]
+
 describe('fence steps #1 and #4', () => {
-  it('draws exactly the changed rows within the reads budget, holding no copy', async () => {
+  it('meets the shared reads budget and holds no copy; #1 meets the commit fence', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(mobxPoolArm, feeds.rows.source, feeds.locals)
     try {
       const cells = []
-      for (const methodology of ['#1', '#4']) {
-        const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)!
-        const handle = mounted.handle as MobxPoolHandle
-        const before = poolViews(handle)
-        const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
-        const after = poolViews(handle)
-        const oracleChanged = result.oracleChangedRows!
-        const drawn = result.drawnRows!
-        expect(oracleChanged.filter((id) => !drawn.includes(id)), `${methodology} under-drew`).toEqual([])
-        const extra = drawn.filter((id) => !oracleChanged.includes(id))
-        const poolChanged = [...after.keys()].filter((id) => before.get(id) !== after.get(id))
-        expect(extra.filter((id) => !poolChanged.includes(id)), `${methodology} drew an unchanged view`).toEqual([])
-        expect(drawn.sort(), `${methodology} drew exactly the changed pool views`).toEqual(poolChanged.sort())
-        const visible = new Set(Object.keys(rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))))
-        expect(extra.filter((id) => visible.has(id)), `${methodology} over-drew a visible row`).toEqual([])
+      for (const step of STEPS) {
+        const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === step.methodology)
+        expect(entry, step.methodology).toBeDefined()
+        const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
+        if (step.commits) assertCommits(result)
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
         cells.push({
-          methodology,
+          methodology: result.methodology,
           scenario: result.scenario,
+          commitFence: step.commits ? 'asserted' : 'Mb1 (the a1 list draws hidden rows)',
           oracleChanged: result.oracleChangedRows,
           drawn: result.drawnRows,
-          drawnHidden: extra,
           rowsCommitted: result.rowsCommitted,
           readsPerChange: result.readsPerChange,
           readsByEntity: result.reads?.byEntity,
@@ -72,9 +62,6 @@ describe('fence steps #1 and #4', () => {
         })
       }
       writeResult('mobx-pool-counts-1x', { scale: 1, cells })
-      expect(cells[0]!.drawn).toEqual([])
-      expect(cells[1]!.oracleChanged!.length).toBeGreaterThan(0)
-      expect(cells[1]!.drawn).toEqual(expect.arrayContaining(cells[1]!.oracleChanged!))
     } finally {
       mounted.unmount()
       feeds.dispose()
