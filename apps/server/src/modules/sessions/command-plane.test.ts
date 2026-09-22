@@ -785,7 +785,15 @@ describe('attribution and ownership come from the principal', () => {
         sessionId: asSessionId(sessionId),
         kind: 'question',
         payload: {
-          questions: [{ question: 'Pick', options: [{ label: 'One' }, { label: 'Two' }] }],
+          v: 1,
+          questions: [
+            {
+              question: 'Pick',
+              multiSelect: false,
+              previewLayout: false,
+              options: [{ label: 'One' }, { label: 'Two' }],
+            },
+          ],
         },
         source: 'protocol',
         answerable: 'keystroke-emulated',
