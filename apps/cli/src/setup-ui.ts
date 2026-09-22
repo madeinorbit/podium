@@ -21,23 +21,6 @@ export function isCancel(v: unknown): v is typeof CANCEL {
   return v === CANCEL
 }
 
-/**
- * The operator backed OUT of a step rather than answering it — the flow must re-show the
- * step before it instead of moving on.
- *
- * Deliberately NOT a widget of its own: clack has no "back" affordance, and inventing one
- * would mean owning a renderer. It travels as an ordinary answer — a select option whose
- * VALUE is this symbol, and (for a text prompt) the empty answer, which is why only steps
- * that have nothing sensible to do with a blank can offer it. Which steps those are is
- * decided in cli-setup.ts, and the rule there is that a step may offer it only while
- * NOTHING has been written yet.
- */
-export const BACK: unique symbol = Symbol.for('podium.setup-ui.back') as never
-
-export function isBack(v: unknown): v is typeof BACK {
-  return v === BACK
-}
-
 export interface SelectOptions<T> {
   message: string
   options: { value: T; label: string; hint?: string }[]
