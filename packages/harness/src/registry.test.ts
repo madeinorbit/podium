@@ -805,6 +805,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       stateChannels: [],
       observer: unsupported('no native store to observe yet'),
       transcript: unsupported('no transcript reader yet'),
+      composer: unsupported('no composer rules yet'),
       classifyBrowserOpen: unsupported('no known domains'),
       handoffTranscript: unsupported('no cross-machine handoff yet'),
     }
