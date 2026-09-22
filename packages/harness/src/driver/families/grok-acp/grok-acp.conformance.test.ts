@@ -24,6 +24,7 @@ import {
   type GrokAcpRuntimeHost,
 } from './runtime.js'
 import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 /**
  * THE ONE HOST FACT THIS FILE VARIES, and it is a fact about the MACHINE rather
@@ -333,7 +334,7 @@ function makeWorld(options: WorldOptions = {}): {
       name: 'grok-acp',
       family: 'server',
       createDriver: () => {
-        runtime = createGrokAcpRuntime(host)
+        runtime = createGrokAcpRuntime(host, createMemoryDriverSlots())
         return { driver: runtime.driver, control }
       },
       reset: () => {

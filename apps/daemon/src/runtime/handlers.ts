@@ -43,9 +43,10 @@ import type { ControlHandlers, DaemonContext } from '../control/context'
  * place: five call sites each asking two registries in their own order is how
  * one verb starts reaching a different driver than the next.
  *
- * A session appears in exactly one of them by construction — the spawn path
- * chooses a driver once and registers there — so the order below is a lookup,
- * not a precedence.
+ * A session appears in exactly one of them by construction: every driver's
+ * handle lives in the session's ONE DaemonSession `driver` slot (POD-4512,
+ * POD-4610), and each registry answers only for a handle it bound there — so
+ * the walk below is a read of that slot, not a precedence.
  */
 export function handleFor(
   ctx: DaemonContext,

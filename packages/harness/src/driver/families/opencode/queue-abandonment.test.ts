@@ -15,6 +15,7 @@ import type { SessionSpec } from '../../host.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import { createOpencodeRuntime } from './runtime.js'
 import { makeOpencodeTestHost } from './test-support/host.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const spec = (): SessionSpec => ({
   harness: 'opencode',
@@ -41,7 +42,7 @@ function recorder(): { reports: Report[]; onQueueAbandoned: OnQueueAbandoned } {
 describe('a queue this driver loses says so — POD-2297', () => {
   it('reports the whole parked queue when the session is stopped under it', async () => {
     const { reports, onQueueAbandoned } = recorder()
-    const runtime = createOpencodeRuntime(makeOpencodeTestHost({ onQueueAbandoned }))
+    const runtime = createOpencodeRuntime(makeOpencodeTestHost({ onQueueAbandoned }), createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       // A human is driving. Two nudges park behind them and are TOLD they are
@@ -77,7 +78,7 @@ describe('a queue this driver loses says so — POD-2297', () => {
      */
     const { reports, onQueueAbandoned } = recorder()
     const host = makeOpencodeTestHost({ onQueueAbandoned })
-    const runtime = createOpencodeRuntime(host)
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -107,7 +108,7 @@ describe('a queue this driver loses says so — POD-2297', () => {
     // would put a frame on the daemon's durable outbox for every session that
     // ever ends.
     const { reports, onQueueAbandoned } = recorder()
-    const runtime = createOpencodeRuntime(makeOpencodeTestHost({ onQueueAbandoned }))
+    const runtime = createOpencodeRuntime(makeOpencodeTestHost({ onQueueAbandoned }), createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.stop()
@@ -125,7 +126,7 @@ describe('a queue this driver loses says so — POD-2297', () => {
      * the silent loss again, with a dead-letter row on top of it.
      */
     const { reports, onQueueAbandoned } = recorder()
-    const runtime = createOpencodeRuntime(makeOpencodeTestHost({ onQueueAbandoned }))
+    const runtime = createOpencodeRuntime(makeOpencodeTestHost({ onQueueAbandoned }), createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -156,7 +157,7 @@ describe('a session adopted OVER a live one takes its queue with it — POD-2297
      */
     const { reports, onQueueAbandoned } = recorder()
     const host = makeOpencodeTestHost({ onQueueAbandoned, adoptsLiveEndpoint: true })
-    const runtime = createOpencodeRuntime(host)
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -206,7 +207,7 @@ describe('a session adopted OVER a live one takes its queue with it — POD-2297
     // that a silent no-op rather than a visible bug — so it is pinned here.
     const { reports, onQueueAbandoned } = recorder()
     const host = makeOpencodeTestHost({ onQueueAbandoned, adoptsLiveEndpoint: true })
-    const runtime = createOpencodeRuntime(host)
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -229,7 +230,7 @@ describe('a session adopted OVER a live one takes its queue with it — POD-2297
     // durable frame on the outbox for every reconnect in the fleet.
     const { reports, onQueueAbandoned } = recorder()
     const host = makeOpencodeTestHost({ onQueueAbandoned, adoptsLiveEndpoint: true })
-    const runtime = createOpencodeRuntime(host)
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await runtime.driver.adopt(handle.binding)
@@ -252,7 +253,7 @@ describe('a dead server stops promising delivery — POD-2297 review, 3', () => 
      */
     const { reports, onQueueAbandoned } = recorder()
     const host = makeOpencodeTestHost({ onQueueAbandoned })
-    const runtime = createOpencodeRuntime(host)
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -303,6 +304,7 @@ describe('a throwing report does not leak the child — POD-2297 review, low 1',
           throw new Error('EDQUOT: disk quota exceeded, write')
         },
       }),
+      createMemoryDriverSlots(),
     )
     try {
       const handle = await runtime.driver.create(spec())

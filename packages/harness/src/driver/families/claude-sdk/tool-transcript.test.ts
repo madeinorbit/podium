@@ -15,6 +15,7 @@ import {
   type ClaudeSdkTurnHandle,
   createClaudeSdkRuntime,
 } from './runtime.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const SESSION = 'claude-sdk-tools' as SessionId
 const RESUME = '00000000-0000-4000-8000-0000000000aa'
@@ -77,7 +78,7 @@ async function itemsForTurn(script: Script): Promise<TranscriptItem[]> {
     },
   }
 
-  const runtime = createClaudeSdkRuntime(host)
+  const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
   const handle = await runtime.createWithId(SESSION, spec())
   const items: TranscriptItem[] = []
   const reading = (async () => {

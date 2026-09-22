@@ -48,6 +48,7 @@ import type { OnQueueAbandoned } from '../../queue-abandonment.js'
 import type { SessionSpec } from '../../session-spec.js'
 import type { AnswerOptions, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
 import { stampRuntimeEvent } from '../terminal/envelope.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 import { grokAcpCapabilities } from './capabilities.js'
 import {
   createGrokAcpClient,
@@ -256,9 +257,13 @@ interface BufferedConnection {
   }): void
 }
 
-export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
+export function createGrokAcpRuntime(
+  host: GrokAcpRuntimeHost,
+  // The session's handle lives on the supervisor's entry (POD-4610): this
+  // family binds into the slot and reads it back, and keeps no index of its own.
+  slots: SessionDriverSlots,
+): GrokAcpRuntime {
   const sessions = new Map<SessionId, DriverSession>()
-  const handles = new Map<SessionId, AgentSessionHandle>()
   const capabilities = grokAcpCapabilities()
   const iso = (ms?: number): string => new Date(ms ?? host.now()).toISOString()
 
@@ -928,7 +933,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     }
     registerSession(input.sessionId, session)
     const handle = buildHandle(session)
-    handles.set(input.sessionId, handle)
+    slots.set(input.sessionId, handle)
     input.connection.bind({
       promptResult(result) {
         const epoch = session.openTurnEpoch
@@ -1353,7 +1358,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
      */
     if (sessions.get(session.sessionId) === session) {
       sessions.delete(session.sessionId)
-      handles.delete(session.sessionId)
+      slots.release(session.sessionId)
     }
   }
 
@@ -2033,9 +2038,9 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
     driver,
     createWithId,
     journal: host.journal,
-    handleFor: (sessionId) => handles.get(sessionId),
-    has: (sessionId) => handles.has(sessionId),
-    bindings: () => [...handles.values()].map((handle) => handle.binding),
+    handleFor: (sessionId) => slots.get(sessionId),
+    has: (sessionId) => slots.get(sessionId) !== undefined,
+    bindings: () => slots.handles().map((handle) => handle.binding),
     reportOomKill: (sessionId, scopeUnit) => {
       const session = sessions.get(sessionId)
       if (!session) return
@@ -2058,7 +2063,7 @@ export function createGrokAcpRuntime(host: GrokAcpRuntimeHost): GrokAcpRuntime {
         wakeIdle(session)
       }
       sessions.clear()
-      handles.clear()
+      for (const handle of slots.handles()) slots.release(handle.binding.sessionId, handle)
     },
   }
 }

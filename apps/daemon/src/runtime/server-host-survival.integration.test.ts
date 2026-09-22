@@ -69,6 +69,8 @@ import {
   grokAcpVersionProbe,
   opencodeVersionProbeForExecutable,
 } from './version-probe'
+import { driverSlotsOver } from '../session/driver-slots.js'
+import { testSessions } from '../session/testing.js'
 
 const codexFacts = codexEngineFacts(manifestFor('codex')!)
 const grokFacts = grokEngineFacts(manifestFor('grok')!)
@@ -527,7 +529,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         socketRoot: engineSocketRoot(),
         dialSocket: dialEngineSocket,
       })
-      const codexRuntime = createCodexRuntime(codexHost)
+      const codexRuntime = createCodexRuntime(codexHost, driverSlotsOver(testSessions()))
       const adoptedCodex = await codexRuntime.driver.adopt(codexBinding)
       expect(adoptedCodex.binding.process.pid).toBe(codexPid)
       expect(incarnations('codex')).toEqual([String(codexPid)])
@@ -578,7 +580,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
             v.drivable ? null : v.diagnostic,
           ),
       })
-      const opencodeRuntime = createOpencodeRuntime(opencodeHost)
+      const opencodeRuntime = createOpencodeRuntime(opencodeHost, driverSlotsOver(testSessions()))
       const adoptedOpencode = await opencodeRuntime.driver.adopt(opencodeBinding)
       expect(adoptedOpencode.binding.process.pid).toBe(opencodePid)
       expect(incarnations('opencode')).toEqual([String(opencodePid)])
@@ -595,7 +597,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => grokAcpVersionProbe(),
       })
-      const grokRuntime = createGrokAcpRuntime(grokHost)
+      const grokRuntime = createGrokAcpRuntime(grokHost, driverSlotsOver(testSessions()))
       const adoptedGrok = await grokRuntime.driver.adopt(grokBinding)
       expect(adoptedGrok.binding.process.pid).toBe(grokPid)
       expect(incarnations('grok')).toEqual([String(grokPid)])
@@ -611,7 +613,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         buildEnv: composeEngineEnv,
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       })
-      const claudeRuntime = createClaudeSdkSessionRuntime({
+      const claudeRuntime = createClaudeSdkSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
         send: () => {},
         emitBind: () => {},
         sessionReady: () => {},

@@ -11,10 +11,12 @@
  * upgrade or native attach.
  *
  * SCOPE NOTES, stated so the next lane does not re-litigate them:
- * - The Driver handle lives ON the entry (`driver` below): handles are still
- *   keyed per session and never shared, which is the ownership fact that
- *   matters; the terminal driver's per-session index is moving onto this slot
- *   as the mechanical follow-up (POD-4512).
+ * - The Driver handle lives ON the entry (`driver` below), for every driver:
+ *   the terminal and headless drivers (POD-4512) and the server families —
+ *   codex, opencode, grok, claude-sdk — (POD-4610) bind into it and keep no
+ *   handle index of their own. Each writer reads and releases the slot through
+ *   its own view (`session/driver-slots.ts`), so one never answers for or
+ *   clears another's handle.
  * - The applied-size RECORD (`AppliedGeometryRecord`) stays daemon-wide: the
  *   bind builder reads it, and the Terminal mirrors the same fact in
  *   `terminal.applied`. One fact, two readers, written at the same apply sites.
@@ -194,7 +196,9 @@ export class DaemonSession {
    * THE SESSION'S DRIVER (POD-4512, layers §1b / spec §4.6): the ONE live
    * driver handle for this session, replacing the machine runtime's
    * per-session handle index. Set when the session binds (terminal register,
-   * server create/resume/adopt); undefined while unbound or after teardown.
+   * headless register, server-family launch/resume/adopt — the family writes
+   * it through `session/driver-slots.ts`); undefined while unbound or after
+   * teardown.
    * Never shared between two entries — one handle, one slot — which is the
    * ownership fact the keyed map used to carry.
    */

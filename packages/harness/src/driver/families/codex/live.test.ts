@@ -43,6 +43,7 @@ import {
 } from './index.js'
 import { gateCodexVersion, SUPPORTED_CODEX } from './version.js'
 import { manifestFor } from '../../../registry.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 // Tests read the manifest directly (they are not mechanisms): if the daemon
 // adds a key, this run strips it too.
@@ -203,7 +204,7 @@ describe('the pinned version, checked without spawning anything', () => {
 describeLive('a real subscription-authed session, end to end', () => {
   const workdir = mkdtempSync(join(tmpdir(), 'podium-codex-live-'))
   const { host, authReports, killAll } = liveHost(workdir)
-  const runtime = createCodexRuntime(host)
+  const runtime = createCodexRuntime(host, createMemoryDriverSlots())
   let handle: AgentSessionHandle | undefined
   const collected: RuntimeEvent[] = []
 

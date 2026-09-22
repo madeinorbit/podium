@@ -20,6 +20,7 @@ import type {
   ServerFamilyJournalEntry,
   ServerSessionFramePorts,
 } from '../server-family.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, HarnessAgent, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
@@ -53,6 +54,9 @@ export interface DaemonGrokRuntime extends GrokAcpRuntime {
  * facts as in ../codex/session.ts.
  */
 export interface GrokSessionDeps extends ServerSessionFramePorts {
+  /** The supervisor's per-session driver slots (POD-4610): the family binds
+   *  each session's handle into its entry and keeps no handle index of its own. */
+  driverSlots: SessionDriverSlots
   facts: GrokEngineFacts
   engine: GrokAcpRuntimeHost
 }
@@ -63,7 +67,7 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
     // A queue this driver loses becomes a durable server-side receipt
     // correction, so the port is wired HERE, next to `send` (POD-2297).
     onQueueAbandoned: reportQueueAbandonment(deps.facts.harnessKind, deps.send),
-  })
+  }, deps.driverSlots)
 
   function translate(sessionId: SessionId, event: RuntimeEvent): void {
     const timingHandle = runtime.handleFor(sessionId)

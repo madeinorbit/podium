@@ -362,9 +362,9 @@ export function createDaemonMachineRuntime(input: {
     },
     reportOomKill(sessionId, scopeUnit) {
       // Every family is asked; only the one holding the session emits. A
-      // session cannot be in two runtimes at once, so this is a lookup, not a
-      // broadcast — each `reportOomKill` returns immediately for a session it
-      // does not have.
+      // session has one driver slot on its entry (POD-4610), so it cannot be
+      // in two runtimes at once: this is a lookup, not a broadcast — each
+      // `reportOomKill` returns immediately for a session it does not have.
       input.terminal.reportOomKill(sessionId, scopeUnit)
       input.claude.processEvent(sessionId, { ev: 'oomKilled', ...(scopeUnit ? { scopeUnit } : {}) })
       for (const server of servers) server.reportOomKill(sessionId, scopeUnit)

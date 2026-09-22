@@ -84,6 +84,7 @@ import type {
   TurnReceipt,
 } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 import { opencodeServerCapabilities } from './capabilities.js'
 import { type OpencodeClient, type OpencodeClientConfig, createOpencodeClient } from './client.js'
 import {
@@ -420,10 +421,14 @@ export interface OpencodeRuntime {
  * already accepted — "a replayed stream that looks like new work", which is the
  * exact thing the monotonicity property forbids.
  */
-export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntime {
+export function createOpencodeRuntime(
+  host: OpencodeRuntimeHost,
+  // The session's handle lives on the supervisor's entry (POD-4610): this
+  // family binds into the slot and reads it back, and keeps no index of its own.
+  slots: SessionDriverSlots,
+): OpencodeRuntime {
   const driverId = host.driverId ?? OPENCODE_SERVER_DRIVER_ID
   const sessions = new Map<SessionId, DriverSession>()
-  const handles = new Map<SessionId, AgentSessionHandle>()
   const streamPositions = new Map<
     string,
     { seq: number; turnEpoch: number; fencedTurnEpoch: number }
@@ -1388,7 +1393,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         endSession(session)
         session.stream.abort()
         await session.endpoint.stop()
-        handles.delete(session.sessionId)
+        slots.release(session.sessionId)
         sessions.delete(session.sessionId)
       },
 
@@ -1404,7 +1409,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         session.stream.abort()
         await session.endpoint.stop()
         endSession(session)
-        handles.delete(session.sessionId)
+        slots.release(session.sessionId)
         sessions.delete(session.sessionId)
         return { ok: true as const }
       },
@@ -1415,7 +1420,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         await session.endpoint.kill()
         host.journal.clear(session.sessionId)
         streamPositions.delete(session.binding.process.key)
-        handles.delete(session.sessionId)
+        slots.release(session.sessionId)
         sessions.delete(session.sessionId)
       },
 
@@ -2017,7 +2022,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     await refreshInteractions(session)
 
     const handle = buildHandle(session)
-    handles.set(input.sessionId, handle)
+    slots.set(input.sessionId, handle)
     return handle
   }
 
@@ -2204,11 +2209,11 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
     driver,
     createWithId,
     journal: host.journal,
-    handleFor: (sessionId) => handles.get(sessionId),
-    // ONE MAP, TWO READERS. `stop`/`hibernate`/`kill` all delete from `handles`,
-    bindings: () => [...handles.values()].map((handle) => handle.binding),
-    // so both answers change together by construction.
-    has: (sessionId) => handles.has(sessionId),
+    handleFor: (sessionId) => slots.get(sessionId),
+    // ONE SLOT, THREE READERS. `stop`/`hibernate`/`kill` all release the slot,
+    bindings: () => slots.handles().map((handle) => handle.binding),
+    // so every answer changes together by construction.
+    has: (sessionId) => slots.get(sessionId) !== undefined,
     reportOomKill: (sessionId, scopeUnit) => {
       const session = sessions.get(sessionId)
       if (!session) return
@@ -2227,7 +2232,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
       endSession(session)
       session.stream.abort()
       sessions.delete(sessionId)
-      handles.delete(sessionId)
+      slots.release(sessionId)
     },
     dispose: () => {
       for (const session of sessions.values()) {
@@ -2235,7 +2240,7 @@ export function createOpencodeRuntime(host: OpencodeRuntimeHost): OpencodeRuntim
         session.stream.abort()
       }
       sessions.clear()
-      handles.clear()
+      for (const handle of slots.handles()) slots.release(handle.binding.sessionId, handle)
       streamPositions.clear()
     },
   }

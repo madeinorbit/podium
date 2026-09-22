@@ -44,6 +44,7 @@ import {
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type AgentKind, type MachineId, type SessionId } from '@podium/model'
 import { createDurableProcess, durableProcessFor, sweepStaleDurableBindTemps } from '@podium/process/durable'
+import { driverSlotsOver } from './session/driver-slots.js'
 import { SessionRegistry } from './session/registry.js'
 import { createSessionEngineScope } from './session/engines.js'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
@@ -228,14 +229,11 @@ export async function reapServerSessionsOnClose(
 }
 
 export async function reapServerSessionsBeforeDispose(
-  ctx: DaemonContext,
-  agentRuntime: Pick<DaemonMachineRuntime, 'registeredBindings'> | undefined,
-  reapSessions: boolean,
+  reaps: Promise<void> | undefined,
   dispose: () => void,
-  io?: ServerReapIo,
 ): Promise<void> {
   try {
-    if (reapSessions) await reapServerSessionsOnClose(ctx, agentRuntime, io)
+    await reaps
   } finally {
     // Disposal is not optional when a binding snapshot or one child reap
     // rejects. The host close path must still release the runtime maps before
@@ -1231,6 +1229,7 @@ export async function createDaemonHostRuntime(args: {
   })
   claudeRuntime = createClaudeSdkSessionRuntime({
     send,
+    driverSlots: driverSlotsOver(ctx.sessions),
     ...sessionFrames,
     facts: claudeFacts,
     engine: claudeEngine,
@@ -1284,6 +1283,7 @@ export async function createDaemonHostRuntime(args: {
   opencodeRuntime = createOpencodeSessionRuntime({
     flavor: ocFacts,
     engine: opencodeEngine,
+    driverSlots: driverSlotsOver(ctx.sessions),
     send,
     ...sessionFrames,
   })
@@ -1315,6 +1315,7 @@ export async function createDaemonHostRuntime(args: {
   opencode2Runtime = createOpencodeSessionRuntime({
     flavor: oc2Facts,
     engine: opencodeEngine2,
+    driverSlots: driverSlotsOver(ctx.sessions),
     send,
     ...sessionFrames,
   })
@@ -1371,6 +1372,7 @@ export async function createDaemonHostRuntime(args: {
   codexRuntime = createCodexSessionRuntime({
     facts: codexFacts,
     engine: codexEngine,
+    driverSlots: driverSlotsOver(ctx.sessions),
     send,
     ...sessionFrames,
   })
@@ -1415,6 +1417,7 @@ export async function createDaemonHostRuntime(args: {
   grokRuntime = createGrokSessionRuntime({
     facts: grokFacts,
     engine: grokEngine,
+    driverSlots: driverSlotsOver(ctx.sessions),
     send,
     ...sessionFrames,
   })
@@ -1753,6 +1756,14 @@ export async function createDaemonHostRuntime(args: {
     outputScheduler.stop()
     const durableReaps: Promise<unknown>[] = []
     const reapSessions = closeOpts?.reapSessions ?? false
+    // SERVER-FAMILY REAPS START BEFORE THE ENTRIES GO (POD-4610). Their handles
+    // live on the session entries, and the loop below empties every slot: a
+    // reap that began after it would find no binding and no handle to reap by.
+    // Each reap reads its binding and handle synchronously as it starts, so the
+    // teardown below cannot strand one; the settle is awaited where it was.
+    const serverReaps = reapSessions
+      ? reapServerSessionsOnClose(ctx, closeAgentRuntime, args.testServerReapIo)
+      : undefined
     for (const [sessionId, owned] of ctx.sessions.entries()) {
       const label = owned.label ?? ctx.durableLabelFor(sessionId)
       owned.clear()
@@ -1767,16 +1778,10 @@ export async function createDaemonHostRuntime(args: {
     }
     ctx.runningHeadlessTurns.clear()
     try {
-      await reapServerSessionsBeforeDispose(
-        ctx,
-        closeAgentRuntime,
-        reapSessions,
-        () => {
-          closeAgentRuntime?.dispose()
-          if (closeAgentRuntime !== agentRuntime) agentRuntime?.dispose()
-        },
-        args.testServerReapIo,
-      )
+      await reapServerSessionsBeforeDispose(serverReaps, () => {
+        closeAgentRuntime?.dispose()
+        if (closeAgentRuntime !== agentRuntime) agentRuntime?.dispose()
+      })
     } catch (err) {
       // A failed binding snapshot or child reap must not abort the rest of
       // host teardown. The helper finally disposed runtimes; continue through

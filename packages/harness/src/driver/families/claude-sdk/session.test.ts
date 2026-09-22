@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ClaudeSdkTurnHandle } from './runtime.js'
 import type { ClaudeEngineHost } from './engine-host.js'
 import { createClaudeSdkSessionRuntime, type ClaudeSdkSessionDeps } from './session.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const SESSION_ID = 'claude-adapter-session' as SessionId
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-native-thread' }
@@ -78,6 +79,7 @@ function sessionWorld(
   extra: Partial<ClaudeSdkSessionDeps> = {},
 ) {
   return createClaudeSdkSessionRuntime({
+    driverSlots: createMemoryDriverSlots(),
     send: (message) => sent.push(message),
     emitBind: (bind) => {
       sent.push({ type: 'bind', ...bind })

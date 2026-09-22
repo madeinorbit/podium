@@ -16,6 +16,7 @@ import { grokAcpProcessKey } from './engine-host.js'
 import { grokEngineFacts } from './engine-facts.js'
 import { manifestFor } from '../../../registry.js'
 import { createGrokSessionRuntime } from './session.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const FACTS = grokEngineFacts(manifestFor('grok')!)
 
@@ -81,7 +82,7 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
       }
     },
   }
-  const runtime = createGrokSessionRuntime({
+  const runtime = createGrokSessionRuntime({ driverSlots: createMemoryDriverSlots(),
     facts: FACTS,
     engine: host,
     send: (message) => sent.push(message),
@@ -302,7 +303,7 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
     // generic "could not be rebound".
     const sessionId = 'grok-unrecoverable' as SessionId
     const entry = journalEntry(sessionId)
-    const runtime = createGrokSessionRuntime({
+    const runtime = createGrokSessionRuntime({ driverSlots: createMemoryDriverSlots(),
       facts: FACTS,
       engine: {
         journal: {

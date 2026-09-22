@@ -48,5 +48,8 @@ export {
   resetFakeRuntime,
 } from './fake-driver.js'
 
+/** Supervisor-less driver slots, for a family runtime built outside a daemon. */
+export { createMemoryDriverSlots } from './driver-slots.js'
+
 export { describeTerminalEvidenceConformance } from './conformance/terminal-evidence.js'
 export type { TerminalEvidenceControl, TerminalEvidenceTarget } from './conformance/terminal-evidence.js'

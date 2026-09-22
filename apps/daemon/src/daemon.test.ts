@@ -49,7 +49,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import type { DaemonContext, DurableBackend } from './control/context'
-import { launchServerDriverSession, sessionHandlers } from './control/session'
+import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './control/session'
 import {
   controlFrameByteLength,
   createLimiter,
@@ -73,11 +73,13 @@ import {
   createGrokSessionRuntime,
   grokEngineFacts,
 } from '@podium/harness/driver/host'
-import { runtimeHandlers } from './runtime/handlers'
+import { handleFor, runtimeHandlers } from './runtime/handlers'
 import { createDaemonMachineRuntime } from './runtime/machine-runtime'
 import { createVersionProbeCache } from './runtime/version-probe'
 import { createSessionObservers, type ReattachControl } from './session-observers'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
+import { driverSlotsOver } from './session/driver-slots.js'
+import { testSessions } from './session/testing.js'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -1111,7 +1113,7 @@ function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport 
   }
 }
 
-function defaultCodexRuntime(sent: DaemonMessage[]) {
+function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
   const entries = new Map<SessionId, Parameters<CodexRuntimeHost['journal']['write']>[0]>()
   const host: CodexRuntimeHost = {
     stageAttachment: async ({ source }) => ({
@@ -1140,7 +1142,7 @@ function defaultCodexRuntime(sent: DaemonMessage[]) {
       }
     },
   }
-  return createCodexSessionRuntime({
+  return createCodexSessionRuntime({ driverSlots: driverSlotsOver(sessions),
     facts: codexEngineFacts(manifestFor('codex')!),
     engine: host,
     send: (msg) => void sent.push(msg),
@@ -1180,7 +1182,7 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
       }
     },
   }
-  return createGrokSessionRuntime({
+  return createGrokSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
     facts: grokEngineFacts(manifestFor('grok')!),
     engine: host,
     send: (msg) => void sent.push(msg),
@@ -1410,6 +1412,60 @@ describe('default server-driver spawn integration', () => {
         outcome: 'accepted',
         provenBy: 'protocol-ack',
       })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  /**
+   * ONE OWNER PER SESSION (POD-4610, layers §1b/§2, spec §4.6): a
+   * server-family session's driver handle lives on its DaemonSession entry,
+   * exactly as a terminal or headless one does. A healthy codex launch must
+   * create the entry and bind the family's handle into it; the lookup every
+   * relay verb goes through must answer with that same object; and the kill
+   * choke point must take the entry — and with it the handle — away.
+   */
+  it('binds a server-family handle onto the session entry, and a kill removes the entry', async () => {
+    resetCodexAppServerVersionProbe()
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
+    const sent: DaemonMessage[] = []
+    const sessions = testSessions()
+    const runtime = defaultCodexRuntime(sent, sessions)
+    const ctx = {
+      ...defaultServerSpawnContext(sent, { codexRuntime: runtime }),
+      sessions,
+      backend: 'none',
+      settingsDir: '/nonexistent/podium-test-settings',
+      observers: { clearSession: vi.fn() },
+      outputScheduler: { remove: vi.fn() },
+      portableStateFence: { runSync: (fn: () => void) => fn() },
+      instanceUuid: undefined,
+    } as unknown as DaemonContext
+    const sessionId = asSessionId('entry-owned-codex')
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId,
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+        requestedDriverId: 'codex-app-server',
+      }) as never,
+    )
+    try {
+      await waitForDefaultServerBind(sent, sessionId)
+      const handle = handleFor(ctx, sessionId)
+      expect(handle?.binding.driver).toBe('codex-app-server')
+      // The entry exists and holds THE handle — not a copy, not a second index.
+      expect(sessions.get(sessionId)?.driver).toBe(handle)
+
+      await stopSessionProcess(ctx, { sessionId }, { retire: true })
+      expect(sessions.has(sessionId)).toBe(false)
+      expect(handleFor(ctx, sessionId)).toBeUndefined()
+      expect(runtime.bindings()).toEqual([])
     } finally {
       runtime.dispose()
     }

@@ -13,6 +13,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { createClaudeSdkSessionRuntime } from '@podium/harness/driver/host'
 import { createDaemonMachineRuntime } from './machine-runtime'
 import type { TerminalRuntimeHost } from './terminal-driver'
+import { driverSlotsOver } from '../session/driver-slots.js'
+import { testSessions } from '../session/testing.js'
 
 const SESSION_ID = 'claude-adapter-session' as SessionId
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-native-thread' }
@@ -64,7 +66,7 @@ function serverRuntime(id: string, harness: string) {
 describe('Claude SDK sessions through the machine root', () => {
   it('routes process-gone resume through the machine root and publishes once', async () => {
     const sent: DaemonMessage[] = []
-    const claude = createClaudeSdkSessionRuntime({
+    const claude = createClaudeSdkSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
       send: (message) => sent.push(message),
       emitBind: (bind) => {
         sent.push({ type: 'bind', ...bind })

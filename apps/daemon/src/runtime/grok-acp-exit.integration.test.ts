@@ -29,6 +29,8 @@ import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createDurableProcess } from '@podium/process/durable'
 import { createGrokSessionRuntime } from '@podium/harness/driver/host'
+import { driverSlotsOver } from '../session/driver-slots.js'
+import { testSessions } from '../session/testing.js'
 
 const CHILD_HELPER = `
 const fs = require('node:fs')
@@ -146,7 +148,7 @@ describe('Grok ACP real scoped child boundary', () => {
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => grokAcpVersionProbe(),
       })
-      runtime = createGrokSessionRuntime({
+      runtime = createGrokSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
         facts,
         engine: host,
         send: (message) => sent.push(message),

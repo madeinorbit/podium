@@ -6,6 +6,7 @@ import {
   type ClaudeSdkTurnHandle,
   createClaudeSdkRuntime,
 } from './runtime.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const SESSION = 'claude-sdk-durable' as SessionId
 
@@ -79,7 +80,7 @@ describe('Claude SDK durable failure state', () => {
     const { host, resumeValue } = hostWith(
       () => new Error("You've hit your monthly spend limit CLAUDE_CODE_OAUTH_TOKEN=oat_secret"),
     )
-    const runtime = createClaudeSdkRuntime(host)
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
     await handle.send({ id: 't1', text: 'ping' }, { origin: 'human', delivery: 'when-ready' })
     const settled = await settledState(runtime)
@@ -99,7 +100,7 @@ describe('Claude SDK durable failure state', () => {
 
   it('records expired auth as authentication, distinct from spend exhaustion', async () => {
     const { host } = hostWith(() => new Error('401 Unauthorized — access token is expired'))
-    const runtime = createClaudeSdkRuntime(host)
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
     await handle.send({ id: 't1', text: 'ping' }, { origin: 'human', delivery: 'when-ready' })
     const settled = await settledState(runtime)
@@ -114,7 +115,7 @@ describe('Claude SDK durable failure state', () => {
     const { host } = hostWith(
       () => new Error('the Claude model host process exited with code 1 before the turn finished'),
     )
-    const runtime = createClaudeSdkRuntime(host)
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
     await handle.send({ id: 't1', text: 'ping' }, { origin: 'human', delivery: 'when-ready' })
     const settled = await settledState(runtime)
@@ -127,7 +128,7 @@ describe('Claude SDK durable failure state', () => {
 
   it('publishes the prompt and classified error onto the transcript before closing the turn', async () => {
     const { host } = hostWith(() => new Error('not logged in — run /login'))
-    const runtime = createClaudeSdkRuntime(host)
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
     const handle = await runtime.createWithId(SESSION, spec())
     await handle.send({ id: 't1', text: 'ping' }, { origin: 'human', delivery: 'when-ready' })
     const events = await eventsThroughFailed(runtime)

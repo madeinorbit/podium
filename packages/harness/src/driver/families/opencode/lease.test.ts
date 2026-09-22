@@ -49,6 +49,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionSpec } from '../../host.js'
 import { createOpencodeRuntime } from './runtime.js'
 import { makeOpencodeTestHost } from './test-support/host.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const spec = (): SessionSpec => ({
   harness: 'opencode',
@@ -83,6 +84,7 @@ describe('a refused takeover leaves nothing running behind it', () => {
           started.push(input.mode)
         },
       }),
+      createMemoryDriverSlots(),
     )
     try {
       const handle = await runtime.driver.create(spec())
@@ -104,7 +106,7 @@ describe('a refused takeover leaves nothing running behind it', () => {
       await startGate
       return { streamId: `test-attach-${sessionId}`, warmTtlMs: 60_000 }
     }
-    const runtime = createOpencodeRuntime(host)
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       const first = handle.attach({ mode: 'takeover', holder: 'first' })
@@ -137,7 +139,7 @@ describe('releasing the lease drains what was queued behind it', () => {
      * lease with nothing running and the steward's nudge sat there indefinitely.
      * "After the takeover ends" has to mean the release itself.
      */
-    const runtime = createOpencodeRuntime(makeOpencodeTestHost())
+    const runtime = createOpencodeRuntime(makeOpencodeTestHost(), createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -168,7 +170,7 @@ describe('releasing the lease drains what was queued behind it', () => {
   it('does not drain for a release by somebody who never held it', async () => {
     // The guard the drain sits behind: a stray release must not become a way to
     // push somebody else's queued turn at the agent.
-    const runtime = createOpencodeRuntime(makeOpencodeTestHost())
+    const runtime = createOpencodeRuntime(makeOpencodeTestHost(), createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -208,7 +210,7 @@ describe('a slow health probe is not a dead server (POD-2114)', () => {
           },
         }),
     })
-    const runtime = createOpencodeRuntime(host)
+    const runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       const exits: string[] = []

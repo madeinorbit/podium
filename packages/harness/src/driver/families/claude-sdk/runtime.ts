@@ -48,6 +48,7 @@ import {
   decideConfigure,
   noWhitespaceCheck,
 } from '../../configure.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 import { claudeSdkCapabilities } from './capabilities.js'
 import { classifyClaudeSdkFailure, redactClaudeSdkFailureDetail } from './classify.js'
 
@@ -252,9 +253,13 @@ function summarizeInput(input: unknown): string | undefined {
   }
 }
 
-export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRuntime {
+export function createClaudeSdkRuntime(
+  host: ClaudeSdkRuntimeHost,
+  // The session's handle lives on the supervisor's entry (POD-4610): this
+  // family binds into the slot and reads it back, and keeps no index of its own.
+  slots: SessionDriverSlots,
+): ClaudeSdkRuntime {
   const cores = new Map<SessionId, SessionCore>()
-  const handles = new Map<SessionId, AgentSessionHandle>()
   const processCores = new Map<string, SessionCore>()
 
   const cursorAt = (core: SessionCore, seq = core.seq): ProviderCursor => ({
@@ -763,7 +768,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
     core.disposed = true
     core.interactions.clear()
     core.interactionResponders.clear()
-    handles.delete(core.sessionId)
+    slots.release(core.sessionId)
     cores.delete(core.sessionId)
     processCores.delete(core.binding.process.key)
     for (const wake of [...core.wakers]) wake()
@@ -1092,7 +1097,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
         return refuse('unsupported', 'SDK usage is not normalized')
       },
     }
-    handles.set(core.sessionId, handle)
+    slots.set(core.sessionId, handle)
     return withDeliveryQueue(handle, (event) => push(core, event), undefined, () => core.alive)
   }
 
@@ -1203,10 +1208,10 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
     createWithId,
     resumeWithId,
     handleFor(sessionId) {
-      return handles.get(sessionId)
+      return slots.get(sessionId)
     },
     bindings() {
-      return [...handles.values()].map((handle) => handle.binding)
+      return slots.handles().map((handle) => handle.binding)
     },
     permissionRequested(sessionId, request) {
       const core = cores.get(sessionId)
@@ -1226,7 +1231,7 @@ export function createClaudeSdkRuntime(host: ClaudeSdkRuntimeHost): ClaudeSdkRun
       push(core, { t: 'process', ev: event })
     },
     restartSupervisor() {
-      handles.clear()
+      for (const handle of slots.handles()) slots.release(handle.binding.sessionId, handle)
       for (const core of cores.values()) {
         core.handleGeneration += 1
         core.wakers.clear()
