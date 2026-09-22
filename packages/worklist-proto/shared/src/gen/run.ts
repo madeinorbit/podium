@@ -489,6 +489,10 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         const edit = editFor(c.handle)
         if (typeof edit === 'string') return edit
         detail['field'] = edit.field
+        detail['mutationId'] = edit.mutationId
+        // Unanswered: the edit's call has no receipt or refusal yet (S3);
+        // otherwise it lands after the receipt (the W8 overtake window).
+        detail['unanswered'] = !server.applied.has(edit.mutationId) && !server.refused.has(edit.mutationId)
         return serverWrite(edit, c.value)
       }
       case 'staleRepeat': {
@@ -539,15 +543,21 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         skipped = null
       } else if (change.kind === 'batch') {
         const reasons: string[] = []
+        const skippedMembers: number[] = []
         ctx.replica.batch(() => {
-          for (const inner of change.changes) {
+          change.changes.forEach((inner, member) => {
             const r = applyRow(inner)
-            if (r) reasons.push(r)
-          }
+            if (r) {
+              reasons.push(r)
+              skippedMembers.push(member)
+            }
+          })
         })
-        detail['applied'] = change.changes.length - reasons.length
         skipped = reasons.length === change.changes.length ? `all skipped: ${reasons.join('; ')}` : null
-        if (reasons.length > 0) detail['partial'] = reasons
+        if (reasons.length > 0) {
+          detail['skippedMembers'] = skippedMembers
+          detail['reasons'] = reasons
+        }
       } else if (isRowChange(change)) {
         skipped = applyRow(change)
       } else {

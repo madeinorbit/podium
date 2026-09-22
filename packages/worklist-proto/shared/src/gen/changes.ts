@@ -31,7 +31,7 @@
  */
 
 import { EDITABLE_STAGES, type EditableStage } from '../write-contract'
-import { sortKeyBetween } from '@podium/model'
+import { isSortKey, sortKeyBetween } from '@podium/model'
 import { buildCorpus, type FixtureCorpus } from '../../../harness/src/fixture/index'
 import { FIXTURE_SEED } from '../scenarios'
 
@@ -174,11 +174,11 @@ export const DEFAULT_WEIGHTS: Readonly<Record<ChangeKind | 'shapes', number>> = 
   echo: 5,
   remoteOnPending: 3,
   staleRepeat: 2,
-  supersede: 2,
-  offline: 1.5,
-  online: 4,
+  supersede: 4,
+  offline: 3,
+  online: 3,
   refresh: 1.5,
-  shapes: 6,
+  shapes: 8,
 }
 
 /** Clock steps, weighted toward the runtime's own minute tick. 25 h crosses
@@ -234,6 +234,7 @@ interface EditModel {
   id: string
   field: 'title' | 'stage' | 'readAt'
   state: EditState
+  /** The server applied it (an echo went out). */
   echoed: boolean
 }
 
@@ -344,18 +345,74 @@ class GenModel {
     return this.edits.filter((e) => e.state === 'queued' || e.state === 'sent' || (e.state === 'accepted' && !e.echoed))
   }
 
-  /** Mirror the kernel's partitioned FIFO roughly: online, the oldest
-   *  unanswered edit per issue is at the server. */
-  resend(): void {
-    if (!this.online) return
-    const head = new Set<string>()
+  /**
+   * The kernel outbox's drain, mirrored so answers aim at calls that are
+   * really at the server (`packages/sync/src/outbox/outbox.ts` `drain`):
+   *
+   * - ONE PASS AT A TIME. A pass starts on a trigger (an enqueue while
+   *   online, the online edge, a reload's attach) only when none is running,
+   *   and snapshots the queued entries per partition (`issue:<id>`) at start.
+   *   An entry enqueued while a pass waits on a held call is NOT in it and
+   *   is not sent when that call answers: it waits for the next trigger
+   *   (FINDING, POD-4555: a slow answer on one issue holds back a write on
+   *   another).
+   * - Per partition, FIFO: send the head, wait for its answer, then the next
+   *   snapshot entry. A refusal stops the partition for the pass; a refused
+   *   TITLE is parked (authored text) and blocks its partition for good.
+   * - A re-sent entry the server already applied is answered at once.
+   */
+  private pass: Map<string, EditModel[]> | null = null
+  readonly parked = new Set<string>()
+
+  trigger(): void {
+    if (!this.online || this.pass !== null) return
+    const pass = new Map<string, EditModel[]>()
     for (const e of this.edits) {
-      if (e.state === 'sent') head.add(e.id)
-      if (e.state === 'queued' && !head.has(e.id)) {
-        e.state = 'sent'
-        head.add(e.id)
-      }
+      if (e.state !== 'queued') continue
+      const bucket = pass.get(e.id)
+      if (bucket) bucket.push(e)
+      else pass.set(e.id, [e])
     }
+    this.pass = pass
+    this.advance()
+  }
+
+  advance(): void {
+    const pass = this.pass
+    if (pass === null) return
+    for (const [issue, bucket] of pass) {
+      while (bucket.length > 0) {
+        if (this.parked.has(issue)) {
+          bucket.length = 0
+          break
+        }
+        const head = bucket[0] as EditModel
+        if (head.state === 'sent') break
+        if (head.state === 'rejected') {
+          bucket.length = 0
+          break
+        }
+        if (head.state === 'queued') {
+          if (head.echoed) {
+            head.state = 'accepted'
+          } else {
+            head.state = 'sent'
+            break
+          }
+        }
+        bucket.shift()
+      }
+      if (bucket.length === 0) pass.delete(issue)
+    }
+    if (pass.size === 0) this.pass = null
+  }
+
+  /** A reload: the old tab's pass dies with its unanswered calls, which go
+   *  back to queued; the new runtime's attach triggers a fresh pass. */
+  reload(): void {
+    this.pass = null
+    for (const e of this.edits) if (e.state === 'sent') e.state = 'queued'
+    this.trigger()
   }
 }
 
@@ -535,13 +592,19 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
   }
 
   /** A key that moves `issue` among its siblings: before the first keyed
-   *  sibling, between two adjacent ones, after the last, or unkeyed. */
+   *  sibling, between two adjacent ones, after the last, or unkeyed. Keys
+   *  come from the model's own `sortKeyBetween`; bounds are the siblings'
+   *  WELL-FORMED keys only (the fixture's `a0` ends in the minimum digit, so
+   *  the model would refuse it as a bound). */
   const rankMove = (issue: IssueModel, siblings: string[], tag: Tagged): RowChange => {
-    const keys = siblings
-      .filter((id) => id !== issue.id)
-      .map((id) => model.issues.get(id)?.sortKey ?? null)
-      .filter((k): k is string => k !== null)
-      .sort()
+    const keys = [
+      ...new Set(
+        siblings
+          .filter((id) => id !== issue.id)
+          .map((id) => model.issues.get(id)?.sortKey ?? null)
+          .filter((k): k is string => isSortKey(k)),
+      ),
+    ].sort()
     const slot = int(0, keys.length + 1)
     const sortKey =
       slot === keys.length + 1 && issue.sortKey !== null
@@ -636,7 +699,6 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
     }
     const edit: EditModel = { handle: model.mint('e'), id, field, state: 'queued', echoed: false }
     model.edits.push(edit)
-    model.resend()
     return edit
   }
 
@@ -648,6 +710,7 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
         const { patch, field } = editPatch(issue)
         if ('stage' in patch) issue.stage = patch.stage
         const edit = newEdit(issue.id, field)
+        model.trigger()
         return [{ kind, handle: edit.handle, id: issue.id, patch }]
       }
       case 'accept':
@@ -655,7 +718,8 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
         const e = pick(model.edits.filter((c) => c.state === 'sent' && (kind === 'accept' || !c.echoed)))
         if (!e) return null
         e.state = kind === 'accept' ? 'accepted' : 'rejected'
-        model.resend()
+        if (kind === 'reject' && e.field === 'title') model.parked.add(e.id)
+        model.advance()
         return [{ kind, handle: e.handle }]
       }
       case 'echo': {
@@ -695,16 +759,14 @@ export function gen(seed: number, steps: number, weights: Weights = {}, opts: Ge
       case 'online': {
         if (model.online) return null
         model.online = true
-        model.resend()
+        model.trigger()
         return [{ kind }]
       }
       case 'refresh': {
         // The old tab's in-flight calls die with it; the new runtime re-sends.
-        for (const e of model.edits) if (e.state === 'sent') e.state = 'queued'
-        // An edit the server already applied is answered at once on re-send
-        // (deduped by mutation id): the duplicate receipt.
-        for (const e of model.edits) if (e.state === 'queued' && e.echoed) e.state = 'accepted'
-        model.resend()
+        // One the server already applied is answered at once (deduped by
+        // mutation id): the duplicate receipt.
+        model.reload()
         return [{ kind }]
       }
     }
