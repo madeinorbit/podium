@@ -183,20 +183,30 @@ export async function runFenceScenarios(
 ): Promise<FenceStep[]> {
   const steps: FenceStep[] = []
   for (const entry of FENCE_SCENARIOS) {
-    const readsBudget = entry.readsBudget(ctx)
-    const result = await runCountScenario(mounted, {
-      scenario: entry.scenario,
-      methodology: entry.methodology,
-      apply: async () => {
-        await entry.write(ctx)
-        flush()
-      },
-      expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
-      views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
-    })
-    const step = { result, readsBudget }
+    const step = await runFenceStep(mounted, ctx, flush, entry)
     steps.push(step)
     each(step, mounted.handle)
   }
   return steps
+}
+
+/** One fence scenario against a mounted arm: the count result with the row-view oracle. */
+export async function runFenceStep(
+  mounted: MountedArm,
+  ctx: ScenarioEngine,
+  flush: () => void,
+  entry: FenceScenario,
+): Promise<FenceStep> {
+  const readsBudget = entry.readsBudget(ctx)
+  const result = await runCountScenario(mounted, {
+    scenario: entry.scenario,
+    methodology: entry.methodology,
+    apply: async () => {
+      await entry.write(ctx)
+      flush()
+    },
+    expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
+    views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
+  })
+  return { result, readsBudget }
 }

@@ -17,7 +17,7 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
-import { createElement, memo, type ReactElement, useSyncExternalStore } from 'react'
+import { createElement, memo, type ReactElement, useRef, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Arm, ArmHandle } from '../../../shared/src/arm'
 import {
@@ -32,6 +32,20 @@ import type { ArmStats } from '../../../shared/src/stats'
 import type { LegacyControlEngine } from '../legacy-control/arm'
 import { type RowViews, rowViewsFromStore, snapshotFromStore } from '../oracle/index'
 
+/**
+ * PLANTED MISTAKES (`fences.planted.test.tsx`): each turns this arm into one
+ * that parity still passes and the exact-commit fence must fail. Absent in
+ * the real reference arm.
+ * - `unmemoised`: the row slot is not memoised, so every list render redraws
+ *   every row (over-commit).
+ * - `stale`: the view of row `id` is never refreshed after mount, so a change
+ *   to it never redraws (under-commit).
+ * - `remount`: rows are keyed by a render counter, so every list render
+ *   REMOUNTS every row and commits none (round two's isolation fence, which
+ *   counts commits only, passes it).
+ */
+export type ReferencePlant = { kind: 'unmemoised' } | { kind: 'stale'; id: string } | { kind: 'remount' }
+
 interface ReferenceState {
   order: SliceOrder
   views: RowViews
@@ -42,14 +56,19 @@ function localsOf(engine: LegacyControlEngine): SliceLocals {
   return { selectedIssueId: store.selectedIssueId ?? null, coarseNow: store.coarseNow }
 }
 
-function stateOf(engine: LegacyControlEngine, previous: ReferenceState | null): ReferenceState {
+function stateOf(
+  engine: LegacyControlEngine,
+  previous: ReferenceState | null,
+  plant: ReferencePlant | null,
+): ReferenceState {
   const store = engine.getSnapshot()
   const locals = localsOf(engine)
   const fresh = rowViewsFromStore(store, locals)
   const views: RowViews = {}
   for (const [id, view] of Object.entries(fresh)) {
     const prior = previous?.views[id]
-    views[id] = prior !== undefined && isDeepStrictEqual(prior, view) ? prior : view
+    const stale = plant?.kind === 'stale' && plant.id === id
+    views[id] = prior !== undefined && (stale || isDeepStrictEqual(prior, view)) ? prior : view
   }
   return { order: snapshotFromStore(store, locals).order, views }
 }
@@ -65,9 +84,11 @@ const ReferenceRow = memo(function ReferenceRow({ row }: RowProps): ReactElement
   )
 })
 
-const ReferenceSlot = memo(function ReferenceSlot({ view }: { view: RowView }): ReactElement {
+function Slot({ view }: { view: RowView }): ReactElement {
   return <RowShell row={view} component={ReferenceRow} />
-})
+}
+
+const ReferenceSlot = memo(Slot)
 
 function ReferenceList({
   subscribe,
@@ -77,18 +98,46 @@ function ReferenceList({
   read: () => ReferenceState
 }): ReactElement {
   const state = useSyncExternalStore(subscribe, read)
-  const ids = [
-    ...state.order.pinnedIds,
-    ...state.order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
-  ]
   return (
     <div data-reference-list>
-      {ids.map((id) => {
+      {listedIds(state).map((id) => {
         const view = state.views[id]
         return view === undefined ? null : <ReferenceSlot key={id} view={view} />
       })}
     </div>
   )
+}
+
+/** The planted lists: the same list, with one mistake each. */
+function PlantedList({
+  subscribe,
+  read,
+  plant,
+}: {
+  subscribe: (listener: () => void) => () => void
+  read: () => ReferenceState
+  plant: ReferencePlant
+}): ReactElement {
+  const state = useSyncExternalStore(subscribe, read)
+  const renders = useRef(0)
+  renders.current += 1
+  const SlotType = plant.kind === 'unmemoised' ? Slot : ReferenceSlot
+  return (
+    <div data-reference-list>
+      {listedIds(state).map((id) => {
+        const view = state.views[id]
+        const key = plant.kind === 'remount' ? `${id}:${renders.current}` : id
+        return view === undefined ? null : <SlotType key={key} view={view} />
+      })}
+    </div>
+  )
+}
+
+function listedIds(state: ReferenceState): string[] {
+  return [
+    ...state.order.pinnedIds,
+    ...state.order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
+  ]
 }
 
 function zeroStats(): ArmStats {
@@ -107,15 +156,15 @@ function zeroStats(): ArmStats {
   return stats
 }
 
-export function referenceArmFor(engine: LegacyControlEngine): Arm {
+export function referenceArmFor(engine: LegacyControlEngine, plant: ReferencePlant | null = null): Arm {
   return {
     create(): ArmHandle {
       const stats = zeroStats()
-      let state = stateOf(engine, null)
+      let state = stateOf(engine, null, plant)
       const listeners = new Set<() => void>()
       const off = engine.subscribe(() => {
         stats.notifications += 1
-        state = stateOf(engine, state)
+        state = stateOf(engine, state, plant)
         for (const listener of [...listeners]) listener()
       })
       const subscribe = (listener: () => void): (() => void) => {
@@ -146,7 +195,9 @@ export function referenceArmFor(engine: LegacyControlEngine): Arm {
           const log = currentCommitLog()
           root.render(
             <CommitLogContext.Provider value={log}>
-              {createElement(ReferenceList, { subscribe, read })}
+              {plant === null
+                ? createElement(ReferenceList, { subscribe, read })
+                : createElement(PlantedList, { subscribe, read, plant })}
             </CommitLogContext.Provider>,
           )
           return () => {
