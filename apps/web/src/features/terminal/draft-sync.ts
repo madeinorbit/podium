@@ -18,7 +18,7 @@
  * The ARBITRATION owns when `rearm()` is called (`use-panel-surface`'s
  * chat → native edge). This module owns what happens then.
  */
-import { composerDriverFor } from '@podium/harness/driver/families/terminal/composer-sync'
+import { composerRulesFor } from '@podium/harness/browser'
 import type { AgentKind } from '@podium/model/browser'
 import type { MountedSession } from '@podium/terminal-client'
 
@@ -57,10 +57,12 @@ export function createDraftSync(input: {
   let sampleTimer: ReturnType<typeof setTimeout> | null = null
 
   // Read the native composer's current text via the same scrape both directions
-  // share. Returns the typed text, '' for an empty composer, or null when no
-  // clean composer box is on screen yet (splash/overlay/menu) — callers must
-  // not act on null. Claude draws a box; Codex a single dim-stripped `›` line.
-  const composerDriver = agentKind ? composerDriverFor(agentKind) : null
+  // share. The rules are the bundled browser CODE for the harnesses this build
+  // knows (never served); unknown harnesses scrape nothing. Returns the typed
+  // text, '' for an empty composer, or null when no clean composer box is on
+  // screen yet (splash/overlay/menu) — callers must not act on null. Claude
+  // draws a box; Codex a single dim-stripped `›` line.
+  const composerDriver = agentKind ? (composerRulesFor(agentKind) ?? null) : null
   const scrapeComposer = (): string | null =>
     composerDriver?.extract(
       mounted.view.screenText({ dropDim: composerDriver.dimStripped }).split('\n'),

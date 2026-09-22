@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { ComposerSyncEngine } from './composer-sync'
 
 // Real-PTY smoke: drive the composer engine end-to-end over Bun.Terminal
-// — bytes → engine.onData → @xterm/headless screen → ComposerDriver.extract →
+// — bytes → engine.onData → @xterm/headless screen → composer rules extract →
 // native-draft publish.
 //
 // The real-HARNESS injection/doubling smoke (spawn codex, inject a multiline draft,

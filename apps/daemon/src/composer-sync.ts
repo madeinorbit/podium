@@ -2,22 +2,24 @@
  * Daemon-side ComposerSync engine (POD-859, Draft Sync v2 — phase 2, READ-ONLY).
  *
  * The daemon owns the PTY, so it can keep its own headless VT screen per flagged
- * live session, scrape the native composer through the harness ComposerDriver, and
+ * live session, scrape the native composer through the harness composer rules, and
  * publish native edits upstream — with zero browsers attached (mobile included).
  *
  * READ-ONLY here: scrape → publish only. No injection, no clearing, no lease
  * arbitration — that is phase 4. The engine, lease, and state machine are all
- * harness-agnostic; every harness-specific choice lives behind the ComposerDriver
- * (from `@podium/harness/driver/families/terminal/composer-sync`).
+ * harness-agnostic; every harness-specific choice lives behind the handed
+ * composer section (from the harness's `adapters/<h>/composer.ts`, resolved
+ * once by the composition root — never a kind the engine looks up).
  *
  * See docs/superpowers/specs/2026-07-17-draft-sync-v2-design.md §2, §5.
  */
 
-import { type ComposerDriver, composerDriverFor } from '@podium/harness/driver/families/terminal/composer-sync'
+import type { HarnessComposer } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
 // P2c: the headless screen is a shared thing owned by @podium/process/screen.
 // This module imports it; it constructs no emulator of its own.
 import { createHeadlessScreen, type ScreenReader } from '@podium/process/screen'
+import { terminalComposerSectionsFor } from './runtime/registry'
 
 export type { ScreenReader } from '@podium/process/screen'
 // Re-exported so existing importers (`./composer-sync`) keep working; the
@@ -110,7 +112,7 @@ export class SessionComposerSync {
 
   constructor(
     private readonly sessionId: SessionId,
-    private readonly driver: ComposerDriver,
+    private readonly composer: HarnessComposer,
     private readonly screen: ScreenReader,
     private readonly publish: NativeDraftPublisher,
     inject?: InjectionConfig,
@@ -206,8 +208,8 @@ export class SessionComposerSync {
     // inject (would interrupt the turn) — but keep the emulator fed via onData.
     if (!this.agentIdle) return
 
-    const lines = this.screen.lines(this.driver.dimStripped)
-    const scrape = this.driver.extract(lines)
+    const lines = this.screen.lines(this.composer.dimStripped)
+    const scrape = this.composer.extract(lines)
 
     // Injection mode: while a chat target is pending, the FSM owns this frame and
     // we do NOT publish the (stale) native truth — we are driving native TO the
@@ -247,7 +249,7 @@ export class SessionComposerSync {
     }
     // Can't inject now: no clean composer, not injectable (streaming/overlay), or
     // the user is actively typing in native.
-    if (scrape === null || !this.driver.injectable(lines) || this.isNativeHot()) {
+    if (scrape === null || !this.composer.injectable(lines) || this.isNativeHot()) {
       this.prevScrape = scrape
       return 'blocked'
     }
@@ -272,9 +274,9 @@ export class SessionComposerSync {
     }
     // WRITE: clear the whole composer, then type the target — as ONE burst. Codex's
     // clearSequence is null on an empty composer (Ctrl-C would arm quit), so skip it.
-    const clear = this.driver.clearSequence(scrape) ?? ''
+    const clear = this.composer.clearSequence(scrape) ?? ''
     const target = this.target as string
-    this.writePty?.(clear + this.driver.typeSequence(target))
+    this.writePty?.(clear + this.composer.typeSequence(target))
     if (this.stats) this.stats.injections += 1
     this.expected = target
     this.lastPublished = target // seed: the injection echo is never republished
@@ -285,7 +287,7 @@ export class SessionComposerSync {
 
   private runVerify(lines: string[], scrape: string | null): void {
     this.verifyFrames += 1
-    const v = this.driver.verify(lines, this.expected as string)
+    const v = this.composer.verify(lines, this.expected as string)
     if (v === 'match' || v === 'placeholder') {
       this.injecting = false
       this.target = null
@@ -337,7 +339,7 @@ export class SessionComposerSync {
 
 /**
  * Manages read-only composer sync across sessions. The daemon attaches a session
- * when draft-sync is enabled for it AND its harness has a ComposerDriver, feeds PTY
+ * when draft-sync is enabled for it AND its harness declares composer rules, feeds PTY
  * frames + resizes, and detaches on exit.
  */
 export interface ComposerEngineConfig {
@@ -361,8 +363,8 @@ export class ComposerSyncEngine {
     return { ...this.stats }
   }
 
-  /** Begin sync for a session. Returns false (no-op) when the harness has no
-   *  composer driver. Idempotent per session. With `sharedScreen` the engine
+  /** Begin sync for a session. Returns false (no-op) when the harness declares
+   *  no composer section. Idempotent per session. With `sharedScreen` the engine
    *  reads the session's TerminalScreen model instead of constructing a second
    *  emulator (P2c DONE WHEN 2); the screen outlives the engine entry. */
   attach(
@@ -373,8 +375,10 @@ export class ComposerSyncEngine {
     sharedScreen?: ScreenReader,
   ): boolean {
     if (this.sessions.has(sessionId)) return true
-    const driver = composerDriverFor(agentKind)
-    if (!driver) return false
+    // The composition root resolves the manifest once and hands the typed
+    // subset in — the engine never looks a harness up by name (POD-4477).
+    const sections = terminalComposerSectionsFor(agentKind)
+    if (!sections) return false
     const ownsScreen = sharedScreen === undefined
     const screen = sharedScreen ?? createHeadlessScreen(cols, rows)
     const writePty = this.config.writePty
@@ -386,7 +390,7 @@ export class ComposerSyncEngine {
       : undefined
     this.sessions.set(
       sessionId,
-      new SessionComposerSync(sessionId, driver, screen, this.publish, inject, this.stats, ownsScreen),
+      new SessionComposerSync(sessionId, sections.composer, screen, this.publish, inject, this.stats, ownsScreen),
     )
     return true
   }
