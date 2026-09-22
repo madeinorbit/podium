@@ -2861,7 +2861,7 @@ describe('coarse clock (POD-331)', () => {
   })
 
   it('reads and ticks an injected coarse clock instead of the wall clock', () => {
-    let tick: ((now: number) => void) | null = null
+    let tick = null as ((now: number) => void) | null
     const pinned = Date.parse('2026-09-20T12:00:00Z')
     const { engine } = makeEngine({
       coarseClock: {

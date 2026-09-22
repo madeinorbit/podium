@@ -70,6 +70,34 @@ describe('expectedSnapshot at 1x', () => {
   })
 })
 
+describe('unscanned worktree seat (POD-4550)', () => {
+  // The prefix relation must seat a session under a live issue's worktree
+  // even when no scan reported that worktree. The fixture's case is a
+  // sessionless visible root whose ONLY working session is that orphan, so
+  // the row reads working iff the seat happened.
+  const corpus = buildCorpus(1, 4443)
+  const { issueId, sessionId } = corpus.unscannedWorktree
+
+  it('seats the orphan: the row reads working', () => {
+    const row = expectedSnapshot(corpus, locals()).rowsById[issueId]
+    expect(row, 'the unscanned-worktree issue is visible').toBeDefined()
+    expect(row!.working).toBe(true)
+    expect(row!.phase).toBe('working')
+  })
+
+  it('control: moving the orphan elsewhere leaves the row not working', () => {
+    const moved: typeof corpus = {
+      ...corpus,
+      sessions: corpus.sessions.map((s) =>
+        s.sessionId === sessionId ? { ...s, cwd: '/nowhere/sub' } : s,
+      ),
+    }
+    const row = expectedSnapshot(moved, locals()).rowsById[issueId]
+    expect(row).toBeDefined()
+    expect(row!.working).toBe(false)
+  })
+})
+
 describe('expectedSnapshot negative control', () => {
   it('a one-title mutation changes exactly that row', () => {
     const corpus = buildCorpus(1, 4443)

@@ -99,6 +99,10 @@ export interface FixtureCorpus {
   sliceIssues: SliceIssue[]
   sliceSessions: SliceSession[]
   sliceWorktrees: SliceWorktree[]
+  /** POD-4550: a live issue whose `worktreePath` no discovery scan reported,
+   *  with one live orphan session seated under it only by the prefix
+   *  relation. */
+  unscannedWorktree: { issueId: string; path: string; sessionId: string }
   stats: CorpusStats
 }
 
@@ -844,6 +848,32 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   }
   if (sessions.length !== sessionTarget) fail(`sessions ${sessions.length} != ${sessionTarget}`)
 
+  // -- unscanned worktree (POD-4550, handover from POD-4546) ---------------------------
+  // A live issue can name a worktree the discovery scan never reported (a
+  // checkout on another machine, one made outside Podium, a scan that has not
+  // run yet). Its path lives ONLY on `issue.worktreePath`: it is in no repo's
+  // `worktrees` and no session's cwd equals it. A prefix relation that only
+  // materialises worktrees the scan reached silently drops the sessions under
+  // it. The case: the last sessionless visible root (so the seat is the ONLY
+  // thing that can make it working) gets an unscanned path, and the first live
+  // working orphan moves under it. Deterministic, and it draws nothing from
+  // `rng`, so every other row is byte-identical to the corpus without it.
+  const unscannedIdx = byRole('vSessless').at(-1)
+  if (unscannedIdx === undefined) fail('no sessionless visible root for the unscanned worktree')
+  const unscannedPath = `/w/unscanned-${idOf(unscannedIdx)}`
+  issueWt[unscannedIdx] = unscannedPath
+  ;(issues[unscannedIdx] as unknown as Record<string, unknown>)['worktreePath'] = unscannedPath
+  ;(issueProjections[unscannedIdx] as unknown as Record<string, unknown>)['worktreePath'] = unscannedPath
+  const unscannedOrphan = sessions.find(
+    (s) =>
+      s.issueId == null &&
+      s.status === 'live' &&
+      s.agentState?.phase === 'working' &&
+      /\/sub(\/deep)?$/.test(s.cwd),
+  )
+  if (unscannedOrphan === undefined) fail('no live working orphan to seat under the unscanned worktree')
+  ;(unscannedOrphan as unknown as Record<string, unknown>)['cwd'] = `${unscannedPath}/sub`
+
   // -- unread rollups (same derivation the replica runs) -------------------------
   const sessionInputs = sessions.map((s) => ({
     sessionId: s.sessionId,
@@ -979,6 +1009,11 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     sliceIssues,
     sliceSessions,
     sliceWorktrees,
+    unscannedWorktree: {
+      issueId: idOf(unscannedIdx),
+      path: unscannedPath,
+      sessionId: unscannedOrphan.sessionId,
+    },
     stats,
   }
 }

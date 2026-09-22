@@ -90,4 +90,21 @@ describe('buildCorpus shape (1x)', () => {
     expect(withPrefix).toBeGreaterThan(0)
     expect(withoutRepo).toBeGreaterThan(0)
   })
+
+  it('names one live issue worktree no scan reported, with an orphan under it (POD-4550)', () => {
+    const { issueId, path, sessionId } = corpus.unscannedWorktree
+    const issue = corpus.sliceIssues.find((i) => i.id === issueId)!
+    expect(issue.worktreePath).toBe(path)
+    expect(issue.closedAt).toBeNull()
+    expect(issue.archived).toBe(false)
+    // Not in the discovery scan, not a worktree row, not any session's cwd.
+    expect(corpus.repos.flatMap((r) => r.worktrees.map((w) => w.path))).not.toContain(path)
+    expect(corpus.sliceWorktrees.map((w) => w.path)).not.toContain(path)
+    expect(corpus.sessions.map((s) => s.cwd)).not.toContain(path)
+    // Its only session is an unbound one, seated by the prefix alone.
+    const under = corpus.sessions.filter((s) => s.cwd.startsWith(`${path}/`))
+    expect(under.map((s) => s.sessionId)).toEqual([sessionId])
+    expect(under[0]!.issueId ?? null).toBeNull()
+    expect(corpus.sessions.some((s) => s.issueId === issueId)).toBe(false)
+  })
 })
