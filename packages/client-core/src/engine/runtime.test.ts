@@ -44,7 +44,7 @@ import { Reactions } from './reactions'
 import { foregroundIssue, type EngineState } from './state'
 import { foldOverlays, insertOverlay, type OverlayEntity } from './overlay'
 import type { OptimismLedger } from './optimism'
-import { COARSE_CLOCK_MS, createClientRuntime } from './runtime'
+import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -257,6 +257,7 @@ function makeEngine(
     draftSendDebounceMs?: number
     draftPersistDebounceMs?: number
     principal?: string
+    coarseClock?: CoarseClock
   } = {},
 ) {
   const hub = opts.hub ?? new FakeHub()
@@ -284,6 +285,7 @@ function makeEngine(
     ...(opts.draftPersistDebounceMs !== undefined
       ? { draftPersistDebounceMs: opts.draftPersistDebounceMs }
       : {}),
+    ...(opts.coarseClock !== undefined ? { coarseClock: opts.coarseClock } : {}),
   })
   return { engine, hub, rw, fatals, errors }
 }
@@ -2856,6 +2858,29 @@ describe('coarse clock (POD-331)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('reads and ticks an injected coarse clock instead of the wall clock', () => {
+    let tick: ((now: number) => void) | null = null
+    const pinned = Date.parse('2026-09-20T12:00:00Z')
+    const { engine } = makeEngine({
+      coarseClock: {
+        now: () => pinned,
+        subscribe: (onTick) => {
+          tick = onTick
+          return () => {
+            tick = null
+          }
+        },
+      },
+    })
+    expect(engine.getSnapshot().coarseNow).toBe(pinned)
+    engine.start()
+    expect(tick).not.toBeNull()
+    tick!(pinned + COARSE_CLOCK_MS)
+    expect(engine.getSnapshot().coarseNow).toBe(pinned + COARSE_CLOCK_MS)
+    engine.dispose()
+    expect(tick).toBeNull()
   })
 
   it('stops ticking once disposed, so a dead runtime cannot publish', async () => {

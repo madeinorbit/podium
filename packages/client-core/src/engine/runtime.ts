@@ -217,6 +217,25 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   draftSendDebounceMs?: number
   /** Test seam: overrides DRAFT_PERSIST_DEBOUNCE_MS (POD-2045). */
   draftPersistDebounceMs?: number
+  /** Test seam: the coarse clock's source (POD-331). Default: `Date.now()`
+   *  seeded at construction and re-read every COARSE_CLOCK_MS. A harness
+   *  injects its own to pin the clock and tick it on demand (POD-4550). */
+  coarseClock?: CoarseClock
+}
+
+/** Where the coarse clock reads time and when it ticks. */
+export interface CoarseClock {
+  now(): number
+  /** Calls `tick` with the new time on every tick; returns the unsubscribe. */
+  subscribe(tick: (now: number) => void): () => void
+}
+
+const wallCoarseClock: CoarseClock = {
+  now: () => Date.now(),
+  subscribe: (tick) => {
+    const timer = setInterval(() => tick(Date.now()), COARSE_CLOCK_MS)
+    return () => clearInterval(timer)
+  },
 }
 
 /**
@@ -341,6 +360,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly draftSendTimers = new Map<SessionId, ReturnType<typeof setTimeout>>()
   private draftPersistTimer: ReturnType<typeof setTimeout> | null = null
   private readonly draftSendDebounceMs: number
+  private readonly coarseClock: CoarseClock
   private readonly draftPersistDebounceMs: number
   private readonly networkEnabled: boolean
   /** One-time boot fetches (repos/pins/tab-orders/settings) — once per runtime,
@@ -355,6 +375,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.formatError = init.formatError ?? defaultFormatError
     this.httpOrigin = init.config.httpOrigin
     this.draftSendDebounceMs = init.draftSendDebounceMs ?? DRAFT_SEND_DEBOUNCE_MS
+    this.coarseClock = init.coarseClock ?? wallCoarseClock
     this.draftPersistDebounceMs = init.draftPersistDebounceMs ?? DRAFT_PERSIST_DEBOUNCE_MS
     this.networkEnabled = init.networkEnabled ?? true
     // The runtime type is only half the guard — an untyped caller omitting the
@@ -511,7 +532,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // already restored its durable recovery home, so the first Store snapshot
       // must expose it without waiting for start() or a queue notification.
       outboxDeadLetters: this.outbox.deadLetters(),
-      now: Date.now(),
+      now: this.coarseClock.now(),
       recoverOutbox: {
         // Every one of these repaints through the outbox subscription, because
         // recovery changes queue membership and queue membership IS overlay
@@ -600,8 +621,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // It goes through apply() like every other state change, so it publishes
     // exactly one fresh snapshot per tick and runs the reaction table — where
     // no reaction is keyed on `coarseNow`, so a tick fires none of them.
-    const clock = setInterval(() => this.apply({ coarseNow: Date.now() }), COARSE_CLOCK_MS)
-    offs.push(() => clearInterval(clock))
+    offs.push(this.coarseClock.subscribe((now) => this.apply({ coarseNow: now })))
 
     // Outbox → snapshot; attach re-arms drain triggers after a dispose. Queue
     // membership IS overlay membership (#263), so any enqueue/drop repaints
