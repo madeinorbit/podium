@@ -41,7 +41,7 @@ function summary(steps: { result: { methodology: string; oracleChangedRows: stri
 describe('exact-commit fence: reference arm (can say YES)', () => {
   it('redraws exactly the oracle-changed rows on every scenario', async () => {
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica)
+    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const mounted = mountArmForCounts(referenceArmFor(ctx.engine), source.source, engineLocals(ctx))
     try {
       const steps = await runFenceScenarios(mounted, ctx, source.flush, ({ result }) => {
@@ -67,7 +67,7 @@ for (const entry of ROUND_THREE_ARMS) {
   describe(`fences: ${entry.name}`, () => {
     it('passes the exact-commit fence, parity, the reads budgets and the copy sweep on every scenario', async () => {
       const ctx = await startScenarioEngine(1)
-      const source = createRowSource(ctx.engine, ctx.replica)
+      const source = createRowSource(ctx.engine, ctx.replica, { mode: entry.mode })
       const mounted = mountArmForCounts(entry.armFor(ctx), source.source, engineLocals(ctx))
       try {
         const steps = await runFenceScenarios(mounted, ctx, source.flush, ({ result, readsBudget }) => {

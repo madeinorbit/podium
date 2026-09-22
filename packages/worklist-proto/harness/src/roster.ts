@@ -9,12 +9,13 @@
  *
  * Adding an arm (Ma1/Ha1): create `arms/<folder>/fence.json` (see
  * `harness/lint/README.md`), name its enumeration module in the arm's README,
- * and add `{ name, folder, armFor }` below. The arm is created by the harness
+ * and add `{ name, folder, mode, armFor }` below. The arm is created by the harness
  * through `Arm.create(source, locals, reads)`; `armFor` only closes over what
  * the arm's constructor needs from the scenario engine (usually nothing).
  */
 
 import type { Arm } from '../../shared/src/arm'
+import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
 
 export interface RosterArm {
@@ -22,6 +23,8 @@ export interface RosterArm {
   name: string
   /** The folder under `arms/` holding the arm and its `fence.json`. */
   folder: string
+  /** The feed the arm consumes (`row-source.ts`): `overlaid` for phase a/b pools, `truth` once it owns optimism. */
+  mode: RowSourceMode
   armFor(ctx: ScenarioEngine): Arm
 }
 
