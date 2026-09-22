@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
-import { SMALL_CORPUS, startScenarioEngine } from '../../shared/src/scenarios'
+import { startScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceLocals } from '../../shared/src/slice-types'
 import {
   assertIsolation,
@@ -16,11 +16,11 @@ import {
   runCountScenario,
 } from '../../harness/src/count-harness'
 import { snapshotFromStore } from '../../harness/src/oracle/index'
-import { writeHeartbeat, writePhaseChange, writeSelectionClick } from '../../harness/src/scenario-writes'
+import { writeHeartbeat, writePhaseChange, writeSelectionClick } from '../../shared/src/scenarios'
 import { mobxArm } from './arm'
 
 async function bootArm() {
-  const ctx = await startScenarioEngine(SMALL_CORPUS)
+  const ctx = await startScenarioEngine(1)
   const source = createRowSource(ctx.engine, ctx.replica)
   const locals: SliceLocals = {
     selectedIssueId: null,

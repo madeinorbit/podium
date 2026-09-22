@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
-import { GROWTH_CORPORA, startScenarioEngine } from '../../shared/src/scenarios'
+import { startScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceLocals } from '../../shared/src/slice-types'
 import {
   assertIsolation,
@@ -25,7 +25,7 @@ import {
   writeHeartbeat,
   writePhaseChange,
   writeSelectionClick,
-} from '../../harness/src/scenario-writes'
+} from '../../shared/src/scenarios'
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
@@ -33,7 +33,7 @@ import type { HandStore } from './store'
 describe('hand-rolled arm at 1x', () => {
   it('scenarios #1-#3 with parity, rebuild oracle, and budgets', async () => {
     const started = performance.now()
-    const ctx = await startScenarioEngine(GROWTH_CORPORA.x1)
+    const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica)
     const locals: SliceLocals = {
       selectedIssueId: null,

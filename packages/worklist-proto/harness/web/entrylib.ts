@@ -6,13 +6,18 @@
  *
  * Page scenarios (the G4 browser set — counts in CI cover all thirteen G3
  * scenarios; walls in Chromium cover the hot path):
- * - `heartbeat`: lastActiveAt bump on the first session (methodology #1).
- * - `rename`: title dual-write on the first visible row (#4).
+ * - `heartbeat`: lastActiveAt bump on the scenario library's heartbeat
+ *   target, a session on a row the worklist never shows (methodology #1).
+ * - `rename`: title dual-write on the library's visible-root target (#4).
  * - `stagemove`: stage dual-write (open → done/tucked) on the first
  *   non-closed visible row, a fresh row per sample (#5).
+ *
+ * The writes are the scenario library's own (`applyHeartbeat`,
+ * `applyTitleRename`, `applyStageMove`: the synchronous half, so the settle
+ * never lands inside a timed action). POD-4550.
  * - `clock`: advance the slice clock 60 s with no row change; arms re-derive
  *   bands from the new now, the control follows its locals (#8).
- * - `click`: select the first visible row via `clickRow` (#3, input-to-paint).
+ * - `click`: select the visible-root target via `clickRow` (#3, input-to-paint).
  */
 
 import { asIssueId } from '@podium/model'
@@ -24,7 +29,12 @@ import {
   type CommitLog,
 } from '../../shared/src/row-shell'
 import type { SliceLocals } from '../../shared/src/slice-types'
-import type { EngineBootstrap } from '../src/engine-bootstrap'
+import {
+  applyHeartbeat,
+  applyStageMove,
+  applyTitleRename,
+  type ScenarioEngine,
+} from '../../shared/src/scenarios'
 
 export interface ProtoCorpusCounts {
   issues: number
@@ -105,7 +115,7 @@ export interface MountPageOptions {
   arm: string
   createArm: () => Arm
   source: RowSource
-  boot: EngineBootstrap
+  boot: ScenarioEngine
   scale: 1 | 2 | 4
   counts: { issues: number; sessions: number; repos: number; worktrees: number }
   runtimeSha: string
@@ -119,7 +129,7 @@ export function readScale(): 1 | 2 | 4 {
 
 export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: CommitLog } {
   const { createArm, source, boot, scale, counts, runtimeSha } = options
-  const { engine, replica, cache } = boot
+  const { engine } = boot
   const locals: SliceLocals = {
     selectedIssueId: null,
     coarseNow: engine.getSnapshot().coarseNow,
@@ -150,56 +160,17 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     notifications: handle.stats.notifications,
   })
 
-  const firstSessionId = (): string => {
-    const sessions = engine.getSnapshot().sessions
-    if (sessions.length === 0) throw new Error('[proto] no sessions in corpus')
-    return sessions[0]!.sessionId
-  }
-
-  const firstVisibleId = (): string => {
-    const ids = Object.keys(handle.snapshot().rowsById)
-    if (ids.length === 0) throw new Error('[proto] no visible rows')
-    return ids[0]!
-  }
-
   async function heartbeat(): Promise<void> {
-    const id = firstSessionId()
-    const current = engine
-      .getSnapshot()
-      .sessions.find((session) => session.sessionId === id)
-    if (!current) throw new Error(`[proto] session ${id} missing`)
-    const next = { ...current, lastActiveAt: new Date().toISOString() }
-    cache.put('session', id, next)
-    replica.onKernelEvent({
-      type: 'upserted',
-      record: { entity: 'session', entityId: id, value: next, provenance: { seq: 2 } },
-      readmitted: false,
-    } as never)
+    applyHeartbeat(boot)
   }
 
+  let renames = 0
   async function rename(): Promise<void> {
-    const id = firstVisibleId()
-    const snap = engine.getSnapshot()
-    const wire = snap.issues.find((issue) => issue.id === id)
+    const id = boot.targets.visibleRootId
+    const wire = engine.getSnapshot().issues.find((issue) => issue.id === id)
     if (!wire) throw new Error(`[proto] issue ${id} missing`)
-    const title = `${wire.title} (proto)`
-    const nextWire = { ...wire, title }
-    const projection = cache.read('issueProjection', id)
-    const nextProjection = { ...((projection as { value?: object } | undefined)?.value ?? {}), title }
-    replica.batch(() => {
-      cache.put('issue', id, nextWire)
-      replica.onKernelEvent({
-        type: 'upserted',
-        record: { entity: 'issue', entityId: id, value: nextWire, provenance: { seq: 2 } },
-        readmitted: false,
-      } as never)
-      cache.put('issueProjection', id, nextProjection)
-      replica.onKernelEvent({
-        type: 'upserted',
-        record: { entity: 'issueProjection', entityId: id, value: nextProjection, provenance: { seq: 2 } },
-        readmitted: false,
-      } as never)
-    })
+    renames += 1
+    applyTitleRename(boot, id, `${wire.title} (proto ${renames})`)
   }
 
   /** First visible row that is not in the closed fold: every sample moves a
@@ -214,28 +185,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
   }
 
   async function stagemove(): Promise<void> {
-    const id = firstOpenId()
-    const snap = engine.getSnapshot()
-    const wire = snap.issues.find((issue) => issue.id === id)
-    if (!wire) throw new Error(`[proto] issue ${id} missing`)
-    const now = new Date().toISOString()
-    const nextWire = { ...wire, stage: 'done', closedAt: now, closedReason: 'shipped', tuckedAt: now }
-    const projection = cache.read('issueProjection', id)
-    const nextProjection = { ...((projection as { value?: object } | undefined)?.value ?? {}), stage: 'done' }
-    replica.batch(() => {
-      cache.put('issue', id, nextWire)
-      replica.onKernelEvent({
-        type: 'upserted',
-        record: { entity: 'issue', entityId: id, value: nextWire, provenance: { seq: 2 } },
-        readmitted: false,
-      } as never)
-      cache.put('issueProjection', id, nextProjection)
-      replica.onKernelEvent({
-        type: 'upserted',
-        record: { entity: 'issueProjection', entityId: id, value: nextProjection, provenance: { seq: 2 } },
-        readmitted: false,
-      } as never)
-    })
+    applyStageMove(boot, firstOpenId())
   }
 
   /** The page clock: arms tick through their store hook, the control follows
@@ -259,7 +209,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     commits: number
     mountedRows: number
   }> {
-    const rowId = id ?? firstVisibleId()
+    const rowId = id ?? boot.targets.visibleRootId
     const button = document.querySelector(
       `[data-issue-row="${CSS.escape(rowId)}"] [data-pressable]`,
     )
@@ -300,8 +250,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       else if (name === 'stagemove') await stagemove()
       else if (name === 'clock') await clock()
       else {
-        const rowId = firstVisibleId()
-        engine.getSnapshot().setSelectedIssueId(asIssueId(rowId))
+        engine.getSnapshot().setSelectedIssueId(asIssueId(boot.targets.visibleRootId))
       }
       // Drain the microtask queue (row-source drain → arm dispatch → notify
       // → React sync-lane commit run here) before stopping the action clock:

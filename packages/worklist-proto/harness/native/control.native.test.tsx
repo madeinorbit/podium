@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
-import { SMALL_CORPUS, startScenarioEngine } from '../../shared/src/scenarios'
+import { startScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceLocals } from '../../shared/src/slice-types'
 import {
   assertIsolation,
@@ -27,12 +27,12 @@ import {
   writeHeartbeat,
   writePhaseChange,
   writeSelectionClick,
-} from '../src/scenario-writes'
+} from '../../shared/src/scenarios'
 
 describe('legacy control on the native renderer', () => {
   it('runs count scenarios #1-#3 with parity; #1 fails isolation', async () => {
     await preloadControlNative()
-    const ctx = await startScenarioEngine(SMALL_CORPUS)
+    const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica)
     const locals: SliceLocals = {
       selectedIssueId: null,

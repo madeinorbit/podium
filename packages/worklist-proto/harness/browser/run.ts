@@ -29,7 +29,7 @@ import { extname, join } from 'node:path'
 import { loadavg, uptime } from 'node:os'
 import { chromium } from '@playwright/test'
 
-const ARMS = ['control', 'hand', 'mobx', 'tanstack'] as const
+const ARMS = ['control', 'hand', 'mobx'] as const
 type ArmName = (typeof ARMS)[number]
 type Scale = 1 | 2 | 4
 const SCENARIOS = ['heartbeat', 'rename', 'stagemove', 'clock', 'click'] as const

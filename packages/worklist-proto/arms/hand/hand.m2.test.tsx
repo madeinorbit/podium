@@ -20,7 +20,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
-import { GROWTH_CORPORA, SMALL_CORPUS, startScenarioEngine } from '../../shared/src/scenarios'
+import { startScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
 import {
   mountArmForCounts,
@@ -41,12 +41,12 @@ import {
   writeParentReassignment,
   writeStageMove,
   writeTitleRename,
-} from '../../harness/src/scenario-writes'
+} from '../../shared/src/scenarios'
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
 
-const SPEC = process.env.PROTO_M2_SPEC === 'small' ? SMALL_CORPUS : GROWTH_CORPORA.x1
+const SPEC = process.env.PROTO_M2_SPEC === 'small' ? SMALL_CORPUS : 1
 const STRICT = process.env.PROTO_M2_STRICT === '1'
 
 interface StepRecord {

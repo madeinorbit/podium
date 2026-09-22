@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../../shared/src/row-source'
-import { SMALL_CORPUS, startScenarioEngine } from '../../../shared/src/scenarios'
+import { startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import {
   assertIsolation,
@@ -28,12 +28,12 @@ import {
   type CountResult,
 } from '../count-harness'
 import { snapshotFromStore } from '../oracle/index'
-import { writeHeartbeat } from '../scenario-writes'
+import { writeHeartbeat } from '../../../shared/src/scenarios'
 import { legacyControlArmFor } from './arm'
 
 describe('legacy control (armed)', () => {
   it('FAILS isolation on unrelatedHeartbeat and passes parity exactly', async () => {
-    const ctx = await startScenarioEngine(SMALL_CORPUS)
+    const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica)
     const locals: SliceLocals = {
       selectedIssueId: null,

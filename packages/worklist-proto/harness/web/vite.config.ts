@@ -5,7 +5,7 @@
  * (`harness/browser/run.ts`).
  *
  * Per-arm entries keep bundles isolated (the §1a bundle budget is per arm).
- * The hand/mobx/tanstack entries are PENDING stubs until their H issues land;
+ * The hand/mobx entries were PENDING stubs until their H issues landed;
  * the build covers all entries so a broken stub fails the gate, never the
  * measurement run (the driver skips `ready:false` pages loudly).
  *
@@ -66,7 +66,6 @@ export default defineConfig({
         control: entry('control'),
         hand: entry('hand'),
         mobx: entry('mobx'),
-        tanstack: entry('tanstack'),
       },
     },
   },

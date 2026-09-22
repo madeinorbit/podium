@@ -13,7 +13,8 @@ onto the current code, all fed only by the kernel's per-row change stream.
 - `arms/hand/` — owned by the hand-rolled arm (POD-4446). Incremental view maintenance
   with typed deltas; no whole-table enumeration on ordinary deltas.
 - `arms/mobx/` — owned by the MobX arm (POD-4447). Tracked object graph with enforcement on.
-- `arms/tanstack/` — owned by the TanStack DB arm (POD-4448). Everything relational is a query.
+- `arms/tanstack/` — deleted in POD-4550 (round two eliminated TanStack DB; see
+  `docs/decisions/4441-round-two-decision.md`).
 - `harness/` — owned by the measurement harness (POD-4445). The fixture + oracle (POD-4443)
   and the row stream + scenarios (POD-4444) land here unless those issues relocate them with
   coordinator approval.

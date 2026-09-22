@@ -1,25 +1,30 @@
 /**
- * POD-4444 — the thirteen scenario replay library (methodology §5.8).
+ * POD-4444 / POD-4550 — the scenario replay library (methodology §5.8), over
+ * the ONE corpus.
  *
  * Every arm replays the SAME scenarios against the SAME row-source input, so
  * arms never diff collections and never read the kernel themselves. Each
- * scenario builds a seeded kernel corpus (`MemCache` + `createKernelReplica`
- * + `ClientRuntime`, the way `apps/web/src/perf/kernel-scenarios` does with a
- * stubbed hub/transport), primes a `createRowSource` over it, performs ONE
- * action, and returns `{events, before, after}`:
+ * scenario boots a kernel over the live-shaped fixture (`buildCorpus(scale,
+ * seed)`: 4,867 issues / 4,304 sessions / 211 visible rows at 1x) —
+ * `ScenarioCache` + `createKernelReplica` + `ClientRuntime` with a stubbed
+ * hub/transport — primes a `createRowSource` over it, performs ONE write, and
+ * returns `{events, before, after, targets}`:
  *
- * - `events` — the `RowSourceEvent`s the action published (the arm input).
+ * - `events` — the `RowSourceEvent`s the write published (the arm input).
  * - `before` / `after` — the oracle's delta surface: the folded snapshot rows
- *   the legacy derivation projects (G2's parity oracle consumes these to
- *   check visible rows, order, per-row fields and groups after every
- *   scenario). The delta is asserted in `scenarios.test.ts` at the snapshot
- *   level; the SliceSnapshot projection is G2's (POD-4443), which owns the
- *   fixture and oracle folders — this module keeps its seed helpers LOCAL
- *   (unexported `seedCorpus`) so the sibling's fixture work never collides
- *   with it.
+ *   the legacy derivation projects.
+ * - `targets` — the rows the writes aimed at, chosen BY RULE from the corpus
+ *   (`pickTargets`), so parity checks and the browser driver hit the same
+ *   rows the count runs hit.
  *
- * SCENARIO → METHODOLOGY MAP (§5.8 scenarios and budgets; #14 growth and #15
- * coexistence belong to the G4 harness, not here):
+ * ONE INPUT (POD-4550). The writes (`writeHeartbeat`, `writeTitleRename`, …)
+ * live here and ARE the scenarios: a scenario function is "boot, run one
+ * write under a row source". Engine-backed count runs boot one engine with
+ * `startScenarioEngine` and call the same writes. There is no second corpus
+ * and no second copy of any write.
+ *
+ * SCENARIO → METHODOLOGY MAP (§5.8; #14 growth and #15 coexistence belong to
+ * the count harness, not here):
  *
  * | fn | methodology | rows committed (arm) | row-source events asserted |
  * |---|---|---|---|
@@ -40,29 +45,32 @@
  * | coldBootstrap | #12 | full once | 0 events; arms snapshot (finding) |
  * | rescopeGrowth | #13 | full each | 2 replaces |
  *
- * DUAL-WRITE. Seed and scenario writes update wire AND projection rows
- * together, as the authority does during the normalized migration: a
- * projection change always arrives with its wire change in the same batch and
- * dedupes to one `issue` row (see `row-source.ts`).
+ * DUAL-WRITE. Issue writes update wire AND projection rows together, as the
+ * authority does during the normalized migration: a projection change always
+ * arrives with its wire change in the same batch and dedupes to one `issue`
+ * row (see `row-source.ts`).
  *
  * EVICT. `evictWithoutRevision` drops the rows from the cache and fires
  * `evicted` (not `removed`): an authority snapshot omitting the row. Evict
  * and delete look the same to the arm (row gone) and that is intended
  * (spec §2).
  *
- * KEEPER EVICT (POD-4503). The seed corpus carries no rescue rows (every
- * unfinished human issue is `planning`/`in_progress`/`review`, hence
- * flat-visible; `keptBy` is empty), and `#6c` evicts `i5`, a root that keeps
- * nothing — so a missing keeper-seat cleanup stays parity-green. `#6d`
- * (`evictKeeperWithoutRevision`) seeds its own keeper pair first (a
- * sessionless `backlog` parent kept visible only by a visible child), then
- * evicts the child: the oracle drops the parent with it, and an arm that
- * forgot the keeper-seat cleanup keeps a ghost parent and fails parity.
+ * KEEPER EVICT (POD-4503). `#6c` evicts a root that keeps nothing, so a
+ * missing keeper-seat cleanup stays parity-green there. `#6d` evicts the only
+ * child of one of the fixture's rescue parents (a sessionless `backlog`
+ * parent kept visible only by that child): the oracle drops the parent with
+ * it, and an arm that forgot the keeper-seat cleanup keeps a ghost parent and
+ * fails parity. The fixture carries these pairs itself; nothing is seeded.
  *
- * CLOCK AND SELECTION are locals (`SliceLocals`), never rows. `clockTick`
- * advances the local clock without touching the kernel and yields no events;
- * arms re-derive bands from `coarseNow`. `selectionClick` drives the real
- * `setSelectedIssueId` publication and likewise yields no row event.
+ * CLOCK. The runtime's coarse clock is pinned to the corpus clock
+ * (`FIXED_NOW`, inside every band threshold) through the runtime's
+ * `coarseClock` seam, and `clockTick` advances it THROUGH THE ENGINE: the
+ * `after` snapshot's `coarseNow` is what the runtime published, never a
+ * number synthesised here. Every timestamp a write mints comes from the same
+ * clock (`ctx.stamp()`), so a wall-clock date never lands in a row.
+ *
+ * SELECTION is a local (`SliceLocals`), never a row. `selectionClick` drives
+ * the real `setSelectedIssueId` publication.
  *
  * PRINCIPAL SWITCH disposes the runtime AND the row source; a new runtime
  * over a FRESH replica bootstraps exactly once. The old source is asserted
@@ -71,7 +79,7 @@
 
 import type { EntityRecord } from '@podium/sync/replica'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { createClientRuntime } from '@podium/client-core/engine'
+import { type CoarseClock, createClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   createKernelReplica,
@@ -82,38 +90,34 @@ import {
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
 import { asIssueId, asUserId } from '@podium/model'
+import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { createRowSource } from './row-source'
 import type { RowSourceEvent } from './stats'
 
-// ------------------------------------------------------------------ scales
+// ------------------------------------------------------------------ corpus
 
-export interface CorpusSpec {
-  issues: number
-  sessions: number
-  repos: number
-  worktreesPerRepo: number
-}
+/** Fixture scale: 1x is the live installation, 2x/4x the growth slope. */
+export type FixtureScale = CorpusScale
 
-/** Functional scale: every scenario's event counts and delta, fast in CI. */
-export const SMALL_CORPUS: CorpusSpec = {
-  issues: 60,
-  sessions: 50,
-  repos: 6,
-  worktreesPerRepo: 2,
-}
-
-/** Live-shaped corpus sizes for the growth slope (methodology §1a/§5.7):
- *  1×, 2× and 4× issues. Only the heartbeat replays at these scales. */
-export const GROWTH_CORPORA: Record<'x1' | 'x2' | 'x4', CorpusSpec> = {
-  x1: { issues: 4867, sessions: 4304, repos: 500, worktreesPerRepo: 1 },
-  x2: { issues: 9734, sessions: 8608, repos: 1000, worktreesPerRepo: 1 },
-  x4: { issues: 19468, sessions: 17216, repos: 2000, worktreesPerRepo: 1 },
-}
+/** The seed every count, parity check and browser page uses unless a test
+ *  deliberately varies it. */
+export const FIXTURE_SEED = 4443
 
 // ------------------------------------------------------------- kernel fake
 
+const keyOf = (entity: string, entityId: string): string => `${entity}:${entityId}`
+
+/** The kernel cache the scenario replica reads. Keyed by `entity:id`, so
+ *  every read and write is O(1); `records` is materialised on demand and
+ *  cached until the next write. */
 export class ScenarioCache implements KernelCacheRead {
-  records: EntityRecord[] = []
+  private readonly byKey = new Map<string, EntityRecord>()
+  private materialised: EntityRecord[] | null = null
+
+  get records(): EntityRecord[] {
+    this.materialised ??= [...this.byKey.values()]
+    return this.materialised
+  }
   readCursor() {
     return null
   }
@@ -121,37 +125,49 @@ export class ScenarioCache implements KernelCacheRead {
     return this.records
   }
   read(entity: string, entityId: string): EntityRecord | undefined {
-    return this.records.find((r) => r.entity === entity && r.entityId === entityId)
+    return this.byKey.get(keyOf(entity, entityId))
   }
   durability(): 'durable' {
     return 'durable'
   }
   put(entity: string, entityId: string, value: unknown): void {
-    this.records = [
-      ...this.records.filter((r) => !(r.entity === entity && r.entityId === entityId)),
-      { entity, entityId, value, provenance: { seq: 1 } },
-    ]
+    const key = keyOf(entity, entityId)
+    // Re-insert at the end, like an upsert into an append log.
+    this.byKey.delete(key)
+    this.byKey.set(key, { entity, entityId, value, provenance: { seq: 1 } })
+    this.materialised = null
   }
-  /** Bulk install for seeding: one array build, not one spread per row. The
-   *  per-row `put` above is O(corpus) itself, so seeding live-shaped corpora
-   *  through it is O(corpus²) — minutes at 4×. Seeds go through here. */
+  /** Bulk install for seeding. */
   install(rows: { entity: string; entityId: string; value: unknown }[]): void {
-    const byId = new Map(this.records.map((r) => [`${r.entity}:${r.entityId}`, r]))
     for (const row of rows) {
-      byId.set(`${row.entity}:${row.entityId}`, {
+      this.byKey.set(keyOf(row.entity, row.entityId), {
         entity: row.entity,
         entityId: row.entityId,
         value: row.value,
         provenance: { seq: 1 },
       })
     }
-    this.records = [...byId.values()]
+    this.materialised = null
   }
   drop(entity: string, entityId: string): void {
-    this.records = this.records.filter(
-      (r) => !(r.entity === entity && r.entityId === entityId),
-    )
+    if (this.byKey.delete(keyOf(entity, entityId))) this.materialised = null
   }
+}
+
+/** Install the fixture rows as kernel entities, in bulk. */
+export function seedCacheFromCorpus(corpus: FixtureCorpus): ScenarioCache {
+  const cache = new ScenarioCache()
+  const rows: { entity: string; entityId: string; value: unknown }[] = []
+  for (const issue of corpus.issues) rows.push({ entity: 'issue', entityId: issue.id, value: issue })
+  for (const projection of corpus.issueProjections)
+    rows.push({ entity: 'issueProjection', entityId: projection.id, value: projection })
+  for (const session of corpus.sessions)
+    rows.push({ entity: 'session', entityId: session.sessionId, value: session })
+  for (const repo of corpus.repoProjections)
+    rows.push({ entity: 'repos', entityId: repo.id, value: repo })
+  for (const dep of corpus.issueDeps) rows.push({ entity: 'issueDep', entityId: dep.id, value: dep })
+  cache.install(rows)
+  return cache
 }
 
 class FakeHub {
@@ -191,7 +207,7 @@ function fakeRouterWindow(): RouterWindow {
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: scenario API stub — shaped per-test like engine runtime.test.ts
-function scenarioApi(repos: any[], opts: { rejectMarkRead?: () => boolean } = {}): any {
+function scenarioApi(repos: unknown[], opts: { rejectMarkRead?: () => boolean } = {}): any {
   return {
     sync: {
       changesSince: {
@@ -234,154 +250,198 @@ function scenarioApi(repos: any[], opts: { rejectMarkRead?: () => boolean } = {}
   }
 }
 
-// --------------------------------------------------------------- seed data
-
-const iso = (base: number, offsetMs: number): string =>
-  new Date(base + offsetMs).toISOString()
-const T0 = Date.parse('2026-09-18T12:00:00Z')
-
-function repoPath(i: number): string {
-  return `/repo-${i}`
+/** A coarse clock the scenario drives by hand: pinned at `start`, advanced
+ *  only by `advance`, which publishes through the runtime's own tick path. */
+interface ManualClock extends CoarseClock {
+  advance(ms: number): void
 }
 
-function seedCorpus(cache: ScenarioCache, spec: CorpusSpec): void {
-  const rows: { entity: string; entityId: string; value: unknown }[] = []
-  const put = (entity: string, entityId: string, value: unknown): void => {
-    rows.push({ entity, entityId, value })
+function manualClock(start: number): ManualClock {
+  let now = start
+  const ticks = new Set<(now: number) => void>()
+  return {
+    now: () => now,
+    subscribe: (tick) => {
+      ticks.add(tick)
+      return () => ticks.delete(tick)
+    },
+    advance: (ms) => {
+      now += ms
+      for (const tick of ticks) tick(now)
+    },
   }
-  // Repos (prefix join + worktree lanes).
-  for (let r = 0; r < spec.repos; r += 1) {
-    put('repo', `r${r}`, { id: `r${r}`, prefix: `P${r}` })
-  }
-  // Issues: wire + projection dual-written. Every 5th is a formal child of
-  // its predecessor (R1); every 20th archived (invisible); every 25th done +
-  // tucked (closed fold); two pinned; three snoozed (band 2); a few
-  // discovered-from edges (R4) on the first issues; one worktreePath per repo
-  // (R3 prefix ownership targets for the unbound sessions below).
-  //
-  // R4 NOTE (POD-4491): the `issueDep` rows below are NOT enough on their own.
-  // The engine's `Store.issues` are raw `IssueWire` rows and the row source
-  // passes them through unchanged, so arms only see an edge when the wire
-  // itself carries `deps` (the way the authority derives `wire.deps` from
-  // `issue_deps` and the way the G2 fixture seeds both spellings). The seed
-  // therefore dual-carries each edge: the normalized `issueDep` row for the
-  // kernel mapping, and the derived `deps` array on the owner's wire for the
-  // arms. Without the latter `originOf` stays empty and ticks stay null.
-  //
-  // R3 NOTE (POD-4491): unbound sessions resolve against issues by
-  // longest-prefix containment on `worktreePath`. Lanes alone are not enough;
-  // without an issue carrying the lane's path `issuesByWorktree` stays empty
-  // and every unbound session stays orphaned (`verdictR` 0).
-  for (let i = 0; i < spec.issues; i += 1) {
-    const id = `i${i}`
-    const repo = i % spec.repos
-    const archived = i % 20 === 19
-    const done = i % 25 === 24
-    const stage = archived ? 'in_progress' : done ? 'done' : i % 3 === 0 ? 'review' : 'in_progress'
-    // Outgoing discovered-from edge (R4): i1->i0, i2->i1, ... i5->i4, mirroring
-    // the `issueDep` rows seeded below. Kept in one place so the two spellings
-    // cannot drift: the edge list below is derived from this same predicate.
-    const origin = i >= 1 && i <= 5 ? `i${i - 1}` : null
-    // R3 anchor: the first issue of each repo claims that repo's wt-0 lane, so
-    // the unbound sessions (cwd `<repo>/wt-0/sub`) resolve to a live issue.
-    const worktreePath = i < spec.repos ? `${repoPath(repo)}/wt-0` : null
-    const wire = {
-      id,
-      seq: i + 1,
-      title: `Issue ${i}`,
-      stage,
-      parentId: i > 0 && i % 5 === 4 ? `i${i - 1}` : null,
-      createdAt: iso(T0, i * 1000),
-      updatedAt: iso(T0, i * 1000 + 500),
-      ...(done ? { closedAt: iso(T0, i * 1000 + 800), closedReason: 'shipped' } : {}),
-      ...(done && i % 50 === 49 ? { tuckedAt: iso(T0, i * 1000 + 900) } : {}),
-      archived,
-      pinned: i === 1 || i === 2,
-      ...(i % 9 === 8 ? { deferUntil: iso(T0 + 3600_000, 0) } : {}),
-      repoId: `r${repo}`,
-      repoPath: repoPath(repo),
-      ...(worktreePath !== null ? { worktreePath } : {}),
-      ...(origin !== null ? { deps: [{ id: origin, type: 'discovered-from' }] } : {}),
-      readAt: i % 4 === 0 ? null : iso(T0, i * 1000),
-      unread: i % 4 === 0,
-      needsHuman: i % 7 === 6,
-      blocked: false,
-    }
-    const projection = {
-      id,
-      seq: i + 1,
-      title: `Issue ${i}`,
-      stage,
-      repoId: `r${repo}`,
-      description: { value: '' },
-      createdAt: iso(T0, i * 1000),
-      updatedAt: iso(T0, i * 1000 + 500),
-      archived,
-      priority: 2,
-      type: 'task',
-      // R3 anchor dual-carry (POD-4496): the legacy model reads worktreePath
-      // off the PROJECTION (`issue-view-models.ts:88`, projection overwrites
-      // wire at :171-173), while arms read the wire row through the row
-      // source. Both spellings must carry the anchor or the two worlds
-      // disagree: wire-only leaves the oracle blind (i265 et al. orphaned)
-      // while arms resolve R3. Mirrors the G2 fixture (corpus.ts wire :503,
-      // projection :522).
-      ...(worktreePath !== null ? { worktreePath } : {}),
-    }
-    put('issue', id, wire)
-    put('issueProjection', id, projection)
-  }
-  // Normalized edge rows (R4): the same 1..5 predicate as the wire `deps`
-  // above, so the two spellings cannot drift. The kernel maps `issueDep` to
-  // the `issueDeps` collection (kinds.ts); the wire array above is what the
-  // arms actually read (Store.issues pass through the row source unchanged).
-  for (let i = 1; i <= Math.min(5, spec.issues - 1); i += 1) {
-    put('issueDep', `dep${i - 1}`, { id: `dep${i - 1}`, fromId: `i${i}`, toId: `i${i - 1}`, type: 'discovered-from' })
-  }
-  // Sessions: most bound to an issue (R2); every 7th unbound but cwd under a
-  // worktree (R3 prefix ownership); every 11th a shell (excluded from
-  // membership); one archived. Phases spread working/waiting/idle.
-  for (let s = 0; s < spec.sessions; s += 1) {
-    const id = `s${s}`
-    const repo = s % spec.repos
-    const unbound = s % 7 === 6
-    const shell = s % 11 === 10
-    const phase = s % 3 === 0 ? 'working' : s % 3 === 1 ? 'waiting' : 'idle'
-    put('session', id, {
-      sessionId: id,
-      ...(unbound ? {} : { issueId: `i${s % spec.issues}` }),
-      agentKind: shell ? 'shell' : 'codex',
-      cwd: unbound ? `${repoPath(repo)}/wt-0/sub` : repoPath(repo),
-      title: `Session ${s}`,
-      status: 'live',
-      controllerId: `c${s}`,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 1,
-      clientCount: 1,
-      createdAt: iso(T0, s * 1000),
-      lastActiveAt: iso(T0, s * 1000),
-      origin: { kind: 'spawn' },
-      archived: s === spec.sessions - 1,
-      readAt: iso(T0, s * 1000),
-      unread: false,
-      agentState: { phase, since: iso(T0, s * 1000) },
-      ...(phase === 'waiting' ? { offer: { createdAt: iso(T0, s * 1000) } } : {}),
-    })
-  }
-  cache.install(rows)
 }
 
-function scenarioRepos(spec: CorpusSpec): { path: string; repoId: string; worktrees: { path: string }[] }[] {
-  return Array.from({ length: spec.repos }, (_, r) => ({
-    path: repoPath(r),
-    kind: 'repository',
-    branch: 'main',
-    repoId: `r${r}`,
-    worktrees: Array.from({ length: spec.worktreesPerRepo }, (_, j) => ({
-      path: `${repoPath(r)}/wt-${j}`,
-      branch: 'task',
-    })),
-  }))
+// ----------------------------------------------------------------- targets
+
+/** The rows the scenario writes aim at, chosen by rule from the corpus.
+ *  Scenario results carry them so parity checks and the browser driver use
+ *  the same rows. */
+export interface ScenarioTargets {
+  /** #1: a session bound to a closed agent root (a row the worklist never
+   *  shows) — its heartbeat must move no visible row. */
+  heartbeatSessionId: string
+  /** #2/#3/#4, #9 supplement: an open human root with children and a live
+   *  working session. */
+  visibleRootId: string
+  /** #2: that root's first live working session. */
+  phaseSessionId: string
+  /** #5: a childless open root; done + tucked moves it from the open lane
+   *  into the closed fold. */
+  stageMoveId: string
+  /** #6b: another childless open root. */
+  archiveId: string
+  /** #6c: another childless open root; keeps nothing. */
+  evictId: string
+  /** #6d: the only child of a rescue parent, itself childless. */
+  keeperLeafId: string
+  /** #6d: that rescue parent (sessionless `backlog`, visible only through
+   *  the leaf). */
+  keeperParentId: string
+  /** #7: a visible child moved from its parent to `reparentToId`. */
+  reparentId: string
+  reparentToId: string
+  /** #9: a childless open root whose read cursor is pressed. */
+  markReadId: string
+  /** #10: the 50 issues the burst's sessions bind to. */
+  burstIssueIds: string[]
+  /** #6a: repo the new issue lands in. */
+  newIssueRepo: { repoId: string; repoPath: string }
+}
+
+const ACTIVE_STAGES = new Set(['in_progress', 'planning', 'review'])
+
+interface IssueFacts {
+  id: string
+  parentId?: string | null
+  stage: string
+  archived: boolean
+  audience?: string
+  closedAt?: string | null
+  deletedAt?: string | null
+  pinned?: boolean
+  draft?: boolean
+}
+
+const numericId = (id: string): number => Number(id.slice(1))
+
+/**
+ * Pick every scenario target by rule. Deterministic in the corpus; throws
+ * when a rule finds nothing, so a corpus that cannot express a scenario fails
+ * loudly instead of silently aiming at the wrong row. `scenarios.test.ts`
+ * checks each pick against the oracle (visible or not, group crossed).
+ */
+export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
+  const issues = [...(corpus.issues as unknown as IssueFacts[])].sort(
+    (a, b) => numericId(a.id) - numericId(b.id),
+  )
+  const byId = new Map(issues.map((i) => [i.id, i]))
+  const children = new Map<string, string[]>()
+  for (const issue of issues) {
+    if (!issue.parentId) continue
+    const list = children.get(issue.parentId) ?? []
+    list.push(issue.id)
+    children.set(issue.parentId, list)
+  }
+  const sessionsOf = new Map<string, typeof corpus.sessions>()
+  for (const s of corpus.sessions) {
+    if (!s.issueId) continue
+    const list = sessionsOf.get(s.issueId) ?? []
+    list.push(s)
+    sessionsOf.set(s.issueId, list)
+  }
+  const isLiveWorking = (s: (typeof corpus.sessions)[number]): boolean =>
+    s.status === 'live' && s.agentState?.phase === 'working' && s.agentKind !== 'shell'
+  const openHuman = (i: IssueFacts): boolean =>
+    i.audience === 'human' &&
+    !i.archived &&
+    !i.deletedAt &&
+    !i.closedAt &&
+    !i.draft &&
+    ACTIVE_STAGES.has(i.stage)
+  const childless = (i: IssueFacts): boolean => (children.get(i.id)?.length ?? 0) === 0
+  const fail = (rule: string): never => {
+    throw new Error(`[scenarios] corpus seed ${corpus.seed} scale ${corpus.scale}: no ${rule}`)
+  }
+
+  const used = new Set<string>([corpus.unscannedWorktree.issueId])
+  const take = (rule: string, predicate: (i: IssueFacts) => boolean): IssueFacts => {
+    const hit = issues.find((i) => !used.has(i.id) && predicate(i)) ?? fail(rule)
+    used.add(hit.id)
+    return hit
+  }
+
+  const root = take(
+    'open human root with children and a live working session',
+    (i) =>
+      openHuman(i) &&
+      !i.parentId &&
+      !childless(i) &&
+      (sessionsOf.get(i.id) ?? []).some(isLiveWorking),
+  )
+  const phaseSession =
+    (sessionsOf.get(root.id) ?? []).find(isLiveWorking) ?? fail('working session on the root')
+  const childlessRoot = (rule: string): IssueFacts =>
+    take(rule, (i) => openHuman(i) && !i.parentId && childless(i) && !i.pinned)
+  const stageMove = childlessRoot('childless open root for the stage move')
+  const archive = childlessRoot('childless open root to archive')
+  const evict = childlessRoot('childless open root to evict')
+  const markRead = childlessRoot('childless open root to mark read')
+  const keeperLeaf = take('rescue-parent leaf', (i) => {
+    if (!openHuman(i) || !i.parentId || !childless(i)) return false
+    const parent = byId.get(i.parentId)
+    return (
+      parent !== undefined &&
+      parent.stage === 'backlog' &&
+      !parent.closedAt &&
+      !parent.archived &&
+      !parent.deletedAt &&
+      (sessionsOf.get(parent.id)?.length ?? 0) === 0 &&
+      children.get(parent.id)?.length === 1
+    )
+  })
+  const reparent = take(
+    'visible child of another open root',
+    (i) =>
+      openHuman(i) &&
+      !!i.parentId &&
+      i.parentId !== root.id &&
+      (sessionsOf.get(i.id) ?? []).some(isLiveWorking) &&
+      openHuman(byId.get(i.parentId) ?? ({} as IssueFacts)),
+  )
+  const heartbeat =
+    corpus.sessions
+      .filter((s) => {
+        const issue = s.issueId ? byId.get(s.issueId) : undefined
+        return (
+          issue !== undefined &&
+          issue.audience === 'agent' &&
+          !!issue.closedAt &&
+          !issue.parentId &&
+          childless(issue)
+        )
+      })
+      .sort((a, b) => numericId(a.sessionId) - numericId(b.sessionId))[0] ??
+    fail('session on a closed agent root')
+  const burstIssueIds = issues.filter((i) => openHuman(i)).slice(0, 50).map((i) => i.id)
+  if (burstIssueIds.length < 50) fail('50 open human issues for the burst')
+  const repo = corpus.repos[0] ?? fail('repo for the new issue')
+
+  return {
+    heartbeatSessionId: heartbeat.sessionId,
+    visibleRootId: root.id,
+    phaseSessionId: phaseSession.sessionId,
+    stageMoveId: stageMove.id,
+    archiveId: archive.id,
+    evictId: evict.id,
+    keeperLeafId: keeperLeaf.id,
+    keeperParentId: keeperLeaf.parentId as string,
+    reparentId: reparent.id,
+    reparentToId: root.id,
+    markReadId: markRead.id,
+    burstIssueIds,
+    newIssueRepo: { repoId: repo.repoId as string, repoPath: repo.path },
+  }
 }
 
 // ------------------------------------------------------------------ engine
@@ -390,30 +450,50 @@ export interface ScenarioEngine {
   engine: ReturnType<typeof createClientRuntime>
   replica: ReturnType<typeof createKernelReplica>
   cache: ScenarioCache
+  corpus: FixtureCorpus
+  targets: ScenarioTargets
   rejectNextMarkRead: () => void
+  /** Advance the runtime's coarse clock by `ms` through its own tick path. */
+  advanceClock: (ms: number) => void
+  /** A fresh ISO timestamp on the corpus clock, strictly increasing per
+   *  engine: every write stamps rows with this, never the wall clock. */
+  stamp: () => string
   settleMs: number
+}
+
+export interface EngineOptions {
+  principal?: string
+  settleMs?: number
+  /** Build the runtime without starting it or installing the corpus
+   *  (`coldBootstrap` primes its source first). */
+  start?: boolean
 }
 
 const settle = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-export async function startScenarioEngine(
-  spec: CorpusSpec,
-  opts: { principal?: string; settleMs?: number } = {},
+/**
+ * Boot a `ClientRuntime` over a fixture corpus and publish the seeded rows as
+ * ONE addressed bootstrap (not 2N events). The one boot path: the scenarios,
+ * the engine-backed count runs and the browser pages all come through here.
+ */
+export async function startEngineOnCorpus(
+  corpus: FixtureCorpus,
+  opts: EngineOptions = {},
 ): Promise<ScenarioEngine> {
-  const cache = new ScenarioCache()
-  seedCorpus(cache, spec)
+  const cache = seedCacheFromCorpus(corpus)
   const replica = createKernelReplica({
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
   let rejectArmed = false
-  const api = scenarioApi(scenarioRepos(spec), {
+  const api = scenarioApi(corpus.repos, {
     rejectMarkRead: () => {
       if (!rejectArmed) return false
       rejectArmed = false
       return true
     },
   })
+  const clock = manualClock(corpus.fixedNow)
   const engine = createClientRuntime({
     principal: asClientPrincipal(asUserId(opts.principal ?? 'operator')),
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
@@ -424,12 +504,29 @@ export async function startScenarioEngine(
     createReplicaFn: () => replica,
     routerWindow: fakeRouterWindow(),
     createHub: () => new FakeHub() as unknown as SocketHub,
+    coarseClock: clock,
   })
+  let stamps = 0
+  const settleMs = opts.settleMs ?? (corpus.issues.length > 1000 ? 600 : 60)
+  const ctx: ScenarioEngine = {
+    engine,
+    replica,
+    cache,
+    corpus,
+    targets: pickTargets(corpus),
+    rejectNextMarkRead: () => {
+      rejectArmed = true
+    },
+    advanceClock: (ms) => clock.advance(ms),
+    stamp: () => {
+      stamps += 1
+      return new Date(clock.now() + stamps).toISOString()
+    },
+    settleMs,
+  }
+  if (opts.start === false) return ctx
   engine.start()
-  const settleMs = opts.settleMs ?? (spec.issues > 1000 ? 600 : 60)
   await settle(settleMs)
-  // Install the seeded corpus as ONE addressed bootstrap (not 2N events):
-  // rows were put silently above; a single cold-start install publishes them.
   replica.onKernelEvent({
     type: 'bootstrap-installed',
     cause: 'cold-start',
@@ -438,23 +535,20 @@ export async function startScenarioEngine(
     bufferedFramesApplied: 0,
   } as never)
   await settle(settleMs)
-  return {
-    engine,
-    replica,
-    cache,
-    rejectNextMarkRead: () => {
-      rejectArmed = true
-    },
-    settleMs,
-  }
+  return ctx
+}
+
+/** Boot a runtime over `buildCorpus(scale, seed)`. */
+export function startScenarioEngine(
+  scale: FixtureScale = 1,
+  opts: EngineOptions & { seed?: number } = {},
+): Promise<ScenarioEngine> {
+  return startEngineOnCorpus(buildCorpus(scale, opts.seed ?? FIXTURE_SEED), opts)
 }
 
 // ---------------------------------------------------------------- snapshots
 
-/** The oracle's delta surface: folded rows before/after plus the locals. G2's
- *  parity oracle projects the legacy derivation over the same corpus and
- *  checks visible rows, order, per-row fields and groups; these snapshots are
- *  the `before`/`after` it diffs. */
+/** The oracle's delta surface: folded rows before/after plus the locals. */
 export interface ScenarioSnapshot {
   issues: { id: string; title: string; stage: string; archived: boolean; readAt: unknown }[]
   sessions: { sessionId: string; lastActiveAt: string; phase: unknown }[]
@@ -462,10 +556,7 @@ export interface ScenarioSnapshot {
   coarseNow: number
 }
 
-export function captureSnapshot(
-  engine: ScenarioEngine['engine'],
-  coarseNowOverride?: number,
-): ScenarioSnapshot {
+export function captureSnapshot(engine: ScenarioEngine['engine']): ScenarioSnapshot {
   const snap = engine.getSnapshot()
   return {
     issues: snap.issues.map((i) => ({
@@ -481,7 +572,7 @@ export function captureSnapshot(
       phase: (s.agentState as { phase?: unknown } | undefined)?.phase ?? null,
     })),
     selectedIssueId: snap.selectedIssueId as unknown as string | null,
-    coarseNow: coarseNowOverride ?? snap.coarseNow,
+    coarseNow: snap.coarseNow,
   }
 }
 
@@ -490,6 +581,10 @@ export interface ScenarioResult {
   scenario: string
   /** Methodology §5.8 number, e.g. `#4` (`#6a` for the new/archive/evict set). */
   methodology: string
+  /** The corpus the scenario ran on. */
+  corpus: { scale: FixtureScale; seed: number; issues: number; sessions: number }
+  /** The rows the write aimed at (see `pickTargets`). */
+  targets: ScenarioTargets
   events: RowSourceEvent[]
   before: ScenarioSnapshot
   after: ScenarioSnapshot
@@ -503,25 +598,37 @@ export const EMPTY_SNAPSHOT: ScenarioSnapshot = {
   coarseNow: 0,
 }
 
+function corpusLabel(corpus: FixtureCorpus): ScenarioResult['corpus'] {
+  return {
+    scale: corpus.scale,
+    seed: corpus.seed,
+    issues: corpus.issues.length,
+    sessions: corpus.sessions.length,
+  }
+}
+
+/** Run `action` under a fresh row source, then drain it. Every write settles
+ *  the engine itself. */
 async function runWithSource(
   scenario: string,
   methodology: string,
   ctx: ScenarioEngine,
-  action: () => void | Promise<void>,
-  opts: { extraSettleMs?: number } = {},
+  action: () => unknown,
+  opts: { before?: ScenarioSnapshot } = {},
 ): Promise<ScenarioResult> {
   const handle = createRowSource(ctx.engine, ctx.replica)
   const events: RowSourceEvent[] = []
   const off = handle.source.subscribe((e) => events.push(e))
   try {
-    const before = captureSnapshot(ctx.engine)
+    const before = opts.before ?? captureSnapshot(ctx.engine)
     await action()
-    await settle(ctx.settleMs + (opts.extraSettleMs ?? 0))
     handle.flush()
     const after = captureSnapshot(ctx.engine)
     return {
       scenario,
       methodology,
+      corpus: corpusLabel(ctx.corpus),
+      targets: ctx.targets,
       events,
       before,
       after,
@@ -537,141 +644,84 @@ async function runWithSource(
   }
 }
 
-type Updater = (ctx: ScenarioEngine) => void
+/** Boot on the fixture, run one write under a row source, tear down. */
+async function scenario(
+  name: string,
+  methodology: string,
+  scale: FixtureScale,
+  write: (ctx: ScenarioEngine) => unknown,
+): Promise<ScenarioResult> {
+  const ctx = await startScenarioEngine(scale)
+  try {
+    return await runWithSource(name, methodology, ctx, () => write(ctx))
+  } finally {
+    ctx.engine.destroy()
+  }
+}
 
-function upsertSession(
-  ctx: ScenarioEngine,
-  sessionId: string,
-  patch: Record<string, unknown>,
-): void {
-  const current = ctx.engine
-    .getSnapshot()
-    .sessions.find((s) => s.sessionId === sessionId)
-  if (!current) throw new Error(`session ${sessionId} missing from snapshot`)
-  const next = { ...current, ...patch }
-  ctx.cache.put('session', sessionId, next)
+// ------------------------------------------------------------------ writes
+
+async function settled(ctx: ScenarioEngine): Promise<void> {
+  await settle(ctx.settleMs)
+}
+
+function upsert(ctx: ScenarioEngine, entity: string, entityId: string, value: unknown, seq = 2): void {
+  ctx.cache.put(entity, entityId, value)
   ctx.replica.onKernelEvent({
     type: 'upserted',
-    record: { entity: 'session', entityId: sessionId, value: next, provenance: { seq: 2 } },
+    record: { entity, entityId, value, provenance: { seq } },
     readmitted: false,
   } as never)
 }
 
+function evict(ctx: ScenarioEngine, entity: string, entityId: string): void {
+  ctx.cache.drop(entity, entityId)
+  ctx.replica.onKernelEvent({ type: 'evicted', entity, entityId } as never)
+}
+
+function patchSession(ctx: ScenarioEngine, sessionId: string, patch: Record<string, unknown>): void {
+  const current = ctx.engine.getSnapshot().sessions.find((s) => s.sessionId === sessionId)
+  if (!current) throw new Error(`session ${sessionId} missing from snapshot`)
+  upsert(ctx, 'session', sessionId, { ...current, ...patch })
+}
+
 /** Dual-write an issue change across wire + projection in one replica batch. */
-function upsertIssue(
+function patchIssue(
   ctx: ScenarioEngine,
   id: string,
   wirePatch: Record<string, unknown>,
   projectionPatch: Record<string, unknown> = {},
 ): void {
-  const snap = ctx.engine.getSnapshot()
-  const wire = snap.issues.find((i) => i.id === id)
+  const wire = ctx.engine.getSnapshot().issues.find((i) => i.id === id)
   if (!wire) throw new Error(`issue ${id} missing from snapshot`)
-  const nextWire = { ...wire, ...wirePatch }
-  const projection = ctx.cache.read('issueProjection', id)
-  const nextProjection = { ...((projection as { value?: object } | undefined)?.value ?? {}), ...projectionPatch }
+  const projection = ctx.cache.read('issueProjection', id)?.value as object | undefined
   ctx.replica.batch(() => {
-    ctx.cache.put('issue', id, nextWire)
-    ctx.replica.onKernelEvent({
-      type: 'upserted',
-      record: { entity: 'issue', entityId: id, value: nextWire, provenance: { seq: 2 } },
-      readmitted: false,
-    } as never)
-    ctx.cache.put('issueProjection', id, nextProjection)
-    ctx.replica.onKernelEvent({
-      type: 'upserted',
-      record: { entity: 'issueProjection', entityId: id, value: nextProjection, provenance: { seq: 2 } },
-      readmitted: false,
-    } as never)
+    upsert(ctx, 'issue', id, { ...wire, ...wirePatch })
+    upsert(ctx, 'issueProjection', id, { ...(projection ?? {}), ...projectionPatch })
   })
 }
 
-// ----------------------------------------------- keeper pair (POD-4503 #6d)
+function evictIssueRows(ctx: ScenarioEngine, id: string): void {
+  ctx.replica.batch(() => {
+    evict(ctx, 'issue', id)
+    evict(ctx, 'issueProjection', id)
+  })
+}
 
-export const KEEPER_PARENT_ID = 'i-keeper-parent'
-export const KEEPER_LEAF_ID = 'i-keeper-leaf'
-export const KEEPER_SESSION_ID = 's-keeper'
-
-/** Seed the #6d keeper pair: a sessionless `backlog` parent kept visible
- *  only by its visible `in_progress` child (one live working session).
- *  No settle here; callers settle the way their lane does. */
-export function seedKeeperPair(
-  ctx: Pick<ScenarioEngine, 'cache' | 'replica'>,
-  spec: { issues: number },
-): void {
-  const now = new Date().toISOString()
-  const parentWire = {
-    id: KEEPER_PARENT_ID,
-    seq: spec.issues + 100,
-    title: 'Keeper parent (rescue)',
-    stage: 'backlog',
-    parentId: null,
-    createdAt: now,
-    updatedAt: now,
-    archived: false,
-    pinned: false,
-    repoId: 'r0',
-    repoPath: repoPath(0),
-    readAt: now,
-    unread: false,
-    needsHuman: false,
-    blocked: false,
-    audience: 'human',
-  }
-  const parentProjection = {
-    id: KEEPER_PARENT_ID,
-    seq: spec.issues + 100,
-    title: 'Keeper parent (rescue)',
-    stage: 'backlog',
-    repoId: 'r0',
-    description: { value: '' },
-    createdAt: now,
-    updatedAt: now,
-    archived: false,
-    priority: 2,
-    type: 'task',
-    audience: 'human',
-  }
-  const leafWire = {
-    id: KEEPER_LEAF_ID,
-    seq: spec.issues + 101,
-    title: 'Keeper leaf (visible child)',
-    stage: 'in_progress',
-    parentId: KEEPER_PARENT_ID,
-    createdAt: now,
-    updatedAt: now,
-    archived: false,
-    pinned: false,
-    repoId: 'r0',
-    repoPath: repoPath(0),
-    readAt: null,
-    unread: true,
-    needsHuman: false,
-    blocked: false,
-    audience: 'human',
-  }
-  const leafProjection = {
-    id: KEEPER_LEAF_ID,
-    seq: spec.issues + 101,
-    title: 'Keeper leaf (visible child)',
-    stage: 'in_progress',
-    repoId: 'r0',
-    description: { value: '' },
-    createdAt: now,
-    updatedAt: now,
-    archived: false,
-    priority: 2,
-    type: 'task',
-    audience: 'human',
-  }
-  const session = {
-    sessionId: KEEPER_SESSION_ID,
-    issueId: KEEPER_LEAF_ID,
+function liveSession(
+  ctx: ScenarioEngine,
+  sessionId: string,
+  fields: { issueId: string; cwd: string; title: string },
+): Record<string, unknown> {
+  const now = ctx.stamp()
+  return {
+    sessionId,
+    issueId: fields.issueId,
     agentKind: 'codex',
-    cwd: repoPath(0),
-    title: 'Keeper session',
+    cwd: fields.cwd,
+    title: fields.title,
     status: 'live',
-    controllerId: 'c-keeper',
+    controllerId: `c-${sessionId}`,
     geometry: { cols: 80, rows: 24 },
     epoch: 1,
     clientCount: 1,
@@ -683,76 +733,273 @@ export function seedKeeperPair(
     unread: false,
     agentState: { phase: 'working', since: now },
   }
-  ctx.replica.batch(() => {
-    for (const [entity, entityId, value] of [
-      ['issue', KEEPER_PARENT_ID, parentWire],
-      ['issueProjection', KEEPER_PARENT_ID, parentProjection],
-      ['issue', KEEPER_LEAF_ID, leafWire],
-      ['issueProjection', KEEPER_LEAF_ID, leafProjection],
-      ['session', KEEPER_SESSION_ID, session],
-    ] as const) {
-      ctx.cache.put(entity, entityId, value)
-      ctx.replica.onKernelEvent({
-        type: 'upserted',
-        record: { entity, entityId, value, provenance: { seq: 2 } },
-        readmitted: false,
-      } as never)
-    }
-  })
 }
 
-/** Evict the #6d keeper leaf (issue + projection; its session orphans like
- *  #6c). No settle here; callers settle the way their lane does. */
-export function evictKeeperLeaf(ctx: Pick<ScenarioEngine, 'cache' | 'replica'>): void {
-  ctx.replica.batch(() => {
-    ctx.cache.drop('issue', KEEPER_LEAF_ID)
-    ctx.replica.onKernelEvent({ type: 'evicted', entity: 'issue', entityId: KEEPER_LEAF_ID } as never)
-    ctx.cache.drop('issueProjection', KEEPER_LEAF_ID)
-    ctx.replica.onKernelEvent({
-      type: 'evicted',
-      entity: 'issueProjection',
-      entityId: KEEPER_LEAF_ID,
-    } as never)
+function freshIssue(
+  ctx: ScenarioEngine,
+  id: string,
+  seq: number,
+  title: string,
+): { wire: Record<string, unknown>; projection: Record<string, unknown> } {
+  const now = ctx.stamp()
+  const { repoId, repoPath } = ctx.targets.newIssueRepo
+  return {
+    wire: {
+      id,
+      seq,
+      title,
+      stage: 'in_progress',
+      parentId: null,
+      createdAt: now,
+      updatedAt: now,
+      archived: false,
+      audience: 'human',
+      repoId,
+      repoPath,
+      readAt: null,
+      unread: true,
+      needsHuman: false,
+      blocked: false,
+    },
+    projection: {
+      id,
+      seq,
+      title,
+      stage: 'in_progress',
+      repoId,
+      description: { value: '' },
+      createdAt: now,
+      updatedAt: now,
+      archived: false,
+      audience: 'human',
+      priority: 2,
+      type: 'task',
+    },
+  }
+}
+
+// Each `apply*` is the synchronous write (what a browser page times); each
+// `write*` is the same write followed by the engine settle (what a count run
+// awaits). One body per write.
+
+/** #1 — heartbeat on a session of a row the worklist never shows. */
+export function applyHeartbeat(ctx: ScenarioEngine, sessionId = ctx.targets.heartbeatSessionId): string {
+  patchSession(ctx, sessionId, { lastActiveAt: ctx.stamp() })
+  return sessionId
+}
+
+export async function writeHeartbeat(ctx: ScenarioEngine): Promise<string> {
+  const target = applyHeartbeat(ctx)
+  await settled(ctx)
+  return target
+}
+
+/** #2 — a session on a visible row changes phase (working → idle). */
+export async function writePhaseChange(ctx: ScenarioEngine): Promise<string> {
+  const target = ctx.targets.phaseSessionId
+  const now = ctx.stamp()
+  patchSession(ctx, target, { agentState: { phase: 'idle', since: now }, lastActiveAt: now })
+  await settled(ctx)
+  return target
+}
+
+/** #3 — a selection click (locals + the eager mark-read row). */
+export async function writeSelectionClick(
+  ctx: ScenarioEngine,
+  id = ctx.targets.visibleRootId,
+): Promise<string> {
+  ctx.engine.getSnapshot().setSelectedIssueId(asIssueId(id))
+  await settled(ctx)
+  return id
+}
+
+/** #4 — a title rename on a visible row. */
+export function applyTitleRename(
+  ctx: ScenarioEngine,
+  id = ctx.targets.visibleRootId,
+  title = 'Renamed visible row',
+): string {
+  patchIssue(ctx, id, { title }, { title })
+  return id
+}
+
+export async function writeTitleRename(
+  ctx: ScenarioEngine,
+  id = ctx.targets.visibleRootId,
+): Promise<string> {
+  applyTitleRename(ctx, id)
+  await settled(ctx)
+  return id
+}
+
+/** #5 — a stage change moving a row across groups (open lane → closed fold). */
+export function applyStageMove(ctx: ScenarioEngine, id = ctx.targets.stageMoveId): string {
+  const now = ctx.stamp()
+  patchIssue(
+    ctx,
+    id,
+    { stage: 'done', closedAt: now, closedReason: 'done', tuckedAt: now },
+    { stage: 'done', closedAt: now, closedReason: 'done' },
+  )
+  return id
+}
+
+export async function writeStageMove(ctx: ScenarioEngine, id = ctx.targets.stageMoveId): Promise<string> {
+  applyStageMove(ctx, id)
+  await settled(ctx)
+  return id
+}
+
+/** #6a — a new issue with its working session arrives. */
+export async function writeNewIssue(ctx: ScenarioEngine, id = 'i-new'): Promise<string> {
+  const { wire, projection } = freshIssue(ctx, id, ctx.corpus.issues.length + 1, 'Brand new issue')
+  const sessionId = `s-${id}`
+  const session = liveSession(ctx, sessionId, {
+    issueId: id,
+    cwd: ctx.targets.newIssueRepo.repoPath,
+    title: 'Session new',
   })
+  ctx.replica.batch(() => {
+    upsert(ctx, 'issue', id, wire)
+    upsert(ctx, 'issueProjection', id, projection)
+    upsert(ctx, 'session', sessionId, session)
+  })
+  await settled(ctx)
+  return id
+}
+
+/** #6b — an issue is archived. */
+export async function writeArchiveIssue(ctx: ScenarioEngine, id = ctx.targets.archiveId): Promise<string> {
+  patchIssue(ctx, id, { archived: true }, { archived: true })
+  await settled(ctx)
+  return id
+}
+
+/** #6c — the authority snapshot omits a row (`evicted`, not `removed`). */
+export async function writeEvictIssue(ctx: ScenarioEngine, id = ctx.targets.evictId): Promise<string> {
+  evictIssueRows(ctx, id)
+  await settled(ctx)
+  return id
+}
+
+/** #6d — evict the only child of a rescue parent: the parent must leave the
+ *  visible set with it. */
+export async function writeEvictKeeperIssue(
+  ctx: ScenarioEngine,
+  id = ctx.targets.keeperLeafId,
+): Promise<string> {
+  evictIssueRows(ctx, id)
+  await settled(ctx)
+  return id
+}
+
+/** #7 — a parent reassignment moves a subtree between chains. */
+export async function writeParentReassignment(
+  ctx: ScenarioEngine,
+  id = ctx.targets.reparentId,
+  parentId = ctx.targets.reparentToId,
+): Promise<string> {
+  patchIssue(ctx, id, { parentId }, { parentId })
+  await settled(ctx)
+  return id
+}
+
+/** #8 — the runtime's coarse clock ticks by `ms` (default one period) with no
+ *  row change. */
+export async function writeClockTick(ctx: ScenarioEngine, ms = 60_000): Promise<number> {
+  ctx.advanceClock(ms)
+  await settled(ctx)
+  return ctx.engine.getSnapshot().coarseNow
+}
+
+/** #9 press — optimistic mark-read through the engine. Resolves after the
+ *  server confirms (or the kernel rolls back on rejection). */
+export async function writeOptimisticPress(ctx: ScenarioEngine, id = ctx.targets.markReadId): Promise<void> {
+  await ctx.engine.getSnapshot().markIssueRead(asIssueId(id))
+  await settled(ctx)
+}
+
+/** #9 echo — the server confirms the mark-read with its own timestamp. */
+export const OPTIMISTIC_ECHO_READ_AT = '2026-07-09T00:00:00.000Z'
+
+export async function writeOptimisticEcho(ctx: ScenarioEngine, id = ctx.targets.markReadId): Promise<void> {
+  const wire = ctx.cache.read('issue', id)?.value as Record<string, unknown>
+  upsert(ctx, 'issue', id, { ...wire, readAt: OPTIMISTIC_ECHO_READ_AT }, 3)
+  await settled(ctx)
+}
+
+/** #9 rejection — arm the next mark-read to fail, so the kernel rolls back. */
+export function armMarkReadRejection(ctx: ScenarioEngine): void {
+  ctx.rejectNextMarkRead()
+}
+
+/** #10 — a 50-event burst through one `replica.batch()`: one row-source
+ *  event carrying 50 new working sessions on 50 open issues. */
+export async function writeBurst50(ctx: ScenarioEngine): Promise<void> {
+  ctx.replica.batch(() => {
+    ctx.targets.burstIssueIds.forEach((issueId, n) => {
+      const sessionId = `s-burst-${n}`
+      upsert(
+        ctx,
+        'session',
+        sessionId,
+        liveSession(ctx, sessionId, {
+          issueId,
+          cwd: ctx.targets.newIssueRepo.repoPath,
+          title: `Burst ${n}`,
+        }),
+      )
+    })
+  })
+  await settled(ctx)
+}
+
+/** #13 grow — ten new issues put silently, then one rescope install. */
+export async function writeRescopeGrow(ctx: ScenarioEngine): Promise<void> {
+  const base = ctx.corpus.issues.length
+  ctx.replica.batch(() => {
+    for (let n = 0; n < 10; n += 1) {
+      const { wire, projection } = freshIssue(ctx, `i-grow-${n}`, base + n + 1, `Grown ${n}`)
+      ctx.cache.put('issue', wire.id as string, wire)
+      ctx.cache.put('issueProjection', projection.id as string, projection)
+    }
+  })
+  rescope(ctx, 2)
+  await settled(ctx)
+}
+
+/** #13 back — drop the grown rows silently, then rescope again. */
+export async function writeRescopeBack(ctx: ScenarioEngine): Promise<void> {
+  ctx.replica.batch(() => {
+    for (let n = 0; n < 10; n += 1) {
+      ctx.cache.drop('issue', `i-grow-${n}`)
+      ctx.cache.drop('issueProjection', `i-grow-${n}`)
+    }
+  })
+  rescope(ctx, 3)
+  await settled(ctx)
+}
+
+function rescope(ctx: ScenarioEngine, snapshotSeq: number): void {
+  ctx.replica.onKernelEvent({
+    type: 'bootstrap-installed',
+    cause: 'rescope',
+    snapshotSeq,
+    entityCount: ctx.cache.records.length,
+    bufferedFramesApplied: 0,
+  } as never)
 }
 
 // --------------------------------------------------------------- scenarios
 
-/** #1 — a heartbeat on a session of an archived (invisible) issue. */
-export async function unrelatedHeartbeat(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    const target =
-      ctx.engine
-        .getSnapshot()
-        .sessions.find((s) => typeof s.issueId === 'string' && s.issueId.endsWith('19'))
-        ?.sessionId ?? 's0'
-    return await runWithSource('#1 unrelatedHeartbeat', '#1', ctx, () => {
-      upsertSession(ctx, target, { lastActiveAt: new Date().toISOString() })
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+/** #1 — a heartbeat on a session of an invisible row. */
+export function unrelatedHeartbeat(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#1 unrelatedHeartbeat', '#1', scale, writeHeartbeat)
 }
 
 /** #2 — a session on a visible row changes phase (working → idle). */
-export async function visibleSessionPhaseChange(
-  spec: CorpusSpec = SMALL_CORPUS,
-): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    const target =
-      ctx.engine.getSnapshot().sessions.find((s) => s.agentState?.phase === 'working')
-        ?.sessionId ?? 's0'
-    return await runWithSource('#2 visibleSessionPhaseChange', '#2', ctx, () => {
-      upsertSession(ctx, target, {
-        agentState: { phase: 'idle', since: new Date().toISOString() },
-        lastActiveAt: new Date().toISOString(),
-      })
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function visibleSessionPhaseChange(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#2 visibleSessionPhaseChange', '#2', scale, writePhaseChange)
 }
 
 /** #3 — a selection click.
@@ -766,319 +1013,71 @@ export async function visibleSessionPhaseChange(
  * issue's row — faithfully, like production. Arms must treat a click as
  * "locals + one mark-read row", and the methodology #3 budget ("2 rows
  * committed") reads as the arm's latch rows plus this kernel row. */
-export async function selectionClick(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    return await runWithSource('#3 selectionClick', '#3', ctx, () => {
-      ctx.engine.getSnapshot().setSelectedIssueId(asIssueId('i1'))
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function selectionClick(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#3 selectionClick', '#3', scale, (ctx) => writeSelectionClick(ctx))
 }
 
 /** #4 — a title rename on a visible row. */
-export async function visibleTitleRename(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    return await runWithSource('#4 visibleTitleRename', '#4', ctx, () => {
-      upsertIssue(ctx, 'i0', { title: 'Renamed visible row' }, { title: 'Renamed visible row' })
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function visibleTitleRename(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#4 visibleTitleRename', '#4', scale, (ctx) => writeTitleRename(ctx))
 }
 
 /** #5 — a stage change moving a row across groups (open lane → closed fold). */
-export async function stageMoveAcrossGroups(
-  spec: CorpusSpec = SMALL_CORPUS,
-): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    return await runWithSource('#5 stageMoveAcrossGroups', '#5', ctx, () => {
-      const now = new Date().toISOString()
-      upsertIssue(
-        ctx,
-        'i3',
-        { stage: 'done', closedAt: now, closedReason: 'shipped', tuckedAt: now },
-        { stage: 'done' },
-      )
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function stageMoveAcrossGroups(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#5 stageMoveAcrossGroups', '#5', scale, (ctx) => writeStageMove(ctx))
 }
 
 /** #6a — a new issue with its session arrives. */
-export async function newIssue(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    return await runWithSource('#6a newIssue', '#6a', ctx, () => {
-      const id = 'i-new'
-      const wire = {
-        id,
-        seq: spec.issues + 1,
-        title: 'Brand new issue',
-        stage: 'in_progress',
-        parentId: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        archived: false,
-        repoId: 'r0',
-        repoPath: repoPath(0),
-        readAt: null,
-        unread: true,
-        needsHuman: false,
-        blocked: false,
-      }
-      const projection = {
-        id,
-        seq: spec.issues + 1,
-        title: 'Brand new issue',
-        stage: 'in_progress',
-        repoId: 'r0',
-        description: { value: '' },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        archived: false,
-        priority: 2,
-        type: 'task',
-      }
-      const session = {
-        sessionId: 's-new',
-        issueId: id,
-        agentKind: 'codex',
-        cwd: repoPath(0),
-        title: 'Session new',
-        status: 'live',
-        controllerId: 'c-new',
-        geometry: { cols: 80, rows: 24 },
-        epoch: 1,
-        clientCount: 1,
-        createdAt: new Date().toISOString(),
-        lastActiveAt: new Date().toISOString(),
-        origin: { kind: 'spawn' },
-        archived: false,
-        readAt: new Date().toISOString(),
-        unread: false,
-        agentState: { phase: 'working', since: new Date().toISOString() },
-      }
-      ctx.replica.batch(() => {
-        for (const [entity, entityId, value] of [
-          ['issue', id, wire],
-          ['issueProjection', id, projection],
-          ['session', 's-new', session],
-        ] as const) {
-          ctx.cache.put(entity, entityId, value)
-          ctx.replica.onKernelEvent({
-            type: 'upserted',
-            record: { entity, entityId, value, provenance: { seq: 2 } },
-            readmitted: false,
-          } as never)
-        }
-      })
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function newIssue(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#6a newIssue', '#6a', scale, (ctx) => writeNewIssue(ctx))
 }
 
 /** #6b — an issue is archived. */
-export async function archiveIssue(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    return await runWithSource('#6b archiveIssue', '#6b', ctx, () => {
-      upsertIssue(ctx, 'i4', { archived: true }, { archived: true })
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function archiveIssue(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#6b archiveIssue', '#6b', scale, (ctx) => writeArchiveIssue(ctx))
 }
 
 /** #6c — the authority snapshot omits a row: evict without revision. */
-export async function evictWithoutRevision(
-  spec: CorpusSpec = SMALL_CORPUS,
-): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    return await runWithSource('#6c evictWithoutRevision', '#6c', ctx, () => {
-      ctx.replica.batch(() => {
-        ctx.cache.drop('issue', 'i5')
-        ctx.replica.onKernelEvent({ type: 'evicted', entity: 'issue', entityId: 'i5' } as never)
-        ctx.cache.drop('issueProjection', 'i5')
-        ctx.replica.onKernelEvent({
-          type: 'evicted',
-          entity: 'issueProjection',
-          entityId: 'i5',
-        } as never)
-      })
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function evictWithoutRevision(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#6c evictWithoutRevision', '#6c', scale, (ctx) => writeEvictIssue(ctx))
 }
 
-/** #6d — keeper evict (POD-4503): the seeded keeper leaf is evicted, so its
- *  rescue parent must leave the oracle with it. A missing keeper-seat
+/** #6d — keeper evict (POD-4503): the rescue parent's only child is evicted,
+ *  so the parent must leave the visible set with it. A missing keeper-seat
  *  cleanup keeps a ghost parent and fails parity; #6c cannot fail that way. */
-export async function evictKeeperWithoutRevision(
-  spec: CorpusSpec = SMALL_CORPUS,
-): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    seedKeeperPair(ctx, spec)
-    await new Promise<void>((resolve) => setTimeout(resolve, ctx.settleMs))
-    return await runWithSource('#6d evictKeeperWithoutRevision', '#6d', ctx, () => {
-      evictKeeperLeaf(ctx)
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function evictKeeperWithoutRevision(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#6d evictKeeperWithoutRevision', '#6d', scale, (ctx) => writeEvictKeeperIssue(ctx))
 }
 
 /** #7 — a parent reassignment moves a subtree between chains. */
-export async function parentReassignment(
-  spec: CorpusSpec = SMALL_CORPUS,
-): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    return await runWithSource('#7 parentReassignment', '#7', ctx, () => {
-      upsertIssue(ctx, 'i9', { parentId: 'i2' }, {})
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function parentReassignment(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#7 parentReassignment', '#7', scale, (ctx) => writeParentReassignment(ctx))
 }
 
-/** #8 — the coarse clock ticks with no row change: time is a local. */
-export async function clockTick(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  const handle = createRowSource(ctx.engine, ctx.replica)
-  const events: RowSourceEvent[] = []
-  const off = handle.source.subscribe((e) => events.push(e))
-  try {
-    // No kernel write and no optimistic touch: the tick is data
-    // (`SliceLocals.coarseNow`), re-derived by arms, never a row event.
-    const before = captureSnapshot(ctx.engine)
-    const after: ScenarioSnapshot = { ...before, coarseNow: before.coarseNow + 60_000 }
-    handle.flush()
-    return {
-      scenario: '#8 clockTick',
-      methodology: '#8',
-      events,
-      before,
-      after,
-      stats: {
-        rowsVisited: handle.stats.rowsVisited,
-        rebuilds: handle.stats.rebuilds,
-        events: handle.stats.events,
-      },
-    }
-  } finally {
-    off()
-    handle.dispose()
-    ctx.engine.destroy()
-  }
+/** #8 — the coarse clock ticks with no row change: the runtime publishes a
+ *  new `coarseNow` and the row stream stays silent. */
+export function clockTick(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#8 clockTick', '#8', scale, (ctx) => writeClockTick(ctx))
 }
 
 /** #9 — optimistic press, server echo, second press, definitive rejection. */
-export async function optimisticEchoAndRejection(
-  spec: CorpusSpec = SMALL_CORPUS,
-): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  const handle = createRowSource(ctx.engine, ctx.replica)
-  const events: RowSourceEvent[] = []
-  const off = handle.source.subscribe((e) => events.push(e))
-  try {
-    const before = captureSnapshot(ctx.engine)
-    const id = asIssueId('i6')
-    const press1 = ctx.engine.getSnapshot().markIssueRead(id)
-    handle.flush()
-    await press1
-    await settle(ctx.settleMs)
-    handle.flush()
-    const wire = ctx.cache.read('issue', 'i6')?.value as Record<string, unknown>
-    const echoWire = { ...wire, readAt: '2026-07-09T00:00:00.000Z' }
-    ctx.cache.put('issue', 'i6', echoWire)
-    ctx.replica.onKernelEvent({
-      type: 'upserted',
-      record: { entity: 'issue', entityId: 'i6', value: echoWire, provenance: { seq: 3 } },
-      readmitted: false,
-    } as never)
-    await settle(ctx.settleMs)
-    handle.flush()
-    ctx.rejectNextMarkRead()
-    const press2 = ctx.engine.getSnapshot().markIssueRead(id)
-    handle.flush()
-    await press2
-    await settle(ctx.settleMs)
-    handle.flush()
-    const after = captureSnapshot(ctx.engine)
-    return {
-      scenario: '#9 optimisticEchoAndRejection',
-      methodology: '#9',
-      events,
-      before,
-      after,
-      stats: {
-        rowsVisited: handle.stats.rowsVisited,
-        rebuilds: handle.stats.rebuilds,
-        events: handle.stats.events,
-      },
-    }
-  } finally {
-    off()
-    handle.dispose()
-    ctx.engine.destroy()
-  }
+export function optimisticEchoAndRejection(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#9 optimisticEchoAndRejection', '#9', scale, async (ctx) => {
+    await writeOptimisticPress(ctx)
+    await writeOptimisticEcho(ctx)
+    armMarkReadRejection(ctx)
+    await writeOptimisticPress(ctx)
+  })
 }
 
 /** #10 — a 50-event burst through one `replica.batch()`. */
-export async function burst50(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  try {
-    return await runWithSource('#10 burst50', '#10', ctx, () => {
-      ctx.replica.batch(() => {
-        for (let n = 0; n < 50; n += 1) {
-          const sessionId = `s-burst-${n}`
-          const value = {
-            sessionId,
-            issueId: `i${n % spec.issues}`,
-            agentKind: 'codex',
-            cwd: repoPath(n % spec.repos),
-            title: `Burst ${n}`,
-            status: 'live',
-            controllerId: `c-burst-${n}`,
-            geometry: { cols: 80, rows: 24 },
-            epoch: 1,
-            clientCount: 1,
-            createdAt: new Date().toISOString(),
-            lastActiveAt: new Date().toISOString(),
-            origin: { kind: 'spawn' },
-            archived: false,
-            readAt: new Date().toISOString(),
-            unread: false,
-            agentState: { phase: 'working', since: new Date().toISOString() },
-          }
-          ctx.cache.put('session', sessionId, value)
-          ctx.replica.onKernelEvent({
-            type: 'upserted',
-            record: { entity: 'session', entityId: sessionId, value, provenance: { seq: 2 } },
-            readmitted: false,
-          } as never)
-        }
-      })
-    })
-  } finally {
-    ctx.engine.destroy()
-  }
+export function burst50(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#10 burst50', '#10', scale, writeBurst50)
 }
 
 /** #11 — principal switch: dispose everything, new runtime over a FRESH replica. */
-export async function principalSwitch(
-  spec: CorpusSpec = SMALL_CORPUS,
-): Promise<ScenarioResult> {
-  const old = await startScenarioEngine(spec, { principal: 'operator' })
+export async function principalSwitch(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  const old = await startScenarioEngine(scale, { principal: 'operator' })
   const oldHandle = createRowSource(old.engine, old.replica)
   const oldEvents: RowSourceEvent[] = []
   const oldOff = oldHandle.source.subscribe((e) => oldEvents.push(e))
@@ -1091,8 +1090,8 @@ export async function principalSwitch(
     type: 'upserted',
     record: {
       entity: 'session',
-      entityId: 's0',
-      value: { sessionId: 's0' },
+      entityId: old.targets.phaseSessionId,
+      value: { sessionId: old.targets.phaseSessionId },
       provenance: { seq: 99 },
     },
     readmitted: false,
@@ -1101,39 +1100,22 @@ export async function principalSwitch(
   if (oldEvents.length !== 0) {
     throw new Error(`disposed source emitted ${oldEvents.length} events after principal switch`)
   }
-  const fresh = await startScenarioEngine(spec, { principal: 'operator-2' })
-  const handle = createRowSource(fresh.engine, fresh.replica)
-  const events: RowSourceEvent[] = []
-  const off = handle.source.subscribe((e) => events.push(e))
+  const fresh = await startScenarioEngine(scale, { principal: 'operator-2' })
   try {
     // A fresh replica over a fresh runtime installs as one replace. The
     // source primed against the post-start snapshot, so force the install
     // signal the way a real switch does: rescope onto the same corpus.
-    fresh.replica.onKernelEvent({
-      type: 'bootstrap-installed',
-      cause: 'rescope',
-      snapshotSeq: 2,
-      entityCount: fresh.cache.records.length,
-      bufferedFramesApplied: 0,
-    } as never)
-    await settle(fresh.settleMs)
-    handle.flush()
-    const after = captureSnapshot(fresh.engine)
-    return {
-      scenario: '#11 principalSwitch',
-      methodology: '#11',
-      events,
-      before,
-      after,
-      stats: {
-        rowsVisited: handle.stats.rowsVisited,
-        rebuilds: handle.stats.rebuilds,
-        events: handle.stats.events,
+    return await runWithSource(
+      '#11 principalSwitch',
+      '#11',
+      fresh,
+      async () => {
+        rescope(fresh, 2)
+        await settled(fresh)
       },
-    }
+      { before },
+    )
   } finally {
-    off()
-    handle.dispose()
     fresh.engine.destroy()
   }
 }
@@ -1148,154 +1130,30 @@ export async function principalSwitch(
  * asserts the snapshot is full. A kernel-driven install (bootstrap,
  * rescope, principal switch) is what produces a `replace`; those paths are
  * #11 and #13. */
-export async function coldBootstrap(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const cache = new ScenarioCache()
-  seedCorpus(cache, spec)
-  const replica = createKernelReplica({
-    cache,
-    side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
-  })
-  const api = scenarioApi(scenarioRepos(spec))
-  // The source primes empty: the initial install must arrive as one replace.
-  const primed = new Promise<ScenarioEngine>((resolve) => {
-    const engine = createClientRuntime({
-      principal: asClientPrincipal(asUserId('operator')),
-      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
-      api: api as PodiumClientApi,
-      onFatalError: (message) => {
-        throw new Error(message)
-      },
-      createReplicaFn: () => replica,
-      routerWindow: fakeRouterWindow(),
-      createHub: () => new FakeHub() as unknown as SocketHub,
-    })
-    resolve({
-      engine,
-      replica,
-      cache,
-      rejectNextMarkRead: () => {},
-      settleMs: spec.issues > 1000 ? 600 : 60,
-    })
-  })
-  const ctx = await primed
-  const handle = createRowSource(ctx.engine, ctx.replica)
-  const events: RowSourceEvent[] = []
-  const off = handle.source.subscribe((e) => events.push(e))
+export async function coldBootstrap(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  const ctx = await startEngineOnCorpus(buildCorpus(scale, FIXTURE_SEED), { start: false })
   try {
-    ctx.engine.start()
-    await settle(ctx.settleMs)
-    handle.flush()
-    const after = captureSnapshot(ctx.engine)
-    return {
-      scenario: '#12 coldBootstrap',
-      methodology: '#12',
-      events,
-      before: EMPTY_SNAPSHOT,
-      after,
-      stats: {
-        rowsVisited: handle.stats.rowsVisited,
-        rebuilds: handle.stats.rebuilds,
-        events: handle.stats.events,
+    return await runWithSource(
+      '#12 coldBootstrap',
+      '#12',
+      ctx,
+      async () => {
+        ctx.engine.start()
+        await settled(ctx)
       },
-    }
+      { before: EMPTY_SNAPSHOT },
+    )
   } finally {
-    off()
-    handle.dispose()
     ctx.engine.destroy()
   }
 }
 
 /** #13 — rescope growth then back: two full replaces, no leak. */
-export async function rescopeGrowth(spec: CorpusSpec = SMALL_CORPUS): Promise<ScenarioResult> {
-  const ctx = await startScenarioEngine(spec)
-  const handle = createRowSource(ctx.engine, ctx.replica)
-  const events: RowSourceEvent[] = []
-  const off = handle.source.subscribe((e) => events.push(e))
-  try {
-    const before = captureSnapshot(ctx.engine)
-    // Grow: ten issues with sessions, then a rescope install.
-    const grown: Updater = (c) => {
-      c.replica.batch(() => {
-        for (let n = 0; n < 10; n += 1) {
-          const id = `i-grow-${n}`
-          const wire = {
-            id,
-            seq: spec.issues + n + 1,
-            title: `Grown ${n}`,
-            stage: 'in_progress',
-            parentId: null,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            archived: false,
-            repoId: 'r0',
-            repoPath: repoPath(0),
-            readAt: null,
-            unread: true,
-            needsHuman: false,
-            blocked: false,
-          }
-          const projection = {
-            id,
-            seq: spec.issues + n + 1,
-            title: `Grown ${n}`,
-            stage: 'in_progress',
-            repoId: 'r0',
-            description: { value: '' },
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            archived: false,
-            priority: 2,
-            type: 'task',
-          }
-          c.cache.put('issue', id, wire)
-          c.cache.put('issueProjection', id, projection)
-        }
-      })
-    }
-    grown(ctx)
-    ctx.replica.onKernelEvent({
-      type: 'bootstrap-installed',
-      cause: 'rescope',
-      snapshotSeq: 2,
-      entityCount: ctx.cache.records.length,
-      bufferedFramesApplied: 0,
-    } as never)
-    await settle(ctx.settleMs)
-    handle.flush()
-    // Back: drop the grown rows, rescope again.
-    ctx.replica.batch(() => {
-      for (let n = 0; n < 10; n += 1) {
-        ctx.cache.drop('issue', `i-grow-${n}`)
-        ctx.cache.drop('issueProjection', `i-grow-${n}`)
-      }
-    })
-    ctx.replica.onKernelEvent({
-      type: 'bootstrap-installed',
-      cause: 'rescope',
-      snapshotSeq: 3,
-      entityCount: ctx.cache.records.length,
-      bufferedFramesApplied: 0,
-    } as never)
-    await settle(ctx.settleMs)
-    handle.flush()
-    const after = captureSnapshot(ctx.engine)
-    return {
-      scenario: '#13 rescopeGrowth',
-      methodology: '#13',
-      events,
-      before,
-      after,
-      stats: {
-        rowsVisited: handle.stats.rowsVisited,
-        rebuilds: handle.stats.rebuilds,
-        events: handle.stats.events,
-      },
-    }
-  } finally {
-    off()
-    handle.dispose()
-    ctx.engine.destroy()
-  }
+export function rescopeGrowth(scale: FixtureScale = 1): Promise<ScenarioResult> {
+  return scenario('#13 rescopeGrowth', '#13', scale, async (ctx) => {
+    await writeRescopeGrow(ctx)
+    await writeRescopeBack(ctx)
+  })
 }
 
 // ------------------------------------------------------------- registry
@@ -1305,13 +1163,11 @@ export interface ScenarioEntry {
   name: string
   /** Methodology §5.8 number. */
   methodology: string
-  run: (spec?: CorpusSpec) => Promise<ScenarioResult>
+  run: (scale?: FixtureScale) => Promise<ScenarioResult>
 }
 
 /** All thirteen methodology scenarios in order (the #6 set expands to four
- *  functions, #9 covers echo and rejection in one replay). The G4 harness
- *  (POD-4445) drives this registry in Chromium for walls; CI asserts counts
- *  on happy-dom. */
+ *  functions, #9 covers echo and rejection in one replay). */
 export const SCENARIOS: ScenarioEntry[] = [
   { name: 'unrelatedHeartbeat', methodology: '#1', run: unrelatedHeartbeat },
   { name: 'visibleSessionPhaseChange', methodology: '#2', run: visibleSessionPhaseChange },
@@ -1331,13 +1187,14 @@ export const SCENARIOS: ScenarioEntry[] = [
   { name: 'rescopeGrowth', methodology: '#13', run: rescopeGrowth },
 ]
 
-/** Heartbeat cost at one corpus scale: rows visited must be 1 (the addressed
- *  row) at every scale; rebuilds count the legacy fold's fresh-array cost.
- *  Counts only — no walls under box load (methodology §5.7). */
+/** Heartbeat cost at one fixture scale: rows visited must be 1 (the
+ *  addressed row) at every scale; rebuilds count the legacy fold's
+ *  fresh-array cost. Counts only — no walls under box load (methodology
+ *  §5.7). */
 export async function measureHeartbeat(
-  spec: CorpusSpec,
+  scale: FixtureScale,
 ): Promise<{ rowsVisited: number; rebuilds: number; rows: number }> {
-  const result = await unrelatedHeartbeat(spec)
+  const result = await unrelatedHeartbeat(scale)
   return {
     rowsVisited: result.stats.rowsVisited,
     rebuilds: result.stats.rebuilds,

@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../../shared/src/row-source'
-import { GROWTH_CORPORA, startScenarioEngine } from '../../../shared/src/scenarios'
+import { startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import {
   assertIsolation,
@@ -21,13 +21,13 @@ import {
   runCountScenario,
 } from '../count-harness'
 import { snapshotFromStore } from '../oracle/index'
-import { writeHeartbeat } from '../scenario-writes'
+import { writeHeartbeat } from '../../../shared/src/scenarios'
 import { legacyControlArmFor } from './arm'
 
 describe('legacy control at 1x', () => {
   it('heartbeat fails isolation with exact parity in under 60 s', async () => {
     const started = performance.now()
-    const ctx = await startScenarioEngine(GROWTH_CORPORA.x1)
+    const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica)
     const locals: SliceLocals = {
       selectedIssueId: null,
@@ -85,9 +85,9 @@ describe('legacy control at 1x', () => {
             }).trim(),
             capturedAt: new Date().toISOString(),
             corpus: {
-              issues: GROWTH_CORPORA.x1.issues,
-              sessions: GROWTH_CORPORA.x1.sessions,
-              repos: GROWTH_CORPORA.x1.repos,
+              issues: 1.issues,
+              sessions: 1.sessions,
+              repos: 1.repos,
               worktrees: repos.reduce((sum, repo) => sum + (repo.worktrees?.length ?? 0), 0),
               rows: result.visibleRows,
             },

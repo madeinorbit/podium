@@ -28,7 +28,7 @@
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
 import { buildCorpus } from '../../harness/src/fixture/index'
-import { startEngineFromCorpus } from '../../harness/src/engine-bootstrap'
+import { startEngineOnCorpus } from '../../shared/src/scenarios'
 import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
 import { mountArmForCounts, runCountScenario } from '../../harness/src/count-harness'
 import { snapshotFromStore } from '../../harness/src/oracle/index'
@@ -47,7 +47,7 @@ function changedRows(before: SliceSnapshot, after: SliceSnapshot): string[] {
 
 async function bootFixture() {
   const corpus = buildCorpus(1, 4443)
-  const boot = await startEngineFromCorpus(corpus)
+  const boot = await startEngineOnCorpus(corpus)
   const source = createRowSource(boot.engine, boot.replica)
   const locals: SliceLocals = {
     selectedIssueId: null,

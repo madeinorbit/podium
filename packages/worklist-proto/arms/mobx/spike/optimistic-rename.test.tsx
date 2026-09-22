@@ -16,12 +16,12 @@
 
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../../shared/src/row-source'
-import { SMALL_CORPUS, startScenarioEngine } from '../../../shared/src/scenarios'
+import { startScenarioEngine } from '../../../shared/src/scenarios'
 import type { SliceIssue } from '../../../shared/src/slice-types'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import { mountArmForCounts, runCountScenario } from '../../../harness/src/count-harness'
 import { snapshotFromStore } from '../../../harness/src/oracle/index'
-import { writeTitleRename } from '../../../harness/src/scenario-writes'
+import { writeTitleRename } from '../../../shared/src/scenarios'
 import { mobxArm } from '../arm'
 import type { MobXStore } from '../store'
 
@@ -70,7 +70,7 @@ class PendingTitles {
 
 describe('mobx write-path spike: optimistic title rename', () => {
   it('pending commits one row, echo reconciles, rejection restores the prior row', async () => {
-    const ctx = await startScenarioEngine(SMALL_CORPUS)
+    const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica)
     const locals: SliceLocals = {
       selectedIssueId: null,

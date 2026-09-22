@@ -1,13 +1,13 @@
 import { handArm } from '../../../arms/hand/arm'
 import { createRowSource } from '../../../shared/src/row-source'
 import { buildCorpus } from '../../src/fixture/index'
-import { startEngineFromCorpus } from '../../src/engine-bootstrap'
+import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { mountPage, readScale } from '../entrylib'
 
 const scale = readScale()
 const sha = new URLSearchParams(window.location.search).get('sha') ?? 'dev'
-const corpus = buildCorpus(scale, 4443)
-const boot = await startEngineFromCorpus(corpus)
+const corpus = buildCorpus(scale, FIXTURE_SEED)
+const boot = await startEngineOnCorpus(corpus)
 const source = createRowSource(boot.engine, boot.replica)
 mountPage({
   arm: 'hand',

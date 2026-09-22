@@ -7,14 +7,14 @@
 
 import { expect, it } from 'vitest'
 import { buildCorpus } from '../../harness/src/fixture/index'
-import { startEngineFromCorpus } from '../../harness/src/engine-bootstrap'
+import { startEngineOnCorpus } from '../../shared/src/scenarios'
 import { createRowSource } from '../../shared/src/row-source'
 import { snapshotFromStore } from '../../harness/src/oracle/index'
 import { mobxArm } from './arm'
 
 it('fixture corpus at 1x: parity with the legacy oracle', async () => {
   const corpus = buildCorpus(1, 4443)
-  const boot = await startEngineFromCorpus(corpus)
+  const boot = await startEngineOnCorpus(corpus)
   try {
     const source = createRowSource(boot.engine, boot.replica)
     const locals = {

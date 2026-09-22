@@ -21,10 +21,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createRowSource } from '../../shared/src/row-source'
 import {
-  GROWTH_CORPORA,
-  SMALL_CORPUS,
   startScenarioEngine,
-  type CorpusSpec,
+  type FixtureScale,
 } from '../../shared/src/scenarios'
 import type { SliceLocals } from '../../shared/src/slice-types'
 import {
@@ -39,7 +37,7 @@ import {
   writePhaseChange,
   writeSelectionClick,
   writeStageMove,
-} from '../../harness/src/scenario-writes'
+} from '../../shared/src/scenarios'
 import { mobxArm } from './arm'
 import type { MobXStore } from './store'
 
@@ -58,7 +56,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
   it('lifecycle: cold bootstrap, fresh-replica principal switch, literal 2x rescope and back, post-dispose silence', async () => {
     const lifecycle: Record<string, unknown> = {}
     // Cold bootstrap at live corpus: construction snapshots full, once.
-    const cold = await startScenarioEngine(GROWTH_CORPORA.x1)
+    const cold = await startScenarioEngine(1)
     const coldSource = createRowSource(cold.engine, cold.replica)
     const coldLocals: SliceLocals = {
       selectedIssueId: null,
@@ -89,7 +87,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     cold.engine.destroy()
 
     // Principal switch: dispose everything, rebuild over a FRESH replica.
-    const first = await startScenarioEngine(SMALL_CORPUS, { principal: 'operator' })
+    const first = await startScenarioEngine(1, { principal: 'operator' })
     const firstSource = createRowSource(first.engine, first.replica)
     const firstLocals: SliceLocals = {
       selectedIssueId: null,
@@ -123,7 +121,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     firstSource.dispose()
     first.engine.destroy()
 
-    const second = await startScenarioEngine(SMALL_CORPUS, { principal: 'operator-2' })
+    const second = await startScenarioEngine(1, { principal: 'operator-2' })
     const secondSource = createRowSource(second.engine, second.replica)
     const secondLocals: SliceLocals = {
       selectedIssueId: null,
@@ -151,14 +149,14 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
     // Rescope: literal 2x install then back, through `replace` events built
     // from a second engine's row source (the happy-dom proxy for the withheld
     // heap ±5% check is exact table-size return to baseline).
-    const ctx = await startScenarioEngine(GROWTH_CORPORA.x1)
+    const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica)
     const locals: SliceLocals = {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
     const mounted = mountArmForCounts(mobxArm, source.source, locals)
-    const grown = await startScenarioEngine(GROWTH_CORPORA.x2)
+    const grown = await startScenarioEngine(2)
     const grownSource = createRowSource(grown.engine, grown.replica)
     try {
       const store = storeOf(mounted)
@@ -240,9 +238,9 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
 
   it('growth scenario 14: scenarios 1, 2, 3, 5 at 1x, 2x, 4x with scans and phase split', async () => {
     const scales = [
-      { name: '1x', spec: GROWTH_CORPORA.x1 },
-      { name: '2x', spec: GROWTH_CORPORA.x2 },
-      { name: '4x', spec: GROWTH_CORPORA.x4 },
+      { name: '1x', scale: 1 as FixtureScale },
+      { name: '2x', scale: 2 as FixtureScale },
+      { name: '4x', scale: 4 as FixtureScale },
     ] as const
     const table: Array<{
       scale: string
@@ -259,8 +257,8 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       parity: boolean
     }> = []
     const byScale = new Map<string, Record<string, { rows: number; deriv: string }>>()
-    for (const { name, spec } of scales) {
-      const ctx = await startScenarioEngine(spec as CorpusSpec)
+    for (const { name, scale } of scales) {
+      const ctx = await startScenarioEngine(scale)
       const source = createRowSource(ctx.engine, ctx.replica)
       const locals: SliceLocals = {
         selectedIssueId: null,
@@ -291,8 +289,8 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
           const phaseMs = store.phaseMs()
           table.push({
             scale: name,
-            issues: (spec as CorpusSpec).issues,
-            sessions: (spec as CorpusSpec).sessions,
+            issues: ctx.corpus.stats.issues,
+            sessions: ctx.corpus.stats.sessions,
             step: `${methodology} ${step}`,
             rowsCommitted: result.rowsCommitted,
             rowsDerived: result.stats.rowsDerived,
@@ -343,7 +341,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       rows: number
       stats: { rowsDerived: number; rollupsDerived: number; indexUpdates: number; notifications: number }
     }> => {
-      const ctx = await startScenarioEngine(SMALL_CORPUS)
+      const ctx = await startScenarioEngine(1)
       const source = createRowSource(ctx.engine, ctx.replica)
       const locals: SliceLocals = {
         selectedIssueId: null,
@@ -387,7 +385,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       soloControlClick,
     }
     const coRun = async (scenario: 'heartbeat' | 'click'): Promise<void> => {
-      const ctx = await startScenarioEngine(SMALL_CORPUS)
+      const ctx = await startScenarioEngine(1)
       const source = createRowSource(ctx.engine, ctx.replica)
       const locals: SliceLocals = {
         selectedIssueId: null,
