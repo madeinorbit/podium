@@ -216,7 +216,7 @@ describe('the transcript indexer follows the search flag', () => {
     const idle = new TranscriptIndexer({
       mirror: off.conversations.mirror,
       index: off.conversations.transcriptIndex,
-      parseFor: async () => transcriptRecordMapperFor('claude-code'),
+      readItems: async () => undefined,
     })
     await idle.onBytes(machineId, 'native-a', lakePath)
     await idle.settled()
@@ -228,10 +228,14 @@ describe('the transcript indexer follows the search flag', () => {
 
     forceFeature('command-palette', true)
     const on = await openTestStore(dbPath)
+    const { fileIdFor, readIndexWindow } = await import('@podium/harness/store')
+    const mapper = transcriptRecordMapperFor('claude-code')
+    if (!mapper) throw new Error('claude-code grammar missing')
     const indexer = new TranscriptIndexer({
       mirror: on.conversations.mirror,
       index: on.conversations.transcriptIndex,
-      parseFor: async () => transcriptRecordMapperFor('claude-code'),
+      readItems: async (_machineId, nativeId, from, to, windowBytes) =>
+        await readIndexWindow(lakePath, fileIdFor(nativeId), mapper, from, to, windowBytes),
     })
     await indexer.onBytes(machineId, 'native-a', lakePath)
     await indexer.settled()

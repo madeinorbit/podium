@@ -159,10 +159,11 @@ describe('transcript index-vs-lake identity (this issue)', () => {
       const indexer = new TranscriptIndexer({
         mirror: store.conversations.mirror,
         index: store.conversations.transcriptIndex,
-        parseFor: async () => transcriptRecordMapperFor(grammar.agentKind),
+        readItems: async (machineId, nativeId, from, to, windowBytes) =>
+          await lake.readIndexItems(machineId, nativeId, from, to, windowBytes),
       })
       cleanups.push(() => indexer.dispose())
-      await indexer.backfillMachine(machineId, () => lakePath)
+      await indexer.backfillMachine(machineId)
       await indexer.settled()
 
       const rows = await store.conversations.transcriptIndex.rows(machineId, nativeId)

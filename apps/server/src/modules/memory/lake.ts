@@ -1,6 +1,11 @@
 import type { AgentKind, MachineId, ResumeRef, TranscriptItem } from '@podium/model'
 import { MirrorService } from '@podium/sync'
-import { fileChainSource, fileIdFor, type TranscriptRecordMapper } from '@podium/harness/store'
+import {
+  fileChainSource,
+  fileIdFor,
+  readIndexWindow,
+  type TranscriptRecordMapper,
+} from '@podium/harness/store'
 import type { ConversationsRepository } from '../../store/conversations'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 import { TranscriptIndexer } from './transcript-indexer'
@@ -64,8 +69,8 @@ export interface TranscriptLakeDeps {
   parseForAgentKind(agentKind: AgentKind): TranscriptRecordMapper | undefined
   /**
    * Find the live session a mirrored segment resumes into, by native id.
-   * Feeds the search indexer its per-segment grammar: lake bytes are
-   * harness-native, and the indexer must parse each segment with its own
+   * Feeds the search indexer its per-segment window reads: lake bytes are
+   * harness-native, and the indexer must read each segment with its own
    * harness's grammar rather than assuming one. A segment with no live session
    * resolves to undefined and is skipped until one appears (a restart retries
    * everything once, like every other backfill gap here).
@@ -95,11 +100,8 @@ export class TranscriptLake {
     const indexer = new TranscriptIndexer({
       mirror: deps.store.mirror,
       index: deps.store.transcriptIndex,
-      parseFor: async (machineId, nativeId) => {
-        const session = await deps.findSessionByNativeId(machineId, nativeId)
-        if (!session) return undefined
-        return deps.parseForAgentKind(session.agentKind)
-      },
+      readItems: async (machineId, nativeId, from, to, windowBytes) =>
+        await this.readIndexItems(machineId, nativeId, from, to, windowBytes),
     })
     this.indexer = indexer
     this.mirror = new MirrorService(
@@ -181,10 +183,7 @@ export class TranscriptLake {
     if (this.stopped) return
     if (!this.mirror) return
     await this.mirror.enqueueDirty(machineId)
-    await this.indexer?.backfillMachine(
-      machineId,
-      (nativeId) => this.mirror?.lakePath(machineId, nativeId) ?? '',
-    )
+    await this.indexer?.backfillMachine(machineId)
   }
 
   async pathHint(
@@ -251,6 +250,40 @@ export class TranscriptLake {
       cached: true,
     })
     return slice.items.length > 0 ? slice : undefined
+  }
+
+  /**
+   * The search indexer's window read (this issue): cursor-stamped items for the
+   * mirrored byte range `[from, to)` of one segment, through the Store's range
+   * reader with the segment's own harness grammar — the same file-chain reader
+   * and the same stamp `readWindow` below applies, so an indexed `itemUuid` is
+   * the id the lake returns for that item. Undefined when the segment has no
+   * file-chain grammar (no live session yet, an unrecognized kind, or a
+   * SQLite-backed harness like opencode): the indexer skips it rather than
+   * parsing with another harness's conventions. SQLite-backed sessions have no
+   * mirrored chain; the lake serves them live off the machine while it is
+   * reachable, and never fakes a lake copy here either.
+   */
+  async readIndexItems(
+    machineId: MachineId,
+    nativeId: string,
+    from: number,
+    to: number,
+    windowBytes: number,
+  ): Promise<{ items: TranscriptItem[]; consumed: number } | undefined> {
+    if (!this.mirror) return undefined
+    const session = await this.deps.findSessionByNativeId(machineId, nativeId).catch(() => undefined)
+    if (!session) return undefined
+    const recordToItems = this.deps.parseForAgentKind(session.agentKind)
+    if (!recordToItems) return undefined
+    return readIndexWindow(
+      this.mirror.lakePath(machineId, nativeId),
+      fileIdFor(nativeId),
+      recordToItems,
+      from,
+      to,
+      windowBytes,
+    )
   }
 
   private async read(

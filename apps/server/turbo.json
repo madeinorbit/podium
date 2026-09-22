@@ -535,6 +535,7 @@
         "src/modules/memory/search.predicates.test.ts",
         "src/modules/memory/search.ts",
         "src/modules/memory/service.ts",
+        "src/modules/memory/transcript-index-ids.test.ts",
         "src/modules/memory/transcript-indexer.ts",
         "src/modules/memory/types.ts",
         "src/modules/memory/visibility.ts",

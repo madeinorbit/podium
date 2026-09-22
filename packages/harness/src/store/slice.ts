@@ -63,16 +63,7 @@ export async function readFileItems(
   const out: TranscriptItem[] = []
   // Parse one line's bytes into stamped items at an absolute offset; skip blank/torn.
   const emit = (lineBytes: Buffer, recOffset: number): void => {
-    const trimmed = lineBytes.toString('utf8').trim()
-    if (!trimmed) return
-    let record: unknown
-    try {
-      record = JSON.parse(trimmed)
-    } catch {
-      return
-    }
-    const items = recordToItems(record)
-    if (items.length > 0) out.push(...stampCursors(items, fileId, recOffset, recordUuid(record)))
+    out.push(...stampRecordLine(lineBytes, recOffset, fileId, recordToItems))
   }
   // Walk line boundaries on the raw buffer, tracking each record's ABSOLUTE offset.
   let lineStart = 0
@@ -99,6 +90,99 @@ export async function readFileItems(
     emit(buf.subarray(lineStart), base + lineStart)
   }
   return out
+}
+
+/** Parse one line's bytes into cursor-stamped items at an absolute file offset.
+ *  Blank and torn (unparseable) lines yield nothing — the shared line grammar
+ *  behind both `readFileItems` and `readIndexWindow`, so every file reader
+ *  stamps through this one helper. */
+function stampRecordLine(
+  lineBytes: Buffer,
+  recOffset: number,
+  fileId: string,
+  recordToItems: (r: unknown) => TranscriptItem[],
+): TranscriptItem[] {
+  const trimmed = lineBytes.toString('utf8').trim()
+  if (!trimmed) return []
+  let record: unknown
+  try {
+    record = JSON.parse(trimmed)
+  } catch {
+    return []
+  }
+  const items = recordToItems(record)
+  return items.length > 0 ? stampCursors(items, fileId, recOffset, recordUuid(record)) : []
+}
+
+export interface IndexWindowResult {
+  /** Cursor-stamped items for the complete lines in `[from, from + consumed)`. */
+  items: TranscriptItem[]
+  /** Bytes consumed from `from` — always at a record boundary. 0 when the range
+   *  holds no complete line yet (a partial trailing line waits for more bytes). */
+  consumed: number
+}
+
+/**
+ * Read one bounded index window `[from, to)` of a session's transcript file.
+ *
+ * The search indexer's range read (this issue): the indexer tracks a durable
+ * byte-offset cursor per segment, and the Store turns each window of still-
+ * unindexed bytes into cursor-stamped items — the same stamping `readFileItems`
+ * (and therefore the lake and live reads) applies, so an indexed item carries
+ * exactly the id those reads return for it.
+ *
+ * Framing differs from `readFileItems` on purpose: `from` is always a record
+ * boundary (the cursor only ever advances past a newline), so the first line is
+ * never dropped as a fragment; and only COMPLETE lines (through the last `\n`
+ * in the window) are emitted — everything past it is a partial record still
+ * being mirrored. A single record wider than the window widens the read until
+ * its newline shows. Offsets stamped on items are always FILE-ABSOLUTE.
+ *
+ * Throws on unreadable files (notably ENOENT, which the indexer reconciles as
+ * a missing lake) — never an empty success, so the caller can tell "no complete
+ * line yet" (`consumed: 0`) from "the file is gone".
+ */
+export async function readIndexWindow(
+  path: string,
+  fileId: string,
+  recordToItems: (r: unknown) => TranscriptItem[],
+  from: number,
+  to: number,
+  windowBytes: number,
+): Promise<IndexWindowResult> {
+  if (to <= from || windowBytes <= 0) return { items: [], consumed: 0 }
+  let win = Math.max(1, windowBytes)
+  let buf: Buffer
+  let lastNl: number
+  for (;;) {
+    buf = await readByteRange(path, from, Math.min(to, from + win))
+    lastNl = buf.lastIndexOf(0x0a)
+    if (lastNl >= 0 || from + win >= to) break
+    win *= 2 // a single record wider than the window — widen until its newline shows
+  }
+  if (lastNl < 0) return { items: [], consumed: 0 }
+  const items: TranscriptItem[] = []
+  let lineStart = 0
+  for (let i = 0; i <= lastNl; i++) {
+    if (buf[i] !== 0x0a /* \n */) continue
+    const recOffset = from + lineStart
+    const lineBytes = buf.subarray(lineStart, i)
+    lineStart = i + 1
+    items.push(...stampRecordLine(lineBytes, recOffset, fileId, recordToItems))
+  }
+  return { items, consumed: lastNl + 1 }
+}
+
+/** Read the byte window `[from, to)` of a file; throws when it cannot be read. */
+async function readByteRange(path: string, from: number, to: number): Promise<Buffer> {
+  const handle = await open(path, 'r')
+  try {
+    const b = Buffer.alloc(Math.max(0, to - from))
+    const { bytesRead } = await handle.read(b, 0, b.length, from)
+    return b.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
 }
 
 export interface SliceOptions {
