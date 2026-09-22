@@ -31,6 +31,7 @@ import {
   manifestFor,
   type SelectionContext,
 } from '@podium/harness'
+import type { TerminalInstrumentationSections } from '@podium/harness/driver/families/terminal/instrumentation'
 import type { AgentKind } from '@podium/model'
 import type { TerminalHarnessProfile } from './terminal-driver'
 
@@ -71,6 +72,30 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     reportsContextPercent: manifest.capabilities.observationProvider !== 'none',
     interruptBytes: interrupt.bytes,
     interruptQuitsWhenIdle: interrupt.quitsWhenIdle,
+  }
+}
+
+/**
+ * THE SECTIONS THE TERMINAL FAMILY IS HANDED (spec §4.1).
+ *
+ * The ONE place that resolves a manifest by harness kind for the terminal
+ * family's hook installer. The family receives this typed subset — never the
+ * whole Adapter — so its read restriction is a type rather than a rule; the
+ * family has no parameter that accepts a manifest and no import that could
+ * fetch one. Unknown kinds and harnesses with no hook installer refuse here,
+ * with the installer's own message, before the family ever runs.
+ */
+export function terminalInstrumentationSectionsFor(kind: string): TerminalInstrumentationSections {
+  const manifest = manifestFor(kind)
+  const instrumentation = manifest ? declaredValue(manifest.instrumentation) : undefined
+  if (!manifest || !instrumentation || manifest.capabilities.hookInstall === 'none') {
+    throw new Error(`no instrumentation installer for ${kind}`)
+  }
+  const instanceHome = manifest.environment.instanceHome
+  return {
+    instrumentation,
+    environment: { ...(instanceHome ? { instanceHome } : {}) },
+    hookInstall: manifest.capabilities.hookInstall,
   }
 }
 

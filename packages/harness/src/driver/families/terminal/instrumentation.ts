@@ -6,9 +6,10 @@
  * (spec §4). This module keeps only the mechanism — the install gate (a
  * required install that fails is a spawn REFUSAL, not a warning), the
  * per-home serialization, the loopback ingest server hooks post to, and the
- * degradation report — and never names a harness: every install resolves the
- * session adapter's instrumentation section and calls through it. The payload
- * shape is adapter knowledge; the transport is family machinery.
+ * degradation report — and never names a harness: every install receives the
+ * session adapter's instrumentation sections as a handed typed subset
+ * ({@link TerminalInstrumentationSections}) and calls through them. The
+ * payload shape is adapter knowledge; the transport is family machinery.
  *
  * Re-homed from the daemon's `runtime/terminal-instrumentation.ts` (gate +
  * host-side installer) and `hook-ingest.ts` (loopback server), with the
@@ -25,11 +26,12 @@ import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { DriverCapabilities, SessionSpec } from '../../host.js'
 import {
-  declaredValue,
+  type AgentManifest,
+  type HarnessCapabilities,
+  type HarnessInstrumentation,
   type InstalledInstrumentation,
   type InstrumentationDestination,
 } from '../../../manifest.js'
-import { harnessInstanceHomeEnv, manifestFor } from '../../../registry.js'
 import {
   HOOK_INGEST_ENDPOINT,
   listenStableLoopbackPort,
@@ -39,6 +41,25 @@ import {
 /** The daemon-side name for an install result. Alias, not a second type. */
 export type InstalledTerminalInstrumentation = InstalledInstrumentation
 
+/**
+ * THE SECTIONS THE TERMINAL FAMILY OWNS (spec §4.1).
+ *
+ * A Driver is not handed the whole Adapter: it receives a typed subset, the
+ * sections it owns, so the read restriction is a type rather than a rule. The
+ * daemon's session composition resolves the manifest by harness kind once and
+ * hands this in; the family has no parameter that accepts a manifest and no
+ * import that could fetch one, so reaching a section it was not handed fails
+ * compilation, not review (the same narrowing POD-4497 applied to engine
+ * supervision with `Pick<EngineSupervisor, 'scopeUnitFor'>`).
+ */
+export interface TerminalInstrumentationSections {
+  /** The harness's own install layout, payload codec and transport. */
+  instrumentation: HarnessInstrumentation
+  /** Only the home selector: which env var redirects the harness home. */
+  environment: Pick<AgentManifest['environment'], 'instanceHome'>
+  /** Which install layout applies: per-session args or a shared global home. */
+  hookInstall: HarnessCapabilities['hookInstall']
+}
 
 /**
  * Receives Claude Code `type: "http"` hook POSTs at /hooks/<podiumSessionId>.
@@ -59,7 +80,7 @@ export interface HookIngest {
    * expected to report this where a person sees it. See {@link DEFAULT_HOOK_PORT}.
    */
   portConflict?: StablePortConflict
-  /** Stable, instance-scoped Codex endpoint when configured. */
+  /** Stable, instance-scoped harness endpoint when configured. */
   socketPath?: string
   endpointFor(sessionId: SessionId): string
   close(): Promise<void>
@@ -93,7 +114,7 @@ export async function startHookIngest(opts: {
   beforeAck?: (sessionId: SessionId, payload: unknown) => Promise<void>
   /** Preferred port; pass 0 for ephemeral (tests). Defaults to DEFAULT_HOOK_PORT. */
   port?: number
-  /** Stable, instance-scoped Unix socket used by Codex hooks. */
+  /** Stable, instance-scoped Unix socket used by harness hooks. */
   socketPath?: string
   /** Driver-owned hidden context, evaluated before optional legacy responders.
    * Removing respondTo must not remove startup/compaction context delivery. */
@@ -335,19 +356,30 @@ async function serialized<T>(key: string, install: () => Promise<T>): Promise<T>
 /** The terminal driver's host-side installer. No daemon-boot prerequisite. */
 export async function installTerminalInstrumentation(input: {
   sessionId: SessionId
-  spec: SessionSpec
+  /**
+   * Harness display name for diagnostics and the per-home lock key. A VALUE
+   * handed in, never a key to look anything up by — the family cannot resolve
+   * it into a manifest even by mistake.
+   */
+  harness: string
+  /**
+   * The session channel (callback URL/socket) plus spawn env. A Pick, so the
+   * family cannot reach session fields it was not handed either.
+   */
+  spec: Pick<SessionSpec, 'instrumentation' | 'env'>
+  /** The adapter sections this family owns — its only adapter knowledge. */
+  sections: TerminalInstrumentationSections
   settingsDir: string
   homeDir?: string
   /** Host telemetry plumbing for the harness version probe (best-effort). */
   reportVersionProbe?: (harness: string, output: string) => void
 }): Promise<InstalledTerminalInstrumentation> {
-  const { spec } = input
+  const { spec, sections } = input
   const channel = spec.instrumentation
   if (!channel) throw new Error('missing terminal instrumentation channel')
-  const manifest = manifestFor(spec.harness)
-  const instrumentation = manifest ? declaredValue(manifest.instrumentation) : undefined
-  if (!manifest || !instrumentation || manifest.capabilities.hookInstall === 'none') {
-    throw new Error(`no instrumentation installer for ${spec.harness}`)
+  const instrumentation = sections.instrumentation
+  if (!instrumentation || sections.hookInstall === 'none') {
+    throw new Error(`no instrumentation installer for ${input.harness}`)
   }
   const destination: InstrumentationDestination = {
     sessionId: input.sessionId,
@@ -361,20 +393,25 @@ export async function installTerminalInstrumentation(input: {
   }
   let wiring: InstalledInstrumentation
   try {
-    if (manifest.capabilities.hookInstall === 'global-env') {
+    if (sections.hookInstall === 'global-env') {
       // Match the child environment: instance-owned homes override session values.
-      const selector = manifest.environment.instanceHome
+      // The selector is the handed environment section, never a registry read —
+      // this is the same rule `harnessInstanceHomeEnv` states, applied to what
+      // the family was given.
+      const selector = sections.environment.instanceHome
       const env = {
         ...process.env,
         ...spec.env,
-        ...harnessInstanceHomeEnv(spec.harness, input.homeDir),
+        ...(selector && input.homeDir
+          ? { [selector.variable]: join(input.homeDir, selector.relativeDir) }
+          : {}),
       }
       const homeDir = input.homeDir ?? env.HOME ?? homedir()
       const harnessHome = selector
         ? env[selector.variable]?.trim() || join(homeDir, selector.relativeDir)
         : homeDir
       destination.harnessHome = harnessHome
-      wiring = await serialized(`${spec.harness}:${harnessHome}`, () =>
+      wiring = await serialized(`${input.harness}:${harnessHome}`, () =>
         instrumentation.install(destination),
       )
     } else {
@@ -433,13 +470,13 @@ export function reportInstrumentationDegradation(
   }
   if (seen.has(code)) return
   seen.add(code)
-  // POD-4076: the untrusted arm is installed-but-dead, not failed-to-install.
-  // Name the /hooks remedy in the description the attention item shows first;
-  // the generic "installation failed" sentence would be a lie for it.
-  const description =
-    kind === 'untrusted'
-      ? `${harness} hooks are installed but Codex has not trusted them; approve them in Codex's /hooks flow. Sessions run poll-only until then.`
-      : `${harness} hook installation failed; sessions can still start.`
+  // The description stays harness-free and kind-free on purpose: the remedy
+  // for an installed-but-untrusted home (the harness's own hook-review flow)
+  // is adapter knowledge and travels in `degradedReason`, which the body
+  // quotes below — the family must not name a harness's review flow
+  // (spec §4.1). POD-4076's installed-but-dead arm is still poll-only; only
+  // the words moved.
+  const description = `${harness} hook installation failed; sessions can still start.`
   send({
     type: 'machineDiagnostic',
     code,
