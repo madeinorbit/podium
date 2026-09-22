@@ -226,14 +226,30 @@ describe('wall-clock independence of the #9 steps', () => {
   }, 120_000)
 })
 
+/**
+ * Arm folders that carry a fence manifest (so the lint fence covers them) but
+ * are not on the roster yet, each with the issue that adds the entry and
+ * removes the exception. Coordinator ruling on POD-4565: the a1 MobX pool has
+ * no order or roll-ups, so it cannot pass parity on every scenario until Ma4.
+ */
+const PENDING_ROSTER: Readonly<Record<string, string>> = {
+  mobx: 'POD-4568 (Ma4) adds the MobX pool with every scenario and parity, and removes this exception',
+}
+
 describe('roster', () => {
-  it('names exactly the arm folders that carry a fence manifest', () => {
+  it('names exactly the arm folders that carry a fence manifest, less the named pending ones', () => {
     const manifests = readdirSync(ARMS_DIR, { withFileTypes: true })
       .filter(
         (dirent) => dirent.isDirectory() && existsSync(join(ARMS_DIR, dirent.name, 'fence.json')),
       )
       .map((dirent) => dirent.name)
       .sort()
-    expect(ROUND_THREE_ARMS.map((entry) => entry.folder).sort()).toEqual(manifests)
+    const rostered = ROUND_THREE_ARMS.map((entry) => entry.folder).sort()
+    expect(rostered).toEqual(manifests.filter((folder) => !(folder in PENDING_ROSTER)))
+    // An exception must name a real manifest that is not on the roster.
+    for (const folder of Object.keys(PENDING_ROSTER)) {
+      expect(manifests, `pending ${folder} has no fence.json`).toContain(folder)
+      expect(rostered, `pending ${folder} is already on the roster`).not.toContain(folder)
+    }
   })
 })

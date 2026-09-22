@@ -1,4 +1,112 @@
-# arms/mobx/ — owned by the MobX arm (POD-4447)
+# arms/mobx/ — the MobX arm
+
+Two generations share this folder. **`pool/`** is the round-three MobX pool
+(POD-4565 onward, epic POD-4545): the section "Round three: the pool" below.
+Everything else is the frozen round-two arm (POD-4447), documented after it;
+the round-three pool never imports it (the lint's import fence), and it goes
+when the pool's worklist replaces it.
+
+## Round three: the pool (`pool/`)
+
+Built on the declared schema (`shared/src/schema.ts`, L1a), fed row by row
+by the kernel feed (`shared/src/row-source.ts`, `overlaid` mode), handing
+each row its L1b `RowView` (`shared/src/row-view.ts`). Phase a1 (POD-4565)
+holds the tables and the row views; relations (Ma2, POD-4566), cold rows
+(Ma3), the visible collection, order, groups and roll-ups (Mb1-Mb3) come
+next.
+
+### Idiom
+
+- **Tables from the schema** (`pool/tables.ts`): one shallow `ObservableMap`
+  per schema entity — issue, session, worktree, repo — mapping the key to the
+  BORROWED row object the feed handed out (never a copy; `deep: false` is
+  `observable.ref` per slot). A derivation reading `table.get(id)` subscribes
+  to that one slot.
+- **Models on first access** (`pool/models.ts`, `MobxPool.model`): ingest
+  builds no model; the first read of a row builds its model (Linear's
+  "observable on first access"), cached per id, dropped when the row leaves.
+  A model holds no row: it reads its slot on every access, so it cannot go
+  stale. Every declared field is a getter installed from the schema
+  (`installFields`); `FEED_SPELLING` names the one field the feed spells
+  differently (a repo's `path` is its lanes' `repoPath`).
+- **Every derived value a computed, split by input** (`pool/views.ts`
+  `IssueParts`, computed on `IssueModel`): `own` (row-only fields and the
+  clock), `repoRef` → `prefix` → `displayRef`, `displayTitle`, `originRef` →
+  `originId` → `originTick`, `activityAt`, then `view` assembles them and
+  reads no row. A relation is split into its REFERENCE (the foreign key off
+  the own row, a string, `relations.ts` `relationRef`) and its RESOLUTION
+  (the target's presence and fields), so a rename re-runs the reference,
+  which returns the same string, and no target is read; an origin's rename
+  re-runs only its spin-offs' `originTick`. Objects compare structurally
+  (`computedStruct`), so an unchanged part or view keeps its identity.
+- **Locals as tracked state**: the selection is a one-entry observable map
+  (`selection.has(id)`), so a click re-derives exactly two views; the clock
+  is a set of deadlines (`pool/clock.ts`): a rule asks "has `t` passed", and
+  a tick wakes only the rows whose deadline it crosses.
+- **Enforcement configured AND asserted** (`pool/enforce.ts`): all four MobX
+  flags on; every pool test installs `pool/mobx-trap.ts`, which throws on
+  any `console.warn` and fails the test on any recorded warning. No
+  `keepAlive`. Out-of-reaction reads (`snapshot()`) go through `tracked`, a
+  transient reaction.
+- **No relation buckets in a1**: single-valued relations are resolved from
+  the own row plus the target's presence; collections (`hasMany`, incoming
+  edges) and prefix containment answer "none" through the shared
+  `RelationReader` (`pool/relations.ts`) until Ma2.
+
+### The enumeration module
+
+`pool/enumerate.ts` is the ONE module that walks a whole table
+(`fence.json` `enumeration`; the lint's `no-table-walk` refuses a walk
+anywhere else in `pool/`): `issueIdsOf` (every issue id, for the a1 list and
+`snapshot()`, until Mb1's visible collection) and `reseed` (a `replace`).
+
+### Write path
+
+`RowSourceEvent` → `MobxPool.apply` → one `runInAction`: an `update` runs
+`ingestRecord` per record (the same object is a no-op; `value: undefined`
+removes the row and drops its model); a `replace` runs `reseed` (the new
+slice through the same ingest into plain maps, then kept rows untouched,
+named rows written, the rest removed) — observers see one transition. A
+locals notification → `MobxPool.applyLocals` → one `runInAction` over only
+the keys it names. `rebuildFromScratch` (`pool/rebuild.ts`) replays the
+feed's `snapshot(kind)` through the same ingest and the same part functions
+over plain maps.
+
+### Stats (what each counter counts)
+
+- `rowsDerived` — runs of an issue model's `view` computed body (one per
+  row view re-derived; a body whose result is structurally equal still
+  counts, and keeps the old object).
+- `notifications` — actions that changed pool state: one per feed event
+  that wrote a table slot, one per locals notification naming a key the
+  pool uses (selection, clock).
+- `rollupsDerived`, `indexUpdates` — 0 in a1: no roll-ups (Mb3) and no
+  relation buckets (Ma2) exist yet.
+- `stats.counters` (the pool's own): `modelsCreated` (first accesses),
+  `tableWrites` (slots set to a different object or deleted), `rowsRemoved`.
+- Reads are never counted by the arm: every table read goes through
+  `reads.wrapTables`, every relation read through `reads.wrapRelations`, and
+  the enumeration records each id it walks with `reads.touch`.
+
+### How to add a field
+
+1. Declare it in `shared/src/schema.ts` (coordinator: the schema is shared).
+   The model gets its getter from the schema; `pool/models.test.ts` reads it
+   off a model with no edit. If the feed spells it differently, add it to
+   `FEED_SPELLING`.
+2. If a row view shows it: `shared/src/row-view.ts` (coordinator), then
+   compute it in the part whose inputs it reads (`pool/views.ts`: own-row
+   fields in `ownPartOf`; a new relation hop as a reference part plus a
+   resolution part) and assemble it in `buildRowView`. A new part is a new
+   computed on `IssueModel` and a new getter in `directParts`, which the
+   rebuild uses, so the correctness gate (`pool/gate.test.ts`) holds the two
+   together.
+3. Never read a row in `view` itself, and never read a target in a part
+   that also reads the own row: that is how a rename starts charging reads
+   to its neighbours (`pool/counts.test.tsx` fails the budget).
+
+## Round two (frozen, POD-4447)
+
 
 Tracked object graph with enforcement on (methodology §5.3). No imports from
 legacy view-model / slice / mission / presentation / replica-view code (H4

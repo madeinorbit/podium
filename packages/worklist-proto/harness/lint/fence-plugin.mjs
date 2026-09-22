@@ -551,6 +551,73 @@ const noHiddenState = {
   },
 }
 
+// ---------------------------------------------------- rule: thawed import fence
+
+/**
+ * POD-4565 (coordinator ruling on Ma1): a THAWED folder is round-three code
+ * inside a frozen round-two arm (`arms/mobx/pool/`). The frozen files are not
+ * linted, so an import from them would carry round two's shape (its
+ * hand-maintained buckets, its stats) into round three unseen. A thawed file
+ * may import nothing under `arms/` outside its own thawed folder — type
+ * imports and re-exports included. Round-two IDEAS are rewritten, never
+ * imported.
+ */
+const thawedImportFence = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'A thawed (round-three) folder imports nothing from the rest of arms/' },
+    schema: [
+      {
+        type: 'object',
+        properties: { thawed: { type: 'array', items: { type: 'string' } } },
+        additionalProperties: false,
+      },
+    ],
+  },
+  create(context) {
+    const thawed = context.options[0]?.thawed ?? []
+    const arm = armOf(context.filename)
+    if (arm === null) return {}
+    const armsDir = dirname(arm.root)
+    const armPath = `${arm.folder}/${arm.path}`
+    const own = thawed.find((folder) => armPath.startsWith(`${folder}/`))
+    if (own === undefined) return {}
+    const ownDir = join(armsDir, own)
+    const check = (node, source) => {
+      if (typeof source !== 'string' || !source.startsWith('.')) return
+      const target = resolve(dirname(resolve(context.filename)), source)
+      const inArms = target === armsDir || target.startsWith(`${armsDir}${sep}`)
+      const inOwn = target === ownDir || target.startsWith(`${ownDir}${sep}`)
+      if (inArms && !inOwn) {
+        context.report({
+          node,
+          message: `thawed folder "${own}" imports '${source}' (${relative(armsDir, target).split(sep).join('/')}), outside itself under arms/: round-two code is rewritten in the pool, never imported`,
+        })
+      }
+    }
+    return {
+      ImportDeclaration(node) {
+        check(node, node.source.value)
+      },
+      ExportNamedDeclaration(node) {
+        if (node.source) check(node, node.source.value)
+      },
+      ExportAllDeclaration(node) {
+        check(node, node.source.value)
+      },
+      ImportExpression(node) {
+        if (node.source.type === 'Literal' || node.source.type === 'StringLiteral') check(node, node.source.value)
+      },
+      CallExpression(node) {
+        if (node.callee.type === 'Import' && node.arguments[0]) {
+          const arg = node.arguments[0]
+          if (arg.type === 'Literal' || arg.type === 'StringLiteral') check(node, arg.value)
+        }
+      },
+    }
+  },
+}
+
 // ------------------------------------------------------------------ plugin
 
 export const plugin = {
@@ -562,6 +629,7 @@ export const plugin = {
     'row-component-module-scope': rowComponentModuleScope,
     'no-wall-clock': noWallClock,
     'no-hidden-state': noHiddenState,
+    'thawed-import-fence': thawedImportFence,
   },
 }
 
@@ -583,10 +651,25 @@ const languageOptions = {
 /**
  * The fence config over the arm folders under `root` (a path relative to the
  * ESLint cwd). `frozen` folders are round-two arms: the wall-clock rule still
- * applies to them; the round-three rules do not.
+ * applies to them; the round-three rules do not. `thawed` names round-three
+ * subfolders of a frozen arm (`mobx/pool`, POD-4565): every round-three rule
+ * applies to them again, against the arm's `fence.json`, plus the import
+ * fence (`thawed-import-fence`), which keeps them from importing the frozen
+ * files the lint cannot see.
  */
-export function fenceConfig({ root, frozen }) {
+export function fenceConfig({ root, frozen, thawed = [] }) {
   const files = [`${root}/**/*.ts`, `${root}/**/*.tsx`]
+  const thawedConfig =
+    thawed.length === 0
+      ? []
+      : [
+          {
+            files: thawed.flatMap((folder) => [`${root}/${folder}/**/*.ts`, `${root}/${folder}/**/*.tsx`]),
+            languageOptions,
+            plugins: { fence: plugin },
+            rules: { 'fence/thawed-import-fence': ['error', { thawed }] },
+          },
+        ]
   return [
     {
       files,
@@ -596,7 +679,12 @@ export function fenceConfig({ root, frozen }) {
     },
     {
       files,
-      ignores: [...frozen.map((folder) => `${root}/${folder}/**`), '**/*.test.ts', '**/*.test.tsx'],
+      ignores: [
+        ...frozen.map((folder) => `${root}/${folder}/**`),
+        ...thawed.map((folder) => `!${root}/${folder}/**`),
+        '**/*.test.ts',
+        '**/*.test.tsx',
+      ],
       languageOptions,
       plugins: { fence: plugin },
       rules: {
@@ -607,5 +695,6 @@ export function fenceConfig({ root, frozen }) {
         'fence/no-hidden-state': 'error',
       },
     },
+    ...thawedConfig,
   ]
 }

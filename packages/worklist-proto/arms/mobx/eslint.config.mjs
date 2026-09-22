@@ -38,4 +38,13 @@ export default [
       'mobx/exhaustive-make-observable': 'error',
     },
   },
+  {
+    // POD-4565: the pool's row components take a plain `RowView` (L1b) and
+    // read no observable, so an `observer` would observe nothing and trip
+    // MobX's `reactionRequiresObservable` (enforced as an error in the pool's
+    // tests). Their slots (`pool/react/list.tsx`, `pool/native/list.tsx`) are
+    // the observers. These two files hold nothing else.
+    files: ['**/pool/react/row.tsx', '**/pool/native/row.tsx'],
+    rules: { 'mobx/missing-observer': 'off' },
+  },
 ]

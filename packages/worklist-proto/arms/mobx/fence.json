@@ -1,0 +1,16 @@
+{
+  "enumeration": ["pool/enumerate.ts"],
+  "tables": ["issue", "session", "worktree", "repo"],
+  "store": [
+    "pool/arm.ts",
+    "pool/clock.ts",
+    "pool/enforce.ts",
+    "pool/enumerate.ts",
+    "pool/models.ts",
+    "pool/pool.ts",
+    "pool/rebuild.ts",
+    "pool/relations.ts",
+    "pool/tables.ts"
+  ],
+  "rows": ["pool/react/row.tsx", "pool/native/row.tsx"]
+}
