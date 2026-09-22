@@ -168,6 +168,7 @@ export function createClaudeSdkSessionRuntime(
   deps: ClaudeSdkSessionDeps,
 ): DaemonClaudeSdkRuntime {
   let runtime!: DaemonClaudeSdkRuntime
+  const engineProcessFor = deps.engine.processFor?.bind(deps.engine)
   const host: ClaudeSdkRuntimeHost = {
     mintSessionId: () => randomUUID() as SessionId,
     mintResumeValue: randomUUID,
@@ -208,6 +209,7 @@ export function createClaudeSdkSessionRuntime(
     onQueueAbandoned: reportQueueAbandonment('claude-sdk', deps.send),
     stopEngine: (sessionId, retire) => deps.engine.stopEngine(sessionId, retire),
     releaseEngines: () => deps.engine.releaseEngines(),
+    ...(engineProcessFor ? { processFor: engineProcessFor } : {}),
   }
 
   const contractRuntime = createClaudeSdkRuntime(host, deps.driverSlots)
