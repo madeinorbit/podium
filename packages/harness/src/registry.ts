@@ -11,6 +11,8 @@ import {
   type AgentManifest,
   type ClientTerminalSpec,
   declaredValue,
+  type Declared,
+  declinedReasonIsValid,
   canonicalDriverId,
   type DriverFamily,
   type HarnessCapabilities,
@@ -536,4 +538,97 @@ export function harnessLoginNeedsInteractive(
   state: HarnessLogin['state'] | undefined,
 ): boolean {
   return state === 'out' || (kind === 'codex' && state === 'unknown')
+}
+
+// ---------------------------------------------------------------------------
+// Decline inventory (POD-4474, spec §5: "an empty reason fails the registry
+// check"; §4.7: the support matrix is the FIRST capability input).
+//
+// ONE walker over every Declared in a manifest, shared by the registry check
+// and the matrix generator so the two can never disagree about what a harness
+// declares. Nested declarations (inventory probes, usage sub-sections, the
+// transcript grammar readers, headless buildExec, the server version floor)
+// are rows too: a placeholder hidden one level down is the same defect.
+// ---------------------------------------------------------------------------
+
+/** One matrix row: a Declared section's standing for one harness. */
+export interface ManifestSectionStatus {
+  /** Dotted path: `usage`, `inventory.loginCommand`, `transcript.recordToItems`, … */
+  section: string
+  supported: boolean
+  /** Present exactly when declined — the reason the matrix prints. */
+  reason?: string
+}
+
+/** Every Declared section of one manifest, top-level then nested, in matrix order. */
+export function sectionStatusesOf(manifest: AgentManifest): ManifestSectionStatus[] {
+  const rows: ManifestSectionStatus[] = []
+  const row = (section: string, declared: Declared<unknown>): void => {
+    if (declared.supported) rows.push({ section, supported: true })
+    else rows.push({ section, supported: false, reason: declared.reason })
+  }
+  row('credentials', manifest.credentials)
+  row('usage', manifest.usage)
+  row('install', manifest.install)
+  row('exec', manifest.exec)
+  row('headless', manifest.headless)
+  row('state', manifest.state)
+  row('instrumentation', manifest.instrumentation)
+  row('observer', manifest.observer)
+  row('transcript', manifest.transcript)
+  row('handoffTranscript', manifest.handoffTranscript)
+  row('classifyBrowserOpen', manifest.classifyBrowserOpen)
+  row('inventory.loginCommand', manifest.inventory.loginCommand)
+  row('inventory.loginCommandProbe', manifest.inventory.loginCommandProbe)
+  row('inventory.loginIdentity', manifest.inventory.loginIdentity)
+  row('inventory.portableCredential', manifest.inventory.portableCredential)
+  row('runtime.server', manifest.runtime.server)
+  row('runtime.embedded', manifest.runtime.embedded)
+  rows.push({ section: 'runtime.terminal', supported: true })
+  const usage = declaredValue(manifest.usage)
+  if (usage) {
+    row('usage.quota', usage.quota)
+    row('usage.history', usage.history)
+    row('usage.transcripts', usage.transcripts)
+  }
+  const headless = declaredValue(manifest.headless)
+  if (headless) row('headless.buildExec', headless.buildExec)
+  const server = declaredValue(manifest.runtime.server)
+  if (server) row('runtime.server.versionRange', server.versionRange)
+  const transcript = declaredValue(manifest.transcript)
+  if (transcript) {
+    row('transcript.recordToItems', transcript.recordToItems)
+    row('transcript.recordRuntime', transcript.recordRuntime)
+    row('transcript.recordColor', transcript.recordColor)
+    row('transcript.chainPaths', transcript.chainPaths)
+  }
+  return rows
+}
+
+/**
+ * THE REGISTRY'S TOTALITY CHECK ON DECLINE REASONS (spec §5).
+ *
+ * Refuses an empty or placeholder reason anywhere in the manifests — top-level
+ * or nested — by THROWING with every offending `kind.section` and the reason
+ * that failed. The registry test runs this over AGENT_MANIFESTS; the matrix
+ * generator runs it before writing, so a stale-or-dishonest matrix cannot be
+ * committed green.
+ */
+export function assertDeclinedReasonsValid(
+  manifests: Record<string, AgentManifest> = AGENT_MANIFESTS,
+): void {
+  const violations: string[] = []
+  for (const [kind, manifest] of Object.entries(manifests)) {
+    for (const status of sectionStatusesOf(manifest)) {
+      if (!status.supported && !declinedReasonIsValid(status.reason ?? '')) {
+        violations.push(`${kind}.${status.section}: ${JSON.stringify(status.reason ?? '')}`)
+      }
+    }
+  }
+  if (violations.length > 0) {
+    throw new Error(
+      `declined without a real reason (${violations.length}):\n- ${violations.join('\n- ')}\n` +
+        'Write why the harness cannot do it, for a reader deciding whether the gap is permanent.',
+    )
+  }
 }

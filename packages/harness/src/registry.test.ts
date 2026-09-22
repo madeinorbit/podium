@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type AgentManifest,
   type Declared,
+  declinedReasonIsValid,
   declaredValue,
   supported,
   unsupported,
@@ -17,6 +18,7 @@ import {
 import {
   AGENT_MANIFESTS,
   agentStateProviderFor,
+  assertDeclinedReasonsValid,
   CLIENT_TERMINAL_HARNESSES,
   clientTerminalFor,
   driverFamilyForId,
@@ -33,6 +35,7 @@ import {
   harnessSupportsMcp,
   harnessUsesRawFirstTurn,
   manifestFor,
+  sectionStatusesOf,
   transcriptRecordMapperFor,
   transcriptRuntimeReaderFor,
 } from './registry.js'
@@ -795,5 +798,51 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
     const gap = unsupported('not yet')
     expect(declaredValue(gap)).toBeUndefined()
     expect(gap.supported === false && gap.reason).toBe('not yet')
+  })
+
+  it('refuses empty and placeholder decline reasons across every manifest, nested included', () => {
+    // Spec §5: "an empty reason fails the registry check". The denylist holds
+    // the §8 placeholders ('n/a', 'todo', 'tbd'); the WHOLE reason must be one
+    // of them to fail, so a real sentence that mentions one stays valid.
+    expect(declinedReasonIsValid('')).toBe(false)
+    expect(declinedReasonIsValid('   ')).toBe(false)
+    for (const placeholder of ['n/a', 'N/A', 'na', 'todo', 'TODO', 'tbd', 'TBD', 'tba']) {
+      expect(declinedReasonIsValid(placeholder), JSON.stringify(placeholder)).toBe(false)
+    }
+    expect(declinedReasonIsValid('OpenCode exposes no vendor quota endpoint yet')).toBe(true)
+    expect(
+      declinedReasonIsValid('no single vendor install script to run; see the todo list in docs'),
+    ).toBe(true)
+    // The live registry: every declined section of every harness, top-level
+    // AND nested (usage sub-sections, transcript readers, buildExec, the
+    // server version floor), carries a real reason.
+    expect(() => assertDeclinedReasonsValid(AGENT_MANIFESTS)).not.toThrow()
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const declined = sectionStatusesOf(AGENT_MANIFESTS[kind]).filter((row) => !row.supported)
+      expect(declined.length, `${kind} declines nothing`).toBeGreaterThan(0)
+      for (const row of declined) {
+        expect(declinedReasonIsValid(row.reason ?? ''), `${kind}.${row.section}`).toBe(true)
+      }
+    }
+  })
+
+  it('ARMED: a placeholder reason in any manifest refuses the registry check', () => {
+    // Guard-armed: if the walker ever stops seeing a section, or the denylist
+    // ever stops firing, this mutant must still fail. Proven red against the
+    // live registry by swapping one adapter reason for 'todo' (VERIFY-4474).
+    const mutant: AgentManifest = {
+      ...AGENT_MANIFESTS.codex,
+      usage: unsupported('todo'),
+    }
+    expect(() => assertDeclinedReasonsValid({ codex: mutant })).toThrow(
+      /codex\.usage.*todo/,
+    )
+    const nestedMutant: AgentManifest = {
+      ...AGENT_MANIFESTS.grok,
+      inventory: { ...AGENT_MANIFESTS.grok.inventory, loginCommandProbe: unsupported('') },
+    }
+    expect(() => assertDeclinedReasonsValid({ grok: nestedMutant })).toThrow(
+      /grok\.inventory\.loginCommandProbe/,
+    )
   })
 })
