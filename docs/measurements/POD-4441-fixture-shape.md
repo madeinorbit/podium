@@ -143,8 +143,10 @@ server's title. Mutation: building from the snapshot again makes it carry
 - `displayRef` covers both spellings (`POD-<seq>` and `#<seq>`); repo `r5`
   spans two paths (`/repo-5`, `/other-path-5`) for the group-merge rule.
 
-## Timings under load below 8 (POD-4551, as of 2ef9f6606)
+## Timings under load below 8 (POD-4551, as of ae70508a3)
 
+Measured at 2ef9f6606 before the landing rebase. Its corpus, oracle and
+scenario code is byte-identical at ae70508a3 on the integration branch.
 Bench lock `bench:ludovico` held for the run. `uptime` before: load average
 4.10, 6.77, 8.36; after: 5.39, 6.91, 8.37. The 1-minute load was read before
 each of the 15 records and stayed between 4.10 and 5.43. Five rounds, with
