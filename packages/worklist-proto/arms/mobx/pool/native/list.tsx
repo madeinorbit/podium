@@ -12,13 +12,21 @@ import type { IssueModel } from '../models'
 import type { MobxPool } from '../pool'
 import { PoolNativeRow } from './row'
 
-const PoolNativeSlot = observer(function PoolNativeSlot({ model }: { model: IssueModel }): ReactElement | null {
+const PoolNativeSlot = observer(function PoolNativeSlot({
+  model,
+}: {
+  model: IssueModel
+}): ReactElement | null {
   const view = model.view
   if (view === undefined) return null
   return <RowShell row={view} component={PoolNativeRow} />
 })
 
-const PoolNativeList = observer(function PoolNativeList({ pool }: { pool: MobxPool }): ReactElement {
+const PoolNativeList = observer(function PoolNativeList({
+  pool,
+}: {
+  pool: MobxPool
+}): ReactElement {
   return (
     <ScrollView testID="mobx-pool-list">
       {pool.issueIds.map((id) => {

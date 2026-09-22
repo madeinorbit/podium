@@ -261,7 +261,11 @@ describe('thawed import fence (POD-4565 ruling: round-three code inside a frozen
 
   it('PLANTED: a pool file importing the frozen round-two store is red; the same file without the import passes', async () => {
     expect(
-      await problems("import { MobXStore } from '../store'\nexport const x = MobXStore\n", at, realLint),
+      await problems(
+        "import { MobXStore } from '../store'\nexport const x = MobXStore\n",
+        at,
+        realLint,
+      ),
     ).toEqual([expect.stringMatching(red)])
     expect(await problems('export const x = 1\n', at, realLint)).toEqual([])
   })
@@ -273,11 +277,22 @@ describe('thawed import fence (POD-4565 ruling: round-three code inside a frozen
       "export const load = () => import('../rules')\n",
       "import { handArm } from '../../hand/arm'\nexport const h = handArm\n",
     ]
-    for (const code of cases) expect(await problems(code, at, realLint), code).toEqual([expect.stringMatching(red)])
+    for (const code of cases)
+      expect(await problems(code, at, realLint), code).toEqual([expect.stringMatching(red)])
     expect(
-      await problems("import { SCHEMA } from '../../../shared/src/schema'\nexport const s = SCHEMA\n", at, realLint),
+      await problems(
+        "import { SCHEMA } from '../../../shared/src/schema'\nexport const s = SCHEMA\n",
+        at,
+        realLint,
+      ),
     ).toEqual([])
-    expect(await problems("import { MobxPool } from './pool'\nexport const p = MobxPool\n", at, realLint)).toEqual([])
+    expect(
+      await problems(
+        "import { MobxPool } from './pool'\nexport const p = MobxPool\n",
+        at,
+        realLint,
+      ),
+    ).toEqual([])
   })
 
   it('the frozen round-two files stay outside the round-three rules', async () => {

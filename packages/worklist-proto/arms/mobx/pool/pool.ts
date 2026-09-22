@@ -24,17 +24,37 @@
  */
 
 import './enforce'
-import { autorun, computedStruct, makeObservable, observable, type ObservableMap, runInAction } from 'mobx'
+import {
+  autorun,
+  computedStruct,
+  makeObservable,
+  type ObservableMap,
+  observable,
+  runInAction,
+} from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import { sliceRowOf } from '../../../shared/src/row-view'
 import type { EntityName } from '../../../shared/src/schema'
-import type { LocalsKey, SliceIssue, SliceLocals, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
+import type {
+  LocalsKey,
+  SliceIssue,
+  SliceLocals,
+  SliceSession,
+  SliceSnapshot,
+} from '../../../shared/src/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import { DeadlineClock } from './clock'
 import { issueIdsOf, reseed } from './enumerate'
 import { type EntityModel, type IssueModel, MODEL_CLASSES, type ModelOf } from './models'
 import { PoolRelations } from './relations'
-import { createObservableTables, ENTITIES, type IngestTarget, ingestOut, ingestRecord, type PoolTables } from './tables'
+import {
+  createObservableTables,
+  ENTITIES,
+  type IngestTarget,
+  ingestOut,
+  ingestRecord,
+  type PoolTables,
+} from './tables'
 import type { RepoRow, ViewInputs } from './views'
 
 /** The pool's own counters, beside the shared `ArmStats`. */
@@ -84,7 +104,8 @@ export function tracked<T>(read: () => T): T {
     result = { value: read() }
   })
   stop()
-  if (result === null) throw new Error('[pool] tracked() ran inside a batch; read after the action ends')
+  if (result === null)
+    throw new Error('[pool] tracked() ran inside a batch; read after the action ends')
   return (result as { value: T }).value
 }
 
@@ -110,10 +131,15 @@ export class MobxPool {
     this.tables = createObservableTables()
     this.fenced = reads.wrapTables(this.tables)
     this.relations = reads.wrapRelations(new PoolRelations(this.fenced))
-    this.selection = observable.map<string, true>(undefined, { deep: false, name: 'pool.selection' })
+    this.selection = observable.map<string, true>(undefined, {
+      deep: false,
+      name: 'pool.selection',
+    })
     this.clock = new DeadlineClock(locals.coarseNow)
     this.stats = createStats()
-    this.models = Object.fromEntries(ENTITIES.map((entity) => [entity, new Map()])) as MobxPool['models']
+    this.models = Object.fromEntries(
+      ENTITIES.map((entity) => [entity, new Map()]),
+    ) as MobxPool['models']
     this.target = { read: this.fenced, write: this.tables }
     this.selectedId = null
     const fenced = this.fenced
@@ -171,7 +197,7 @@ export class MobxPool {
     return model as ModelOf[E]
   }
 
-  issue(id: string): IssueModel | undefined {
+  issue(id: string): ModelOf['issue'] | undefined {
     return this.model('issue', id)
   }
 

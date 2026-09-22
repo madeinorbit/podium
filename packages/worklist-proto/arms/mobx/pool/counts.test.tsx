@@ -42,7 +42,9 @@ describe('fence steps #1 and #4', () => {
     try {
       const cells = []
       for (const step of STEPS) {
-        const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === step.methodology)
+        const entry = FENCE_SCENARIOS.find(
+          (candidate) => candidate.methodology === step.methodology,
+        )
         expect(entry, step.methodology).toBeDefined()
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         if (step.commits) assertCommits(result)

@@ -52,7 +52,10 @@ export const STUB_ROLLUPS = {
   working: false,
   asking: false,
   workingSince: null,
-} as const satisfies Pick<RowView, 'phase' | 'progressDone' | 'progressTotal' | 'working' | 'asking' | 'workingSince'>
+} as const satisfies Pick<
+  RowView,
+  'phase' | 'progressDone' | 'progressTotal' | 'working' | 'asking' | 'workingSince'
+>
 
 /** Until Mb3: "nothing in the subtree waits on the human" (a roll-up). */
 export const STUB_WAITING = false
@@ -176,7 +179,9 @@ function canonicalCloseReason(value: unknown): string | null {
   const key = value.trim().toLowerCase()
   if (key === '') return null
   if (Object.hasOwn(LEGACY_CLOSE_REASONS, key)) return LEGACY_CLOSE_REASONS[key] as string
-  return key === 'done' || key === 'cancelled' || key === 'duplicate' || key === 'superseded' ? key : null
+  return key === 'done' || key === 'cancelled' || key === 'duplicate' || key === 'superseded'
+    ? key
+    : null
 }
 
 /** Abandoned: closed as cancelled, duplicate or superseded (spec §3 R-GROUP). */
@@ -188,7 +193,9 @@ export function issueAbandoned(issue: SliceIssue): boolean {
 
 /** Closed top-level human issue: a fold candidate (spec §3 R-GROUP). */
 export function isClosedTopLevel(issue: SliceIssue): boolean {
-  return issue.closedReason != null && (issue.parentId ?? null) === null && issue.audience === 'human'
+  return (
+    issue.closedReason != null && (issue.parentId ?? null) === null && issue.audience === 'human'
+  )
 }
 
 /**
@@ -197,7 +204,11 @@ export function isClosedTopLevel(issue: SliceIssue): boolean {
  * awaiting merge — never true in the slice — and nothing waiting) folds at
  * once when abandoned or tucked, else once the clock passes the 24 h grace.
  */
-export function closedOf(issue: SliceIssue, waiting: boolean, input: Pick<ViewInputs, 'passed'>): boolean {
+export function closedOf(
+  issue: SliceIssue,
+  waiting: boolean,
+  input: Pick<ViewInputs, 'passed'>,
+): boolean {
   if (!isClosedTopLevel(issue) || issue.needsHuman === true || waiting) return false
   if (issueAbandoned(issue)) return true
   if (issue.tuckedAt != null) return true
@@ -250,7 +261,10 @@ export function prefixPartOf(input: ViewInputs, repoRef: string | null): string 
 }
 
 /** `prefix-seq`, else `#seq`, from the parts (spec §3 R-SUM). */
-export function displayRefPartOf(own: OwnPart | undefined, prefix: string | null): string | undefined {
+export function displayRefPartOf(
+  own: OwnPart | undefined,
+  prefix: string | null,
+): string | undefined {
   return own === undefined ? undefined : displayRefOf(own.seq, prefix)
 }
 
@@ -276,7 +290,12 @@ export function originTickPartOf(input: ViewInputs, originId: string | null): Ro
   const origin = input.parts(originId)
   const own = origin?.own
   if (origin === undefined || own === undefined) return null
-  return { id: originId, seq: own.seq, title: origin.displayTitle ?? '', ref: origin.displayRef ?? '' }
+  return {
+    id: originId,
+    seq: own.seq,
+    title: origin.displayTitle ?? '',
+    ref: origin.displayRef ?? '',
+  }
 }
 
 /** Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec R-BAND). */

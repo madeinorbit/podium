@@ -48,7 +48,9 @@ import {
  * Where a feed row spells a schema field differently. Only the repo: its row
  * is a root lane (`tables.ts`), which carries the repo's path as `repoPath`.
  */
-export const FEED_SPELLING: Readonly<Partial<Record<EntityName, Readonly<Record<string, string>>>>> = {
+export const FEED_SPELLING: Readonly<
+  Partial<Record<EntityName, Readonly<Record<string, string>>>>
+> = {
   repo: { path: 'repoPath' },
 }
 
@@ -93,10 +95,6 @@ function installFields(prototype: EntityModel, entity: EntityName): void {
   }
 }
 
-// The declared fields, typed from the slice types the feed rows already have
-// (the runtime getters come from the schema; see `installFields`).
-
-export interface IssueModel extends Readonly<Omit<SliceIssue, 'unread'>> {}
 export class IssueModel extends EntityModel implements IssueParts {
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
@@ -157,38 +155,45 @@ export class IssueModel extends EntityModel implements IssueParts {
   }
 }
 
-export interface SessionModel extends Readonly<SliceSession> {}
 export class SessionModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
   }
 }
 
-export interface WorktreeModel extends Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>> {}
+export interface WorktreeModel
+  extends Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>> {}
 export class WorktreeModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('worktree', id, host)
   }
 }
 
-export interface RepoModel extends Readonly<RepoRow> {
-  readonly path?: string
-}
 export class RepoModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('repo', id, host)
   }
 }
 
+/**
+ * A model with its schema getters, typed. The getters are installed from the
+ * schema at runtime (`installFields`); their TYPES come from the slice types
+ * the feed rows already carry, so no field list is written here.
+ */
 export type ModelOf = {
-  issue: IssueModel
-  session: SessionModel
-  worktree: WorktreeModel
-  repo: RepoModel
+  issue: IssueModel & Readonly<Omit<SliceIssue, 'unread'>>
+  session: SessionModel & Readonly<SliceSession>
+  worktree: WorktreeModel & Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>>
+  repo: RepoModel & Readonly<RepoRow> & { readonly path?: string }
 }
 
 /** The model class of each schema entity. */
-export const MODEL_CLASSES: { readonly [E in EntityName]: new (id: string, host: ModelHost) => ModelOf[E] } = {
+export const MODEL_CLASSES: {
+  readonly [E in EntityName]: new (
+    id: string,
+    host: ModelHost,
+  ) => EntityModel
+} = {
   issue: IssueModel,
   session: SessionModel,
   worktree: WorktreeModel,

@@ -88,7 +88,11 @@ export class PoolRelations implements RelationReader {
 
   many(from: EntityName, _id: string, relation: string): Iterable<string> {
     const spec = specOf(from, relation)
-    if (spec.kind === 'belongsTo' || spec.kind === 'prefix' || (spec.kind === 'edge' && spec.direction === 'out')) {
+    if (
+      spec.kind === 'belongsTo' ||
+      spec.kind === 'prefix' ||
+      (spec.kind === 'edge' && spec.direction === 'out')
+    ) {
       throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
     }
     return NONE // hasMany / incoming edge: Ma2

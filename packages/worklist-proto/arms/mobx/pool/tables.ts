@@ -44,7 +44,7 @@
  * table entry is the only thing a row occupies; Ma2 adds the buckets.
  */
 
-import { observable, type ObservableMap } from 'mobx'
+import { type ObservableMap, observable } from 'mobx'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 
@@ -99,7 +99,13 @@ export interface IngestTarget {
 }
 
 /** Store `row` under `id` unless the slot already holds that very object. */
-export function put(target: IngestTarget, entity: EntityName, id: string, row: StoredRow, out: IngestOut): void {
+export function put(
+  target: IngestTarget,
+  entity: EntityName,
+  id: string,
+  row: StoredRow,
+  out: IngestOut,
+): void {
   if (target.read[entity].get(id) === row) return // unchanged: keep the borrowed object, notify nothing
   target.write[entity].set(id, row)
   out.writes += 1
@@ -130,7 +136,12 @@ function releaseRepo(target: IngestTarget, lane: StoredRow, out: IngestOut): voi
   if (repoId !== null && target.read.repo.get(repoId) === lane) drop(target, 'repo', repoId, out)
 }
 
-function ingestWorktree(target: IngestTarget, id: string, value: StoredRow | undefined, out: IngestOut): void {
+function ingestWorktree(
+  target: IngestTarget,
+  id: string,
+  value: StoredRow | undefined,
+  out: IngestOut,
+): void {
   const previous = target.read.worktree.get(id) as StoredRow | undefined
   if (value === undefined) {
     if (previous !== undefined) {

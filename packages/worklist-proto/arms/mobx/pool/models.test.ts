@@ -11,8 +11,8 @@ import { buildCorpus } from '../../../harness/src/fixture/index'
 import { fixedLocals } from '../../../shared/src/locals-source'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import { mobxPoolArm } from './arm'
-import { FEED_SPELLING } from './models'
 import { installMobxWarnTrap } from './mobx-trap'
+import { FEED_SPELLING } from './models'
 import { tracked } from './pool'
 import { ENTITIES } from './tables'
 
@@ -23,8 +23,16 @@ describe('schema fields on models', () => {
     const corpus = buildCorpus(1)
     const replay = createReplaySource({
       issues: corpus.sliceIssues.map((value) => ({ kind: 'issue', id: value.id, value })),
-      sessions: corpus.sliceSessions.map((value) => ({ kind: 'session', id: value.sessionId, value })),
-      worktrees: corpus.sliceWorktrees.map((value) => ({ kind: 'worktree', id: value.path, value })),
+      sessions: corpus.sliceSessions.map((value) => ({
+        kind: 'session',
+        id: value.sessionId,
+        value,
+      })),
+      worktrees: corpus.sliceWorktrees.map((value) => ({
+        kind: 'worktree',
+        id: value.path,
+        value,
+      })),
     })
     const locals = fixedLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
     const handle = mobxPoolArm.create(replay.source, locals.source)
@@ -44,9 +52,11 @@ describe('schema fields on models', () => {
             expect(model, `${entity}:${id}`).toBeDefined()
             for (const field of Object.keys(spec.fields)) {
               expect(field in model, `${entity}.${field} has no getter`).toBe(true)
-              const want = field === spec.key ? id : (row as Record<string, unknown>)[spelling[field] ?? field]
+              const want =
+                field === spec.key ? id : (row as Record<string, unknown>)[spelling[field] ?? field]
               expect(model[field], `${entity}:${id}.${field}`).toBe(want)
-              if (want !== undefined) covered[`${entity}.${field}`] = (covered[`${entity}.${field}`] ?? 0) + 1
+              if (want !== undefined)
+                covered[`${entity}.${field}`] = (covered[`${entity}.${field}`] ?? 0) + 1
               checked += 1
             }
           }
@@ -56,7 +66,10 @@ describe('schema fields on models', () => {
       for (const entity of ENTITIES) {
         for (const [field, spec] of Object.entries(SCHEMA[entity].fields)) {
           if (spec.optional === true) continue
-          expect(covered[`${entity}.${field}`] ?? 0, `${entity}.${field} never had a value`).toBeGreaterThan(0)
+          expect(
+            covered[`${entity}.${field}`] ?? 0,
+            `${entity}.${field} never had a value`,
+          ).toBeGreaterThan(0)
         }
       }
       expect(checked).toBeGreaterThan(1000)

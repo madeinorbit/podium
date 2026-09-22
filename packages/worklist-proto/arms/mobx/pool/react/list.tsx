@@ -15,7 +15,11 @@ import type { IssueModel } from '../models'
 import type { MobxPool } from '../pool'
 import { PoolRow } from './row'
 
-const PoolRowSlot = observer(function PoolRowSlot({ model }: { model: IssueModel }): ReactElement | null {
+const PoolRowSlot = observer(function PoolRowSlot({
+  model,
+}: {
+  model: IssueModel
+}): ReactElement | null {
   const view = model.view
   if (view === undefined) return null
   return <RowShell row={view} component={PoolRow} />

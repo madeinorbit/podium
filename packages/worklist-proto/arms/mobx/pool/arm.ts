@@ -11,7 +11,12 @@
 
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import type { CheckableArm, CheckableArmHandle, LocalsSource, RowSource } from '../../../shared/src/arm'
+import type {
+  CheckableArm,
+  CheckableArmHandle,
+  LocalsSource,
+  RowSource,
+} from '../../../shared/src/arm'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
 import { MobxPool } from './pool'
@@ -27,11 +32,19 @@ export interface MobxPoolHandle extends CheckableArmHandle {
 }
 
 export const mobxPoolArm = {
-  create(source: RowSource, locals: LocalsSource, reads: ReadFence = DISABLED_READ_FENCE): MobxPoolHandle {
+  create(
+    source: RowSource,
+    locals: LocalsSource,
+    reads: ReadFence = DISABLED_READ_FENCE,
+  ): MobxPoolHandle {
     const pool = new MobxPool(reads, locals.get())
     pool.apply({
       type: 'replace',
-      rows: [...source.snapshot('session'), ...source.snapshot('issue'), ...source.snapshot('worktree')],
+      rows: [
+        ...source.snapshot('session'),
+        ...source.snapshot('issue'),
+        ...source.snapshot('worktree'),
+      ],
     })
     const offRows = source.subscribe((event) => pool.apply(event))
     const offLocals = locals.subscribe((changed) => pool.applyLocals(locals.get(), changed))
@@ -51,7 +64,13 @@ export const mobxPoolArm = {
       mountWeb(el: Element): () => void {
         const root = createRoot(el)
         roots.add(root)
-        root.render(createElement(CommitLogContext.Provider, { value: currentCommitLog() }, createElement(PoolList, { pool })))
+        root.render(
+          createElement(
+            CommitLogContext.Provider,
+            { value: currentCommitLog() },
+            createElement(PoolList, { pool }),
+          ),
+        )
         return () => {
           if (!roots.delete(root)) return
           root.unmount()

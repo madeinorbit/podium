@@ -11,9 +11,9 @@ import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { tracked } from '../../arms/mobx/pool/pool'
+import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 import { mountNativeForCounts } from '../src/count-harness'
 import { openFenceFeeds } from '../src/fence-scenarios'
-import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 
 describe('mobx pool on the native renderer', () => {
   it('mounts every pool row; a heartbeat redraws none, a rename redraws the renamed row', async () => {

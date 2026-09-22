@@ -606,7 +606,8 @@ const thawedImportFence = {
         check(node, node.source.value)
       },
       ImportExpression(node) {
-        if (node.source.type === 'Literal' || node.source.type === 'StringLiteral') check(node, node.source.value)
+        if (node.source.type === 'Literal' || node.source.type === 'StringLiteral')
+          check(node, node.source.value)
       },
       CallExpression(node) {
         if (node.callee.type === 'Import' && node.arguments[0]) {
@@ -664,7 +665,10 @@ export function fenceConfig({ root, frozen, thawed = [] }) {
       ? []
       : [
           {
-            files: thawed.flatMap((folder) => [`${root}/${folder}/**/*.ts`, `${root}/${folder}/**/*.tsx`]),
+            files: thawed.flatMap((folder) => [
+              `${root}/${folder}/**/*.ts`,
+              `${root}/${folder}/**/*.tsx`,
+            ]),
             languageOptions,
             plugins: { fence: plugin },
             rules: { 'fence/thawed-import-fence': ['error', { thawed }] },

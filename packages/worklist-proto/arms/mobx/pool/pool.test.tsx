@@ -4,12 +4,18 @@
  * through a replay feed, with the reads fence on and the MobX warn trap armed.
  */
 
-import { _getGlobalState, autorun, getObserverTree, type IReactionDisposer, runInAction } from 'mobx'
+import {
+  _getGlobalState,
+  autorun,
+  getObserverTree,
+  type IReactionDisposer,
+  runInAction,
+} from 'mobx'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
-import { writeResult } from '../../../harness/src/results'
 import { buildCorpus } from '../../../harness/src/fixture/index'
+import { writeResult } from '../../../harness/src/results'
 import type { RowSource } from '../../../shared/src/arm'
 import { createReadFence, type ReadFence } from '../../../shared/src/instrument/reads'
 import { type SettableLocalsHandle, settableLocals } from '../../../shared/src/locals-source'
@@ -42,7 +48,11 @@ interface Rig {
 function rig(): Rig {
   const replay = createReplaySource({
     issues: corpus.sliceIssues.map((value) => ({ kind: 'issue', id: value.id, value })),
-    sessions: corpus.sliceSessions.map((value) => ({ kind: 'session', id: value.sessionId, value })),
+    sessions: corpus.sliceSessions.map((value) => ({
+      kind: 'session',
+      id: value.sessionId,
+      value,
+    })),
     worktrees: corpus.sliceWorktrees.map((value) => ({ kind: 'worktree', id: value.path, value })),
   })
   const locals = settableLocals({ selectedIssueId: null, coarseNow: corpus.fixedNow })
@@ -86,7 +96,10 @@ function rig(): Rig {
 }
 
 /** Observe every issue's view with one reaction each, like mounted rows do. */
-function observeAll(handle: MobxPoolHandle): { views: Map<string, RowView | undefined>; stop(): void } {
+function observeAll(handle: MobxPoolHandle): {
+  views: Map<string, RowView | undefined>
+  stop(): void
+} {
   const views = new Map<string, RowView | undefined>()
   const stops: IReactionDisposer[] = []
   const ids = tracked(() => handle.pool.issueIds)
@@ -97,7 +110,12 @@ function observeAll(handle: MobxPoolHandle): { views: Map<string, RowView | unde
       }),
     )
   }
-  return { views, stop: () => stops.forEach((stop) => stop()) }
+  return {
+    views,
+    stop: () => {
+      for (const stop of stops) stop()
+    },
+  }
 }
 
 function issueRecord(id: string, patch: Partial<SliceIssue> = {}): RowRecord {
@@ -133,7 +151,12 @@ describe('ingest', () => {
       const { pool } = r.handle
       const sizes = tracked(() => ENTITIES.map((entity) => pool.tables[entity].size))
       const repos = new Set(corpus.sliceWorktrees.map((lane) => lane.repoId).filter(Boolean))
-      expect(sizes).toEqual([corpus.sliceIssues.length, corpus.sliceSessions.length, corpus.sliceWorktrees.length, repos.size])
+      expect(sizes).toEqual([
+        corpus.sliceIssues.length,
+        corpus.sliceSessions.length,
+        corpus.sliceWorktrees.length,
+        repos.size,
+      ])
       expect(repos.size).toBeGreaterThan(0)
       for (const entity of ENTITIES) expect(pool.modelCount(entity), entity).toBe(0)
       expect(pool.stats.counters.modelsCreated).toBe(0)
@@ -153,7 +176,16 @@ describe('ingest', () => {
       const before = all.views.get(id)
       pool.stats.reset()
       // The feed re-sends the very object it holds (a heartbeat-shaped no-op).
-      r.push({ type: 'update', rows: [{ kind: 'issue', id, value: r.replay.source.snapshot('issue').find((row) => row.id === id)!.value }] })
+      r.push({
+        type: 'update',
+        rows: [
+          {
+            kind: 'issue',
+            id,
+            value: r.replay.source.snapshot('issue').find((row) => row.id === id)!.value,
+          },
+        ],
+      })
       expect(pool.stats.counters.tableWrites).toBe(0)
       expect(pool.stats.notifications).toBe(0)
       expect(pool.stats.rowsDerived).toBe(0)
@@ -177,7 +209,9 @@ describe('ingest', () => {
       expect(pool.stats.counters.tableWrites).toBe(1)
       expect(pool.stats.rowsDerived).toBe(1)
       expect(all.views.get(id)?.title).toBe('Renamed by the test')
-      const changed = [...all.views].filter(([key, view]) => before.get(key) !== view).map(([key]) => key)
+      const changed = [...all.views]
+        .filter(([key, view]) => before.get(key) !== view)
+        .map(([key]) => key)
       expect(changed).toEqual([id])
     } finally {
       all.stop()
@@ -208,7 +242,7 @@ describe('ingest', () => {
       expect(pool.stats.notifications).toBe(1)
       const heldAfter = runInAction(() => keep.map((row) => pool.tables.issue.get(row.id)))
       expect(heldAfter).toEqual(heldBefore)
-      heldAfter.forEach((row, i) => expect(row).toBe(heldBefore[i]))
+      for (const [i, row] of heldAfter.entries()) expect(row).toBe(heldBefore[i])
       const removed = corpus.sliceIssues.length - 6 + corpus.sliceSessions.length - 3
       expect(pool.stats.counters.rowsRemoved).toBe(removed)
       // Every write was a removal or the one renamed row: the kept rows and
@@ -235,7 +269,11 @@ describe('ingest', () => {
       expect(pool.stats.counters.rowsRemoved).toBe(1)
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Back again' })] })
       watch()
-      expect(titles).toEqual([corpus.sliceIssues.find((issue) => issue.id === id)!.title, undefined, 'Back again'])
+      expect(titles).toEqual([
+        corpus.sliceIssues.find((issue) => issue.id === id)!.title,
+        undefined,
+        'Back again',
+      ])
     } finally {
       r.dispose()
     }
@@ -246,7 +284,8 @@ describe('ingest', () => {
     try {
       const { pool } = r.handle
       const byRepo = new Map<string, string[]>()
-      for (const lane of corpus.sliceWorktrees) if (lane.repoId) byRepo.set(lane.repoId, [...(byRepo.get(lane.repoId) ?? []), lane.path])
+      for (const lane of corpus.sliceWorktrees)
+        if (lane.repoId) byRepo.set(lane.repoId, [...(byRepo.get(lane.repoId) ?? []), lane.path])
       const [repoId, paths] = [...byRepo].find(([, list]) => list.length === 1)!
       const prefix = tracked(() => pool.model('repo', repoId)?.prefix)
       expect(prefix).toBe(corpus.sliceWorktrees.find((lane) => lane.repoId === repoId)!.prefix)
@@ -307,7 +346,11 @@ describe('locals', () => {
       writeResult('mobx-pool-tick-1x', {
         issues: corpus.sliceIssues.length,
         deadlinesWaitedOn: waiting,
-        graceTick: { rowsDerived: pool.stats.rowsDerived, viewsChanged: changed, crossings: pool.clock.crossings - crossings },
+        graceTick: {
+          rowsDerived: pool.stats.rowsDerived,
+          viewsChanged: changed,
+          crossings: pool.clock.crossings - crossings,
+        },
       })
     } finally {
       all.stop()
@@ -327,7 +370,9 @@ describe('dispose', () => {
     const { pool } = r.handle
     expect(el.querySelectorAll('[data-issue-row]').length).toBe(corpus.sliceIssues.length)
     const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
-    expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(corpus.sliceIssues.length / 2)
+    expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(
+      corpus.sliceIssues.length / 2,
+    )
     const models = tracked(() => pool.issueIds.map((id) => pool.issue(id)!))
     r.locals.set({ selectedIssueId: models[0]!.id })
     r.locals.flush()

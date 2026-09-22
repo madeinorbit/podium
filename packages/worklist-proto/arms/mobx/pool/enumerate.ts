@@ -31,7 +31,10 @@ import {
 } from './tables'
 
 /** Every issue id in the pool; tracked on membership, counted per id. */
-export function issueIdsOf(pool: { readonly tables: PoolTables; readonly reads: ReadFence }): string[] {
+export function issueIdsOf(pool: {
+  readonly tables: PoolTables
+  readonly reads: ReadFence
+}): string[] {
   const ids: string[] = []
   for (const id of pool.tables.issue.keys()) {
     pool.reads.touch('issue', id, 'iterate')

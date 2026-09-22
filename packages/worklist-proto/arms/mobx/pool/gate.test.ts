@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { openFenceFeeds, engineLocals } from '../../../harness/src/fence-scenarios'
+import { engineLocals, openFenceFeeds } from '../../../harness/src/fence-scenarios'
 import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
@@ -31,7 +31,10 @@ import { tracked } from './pool'
 installMobxWarnTrap()
 
 /** Three seeds by default (~3 min); `POD_POOL_GATE_SEEDS=<n>` runs seeds 1..n. */
-const SEEDS = Array.from({ length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) }, (_, i) => i + 1)
+const SEEDS = Array.from(
+  { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
+  (_, i) => i + 1,
+)
 const STEPS = 200
 
 /** The planted mistake: removals never reach the pool. */
@@ -39,7 +42,9 @@ function deafToRemovals(source: RowSource): RowSource {
   return {
     snapshot: (kind) => source.snapshot(kind),
     subscribe: (listener) =>
-      source.subscribe((event) => listener({ ...event, rows: event.rows.filter((row) => row.value !== undefined) })),
+      source.subscribe((event) =>
+        listener({ ...event, rows: event.rows.filter((row) => row.value !== undefined) }),
+      ),
   }
 }
 
@@ -62,7 +67,14 @@ describe('correctness gate (L4b), rebuild-only', () => {
       }
       const plant = await checkArm(planted, sequence, { oracleEvery: 0, shrink: false })
       if (!plant.ok) plantedFailures += 1
-      cells.push({ seed, steps: STEPS, counts: result.counts, kinds: countKinds(sequence), plantFailed: !plant.ok, plantStep: plant.ok ? null : plant.step })
+      cells.push({
+        seed,
+        steps: STEPS,
+        counts: result.counts,
+        kinds: countKinds(sequence),
+        plantFailed: !plant.ok,
+        plantStep: plant.ok ? null : plant.step,
+      })
     }
     writeResult('mobx-pool-gate-1x', { seeds: SEEDS, cells })
     expect(plantedFailures).toBe(SEEDS.length)
@@ -78,8 +90,21 @@ describe('own-row fields against the oracle', () => {
       const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
       const ids = Object.keys(expected)
       expect(ids.length).toBeGreaterThan(100)
-      const actual = tracked(() => Object.fromEntries(ids.map((id) => [id, handle.pool.issue(id)?.view])))
-      const same: (keyof RowView)[] = ['id', 'displayRef', 'band', 'repoKey', 'selected', 'pinned', 'sortKey', 'createdAt', 'seq', 'foldAt']
+      const actual = tracked(() =>
+        Object.fromEntries(ids.map((id) => [id, handle.pool.issue(id)?.view])),
+      )
+      const same: (keyof RowView)[] = [
+        'id',
+        'displayRef',
+        'band',
+        'repoKey',
+        'selected',
+        'pinned',
+        'sortKey',
+        'createdAt',
+        'seq',
+        'foldAt',
+      ]
       let closedByOracle = 0
       for (const id of ids) {
         const want = expected[id]!
