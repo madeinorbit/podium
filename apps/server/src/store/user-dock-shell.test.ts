@@ -36,6 +36,8 @@ describe('UserDockShellRepository', () => {
     // Other user and other worktree are isolated.
     expect(await shells.get(BOB, '/repo/.worktrees/a')).toBeUndefined()
     expect(await shells.get(ALICE, '/repo/.worktrees/b')).toBeUndefined()
+    await shells.remove(ALICE, '/repo/.worktrees/a')
+    expect(await shells.get(ALICE, '/repo/.worktrees/a')).toBeUndefined()
   })
 
   it('normalizes trailing slashes to one row', async () => {
