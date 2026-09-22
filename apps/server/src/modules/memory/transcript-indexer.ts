@@ -1,7 +1,5 @@
-import { open } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
-import { machineScopedKey, type MachineId } from '@podium/model'
-import type { TranscriptRecordMapper } from '@podium/harness/store'
+import { machineScopedKey, type MachineId, type TranscriptItem } from '@podium/model'
 import type { TranscriptMirrorRepository } from '../../store/conversations/mirror'
 import type { TranscriptIndexRepository } from '../../store/conversations/transcript-index'
 
@@ -25,15 +23,18 @@ export interface TranscriptIndexerOptions {
 /**
  * Transcript FTS indexer (docs/spec/search-v1.md §2.3): consumes MirrorService's
  *  `onBytes`/`onTruncate` hooks and turns newly-mirrored lake bytes into
- *  `transcript_fts` rows. Reads windows of `indexed_bytes..mirrored_bytes`, splits
- *  COMPLETE lines only (a partial trailing line waits for the next chunk — the
- *  cursor is a byte offset, so nothing is lost), parses each line with the
- *  segment's own harness grammar (the Store's record→items conversion, supplied
- *  as the `parseFor` port) and indexes the plain text of user/assistant
- *  messages. The indexer never touches a harness's native records directly:
- *  unparseable lines are skipped but consumed, and tool calls/results, system
- *  lines and meta records carry no searchable prose. Live indexing
- *  rides the mirror's own pacing: one hook call per (already-paced) chunk.
+ *  `transcript_fts` rows. Reads windows of `indexed_bytes..mirrored_bytes`,
+ *  splits COMPLETE lines only (a partial trailing line waits for the next chunk —
+ *  the cursor is a byte offset, so nothing is lost), turns each window into
+ *  cursor-stamped items through the Store's range reader (the `readItems` port,
+ *  supplied by the lake that owns the chain) and indexes the plain text of
+ *  user/assistant messages. The indexer never touches a harness's native records
+ *  directly: unparseable lines are skipped but consumed inside the Store read,
+ *  and tool calls/results, system lines and meta records carry no searchable
+ *  prose. Live indexing rides the mirror's own pacing: one hook call per
+ *  (already-paced) chunk. Because items arrive with the Store's stamp, an indexed
+ *  `itemUuid` is the same id the lake and live reads return for that item
+ *  (spec §5 identity invariant).
  *
  * Backfill: segments fully mirrored BEFORE the indexer existed never get an
  * `onBytes` hook, so `backfillMachine` sweeps every segment whose lake copy is
@@ -51,7 +52,7 @@ export class TranscriptIndexer {
    *  mirror's inter-chunk delay, and for the same reason (watchdog compat). */
   static readonly CHUNK_DELAY_MS = 25
   /** Per backfill pass per machine. Local file reads are far cheaper than the
-   *  mirror's wire pulls, but each window also pays JSON.parse + FTS inserts on
+   *  mirror's wire pulls, but each window also pays Store decode + FTS inserts on
    *  the loop, so the budget matches the mirror's (16 MB / pass). */
   static readonly PASS_BUDGET_BYTES = 16 * 1024 * 1024
   /** Bytes read + parsed per window. */
@@ -59,7 +60,7 @@ export class TranscriptIndexer {
 
   /** Segment keys with an index run in flight — a second onBytes marks a rerun
    *  instead of interleaving reads over the same cursor. */
-  private readonly running = new Map<string, { rerun: boolean; lakePath: string }>()
+  private readonly running = new Map<string, { rerun: boolean }>()
   /** Machines with a backfill sweep in flight (single-flight per machine). */
   private readonly backfilling = new Set<string>()
   /** Per-segment `${mirrored}:${indexed}` pair at the end of the last backfill
@@ -86,13 +87,22 @@ export class TranscriptIndexer {
       mirror: TranscriptMirrorRepository
       index: TranscriptIndexRepository
       /**
-       * The segment's harness grammar parse function (POD-4471): the Store's
-       * record→items conversion for the harness that wrote these lake bytes.
-       * Undefined when the segment's harness is unknown (no live session yet,
-       * SQLite-backed, or an unrecognized kind) — the window is skipped rather
-       * than parsed with another harness's conventions.
+       * Stamped items for the mirrored byte range `[from, to)` of this segment
+       * (this issue): the Store's range read over the lake bytes with the
+       * segment's own harness grammar, supplied by the lake that owns the chain
+       * — a narrow typed SUBSET (spec §4.1), never the grammar itself.
+       * Undefined when the segment has no file-chain grammar (unknown harness,
+       * SQLite-backed) — the window is skipped rather than parsed with another
+       * harness's conventions or faked. `consumed` is the complete-lines prefix
+       * length; a partial trailing line waits for the next chunk.
        */
-      parseFor(machineId: MachineId, nativeId: string): Promise<TranscriptRecordMapper | undefined>
+      readItems(
+        machineId: MachineId,
+        nativeId: string,
+        from: number,
+        to: number,
+        windowBytes: number,
+      ): Promise<{ items: TranscriptItem[]; consumed: number } | undefined>
     },
     options: TranscriptIndexerOptions = {},
   ) {
@@ -101,17 +111,18 @@ export class TranscriptIndexer {
     this.windowBytes = options.windowBytes ?? TranscriptIndexer.WINDOW_BYTES
   }
 
-  /** Mirror hook: new bytes landed in the lake for this segment. */
-  async onBytes(machineId: MachineId, nativeId: string, lakePath: string): Promise<void> {
+  /** Mirror hook: new bytes landed in the lake for this segment. The lake path
+   *  rides the hook signature (the mirror's contract) but the bytes are read
+   *  through the `readItems` port — the indexer never opens the lake file itself. */
+  async onBytes(machineId: MachineId, nativeId: string, _lakePath: string): Promise<void> {
     if (this.stopped) return
     const key = machineScopedKey(machineId, nativeId)
     const active = this.running.get(key)
     if (active) {
       active.rerun = true
-      active.lakePath = lakePath
       return
     }
-    this.running.set(key, { rerun: false, lakePath })
+    this.running.set(key, { rerun: false })
     void await this.run(key, machineId, nativeId)
   }
   /** Mirror hook: the lake copy was truncated for a re-mirror — the indexed
@@ -138,7 +149,7 @@ export class TranscriptIndexer {
    * whatever a budget-stopped earlier pass left behind. Cheap no-op when nothing
    * is behind; single-flight per machine.
    */
-  async backfillMachine(machineId: MachineId, lakePathFor: (nativeId: string) => string): Promise<void> {
+  async backfillMachine(machineId: MachineId): Promise<void> {
     if (this.stopped) return
     if (this.backfilling.has(machineId)) return
     // Unavailable for either of two reasons: this SQLite build has no FTS5, or
@@ -162,15 +173,10 @@ export class TranscriptIndexer {
     void await this.backfill(
       machineId,
       behind.map((s) => s.nativeId),
-      lakePathFor,
     )
   }
 
-  private async backfill(
-    machineId: MachineId,
-    nativeIds: string[],
-    lakePathFor: (nativeId: string) => string,
-  ): Promise<void> {
+  private async backfill(machineId: MachineId, nativeIds: string[]): Promise<void> {
     try {
       // Per-pass byte budget (mirror incident amendment): one sweep consumes at
       // most this many lake bytes, then stops. indexed_bytes persists per window,
@@ -183,7 +189,7 @@ export class TranscriptIndexer {
         // A live onBytes run is already catching this segment up — skip it here.
         if (this.running.has(key)) continue
         const indexedBefore = await this.deps.index.indexedCursor(machineId, nativeId)
-        this.running.set(key, { rerun: false, lakePath: lakePathFor(nativeId) })
+        this.running.set(key, { rerun: false })
         await this.run(key, machineId, nativeId, pass)
         // Unchanged-gap bookkeeping: a ZERO-progress attempt proves the remaining
         // gap is undrainable as-is (partial trailing line / read error) — record
@@ -224,16 +230,15 @@ export class TranscriptIndexer {
   }
 
   /** Drive one segment to caught-up (or budget exhaustion), one bounded window
-   *  per iteration with a breather in between. Owns the `running` entry. The
-   *  grammar is resolved once per run — not per window — so a segment whose
-   *  harness is unknown skips the whole pass without a lookup per window. */
+   *  per iteration with a breather in between. Owns the `running` entry. A
+   *  segment whose harness is unknown (or SQLite-backed) skips the whole pass:
+   *  every window resolves to undefined without consuming. */
   private async run(
     key: string,
     machineId: MachineId,
     nativeId: string,
     pass?: { remainingBytes: number },
   ): Promise<void> {
-    const parse = await this.deps.parseFor(machineId, nativeId).catch(() => undefined)
     try {
       for (;;) {
         if (this.stopped) return
@@ -242,13 +247,7 @@ export class TranscriptIndexer {
         state.rerun = false
         let consumed = 0
         try {
-          consumed = await this.indexWindow(
-            machineId,
-            nativeId,
-            state.lakePath,
-            pass !== undefined,
-            parse,
-          )
+          consumed = await this.indexWindow(machineId, nativeId, pass !== undefined)
         } catch (err) {
           // Disposed mid-window: the store is closing or closed, so the failure
           // is an artifact of the shutdown rather than news. Reporting it is the
@@ -275,58 +274,47 @@ export class TranscriptIndexer {
   }
 
   /** Index one bounded window from the segment's cursor; returns the bytes
-   *  consumed (0 = caught up, unparseable as this harness, or only a partial
+   *  consumed (0 = caught up, unindexable as this harness, or only a partial
    *  trailing line remains). */
   private async indexWindow(
     machineId: MachineId,
     nativeId: string,
-    lakePath: string,
     pruneMissingLake: boolean,
-    parse: TranscriptRecordMapper | undefined,
   ): Promise<number> {
     if (!this.deps.index.isAvailable) return 0
-    if (!parse) return 0
     const from = await this.deps.index.indexedCursor(machineId, nativeId)
     const to = await this.deps.mirror.mirrorCursor(machineId, nativeId)
     if (to <= from) return 0
-    let win = this.windowBytes
-    let buf: Buffer
-    let lastNl: number
-    for (;;) {
-      try {
-        buf = await readRange(lakePath, from, Math.min(to, from + win))
-      } catch (err) {
-        // Backfill consumes durable cursor state, and that state can outlive the
-        // canonical lake file (for example after a lake-dir cleanup). ENOENT is
-        // therefore reconciliation, not one warning per orphan on every boot.
-        // Reset only if neither cursor moved while open() was failing; preserving
-        // reported_bytes makes the mirror dirty so it can re-pull from byte zero.
-        if (pruneMissingLake && isEnoent(err)) {
-          await this.deps.index.resetMissingLake(machineId, nativeId, {
-            mirroredBytes: to,
-            indexedBytes: from,
-          })
-          return 0
-        }
-        throw err
+    let result: { items: TranscriptItem[]; consumed: number } | undefined
+    try {
+      result = await this.deps.readItems(machineId, nativeId, from, to, this.windowBytes)
+    } catch (err) {
+      // Backfill consumes durable cursor state, and that state can outlive the
+      // canonical lake file (for example after a lake-dir cleanup). ENOENT is
+      // therefore reconciliation, not one warning per orphan on every boot.
+      // Reset only if neither cursor moved while the Store read was failing;
+      // preserving reported_bytes makes the mirror dirty so it can re-pull
+      // from byte zero.
+      if (pruneMissingLake && isEnoent(err)) {
+        await this.deps.index.resetMissingLake(machineId, nativeId, {
+          mirroredBytes: to,
+          indexedBytes: from,
+        })
+        return 0
       }
-      // Complete lines only: everything past the last newline is a partial record
-      // still being mirrored — it stays unindexed until a later chunk completes it.
-      lastNl = buf.lastIndexOf(0x0a)
-      if (lastNl >= 0 || from + win >= to) break
-      win *= 2 // a single record wider than the window — widen until its newline shows
+      throw err
     }
-    if (lastNl < 0) return 0
+    if (!result || result.consumed <= 0) return 0
     // The read above is async; a dispose during it means the append below would
     // hit a closed handle.
     if (this.stopped) return 0
-    const rows = extractMessageRows(buf.subarray(0, lastNl + 1), parse)
+    const rows = toMessageRows(result.items)
     // Optimistic-concurrency check: an onTruncate during the (async) read above
     // reset the cursor — these rows were computed from dead content, drop them.
     // No await between this check and the append, so the check can't go stale.
     if (await this.deps.index.indexedCursor(machineId, nativeId) !== from) return 0
-    await this.deps.index.append(machineId, nativeId, rows, from + lastNl + 1)
-    return lastNl + 1
+    await this.deps.index.append(machineId, nativeId, rows, from + result.consumed)
+    return result.consumed
   }
 
   /** Unref'd sleep — pacing must never hold the process open at shutdown. */
@@ -338,52 +326,29 @@ export class TranscriptIndexer {
   }
 }
 
-/** Read the byte window `[from, to)` of a file. */
-async function readRange(path: string, from: number, to: number): Promise<Buffer> {
-  const handle = await open(path, 'r')
-  try {
-    const b = Buffer.alloc(to - from)
-    const { bytesRead } = await handle.read(b, 0, b.length, from)
-    return b.subarray(0, bytesRead)
-  } finally {
-    await handle.close()
-  }
-}
-
 function isEnoent(err: unknown): boolean {
   return (err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT'
 }
 
-/** Plain-text FTS rows for the user/assistant messages in a complete-lines buffer.
- *  Applies the segment harness's Store grammar (record→items) to each line,
- *  then keeps only conversational text: tool calls/results, system lines and
- *  meta records carry no searchable prose. Unparseable lines are skipped but
- *  still consumed — the byte cursor advances past them exactly once. */
-function extractMessageRows(
-  buf: Buffer,
-  parse: TranscriptRecordMapper,
+/** Plain-text FTS rows for the user/assistant messages among stamped Store items.
+ *  Tool calls/results, system lines and meta records carry no searchable prose.
+ *  Items arrive with the Store's identity stamp — the same ids the lake and live
+ *  reads return — and unparseable lines were already skipped but consumed inside
+ *  the Store's range read, so the byte cursor advances past them exactly once. */
+function toMessageRows(
+  items: TranscriptItem[],
 ): { content: string; itemUuid?: string; ts?: string }[] {
   const rows: { content: string; itemUuid?: string; ts?: string }[] = []
-  for (const line of buf.toString('utf8').split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    let record: unknown
-    try {
-      record = JSON.parse(trimmed)
-    } catch {
-      continue
-    }
-    for (const item of parse(record)) {
-      if (item.role !== 'user' && item.role !== 'assistant') continue
-      if (item.toolName !== undefined) continue // a tool call, not prose
-      const content = item.text.trim()
-      if (!content) continue
-      rows.push({
-        content,
-        itemUuid: item.id,
-        ...(item.ts !== undefined ? { ts: item.ts } : {}),
-      })
-    }
+  for (const item of items) {
+    if (item.role !== 'user' && item.role !== 'assistant') continue
+    if (item.toolName !== undefined) continue // a tool call, not prose
+    const content = item.text.trim()
+    if (!content) continue
+    rows.push({
+      content,
+      itemUuid: item.id,
+      ...(item.ts !== undefined ? { ts: item.ts } : {}),
+    })
   }
   return rows
 }

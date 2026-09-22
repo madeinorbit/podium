@@ -37,12 +37,14 @@ export type {
 } from './store/runtime.js'
 export {
   readFileItems,
+  readIndexWindow,
   readTranscriptSlice,
   readTranscriptSliceCached,
   resetSliceCache,
   sliceCacheStats,
 } from './store/slice.js'
 export type {
+  IndexWindowResult,
   SliceOptions,
   SliceResult,
 } from './store/slice.js'
