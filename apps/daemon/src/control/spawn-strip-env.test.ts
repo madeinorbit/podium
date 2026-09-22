@@ -72,6 +72,17 @@ function contextForSpawn(): DaemonContext {
     instanceId: 'default',
     backend: 'none',
     durable: stubDurable(fakeSpawn),
+    // Admits an agent spawn (every profiled kind needs a runtime to bind it).
+    // The runtime's terminal create runs the daemon's launch with no
+    // instrumentation — these tests read what reaches the pty layer, nothing after.
+    agentRuntime: {
+      createTerminal: async (
+        _id: string,
+        _spec: unknown,
+        _profile: unknown,
+        launch: (i: { args: string[]; env: Record<string, string> }) => Promise<void>,
+      ) => launch({ args: [], env: {} }),
+    },
     machineId: 'strip-env-test-machine',
     settingsDir,
     launch: (_kind: string, opts: { cwd: string }) => ({
