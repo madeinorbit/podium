@@ -79,7 +79,8 @@
 
 import type { EntityRecord } from '@podium/sync/replica'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type CoarseClock, createClientRuntime } from '@podium/client-core/engine'
+import { type CoarseClock, createClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
+import type { OnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   createKernelReplica,
@@ -90,6 +91,7 @@ import {
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
 import { asIssueId, asUserId } from '@podium/model'
+import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
 import { createRowSource } from './row-source'
 import type { RowSourceEvent } from './stats'
@@ -172,6 +174,11 @@ export function seedCacheFromCorpus(corpus: FixtureCorpus): ScenarioCache {
 
 class FakeHub {
   private handlers = new Map<string, Set<(...a: unknown[]) => void>>()
+  /** A server push, delivered to whatever the runtime subscribed (POD-4555:
+   *  `worktreesChanged` drives the runtime's own discovery refresh). */
+  emit(kind: string, ...args: unknown[]): void {
+    for (const cb of this.handlers.get(kind) ?? []) cb(...args)
+  }
   on(kind: string, cb: (...a: unknown[]) => void): () => void {
     let set = this.handlers.get(kind)
     if (!set) {
@@ -206,8 +213,23 @@ function fakeRouterWindow(): RouterWindow {
   } as unknown as RouterWindow
 }
 
+/**
+ * POD-4555 — the server's answers to the slice's write commands. Each gets
+ * the exact tRPC input the kernel outbox sent (patch plus `mutationId`), so a
+ * scripted server can hold the call, answer it later, refuse it, or fail it
+ * transiently. Absent: applied at once (mark-read still honours
+ * `rejectNextMarkRead`).
+ */
+export interface ScenarioServer {
+  issueUpdate?: (input: { id: string; patch: Record<string, unknown>; mutationId: string }) => Promise<unknown>
+  issueMarkRead?: (input: { id: string; mutationId: string }) => Promise<unknown>
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: scenario API stub — shaped per-test like engine runtime.test.ts
-function scenarioApi(repos: unknown[], opts: { rejectMarkRead?: () => boolean } = {}): any {
+function scenarioApi(
+  discovery: { repos: unknown[] },
+  opts: { rejectMarkRead?: () => boolean; server?: ScenarioServer } = {},
+): any {
   return {
     sync: {
       changesSince: {
@@ -223,7 +245,7 @@ function scenarioApi(repos: unknown[], opts: { rejectMarkRead?: () => boolean } 
     },
     discovery: {
       refreshRepos: {
-        mutate: async () => ({ repositories: repos, diagnostics: [], machines: [] }),
+        mutate: async () => ({ repositories: discovery.repos, diagnostics: [], machines: [] }),
       },
     },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
@@ -236,8 +258,13 @@ function scenarioApi(repos: unknown[], opts: { rejectMarkRead?: () => boolean } 
     superagent: { listThreads: { query: async () => [] } },
     sessions: { markRead: { mutate: async () => ({}) } },
     issues: {
+      update: {
+        mutate: async (input: Parameters<NonNullable<ScenarioServer['issueUpdate']>>[0]) =>
+          opts.server?.issueUpdate ? opts.server.issueUpdate(input) : {},
+      },
       markRead: {
-        mutate: async () => {
+        mutate: async (input: Parameters<NonNullable<ScenarioServer['issueMarkRead']>>[0]) => {
+          if (opts.server?.issueMarkRead) return opts.server.issueMarkRead(input)
           if (opts.rejectMarkRead?.()) {
             throw Object.assign(new Error('scenario rejection'), {
               data: { code: 'BAD_REQUEST', httpStatus: 400 },
@@ -461,9 +488,23 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
 // ------------------------------------------------------------------ engine
 
 export interface ScenarioEngine {
+  /** Replaced by {@link ScenarioEngine.reload}. */
   engine: ReturnType<typeof createClientRuntime>
+  /** Replaced by {@link ScenarioEngine.reload} (a fresh facade over `cache`). */
   replica: ReturnType<typeof createKernelReplica>
   cache: ScenarioCache
+  /** The socket hub the current runtime subscribed; `emit` is a server push. */
+  hub: { emit(kind: string, ...args: unknown[]): void }
+  /** What `discovery.refreshRepos` answers. Replace `repos` to move worktrees,
+   *  then push `worktreesChanged` through `hub`. */
+  discovery: { repos: unknown[] }
+  /**
+   * POD-4555 — a tab reload: destroy the runtime and boot a new one over a
+   * fresh replica facade on the SAME durable cache and the SAME outbox store,
+   * so queued and awaiting writes replay under their mutation ids. Callers
+   * holding the old `engine`/`replica` (a row source) must re-bind.
+   */
+  reload: () => Promise<void>
   corpus: FixtureCorpus
   targets: ScenarioTargets
   rejectNextMarkRead: () => void
@@ -481,6 +522,18 @@ export interface EngineOptions {
   /** Build the runtime without starting it or installing the corpus
    *  (`coldBootstrap` primes its source first). */
   start?: boolean
+  /** POD-4555: the server's answers to the slice's write commands. */
+  server?: ScenarioServer
+  /**
+   * POD-4555: which queue carries writes. `'kernel'` is the production web
+   * queue (`openKernelEngineOutbox` over an in-memory store, stamped by the
+   * corpus clock): per-issue partitions, the mark-read collapse (supersede),
+   * durable across {@link ScenarioEngine.reload}. Default `'legacy'`, the
+   * compatibility queue the round-two counts ran on.
+   */
+  outbox?: 'legacy' | 'kernel'
+  /** POD-4555: the outbox's connectivity. Default: the platform probes. */
+  network?: { isOnline: () => boolean; onlineEvents: OnlineEvents }
 }
 
 const settle = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -495,37 +548,81 @@ export async function startEngineOnCorpus(
   opts: EngineOptions = {},
 ): Promise<ScenarioEngine> {
   const cache = seedCacheFromCorpus(corpus)
-  const replica = createKernelReplica({
-    cache,
-    side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
-  })
+  const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
+  const newReplica = () => createKernelReplica({ cache, side })
   let rejectArmed = false
-  const api = scenarioApi(corpus.repos, {
+  const discovery = { repos: corpus.repos as unknown[] }
+  const api = scenarioApi(discovery, {
     rejectMarkRead: () => {
       if (!rejectArmed) return false
       rejectArmed = false
       return true
     },
+    ...(opts.server ? { server: opts.server } : {}),
   })
   const clock = manualClock(corpus.fixedNow)
-  const engine = createClientRuntime({
-    principal: asClientPrincipal(asUserId(opts.principal ?? 'operator')),
-    config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
-    api: api as PodiumClientApi,
-    onFatalError: (message) => {
-      throw new Error(message)
-    },
-    createReplicaFn: () => replica,
-    routerWindow: fakeRouterWindow(),
-    createHub: () => new FakeHub() as unknown as SocketHub,
-    coarseClock: clock,
-  })
+  const principal = opts.principal ?? 'operator'
+  const outboxStore = opts.outbox === 'kernel' ? new InMemoryOutboxStore() : null
+  const boot = async (replica: ReturnType<typeof createKernelReplica>) => {
+    const hub = new FakeHub()
+    const createOutboxFn = outboxStore
+      ? await openKernelEngineOutbox({
+          store: outboxStore,
+          principal,
+          api: api as PodiumClientApi,
+          now: clock.now,
+          onDegraded: (detail) => {
+            throw new Error(`[scenarios] kernel outbox degraded: ${String(detail)}`)
+          },
+        })
+      : undefined
+    const engine = createClientRuntime({
+      principal: asClientPrincipal(asUserId(principal)),
+      config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
+      api: api as PodiumClientApi,
+      onFatalError: (message) => {
+        throw new Error(message)
+      },
+      createReplicaFn: () => replica,
+      routerWindow: fakeRouterWindow(),
+      createHub: () => hub as unknown as SocketHub,
+      coarseClock: clock,
+      ...(createOutboxFn ? { createOutboxFn } : {}),
+      ...(opts.network ? { isOnline: opts.network.isOnline, onlineEvents: opts.network.onlineEvents } : {}),
+    })
+    return { engine, hub }
+  }
+  const install = async (ctx: ScenarioEngine): Promise<void> => {
+    ctx.engine.start()
+    await settle(ctx.settleMs)
+    ctx.replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'cold-start',
+      snapshotSeq: 1,
+      entityCount: cache.records.length,
+      bufferedFramesApplied: 0,
+    } as never)
+    await settle(ctx.settleMs)
+  }
+  const replica = newReplica()
+  const first = await boot(replica)
   let stamps = 0
   const settleMs = opts.settleMs ?? (corpus.issues.length > 1000 ? 600 : 60)
   const ctx: ScenarioEngine = {
-    engine,
+    engine: first.engine,
     replica,
     cache,
+    hub: first.hub,
+    discovery,
+    reload: async () => {
+      ctx.engine.destroy()
+      const fresh = newReplica()
+      const next = await boot(fresh)
+      ctx.engine = next.engine
+      ctx.replica = fresh
+      ctx.hub = next.hub
+      await install(ctx)
+    },
     corpus,
     targets: pickTargets(corpus),
     rejectNextMarkRead: () => {
@@ -539,16 +636,7 @@ export async function startEngineOnCorpus(
     settleMs,
   }
   if (opts.start === false) return ctx
-  engine.start()
-  await settle(settleMs)
-  replica.onKernelEvent({
-    type: 'bootstrap-installed',
-    cause: 'cold-start',
-    snapshotSeq: 1,
-    entityCount: cache.records.length,
-    bufferedFramesApplied: 0,
-  } as never)
-  await settle(settleMs)
+  await install(ctx)
   return ctx
 }
 
@@ -679,18 +767,35 @@ async function settled(ctx: ScenarioEngine): Promise<void> {
   await settle(ctx.settleMs)
 }
 
-function upsert(ctx: ScenarioEngine, entity: string, entityId: string, value: unknown, seq = 2): void {
+/** A kernel upsert through the replica facade: the cache takes the row, then
+ *  the facade hears `upserted` (exported for the change generator, POD-4555;
+ *  `readmitted` marks a row returning after an evict). */
+export function upsert(
+  ctx: ScenarioEngine,
+  entity: string,
+  entityId: string,
+  value: unknown,
+  seq = 2,
+  readmitted = false,
+): void {
   ctx.cache.put(entity, entityId, value)
   ctx.replica.onKernelEvent({
     type: 'upserted',
     record: { entity, entityId, value, provenance: { seq } },
-    readmitted: false,
+    readmitted,
   } as never)
 }
 
-function evict(ctx: ScenarioEngine, entity: string, entityId: string): void {
+/** The authority's snapshot omitted the row: `evicted`, not `removed`. */
+export function evict(ctx: ScenarioEngine, entity: string, entityId: string): void {
   ctx.cache.drop(entity, entityId)
   ctx.replica.onKernelEvent({ type: 'evicted', entity, entityId } as never)
+}
+
+/** A real deletion (POD-4555): the kernel event is `removed`. */
+export function remove(ctx: ScenarioEngine, entity: string, entityId: string): void {
+  ctx.cache.drop(entity, entityId)
+  ctx.replica.onKernelEvent({ type: 'removed', entity, entityId } as never)
 }
 
 function patchSession(ctx: ScenarioEngine, sessionId: string, patch: Record<string, unknown>): void {
