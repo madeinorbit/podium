@@ -219,3 +219,55 @@ export function legacyDerivationFromStore(store: Store<PodiumClientApi>): Legacy
   const slice = worklistSlice.derive(store)
   return { slice, models, sessions: store.sessions, allWorktreePaths: slice.allWorktreePaths }
 }
+
+/**
+ * POD-4556 (L4b) — the parity oracle over a live store, derived AND projected
+ * with the store's own clock. `snapshotFromStore` derives with
+ * `store.coarseNow` but projects (band, closed fold, grouping, order) with
+ * `locals.coarseNow`; a caller whose locals lag the engine gets a snapshot
+ * from two clocks. This one cannot. Unselected baseline (spec §7).
+ */
+export function oracleSnapshot(store: Store<PodiumClientApi>): SliceSnapshot {
+  return snapshotFromStore(store, { selectedIssueId: null, coarseNow: store.coarseNow })
+}
+
+/** The store fields the derivation reads as whole collections. */
+const STORE_COLLECTIONS = new Set(['issues', 'issueProjections', 'repos', 'machines', 'sessions', 'pins'])
+
+/**
+ * POD-4556 (L4b) — {@link snapshotFromStore} with every legacy memo bypassed:
+ * the same derivation and projection over COPIES of the store's collections and a fresh stub
+ * replica holding copies of the live replica's rows. The per-replica issue
+ * view-model cache (`issue-view-cache.ts`, reused row by row since POD-1053)
+ * therefore starts empty, and no cache keyed on a collection's identity can
+ * hit. Row objects are shared: they are server truth, not derived state. This
+ * is the legacy control's `rebuildFromScratch`.
+ */
+export function rebuiltSnapshotFromStore(store: Store<PodiumClientApi>, locals: SliceLocals): SliceSnapshot {
+  const live = store.replica
+  const liveRows = (kind: string): readonly unknown[] | undefined =>
+    (live?.rows as ((k: string) => readonly unknown[] | undefined) | undefined)?.call(live, kind)
+  const rowCopies = new Map<string, unknown[]>()
+  const replica = {
+    rows: (kind: string) => rowCopies.get(kind) ?? rowCopies.set(kind, [...(liveRows(kind) ?? [])]).get(kind),
+    subscribeRows: () => () => {},
+    batch: <T>(fn: () => T): T => fn(),
+    persistent: true,
+  } as unknown as Replica
+  // One copy per collection, so two reads inside the derivation agree.
+  const copies = new Map<string, unknown[]>()
+  const fresh = new Proxy(store, {
+    get(target, key, receiver) {
+      if (key === 'replica') return replica
+      const value: unknown = Reflect.get(target, key, receiver)
+      if (typeof key !== 'string' || !STORE_COLLECTIONS.has(key) || !Array.isArray(value)) return value
+      let copy = copies.get(key)
+      if (copy === undefined) {
+        copy = [...value]
+        copies.set(key, copy)
+      }
+      return copy
+    },
+  })
+  return projectSnapshot(legacyDerivationFromStore(fresh), locals)
+}

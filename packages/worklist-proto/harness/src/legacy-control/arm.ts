@@ -40,10 +40,10 @@ import {
   worklistSlice,
   type WorklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { Arm, ArmHandle, LocalsSource } from '../../../shared/src/arm'
+import type { CheckableArm, CheckableArmHandle, LocalsSource } from '../../../shared/src/arm'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
-import { snapshotFromStore } from '../oracle/index'
+import { rebuiltSnapshotFromStore, snapshotFromStore } from '../oracle/index'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
 import { LegacyControlList, type ControlSliceDef } from './list'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
@@ -105,9 +105,9 @@ function createControlStats(): ArmStats {
  * Close over a live engine to make an `Arm`. One factory call per principal:
  * a new principal is a new engine is a new arm (methodology lifecycle rule).
  */
-export function legacyControlArmFor(engine: LegacyControlEngine): Arm {
+export function legacyControlArmFor(engine: LegacyControlEngine): CheckableArm {
   return {
-    create(_source, locals: LocalsSource, reads: ReadFence = DISABLED_READ_FENCE): ArmHandle {
+    create(_source, locals: LocalsSource, reads: ReadFence = DISABLED_READ_FENCE): CheckableArmHandle {
       const stats = createControlStats()
       const counted: ControlSliceDef = defineSlice({
         name: 'worklist-control',
@@ -132,6 +132,15 @@ export function legacyControlArmFor(engine: LegacyControlEngine): Arm {
           // post-pass and never re-derives rows.
           const store = engine.getSnapshot()
           return snapshotFromStore(store, {
+            selectedIssueId: null,
+            coarseNow: locals.get().coarseNow,
+          })
+        },
+        // POD-4556: the same derivation and projection with every legacy memo
+        // bypassed (the per-replica view-model cache starts empty). What it
+        // checks is the legacy cache plumbing, not the rules.
+        rebuildFromScratch(): SliceSnapshot {
+          return rebuiltSnapshotFromStore(engine.getSnapshot(), {
             selectedIssueId: null,
             coarseNow: locals.get().coarseNow,
           })

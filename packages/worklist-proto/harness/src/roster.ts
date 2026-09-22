@@ -14,7 +14,7 @@
  * the arm's constructor needs from the scenario engine (usually nothing).
  */
 
-import type { Arm } from '../../shared/src/arm'
+import type { CheckableArm } from '../../shared/src/arm'
 import type { RowSourceMode } from '../../shared/src/row-source'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
 
@@ -25,7 +25,8 @@ export interface RosterArm {
   folder: string
   /** The feed the arm consumes (`row-source.ts`): `overlaid` for phase a/b pools, `truth` once it owns optimism. */
   mode: RowSourceMode
-  armFor(ctx: ScenarioEngine): Arm
+  /** The arm must be checkable: `shared/src/gen/check.ts` runs every roster arm (POD-4556). */
+  armFor(ctx: ScenarioEngine): CheckableArm
 }
 
 export const ROUND_THREE_ARMS: readonly RosterArm[] = []

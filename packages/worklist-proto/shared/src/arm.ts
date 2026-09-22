@@ -95,3 +95,24 @@ export interface Arm {
    */
   create(source: RowSource, locals: LocalsSource, reads?: ReadFence): ArmHandle
 }
+
+/**
+ * POD-4556 (L4b) — an arm the incremental-versus-rebuild checker
+ * (`shared/src/gen/check.ts`) can hold to account. Every round-three arm is
+ * one (`harness/src/roster.ts` requires it); round-two arms are not.
+ */
+export interface CheckableArmHandle extends ArmHandle {
+  /**
+   * The slice output recomputed from scratch over the arm's CURRENT inputs:
+   * the feed's `snapshot(kind)` tables as they are now, and `locals.get()`.
+   * No incremental state may be read (no index, cache, dirty set or previous
+   * output), and none may be written: the live state must be exactly as it was
+   * afterwards. The checker compares it with `snapshot()` after every step, so
+   * it is the arm's own correctness oracle.
+   */
+  rebuildFromScratch(): SliceSnapshot
+}
+
+export interface CheckableArm extends Arm {
+  create(source: RowSource, locals: LocalsSource, reads?: ReadFence): CheckableArmHandle
+}

@@ -4,6 +4,8 @@ export {
   legacyDerivationFromStore,
   projectSnapshot,
   runLegacyDerivation,
+  oracleSnapshot,
+  rebuiltSnapshotFromStore,
   snapshotFromStore,
   visibleIssueRows,
 } from './oracle'
