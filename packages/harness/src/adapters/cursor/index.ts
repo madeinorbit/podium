@@ -1,7 +1,7 @@
 import { resolveCursorBin } from '../../cursor/cli.js'
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
-import { cursorStateProvider, observeCursorState } from '../../agent-state/cursor.js'
+import { cursorStateProvider, observeCursorState } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { cursorSessionPaths } from '../../cursor/paths.js'
 import { createCursorConversationProvider } from '../../discovery/providers/cursor.js'

@@ -5,7 +5,8 @@
  * The install layout (global `hooks.json` upsert + trust detection, per-session
  * socket/URL env wiring) and the payload codec (snake_case field readers plus
  * the moved translate) live here — re-homed unchanged from the daemon's
- * `codex-hooks.ts` and `agent-state/codex.ts`. The terminal family's install +
+ * `codex-hooks.ts` and the codex state provider (now `./state-provider.js`,
+ * POD-4520). The terminal family's install +
  * ingest mechanism (`driver/families/terminal/instrumentation.ts`) receives
  * this section as a narrow typed SUBSET of the adapter, never the whole
  * Adapter — the same reader-takes-grammar shape as the transcript Store

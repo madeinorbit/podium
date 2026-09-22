@@ -1,3 +1,11 @@
+/**
+ * THE CLAUDE CODE TRANSCRIPT LOCATION (POD-4520): where this harness's
+ * session file lives on disk (spec §4.5, state section).
+ *
+ * Beside the state provider rather than the transcript grammar because boot
+ * classification needs the same locator before any transcript reader exists;
+ * `./transcript.js` reads through here too.
+ */
 import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'

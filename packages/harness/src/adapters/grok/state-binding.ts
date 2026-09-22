@@ -1,3 +1,10 @@
+/**
+ * THE GROK SESSION BINDING (POD-4520): which on-disk session dir this
+ * observer owns (spec §4.5, state section). Beside the provider
+ * (`./state-provider.js`) that calls it, not in the transcript grammar,
+ * because binding is an observation decision — what to watch — not a record
+ * shape.
+ */
 export interface GrokDirInfo {
   id: string
   createdMs: number

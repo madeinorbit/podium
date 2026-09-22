@@ -5,7 +5,7 @@ import type { TranscriptItem, TranscriptTag } from '@podium/model'
 // importing the Store. No reader behaviour is imported.
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
 import type { HarnessRuntimeObservation } from '../../transcript-types.js'
-import { locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
+import { locateClaudeSessionFile } from './state-locate.js'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 import { safeToolCommandJson } from '../shared/tool-command.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'

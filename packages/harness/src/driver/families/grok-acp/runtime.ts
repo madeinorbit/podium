@@ -9,7 +9,7 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * this package owns protocol, receipts, permissions, observation and resume.
  */
 import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { classifyGrokProviderFailure, translateGrokUpdatePayload } from '../../../agent-state/grok.js'
+import { classifyGrokProviderFailure, translateGrokUpdatePayload } from '../../../adapters/grok/instrumentation.js'
 import { initialAgentState, reduceAgentState } from '../../../observer.js'
 import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'

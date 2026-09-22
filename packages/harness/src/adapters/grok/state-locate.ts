@@ -1,8 +1,16 @@
+/**
+ * THE GROK SESSION LOCATION (POD-4520): where this harness's session dir
+ * lives on disk (spec §4.5, state section).
+ *
+ * Beside the state provider rather than the transcript grammar because
+ * binding and boot classification need the same locator before any
+ * transcript reader exists; `./transcript.js` reads through here too.
+ */
 import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
-/** Same shape as `GrokSessionPaths` — kept local so this file does not import grok.ts. */
+/** Same shape as `GrokSessionPaths` — kept local so this file does not import the provider. */
 interface GrokSessionPaths {
   sessionId: string
   sessionDir: string

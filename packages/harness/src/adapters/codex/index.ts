@@ -7,7 +7,7 @@ import {
   findCodexRolloutPath,
   observeCodexState,
   resolvePinnedCodexRollout,
-} from '../../agent-state/codex.js'
+} from './state-provider.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import {
   readFreshnessFromAuthContents,

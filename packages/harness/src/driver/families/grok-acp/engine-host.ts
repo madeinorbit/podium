@@ -27,7 +27,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { grokSessionPaths } from '../../../agent-state/grok.js'
+import { grokSessionPaths } from '../../../adapters/grok/instrumentation.js'
 import {
   GROK_ACP_VERSION_POLICY,
   gateHarnessVersion,

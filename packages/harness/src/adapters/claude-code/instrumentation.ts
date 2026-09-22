@@ -91,7 +91,7 @@ export function configureClaudeTranscriptClassifier(classifier: ClaudeTranscript
   claudeTranscriptClassifier = classifier
 }
 
-/** Shared with the transcript-capture boot path in agent-state/claude-code.ts,
+/** Shared with the transcript-capture boot path in ./state-provider.ts,
  *  which classifies the same tail through the same configured rules. */
 export function claudeHookClassifier(): ClaudeTranscriptClassifier {
   if (!claudeTranscriptClassifier)
@@ -424,7 +424,7 @@ async function readTranscriptTail(path: string, maxBytes = STOP_TAIL_BYTES): Pro
     await handle.close()
   }
 }
-/** Shared with the transcript-capture boot path in agent-state/claude-code.ts. */
+/** Shared with the transcript-capture boot path in ./state-provider.ts. */
 export function idleClassificationFromState(
   state: DeterministicAgentState,
 ): IdleClassification | undefined {

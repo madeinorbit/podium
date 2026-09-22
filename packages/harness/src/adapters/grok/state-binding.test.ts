@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chooseGrokSessionDir } from './grok-binding'
+import { chooseGrokSessionDir } from './state-binding.js'
 
 const dirs = [
   { id: 'old', createdMs: 1_000, mtimeMs: 9_000 }, // pre-existing, still being written

@@ -3,9 +3,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   claudeCodeStateProvider,
-} from '../../agent-state/claude-code.js'
+} from './state-provider.js'
 import { configureClaudeTranscriptClassifier } from './instrumentation.js'
-import { claudeProjectSlug, locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
+import { claudeProjectSlug, locateClaudeSessionFile } from './state-locate.js'
 import { createTranscriptClassifier } from '../../observer.js'
 import { createClaudeCodeConversationProvider } from '../../discovery/providers/claude-code.js'
 import { composeAgentInstructions } from '../../instructions.js'

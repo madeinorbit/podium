@@ -14,7 +14,7 @@ import { asSessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { acceptAgentObservation, type ObservationLease } from '../observer.js'
+import { acceptAgentObservation, type ObservationLease } from '../../observer.js'
 import {
   CodexCausalCursorObserver,
   classifyCodexVerdict,
@@ -28,8 +28,8 @@ import {
   foldCodexRolloutBootstrap,
   observeCodexState,
   translateCodexEvent,
-} from './codex.js'
-import { reduceAgentState } from '../observer.js'
+} from './state-provider.js'
+import { reduceAgentState } from '../../observer.js'
 
 const env = (ptype: string, extra: Record<string, unknown> = {}) => ({
   type: 'event_msg',

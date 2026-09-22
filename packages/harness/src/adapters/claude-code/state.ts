@@ -4,7 +4,7 @@
  * and hook-derived agent state, causal fingerprints").
  *
  * The install layout and payload translation live in `./instrumentation.js`;
- * the state provider in `agent-state/claude-code.ts` delegates to both. Rule
+ * the state provider beside it (`./state-provider.js`) delegates to both. Rule
  * ownership stays here: content blocks, tool-result exclusion and injected
  * context stripping remain owned by the fingerprint, and the copy-sensitive
  * screen recognition by the classifier.

@@ -4,7 +4,7 @@
  * fingerprints").
  *
  * The install layout and payload translation live in `./instrumentation.js`;
- * the state provider in `agent-state/grok.ts` delegates to them. Grok posts
+ * the state provider beside it (`./state-provider.js`) delegates to them. Grok posts
  * no screen-classifiable prompt and no causal fingerprint — its verdict rules
  * (reading the provider's own idle transcript and todo plan) are the state
  * knowledge this section carries.

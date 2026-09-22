@@ -17,8 +17,8 @@ const mockedObserver = vi.hoisted(() => ({
   }>,
 }))
 
-vi.mock('../../agent-state/codex.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../agent-state/codex.js')>()
+vi.mock('./state-provider.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./state-provider.js')>()
   return {
     ...actual,
     observeCodexState: vi.fn((opts) => {

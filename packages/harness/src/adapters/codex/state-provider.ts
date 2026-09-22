@@ -1,3 +1,14 @@
+/**
+ * THE CODEX STATE PROVIDER (POD-4520): the state section's live half
+ * (spec §4.5: "screen and hook-derived agent state, causal fingerprints").
+ *
+ * The provider the manifest's `state` section serves, the rollout-bootstrap
+ * fold, the provider-owned causal cursor observer, the rollout binding, and
+ * the polling observer that tails the thread. The idle-verdict rule lives
+ * beside it in `./state.js`; the install layout and payload codec in
+ * `./instrumentation.js`. The event fold itself is generic (`observer.ts`)
+ * and names no harness.
+ */
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
@@ -12,22 +23,22 @@ import type {
   ProviderCursor,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { type StatTick, scheduleStatPoll } from '../store/index.js'
+import { type StatTick, scheduleStatPoll } from '../../store/index.js'
 import {
   cleanCodexTitle,
   codexPromptTitle,
   isInteractiveCodexSource,
-} from '../discovery/providers/codex.js'
-import { readCodexThreadMetadata } from '../discovery/providers/codex-state.js'
-import { LineDecoder } from '../jsonl-stream.js'
-import { fileMtimeIso } from './boot-time.js'
-import { initialAgentState, reduceAgentState } from '../observer.js'
+} from '../../discovery/providers/codex.js'
+import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
+import { LineDecoder } from '../../jsonl-stream.js'
+import { fileMtimeIso } from '../../agent-state/boot-time.js'
+import { initialAgentState, reduceAgentState } from '../../observer.js'
 import {
   type AgentStateEvent,
   type AgentStateProvider,
   withStateChannel,
   withStateChannelEvent,
-} from './types.js'
+} from '../../agent-state/types.js'
 import {
   PODIUM_CODEX_HOOK_SOCKET_ENV,
   PODIUM_CODEX_HOOK_URL_ENV,
@@ -35,8 +46,8 @@ import {
   codexQuestionSummary,
   isCodexQuestionTool,
   translateCodexEvent,
-} from '../adapters/codex/instrumentation.js'
-import { classifyCodexVerdict } from '../adapters/codex/state.js'
+} from './instrumentation.js'
+import { classifyCodexVerdict } from './state.js'
 
 export {
   PODIUM_CODEX_HOOK_SOCKET_ENV,
@@ -46,7 +57,7 @@ export {
   isCodexQuestionTool,
   translateCodexEvent,
 }
-export { codexApprovalsReviewerFromTranscript } from '../adapters/codex/instrumentation.js'
+export { codexApprovalsReviewerFromTranscript } from './instrumentation.js'
 
 const log = createLogger('harness:codex-state')
 
@@ -818,7 +829,7 @@ export class CodexCausalCursorObserver {
 
 export const codexStateProvider: AgentStateProvider = {
   // Codex hooks are installed GLOBALLY (hooks.json lives in CODEX_HOME, not per
-  // spawn — see adapters/codex/instrumentation.ts. New sessions prefer the
+  // spawn — see ./instrumentation.ts. New sessions prefer the
   // stable, instance-scoped socket; URL remains for one rolling upgrade.
   // Exact bindings are durably recorded by the daemon ingest before its HTTP
   // acknowledgement, then survive daemon or server reconnects. Theme seeding

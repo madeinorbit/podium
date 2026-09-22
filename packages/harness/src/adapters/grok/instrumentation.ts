@@ -5,7 +5,7 @@
  * The install layout (global personal-hooks file upsert, per-session callback
  * env wiring) and the payload codec (camelCase field readers plus the moved
  * translate) live here — re-homed unchanged from the daemon's `grok-hooks.ts`
- * and `agent-state/grok.ts`. The terminal family's install + ingest mechanism
+ * and the grok state provider (now `./state-provider.js`, POD-4520). The terminal family's install + ingest mechanism
  * (`driver/families/terminal/instrumentation.ts`) receives this section as a
  * narrow typed SUBSET of the adapter, never the whole Adapter — the same
  * reader-takes-grammar shape as the transcript Store (POD-4471).
