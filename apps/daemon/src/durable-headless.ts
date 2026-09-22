@@ -17,9 +17,12 @@ import {
 import { dirname, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import {
+  createPiStreamReducer,
+  cursorCreateChatInvocation,
   declaredValue,
   type HarnessHeadless,
   harnessAdapterFor,
+  parseCursorChatId,
   type ResolvedHarnessInventory,
   resolvedHarnessPath,
 } from '@podium/harness'
@@ -44,10 +47,7 @@ import {
 import {
   buildClaudeDurableTurn,
   claudeDurableExecutable,
-  createPiStreamReducer,
-  cursorCreateChatInvocation,
   HeadlessTurnFailure,
-  parseCursorChatId,
 } from '@podium/harness/driver/host'
 
 /**

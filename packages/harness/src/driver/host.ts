@@ -57,12 +57,3 @@ export type {
   ServerFamilyRuntime,
   ServerSessionFramePorts,
 } from './families/server-family.js'
-/** Pi's `--mode json` turn-output fold (moved from the daemon in 1.5: pi has no
- *  driver family, so its turn grammar lives with its adapter; re-exported here
- *  for the supervisor's headless machinery, which stays daemon-owned). */
-export * from '../adapters/pi/stream.js'
-/** Cursor's headless chat allocation (`create-chat`), for the same machinery. */
-export {
-  cursorCreateChatInvocation,
-  parseCursorChatId,
-} from '../adapters/cursor/chat.js'

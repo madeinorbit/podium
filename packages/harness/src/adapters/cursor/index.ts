@@ -18,6 +18,9 @@ import { cursorCredentials } from './credentials.js'
 import { cursorInstall } from './install.js'
 import { cursorUsage } from './usage.js'
 
+/** Cursor's headless chat allocation, surfaced on the adapter's own index for the supervisor's headless machinery (reached through the registry — POD-4530). */
+export { cursorCreateChatInvocation, parseCursorChatId } from './chat.js'
+
 export const cursorManifest: AgentManifest = {
   kind: 'cursor',
   displayName: 'Cursor',

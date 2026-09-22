@@ -21,6 +21,14 @@ import { piCredentials } from './credentials.js'
 import { piInstall } from './install.js'
 import { piUsage } from './usage.js'
 
+/** Pi's turn-output fold, surfaced on the adapter's own index for the supervisor's headless machinery (reached through the registry — POD-4530). */
+export {
+  createPiStreamReducer,
+  type PiStreamEffect,
+  type PiStreamReducer,
+  type PiStreamResult,
+} from './stream.js'
+
 /**
  * Pi (`pi`, @earendil-works/pi-coding-agent). Everything below was verified
  * against pi 0.84.4 driven by a fake OpenAI-compatible provider — see
