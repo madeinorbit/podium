@@ -32,6 +32,16 @@ export * from './adapters/grok/state-locate.js'
 export * from './adapters/opencode/state.js'
 export * from './adapters/pi/state.js'
 export type { AgentManifest as HarnessAdapter } from './adapter.js'
+export * from './descriptors.js'
+export type {
+  HarnessBrandTone,
+  HarnessCatalogData,
+  HarnessClientCapabilities,
+  HarnessDescriptorData,
+  HarnessIconData,
+  HarnessLoginCopy,
+  StaticModelEntry,
+} from './descriptor-types.js'
 export * from './codex-auth-identity.js'
 export * from './codex-credential-absence-grace.js'
 export * from './credential-freshness.js'
