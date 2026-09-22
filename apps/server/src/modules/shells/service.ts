@@ -248,3 +248,36 @@ export async function resolveDockShellOwner(
     ...(!owner && session.issueId ? { issueId: session.issueId } : {}),
   }
 }
+
+/**
+ * THE OWNING ISSUE OF A SHELL (POD-4526): one resolver with one precedence,
+ * called by all three lifetime triggers (reaper projection, tab-release,
+ * stop/issue-close).
+ *
+ * Precedence is MAPPING-FIRST: the mapping's owning issue wins over the
+ * bound issue; a mapped shell whose worktree resolves to no issue, and any
+ * unmapped shell, fall back to the bound issue; otherwise undefined.
+ *
+ * WHY: session id → worktree key is an exact server fact (POD-4436), while
+ * the bound issue may be stale or simply differ from the worktree the dock
+ * shell serves — a dock shell's cwd is created from the key, so the key, not
+ * the binding, names the worktree whose owner decides keep/park/kill. The
+ * reaper previously answered bound-first (and skipped the mapping entirely
+ * for bound shells) while tab-release and stop answered mapping-first, so
+ * one shell bound to open A but mapped to closed B read as owner-open in one
+ * trigger and owner-closed in another. Every trigger now calls this function
+ * instead of re-deriving the `??` order at its call site.
+ *
+ * LIMITS: non-shells never touch the store and answer their bound issue via
+ * the same fallback; there is deliberately NO cwd-containment fallback here —
+ * containing a cwd string is a guess, and only the stop path keeps its old
+ * `issueForCwd(session.cwd)` last resort for the free target (pinned there).
+ */
+export async function resolveShellOwningIssue(
+  deps: DockShellOwnerDeps,
+  session: DockShellOwnerSession,
+): Promise<IssueId | undefined> {
+  const mapped = await resolveDockShellOwner(deps, session)
+  if (mapped?.issueId) return mapped.issueId
+  return session.issueId ?? undefined
+}

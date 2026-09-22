@@ -152,7 +152,7 @@ import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
-import { DockShellService, resolveDockShellOwner } from './modules/shells/service'
+import { DockShellService, resolveShellOwningIssue } from './modules/shells/service'
 import {
   bridgeConfigChanged,
   SettingsService,
@@ -1593,25 +1593,26 @@ export class SessionRegistry {
           // attempt depends on.
           const closed = await closedIssueIdsInScope()
           const samples = [...liveSessions.values()]
-          // Dock shells without a bound issue resolve their owner through the
-          // server mapping (POD-4436 step 3) so the reaper binds them to their
-          // worktree's top-level issue instead of the no-issue tier. Only
-          // unbound shells pay for a lookup — usually none — so the
-          // one-statement-per-projection doctrine above still holds for
-          // everything else.
-          const dockOwners = new Map<SessionId, IssueId>()
+          // Every shell resolves its owning issue through the one resolver
+          // (POD-4526, mapping-first), so the reaper binds a dock shell to
+          // its worktree's top-level issue even when its bound issue differs —
+          // the same answer the tab-release and stop triggers read. Bound
+          // shells pay for a lookup too now: skipping them (bound-first) is
+          // what let one shell read as owner-open here and owner-closed
+          // there. Non-shells never enter the map and keep their bound issue.
+          const ownerIssueIds = new Map<SessionId, IssueId>()
           await Promise.all(
             samples
-              .filter((s) => s.agentKind === 'shell' && s.issueId == null)
+              .filter((s) => s.agentKind === 'shell')
               .map(async (s) => {
-                const owner = await resolveDockShellOwner(
+                const ownerIssueId = await resolveShellOwningIssue(
                   {
                     worktreeForSession: (id) => this.store.dockShells.worktreeForSession(id),
                     issueForCwd: (cwd) => issueAccess.issueForCwd(cwd),
                   },
                   s,
                 )
-                if (owner?.issueId) dockOwners.set(s.sessionId, owner.issueId)
+                if (ownerIssueId) ownerIssueIds.set(s.sessionId, ownerIssueId)
               }),
           )
           return samples.map((session) => {
@@ -1622,9 +1623,13 @@ export class SessionRegistry {
             const driverFamily = driverFamilyForId(
               session.driverId ?? session.selectedDriverId ?? '',
             )
-            // Bound issue wins; a mapped dock shell without one reads its
-            // worktree's owner from the map above (POD-4436 step 3).
-            const ownerIssueId = session.issueId ?? dockOwners.get(session.sessionId)
+            // The owning issue is the one resolver's answer above (POD-4526):
+            // shells read the map (mapping-first, bound fallback inside),
+            // non-shells keep their bound issue.
+            const ownerIssueId =
+              session.agentKind === 'shell'
+                ? ownerIssueIds.get(session.sessionId)
+                : session.issueId
             return {
               sessionId: session.sessionId,
               machineId: session.machineId,
