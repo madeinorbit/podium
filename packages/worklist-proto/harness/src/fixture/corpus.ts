@@ -14,7 +14,6 @@
 
 import { deriveIssueRollups, indexSessionsByIssue } from '@podium/client-core/replica'
 import type { PinState } from '@podium/client-core/viewmodels'
-import { spreadSortKeys } from '@podium/model'
 import type {
   GitRepositoryWire,
   IssueDepProjection,
@@ -24,6 +23,7 @@ import type {
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
+import { spreadSortKeys } from '@podium/model'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../../../shared/src/slice-types'
 
 /** The corpus clock. Sits inside the defer band thresholds (spec §3 R-ORDER):
@@ -638,7 +638,9 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     string,
     ...string[],
   ]
-  keyedRoots.forEach((root, j) => setSortKey(root, rootKeys[j]!))
+  keyedRoots.forEach((root, j) => {
+    setSortKey(root, rootKeys[j]!)
+  })
   for (const group of siblingGroups.values()) {
     if (group.length < 2) continue
     const oldestFirst = [...group].sort((a, b) => createdMs(a) - createdMs(b))
