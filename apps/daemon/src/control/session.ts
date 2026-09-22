@@ -68,6 +68,7 @@ import {
   runtimeDriverIntentForSpawn,
   selectionAuthForLogin,
   spawnNamedServerDriver,
+  terminalInstrumentationSectionsFor,
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
@@ -967,7 +968,9 @@ export async function launchSpawn(
         () =>
           installTerminalInstrumentation({
             sessionId: msg.sessionId,
+            harness: spec.harness,
             spec,
+            sections: terminalInstrumentationSectionsFor(spec.harness),
             settingsDir: ctx.settingsDir,
             ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
             reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),

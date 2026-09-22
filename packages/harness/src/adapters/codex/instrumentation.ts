@@ -435,7 +435,11 @@ export async function ensurePodiumCodexHooks(opts?: {
       installed: true,
       changed: upserted.changed,
       degraded: true,
-      reason: `untrusted codex hooks (missing trust for: ${missing}); approve in Codex /hooks`,
+      // USER-FACING, and deliberately so: the terminal family's degradation
+      // report quotes this reason verbatim, so the installed-but-dead wording
+      // (the /hooks remedy, the poll-only consequence) lives HERE, in the one
+      // adapter that knows Codex's review flow — never in the mechanism.
+      reason: `Codex hooks are installed but Codex has not trusted them (missing trust for: ${missing}); approve them in Codex's /hooks flow. Sessions run poll-only until then.`,
       trusted: false,
       untrustedEvents: trust.untrusted,
     }
@@ -750,6 +754,7 @@ function installerDegradedKind(
   if (
     reason === 'untrusted' ||
     reason?.startsWith('untrusted codex hooks') ||
+    reason?.includes('has not trusted them') ||
     reason?.includes('hook trust')
   )
     return 'untrusted'

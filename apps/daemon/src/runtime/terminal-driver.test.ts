@@ -49,7 +49,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DurableAttachment } from '@podium/process/screen'
 import { TerminalScreen } from '@podium/process/screen'
 import { Terminal } from '../terminal/terminal.js'
-import { terminalProfileFor } from './registry'
+import { terminalInstrumentationSectionsFor, terminalProfileFor } from './registry'
 import {
   createTerminalRuntime,
   EVENT_LOG_LIMIT,
@@ -576,7 +576,9 @@ describe('instrumented terminal creation', () => {
       world.host.installInstrumentation = (sessionId, spec) =>
         installTerminalInstrumentation({
           sessionId,
+          harness: spec.harness,
           spec,
+          sections: terminalInstrumentationSectionsFor(spec.harness),
           homeDir,
           settingsDir: join(homeDir, 'settings'),
         })

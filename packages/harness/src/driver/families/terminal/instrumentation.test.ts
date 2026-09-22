@@ -1,37 +1,62 @@
 /**
- * THE TERMINAL FAMILY'S HANDED-SECTIONS GUARD (this issue).
+ * THE TERMINAL FAMILY'S HANDED-SECTIONS GUARD (this issue, spec §4.1).
  *
- * ARMED: the family must install from sections it is HANDED, never by looking
- * its harness up in the registry by name (spec §4.1). This test drives the
- * install with a `fixture` harness that has NO registry entry and must still
- * succeed — on the current tip it throws "no instrumentation installer for
- * fixture" because the family calls `manifestFor(spec.harness)`.
+ * A Driver is not handed the whole Adapter: it receives a typed subset, the
+ * sections it owns, so the read restriction is a type rather than a rule. This
+ * test drives the family install with a `fixture` harness that has NO registry
+ * entry — no `registerTestManifest` call anywhere in this file — and it must
+ * still succeed. On the previous tip it threw "no instrumentation installer
+ * for fixture" because the family looked the harness up by name itself;
+ * the red run is recorded in VERIFY-4521.
  */
 import { describe, expect, it } from 'vitest'
-import type { SessionSpec } from '../../host.js'
 import { asSessionId } from '@podium/model'
-import { installTerminalInstrumentation } from './instrumentation.js'
+import {
+  installTerminalInstrumentation,
+  type TerminalInstrumentationSections,
+} from './instrumentation.js'
 
-function spec(harness: string): SessionSpec {
-  return {
-    harness,
-    selection: { auth: 'unknown', platform: 'linux', available: [] },
-    workdir: '/project',
-    model: {},
-    instructions: { supported: false, reason: 'fixture' },
-    mcpServers: { supported: false, reason: 'fixture' },
-    instrumentation: { endpointUrl: 'http://127.0.0.1:1234/hooks/fixture' },
-  }
+/** A hand-built section double: adapter knowledge without an adapter. */
+const FIXTURE_SECTIONS: TerminalInstrumentationSections = {
+  instrumentation: {
+    install: async () => ({ args: [] }),
+    payloadCodec: {
+      eventName: () => undefined,
+      sessionId: () => undefined,
+      transcriptPath: () => undefined,
+      decode: async () => [],
+    },
+    hookTransport: 'none',
+  },
+  environment: {},
+  hookInstall: 'settings-args',
 }
 
 describe('handed terminal instrumentation sections', () => {
   it('installs for a harness with no registry entry', async () => {
-    // No registerTestManifest call: `fixture` is unknown to the registry here.
     const wiring = await installTerminalInstrumentation({
       sessionId: asSessionId('fixture-session'),
-      spec: spec('fixture'),
+      harness: 'fixture',
+      spec: {
+        instrumentation: { endpointUrl: 'http://127.0.0.1:1234/hooks/fixture' },
+      },
+      sections: FIXTURE_SECTIONS,
       settingsDir: '/unused',
     })
     expect(wiring.args).toEqual([])
+  })
+
+  it('refuses the whole manifest at the type boundary', async () => {
+    await installTerminalInstrumentation({
+      sessionId: asSessionId('fixture-type'),
+      harness: 'fixture',
+      spec: {
+        instrumentation: { endpointUrl: 'http://127.0.0.1:1/hooks/t' },
+      },
+      sections: FIXTURE_SECTIONS,
+      settingsDir: '/unused',
+      // @ts-expect-error — handed sections only: no parameter accepts a manifest
+      manifest: {},
+    })
   })
 })

@@ -40,6 +40,7 @@ import { stageRuntimeAttachment } from './attachment-staging'
 import { reportHarnessProbe } from '../harness-version-reporting'
 import type { TerminalRuntimeHost } from './terminal-driver'
 import { installTerminalInstrumentation } from '@podium/harness/driver/families/terminal/instrumentation'
+import { terminalInstrumentationSectionsFor } from './registry'
 
 /**
  * Adapt one daemon context into the driver's host port.
@@ -71,7 +72,9 @@ export function daemonRuntimeHost(
     installInstrumentation: (sessionId, spec) =>
       installTerminalInstrumentation({
         sessionId,
+        harness: spec.harness,
         spec,
+        sections: terminalInstrumentationSectionsFor(spec.harness),
         settingsDir: ctx.settingsDir,
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
         reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),

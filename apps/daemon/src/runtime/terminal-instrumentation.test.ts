@@ -5,7 +5,7 @@ import type { SessionSpec } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as codexHooks from '@podium/harness/adapters/codex/instrumentation'
-import { terminalProfileFor } from './registry'
+import { terminalInstrumentationSectionsFor, terminalProfileFor } from './registry'
 import {
   installTerminalInstrumentation,
   prepareTerminalInstrumentation,
@@ -58,7 +58,9 @@ describe('terminal instrumentation installation', () => {
       const endpoint = `http://127.0.0.1:1234/hooks/${name}`
       const wiring = await installTerminalInstrumentation({
         sessionId: asSessionId(name),
+        harness: 'claude-code',
         spec: spec('claude-code', endpoint),
+        sections: terminalInstrumentationSectionsFor('claude-code'),
         settingsDir,
       })
       const path = join(settingsDir, `${name}.json`)
@@ -74,7 +76,9 @@ describe('terminal instrumentation installation', () => {
     await writeFile(settingsDir, 'untouched')
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('claude'),
+      harness: 'claude-code',
       spec: spec('claude-code'),
+      sections: terminalInstrumentationSectionsFor('claude-code'),
       settingsDir,
     })
     expect(result.args).toEqual([])
@@ -114,7 +118,9 @@ describe('terminal instrumentation installation', () => {
       install.mockRejectedValueOnce(new Error(message))
       const result = await installTerminalInstrumentation({
         sessionId: asSessionId('failure'),
+        harness: 'codex',
         spec: spec('codex'),
+        sections: terminalInstrumentationSectionsFor('codex'),
         settingsDir: '/unused',
       })
       expect(result).toMatchObject({ degradedKind: 'error', degradedReason: message })
@@ -137,7 +143,9 @@ describe('terminal instrumentation installation', () => {
     const send = vi.fn()
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('installed'),
+      harness: 'codex',
       spec: spec('codex'),
+      sections: terminalInstrumentationSectionsFor('codex'),
       settingsDir: '/unused',
     })
     reportInstrumentationDegradation({}, 'codex', result, send)
@@ -151,7 +159,9 @@ describe('terminal instrumentation installation', () => {
       ['one', 'two'].map((name) =>
         installTerminalInstrumentation({
           sessionId: asSessionId(name),
+          harness: 'grok',
           spec: spec('grok', `http://localhost/hooks/${name}`),
+          sections: terminalInstrumentationSectionsFor('grok'),
           homeDir,
           settingsDir: join(homeDir, 'settings'),
         }),
@@ -172,7 +182,9 @@ describe('terminal instrumentation installation', () => {
     await expect(
       installTerminalInstrumentation({
         sessionId: asSessionId('broken'),
+        harness: 'grok',
         spec: spec('grok'),
+        sections: terminalInstrumentationSectionsFor('grok'),
         homeDir,
         settingsDir: join(homeDir, 'settings'),
       }),
@@ -194,7 +206,9 @@ describe('terminal instrumentation installation', () => {
     await expect(
       installTerminalInstrumentation({
         sessionId: asSessionId('codex'),
+        harness: 'codex',
         spec: { ...spec('codex'), env: { CODEX_HOME: '/foreign/codex' } },
+        sections: terminalInstrumentationSectionsFor('codex'),
         homeDir,
         settingsDir: join(homeDir, 'settings'),
       }),
@@ -213,18 +227,23 @@ describe('terminal instrumentation installation', () => {
     vi.spyOn(codexHooks.codexInstrumentation, 'install').mockResolvedValue({
       args: [],
       env: { PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1234/hooks/codex-untrusted' },
-      degradedReason: 'untrusted codex hooks (missing trust for: Stop); approve in Codex /hooks',
+      // The remedy wording is adapter knowledge: the section reports it, the
+      // family only quotes it in the diagnostic body (spec §4.1).
+      degradedReason:
+        "Codex hooks are installed but Codex has not trusted them (missing trust for: Stop); approve them in Codex's /hooks flow. Sessions run poll-only until then.",
       degradedKind: 'untrusted',
     })
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('codex-untrusted'),
+      harness: 'codex',
       spec: spec('codex'),
+      sections: terminalInstrumentationSectionsFor('codex'),
       homeDir,
       settingsDir: join(homeDir, 'settings'),
     })
     expect(result).toMatchObject({
       degradedKind: 'untrusted',
-      degradedReason: expect.stringContaining('untrusted'),
+      degradedReason: expect.stringContaining('has not trusted them'),
     })
     // Wiring is retained: the session starts poll-only, it is not refused.
     expect(result.env).toEqual(expect.any(Object))
@@ -235,7 +254,10 @@ describe('terminal instrumentation installation', () => {
       expect.objectContaining({
         type: 'machineDiagnostic',
         code: 'codex-hooks-untrusted',
-        description: expect.stringContaining('/hooks'),
+        // The family description is harness-free; the adapter's remedy travels
+        // in the body it quotes.
+        description: 'codex hook installation failed; sessions can still start.',
+        body: expect.stringContaining('/hooks'),
       }),
     )
   })
@@ -249,7 +271,9 @@ describe('terminal instrumentation installation', () => {
     const send = vi.fn()
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('codex-trusted'),
+      harness: 'codex',
       spec: spec('codex'),
+      sections: terminalInstrumentationSectionsFor('codex'),
       homeDir,
       settingsDir: join(homeDir, 'settings'),
     })
