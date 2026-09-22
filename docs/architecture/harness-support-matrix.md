@@ -33,34 +33,38 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 | `transcript.recordRuntime` | supported | supported | supported | declined | declined | supported |
 | `transcript.recordColor` | supported | declined | declined | declined | declined | declined |
 | `transcript.chainPaths` | supported | supported | supported | declined | supported | supported |
+| `transcript.sqliteLocator` | declined | declined | declined | supported | declined | declined |
 | `credentials.transfer` | supported | declined | declined | declined | declined | declined |
 | `runtime.server.versionRange` | declined | supported | supported | supported | declined | declined |
 | `runtime.server.clientTerminal` | declined | supported | supported | supported | declined | declined |
 
-## claude-code — supported 23/26
+## claude-code — supported 23/27
 
 - `runtime.server`: Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot
 - `usage.history`: Claude Code writes no recoverable quota history — its usage endpoint is read live and cached nowhere, by Podium or by Claude Code
 - `headless.buildExec`: the Claude Agent SDK builds its own invocation in-process
+- `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## codex — supported 23/28
+## codex — supported 23/29
 
 - `inventory.loginCommandProbe`: Codex login detection still uses its guarded local auth file
 - `runtime.embedded`: Codex ships a server, not a library to host in-process
 - `usage.history`: Recovered Codex windows disagree with live sampling (used_percent resets inside a window while resets_at moves backwards); Codex history is left to live sampling
 - `transcript.recordColor`: this harness does not report an identity colour in its records
+- `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Codex credentials live in a plain file; no platform transfer applies
 
-## grok — supported 22/28
+## grok — supported 22/29
 
 - `handoffTranscript`: cross-machine handoff is not supported for grok sessions
 - `classifyBrowserOpen`: no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)
 - `inventory.loginCommandProbe`: Grok login detection still uses its local credential file
 - `runtime.embedded`: grok ships no library to host in-process
 - `transcript.recordColor`: this harness does not report an identity colour in its records
+- `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Grok credentials live in a plain file; no platform transfer applies
 
-## opencode — supported 10/24
+## opencode — supported 11/25
 
 - `credentials`: OpenCode credential portability is not supported yet
 - `usage`: OpenCode exposes no vendor quota endpoint and stores transcripts in SQLite — no harvest layout to declare yet
@@ -77,7 +81,7 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `transcript.recordColor`: opencode has no identity-colour record
 - `transcript.chainPaths`: opencode stores transcripts in SQLite — there are no files to chain
 
-## cursor — supported 8/22
+## cursor — supported 8/23
 
 - `credentials`: Cursor credential portability is not supported yet
 - `usage`: Cursor exposes no declared quota endpoint or transcript harvest layout yet
@@ -93,8 +97,9 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `runtime.embedded`: cursor-agent ships no library to host in-process
 - `transcript.recordRuntime`: this harness does not report model, effort or context use in its records
 - `transcript.recordColor`: this harness does not report an identity colour in its records
+- `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## pi — supported 10/22
+## pi — supported 10/23
 
 - `credentials`: Pi credential portability is not supported yet
 - `usage`: Pi exposes no declared quota endpoint or transcript harvest layout yet
@@ -108,3 +113,4 @@ Spec §4.7: this page is the FIRST of the three capability inputs — what the a
 - `runtime.server`: pi --mode rpc is a real JSONL-over-stdio server mode, but Podium has not driven it yet — verify before turning it into a spec
 - `runtime.embedded`: pi ships an SDK, but it is not hosted in-process yet
 - `transcript.recordColor`: this harness does not report an identity colour in its records
+- `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
