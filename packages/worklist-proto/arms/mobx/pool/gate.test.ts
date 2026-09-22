@@ -39,7 +39,7 @@ import { tracked } from './pool'
 
 installMobxWarnTrap()
 
-/** Three seeds by default (~3 min); `POD_POOL_GATE_SEEDS=<n>` runs seeds 1..n. */
+/** Three seeds by default (~8 min at load 8 with the per-step relation check); `POD_POOL_GATE_SEEDS=<n>` runs seeds 1..n. */
 const SEEDS = Array.from(
   { length: Number(process.env['POD_POOL_GATE_SEEDS'] ?? 3) },
   (_, i) => i + 1,
@@ -112,7 +112,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
     }
     writeResult('mobx-pool-gate-1x', { seeds: SEEDS, cells })
     expect(plantedFailures).toBe(SEEDS.length)
-  }, 600_000)
+  }, 1_500_000)
 })
 
 describe('own-row fields against the oracle', () => {

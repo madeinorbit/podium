@@ -127,6 +127,9 @@ export function scanRelations(
       if (!isLinkSpec(spec)) continue
       const pointers = new Map<string, string>()
       const buckets = new Map<string, string[]>()
+      // One resolution per distinct path: sessions share their lane's cwd.
+      const roots = spec.kind === 'prefix' ? [...tables[spec.to].keys()] : []
+      const owners = new Map<string, string | null>()
       for (const [id, value] of tables[from].entries()) {
         const row = value as Readonly<Record<string, unknown>>
         if (collapsed.has(`${from}:${id}`)) continue
@@ -134,7 +137,11 @@ export function scanRelations(
         let target: string | null
         if (spec.kind === 'prefix') {
           const path = row[spec.sourceField]
-          target = typeof path === 'string' ? longestPrefixPath(path, tables[spec.to].keys()) : null
+          if (typeof path !== 'string') target = null
+          else {
+            if (!owners.has(path)) owners.set(path, longestPrefixPath(path, roots))
+            target = owners.get(path) ?? null
+          }
         } else {
           target = relationRef(from, name, row, schema)
         }
