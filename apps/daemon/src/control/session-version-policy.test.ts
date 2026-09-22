@@ -11,6 +11,7 @@ import {
   codexAppServerVersionProbe,
   resetCodexAppServerVersionProbe,
 } from '../runtime/version-probe'
+import { testSessions } from '../session/testing.js'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from '../runtime/version-probe'
 import { opencodeVersionProbe, resetOpencodeVersionProbe } from '../runtime/version-probe'
 import type { DaemonContext } from './context'
@@ -59,6 +60,9 @@ function world(harness: 'codex' | 'opencode' | 'grok') {
       sent.push(message)
     },
     harnessLoginState: () => 'in',
+    // The launch reconciles the native client terminal against the session
+    // entry after create (POD-4506), so the context carries a real registry.
+    sessions: testSessions(),
     agentRuntime: {
       // Use the real manifest selection policy; observe the driver given to create.
       resolveDriver: (input: { available: DriverId[]; requested: DriverId }) => ({
