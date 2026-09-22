@@ -11,8 +11,6 @@
  * https://connect.podium.do/.well-known/podium-connect.
  */
 export const PODIUM_CONNECT_PROBE_KEYS: readonly string[] = [
-  // Minted 2026-09-04. Its private half was never deployed.
-  'ed25519:1NeWuL0xCi9ix9Ci1hHv-3yHfVt2EMU327bnsF6MyCE',
   // The key in CONNECT_PROBE_PRIVATE_KEY. Connect signs probes with this.
   'ed25519:lJN7LYabibbr5g5wDPNIexSQN2S9KTCg6hXJ-gSnwOY',
 ]
