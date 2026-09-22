@@ -38,6 +38,8 @@
     "./signing": "./src/signing.ts",
     "./machine-credential": "./src/machine-credential.ts",
     "./installation-identity": "./src/installation-identity.ts",
+    "./connect-check": "./src/connect-check.ts",
+    "./connect-client": "./src/connect-client.ts",
     "./connect-keys": "./src/connect-keys.ts",
     "./connect-locator": "./src/connect-locator.ts",
     "./auth-store": "./src/auth-store.ts",
