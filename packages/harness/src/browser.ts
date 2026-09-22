@@ -260,6 +260,10 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
     const signedOutHint = asString(login?.signedOutHint)
     const defaultModel = asString(defaults?.model)
     const defaultEffort = asString(defaults?.effort)
+    // POD-4541: headed-create panel intent. A plain string on purpose — a
+    // newer spelling parses and simply never matches the client's known
+    // values, so unknown/missing renders as today (no override).
+    const defaultPanelMode = asString(defaults?.panelMode)
     out.push({
       schemaVersion: typeof entry.schemaVersion === 'number' ? entry.schemaVersion : 1,
       kind,
@@ -290,11 +294,12 @@ export function parseServedDescriptors(frame: unknown): HarnessDescriptorWire[] 
             },
           }
         : {}),
-      ...(defaultModel !== undefined || defaultEffort !== undefined
+      ...(defaultModel !== undefined || defaultEffort !== undefined || defaultPanelMode !== undefined
         ? {
             defaults: {
               ...(defaultModel !== undefined ? { model: defaultModel } : {}),
               ...(defaultEffort !== undefined ? { effort: defaultEffort } : {}),
+              ...(defaultPanelMode !== undefined ? { panelMode: defaultPanelMode } : {}),
             },
           }
         : {}),

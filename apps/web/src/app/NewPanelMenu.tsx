@@ -185,6 +185,16 @@ export function NewPanelMenu({
     return repoView.machines.find((m) => m.machineId === machineId)?.path ?? worktree.path
   }
 
+  // Menu rows read the descriptors of every machine in scope (POD-4475):
+  // the single target when there is one, all repo machines otherwise, so a
+  // newer harness appears without a client change. No machine (yet) renders
+  // the bundled copy. The headed-create panel intent below reads the same
+  // list (POD-4541), so no harness name lives in this client.
+  const descriptors = useResolvedDescriptors([
+    worktree.machineId,
+    ...repoView.machines.map((m) => m.machineId),
+  ])
+
   async function create(
     agentKind: AgentKind,
     machineId?: MachineId,
@@ -203,11 +213,14 @@ export function NewPanelMenu({
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
     })
     // Server-family sessions derive Chat before startScreen/device preferences.
-    // Materialize a headed opencode row's native intent before exposing the new
-    // tab, matching the established blank-launch ordering in ColdStartComposer.
-    // The explicit experimental driver row intentionally receives no override
-    // and stays chat-first.
-    if (agentKind === 'opencode' && requestedDriverId === undefined) setPanelMode(sessionId, 'native')
+    // Materialize a headed row's descriptor-stated native intent before exposing
+    // the new tab, matching the established blank-launch ordering in
+    // ColdStartComposer. The explicit experimental driver row intentionally
+    // receives no override and stays chat-first. Unknown/missing renders as
+    // today (no override).
+    const headedPanelMode = descriptors.find((d) => d.kind === agentKind)?.defaults?.panelMode
+    if (headedPanelMode === 'native' && requestedDriverId === undefined)
+      setPanelMode(sessionId, 'native')
     onOpened(sessionId)
   }
 
@@ -230,14 +243,6 @@ export function NewPanelMenu({
     </div>
   )
 
-  // Menu rows read the descriptors of every machine in scope (POD-4475):
-  // the single target when there is one, all repo machines otherwise, so a
-  // newer harness appears without a client change. No machine (yet) renders
-  // the bundled copy.
-  const descriptors = useResolvedDescriptors([
-    worktree.machineId,
-    ...repoView.machines.map((m) => m.machineId),
-  ])
   const menuAgents = useMemo(() => menuAgentsFor(descriptors), [descriptors])
 
   // Single-machine (or no machines yet): no Machines region to choose between.

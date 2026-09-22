@@ -26,5 +26,5 @@ export const fixtureDescriptor: HarnessDescriptorData = {
     installHint: 'Point PATH at the fixture double; there is no installer.',
     signedOutHint: null,
   },
-  defaults: { model: null, effort: null },
+  defaults: { model: null, effort: null, panelMode: null },
 }

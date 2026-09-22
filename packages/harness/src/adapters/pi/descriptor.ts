@@ -30,5 +30,5 @@ export const piDescriptor: HarnessDescriptorData = {
       'Install Pi on this machine, then run “pi” and sign in with its /login command. Podium will detect it automatically.',
     signedOutHint: null,
   },
-  defaults: { model: null, effort: null },
+  defaults: { model: null, effort: null, panelMode: null },
 }

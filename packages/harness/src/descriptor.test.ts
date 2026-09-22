@@ -121,4 +121,18 @@ describe('schema versioning', () => {
     // Availability unknown: render enabled, refuse honestly at spawn.
     expect(resolved?.available).toBeUndefined()
   })
+
+  it('parses the headed panel intent; missing or newer spellings render as today (POD-4541)', () => {
+    // OpenCode states `defaults.panelMode: native`; every other harness omits
+    // it. A missing value is no override, and a newer spelling parses (plain
+    // string) without triggering one — the client acts only on `native`.
+    const withNative = { ...futureCliDescriptor(), defaults: { panelMode: 'native' } }
+    const [parsedNative] = parseServedDescriptors([withNative])
+    expect(parsedNative?.defaults?.panelMode).toBe('native')
+    const [parsedMissing] = parseServedDescriptors([futureCliDescriptor()])
+    expect(parsedMissing?.defaults).toBeUndefined()
+    const withFuture = { ...futureCliDescriptor(), defaults: { panelMode: 'hologram' } }
+    const [parsedFuture] = parseServedDescriptors([withFuture])
+    expect(parsedFuture?.defaults?.panelMode).toBe('hologram')
+  })
 })

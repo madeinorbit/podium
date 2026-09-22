@@ -23,6 +23,7 @@ import {
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { effortOptionsForModel } from '@/lib/agent-models'
 import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
+import { managedCodingHarnesses as managedCodingHarnessesFromDescriptors } from '@/lib/managed-harness-pairing'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { useModelCatalog } from '@/lib/use-model-catalog'
 
@@ -125,7 +126,10 @@ export function providerLabel(p: ApiProvider): string {
       return 'Anthropic'
     case 'openai':
       return 'OpenAI'
-    case 'codex':
+    // The remaining provider namespace is the ChatGPT Responses API
+    // (ApiProvider codex): a provider name, not a harness kind. A default
+    // keeps the harness literal out of this client (POD-4541).
+    default:
       return 'Codex (ChatGPT)'
   }
 }
@@ -174,47 +178,41 @@ const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; labe
 ]
 
 /**
- * Managed credentials a CODING session can actually run on (#216), and the
- * harnesses each one can authenticate.
+ * Managed credentials a CODING session can actually run on (#216).
  *
  * A coding session always runs a harness; a managed account only supplies the
- * credential it authenticates WITH. So the pairing must be one the CLI really
- * accepts — credentialEnv() decides that: an anthropic key becomes
- * ANTHROPIC_API_KEY and the Claude setup-token becomes CLAUDE_CODE_OAUTH_TOKEN
- * (both read by Claude Code); an openai key becomes OPENAI_API_KEY (read by
- * Codex). An OPENROUTER_API_KEY authenticates none of the coding CLIs we ship,
+ * credential it authenticates WITH. Which harness each one can authenticate is
+ * account topology read off `descriptor.provider` (POD-4541: `managedCodingHarnesses`
+ * below pairs `managed:anthropic` with every resolved descriptor whose provider
+ * is `anthropic`, etc. — never a hand-written harness list and never display
+ * labels). An OPENROUTER_API_KEY authenticates none of the coding CLIs we ship,
  * so `managed:openrouter` is deliberately NOT offered here — presenting it would
  * spawn an agent that silently falls back to whatever login the machine happens
  * to have. It stays available for the API-backed background role below.
  */
-/**
- * Which harness a managed credential can authenticate (POD-4475 note): this
- * credential→harness pairing is the pending `provider` descriptor decision —
- * it is account topology, not presentation, so it stays hand-written until
- * that decision lands. Do NOT derive it from display labels.
- */
 export const MANAGED_CODING_ACCOUNTS: {
   id: AccountId
   label: string
-  harnesses: HarnessAgent[]
 }[] = [
   {
     id: asAccountId('managed:claude-oauth'),
     label: 'Claude subscription (managed)',
-    harnesses: ['claude-code'],
   },
   {
     id: asAccountId('managed:anthropic'),
     label: 'Anthropic API key (managed)',
-    harnesses: ['claude-code'],
   },
-  { id: asAccountId('managed:openai'), label: 'OpenAI API key (managed)', harnesses: ['codex'] },
+  { id: asAccountId('managed:openai'), label: 'OpenAI API key (managed)' },
 ]
 
 /** The harnesses a managed account can drive for the coding role; [] when it can
- *  drive none (so it is never offered). */
-export function managedCodingHarnesses(accountId: AccountId): HarnessAgent[] {
-  return MANAGED_CODING_ACCOUNTS.find((a) => a.id === accountId)?.harnesses ?? []
+ *  drive none (so it is never offered). Reads the resolved descriptors through
+ *  `managed-harness-pairing` (POD-4541) — bundled fallback when no report is held. */
+export function managedCodingHarnesses(
+  accountId: AccountId,
+  descriptors?: readonly HarnessDescriptorWire[],
+): HarnessAgent[] {
+  return managedCodingHarnessesFromDescriptors(accountId, descriptors)
 }
 
 /** Only offer execution paths each role can actually run today. CODING runs a
@@ -242,8 +240,16 @@ export function accountOptions(
   const allNative = [
     ...new Map([...native, ...discovered].map((option) => [option.id, option])).values(),
   ]
-  if (role === 'coding')
-    return [...allNative, ...MANAGED_CODING_ACCOUNTS.map((o) => ({ id: o.id, label: o.label }))]
+  if (role === 'coding') {
+    // The offered managed accounts are the ones whose credential can drive at
+    // least one resolved harness (POD-4541) — `managed:openrouter` stays
+    // unoffered because no descriptor carries that provider, not because a
+    // list says so.
+    const managed = MANAGED_CODING_ACCOUNTS.filter(
+      (o) => managedCodingHarnesses(o.id, descriptors).length > 0,
+    ).map((o) => ({ id: o.id, label: o.label }))
+    return [...allNative, ...managed]
+  }
   // SHIPWRIGHT OFFERS WHAT THE SUPERAGENT DOES, and the omission is deliberate.
   //
   // This branch used to narrow the list to harnesses with a native all-tools-off
@@ -279,14 +285,17 @@ export function RoleBackendEditor({
   backend,
   accounts,
   onChange,
+  descriptors,
 }: {
   role: 'coding' | 'superagent' | 'background' | 'shipwright'
   backend: RoleBackend
   accounts: AccountView[]
   onChange: (b: RoleBackend) => void
+  /** Resolved descriptors when held; otherwise the bundled fallback applies. */
+  descriptors?: readonly HarnessDescriptorWire[]
 }): JSX.Element {
   const modelCatalog = useModelCatalog()
-  const options = accountOptions(role, accounts)
+  const options = accountOptions(role, accounts, descriptors)
   const accountId = options.some((option) => option.id === backend.accountId)
     ? backend.accountId
     : options[0]?.id || asAccountId('native:claude-code')
@@ -302,7 +311,8 @@ export function RoleBackendEditor({
   // A managed credential for the coding role needs a harness to run it on: the
   // account says WHAT authenticates, `harness` says WHICH CLI. resolveRole() reads
   // exactly this field, so it must be written — without it the role is ambiguous.
-  const codingHarnesses = role === 'coding' && !isNative ? managedCodingHarnesses(accountId) : []
+  const codingHarnesses =
+    role === 'coding' && !isNative ? managedCodingHarnesses(accountId, descriptors) : []
   const managedHarness =
     codingHarnesses.length > 0
       ? backend.harness && codingHarnesses.includes(backend.harness)
@@ -324,7 +334,7 @@ export function RoleBackendEditor({
       return role === 'superagent' || role === 'shipwright' ? h : undefined
     }
     if (role !== 'coding') return undefined
-    const allowed = managedCodingHarnesses(id)
+    const allowed = managedCodingHarnesses(id, descriptors)
     if (allowed.length === 0) return undefined
     return chosen && allowed.includes(chosen) ? chosen : (allowed[0] as HarnessAgent)
   }

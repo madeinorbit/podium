@@ -239,6 +239,9 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
         "command": "opencode auth login",
         "installHint": "Install OpenCode on this machine, then run “opencode auth login”. Podium will detect it automatically.",
         "signedOutHint": "Installed but not signed in. You can continue now and sign in before you run it."
+      },
+      "defaults": {
+        "panelMode": "native"
       }
     },
     {

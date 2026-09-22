@@ -141,6 +141,9 @@ describe('the new-panel menu', () => {
     )
 
     await vi.waitFor(() => expect(opened).toHaveBeenCalledWith('new'))
+    // No descriptor states a headed panel intent for Claude (POD-4541):
+    // unknown/missing renders as today — no override.
+    expect(setPanelMode).not.toHaveBeenCalled()
     opened.mockClear()
     setPanelMode.mockClear()
     fireEvent.click(screen.getByRole('menuitem', { name: /^New OpenCode$/ }))
@@ -151,7 +154,8 @@ describe('the new-panel menu', () => {
         }),
       ),
     )
-    // The headed opencode default is the manifest default: no override key.
+    // The headed opencode default is the descriptor default (POD-4541):
+    // no override key, and the descriptor-stated native intent materializes.
     expect(createSession).toHaveBeenLastCalledWith(
       expect.not.objectContaining({ requestedDriverId: expect.anything() }),
     )

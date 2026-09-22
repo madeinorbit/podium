@@ -85,4 +85,18 @@ describe('adapter descriptor sections track their manifests', () => {
     })
     expect(stripped).toEqual([...BUNDLED_DESCRIPTORS])
   })
+
+  it('only the headed-native harness states a panel intent (POD-4541)', () => {
+    // The web "+" menu reads `defaults.panelMode` instead of naming a
+    // harness: OpenCode states `native`, every other registry harness omits
+    // it (no override — today's rendering).
+    const byKind = new Map(BUNDLED_DESCRIPTORS.map((d) => [d.kind, d]))
+    expect(byKind.get('opencode')?.defaults?.panelMode).toBe('native')
+    for (const [kind, descriptor] of byKind) {
+      if (kind === 'opencode') continue
+      expect(descriptor.defaults?.panelMode, `${kind} panelMode`).toBeUndefined()
+    }
+    const served = buildServedDescriptors({ os: 'linux', arch: 'arm64', agents: [], tools: [] })
+    expect(served.find((d) => d.kind === 'opencode')?.defaults?.panelMode).toBe('native')
+  })
 })
