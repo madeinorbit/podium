@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import { buildCorpus, FIXED_NOW } from '../fixture/index'
+import { plantFormalSubtreeBubbling, rootsAskingOverHiddenAskers } from './hidden-askers'
 import { expectedSnapshot } from './index'
 
 const locals = (overrides: Partial<SliceLocals> = {}): SliceLocals => ({
@@ -151,6 +152,43 @@ describe('unscanned worktree seat (POD-4550)', () => {
     const row = expectedSnapshot(moved, locals()).rowsById[issueId]
     expect(row).toBeDefined()
     expect(row!.working).toBe(false)
+  })
+})
+
+describe('asks bubble through the visible formal subtree only (POD-4549)', () => {
+  // The fixture's hidden askers (POD-4551): an asking session on an archived
+  // or proposed child of a visible root. Legacy gives the child no row, so
+  // the ask detaches and the root reads quiet (spec R-SUM).
+  const corpus = buildCorpus(1, 4443)
+  const snapshot = expectedSnapshot(corpus, locals())
+  const roots = [...new Set(corpus.edgedAskers.map((asker) => asker.rootId))].sort()
+
+  it('carries at least 20 hidden askers under visible roots, and no root reads asking', () => {
+    expect(corpus.edgedAskers.length).toBeGreaterThanOrEqual(20)
+    const hiddenStages = new Set<string>()
+    for (const { rootId, childId } of corpus.edgedAskers) {
+      const child = corpus.issues.find((issue) => issue.id === childId)!
+      hiddenStages.add(child.archived ? 'archived' : child.stage)
+      expect(snapshot.rowsById[childId], `hidden child ${childId}`).toBeUndefined()
+      expect(snapshot.rowsById[rootId], `root ${rootId}`).toBeDefined()
+    }
+    expect([...hiddenStages].sort()).toEqual(['archived', 'proposed'])
+    expect(rootsAskingOverHiddenAskers(corpus, snapshot)).toEqual([])
+  })
+
+  it('control: the planted formal-subtree rule turns every one of those roots amber', () => {
+    // The rule round two's hand and MobX bubbling diffs implemented. The same
+    // check must go red on it, and parity must see it on those rows.
+    const planted = plantFormalSubtreeBubbling(corpus, snapshot)
+    expect(rootsAskingOverHiddenAskers(corpus, planted)).toEqual(roots)
+    const changed = Object.keys(snapshot.rowsById).filter(
+      (id) => planted.rowsById[id]!.asking !== snapshot.rowsById[id]!.asking,
+    )
+    expect(changed).toEqual(expect.arrayContaining(roots))
+    console.info(
+      `[bubbling] 1x: ${corpus.edgedAskers.length} hidden askers, ${roots.length} roots; ` +
+        `the planted rule flips ${changed.length} rows`,
+    )
   })
 })
 
