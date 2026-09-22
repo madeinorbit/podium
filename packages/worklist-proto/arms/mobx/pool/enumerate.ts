@@ -165,3 +165,33 @@ export function scanRelations(
     size: (from, id, relation) => bucketOf(from, id, relation).length,
   }
 }
+
+/**
+ * Every answer of `live` that differs from a from-scratch `scanRelations`
+ * over the same `tables`, for every row of every table plus any `extra` ids
+ * (absent targets, whose collections are kept by reference). Bounded to 12
+ * lines. The relation tests' and the gate's check.
+ */
+export function diffRelations(
+  live: RelationReader,
+  tables: ScannableTables,
+  schema: ModelSchema = SCHEMA,
+  extra: Partial<Record<EntityName, Iterable<string>>> = {},
+): string[] {
+  const scan = scanRelations(tables, schema)
+  const out: string[] = []
+  for (const from of Object.keys(schema) as EntityName[]) {
+    const ids = new Set([...tables[from].keys(), ...(extra[from] ?? [])])
+    for (const id of ids) {
+      for (const [name, spec] of Object.entries(schema[from].relations)) {
+        const got = isLinkSpec(spec) ? live.one(from, id, name) : [...live.many(from, id, name)]
+        const want = isLinkSpec(spec) ? scan.one(from, id, name) : [...scan.many(from, id, name)]
+        if (JSON.stringify(got) === JSON.stringify(want)) continue
+        if (out.length < 12) {
+          out.push(`${from}:${id}.${name}: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`)
+        }
+      }
+    }
+  }
+  return out
+}
