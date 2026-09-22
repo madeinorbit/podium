@@ -14,7 +14,9 @@ import {
   consumePairCode,
   ephemeralTunnelWarning,
   fetchRemoteAppUrl,
+  fetchServerIdentity,
   fetchTargetAppUrl,
+  fetchTargetServerIdentity,
   getUpdateChannel,
   commandExists,
   networkOptionCommand,
@@ -229,6 +231,133 @@ describe('setup core', () => {
       expect(loadConfig().uiUrl).toBe('https://ui.other.example')
       applyServerUrl('https://third.example')
       expect(loadConfig()).not.toHaveProperty('uiUrl')
+    })
+  })
+
+  /**
+   * POD-4533. The paired-server identity lives next to `serverUrl`/`uiUrl`:
+   * what the server claimed at (re-)point time, used to verify a resolved
+   * candidate before adopting it. Both-or-neither, and legacy callers that
+   * pass nothing preserve whatever is there.
+   */
+  describe('server identity (locator resolution)', () => {
+    const ID = `pdm_${'a'.repeat(43)}`
+    const KEY = `ed25519:${'B'.repeat(43)}`
+    const ID2 = `pdm_${'z'.repeat(43)}`
+    const KEY2 = `ed25519:${'C'.repeat(43)}`
+    const token = (serverUrl: string) => encodeJoin({ v: 1, serverUrl, pairCode: 'P1' })
+
+    it('applyJoin persists a probed identity alongside the server URL', () => {
+      applyJoin(token('wss://api.example.com'), undefined, {
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
+      expect(loadConfig()).toMatchObject({ installationId: ID, installationPublicKey: KEY })
+    })
+
+    it('applyJoin without one preserves the stored identity — legacy callers change nothing', () => {
+      applyJoin(token('wss://api.example.com'), undefined, {
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
+      applyJoin(token('wss://elsewhere.example'))
+      expect(loadConfig()).toMatchObject({
+        serverUrl: 'wss://elsewhere.example',
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
+    })
+
+    it('a partial probe answer clears a stale half rather than keeping it', () => {
+      applyJoin(token('wss://api.example.com'), undefined, {
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
+      applyJoin(token('wss://api.example.com'), undefined, { installationId: ID2 })
+      expect(loadConfig()).not.toHaveProperty('installationId')
+      expect(loadConfig()).not.toHaveProperty('installationPublicKey')
+    })
+
+    it('applyServerUrl preserves the identity when re-pointing without a probe', () => {
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://old.example', installationId: ID, installationPublicKey: KEY })
+      applyServerUrl('https://new.example')
+      expect(loadConfig()).toMatchObject({
+        serverUrl: 'wss://new.example',
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
+    })
+
+    it('applyServerUrl adopts a probed identity on an explicit re-point', () => {
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://old.example', installationId: ID, installationPublicKey: KEY })
+      applyServerUrl('https://new.example', undefined, {
+        installationId: ID2,
+        installationPublicKey: KEY2,
+      })
+      expect(loadConfig()).toMatchObject({ installationId: ID2, installationPublicKey: KEY2 })
+    })
+
+    it('applyMode persists the identity for client mode', () => {
+      applyMode({
+        mode: 'client',
+        serverUrl: 'wss://api.example.com',
+        identity: { installationId: ID, installationPublicKey: KEY },
+      })
+      expect(loadConfig()).toMatchObject({ installationId: ID, installationPublicKey: KEY })
+    })
+
+    it('a box that never learned both halves resolves nothing and dials as before', () => {
+      applyJoin(token('wss://api.example.com'))
+      expect(loadConfig()).not.toHaveProperty('installationId')
+      expect(loadConfig()).not.toHaveProperty('installationPublicKey')
+    })
+  })
+
+  describe('fetchServerIdentity', () => {
+    const ID = `pdm_${'a'.repeat(43)}`
+    const KEY = `ed25519:${'B'.repeat(43)}`
+    const respondVersion = (body: unknown, ok = true) =>
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok,
+        headers: new Headers(),
+        text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+      } as Response)
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('reads the installation identity from the joined server /version', async () => {
+      const fetchMock = respondVersion({ installationId: ID, installationPublicKey: KEY })
+      await expect(fetchServerIdentity('wss://api.example.com')).resolves.toEqual({
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
+      expect(String((fetchMock.mock.calls[0] as [URL])[0])).toBe(
+        'https://api.example.com/version',
+      )
+    })
+
+    it('is undefined for a server that names no installation — never fails the join', async () => {
+      respondVersion({ instanceId: 'default' })
+      await expect(fetchServerIdentity('wss://api.example.com')).resolves.toBeUndefined()
+    })
+
+    it('is undefined when the server is unreachable', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'))
+      await expect(fetchServerIdentity('wss://api.example.com')).resolves.toBeUndefined()
+    })
+
+    it('fetchTargetServerIdentity asks the server named inside a join token', async () => {
+      const fetchMock = respondVersion({ installationId: ID, installationPublicKey: KEY })
+      const token = encodeJoin({ v: 1, serverUrl: 'wss://api.example.com', pairCode: 'P1' })
+      await expect(fetchTargetServerIdentity(token)).resolves.toEqual({
+        installationId: ID,
+        installationPublicKey: KEY,
+      })
+      expect(String((fetchMock.mock.calls[0] as [URL])[0])).toBe(
+        'https://api.example.com/version',
+      )
     })
   })
 

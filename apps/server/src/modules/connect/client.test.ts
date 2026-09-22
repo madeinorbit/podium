@@ -134,6 +134,44 @@ describe('connectClient', () => {
     })
   })
 
+  it('resolves the unsigned locator record, capped and sorted', async () => {
+    const { c, seen } = client(() =>
+      Response.json({
+        generation: 2,
+        issuedAt: '2026-09-22T00:00:00.000Z',
+        expiresAt: null,
+        endpoints: [
+          { url: 'http://plaintext.example', priority: 999 },
+          { url: 'https://low.example', priority: 1 },
+          { url: 'https://high.example', priority: 100 },
+        ],
+      }),
+    )
+    expect(await c.resolve()).toEqual({
+      generation: 2,
+      issuedAt: '2026-09-22T00:00:00.000Z',
+      expiresAt: null,
+      endpoints: [
+        { url: 'https://high.example', priority: 100 },
+        { url: 'https://low.example', priority: 1 },
+      ],
+    })
+    const s = seen[0] as Seen
+    expect(s.url).toBe(`https://connect.test/v1/installations/${vectors.installationId}`)
+    expect(s.init.method).not.toBe('POST')
+    expect(header(s, 'podium-signature')).toBeNull()
+    expect(header(s, 'podium-installation')).toBeNull()
+  })
+
+  it('resolve never throws: Connect down or unknown id is no answer', async () => {
+    const missing = client(() => new Response('gone', { status: 404 }))
+    await expect(missing.c.resolve()).resolves.toBeUndefined()
+    const down = client(() => {
+      throw new TypeError('fetch failed')
+    })
+    await expect(down.c.resolve()).resolves.toBeUndefined()
+  })
+
   it('returns the check result verbatim and CONNECT_UNAVAILABLE when Connect fails', async () => {
     const result = { ok: false, error: 'DNS_FAILED', detail: 'no address' }
     const { c, seen } = client(() => Response.json(result))
