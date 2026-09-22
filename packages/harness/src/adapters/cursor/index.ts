@@ -17,13 +17,16 @@ import { cursorTranscript } from './transcript.js'
 import { cursorCredentials } from './credentials.js'
 import { cursorInstall } from './install.js'
 import { cursorUsage } from './usage.js'
+import { cursorCatalog } from './catalog.js'
+import { cursorDescriptor } from './descriptor.js'
 
 /** Cursor's headless chat allocation, surfaced on the adapter's own index for the supervisor's headless machinery (reached through the registry — POD-4530). */
 export { cursorCreateChatInvocation, parseCursorChatId } from './chat.js'
 
 export const cursorManifest: AgentManifest = {
   kind: 'cursor',
-  displayName: 'Cursor',
+  descriptor: cursorDescriptor,
+  catalog: cursorCatalog,
   capabilities: {
     argvPrompt: false,
     effortFlag: 'none',

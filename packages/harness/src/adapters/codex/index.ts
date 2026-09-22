@@ -34,6 +34,8 @@ import { codexInstrumentation } from './instrumentation.js'
 import { codexCredentials } from './credentials.js'
 import { codexInstall } from './install.js'
 import { codexUsage } from './usage.js'
+import { codexCatalog } from './catalog.js'
+import { codexDescriptor } from './descriptor.js'
 import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
 
 const log = createLogger('harness:codex')
@@ -165,7 +167,8 @@ export function codexTranscriptPlacement(
 
 export const codexManifest: AgentManifest = {
   kind: 'codex',
-  displayName: 'Codex',
+  descriptor: codexDescriptor,
+  catalog: codexCatalog,
   capabilities: {
     argvPrompt: true,
     effortFlag: 'codex-config',

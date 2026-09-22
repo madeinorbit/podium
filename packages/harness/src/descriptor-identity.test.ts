@@ -1,33 +1,32 @@
 /**
- * The coverage behind the generated snapshot (POD-4475).
+ * The coverage behind the generated snapshot (POD-4475, POD-4538).
  *
- * `adapters/<harness>/{descriptor,catalog}.ts` state presentation (labels,
- * brand, icon, login copy, static catalog) — facts no manifest declares —
+ * Each manifest carries its `descriptor`/`catalog` sections (spec §4.1/§4.5:
+ * required Adapter sections) — presentation (labels, brand, icon, login
+ * copy, static catalog) the manifest holds beside the behaviour it owns —
  * while client capability flags are DERIVED from the manifests at generation
  * time (`scripts/harness-descriptors.ts`, harness-matrix.ts pattern). This
- * file asserts every registry harness HAS both rows with drawable content;
- * the staleness check (`bun run harness:descriptors:check`, CI) refuses a
- * snapshot that no longer matches the derivation. Drift is impossible
- * rather than merely detected: there is no second statement to compare.
+ * file asserts every registry harness HAS both sections with drawable
+ * content; the staleness check (`bun run harness:descriptors:check`, CI)
+ * refuses a snapshot that no longer matches the derivation. Drift is
+ * impossible rather than merely detected: there is no second statement to
+ * compare. A harness added without the sections fails `tsc` on its manifest,
+ * not this test — completeness is a typecheck.
  */
 import { BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { BUNDLED_DESCRIPTORS } from './browser.js'
-import { AGENT_MANIFESTS } from './registry.js'
-import {
-  buildBundledDescriptors,
-  buildServedDescriptors,
-  catalogDataByKind,
-  descriptorDataByKind,
-} from './descriptors.js'
+import { AGENT_MANIFESTS, harnessDisplayName } from './registry.js'
+import { buildBundledDescriptors, buildServedDescriptors } from './descriptors.js'
+import { quotaAgentLabel } from './inventory/usage.js'
+import { installableTargets } from './inventory/install.js'
 
-describe('adapter descriptor rows track their manifests', () => {
-  it('every registry harness has a descriptor row and a catalog row', () => {
-    const descriptors = descriptorDataByKind()
-    const catalogs = catalogDataByKind()
+describe('adapter descriptor sections track their manifests', () => {
+  it('every registry harness states a descriptor and a catalog section', () => {
     for (const kind of BUILTIN_HARNESS_KINDS) {
-      expect(descriptors.get(kind)?.kind, `${kind} descriptor row`).toBe(kind)
-      expect(catalogs.get(kind)?.kind, `${kind} catalog row`).toBe(kind)
+      const manifest = AGENT_MANIFESTS[kind]
+      expect(manifest.descriptor.kind, `${kind} descriptor section`).toBe(kind)
+      expect(manifest.catalog.kind, `${kind} catalog section`).toBe(kind)
     }
   })
 
@@ -38,8 +37,9 @@ describe('adapter descriptor rows track their manifests', () => {
     expect([...BUNDLED_DESCRIPTORS]).toEqual(buildBundledDescriptors())
     expect(AGENT_MANIFESTS).toBeDefined()
   })
-  it('rows carry drawable presentation (label, icon, catalog rule) and a provider', () => {
-    for (const data of descriptorDataByKind().values()) {
+  it('sections carry drawable presentation (label, icon, catalog rule) and a provider', () => {
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const data = AGENT_MANIFESTS[kind].descriptor
       expect(data.label.length).toBeGreaterThan(0)
       expect(data.shortLabel.length).toBeGreaterThan(0)
       expect(data.icon.id.length).toBeGreaterThan(0)
@@ -47,19 +47,35 @@ describe('adapter descriptor rows track their manifests', () => {
       expect(data.icon.d.length).toBeGreaterThan(0)
       // POD-4529: the Accounts hub reads the provider off the served
       // descriptor instead of a hand-written table, so every row states one.
-      const provider = (data as { provider?: unknown }).provider
-      expect(typeof provider === 'string' && provider.length > 0, `${data.kind} provider`).toBe(
+      expect(typeof data.provider === 'string' && data.provider.length > 0, `${kind} provider`).toBe(
         true,
       )
     }
-    for (const catalog of catalogDataByKind().values()) {
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const catalog = AGENT_MANIFESTS[kind].catalog
       expect(catalog.liveMerge.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('one label statement: host labels read the descriptor shortLabel', () => {
+    // POD-4538: `displayName` is gone; quota, install and menu labels read
+    // `descriptor.shortLabel` through the manifest — a second spelling would
+    // be a second statement of one fact.
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const shortLabel = AGENT_MANIFESTS[kind].descriptor.shortLabel
+      expect(harnessDisplayName(kind), `${kind} harnessDisplayName`).toBe(shortLabel)
+      expect(quotaAgentLabel(kind), `${kind} quotaAgentLabel`).toBe(shortLabel)
+    }
+    for (const target of installableTargets()) {
+      const shortLabel = AGENT_MANIFESTS[target.kind as keyof typeof AGENT_MANIFESTS].descriptor
+        .shortLabel
+      expect(target.displayName, `${target.kind} install label`).toBe(shortLabel)
     }
   })
 
   it('bundled fallback equals the served shape minus machine-varying fields', () => {
     // The two assemblies (bundled in browser.ts, served in descriptors.ts)
-    // read the same adapter rows; availability and the matrix derivation are
+    // read the same manifest sections; availability and the matrix derivation are
     // the only differences. An empty inventory stands in for "no machine".
     const served = buildServedDescriptors({ os: 'linux', arch: 'arm64', agents: [], tools: [] })
     const stripped = served.map(({ available: _a, sections: _s, ...rest }) => {

@@ -26,6 +26,8 @@ import { claudeComposer } from './composer.js'
 import { claudeCodeInstrumentation } from './instrumentation.js'
 import { claudeCredentials } from './credentials.js'
 import { claudeCodeInstall } from './install.js'
+import { claudeCodeCatalog } from './catalog.js'
+import { claudeCodeDescriptor } from './descriptor.js'
 import { claudeUsage } from './usage.js'
 import { claudeHookAcceptCorrelation, transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
@@ -47,7 +49,8 @@ function selectClaudeRuntime(ctx: SelectionContext): DriverId {
 
 export const claudeCodeManifest: AgentManifest = {
   kind: 'claude-code',
-  displayName: 'Claude',
+  descriptor: claudeCodeDescriptor,
+  catalog: claudeCodeCatalog,
   capabilities: {
     argvPrompt: true,
     effortFlag: 'effort',

@@ -35,8 +35,8 @@ export interface InstallRequestPorts {
 
 /**
  * Everything the CLI needs to present one install: the validated kind, the
- * manifest's display name, and the binary the install produces. Pure data —
- * the section itself never leaves the mechanism.
+ * adapter descriptor's short label, and the binary the install produces.
+ * Pure data — the section itself never leaves the mechanism.
  */
 export interface InstallTarget {
   readonly kind: string
@@ -91,12 +91,12 @@ export function installTargetFor(kind: string): InstallTarget {
   const declared = manifest.install
   if (!declared.supported) {
     throw new Error(
-      `podium install: ${manifest.displayName} cannot be installed automatically (${declared.reason})`,
+      `podium install: ${manifest.descriptor.shortLabel} cannot be installed automatically (${declared.reason})`,
     )
   }
   const section = declaredValue(declared)
   if (!section) throw new Error(`podium install: unsupported agent '${kind}'`)
-  return { kind: manifest.kind, displayName: manifest.displayName, binary: section.binary }
+  return { kind: manifest.kind, displayName: manifest.descriptor.shortLabel, binary: section.binary }
 }
 
 /** Every harness with a supported install section — kinds flow as values. */
@@ -105,7 +105,11 @@ export function installableTargets(): InstallTarget[] {
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
     const section = declaredValue(manifest.install)
     if (section)
-      targets.push({ kind: manifest.kind, displayName: manifest.displayName, binary: section.binary })
+      targets.push({
+        kind: manifest.kind,
+        displayName: manifest.descriptor.shortLabel,
+        binary: section.binary,
+      })
   }
   return targets
 }

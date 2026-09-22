@@ -12,6 +12,8 @@ import {
   unsupported,
 } from '../../manifest.js'
 import { createFixtureConversationProvider } from './discovery.js'
+import { fixtureCatalog } from './catalog.js'
+import { fixtureDescriptor } from './descriptor.js'
 import { fixtureStateProvider } from './state.js'
 import {
   fixtureChainPaths,
@@ -49,7 +51,8 @@ function fixtureAuthAccount(homeDir: string): string | undefined {
 
 export const fixtureManifest: AgentManifest = {
   kind: 'fixture' as BuiltinHarnessKind,
-  displayName: 'Fixture',
+  descriptor: fixtureDescriptor,
+  catalog: fixtureCatalog,
   capabilities: {
     argvPrompt: true,
     effortFlag: 'effort',
