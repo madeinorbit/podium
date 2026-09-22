@@ -282,8 +282,9 @@ export interface ScenarioTargets {
    *  shows) — its heartbeat must move no visible row. */
   heartbeatSessionId: string
   /** #2/#3/#4, #9 supplement: an open human root with children whose ONLY
-   *  working session is one bound live session — no other bound session
-   *  working, no working orphan seated under its worktree by prefix — so #2
+   *  working session is one bound live session — no other session working
+   *  anywhere in its subtree, bound or seated by prefix (a row reads working
+   *  if any descendant does) — so #2
    *  (that session going idle) flips the row's `working` at every scale and
    *  cross-scale counts compare the same workload. */
   visibleRootId: string
@@ -381,9 +382,16 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
     const wt = (i as { worktreePath?: string | null }).worktreePath
     return !!wt && liveOrphanCwds.some((cwd) => cwd === wt || cwd.startsWith(`${wt}/`))
   }
+  const workingIn = (i: IssueFacts): number =>
+    (sessionsOf.get(i.id) ?? []).filter(isLiveWorking).length + (seatsOrphans(i) ? 1 : 0)
+  const subtreeWorking = (id: string): number =>
+    (children.get(id) ?? []).reduce((sum, child) => {
+      const issue = byId.get(child)
+      return sum + (issue ? workingIn(issue) + subtreeWorking(child) : 0)
+    }, 0)
   const root = take('open human root with children and exactly one working session', (i) => {
-    if (!openHuman(i) || i.parentId || childless(i) || seatsOrphans(i)) return false
-    return (sessionsOf.get(i.id) ?? []).filter(isLiveWorking).length === 1
+    if (!openHuman(i) || i.parentId || childless(i)) return false
+    return workingIn(i) === 1 && !seatsOrphans(i) && subtreeWorking(i.id) === 0
   })
   const phaseSession =
     (sessionsOf.get(root.id) ?? []).find(isLiveWorking) ?? fail('working session on the root')
