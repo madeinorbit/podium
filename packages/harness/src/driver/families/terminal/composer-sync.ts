@@ -16,13 +16,13 @@
  * `TerminalInstrumentationSections`.
  */
 
-import type { HarnessComposer } from '../../manifest.js'
+import type { HarnessComposer } from '../../../manifest.js'
 
 export type {
   ComposerScreenLines,
   ComposerVerify,
   HarnessComposer,
-} from '../../manifest.js'
+} from '../../../manifest.js'
 
 /**
  * THE SECTIONS COMPOSER-SYNC OWNS (spec §4.1).
