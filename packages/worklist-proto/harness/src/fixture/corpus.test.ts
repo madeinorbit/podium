@@ -4,7 +4,8 @@
  * Timing tests (4x build) live here too; walls are recorded, counts verdict.
  */
 import { describe, expect, it } from 'vitest'
-import { BASE_COUNTS, buildCorpus } from './index'
+import { expectedSnapshot } from '../oracle/index'
+import { BASE_COUNTS, buildCorpus, type CorpusStats, FIXED_NOW } from './index'
 
 describe('buildCorpus determinism', () => {
   it('two 1x builds with the same seed are deep-equal', () => {
@@ -106,5 +107,52 @@ describe('buildCorpus shape (1x)', () => {
     expect(under.map((s) => s.sessionId)).toEqual([sessionId])
     expect(under[0]!.issueId ?? null).toBeNull()
     expect(corpus.sessions.some((s) => s.issueId === issueId)).toBe(false)
+  })
+})
+
+/** Depth proportions in percent of all issues, keyed by depth. */
+const depthShares = (stats: CorpusStats): Record<string, number> =>
+  Object.fromEntries(
+    Object.entries(stats.depthHistogram).map(([depth, count]) => [depth, (100 * count) / stats.issues]),
+  )
+
+describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale) => {
+  // Growth measurements only mean something if the corpus grows the way real
+  // usage would: the same proportions, the visible set linear in scale.
+  const corpus = buildCorpus(scale, 4443)
+  const oneX = scale === 1 ? corpus : buildCorpus(1, 4443)
+  const { stats } = corpus
+
+  it('shows 211 x scale +/- 10% visible rows', () => {
+    const count = Object.keys(expectedSnapshot(corpus, { selectedIssueId: null, coarseNow: FIXED_NOW }).rowsById).length
+    console.info(`[fixture-shape] visible rows at ${scale}x: ${count}`)
+    expect(count).toBeGreaterThanOrEqual(Math.ceil(211 * scale * 0.9))
+    expect(count).toBeLessThanOrEqual(Math.floor(211 * scale * 1.1))
+  }, 120_000)
+
+  it('keeps the parent depth histogram within 5 points of 1x', () => {
+    const shares = depthShares(stats)
+    const base = depthShares(oneX.stats)
+    console.info(`[fixture-shape] depth histogram at ${scale}x: ${JSON.stringify(stats.depthHistogram)}`)
+    expect(Object.keys(shares).sort()).toEqual(Object.keys(base).sort())
+    for (const depth of Object.keys(base)) {
+      expect(Math.abs(shares[depth]! - base[depth]!), `depth ${depth}`).toBeLessThanOrEqual(5)
+    }
+    expect(stats.maxDepth).toBe(4)
+  })
+
+  it('attaches ~10% of sessions to a worktree path with no issueId', () => {
+    const ratio = stats.prefixOwnedSessions / stats.sessions
+    console.info(`[fixture-shape] prefix-owned sessions at ${scale}x: ${stats.prefixOwnedSessions} (${(100 * ratio).toFixed(1)}%)`)
+    expect(ratio).toBeGreaterThan(0.08)
+    expect(ratio).toBeLessThan(0.12)
+  })
+
+  it('carries discovered-from edges on ~5% of issues', () => {
+    const ratio = stats.withOriginEdge / stats.issues
+    console.info(`[fixture-shape] discovered-from edges at ${scale}x: ${stats.withOriginEdge} (${(100 * ratio).toFixed(1)}%)`)
+    expect(ratio).toBeGreaterThan(0.04)
+    expect(ratio).toBeLessThan(0.06)
+    expect(corpus.issueDeps).toHaveLength(stats.withOriginEdge)
   })
 })
