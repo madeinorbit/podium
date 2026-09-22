@@ -28,12 +28,16 @@ import {
   sectionStatusesOf,
   type AgentManifest,
 } from '@podium/harness'
+import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(REPO, 'docs', 'architecture', 'harness-support-matrix.md')
 
-/** Fixed column order so the output is byte-deterministic across runs. */
-const HARNESS_ORDER = ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'] as const
+/** Column order DERIVED from the closed harness set, never hand-listed: a
+ * seventh harness appears in the matrix with no edit here (POD-4476 — harness
+ * names are defined once and derived everywhere, so this file holds no
+ * harness literals of its own). */
+const HARNESS_ORDER = BUILTIN_HARNESS_KINDS
 
 function render(manifests: Record<string, AgentManifest>): string {
   const kinds = HARNESS_ORDER.filter((kind) => manifests[kind])
