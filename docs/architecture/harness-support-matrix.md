@@ -4,6 +4,8 @@
 
 Spec §4.7: this page is the FIRST of the three capability inputs — what the adapter declares as implemented. It is never a session's capability on its own: whether this machine can provide it (inventory + admission) and what this session can do now (the selected driver's live handle) are answered separately. The served descriptor derives its "implemented" flags from the same registry rows this page renders (`sectionStatusesOf` in `packages/harness/src/registry.ts`).
 
+The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows above: they are plain required `AgentManifest` fields — never `Declared`, never declined, so there is nothing to walk — and their totality is a typecheck, not a cell. A harness without presentation cannot be offered.
+
 ## Supported / declined by section
 
 | section | claude-code | codex | grok | opencode | cursor | pi |

@@ -91,6 +91,13 @@ function render(manifests: Record<string, AgentManifest>): string {
       'this page renders (`sectionStatusesOf` in `packages/harness/src/registry.ts`).',
   )
   lines.push('')
+  lines.push(
+    'The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows ' +
+      'above: they are plain required `AgentManifest` fields — never `Declared`, never ' +
+      'declined, so there is nothing to walk — and their totality is a typecheck, not a ' +
+      'cell. A harness without presentation cannot be offered.',
+  )
+  lines.push('')
   lines.push('## Supported / declined by section')
   lines.push('')
   lines.push(`| section | ${kinds.join(' | ')} |`)
