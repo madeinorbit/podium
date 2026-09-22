@@ -3,7 +3,7 @@
 import type { SessionCallbacks, SocketHub } from '@podium/client-core/socket-transport'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { codexInputReady, mountSession } from './session-mount'
+import { composerInputReady, mountSession } from './session-mount'
 
 // happy-dom has no ResizeObserver; DomViewportSource needs one to construct.
 function withResizeObserver(): void {
@@ -128,16 +128,27 @@ describe('session-mount onReady', () => {
   })
 })
 
-describe('codexInputReady', () => {
+describe('composerInputReady', () => {
   const view = (paste: boolean, screen: string) => ({
     bracketedPasteMode: () => paste,
     screenText: (_opts?: { dropDim?: boolean }) => screen,
   })
 
   it('requires both bracketed-paste transport and an empty Codex composer', () => {
-    expect(codexInputReady(view(false, '›\n'))).toBe(false)
-    expect(codexInputReady(view(true, 'starting MCP servers…\n'))).toBe(false)
-    expect(codexInputReady(view(true, '› already typed\n'))).toBe(false)
-    expect(codexInputReady(view(true, 'transcript\n  ›\n  gpt-5.6 · /repo\n'))).toBe(true)
+    expect(composerInputReady('codex', view(false, '›\n'))).toBe(false)
+    expect(composerInputReady('codex', view(true, 'starting MCP servers…\n'))).toBe(false)
+    expect(composerInputReady('codex', view(true, '› already typed\n'))).toBe(false)
+    expect(composerInputReady('codex', view(true, 'transcript\n  ›\n  gpt-5.6 · /repo\n'))).toBe(
+      true,
+    )
+  })
+
+  it('falls back to no heuristic for harnesses the client build knows no rules for', () => {
+    // Unknown kinds (a newer peer may name anything) and declined sections
+    // never borrow another harness's rule.
+    expect(composerInputReady('some-future-cli', view(true, '›\n'))).toBe(false)
+    expect(composerInputReady('grok', view(true, '›\n'))).toBe(false)
+    // Claude declares rules but no input-ready heuristic.
+    expect(composerInputReady('claude-code', view(true, '›\n'))).toBe(false)
   })
 })

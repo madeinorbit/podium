@@ -18,7 +18,7 @@ const HTTP = RELAY.replace(/^ws/, 'http')
 interface PodiumTestApi {
   screenText(): string
   screenHash(opts?: { dropDim?: boolean }): string
-  codexInputReady(): boolean
+  composerInputReady(kind: string): boolean
   state(): { cols: number; rows: number; role: string }
   sendInput(data: string): void
   simulateKeyboard(inset: number): void
@@ -177,7 +177,7 @@ export async function waitForCodexReady(page: Page): Promise<void> {
         const sample = await page.evaluate(() => {
           const api = (window as unknown as TestWindow).__podium
           return {
-            ready: api?.codexInputReady() ?? false,
+            ready: api?.composerInputReady('codex') ?? false,
             hash: api?.screenHash({ dropDim: true }) ?? '',
           }
         })

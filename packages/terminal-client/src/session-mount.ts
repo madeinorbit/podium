@@ -3,7 +3,7 @@ import type {
   SessionConnection,
   SocketHub,
 } from '@podium/client-core/socket-transport'
-import { extractCodexPromptDraft } from '@podium/harness/driver/families/terminal/prompt-extract'
+import { composerRulesFor } from '@podium/harness/browser'
 import type { SessionId } from '@podium/model'
 import { DomViewportSource } from './dom-viewport'
 import type { Grid } from './session-viewport'
@@ -165,17 +165,30 @@ export interface MountedSession {
 export const READY_TIMEOUT_MS = 2000
 
 /**
- * Codex can paint a composer before startup work (notably MCP initialization)
- * redraws it. Its safe synthetic-input boundary is stricter than "some output":
- * DECSET 2004 must be enabled and the dim-stripped empty composer must be on
- * screen. The browser harness additionally holds this predicate through a quiet
- * window so a later redraw resets the wait. [spec:SP-e639]
+ * Whether a harness's composer is up and safe for synthetic input (empty).
+ *
+ * The TRANSPORT half stays here: DECSET 2004 (bracketed paste) must be enabled.
+ * The SCREEN half is the harness's own `inputReady` rule, read from the
+ * bundled browser rules for the harnesses the client build knows (CODE, never
+ * served). Codex can paint a composer before startup work (notably MCP
+ * initialization) redraws it, so the browser harness additionally holds this
+ * predicate through a quiet window — a later redraw resets the wait.
+ * [spec:SP-e639]
+ *
+ * A kind with no bundled rules — unknown to this build, or declined in its
+ * manifest — answers false: no heuristic, never another harness's, never a
+ * fetched one.
  */
-export function codexInputReady(
+export function composerInputReady(
+  kind: string,
   view: Pick<TerminalView, 'bracketedPasteMode' | 'screenText'>,
 ): boolean {
   if (!view.bracketedPasteMode()) return false
-  return extractCodexPromptDraft(view.screenText({ dropDim: true }).split('\n')) === ''
+  const rules = composerRulesFor(kind)
+  if (!rules?.inputReady) return false
+  // The screen-read choice is the harness's own: codex renders its placeholder
+  // DIM, so dim cells are blanked before the rule sees them.
+  return rules.inputReady(view.screenText({ dropDim: rules.dimStripped }).split('\n'))
 }
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
@@ -731,7 +744,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         ).__podiumSwitchTraces?.recent() ?? [],
       screenHash: (screenOpts?: { dropDim?: boolean }) => view.screenHash(screenOpts),
       screenText: () => view.screenText(),
-      codexInputReady: () => codexInputReady(view),
+      composerInputReady: (kind: string) => composerInputReady(kind, view),
       sendInput,
       setEchoLatencyEnabled: (enabled: boolean) => connection.setEchoLatencyEnabled?.(enabled),
       // The same takeover the product's own action performs — one name, one
