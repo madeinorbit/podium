@@ -74,7 +74,7 @@ describe('Claude SDK runtime selection', () => {
     ).toEqual({ ok: true, driverId: 'claude-sdk' })
   })
 
-  it('always advertises the embedded SDK shipped by this build', () => {
+  it('always advertises the Claude stream engine shipped by this build', () => {
     expect(availableDriverIds({ opencodeDrivable: false })).toContain('claude-sdk')
   })
 

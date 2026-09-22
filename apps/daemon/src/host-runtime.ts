@@ -1208,9 +1208,9 @@ export async function createDaemonHostRuntime(args: {
    * THE CLAUDE STREAM ENGINE (POD-4499), composed like every other engine:
    * one long-lived `claude` stream-json child per session under podium-host,
    * owned by the session layer's engine hold. The session adapter translates
-   * the contract onto it; `machine-runtime` routes claude sessions through
-   * the embedded source, and the family already speaks the server-family
-   * shape (journal, adopt, describe).
+   * the contract onto it, and `machine-runtime` holds it in the server list
+   * like every other server family (POD-4612): journal adopt, reap and bind
+   * go through the same generic arms.
    */
   const claudeEngine = createClaudeEngineHost({
     facts: claudeFacts,

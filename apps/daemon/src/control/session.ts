@@ -1156,7 +1156,7 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
    * Every spawn is offered to the harness policy. Server-capable harnesses take
    * their own server driver when its three-valued probe admits this machine; an
    * absent, unsupported or unprobeable driver falls through to the PTY path.
-   * Claude's embedded SDK is selected only by an explicit per-spawn request;
+   * Claude's stream engine is selected only by an explicit per-spawn request;
    * ordinary Claude spawns stay on the terminal path.
    */
   const runtimeLaunch = await launchServerDriverSession(ctx, msg)

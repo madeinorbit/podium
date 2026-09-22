@@ -190,9 +190,9 @@ while (!claudeEntry?.process.pid) {
   await new Promise<void>((resolve) => setTimeout(resolve, 100))
   claudeEntry = claudeEngine.journal.read('claude-surv-1' as SessionId)
 }
-// The READY line carries the ENGINE identity (journal process key + pid),
-// not the contract core's embedded placeholder: generation 2 adopts by
-// journal and must prove the SAME child serves it.
+// The READY line carries the ENGINE identity (journal process key + pid,
+// written once the engine binds): generation 2 adopts by journal and must
+// prove the SAME child serves it.
 ready('claude', { ...claudeHandle.binding, process: claudeEntry.process })
 
 // Idle until the test kills us. The engines belong to podium-host, not to us.
