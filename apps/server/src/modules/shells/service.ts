@@ -84,26 +84,6 @@ export class DockShellService {
 
   constructor(private readonly deps: DockShellServiceDeps) {}
 
-  /** One user's dock shell for one worktree, without creating. */
-  async get(userId: UserId, worktreePath: string): Promise<SessionId | undefined> {
-    return await this.deps.dockShells.get(userId, worktreePath)
-  }
-
-  /** Every worktree→shell entry for one user. */
-  async listForUser(userId: UserId): Promise<Record<string, SessionId>> {
-    return await this.deps.dockShells.listForUser(userId)
-  }
-
-  /**
-   * Forget every user's mapping for a freed worktree path. Freeing is global:
-   * the disk fact holds for all devices, so every dock releases it. Returns
-   * the retired session ids so the lifetime policy can park/kill per its rule
-   * (step 4; the policy read of this mapping lands with terminal-lifetime).
-   */
-  async handleWorktreeFreed(worktreePath: string): Promise<SessionId[]> {
-    return await this.deps.dockShells.removeByWorktree(worktreePath)
-  }
-
   /**
    * Return-or-create the dock shell for (user, worktree). Creation stays a
    * normal shell spawn (agentKind 'shell'); only the mapping is new.

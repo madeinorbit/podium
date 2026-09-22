@@ -118,6 +118,47 @@ export function shellQuietMs(
   return Math.max(0, nowMs - Math.max(...parsed))
 }
 
+/**
+ * THE ONE INPUT BUILDER (POD-4525): every trigger constructs the table input
+ * through this function, so the four call sites stop hand-copying 15 fields.
+ * Behaviour-neutral by construction: unwatchedMs, warmTtlMs and exited are
+ * the same constants every production trigger already passed (0, 0, false —
+ * the attach-TUI warm TTL and the exited shortcut have no production
+ * producer yet), and every other field rides through untouched. A trigger
+ * that changes a verdict by moving onto this builder has a bug in the move,
+ * not an improvement.
+ */
+export function buildShellLifetimeInputs(opts: {
+  purpose: ShellLifetimePurpose
+  hasInput: boolean
+  heldByTab: boolean
+  watched: boolean
+  lastTabReleased: boolean
+  issueClosed: boolean
+  worktreeFreed: boolean
+  quietMs: number
+  unheldMs?: number | undefined
+  backstopMs?: number | undefined
+  idleGraceMs?: number | undefined
+}): ShellLifetimeInputs {
+  return {
+    purpose: opts.purpose,
+    hasInput: opts.hasInput,
+    heldByTab: opts.heldByTab,
+    watched: opts.watched,
+    lastTabReleased: opts.lastTabReleased,
+    issueClosed: opts.issueClosed,
+    worktreeFreed: opts.worktreeFreed,
+    quietMs: opts.quietMs,
+    unheldMs: opts.unheldMs,
+    unwatchedMs: 0,
+    warmTtlMs: 0,
+    backstopMs: opts.backstopMs,
+    idleGraceMs: opts.idleGraceMs,
+    exited: false,
+  }
+}
+
 export function decideShellLifetime(input: ShellLifetimeInputs): ShellLifetimeDecision {
   // Row 1: nothing to decide for a shell with no process.
   if (input.exited) return { verdict: 'keep', reason: 'already-exited' }

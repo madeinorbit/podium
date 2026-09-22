@@ -13,7 +13,7 @@ import type { PodiumSettings } from '@podium/runtime'
 import { withReadScope } from '../../store/executor/read-scope'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
-import { decideShellLifetime, shellQuietMs } from '../sessions/terminal-lifetime'
+import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs } from '../sessions/terminal-lifetime'
 
 const log = createLogger('server:hosts')
 
@@ -667,30 +667,29 @@ export class HostsService {
     backstopMinutes: number | null,
     now: number,
   ) {
-    return decideShellLifetime({
-      purpose: session.purpose,
-      hasInput: session.hasInput,
-      heldByTab: session.heldByTab,
-      watched: session.watched,
-      lastTabReleased: false,
-      issueClosed: session.issueClosed === true,
-      // The reaper never sees a freed worktree: freeing goes through stop,
-      // which parks first, and the close/free trigger owns that transition.
-      worktreeFreed: false,
-      quietMs: shellQuietMs(now, {
-        lastActiveAt: session.lastActiveAt,
-        lastResumedAtMs: session.lastResumedAtMs,
-        lastInputAtMs: session.lastInputAtMs,
-        lastOutputAtMs: session.lastOutputAtMs,
+    return decideShellLifetime(
+      buildShellLifetimeInputs({
+        purpose: session.purpose,
+        hasInput: session.hasInput,
+        heldByTab: session.heldByTab,
+        watched: session.watched,
+        lastTabReleased: false,
+        issueClosed: session.issueClosed === true,
+        // The reaper never sees a freed worktree: freeing goes through stop,
+        // which parks first, and the close/free trigger owns that transition.
+        worktreeFreed: false,
+        quietMs: shellQuietMs(now, {
+          lastActiveAt: session.lastActiveAt,
+          lastResumedAtMs: session.lastResumedAtMs,
+          lastInputAtMs: session.lastInputAtMs,
+          lastOutputAtMs: session.lastOutputAtMs,
+        }),
+        unheldMs:
+          session.lastHeldAtMs === undefined ? undefined : Math.max(0, now - session.lastHeldAtMs),
+        backstopMs: backstopMinutes === null ? undefined : backstopMinutes * 60_000,
+        idleGraceMs: idleShellMinutes === null ? undefined : idleShellMinutes * 60_000,
       }),
-      unheldMs:
-        session.lastHeldAtMs === undefined ? undefined : Math.max(0, now - session.lastHeldAtMs),
-      unwatchedMs: 0,
-      warmTtlMs: 0,
-      backstopMs: backstopMinutes === null ? undefined : backstopMinutes * 60_000,
-      idleGraceMs: idleShellMinutes === null ? undefined : idleShellMinutes * 60_000,
-      exited: false,
-    })
+    )
   }
 
   /** Park one shell through the teardown verb, recording races. */
