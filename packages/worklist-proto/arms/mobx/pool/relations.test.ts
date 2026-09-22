@@ -20,9 +20,11 @@
  *   purpose), compared with the scan after every step.
  */
 
+import { dedupeSessions } from '@podium/client-core/engine'
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
+import { buildCorpus } from '../../../harness/src/fixture/index'
 import {
   createReadFence,
   DISABLED_READ_FENCE,
@@ -457,6 +459,51 @@ describe('the resume-twin collapse (session.collapse, declared in the schema)', 
   })
 })
 
+describe('the resume-twin collapse on the corpus, against the legacy dedupe', () => {
+  it("keeps exactly the rows dedupeSessions keeps, for every twin group, in both directions", () => {
+    const corpus = buildCorpus(1)
+    const survivors = new Set(dedupeSessions(corpus.sessions).map((row) => row.sessionId as string))
+    const r = rig(
+      [
+        ...corpus.sliceIssues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+        ...corpus.sliceSessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
+        ...corpus.sliceWorktrees.map((value) => ({ kind: 'worktree' as const, id: value.path, value })),
+      ],
+      { fence: false },
+    )
+    try {
+      expect(corpus.resumeTwins.length).toBeGreaterThanOrEqual(3)
+      const directions = new Set<string>()
+      for (const group of corpus.resumeTwins) {
+        const members = r.many('issue', group.issueId, 'sessions')
+        const kept = group.sessionIds.filter((id) => members.includes(id)).sort()
+        const legacy = group.sessionIds.filter((id) => survivors.has(id)).sort()
+        expect(kept, `${group.kind} ${group.ref.value}`).toEqual(legacy)
+        expect(kept, `${group.kind} ${group.ref.value}`).toEqual([...group.keptSessionIds].sort())
+        for (const id of group.sessionIds) {
+          expect(r.pool.graph.isCollapsed('session', id), id).toBe(!legacy.includes(id))
+        }
+        directions.add(kept.length < group.sessionIds.length ? 'collapsed' : 'kept in full')
+      }
+      // Both directions occur: all-inactive groups collapse, a group with a live row does not.
+      expect([...directions].sort()).toEqual(['collapsed', 'kept in full'])
+      // And nothing else in the corpus collapses that the legacy keeps (or the reverse).
+      const collapsedByPool = corpus.sliceSessions
+        .map((row) => row.sessionId)
+        .filter((id) => r.pool.graph.isCollapsed('session', id))
+        .sort()
+      const collapsedByLegacy = corpus.sessions
+        .map((row) => row.sessionId as string)
+        .filter((id) => !survivors.has(id))
+        .sort()
+      expect(collapsedByPool).toEqual(collapsedByLegacy)
+      r.check()
+    } finally {
+      r.dispose()
+    }
+  })
+})
+
 // ------------------------------------------------ the doc's worked example
 
 describe('docs/plans/pod-4545-round-three-schema.md §4.5, verbatim', () => {
@@ -710,7 +757,9 @@ describe('a relation added to the schema needs no arm code', () => {
       // The real schema's pool does not know the relation.
       const real = rig([issue('I1')], { fence: false })
       try {
-        expect(() => real.many('session', 'S1', 'coordinates')).toThrow(/not a declared relation/)
+        expect(() => real.pool.graph.many('session', 'S1', 'coordinates')).toThrow(
+          /not a declared relation/,
+        )
       } finally {
         real.dispose()
       }

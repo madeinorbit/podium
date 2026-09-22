@@ -9,6 +9,13 @@
  * arm: the same pool planted deaf to removals (the feed's `value: undefined`
  * records dropped) must fail it, on the same sequences.
  *
+ * RELATIONS (POD-4566). The gated arm also holds every relation of every row
+ * to a from-scratch resolution (`diffRelations`, `enumerate.ts`) at every
+ * step the checker compares: its `snapshot()` throws on the first relation
+ * that differs, naming the step. The rebuild resolves relations from scratch
+ * too (`rebuild.ts`), so a relation the engine gets wrong that reaches a row
+ * view (`activityAt`, a draft's title) also fails the snapshot comparison.
+ *
  * FIDELITY. The fields Ma1 derives from the row, one hop and the locals are
  * compared with the oracle's row views (`rowViewsFromStore`) for every
  * visible row. `closed` is compared one way only (oracle closed ⇒ pool
@@ -25,6 +32,7 @@ import { checkArm, describeSequence } from '../../../shared/src/gen/check'
 import type { RowView } from '../../../shared/src/row-view'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { mobxPoolArm } from './arm'
+import { diffRelations } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { tracked } from './pool'
 
@@ -52,13 +60,35 @@ const planted: CheckableArm = {
   create: (source, locals, reads) => mobxPoolArm.create(deafToRemovals(source), locals, reads),
 }
 
+/** The pool, with every relation checked against the scan at each snapshot. */
+const relationChecked: CheckableArm & { snapshots: number } = {
+  snapshots: 0,
+  create(source, locals, reads) {
+    const handle = mobxPoolArm.create(source, locals, reads)
+    return {
+      ...handle,
+      snapshot() {
+        relationChecked.snapshots += 1
+        const { pool } = handle
+        const diff = tracked(() => diffRelations(pool.graph, pool.tables))
+        if (diff.length > 0) {
+          throw new Error(`relations diverged from the scan (snapshot ${relationChecked.snapshots}):\n${diff.join('\n')}`)
+        }
+        return handle.snapshot()
+      },
+    }
+  },
+}
+
 describe('correctness gate (L4b), rebuild-only', () => {
   it('passes every seed, and the removal-deaf plant fails', async () => {
     const cells = []
     let plantedFailures = 0
     for (const seed of SEEDS) {
       const sequence = gen(seed, STEPS)
-      const result = await checkArm(mobxPoolArm, sequence, { oracleEvery: 0 })
+      relationChecked.snapshots = 0
+      const result = await checkArm(relationChecked, sequence, { oracleEvery: 0 })
+      expect(relationChecked.snapshots).toBeGreaterThan(STEPS)
       if (!result.ok) {
         throw new Error(
           `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
@@ -71,6 +101,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
         seed,
         steps: STEPS,
         counts: result.counts,
+        relationChecks: relationChecked.snapshots,
         kinds: countKinds(sequence),
         plantFailed: !plant.ok,
         plantStep: plant.ok ? null : plant.step,

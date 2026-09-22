@@ -106,10 +106,18 @@ const EMPTY_ORDER = Object.freeze({ pinnedIds: Object.freeze([]), groups: Object
  */
 export function tracked<T>(read: () => T): T {
   let result: { value: T } | null = null
+  let failure: { error: unknown } | null = null
   const stop = autorun(() => {
-    result = { value: read() }
+    try {
+      result = { value: read() }
+    } catch (error) {
+      // Rethrown to the caller below; inside the reaction MobX would log it
+      // and the caller would see only a missing result.
+      failure = { error }
+    }
   })
   stop()
+  if (failure !== null) throw (failure as { error: unknown }).error
   if (result === null)
     throw new Error('[pool] tracked() ran inside a batch; read after the action ends')
   return (result as { value: T }).value
