@@ -102,7 +102,9 @@ async function heartbeat(mode: ProbeMode): Promise<{ run: () => Promise<CountRes
   const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
   const mounted = mountArmForCounts(probeArm(mode), source.source, locals)
   return {
-    sessions: ctx.engine.getSnapshot().sessions.length,
+    // The session table the scan walks: the replica's rows, which keep every
+    // resume twin the runtime's session list collapses (POD-4551).
+    sessions: ctx.replica.rows('sessions').length,
     run: () =>
       runCountScenario(mounted, {
         scenario: 'unrelatedHeartbeat',

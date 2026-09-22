@@ -14,13 +14,77 @@ Seed default 4443; `FIXED_NOW` = 2026-09-20T12:00:00Z.
 | 4x | 19,468 | 17,216 | 2,000 | 1,872 | 6 | 844 | 691 | 24 |
 
 Visible rows scale linearly (211 × scale): the corpus is shape-identical at
-every scale, which is what the growth-slope measurement wants.
+every scale, which is what the growth-slope measurement wants. POD-4551
+asserts this at every scale (next section).
+
+## Shape at every scale (POD-4551, seed 4443)
+
+Asserted in `harness/src/fixture/corpus.test.ts`, "buildCorpus shape at %ix".
+Measured with the resume twins and hidden askers in place (below). No
+generator proportion drifted between scales, so the generator's minting was
+left as it was.
+
+| measure | 1x | 2x | 4x | assertion |
+|---|---|---|---|---|
+| visible rows | 211 | 422 | 844 | 211 × scale ± 10% |
+| depth 1 share | 59.4% (2,891) | 58.2% (5,664) | 58.7% (11,419) | within 5 points of 1x |
+| depth 2 share | 28.4% (1,383) | 29.1% (2,835) | 28.8% (5,611) | within 5 points of 1x |
+| depth 3 share | 9.1% (445) | 9.9% (962) | 9.8% (1,906) | within 5 points of 1x |
+| depth 4 share | 3.0% (148) | 2.8% (273) | 2.7% (532) | within 5 points of 1x; max depth 4 |
+| prefix-owned sessions | 430 (10.0%) | 860 (10.0%) | 1,721 (10.0%) | 9–11% |
+| discovered-from edges | 249 (5.1%) | 536 (5.5%) | 1,066 (5.5%) | 4–6% |
+| hidden askers | 20 | 40 | 80 | exactly 20 × scale, roots visible and not asking |
+| resume-twin groups | 3 | 6 | 12 | one of each kind per scale unit |
+| open issues | 2,170 | 4,340 | 8,680 | (1x only: ~2,230) |
+| groups / pinned | 165 / 6 | 350 / 12 | 691 / 24 | — |
+| phases (waiting / working / queued / done) | 101 / 57 / 32 / 21 | 182 / 133 / 65 / 42 | 397 / 232 / 131 / 84 | not asserted |
+
+The phase mix is not proportional to scale: waiting is 47.9% / 43.1% / 47.0%
+of visible rows and working 27.0% / 31.5% / 27.5%. Those phases come from
+per-row `rng` draws over the live sessions, not from a scaled count, so they
+wobble by a few points. No acceptance line covers them; recorded so a growth
+reader does not mistake the wobble for a regression.
+
+### Hidden askers (the POD-4549 shape)
+
+20 × scale asking sessions (live, idle, standing offer) on open archived or
+proposed leaves, reparented under sessionless visible roots that are not in
+`review` (a review root asks on its own account). Legacy detaches the ask:
+the hidden child has no row (`rows.ts:63-69`) and its sessions join no lane
+(`rows.ts:201-210`). So every root reads NOT asking at every scale. Control:
+un-hiding those children makes every one of their roots ask.
+
+### Resume twins (coordinator addendum)
+
+One group of each kind per scale unit, each on its own sessionless visible
+root, sharing a `codex-thread` resume ref:
+
+| kind | rows | legacy collapse keeps | root row |
+|---|---|---|---|
+| inactive | hibernated ask (6 h ago) + exited run (3 h ago) | the hibernated ask (rank beats recency) | asking, not working |
+| tie | hibernated ask (6 h ago) + hibernated quiet (2 h ago) | the quiet row (most recent) | queued, not asking |
+| live | live working (1 min ago) + hibernated ask (6 h ago) | both (a live row keeps the group whole) | working and asking |
+
+Disabled-collapse control (test-local, per the coordinator's lane ruling):
+the oracle over the raw rows differs from the oracle over
+`dedupeSessions(sessions)` on exactly the tie roots (1 / 2 / 4 rows at
+1x / 2x / 4x): the stale ask shows. The shared oracle
+(`harness/src/oracle/oracle.ts`) still feeds raw rows as `store.sessions`,
+whereas the runtime dedupes them (`runtime.ts:465`). That change has been
+routed to the oracle's owner (POD-4563).
+
+Both shapes reuse rows the corpus already had: sessions come from the tail
+of the closed-bulk decayed remainder, the children are existing archived
+or proposed leaves. They draw nothing from `rng`. Diffed against the
+previous corpus, only the reseated sessions, the reparented children, the
+roots, and the rollups of the issues that gave up a session changed. Every
+other row is byte-identical (1x: 26 sessions, 49 wire issues).
 
 ## Shape at 1x
 
 - Open issues (no `closedAt`): 2,170 (~2,230).
-- With parent (`parentId`): 1,963 / 4,867 = 40.3% (~40% children).
-- Depth histogram: depth 1: 2,904 · depth 2: 1,368 · depth 3: 447 · depth 4: 148
+- With parent (`parentId`): 1,976 / 4,867 = 40.6% (~40% children; 1,963 before POD-4551 reparented the 13 askers that were roots).
+- Depth histogram: depth 1: 2,891 · depth 2: 1,383 · depth 3: 445 · depth 4: 148
   (max 4; chains depth 1–4).
 - Outgoing `discovered-from` edge: 249 issues = 5.1% (~5%); origins always
   hold open sessions, so no origin reads as vacated and no continuation is
@@ -31,10 +95,10 @@ every scale, which is what the growth-slope measurement wants.
 - Bands at 1x: 0: 13 · 1: 182 · 2: 16 (pinned/returned, middle, snoozed —
   all non-trivial; `deferUntil` minted ±45 d around `FIXED_NOW` plus two
   `next-message` sentinels).
-- Phases at 1x: queued 35 · working 56 · waiting 99 · done 21 (all four
+- Phases at 1x: queued 32 · working 57 · waiting 101 · done 21 (all four
   covered). Closed-fold rows: 17 (`closed: true`).
-- Session ids unique, no `resume` refs (legacy `dedupeSessionsByResume` has
-  nothing to collapse). No `startedBySession` anywhere (see below).
+- Session ids unique; `resume` refs only on the twin groups (see above).
+  No `startedBySession` anywhere (see below).
 - `displayRef` covers both spellings (`POD-<seq>` and `#<seq>`); repo `r5`
   spans two paths (`/repo-5`, `/other-path-5`) for the group-merge rule.
 

@@ -318,7 +318,14 @@ describe('scenarios on the fixture at 1x', () => {
     expect(result.before).toEqual({ issues: [], sessions: [], selectedIssueId: null, coarseNow: 0 })
     expect(result.events).toHaveLength(0)
     expect(result.after.issues).toHaveLength(result.corpus.issues)
-    expect(result.after.sessions).toHaveLength(result.corpus.sessions)
+    // The runtime collapses all-parked resume twins on every session read
+    // (runtime.ts:465): each non-live twin group shows one row (POD-4551).
+    const collapsed = buildCorpus(result.corpus.scale, result.corpus.seed).resumeTwins.reduce(
+      (sum, group) => sum + group.sessionIds.length - group.keptSessionIds.length,
+      0,
+    )
+    expect(collapsed).toBeGreaterThan(0)
+    expect(result.after.sessions).toHaveLength(result.corpus.sessions - collapsed)
   }, 60_000)
 
   it('#13 rescopeGrowth: two replaces; the corpus returns to before', async () => {
