@@ -78,9 +78,10 @@
  *
  * IDLE MEANS "NOBODY IS RENDERING NATIVE", AND THE DAEMON CAN SEE THAT.
  * `sessionPriority.nativeView` is aggregated from the live clients' visible
- * mode. So the clock is armed on Chat and held off while any visible pane
- * renders the attachment — {@link OpencodeClientTerminals.viewers}, called from
- * the daemon's `sessionPriority` handler.
+ * mode. The daemon RECORDS it here ({@link OpencodeClientTerminals.viewers},
+ * called from the daemon's `sessionPriority` handler) and the SERVER measures
+ * the warm window off its own copy of the same signal — the table owns the
+ * deadline, this module only knows watched from unwatched.
  *
  * It is remembered per SESSION, not just per attachment, and a new attachment is
  * SEEDED from it. The frame is sent only on change, so a session already on
@@ -132,16 +133,19 @@ import { driverTiming } from './driver-timing'
 
 const log = createLogger('daemon:opencode-attach')
 
-/** §5's default idle window. Configurable through {@link OpencodeClientTerminalPorts}
- *  rather than an env knob: the only caller is the daemon's own wiring, and a
- *  setting nobody sets is a setting nobody maintains.
+/** §5's default idle window, as the server's table reads it (POD-4524).
  *
- *  POD-4435: this TTL is the `warmTtlMs` input of the server's shell lifetime
- *  table (`apps/server/src/modules/sessions/terminal-lifetime.ts`, attach-TUI
- *  row: unwatched past TTL → park). The daemon keeps running the clock — the
- *  table owns the decision, this constant feeds it. Warm-park reap itself
- *  stays here; spawn/reclaim decisions elsewhere in this file belong to
- *  POD-4515, not to that table. */
+ *  The server owns the decision — the shell lifetime table's attach-TUI row
+ *  (unwatched past TTL → park), evaluated on the server's reaper tick and
+ *  ordered per session as `closeClientTerminal`. This daemon runs no clock.
+ *  This constant survives as the attach endpoint's informational `warmTtlMs`
+ *  and as the value the server mirrors in `ATTACH_TUI_WARM_TTL_MS`: the two
+ *  must stay the same 30-minute window, and the table is what enforces it.
+ *
+ *  Configurable through {@link OpencodeClientTerminalPorts} rather than an
+ *  env knob: the only caller is the daemon's own wiring, and a setting nobody
+ *  sets is a setting nobody maintains. Spawn/reclaim decisions elsewhere in
+ *  this file belong to POD-4515, not to that table. */
 export const WARM_TTL_MS = 30 * 60_000
 
 /**
@@ -253,12 +257,14 @@ export interface OpencodeClientTerminals {
    * Take responsibility for a client terminal that outlived this daemon.
    *
    * The master is in its own scope, so a daemon restart leaves it running with
-   * nobody holding its idle clock. Adopting it puts it back under the reaper;
-   * without this it would sit resident until the machine rebooted.
+   * nobody holding its idle clock. Adopting records it back under the
+   * server-owned warm window (POD-4524); without this it would sit resident
+   * until the machine rebooted.
    */
   adopt(sessionId: SessionId, kind?: ClientTerminalKind): void
-  /** The session is going away, or the idle window closed. Attachments are
-   *  strictly subordinate: stop/hibernate/kill the session and its client dies. */
+  /** The session is going away, or the server closed the idle window.
+   *  Attachments are strictly subordinate: stop/hibernate/kill the session and
+   *  its client dies. */
   close(sessionId: SessionId, kind?: ClientTerminalKind): Promise<void>
   /** Retire a client whose engine died while keeping its session-addressed
    * replay for the replacement client. Ordinary close must still drop it. */
@@ -284,16 +290,21 @@ export interface OpencodeClientTerminals {
    * A PARKED CLIENT HAS NO WRITER. `input`, `resize` and `redraw` all answer
    * from the session's Terminal, which the park drops, so the lease obligation
    * is met by there being nothing to type into rather than by ending the
-   * process. The warm clock is (re)armed on the way out, so a parked client is
-   * still reaped rather than resident.
+   * process. A parked client waits out its warm window under the SERVER's
+   * clock (POD-4524): the server orders `closeClientTerminal` when the table's
+   * row fires, and the pressure sweep reclaims it sooner under host pressure —
+   * so a parked client is still reaped rather than resident.
    */
   release(sessionId: SessionId): Promise<void>
   /**
-   * A session's viewers arrived or left — the idle clock this module runs on.
+   * A session's viewers arrived or left — recorded here, measured on the
+   * server (POD-4524).
    *
    * Fed by the daemon's `sessionPriority` handler, which is the server's
    * viewer-derived signal for exactly this: `watched` while any client has the
-   * session open, unwatched when the last one leaves.
+   * session open, unwatched when the last one leaves. The server runs the warm
+   * window off its own copy; this flag only spares watched terminals in the
+   * pressure sweep.
    */
   viewers(sessionId: SessionId, watched: boolean): void
   /** Route the browser terminal transport to the attached harness client. */
@@ -412,9 +423,6 @@ export interface OpencodeClientTerminalPorts {
    * persisted with the host.
    */
   rememberDurableSeq?: (sessionId: SessionId, session: DurableAttachment) => void
-  warmTtlMs?: number
-  setTimer?(fn: () => void, ms: number): unknown
-  clearTimer?(handle: unknown): void
 }
 
 /**
@@ -445,49 +453,6 @@ export function createOpencodeClientTerminals(
   const sessions = ports.sessions
   const clients = ports.clients
   const geometry = ports.geometry ?? DEFAULT_GEOMETRY
-  const warmTtlMs = ports.warmTtlMs ?? WARM_TTL_MS
-  const setTimer =
-    ports.setTimer ??
-    ((fn: () => void, ms: number) => {
-      const timer = setTimeout(fn, ms)
-      timer.unref?.()
-      return timer
-    })
-  const clearTimer =
-    ports.clearTimer ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>))
-
-  const disarm = (policy: ClientTerminalPolicy): void => {
-    if (policy.timer !== undefined) clearTimer(policy.timer)
-    policy.timer = undefined
-  }
-
-  /**
-   * Start the idle countdown, unless somebody is watching.
-   *
-   * The one place the clock's meaning lives: WATCHED IS NOT IDLE. A viewer with
-   * the session open holds the window off entirely rather than extending it,
-   * which is what makes this an idle TTL and not a lifetime — the alternative
-   * kills a terminal out from under someone at the thirty-minute mark.
-   *
-   * POD-4435: this is the warm-TTL half of the shell lifetime table's
-   * attach-TUI row (unwatched past TTL → park). The `watched` gate below and
-   * this TTL are that row's two inputs, measured here; the table owns what
-   * they mean.
-   */
-  const arm = (sessionId: SessionId): void => {
-    const owned = sessions.get(sessionId)
-    const policy = owned?.client
-    if (!owned || !policy) return
-    disarm(policy)
-    if (owned.watched) return
-    policy.timer = setTimer(() => {
-      log.info('reaping a client terminal whose warm window closed', {
-        sessionId,
-        label: policy.label,
-      })
-      void close(sessionId)
-    }, warmTtlMs)
-  }
 
   /**
    * Open the client TUI and build its surface through the ONE Terminal factory
@@ -752,7 +717,6 @@ export function createOpencodeClientTerminals(
     // no applied grid for this session any more.
     ports.appliedGeometry?.forget(sessionId)
     if (policy) {
-      disarm(policy)
       // The relay keeps a coalescing entry per session stream. Nothing else
       // would ever drop the attachment's pending output after teardown.
       ports.releaseStream?.(sessionId)
@@ -807,7 +771,6 @@ export function createOpencodeClientTerminals(
       policy.generation.pendingBytes = 0
       policy.generation = undefined
     }
-    disarm(policy)
     // Retire exactly the obsolete process through the session: park drops the
     // Terminal while the label stays owned, and the master reclaim below is
     // authoritative for the process itself.
@@ -816,7 +779,8 @@ export function createOpencodeClientTerminals(
     policy.suppressNextReplayRedraw = false
     policy.replayRequired = false
     if (clients.hasClientMaster(policy.label)) await clients.reclaimClient(policy.label)
-    arm(sessionId)
+    // No daemon clock: the replacement client (if the viewer returns) starts a
+    // fresh server-measured warm window, and the retired master above is gone.
   }
 
   /**
@@ -856,7 +820,7 @@ export function createOpencodeClientTerminals(
       }
     }
     // A rejected start may have removed this exact policy while release was awaiting it.
-    // Never park or arm a policy that no longer owns the session id.
+    // Never park a policy that no longer owns the session id.
     if (sessions.get(sessionId)?.client !== policy) return
     // PARK = drop the Terminal, keep the process. Cleared from the session
     // BEFORE anything can find a handle that is on its way out, so no input,
@@ -867,9 +831,10 @@ export function createOpencodeClientTerminals(
     // Native must repaint after subscribing even though spawn reports adoption.
     policy.replayRequired = true
     policy.suppressNextReplayRedraw = false
-    // Nobody is watching a parked client by definition, so this starts the warm
-    // window rather than merely re-arming it.
-    arm(sessionId)
+    // Nobody is watching a parked client by definition. Its warm window is the
+    // server's to measure (POD-4524) — this daemon arms nothing here; the
+    // server orders `closeClientTerminal` when the table's row fires, and the
+    // pressure sweep reclaims it sooner under host pressure.
   }
 
   return {
@@ -887,9 +852,11 @@ export function createOpencodeClientTerminals(
         // arrives before the entry, so the registry remembers it entry-free.
         owned.watched = owned.watched || sessions.isWatched(sessionId)
       }
-      // Armed BEFORE the spawn: a start that hangs must not leave an unreaped
-      // master behind if the caller gives up on it.
-      arm(sessionId)
+      // No daemon clock (POD-4524): the warm window is measured by the server's
+      // table from its own viewer signal, which it already sends on every
+      // change. A start that hangs leaves its master to the server's warm-park
+      // order (or the pressure sweep, or session teardown) rather than to a
+      // timer here.
       if (!owned.terminal) {
         let generation = policy.generation
         let pending = policy.starting
@@ -910,7 +877,6 @@ export function createOpencodeClientTerminals(
             generation.pendingInput = []
             generation.pendingBytes = 0
             policy.generation = undefined
-            disarm(policy)
             failed.client = undefined
           }
           throw err
@@ -942,7 +908,7 @@ export function createOpencodeClientTerminals(
       // The terminal relay is session-addressed in both directions: the
       // stream's resolvable wire identity is the parent Podium session rather
       // than an orphan UUID (POD-2108).
-      return { streamId: sessionId, warmTtlMs }
+      return { streamId: sessionId, warmTtlMs: WARM_TTL_MS }
     },
 
     adopt(sessionId, kind = 'opencode') {
@@ -959,7 +925,8 @@ export function createOpencodeClientTerminals(
       }
       // Born knowing whether anyone is looking: see `viewers` below.
       owned.watched = owned.watched || sessions.isWatched(sessionId)
-      arm(sessionId)
+      // Adopting puts the master back under somebody's control (POD-4524): the
+      // deadline is the server's warm-park order, not a timer here.
       log.info('adopted a client terminal that outlived the daemon', { sessionId, label })
     },
 
@@ -979,9 +946,9 @@ export function createOpencodeClientTerminals(
       const owned = sessions.get(sessionId)
       if (!owned || owned.watched === watched) return
       owned.watched = watched
-      // Both directions run through `arm`, which knows that watched means no
-      // timer: arriving holds the window off, leaving starts it from now.
-      if (owned.client) arm(sessionId)
+      // Recorded and nothing more (POD-4524): watched holds the server's warm
+      // window off, unwatched starts it there. The pressure sweep reads this
+      // same flag to spare what somebody is looking at.
     },
 
     input(sessionId, data) {

@@ -194,9 +194,6 @@ interface Harness {
   released: string[]
   frames: { streamId: string; data: Uint8Array }[]
   clients: ReturnType<typeof fakeClient>[]
-  fire(): void
-  armed: number
-  cleared: number
 }
 
 function harness(opts: HarnessOptions = {}) {
@@ -207,9 +204,6 @@ function harness(opts: HarnessOptions = {}) {
     released: [],
     frames: [...(opts.priorFrames ?? [])],
     clients: [],
-    armed: 0,
-    cleared: 0,
-    fire: () => {},
   }
   // THE SESSION SUMMONS, THE RELAY RENDERS: the only process path the relay
   // may use is this session-owned port. Every spawn-injecting test below
@@ -252,14 +246,6 @@ function harness(opts: HarnessOptions = {}) {
     ...(opts.rememberDurableSeq ? { rememberDurableSeq: opts.rememberDurableSeq } : {}),
     frames: (streamId, data) => state.frames.push({ streamId, data }),
     releaseStream: (streamId) => state.released.push(streamId),
-    setTimer: (fn) => {
-      state.armed += 1
-      state.fire = fn
-      return state.armed
-    },
-    clearTimer: () => {
-      state.cleared += 1
-    },
   })
   return { terminals, state, sessions }
 }
@@ -397,8 +383,6 @@ describe('the client terminal a server-family attach produces', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
     const attaching = terminals.attach({ sessionId: SESSION, target })
 
@@ -492,7 +476,6 @@ describe('the client terminal a server-family attach produces', () => {
       // Prove this is an adopted record BEFORE attach can create the same
       // observable client through the cold path.
       expect(state.spawns).toHaveLength(0)
-      expect(state.armed).toBe(1)
       expect(terminals.reclaimable()).toBe(1)
     }
 
@@ -663,8 +646,6 @@ describe('the client terminal a server-family attach produces', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
 
     const attaching = terminals.attach({ sessionId: SESSION, target })
@@ -694,8 +675,6 @@ describe('the client terminal a server-family attach produces', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
     const attaching = terminals.attach({ sessionId: SESSION, target })
 
@@ -722,8 +701,6 @@ describe('the client terminal a server-family attach produces', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
     const attaching = terminals.attach({ sessionId: SESSION, target })
     const accepted = Buffer.alloc(CLIENT_TERMINAL_INPUT_MAX_BYTES, 7)
@@ -751,8 +728,6 @@ describe('the client terminal a server-family attach produces', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
     const attaching = terminals.attach({ sessionId: SESSION, target })
 
@@ -901,7 +876,7 @@ describe('the client terminal a server-family attach produces', () => {
 })
 
 describe('warm-parking', () => {
-  it('re-attaches to the SAME client and re-arms the reaper, rather than starting a second', async () => {
+  it('re-attaches to the SAME client, rather than starting a second', async () => {
     const { terminals, state } = harness()
     const first = await terminals.attach({ sessionId: SESSION, target })
     const second = await terminals.attach({ sessionId: SESSION, target })
@@ -909,8 +884,6 @@ describe('warm-parking', () => {
     expect(second.streamId).toBe(first.streamId)
     // The whole point of parking: bouncing back is a reconnect, not a cold start.
     expect(state.spawns).toHaveLength(1)
-    expect(state.armed).toBe(2)
-    expect(state.cleared).toBe(1)
   })
 
   it('gives ONE screen to a peek and a take-over, because they are the same screen', async () => {
@@ -956,8 +929,6 @@ describe('warm-parking', () => {
         },
         hasClientMaster: () => true,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
     const attaching = terminals.attach({ sessionId: SESSION, target })
     expect(terminals.input(SESSION, Buffer.from('stale close input'))).toBe(true)
@@ -984,8 +955,6 @@ describe('warm-parking', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
 
     const staleAttach = terminals.attach({ sessionId: SESSION, target })
@@ -1080,8 +1049,6 @@ describe('warm-parking', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
 
     await terminals.attach({ sessionId: SESSION, target })
@@ -1117,13 +1084,20 @@ describe('warm-parking', () => {
     expect(state.reclaimed).toEqual([codexAttachLabel(SESSION)])
   })
 
-  it('starts the warm window on the park, so a parked client is not resident forever', async () => {
+  it('parks on release and waits for the server-ordered close, rather than arming a timer', async () => {
+    // POD-4524: the daemon arms nothing. Release parks the Terminal and keeps
+    // the master; the SERVER closes it when the table's warm-park row fires
+    // (driven here directly — the control handler calls this same close).
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
     terminals.viewers(SESSION, false)
     await terminals.release(SESSION)
 
-    state.fire()
+    // Parked, not reaped: no writer, master still alive, offered to pressure.
+    expect(state.reclaimed).toEqual([])
+    expect(terminals.reclaimable()).toBe(1)
+
+    await terminals.close(SESSION)
 
     await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
   })
@@ -1151,8 +1125,6 @@ describe('warm-parking', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
 
     const attaching = terminals.attach({ sessionId: SESSION, target })
@@ -1168,7 +1140,7 @@ describe('warm-parking', () => {
     expect(terminals.input(SESSION, Buffer.from('hello'))).toBe(false)
   })
 
-  it('does not arm a deleted generation when a pending start rejects during release', async () => {
+  it('leaves no client behind when a pending start rejects during release', async () => {
     let rejectStart: ((reason: Error) => void) | undefined
     const firstStart = new Promise<never>((_resolve, reject) => {
       rejectStart = reject
@@ -1176,8 +1148,6 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const frames: { streamId: string; data: Uint8Array }[] = []
     let spawnCount = 0
-    let armed = 0
-    let cleared = 0
     const terminals = createOpencodeClientTerminals({
       sessions: testSessions(),
       frames: (streamId, data) => frames.push({ streamId, data }),
@@ -1192,10 +1162,6 @@ describe('warm-parking', () => {
         reclaimClient: async () => {},
         hasClientMaster: () => false,
       },
-      setTimer: () => ++armed,
-      clearTimer: () => {
-        cleared += 1
-      },
     })
 
     const attaching = terminals.attach({ sessionId: SESSION, target })
@@ -1208,8 +1174,6 @@ describe('warm-parking', () => {
     await parking
     expect(terminals.reclaimable()).toBe(0)
     expect(terminals.input(SESSION, Buffer.from('after rejection'))).toBe(false)
-    expect(armed).toBe(1)
-    expect(cleared).toBe(1)
     expect(frames).toEqual([])
 
     await terminals.attach({ sessionId: SESSION, target })
@@ -1218,28 +1182,34 @@ describe('warm-parking', () => {
     expect(clients[0]?.writes).toEqual(['clean generation'])
   })
 
-  it('reaps the client when the warm window closes', async () => {
+  it('reaps the client when the server orders the close (the warm window)', async () => {
+    // POD-4524: the daemon arms no timer. This close is what the server's
+    // `closeClientTerminal` order invokes once the table's row fires — and
+    // what the pressure sweep invokes sooner under load.
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
-    state.fire()
+    await terminals.close(SESSION)
     await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
     expect(state.clients[0]?.disposed).toBe(true)
   })
 
   /**
-   * POD-4524 PIN: today's warm-park effect, before the decision moves to the
-   * server. An attach TUI left unwatched past WARM_TTL_MS drops the VIEWER —
+   * POD-4524 PIN: the warm-park effect, before and after the decision moves to
+   * the server. An attach TUI left unwatched past WARM_TTL_MS drops the VIEWER —
    * the client master is reclaimed and its handle disposed — while the AGENT
    * is untouched: the session entry survives with only the client policy
-   * retired. The server-owned row must preserve exactly this shape: close the
+   * retired. The server-owned row preserves exactly this shape: close the
    * client terminal, never hibernate the agent.
+   *
+   * (Before the move this drove the daemon's armed deadline; now it drives the
+   * same close the server's order invokes. The assertions are unchanged.)
    */
   it('POD-4524 pin: unwatched past the warm TTL drops the viewer and keeps the agent', async () => {
     const { terminals, state, sessions } = harness()
     await terminals.attach({ sessionId: SESSION, target })
     terminals.viewers(SESSION, false)
-    // Past the warm TTL: fire the armed deadline.
-    state.fire()
+    // Past the warm TTL: the server orders the close.
+    await terminals.close(SESSION)
     await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
     expect(state.clients[0]?.disposed).toBe(true)
     // THE AGENT IS UNTOUCHED: the entry survives, only the client policy retires.
@@ -1248,14 +1218,14 @@ describe('warm-parking', () => {
     expect(owned?.client).toBeUndefined()
   })
 
-  it('adopts a client that outlived the daemon, so it is reaped instead of resident forever', () => {
+  it('adopts a client that outlived the daemon, so the server-ordered close reaps it', async () => {
     const { terminals, state } = harness({ hasMaster: () => true })
     terminals.adopt(SESSION)
     // Adopting starts NOTHING — the master is already running the TUI. It only
-    // puts the deadline back under somebody's control.
+    // records the master back under the server-owned warm window.
     expect(state.spawns).toHaveLength(0)
-    expect(state.armed).toBe(1)
-    state.fire()
+    expect(terminals.reclaimable()).toBe(1)
+    await terminals.close(SESSION)
     return vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
   })
 
@@ -1263,7 +1233,6 @@ describe('warm-parking', () => {
     const { terminals, state } = harness({ hasMaster: () => false })
     terminals.adopt(SESSION)
     await terminals.close(SESSION)
-    expect(state.armed).toBe(0)
     expect(state.reclaimed).toEqual([])
   })
 
@@ -1329,8 +1298,6 @@ describe('warm-parking', () => {
         sessions: testSessions(),
         clients,
         frames: () => {},
-        setTimer: () => 1,
-        clearTimer: () => {},
         ...(homeDir ? { homeDir } : {}),
       })
       return { terminals, reclaimed }
@@ -1343,7 +1310,7 @@ describe('warm-parking', () => {
       expect(reclaimed).toEqual([codexAttachLabel(SESSION)])
     })
 
-    it('adopts that same master back under a deadline', () => {
+    it('adopts that same master back under the server-owned window', () => {
       const { terminals } = subject(agentHome)
       terminals.adopt(SESSION, 'codex')
       expect(terminals.reclaimable()).toBe(1)
@@ -1362,21 +1329,23 @@ describe('warm-parking', () => {
     })
   })
 
-  it('holds the warm window OFF while somebody is watching the session', async () => {
-    const { terminals, state } = harness()
+  it('records watched while somebody watches, unwatched when they leave — the server measures the window', async () => {
+    const { terminals, sessions } = harness()
     await terminals.attach({ sessionId: SESSION, target })
-    expect(state.armed).toBe(1)
+    expect(sessions.get(SESSION)?.watched).toBe(false)
 
-    // A viewer opened the session (sessionPriority 0-2). An idle TTL that keeps
-    // counting here is a LIFETIME: it would kill the terminal under someone who
-    // has been watching it for thirty minutes.
+    // A viewer opened the session (sessionPriority 0-2). An idle TTL that kept
+    // counting here would be a LIFETIME: it would kill the terminal under
+    // someone who has been watching it for thirty minutes. The daemon only
+    // records; the server holds its own window off.
     terminals.viewers(SESSION, true)
-    expect(state.cleared).toBe(1)
-    expect(state.armed).toBe(1)
+    expect(sessions.get(SESSION)?.watched).toBe(true)
+    expect(terminals.reclaimable()).toBe(0)
 
-    // …and the last viewer leaving starts the window from now.
+    // …and the last viewer leaving is what the server's window starts from.
     terminals.viewers(SESSION, false)
-    expect(state.armed).toBe(2)
+    expect(sessions.get(SESSION)?.watched).toBe(false)
+    expect(terminals.reclaimable()).toBe(1)
   })
 
   /**
@@ -1385,32 +1354,30 @@ describe('warm-parking', () => {
    *
    * `sessionPriority` is sent ONLY ON CHANGE, so a session already on screen when
    * its terminal is attached announces nothing. An attachment that defaulted to
-   * unwatched would be armed AND offered to the pressure sweep — closing a
-   * terminal somebody is looking at, which is exactly the guarantee that made
+   * unwatched would be offered to the pressure sweep — closing a terminal
+   * somebody is looking at, which is exactly the guarantee that made
    * "attachments first" safe.
    */
   it('is born WATCHED when the viewer arrived before the attachment did', async () => {
-    const { terminals, state } = harness()
+    const { terminals } = harness()
     terminals.viewers(SESSION, true)
 
     await terminals.attach({ sessionId: SESSION, target })
 
-    expect(state.armed).toBe(0)
     expect(terminals.reclaimable()).toBe(0)
   })
 
   it('is born watched on ADOPT too, when a viewer had the session open', () => {
-    const { terminals, state } = harness({ hasMaster: () => true })
+    const { terminals } = harness({ hasMaster: () => true })
     terminals.viewers(SESSION, true)
 
     terminals.adopt(SESSION)
 
-    expect(state.armed).toBe(0)
     expect(terminals.reclaimable()).toBe(0)
   })
 
   it('is born unwatched once the viewer has left again', async () => {
-    const { terminals, state } = harness()
+    const { terminals } = harness()
     terminals.viewers(SESSION, true)
     terminals.viewers(SESSION, false)
 
@@ -1418,21 +1385,20 @@ describe('warm-parking', () => {
 
     // Silence about a session nobody has mentioned means nobody is watching —
     // and so does an explicit "the last viewer left".
-    expect(state.armed).toBe(1)
     expect(terminals.reclaimable()).toBe(1)
   })
 
-  it('does not re-arm on a repeated viewer signal, so a watched terminal cannot be reaped', async () => {
-    const { terminals, state } = harness()
+  it('ignores a repeated viewer signal, so a watched terminal stays spared', async () => {
+    const { terminals, sessions } = harness()
     await terminals.attach({ sessionId: SESSION, target })
     terminals.viewers(SESSION, true)
     terminals.viewers(SESSION, true)
     terminals.viewers(SESSION, true)
     // The frame arrives on every priority change (focused ↔ visible ↔ attached
-    // are all "watched"), so an implementation that re-armed per signal would
-    // put a live viewer back on a countdown.
-    expect(state.armed).toBe(1)
-    expect(state.cleared).toBe(1)
+    // are all "watched"), so the record must be idempotent — and with no clock
+    // here at all, a live viewer is never put back on a countdown.
+    expect(sessions.get(SESSION)?.watched).toBe(true)
+    expect(terminals.reclaimable()).toBe(0)
   })
 
   it('takes the client down with the session it belongs to', async () => {
@@ -1441,9 +1407,10 @@ describe('warm-parking', () => {
     await terminals.close(SESSION)
     expect(state.clients[0]?.disposed).toBe(true)
     expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)])
-    // …and the reaper for a closed attachment is disarmed, not left to fire at
-    // a session that has since started a new one.
-    expect(state.cleared).toBe(1)
+    // …and a later attach starts a fresh generation rather than finding the
+    // retired one still attached.
+    await terminals.attach({ sessionId: SESSION, target })
+    expect(state.spawns).toHaveLength(2)
   })
 })
 
@@ -1648,7 +1615,10 @@ describe('the session’s lifecycle owns its attachment', () => {
       clientTerminals: engineClientTerminals(terminals),
     })
     expect(await host.adopt(binding)).toBeDefined()
-    expect(state.armed).toBe(1)
+    // Adopting starts nothing — the surviving master is only recorded back
+    // under the server-owned warm window.
+    expect(state.spawns).toHaveLength(0)
+    expect(terminals.reclaimable()).toBe(1)
   })
 
   /**
@@ -1932,8 +1902,6 @@ describe('under backend=host the client terminal lives in the host, not abduco (
       // recording durable below is wrapped, never passed through.
       clients: createSessionClientScope(durable)!,
       frames: () => {},
-      setTimer: () => 1,
-      clearTimer: () => {},
     })
     await terminals.attach({ sessionId: SESSION, target })
     await terminals.close(SESSION) // a live record is reclaimed without a probe
@@ -1974,8 +1942,6 @@ describe('without a session client scope there are no client terminals (POD-3917
       {
         sessions: testSessions(),
         frames: () => {},
-        setTimer: () => 1,
-        clearTimer: () => {},
       },
     )
     expect(terminals).toBeDefined()

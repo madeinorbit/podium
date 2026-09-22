@@ -141,8 +141,6 @@ function harness(
     frames: () => {},
     releaseStream: () => {},
     sessions: ctx.sessions,
-    setTimer: () => 0,
-    clearTimer: () => {},
   })
   ctx.clientTerminals = clientTerminals
 
