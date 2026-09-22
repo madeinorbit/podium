@@ -74,7 +74,7 @@ describe('manual sort keys among siblings (R-ORDER step 2, POD-4550)', () => {
   const corpus = buildCorpus(1, 4443)
   const snapshot = expectedSnapshot(corpus, locals())
   const visibleIds = Object.keys(snapshot.rowsById)
-  const byId = new Map(corpus.issues.map((i) => [i.id, i]))
+  const byId = new Map(corpus.issues.map((i) => [i.id as string, i]))
   const keyOf = (id: string): string | null =>
     ((byId.get(id) as unknown as { sortKey?: string | null } | undefined)?.sortKey ?? null)
 
