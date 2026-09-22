@@ -13,7 +13,7 @@ import type { TurnInput } from './turns.js'
 // Durable headless identity (POD-4386)
 //
 // The legacy headless port (apps/daemon/src/control/headless.ts,
-// durable-headless.ts) fenced every turn on four things the generic contract
+// durable-headless.ts — both deleted in POD-4614) fenced every turn on four things the generic contract
 // could not name: a digest over the immutable facts, an exact account
 // fingerprint, a stable turn id for replay-without-rerun, and an original
 // creation timestamp for the deadline. This module names them so the two

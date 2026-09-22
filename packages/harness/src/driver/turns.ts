@@ -47,7 +47,7 @@ export interface TurnInput {
    * native-login fingerprint and the SHA-256 of the canonical immutable facts.
    * See `canonicalHeadlessContractFacts` / `verifyHeadlessDigest` in
    * `./headless-turn.ts`. Drivers verify both before dispatch and refuse on
-   * mismatch, exactly as `apps/daemon/src/control/headless.ts` does today.
+   * mismatch (the headless family's runtime, ./families/headless/runtime.ts).
    */
   /** Tools pre-approved for THIS TURN ONLY. Session default lives on SessionSpec. */
   allowedTools?: string[]

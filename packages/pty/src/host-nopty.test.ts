@@ -51,4 +51,33 @@ describe('pty-less podium-host create argv', () => {
       /needs --cols\/--rows/,
     )
   })
+
+  it('a turn host carries its retention before --cwd (POD-4614)', () => {
+    expect(
+      hostCreateArgs({
+        socketPath: '/s.sock',
+        cwd: '/w',
+        cmd: '/bin/sh',
+        args: ['-c', 'true'],
+        noPty: true,
+        lingerSecs: 3600,
+        ringBytes: 33554432,
+      }),
+    ).toEqual([
+      'create',
+      '--socket',
+      '/s.sock',
+      '--no-pty',
+      '--ring-bytes',
+      '33554432',
+      '--linger-secs',
+      '3600',
+      '--cwd',
+      '/w',
+      '--',
+      '/bin/sh',
+      '-c',
+      'true',
+    ])
+  })
 })

@@ -7,10 +7,10 @@
  * Integration lane (a C compile, real processes, real ptys); never the unit lane.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { resolveHostBin } from './host-bin.js'
@@ -436,6 +436,41 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
       'the host process to exit',
       3000,
     )
+  }, 30_000)
+
+  it('6b. a kill ends a LONG linger: the owner releasing a finished one-shot turn frees the label (POD-4614)', async () => {
+    const l = label('lkill')
+    const sock = hostSocketPath(l)
+    // Its own socket dir: this case must not lean on an earlier test's spawn.
+    mkdirSync(dirname(sock), { recursive: true, mode: 0o700 })
+    expect(
+      rawCreate(['--socket', sock, '--linger-secs', '3600', '--no-pty', '--', 'sh', '-c', 'echo done']).status,
+    ).toBe(0)
+    const a = connectHost(sock, { mode: 'reader', fromSeq: 0n })
+    const exited = new Promise<number>((r) => a.onExit((c) => r(c)))
+    const w = await a.welcome
+    expect(await exited).toBe(0)
+    a.destroy()
+    // Lingering for the hour it was asked to: the ring is still there.
+    await new Promise((r) => setTimeout(r, 1500))
+    expect(statSync(sock).isSocket()).toBe(true)
+    // The owner releases it: the host must go on the short kill linger.
+    const started = Date.now()
+    await killHostSession(l)
+    await waitFor(
+      () => {
+        try {
+          process.kill(w.hostPid, 0)
+          return false
+        } catch {
+          return true
+        }
+      },
+      'the lingering host to exit after the kill',
+      5000,
+    )
+    expect(Date.now() - started).toBeLessThan(5000)
+    expect(() => statSync(sock)).toThrow()
   }, 30_000)
 
   it('7. KILL: SIGTERM first; a child that ignores it is SIGKILLed after 5 s; EXITED carries the signal', async () => {

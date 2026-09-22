@@ -17,7 +17,6 @@ const integrationTests = [
   // Heavy process/PTY/server-boot suites excluded from the unit lane
   // (vitest.unit.config.ts keeps the mirror of this list).
   'apps/cli/src/podium-update.test.ts',
-  'apps/daemon/src/durable-headless.test.ts',
   'apps/server/src/sync-e2e.test.ts',
   'apps/server/src/server.plugins.test.ts',
   'apps/server/src/server.port-in-use.test.ts',

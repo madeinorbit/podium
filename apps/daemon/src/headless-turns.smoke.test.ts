@@ -4,7 +4,14 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
-import { asAccountId, type HarnessAgent } from '@podium/model'
+import {
+  type HeadlessEmit,
+  type HeadlessTurnSpec,
+  runHostedHeadlessTurn,
+} from '@podium/harness/driver/host'
+import type { ResolvedHarnessInventory } from '@podium/harness'
+import { asAccountId, asSessionId, type HarnessAgent } from '@podium/model'
+import { createDurableProcess } from '@podium/process/durable'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
@@ -16,7 +23,8 @@ import {
   isOpencodeCliAvailable,
   resolveOpencodeBin,
 } from '../../../packages/harness/src/opencode/cli.js'
-import { runHeadlessTurn } from './headless-drivers.js'
+import { headlessTurnEnv } from './control/session-env.js'
+import { createSessionEngineScope } from './session/engines.js'
 import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 
 /**
@@ -26,6 +34,46 @@ import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
  * a turn returns the harness session id, and a SECOND turn resumed with that id
  * retains the first turn's context — the harness owns the conversation.
  */
+/**
+ * One turn the way production runs it (POD-4614): under a REAL podium-host,
+ * through the session layer's engine hold, with the daemon's env composition.
+ * Each turn gets a fresh session label; a resumed turn is a new session turn
+ * on the same harness conversation, exactly as the server sends it.
+ */
+const engines = createSessionEngineScope(createDurableProcess('host', { host: true, abduco: false }))
+let smokeTurns = 0
+function runHeadlessTurn(
+  spec: Omit<HeadlessTurnSpec, 'durableLabel'>,
+  emit: HeadlessEmit,
+  harnessSnapshot: ResolvedHarnessInventory,
+) {
+  const sessionId = asSessionId(randomUUID())
+  smokeTurns += 1
+  return runHostedHeadlessTurn(
+    {
+      owner: engines,
+      childEnv: (invocation) =>
+        headlessTurnEnv({
+          agent: spec.agent,
+          ...(spec.env ? { specEnv: spec.env } : {}),
+          ...invocation,
+          commandEnv: harnessSnapshot.commandEnvironment.env,
+        }),
+    },
+    {
+      spec: { ...spec, durableLabel: `podium-smoke-${sessionId.slice(0, 8)}` },
+      identity: {
+        sessionId,
+        turnId: `smoke-${smokeTurns}`,
+        requestDigest: spec.requestDigest,
+        accountId: spec.accountId,
+      },
+      snapshot: harnessSnapshot,
+      emit,
+    },
+  )
+}
+
 const hasBin = (bin: string): boolean => {
   try {
     execFileSync(bin, ['--version'], {

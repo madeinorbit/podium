@@ -881,6 +881,26 @@ export interface HostCreateCommand {
   rows?: number
   /** Pipes instead of a pty: the headless-engine mode (POD-4433). */
   noPty?: boolean
+  /** How long the host keeps its ring after the child exits (`--linger-secs`). */
+  lingerSecs?: number
+  /** Ring capacity in bytes (`--ring-bytes`). */
+  ringBytes?: number
+}
+
+/**
+ * How long a host keeps what its child said once the child is gone (POD-4614).
+ *
+ * The binary's defaults (a 4 MiB ring, 30 s of linger) suit a long-lived
+ * engine, whose exit a live daemon always sees. A ONE-SHOT turn is different:
+ * its whole result IS the output, and the daemon that started it may be
+ * restarting when the child exits. The ring is then the only record of the
+ * turn, so a turn host asks to keep it — sized for the whole stream and held
+ * until the daemon collects it (or the server acknowledges and the host is
+ * killed).
+ */
+export interface HostRetention {
+  lingerSecs?: number
+  ringBytes?: number
 }
 
 /**
@@ -889,7 +909,11 @@ export interface HostCreateCommand {
  * and failing here names the caller rather than the child's stderr.
  */
 export function hostCreateArgs(opts: HostCreateCommand): string[] {
-  const tail = ['--cwd', opts.cwd, '--', opts.cmd, ...(opts.args ?? [])]
+  const retention = [
+    ...(opts.ringBytes !== undefined ? ['--ring-bytes', String(opts.ringBytes)] : []),
+    ...(opts.lingerSecs !== undefined ? ['--linger-secs', String(opts.lingerSecs)] : []),
+  ]
+  const tail = [...retention, '--cwd', opts.cwd, '--', opts.cmd, ...(opts.args ?? [])]
   if (opts.noPty) {
     if (opts.cols !== undefined || opts.rows !== undefined) {
       throw new Error('podium-host --no-pty and --cols/--rows are exclusive')
@@ -923,7 +947,9 @@ export function hostCreateArgs(opts: HostCreateCommand): string[] {
  * label/scope/journal discipline is identical — that sameness is what lets a
  * daemon restart re-adopt a headless engine (POD-4433).
  */
-export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostDurableAttachment> {
+export async function spawnHostAgent(
+  opts: AbducoSpawnOptions & HostRetention,
+): Promise<HostDurableAttachment> {
   const bin = resolveHostBin()
   if (!bin) throw new Error('podium-host unavailable: no managed build could be made')
   const childEnv: Record<string, string> = {
@@ -965,6 +991,8 @@ export async function spawnHostAgent(opts: AbducoSpawnOptions): Promise<HostDura
     ...(opts.cols !== undefined ? { cols: opts.cols } : {}),
     ...(opts.rows !== undefined ? { rows: opts.rows } : {}),
     ...(opts.noPty ? { noPty: true as const } : {}),
+    ...(opts.lingerSecs !== undefined ? { lingerSecs: opts.lingerSecs } : {}),
+    ...(opts.ringBytes !== undefined ? { ringBytes: opts.ringBytes } : {}),
   })
   const execOpts = { cwd: opts.cwd ?? process.cwd(), env: childEnv } as const
   const attachCreated = async (): Promise<HostDurableAttachment> => {

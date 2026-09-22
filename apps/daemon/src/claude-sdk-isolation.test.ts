@@ -451,10 +451,10 @@ function daemonAddressSpaceRoots(): string[] {
     COMPILED_ENTRY,
     // Named because POD-2690's conformance audit named them: a failure message
     // that says which of these re-tainted the daemon is worth the four lines.
-    'apps/daemon/src/headless-drivers.ts',
+    // The one-shot headless turns moved into the headless family (POD-4614).
+    'packages/harness/src/driver/families/headless/turn.ts',
+    'packages/harness/src/driver/families/headless/runtime.ts',
     'apps/daemon/src/host-runtime.ts',
-    'apps/daemon/src/durable-headless.ts',
-    'apps/daemon/src/control/headless.ts',
     'apps/daemon/src/control/context.ts',
   ])
   for (const file of sourceFiles()) {
@@ -797,14 +797,15 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
     }
   })
 
-  it('never lets the family fork: no child_process value import outside tests', () => {
-    // SPEC §7, AS A TEST. Engine spawns go through the injected supervision
-    // port (podium-host) and one-shot spawns through the daemon's own
-    // one-shot runner; a family that forks directly builds a child no
-    // restart could re-adopt. Type-only imports (`import type`) are not a
-    // fork — codex's exec-turn takes its injected spawner in that shape —
-    // so only value imports are refused. Comments naming the rule are not
-    // imports either.
+  it('never lets the family fork: no child_process import at all outside tests', () => {
+    // SPEC §7, AS A TEST. Engine spawns AND one-shot turns go through the
+    // session layer's process owner (podium-host, POD-4614); a family that
+    // forks directly builds a child no restart could re-adopt. Type-only
+    // imports are refused too now: the last one (codex's exec-turn holding an
+    // injected `ChildProcess`, the spec §7 D8 amendment) went with the raw
+    // one-shot children, and a family that names a child process type is
+    // holding a process it did not get from the owner. Comments naming the
+    // rule are not imports.
     const violations: string[] = []
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir)) {
@@ -817,7 +818,7 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
         if (!/\.tsx?$/.test(entry) || isTestFile(entry)) continue
         const source = stripComments(readFileSync(full, 'utf8'))
         if (
-          /^\s*import\s+(?!type\b)[^'"]*from\s+['"]node:child_process['"]/m.test(source) ||
+          /^\s*import\s+[^'"]*from\s+['"]node:child_process['"]/m.test(source) ||
           /(?:^|[^.\w$])(?:spawn|spawnSync|execFile|execFileSync|exec|execSync|fork)\s*\(/.test(source)
         ) {
           violations.push(relative(repoRoot, full))

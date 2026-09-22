@@ -1,5 +1,6 @@
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { handleCredentialExport, handleCredentialInstall } from '@podium/harness/inventory'
+import { createLogger } from '@podium/logger'
 import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
@@ -8,7 +9,6 @@ import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
 import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
-import { headlessHandlers } from './headless'
 import { inventoryHandlers, reportInventory } from './inventory'
 import { serverEndpointHandlers } from './server-endpoint'
 import { logHandlers } from './logs'
@@ -17,6 +17,8 @@ import { shippingHandlers } from './shipping'
 import { transcriptHandlers } from './transcripts'
 import { updateHandlers } from './update'
 import { workspaceHandlers } from './workspace'
+
+const log = createLogger('daemon:control')
 
 /**
  * Credential export/install frames are served by the harness Inventory
@@ -42,6 +44,59 @@ function credentialPorts(ctx: DaemonContext) {
     },
     reportInventory: () => reportInventory(ctx, { rebuild: true }),
   }
+}
+
+/**
+ * THE LEGACY HEADLESS FRAMES (POD-4614). Headless turns run through the
+ * driver-contract relay (`RuntimeDriver 'headless'`, under podium-host); the
+ * legacy port that served `headlessTurnRequest`/`headlessInterrupt`/
+ * `headlessBind` is deleted. A server old enough to still send them gets a
+ * loud refusal on the frame it waits for, never silence. `headlessTurnAck`
+ * is live: the relay has no ack verb yet, so the server still releases a
+ * turn's host through it.
+ */
+const LEGACY_HEADLESS_REFUSAL =
+  'the legacy headless port is retired (POD-4614): dispatch headless turns through the runtime relay'
+
+const legacyHeadlessHandlers: Pick<
+  ControlHandlers,
+  'headlessTurnRequest' | 'headlessInterrupt' | 'headlessTurnAck' | 'headlessBind'
+> = {
+  headlessTurnRequest: (ctx, msg) => {
+    ctx.send({
+      type: 'headlessTurnResult',
+      requestId: msg.requestId,
+      ok: false,
+      error: LEGACY_HEADLESS_REFUSAL,
+      accountId: msg.accountId,
+      requestDigest: msg.requestDigest,
+    })
+  },
+  headlessInterrupt: (_ctx, msg) => {
+    log.warn('legacy headlessInterrupt refused', { sessionId: msg.sessionId })
+  },
+  headlessTurnAck: (ctx, msg) => {
+    const runtime = ctx.agentRuntime
+    if (!runtime) return
+    void runtime
+      .acknowledgeHeadlessTurn({
+        sessionId: msg.sessionId,
+        turnId: msg.turnId,
+        accountId: msg.accountId,
+        requestDigest: msg.requestDigest,
+      })
+      .catch((err: unknown) =>
+        log.warn('headless turn acknowledgement refused', { err, turnId: msg.turnId }),
+      )
+  },
+  headlessBind: (ctx, msg) => {
+    ctx.send({
+      type: 'headlessBindResult',
+      requestId: msg.requestId,
+      ok: false,
+      error: LEGACY_HEADLESS_REFUSAL,
+    })
+  },
 }
 
 const credentialHandlers: Pick<
@@ -71,7 +126,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...transcriptHandlers,
   ...fileHandlers,
   ...execHandlers,
-  ...headlessHandlers,
+  ...legacyHeadlessHandlers,
   ...handoffHandlers,
   ...workspaceHandlers,
   ...approvalHandlers,

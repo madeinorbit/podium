@@ -1,18 +1,21 @@
 /**
- * THE HEADLESS RUNTIME DRIVER, PINNED (POD-4392).
+ * THE HEADLESS RUNTIME DRIVER, PINNED (POD-4392; moved with the driver from
+ * apps/daemon/src/runtime/headless-driver.test.ts in POD-4614).
  *
- * Every guard in `headless-driver.ts` has a negative test that goes red when
- * the guard is neutered: digest mismatch, missing identity, no-tools verdict,
+ * Every guard in `runtime.ts` has a negative test that goes red when the guard
+ * is neutered: digest mismatch, missing identity, no-tools verdict,
  * native-account fence, same-turn collision, busy, structured-permissions and
  * attachment refusals, unsupported deliveries, adopt identity and ack identity.
- * The turn-execution seam is injected — these prove the WRAPPER preserves the
- * legacy semantics; the harnesses themselves stay covered by
- * `headless-drivers.test.ts` / `durable-headless.test.ts`.
+ * The turn-execution seam is injected — these prove the DRIVER's semantics;
+ * the hosted turn itself is covered by `turn.test.ts` (and, under a real
+ * podium-host across a daemon restart, by the daemon's
+ * `headless-turn-restart.integration.test.ts`).
  */
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { rmSync } from 'node:fs'
+import { asAccountId, asSessionId, type SessionId } from '@podium/model'
+import type { DaemonMessage } from '@podium/protocol/daemon'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   canonicalHeadlessContractFacts,
   resolveProcedures,
@@ -20,23 +23,39 @@ import {
   type RuntimeEvent,
   type SessionSpec,
   type TurnInput,
-} from '@podium/harness/driver/host'
-import { supported } from '@podium/harness'
-import { asAccountId, asSessionId, type SessionId } from '@podium/model'
-import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { DurableProcess } from '@podium/process/durable'
-import { afterEach, describe, expect, it } from 'vitest'
+} from '../../contract.js'
+import { supported } from '../../../manifest.js'
+import type { EngineProcessOwner } from '../engine-supervision.js'
+import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
 import {
+  assertNativeHeadlessAccount,
   createHeadlessRuntime,
   headlessCapabilities,
   type HeadlessDriverHost,
   type HeadlessDriverRunners,
   type HeadlessRuntime,
-} from './headless-driver.js'
-import { testSessions } from '../session/testing.js'
-import type { SessionRegistry } from '../session/registry.js'
-import type { HeadlessEmit, HeadlessTurnOutcome, HeadlessTurnSpec } from '../headless-drivers.js'
-import { testHarnessSnapshot } from '../test-support/harness-snapshot.js'
+} from './runtime.js'
+import type { HostedTurnDeps } from './turn.js'
+import type {
+  HeadlessEmit,
+  HeadlessTurnOutcome,
+  HeadlessTurnSpec,
+  HostedTurnIdentity,
+} from './types.js'
+import { testHarnessSnapshot } from './test-support.js'
+
+/** The session entries the driver binds its handles onto (POD-4512/4610):
+ *  the harness's stand-in slots, same compare-and-release rule as the daemon's. */
+const testSessions = createMemoryDriverSlots
+
+/** The session layer's process owner, as the driver hands it on: never called
+ *  by the fake runners, only passed through. */
+const OWNER: EngineProcessOwner = {
+  startEngine: () => Promise.reject(new Error('fake owner: no processes here')),
+  reattachEngine: () => Promise.reject(new Error('fake owner: no processes here')),
+  engineAlive: async () => false,
+  destroyEngine: async () => {},
+}
 
 const ACCOUNT = 'native:claude-code:fp-1'
 const OTHER_ACCOUNT = 'native:claude-code:fp-2'
@@ -51,8 +70,8 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 interface FakeTurn {
-  durable: boolean
-  turnId?: string
+  identity: HostedTurnIdentity
+  deps: HostedTurnDeps
   spec: HeadlessTurnSpec
   emit: HeadlessEmit
   onPermission?: (request: { id: string; toolName: string; input?: unknown; suggestions?: readonly unknown[] }) => void
@@ -63,11 +82,22 @@ interface FakeTurn {
   reject: (error: unknown) => void
 }
 
-function makeRunners(): HeadlessDriverRunners & { turns: FakeTurn[] } {
+interface FakeAck {
+  label: string
+  identity: HostedTurnIdentity
+}
+
+function makeRunners(): HeadlessDriverRunners & {
+  turns: FakeTurn[]
+  acks: FakeAck[]
+  /** The identity whose host the fake holds: an ack for anything else refuses. */
+  held?: HostedTurnIdentity
+} {
   const turns: FakeTurn[] = []
+  const acks: FakeAck[] = []
   const start = (
-    durable: boolean,
-    turnId: string | undefined,
+    identity: HostedTurnIdentity,
+    deps: HostedTurnDeps,
     spec: HeadlessTurnSpec,
     emit: HeadlessEmit,
     hooks?: { onPermission?: FakeTurn['onPermission'] },
@@ -79,8 +109,8 @@ function makeRunners(): HeadlessDriverRunners & { turns: FakeTurn[] } {
       reject = rej
     })
     const turn: FakeTurn = {
-      durable,
-      ...(turnId !== undefined ? { turnId } : {}),
+      identity,
+      deps,
       spec,
       emit,
       ...(hooks?.onPermission ? { onPermission: hooks.onPermission } : {}),
@@ -102,11 +132,25 @@ function makeRunners(): HeadlessDriverRunners & { turns: FakeTurn[] } {
       },
     }
   }
-  return {
+  const runners: HeadlessDriverRunners & { turns: FakeTurn[]; acks: FakeAck[]; held?: HostedTurnIdentity } = {
     turns,
-    runTurn: (spec, emit, _snapshot, hooks) => start(false, undefined, spec, emit, hooks),
-    runDurableTurn: (turnId, _sessionId, spec, emit) => start(true, turnId, spec, emit),
+    acks,
+    runTurn: (deps, input) => start(input.identity, deps, input.spec, input.emit, input.hooks),
+    acknowledge: async (_owner, label, identity) => {
+      const held = runners.held
+      if (
+        held &&
+        (held.sessionId !== identity.sessionId ||
+          held.turnId !== identity.turnId ||
+          held.requestDigest !== identity.requestDigest ||
+          held.accountId !== identity.accountId)
+      ) {
+        throw new Error('refusing mismatched durable headless acknowledgement')
+      }
+      acks.push({ label, identity })
+    },
   }
+  return runners
 }
 
 interface FakeHost extends HeadlessDriverHost {
@@ -114,16 +158,15 @@ interface FakeHost extends HeadlessDriverHost {
   sent: DaemonMessage[]
   envs: Record<string, string>[]
   nativeAccount: 'ok' | 'mismatch'
-  useDurable: boolean
   historyItems: { id: string; role: 'user' | 'assistant'; text: string }[]
 }
 
-function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount' | 'useDurable'>> = {}): {
+function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): {
   runtime: HeadlessRuntime
   host: FakeHost
-  runners: HeadlessDriverRunners & { turns: FakeTurn[] }
+  runners: ReturnType<typeof makeRunners>
   /** The session entries the driver binds its handles onto (POD-4512). */
-  sessions: SessionRegistry
+  sessions: ReturnType<typeof testSessions>
 } {
   const runners = makeRunners()
   const now = 1_000_000
@@ -132,13 +175,16 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount' | 'useDur
     sent: [],
     envs: [],
     nativeAccount: overrides.nativeAccount ?? 'ok',
-    useDurable: overrides.useDurable ?? false,
     historyItems: [],
     send: (msg) => {
       host.sent.push(msg)
     },
     snapshot: async () => testHarnessSnapshot(),
-    durable: () => (host.useDurable ? ({} as DurableProcess) : undefined),
+    engines: () => OWNER,
+    turnChildEnv: ({ specEnv, execEnv, envOverlay }) => ({
+      env: { ...specEnv, ...execEnv, ...envOverlay },
+      stripEnv: [],
+    }),
     assertNativeAccount: (_agent, accountId) => {
       if (host.nativeAccount !== 'ok' || !String(accountId).startsWith('native:')) {
         throw new Error('tool-less headless turn requires an exact native account fingerprint')
@@ -162,7 +208,7 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount' | 'useDur
     now: () => now,
   }
   const sessions = testSessions()
-  const runtime = createHeadlessRuntime(host, runners, sessions)
+  const runtime = createHeadlessRuntime(host, sessions, runners)
   return { runtime, host, runners, sessions }
 }
 
@@ -343,7 +389,7 @@ describe('headless driver identity', () => {
       // THE ENTRY OWNS THE HANDLE (POD-4512): what `register` indexed in its
       // own map is the same object the session holds, and the same object the
       // runtime answers for the session.
-      expect(sessions.get(sessionId)?.driver).toBe(handle)
+      expect(sessions.get(sessionId)).toBe(handle)
       expect(runtime.handleFor(sessionId)).toBe(handle)
       expect(runtime.bindings()).toHaveLength(1)
     } finally {
@@ -487,11 +533,11 @@ describe('headless dispatch', () => {
     let calls = 0
     const failing: HeadlessDriverRunners & { turns: FakeTurn[] } = {
       ...runners,
-      runTurn: (spec, emit, snapshot, hooks) => {
+      runTurn: (deps, input) => {
         calls += 1
         // First dispatch throws; the retry below must take over the same epoch.
         if (calls === 1) throw new Error('spawn ENOENT')
-        return runners.runTurn(spec, emit, snapshot, hooks)
+        return runners.runTurn(deps, input)
       },
     }
     const now = 1_000_000
@@ -500,11 +546,11 @@ describe('headless dispatch', () => {
       sent: [],
       envs: [],
       nativeAccount: 'ok',
-      useDurable: false,
       historyItems: [],
       send: () => {},
       snapshot: async () => testHarnessSnapshot(),
-      durable: () => undefined,
+      engines: () => OWNER,
+      turnChildEnv: () => ({ env: {}, stripEnv: [] }),
       assertNativeAccount: () => {},
       sessionEnv: () => ({}),
       durableLabel: (sessionId) => `podium-${sessionId}`,
@@ -514,7 +560,7 @@ describe('headless dispatch', () => {
       readFileBytes: async () => new TextEncoder().encode('{"transcript":"bytes"}'),
       now: () => now,
     }
-    const runtime = createHeadlessRuntime(host, failing, testSessions())
+    const runtime = createHeadlessRuntime(host, testSessions(), failing)
     try {
       const { handle, sessionId } = await createHandle(runtime)
       const refused = await handle.send(makeTurn(sessionId, { turnId: 'x1' }), {
@@ -603,17 +649,30 @@ describe('headless dispatch', () => {
     }
   })
 
-  it('routes durable turns through the durable runner with the turn identity', async () => {
-    const { runtime, runners } = makeRuntime({ useDurable: true })
+  it('runs every turn through the hosted runner with the full turn identity and the session owner', async () => {
+    const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      const receipt = await handle.send(makeTurn(sessionId, { turnId: 'd-turn' }), {
+      const input = makeTurn(sessionId, { turnId: 'd-turn' })
+      const receipt = await handle.send(input, {
         origin: 'system',
         delivery: 'when-ready',
       })
       expect(receipt.outcome).toBe('accepted')
       expect(runners.turns).toHaveLength(1)
-      expect(runners.turns[0]).toMatchObject({ durable: true, turnId: 'd-turn' })
+      expect(runners.turns[0]?.identity).toEqual({
+        sessionId,
+        turnId: 'd-turn',
+        requestDigest: input.requestDigest,
+        accountId: ACCOUNT,
+      })
+      // The session layer's owner is the only process door the turn gets, and
+      // the child env comes from the daemon's composition, not the family.
+      expect(runners.turns[0]?.deps.owner).toBe(OWNER)
+      expect(runners.turns[0]?.deps.childEnv({ execEnv: { K: 'v' } }).env).toMatchObject({
+        HOME: '/test',
+        K: 'v',
+      })
     } finally {
       runtime.dispose()
     }
@@ -790,8 +849,8 @@ describe('headless fences', () => {
     }
   })
 
-  it('routes structured claude turns through the SDK path even with a durable host', async () => {
-    const { runtime, runners } = makeRuntime({ useDurable: true })
+  it('routes structured claude turns through the same hosted runner, with the permission hook', async () => {
+    const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
       const receipt = await handle.send(
@@ -800,9 +859,9 @@ describe('headless fences', () => {
       )
       expect(receipt).toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
       expect(runners.turns).toHaveLength(1)
-      // The durable CLI journal cannot answer a permission: structured turns
-      // bypass it for the live SDK child.
-      expect(runners.turns[0]).toMatchObject({ durable: false })
+      // One door for every turn: a structured turn is a hosted turn too, and
+      // only the permission hook tells it apart.
+      expect(runners.turns[0]?.deps.owner).toBe(OWNER)
       expect(runners.turns[0]?.spec).toMatchObject({ structuredPermissions: true })
       expect(typeof runners.turns[0]?.onPermission).toBe('function')
     } finally {
@@ -914,7 +973,7 @@ describe('headless turn endings', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       await handle.send(makeTurn(sessionId), { origin: 'system', delivery: 'when-ready' })
-      const { HeadlessTurnError } = await import('../headless-drivers.js')
+      const { HeadlessTurnError } = await import('./types.js')
       runners.turns[0]?.reject(new HeadlessTurnError('crashed mid-turn', 'orphan-1'))
       await flush()
       expect(host.binds.filter((bind) => bind.resumeValue === 'orphan-1')).toHaveLength(1)
@@ -1136,42 +1195,26 @@ describe('headless history and rebind', () => {
     }
   })
 
-  it('acknowledges durable journals only on exact identity', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'headless-ack-'))
-    roots.push(root)
-    const previous = process.env.PODIUM_STATE_DIR
-    process.env.PODIUM_STATE_DIR = join(root, 'state')
+  it("acknowledges a turn's host only on exact identity, under the session label", async () => {
+    const { runtime, runners } = makeRuntime()
     try {
-      const { runtime } = makeRuntime()
-      try {
-        const sessionId = asSessionId('headless-ack-1')
-        const turnId = 'ack-turn'
-        const accountId = asAccountId(ACCOUNT)
-        const requestDigest = 'a'.repeat(64)
-        // Missing journal: ack is a no-op, never a throw.
-        runtime.acknowledge({ sessionId, turnId, requestDigest, accountId })
-        // Present journal with another identity: mismatch throws and retains.
-        const dirHash = createHash('sha256').update(`${sessionId}\u0000${turnId}`).digest('hex')
-        const dir = join(root, 'state', 'headless-turns', dirHash)
-        mkdirSync(dir, { recursive: true })
-        writeFileSync(
-          join(dir, 'request-identity.json'),
-          JSON.stringify({ sessionId, turnId, requestDigest, accountId }),
-        )
-        writeFileSync(join(dir, 'result.json'), '{}')
-        expect(() =>
-          runtime.acknowledge({ sessionId, turnId, requestDigest: 'b'.repeat(64), accountId }),
-        ).toThrow(/mismatched/)
-        expect(existsSync(dir)).toBe(true)
-        // Exact identity deletes.
-        runtime.acknowledge({ sessionId, turnId, requestDigest, accountId })
-        expect(existsSync(dir)).toBe(false)
-      } finally {
-        runtime.dispose()
-      }
-      } finally {
-      if (previous === undefined) delete process.env.PODIUM_STATE_DIR
-      else process.env.PODIUM_STATE_DIR = previous
+      const { handle, sessionId } = await createHandle(runtime)
+      const turnId = 'ack-turn'
+      const accountId = asAccountId(ACCOUNT)
+      const requestDigest = 'a'.repeat(64)
+      runners.held = { sessionId, turnId, requestDigest, accountId }
+      // Another identity: refused, and nothing is released.
+      await expect(
+        runtime.acknowledge({ sessionId, turnId, requestDigest: 'b'.repeat(64), accountId }),
+      ).rejects.toThrow(/mismatched/)
+      expect(runners.acks).toHaveLength(0)
+      // Exact identity releases the host under THIS session's label.
+      await runtime.acknowledge({ sessionId, turnId, requestDigest, accountId })
+      expect(runners.acks).toEqual([
+        { label: handle.binding.process.key, identity: { sessionId, turnId, requestDigest, accountId } },
+      ])
+    } finally {
+      runtime.dispose()
     }
   })
 })
@@ -1346,7 +1389,7 @@ describe('headless structured permissions', () => {
 // ---------------------------------------------------------------------------
 
 describe('headless procedures', () => {
-  it('carries TurnInput.id into the durable procedure as the turn identity', async () => {
+  it('carries TurnInput.id into the hosted procedure as the turn identity', async () => {
     const { runtime, runners } = makeRuntime()
     try {
       const driver = runtime.driverFor('claude-code')
@@ -1370,5 +1413,53 @@ describe('headless procedures', () => {
     } finally {
       runtime.dispose()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The tool-less account fence (moved from apps/daemon/src/control/headless.test.ts)
+// ---------------------------------------------------------------------------
+
+describe('tool-less headless account fence', () => {
+  const inventory = (fingerprint: string) => ({
+    agents: [
+      {
+        kind: 'claude-code' as const,
+        installed: true,
+        version: 'test',
+        login: {
+          state: 'in' as const,
+          identity: { fingerprint, email: 'operator@example.test' },
+        },
+      },
+    ],
+  })
+
+  it('refuses an ambient HOME or a login fingerprint swap immediately before launch', () => {
+    const accountId = asAccountId('native:claude-code:first')
+    expect(() =>
+      assertNativeHeadlessAccount({
+        agent: 'claude-code',
+        accountId,
+        accountHome: undefined,
+        inventory: inventory('first'),
+      }),
+    ).toThrow(/separately provisioned account HOME/)
+    expect(() =>
+      assertNativeHeadlessAccount({
+        agent: 'claude-code',
+        accountId,
+        accountHome: { path: '/isolated/account' },
+        inventory: inventory('second'),
+      }),
+    ).toThrow(/fingerprint changed before launch/)
+    expect(() =>
+      assertNativeHeadlessAccount({
+        agent: 'claude-code',
+        accountId,
+        accountHome: { path: '/isolated/account' },
+        inventory: inventory('first'),
+      }),
+    ).not.toThrow()
   })
 })
