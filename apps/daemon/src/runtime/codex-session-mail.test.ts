@@ -18,6 +18,8 @@ import { createCodexSessionRuntime } from '@podium/harness/driver/host'
 import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
 import { createMailContinuation } from './mail-boundary'
 import { driverTiming } from './driver-timing'
+import { driverSlotsOver } from '../session/driver-slots.js'
+import { testSessions } from '../session/testing.js'
 
 
 /** Just enough app-server to complete a handshake and resume a thread. */
@@ -111,7 +113,7 @@ function world(options: { sendThrows?: boolean } = {}) {
     entries,
     resumed,
     launches: () => launches,
-    runtime: createCodexSessionRuntime({
+    runtime: createCodexSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
       facts: codexEngineFacts(manifestFor('codex')!),
       engine: host,
       send: (msg) => {
@@ -142,7 +144,7 @@ describe('issue mail without terminal callbacks', () => {
     }, () => now)
     const ack = createAckReminderInjector(async () => ({ ok: true, result:
       mode === 'reminder' ? [{ id: 'msg_reply', from: 'coordinator' }] : [] }), () => now)
-    const runtime = createCodexSessionRuntime({
+    const runtime = createCodexSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
       facts: codexEngineFacts(manifestFor('codex')!),
       engine: {
         ...base.host,

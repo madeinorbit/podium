@@ -28,6 +28,7 @@ import {
   createCodexRuntime,
 } from './runtime.js'
 import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 interface World {
   handle: AgentSessionHandle
@@ -176,7 +177,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
       abandonments.push({ turnIds: turns.map((turn) => turn.input.id), reason })
     },
   }
-  const runtime = createCodexRuntime(host)
+  const runtime = createCodexRuntime(host, createMemoryDriverSlots())
   const handle = await runtime.driver.create({
     harness: 'codex',
     selection: { auth: 'subscription', platform: 'linux', available: ['codex-app-server'] },

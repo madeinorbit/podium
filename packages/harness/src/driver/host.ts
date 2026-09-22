@@ -60,6 +60,8 @@ export * from './families/engine-supervision.js'
 export { reportQueueAbandonment } from './families/queue-report.js'
 /** The turn failure every one-shot turn implementation throws. */
 export { HeadlessTurnFailure } from './families/turn-error.js'
+/** Where a family's live handle lives: the supervisor's per-session entry (POD-4610). */
+export type { SessionDriverSlots } from './families/session-slots.js'
 /** The uniform server-family shape the supervisor composes (1.5). */
 export type {
   ServerFamilyJournalEntry,

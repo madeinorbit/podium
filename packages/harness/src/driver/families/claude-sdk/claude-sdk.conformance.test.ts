@@ -10,6 +10,7 @@ import {
   type ClaudeSdkRuntimeHost,
   type ClaudeSdkTurnHandle,
 } from './runtime.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 interface PendingTurn {
   resumeValue: string
@@ -182,7 +183,7 @@ function makeWorld(): {
     name: 'claude-sdk',
     family: 'embedded',
     createDriver() {
-      runtime = createClaudeSdkRuntime(host)
+      runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
       return { driver: runtime, control }
     },
     reset() {

@@ -52,6 +52,7 @@ import {
 import type { OpencodeEngineFlavor } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
 import type { ServerSessionFramePorts } from '../server-family.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 import type { ServerFamilyJournalEntry } from '../server-family.js'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, HarnessAgent, SessionId } from '@podium/model'
@@ -64,6 +65,9 @@ const log = createLogger('harness:opencode-session')
  * and facts as in ../codex/session.ts.
  */
 export interface OpencodeSessionDeps extends ServerSessionFramePorts {
+  /** The supervisor's per-session driver slots (POD-4610): the family binds
+   *  each session's handle into its entry and keeps no handle index of its own. */
+  driverSlots: SessionDriverSlots
   flavor: OpencodeEngineFlavor
   engine: OpencodeRuntimeHost
 }
@@ -115,7 +119,7 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
         model,
         ...(effort ? { effort } : {}),
       }),
-  })
+  }, deps.driverSlots)
 
   /**
    * Fan one session's contract events out onto the daemon's frame stream.

@@ -1,6 +1,7 @@
 import { respondToMailBoundary, type MailBoundaryContext } from './mail-boundary'
 import { createBoundaryContext, type BoundaryContextOperation, type BoundaryContextRequest } from '@podium/harness/driver/host'
 import type { ReattachControl } from '../session-observers'
+import { driverSlotsOver } from '../session/driver-slots.js'
 import type { SessionRegistry } from '../session/registry.js'
 import { withDeliveryQueue } from '@podium/harness/driver/host'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
@@ -617,12 +618,12 @@ export function createTerminalRuntime(
   const profiles = new Map<SessionId, TerminalHarnessProfile>()
   const registrations = new Map<SessionId, TerminalSessionRegistration>()
   // NO HANDLE INDEX HERE (POD-4512): the entry owns the handle; the reads and
-  // writes below go through `registry`.
+  // writes below go through this driver's own view of the entries' slots, so a
+  // lookup never answers with — and a teardown never empties — a slot another
+  // driver has bound (POD-4610).
+  const slots = driverSlotsOver(registry)
   /** Forget one entry's driver handle without touching the handle itself. */
-  const forgetDriver = (sessionId: SessionId): void => {
-    const owned = registry.get(sessionId)
-    if (owned) owned.driver = undefined
-  }
+  const forgetDriver = (sessionId: SessionId): void => slots.release(sessionId)
   /**
    * FRAMES FOR A SESSION THIS DRIVER HAS CLAIMED BUT NOT YET REGISTERED (POD-2107).
    *
@@ -744,7 +745,7 @@ export function createTerminalRuntime(
     session.publishedCursor = event.cursor
     if (event.t === 'metadata') session.metadata.set(event.change.kind, event)
     session.log.push({ seq: session.seq, event })
-    const timingBinding = registry.get(session.sessionId)?.driver?.binding
+    const timingBinding = slots.get(session.sessionId)?.binding
     if (timingBinding) driverTiming.runtimeEvent(timingBinding, event)
     // BOUNDED, and the bound is a promise about what `events(after)` can serve
     // rather than a memory tweak. `log` exists so a consumer can resume from a
@@ -2283,9 +2284,8 @@ export function createTerminalRuntime(
     // completed outcome replay, including an acceptance still in flight. The
     // get-or-make runs against the ENTRY, so a rebind reuses the one handle
     // exactly as the deleted index did.
-    const owned = registry.ensure(registration.sessionId)
-    const handle = owned.driver ?? makeHandle(session)
-    owned.driver = handle
+    const handle = slots.get(registration.sessionId) ?? makeHandle(session)
+    slots.set(registration.sessionId, handle)
     replayHeldFrames(registration.sessionId)
     return handle
   }
@@ -2320,7 +2320,7 @@ export function createTerminalRuntime(
     registration: TerminalSessionRegistration,
     profile: TerminalHarnessProfile,
   ): AgentSessionHandle {
-    const already = registry.get(registration.sessionId)?.driver
+    const already = slots.get(registration.sessionId)
     if (already) {
       replayHeldFrames(registration.sessionId)
       return already
@@ -2425,7 +2425,7 @@ export function createTerminalRuntime(
         )
       })
     } catch (error) {
-      if (!registry.get(sessionId)?.driver) {
+      if (!slots.get(sessionId)) {
         contexts.get(sessionId)?.reset()
         contexts.delete(sessionId)
         profiles.delete(sessionId)
@@ -2518,15 +2518,8 @@ export function createTerminalRuntime(
     createWithId,
     recoverWithId,
     register,
-    handleFor: (sessionId) => registry.get(sessionId)?.driver,
-    bindings: () => {
-      const out: RuntimeSessionBinding[] = []
-      for (const [, entry] of registry.entries()) {
-        const binding = entry.driver?.binding
-        if (binding) out.push(binding)
-      }
-      return out
-    },
+    handleFor: (sessionId) => slots.get(sessionId),
+    bindings: () => slots.handles().map((handle) => handle.binding),
     has: (sessionId) => sessions.has(sessionId),
     observe,
     observeState: (observation) => observe({ type: 'terminalState', ...observation }),

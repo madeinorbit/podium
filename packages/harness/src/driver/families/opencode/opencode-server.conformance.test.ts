@@ -57,6 +57,7 @@ import {
   type FakeOpencodeSession,
   startFakeOpencodeServer,
 } from './test-support/fake-server.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 /**
  * A server per session, started on demand and remembered.
@@ -488,7 +489,7 @@ function makeWorld(options: WorldOptions = {}): {
       name: 'opencode-server',
       family: 'server',
       createDriver: () => {
-        runtime = createOpencodeRuntime(host)
+        runtime = createOpencodeRuntime(host, createMemoryDriverSlots())
         return { driver: runtime.driver, control }
       },
       reset: () => {

@@ -27,6 +27,7 @@ import {
   type GrokAcpRuntimeHost,
 } from './runtime.js'
 import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const spec = (): SessionSpec => ({
   harness: 'grok',
@@ -90,7 +91,7 @@ function world(): World {
 describe('a queue this driver loses says so — POD-2297', () => {
   it('reports the whole parked queue when the session is stopped under it', async () => {
     const w = world()
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       // A human is driving, so these park and are TOLD they are parked — the
@@ -121,7 +122,7 @@ describe('a queue this driver loses says so — POD-2297', () => {
     // A child close ends this handle as well as its parked turns. Keeping the
     // handle registered routes later sends back to a link already proved gone.
     const w = world()
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -148,7 +149,7 @@ describe('a queue this driver loses says so — POD-2297', () => {
 
   it('releases a when-ready send waiting on a child that dies mid-turn', async () => {
     const w = world()
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.send(
@@ -176,7 +177,7 @@ describe('a queue this driver loses says so — POD-2297', () => {
     // session again, but never the in-memory queue. The turns were owed and are
     // now owed by nobody, which is the whole of what this report says.
     const w = world()
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -198,7 +199,7 @@ describe('a queue this driver loses says so — POD-2297', () => {
     // would put a frame on the daemon's durable outbox for every session that
     // ever ends.
     const w = world()
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.stop()
@@ -210,7 +211,7 @@ describe('a queue this driver loses says so — POD-2297', () => {
 
   it('reports a parked turn once — the queue does not keep its own copy', async () => {
     const w = world()
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -235,7 +236,7 @@ describe('a session adopted OVER a live one takes its queue with it — POD-2297
      * daemon's reattach runs before any live-session check.
      */
     const w = world()
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')
@@ -255,7 +256,7 @@ describe('a session adopted OVER a live one takes its queue with it — POD-2297
 
   it('says nothing when the session it displaces had an empty queue', async () => {
     const w = world()
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await runtime.driver.adopt(handle.binding)
@@ -273,7 +274,7 @@ describe('a throwing report does not leak the child — POD-2297 review, low 1',
     w.host.onQueueAbandoned = () => {
       throw new Error('EDQUOT: disk quota exceeded, write')
     }
-    const runtime = createGrokAcpRuntime(w.host)
+    const runtime = createGrokAcpRuntime(w.host, createMemoryDriverSlots())
     try {
       const handle = await runtime.driver.create(spec())
       await handle.lease.acquire('operator', 'human-controller')

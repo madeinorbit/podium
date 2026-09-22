@@ -137,6 +137,7 @@ import {
   type HeadlessTurnSpec,
   runHeadlessTurn,
 } from '../headless-drivers.js'
+import { driverSlotsOver } from '../session/driver-slots.js'
 import type { SessionRegistry } from '../session/registry.js'
 import { HeadlessTurnFailure, claudeSdkHarnessKind } from '@podium/harness/driver/host'
 import {
@@ -457,12 +458,12 @@ export function createHeadlessRuntime(
 ): HeadlessRuntime {
   const sessions = new Map<SessionId, HeadlessDriverSession>()
   // NO HANDLE INDEX HERE (POD-4512): the entry owns the handle; the reads and
-  // writes below go through `registry`.
+  // writes below go through this driver's own view of the entries' slots, so a
+  // lookup never answers with — and a teardown never empties — a slot another
+  // driver has bound (POD-4610).
+  const slots = driverSlotsOver(registry)
   /** Forget one entry's driver handle without touching the handle itself. */
-  const forgetDriver = (sessionId: SessionId): void => {
-    const owned = registry.get(sessionId)
-    if (owned) owned.driver = undefined
-  }
+  const forgetDriver = (sessionId: SessionId): void => slots.release(sessionId)
 
   function publish(sessionId: SessionId, event: RuntimeEvent): void {
     // The one predicate every producer and the server's durable gate reads
@@ -1423,7 +1424,7 @@ export function createHeadlessRuntime(
     // this replaces overwrote unconditionally too, so a re-register supersedes
     // rather than reuses.
     const handle = makeHandle(session)
-    registry.ensure(session.sessionId).driver = handle
+    slots.set(session.sessionId, handle)
     return handle
   }
 
@@ -1524,7 +1525,7 @@ export function createHeadlessRuntime(
       } catch (error) {
         log.warn('headless resume rebind failed', { err: error, sessionId })
       }
-      const handle = registry.get(sessionId)?.driver
+      const handle = slots.get(sessionId)
       if (!handle) throw new Error(`headless session '${sessionId}' lost its handle`)
       return handle
     }
@@ -1593,7 +1594,7 @@ export function createHeadlessRuntime(
         { t: 'process', ev: { ev: 'adopted', bindingVersion: existing.bindingVersion } },
         'bootstrap',
       )
-      const handle = registry.get(binding.sessionId)?.driver
+      const handle = slots.get(binding.sessionId)
       if (!handle) throw new Error(`headless session '${binding.sessionId}' lost its handle`)
       return handle
     }
@@ -1673,7 +1674,7 @@ export function createHeadlessRuntime(
 
   return {
     driverFor,
-    handleFor: (sessionId) => registry.get(sessionId)?.driver,
+    handleFor: (sessionId) => slots.get(sessionId),
     bindings: () => [...sessions.values()].map(bindingFor),
     createWithId,
     resumeWithId,

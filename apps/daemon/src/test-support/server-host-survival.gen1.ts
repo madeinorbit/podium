@@ -44,6 +44,8 @@ import {
   grokAcpVersionProbe,
   opencodeVersionProbeForExecutable,
 } from '../runtime/version-probe.js'
+import { driverSlotsOver } from '../session/driver-slots.js'
+import { testSessions } from '../session/testing.js'
 
 const root = process.env.GEN1_ROOT as string
 const workdir = `${root}/work`
@@ -75,7 +77,7 @@ const codexHost = createCodexEngineHost({
   socketRoot: engineSocketRoot(),
   dialSocket: dialEngineSocket,
 })
-const codexRuntime = createCodexRuntime(codexHost)
+const codexRuntime = createCodexRuntime(codexHost, driverSlotsOver(testSessions()))
 const codexHandle = await codexRuntime.driver.create({
   harness: 'codex',
   selection: {
@@ -106,7 +108,7 @@ const opencodeHost = createOpencodeEngineHost({
   checkVersion: ({ executable }) =>
     opencodeVersionProbeForExecutable(executable).then((v) => (v.drivable ? null : v.diagnostic)),
 })
-const opencodeRuntime = createOpencodeRuntime(opencodeHost)
+const opencodeRuntime = createOpencodeRuntime(opencodeHost, driverSlotsOver(testSessions()))
 const opencodeHandle = await opencodeRuntime.driver.create({
   harness: 'opencode',
   selection: {
@@ -132,7 +134,7 @@ const grokHost = createGrokEngineHost({
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
   checkVersion: () => grokAcpVersionProbe(),
 })
-const grokRuntime = createGrokAcpRuntime(grokHost)
+const grokRuntime = createGrokAcpRuntime(grokHost, driverSlotsOver(testSessions()))
 const grokHandle = await grokRuntime.driver.create({
   harness: 'grok',
   selection: {
@@ -160,7 +162,7 @@ const claudeEngine = createClaudeEngineHost({
   buildEnv: composeEngineEnv,
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
 })
-const claudeRuntime = createClaudeSdkSessionRuntime({
+const claudeRuntime = createClaudeSdkSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
   send: () => {},
   emitBind: () => {},
   sessionReady: () => {},

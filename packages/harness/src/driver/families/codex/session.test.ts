@@ -19,6 +19,7 @@ import { codexEngineFacts } from './engine-facts.js'
 import { createCodexSessionRuntime } from './session.js'
 import type { CodexRuntimeHost } from './runtime.js'
 import type { CodexTransport } from './client.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 const FACTS = codexEngineFacts(manifestFor('codex')!)
 
@@ -113,7 +114,7 @@ function world(options: { sendThrows?: boolean } = {}) {
     entries,
     resumed,
     launches: () => launches,
-    runtime: createCodexSessionRuntime({
+    runtime: createCodexSessionRuntime({ driverSlots: createMemoryDriverSlots(),
       facts: FACTS,
       engine: host,
       send: (msg) => {
@@ -437,7 +438,7 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
       turnEpoch: 0,
       bindingVersion: 1,
     })
-    const failing = createCodexSessionRuntime({
+    const failing = createCodexSessionRuntime({ driverSlots: createMemoryDriverSlots(),
       facts: FACTS,
       engine: {
         ...w.host,

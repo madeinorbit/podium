@@ -101,6 +101,7 @@ import type {
   TurnReceipt,
 } from '../../turns.js'
 import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 import { codexAppServerCapabilities } from './capabilities.js'
 import { type CodexClient, type CodexClientConfig, createCodexClient } from './client.js'
 import {
@@ -468,9 +469,13 @@ export interface CodexRuntime {
   dispose(): void
 }
 
-export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
+export function createCodexRuntime(
+  host: CodexRuntimeHost,
+  // The session's handle lives on the supervisor's entry (POD-4610): this
+  // family binds into the slot and reads it back, and keeps no index of its own.
+  slots: SessionDriverSlots,
+): CodexRuntime {
   const sessions = new Map<SessionId, DriverSession>()
-  const handles = new Map<SessionId, AgentSessionHandle>()
   const streamPositions = new Map<string, { seq: number; turnEpoch: number }>()
   const capabilities = codexAppServerCapabilities()
 
@@ -1360,7 +1365,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.stop()
-        handles.delete(session.sessionId)
+        slots.release(session.sessionId)
         sessions.delete(session.sessionId)
       },
 
@@ -1375,7 +1380,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         await host.detachClient?.({ sessionId: session.sessionId })
         session.client.close()
         await session.endpoint.stop()
-        handles.delete(session.sessionId)
+        slots.release(session.sessionId)
         sessions.delete(session.sessionId)
         return { ok: true as const }
       },
@@ -1387,7 +1392,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         await session.endpoint.kill()
         host.journal.clear(session.sessionId)
         streamPositions.delete(session.binding.process.key)
-        handles.delete(session.sessionId)
+        slots.release(session.sessionId)
         sessions.delete(session.sessionId)
       },
 
@@ -2197,7 +2202,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
     persist(session)
 
     const handle = buildHandle(session)
-    handles.set(input.sessionId, handle)
+    slots.set(input.sessionId, handle)
     return handle
   }
 
@@ -2423,8 +2428,8 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
   return {
     driver,
     createWithId,
-    handleFor: (sessionId) => handles.get(sessionId),
-    bindings: () => [...handles.values()].map((handle) => handle.binding),
+    handleFor: (sessionId) => slots.get(sessionId),
+    bindings: () => slots.handles().map((handle) => handle.binding),
     reportOomKill: (sessionId, scopeUnit) => {
       const session = sessions.get(sessionId)
       if (!session) return
@@ -2443,7 +2448,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
       endSession(session)
       session.client.close()
       sessions.delete(sessionId)
-      handles.delete(sessionId)
+      slots.release(sessionId)
     },
     dispose: () => {
       for (const session of sessions.values()) {
@@ -2451,7 +2456,7 @@ export function createCodexRuntime(host: CodexRuntimeHost): CodexRuntime {
         session.client.close()
       }
       sessions.clear()
-      handles.clear()
+      for (const handle of slots.handles()) slots.release(handle.binding.sessionId, handle)
       streamPositions.clear()
     },
   }

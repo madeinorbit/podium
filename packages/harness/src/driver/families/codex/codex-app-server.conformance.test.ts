@@ -49,6 +49,7 @@ import {
   createCodexRuntime,
 } from './runtime.js'
 import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
+import { createMemoryDriverSlots } from '../../testing/index.js'
 
 /**
  * THE ONE HOST FACT THIS FILE VARIES, and it is a fact about the MACHINE rather
@@ -370,7 +371,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
       name: 'codex-app-server',
       family: 'server',
       createDriver: () => {
-        runtime = createCodexRuntime(host)
+        runtime = createCodexRuntime(host, createMemoryDriverSlots())
         return { driver: runtime.driver, control }
       },
       reset: () => {

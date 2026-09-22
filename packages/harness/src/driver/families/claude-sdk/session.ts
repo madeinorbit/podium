@@ -13,6 +13,7 @@ import type { ClaudeEngineHost } from './engine-host.js'
 import { claudeEngineProcessKey, type ClaudeEngineFacts } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
 import type { ServerSessionFramePorts } from '../server-family.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 import type { ServerFamilyJournalEntry } from '../server-family.js'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
@@ -121,6 +122,9 @@ export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime {
  * translation between the contract and the frames.
  */
 export interface ClaudeSdkSessionDeps extends ServerSessionFramePorts {
+  /** The supervisor's per-session driver slots (POD-4610): the family binds
+   *  each session's handle into its entry and keeps no handle index of its own. */
+  driverSlots: SessionDriverSlots
   facts: ClaudeEngineFacts
   engine: ClaudeEngineHost
   transcript: {
@@ -190,7 +194,7 @@ export function createClaudeSdkSessionRuntime(
     releaseEngines: () => deps.engine.releaseEngines(),
   }
 
-  const contractRuntime = createClaudeSdkRuntime(host)
+  const contractRuntime = createClaudeSdkRuntime(host, deps.driverSlots)
 
   function sendState(sessionId: SessionId): void {
     void runtime

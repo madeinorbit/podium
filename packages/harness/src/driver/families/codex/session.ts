@@ -54,6 +54,7 @@ import {
 import type { CodexEngineFacts } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
 import type { ServerSessionFramePorts } from '../server-family.js'
+import type { SessionDriverSlots } from '../session-slots.js'
 import type { ServerFamilyJournalEntry } from '../server-family.js'
 
 const log = createLogger('harness:codex-session')
@@ -68,6 +69,9 @@ const log = createLogger('harness:codex-session')
  * translation between the contract and the frames.
  */
 export interface CodexSessionDeps extends ServerSessionFramePorts {
+  /** The supervisor's per-session driver slots (POD-4610): the family binds
+   *  each session's handle into its entry and keeps no handle index of its own. */
+  driverSlots: SessionDriverSlots
   facts: CodexEngineFacts
   engine: CodexRuntimeHost
 }
@@ -138,7 +142,7 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
     // A queue this driver loses becomes a durable server-side receipt
     // correction, so the port is wired HERE, next to `send` (POD-2297).
     onQueueAbandoned: reportQueueAbandonment(deps.facts.harnessKind, deps.send),
-  })
+  }, deps.driverSlots)
 
   /**
    * Fan one session's contract events out onto the daemon's frame stream.
