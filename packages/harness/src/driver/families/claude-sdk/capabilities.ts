@@ -1,7 +1,8 @@
 import { supported, unsupported } from '../../../manifest.js'
 import type { DriverCapabilities } from '../../capabilities.js'
 
-/** Capabilities of Claude's process-per-turn Agent SDK embedding. */
+/** Capabilities of the Claude stream engine: one `claude` stream-json child
+ *  under podium-host, server family (ADR 11, POD-4612). */
 export function claudeSdkCapabilities(): DriverCapabilities {
   return {
     send: {
@@ -20,14 +21,14 @@ export function claudeSdkCapabilities(): DriverCapabilities {
     observation: { watchLevels: ['coarse', 'fine'], cursorMaterial: 'sdk-event-seq' },
     transcript: supported({ history: true }),
     staging: unsupported('the Claude SDK adapter has no typed attachment channel'),
-    attach: unsupported('the embedded SDK has no terminal or native client to attach'),
+    attach: unsupported('the Claude stream engine has no terminal or native client to attach'),
     lease: supported({ humanTakeover: true }),
     snapshot: supported({ includesDraft: false }),
     archive: supported({ formatVersion: 1, byteFaithful: true }),
     resumeRefTiming: 'spawn',
     placement: 'dedicated',
     instrumentation: 'none',
-    draft: unsupported('the embedded SDK has no harness-owned composer'),
+    draft: unsupported('the Claude stream engine has no harness-owned composer'),
     /**
      * MODEL AND EFFORT, STICKY, FROM THE NEXT TURN (POD-3081). Each turn opens
      * its own `query()` built from `spec.model`, so a write to the session's

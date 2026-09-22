@@ -1511,10 +1511,10 @@ export async function createDaemonHostRuntime(args: {
   }, driverSlotsOver(ctx.sessions))
   agentRuntime = createDaemonMachineRuntime({
     terminal: terminalRuntime,
-    claude: claudeRuntime,
     // One uniform shape per server family (1.5): the machine runtime never
-    // branches on which family a session belongs to.
-    servers: [opencodeRuntime, opencode2Runtime, codexRuntime, grokRuntime],
+    // branches on which family a session belongs to. The Claude stream engine
+    // is one of them (POD-4612) — same journal-adopt, reap and bind arms.
+    servers: [opencodeRuntime, opencode2Runtime, codexRuntime, grokRuntime, claudeRuntime],
     headless: headlessRuntime,
     inventory: async () =>
       harnessRuntime

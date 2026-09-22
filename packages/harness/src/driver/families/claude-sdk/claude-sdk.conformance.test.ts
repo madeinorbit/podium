@@ -175,13 +175,17 @@ function makeWorld(): {
       runtime?.restartSupervisor()
     },
     connectWithoutSecret() {
-      return { refused: false }
+      // REFUSED BY THE TRANSPORT, like codex and grok: the engine's only
+      // channel is its own stdio pair behind podium-host, so there is no port
+      // or socket another local process could reach without the session's
+      // host connection (POD-4612 — the server family's endpoint rule).
+      return { refused: true }
     },
   }
 
   const target: ConformanceTarget = {
     name: 'claude-sdk',
-    family: 'embedded',
+    family: 'server',
     createDriver() {
       runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
       return { driver: runtime, control }
@@ -221,7 +225,7 @@ runConformance(world.target.createDriver, {
   family: world.target.family,
   reset: world.target.reset,
   spec: world.target.spec,
-  exemptions: PERMITTED_FAILURES.embedded,
+  exemptions: PERMITTED_FAILURES.server,
 })
 
 describe('claude-sdk conversation persistence', () => {

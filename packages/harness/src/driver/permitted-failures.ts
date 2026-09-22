@@ -58,8 +58,13 @@ export type PermittedFailure =
    */
   | 'no-native-steer'
   /**
-   * No interactive terminal at all. EMBEDDED ONLY: the runtime hosts the loop in
-   * a worker child, so there is nothing to attach to and chat is the answer.
+   * No interactive terminal at all: no PTY, and no stock client that can open
+   * the conversation beside the engine, so chat is the answer. SERVER FAMILY,
+   * PINNED PER DRIVER in {@link NO_ATTACH_DRIVERS} — the same shape as
+   * `no-native-steer`, and for the same reason. Having a client terminal is a
+   * fact about a harness's CLI, not about the server shape: codex, opencode and
+   * grok ship a TUI that reopens the session, and the Claude stream engine
+   * (POD-4612, formerly its own `embedded` family) has none.
    */
   | 'no-attach'
 
@@ -97,8 +102,7 @@ export const PERMITTED_FAILURES: Readonly<Record<DriverFamily, readonly Permitte
    * makes on purpose rather than a default a new driver inherits. Both bite on
    * every family, which the family permission never did.
    */
-  server: ['no-native-steer'],
-  embedded: ['no-native-steer', 'no-attach'],
+  server: ['no-native-steer', 'no-attach'],
   terminal: ['unverified-send', 'at-least-once-interactions', 'no-native-steer'],
 }
 
@@ -149,3 +153,22 @@ export const NO_NATIVE_STEER_DRIVERS = [
 
 export const permitsNoNativeSteer = (driverId: AcceptedDriverId): boolean =>
   (NO_NATIVE_STEER_DRIVERS as readonly DriverId[]).includes(canonicalDriverId(driverId))
+
+/**
+ * WHICH DRIVERS MAY ACTUALLY TAKE `no-attach` (POD-4612).
+ *
+ * The server row carries `no-attach` since the Claude stream engine joined the
+ * family, so `permits('server', 'no-attach')` stopped answering anything about
+ * codex, opencode or grok — each of which has a stock TUI and must keep
+ * declaring it. The entitlement is pinned per driver for the reason
+ * {@link NO_NATIVE_STEER_DRIVERS} gives: declining attach becomes an edit
+ * somebody makes on purpose, never a default a new server driver inherits.
+ *
+ *   `claude-sdk` — the stream-json engine is a pipe pair under podium-host; the
+ *                  `claude` TUI cannot join a conversation a second process is
+ *                  driving, so there is no client terminal to produce.
+ */
+export const NO_ATTACH_DRIVERS = ['claude-sdk'] as const satisfies readonly DriverId[]
+
+export const permitsNoAttach = (driverId: AcceptedDriverId): boolean =>
+  (NO_ATTACH_DRIVERS as readonly DriverId[]).includes(canonicalDriverId(driverId))

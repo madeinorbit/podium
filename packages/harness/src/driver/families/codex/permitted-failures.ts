@@ -47,12 +47,16 @@ export const CODEX_SERVER_PERMITTED_FAILURES: readonly PermittedFailure[] =
   PERMITTED_FAILURES.server
 
 /**
- * The one name, written out ONCE so a test can assert the derivation above still
- * yields exactly it — and so a future widening of the server row is a visible,
- * argued edit rather than a green suite nobody re-read.
+ * The names, written out ONCE so a test can assert the derivation above still
+ * yields exactly them — and so a future widening of the server row is a visible,
+ * argued edit rather than a green suite nobody re-read. `no-attach` is that
+ * widening (POD-4612: the Claude stream engine joined the server family with no
+ * client terminal). Like `no-native-steer`, codex claims it and does not have
+ * it: its entitlement is `NO_ATTACH_DRIVERS`, which does not list codex.
  */
 export const CODEX_SERVER_EXEMPTION_NAMES = [
   'no-native-steer',
+  'no-attach',
 ] as const satisfies readonly PermittedFailure[]
 
 /**
