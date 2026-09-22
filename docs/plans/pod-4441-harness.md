@@ -400,7 +400,7 @@ is `oracleSnapshot`, which takes both from the store.
 
 ### Proof that it can fail (`shared/src/gen/check.test.ts`)
 
-Measured at commit `407389b1a` (rebased onto POD-4608), corpus 1x (seed 4443).
+Measured at `407389b1a`, which became `a7450c223` when rebased onto `9279c2974` (that commit touched only native test files; the later biome pass is formatting). Corpus 1x (seed 4443).
 
 | Subject | Run | Result |
 |---|---|---|
@@ -439,7 +439,7 @@ POD_CHECK_CI=1 PODIUM_TEST_WORKERS=4 bun scripts/test-heavy.ts -- -- bun run tes
 path.) Each shard asserts it finished in under 5 minutes. Per-seed counts and
 times land in `harness/browser/results/check-ci-<n>.json`.
 
-As of `407389b1a`: **all 20 seeds pass**. Totals: 6,000 steps, 10 skipped
+As of `407389b1a` (now `a7450c223`): **all 20 seeds pass**. Totals: 6,000 steps, 10 skipped
 by the runner (target gone), 128 arms created (20 at boot, 108 on reloads),
 620 rebuild and 620 oracle checks. **Wall 125 s** (the command's Duration;
 the shards took 111, 113, 111 and 114 s). Load was 10.5 at the start and
