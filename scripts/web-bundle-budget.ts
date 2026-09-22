@@ -210,15 +210,14 @@ const BROWSER_HOSTILE_SOURCES = [
  * check continues to reject every parser, pager and tailer in the store, every
  * driver family behind `/driver/host`, and the manifests' sqlite closure.
  * (POD-4469 dissolved `packages/transcript` into `packages/harness/src/store`,
- * so the old transcript exceptions moved with their modules; the composer
- * pair is the pure screen-lines-in/bytes-out interface the web fallback
- * shares with the daemon, audited through its own browser entrypoints.) */
+ * so the old transcript exceptions moved with their modules; the composer-sync
+ * port is the harness-free typed subset both sync consumers share (POD-4477),
+ * audited through its own browser entrypoint.) */
 const BROWSER_HOSTILE_EXCEPTIONS = [
   'packages/harness/src/browser.ts',
   'packages/harness/src/store/cursor-codec.ts',
   'packages/harness/src/store/stream-identity.ts',
   'packages/harness/src/driver/families/terminal/composer-sync.ts',
-  'packages/harness/src/driver/families/terminal/prompt-extract.ts',
 ] as const
 
 /**

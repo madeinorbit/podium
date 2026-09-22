@@ -70,6 +70,12 @@ export const sharedVitestConfig = {
       // them to '<index.ts>/…'. Each entry below is anchored; the deep family
       // path the daemon's composer-sync reaches is anchored too.
       {
+        find: /^@podium\/harness\/browser$/,
+        replacement: fileURLToPath(
+          new URL('./packages/harness/src/browser.ts', import.meta.url),
+        ),
+      },
+      {
         find: /^@podium\/harness\/driver$/,
         replacement: fileURLToPath(
           new URL('./packages/harness/src/driver.ts', import.meta.url),
@@ -92,15 +98,6 @@ export const sharedVitestConfig = {
         replacement: fileURLToPath(
           new URL(
             './packages/harness/src/driver/families/terminal/composer-sync.ts',
-            import.meta.url,
-          ),
-        ),
-      },
-      {
-        find: /^@podium\/harness\/driver\/families\/terminal\/prompt-extract$/,
-        replacement: fileURLToPath(
-          new URL(
-            './packages/harness/src/driver/families/terminal/prompt-extract.ts',
             import.meta.url,
           ),
         ),
@@ -131,6 +128,15 @@ export const sharedVitestConfig = {
         find: /^@podium\/harness\/adapters\/shared\/hook-fields$/,
         replacement: fileURLToPath(
           new URL('./packages/harness/src/adapters/shared/hook-fields.ts', import.meta.url),
+        ),
+      },
+      // The shared composer byte vocabulary (POD-4477): daemon composer tests
+      // pin clear/type sequences against these named constants. Same anchored
+      // shape as every entry above.
+      {
+        find: /^@podium\/harness\/adapters\/shared\/composer$/,
+        replacement: fileURLToPath(
+          new URL('./packages/harness/src/adapters/shared/composer.ts', import.meta.url),
         ),
       },
       {

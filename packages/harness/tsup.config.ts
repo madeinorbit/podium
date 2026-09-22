@@ -9,10 +9,11 @@ export default defineConfig({
   // and their sqlite modules; the driver contract (`./driver`, server may
   // import) and its host half (`./driver/host`, daemon only); the conformance
   // corpus (`./driver/testing`); the transcript store (`./store`, both sides);
-  // and machine inventory (`./inventory`, daemon only). Two narrow deep
-  // entries expose the pure composer interface the web fallback and
-  // terminal-client share without taking the host barrel; the composer rules
-  // move to `adapters/<h>/composer.ts` with their browser exports in 4.3.
+  // and machine inventory (`./inventory`, daemon only). One narrow deep entry
+  // exposes the harness-free composer-sync port the daemon's engine and the
+  // web fallback share; the composer rules themselves live in
+  // `adapters/<h>/composer.ts` (POD-4477) and reach the browser through the
+  // `./browser` entry above, never through a deep path.
   entry: [
     'src/index.ts',
     'src/metadata.ts',
@@ -23,7 +24,6 @@ export default defineConfig({
     'src/store.ts',
     'src/inventory.ts',
     'src/driver/families/terminal/composer-sync.ts',
-    'src/driver/families/terminal/prompt-extract.ts',
   ],
   format: ['esm'],
   clean: true,
