@@ -22,5 +22,5 @@ export const codexDescriptor: HarnessDescriptorData = {
   },
   brand: null,
   login: { command: null, installHint: null, signedOutHint: null },
-  defaults: { model: null, effort: null },
+  defaults: { model: null, effort: null, panelMode: null },
 }

@@ -22,5 +22,5 @@ export const claudeCodeDescriptor: HarnessDescriptorData = {
   },
   brand: { bg: '#d97757', fg: '#ffffff' },
   login: { command: null, installHint: null, signedOutHint: null },
-  defaults: { model: null, effort: null },
+  defaults: { model: null, effort: null, panelMode: null },
 }

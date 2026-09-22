@@ -79,6 +79,14 @@ export type HarnessDescriptorLoginWire = z.infer<typeof HarnessDescriptorLoginWi
 export const HarnessDescriptorDefaultsWire = z.object({
   model: z.string().nullish(),
   effort: z.string().nullish(),
+  /**
+   * Headed-create panel intent (POD-4541): stated per harness in
+   * `adapters/<harness>/descriptor.ts` (`'native'` for OpenCode, absent
+   * elsewhere). Optional on the wire — a missing or unknown value renders as
+   * today (no override). A plain string (not an enum) so a newer spelling
+   * still parses; clients act only on the values they know.
+   */
+  panelMode: z.string().nullish(),
 })
 export type HarnessDescriptorDefaultsWire = z.infer<typeof HarnessDescriptorDefaultsWire>
 

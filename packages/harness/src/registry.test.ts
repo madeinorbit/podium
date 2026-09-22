@@ -766,7 +766,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
         icon: { id: 'fictional', viewBox: '0 0 24 24', d: 'M4 4h16v16H4z' },
         brand: null,
         login: { command: null, installHint: null, signedOutHint: null },
-        defaults: { model: null, effort: null },
+        defaults: { model: null, effort: null, panelMode: null },
       },
       catalog: {
         kind: fictional,

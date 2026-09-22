@@ -1,9 +1,11 @@
 import { asAccountId } from '@podium/model'
+import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
+import type { HarnessDescriptorWire } from '@podium/protocol'
 import { nativeAccountId } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
-import { accountOptions, RoleBackendEditor } from './shared'
+import { accountOptions, managedCodingHarnesses, providerLabel, RoleBackendEditor } from './shared'
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({ trpc: {} })
@@ -236,5 +238,44 @@ describe('RoleBackendEditor · managed account for the coding role (#216)', () =
       model: 'auto',
       effort: 'auto',
     })
+  })
+})
+
+/**
+ * Managed pairing reads descriptor.provider (POD-4541): no hand-written
+ * harness list in the client. A future harness with provider `anthropic`
+ * pairs with the same managed accounts without a client change.
+ */
+describe('managed pairing reads descriptor.provider', () => {
+  const claudeRow = BUNDLED_DESCRIPTORS.find((d) => d.kind === 'claude-code')
+  if (!claudeRow) throw new Error('bundled descriptors have no claude-code row')
+  const futureAnthropic = {
+    ...claudeRow,
+    kind: 'future-cli',
+    provider: 'anthropic',
+    label: 'Future CLI',
+    shortLabel: 'Future',
+  } as HarnessDescriptorWire
+
+  it('pairs managed:anthropic and claude-oauth with every anthropic descriptor', () => {
+    const descriptors = [...BUNDLED_DESCRIPTORS, futureAnthropic]
+    expect(managedCodingHarnesses(asAccountId('managed:anthropic'), descriptors)).toEqual([
+      'claude-code',
+      'future-cli',
+    ])
+    expect(managedCodingHarnesses(asAccountId('managed:claude-oauth'), descriptors)).toEqual([
+      'claude-code',
+      'future-cli',
+    ])
+  })
+
+  it('pairs managed:openai via the bundled fallback and leaves openrouter unoffered', () => {
+    expect(managedCodingHarnesses(asAccountId('managed:openai'), undefined)).toEqual(['codex'])
+    expect(managedCodingHarnesses(asAccountId('managed:openrouter'), undefined)).toEqual([])
+  })
+
+  it('keeps the ChatGPT provider namespace without naming a harness', () => {
+    expect(providerLabel('anthropic')).toBe('Anthropic')
+    expect(providerLabel('codex')).toBe('Codex (ChatGPT)')
   })
 })

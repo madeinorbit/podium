@@ -118,4 +118,19 @@ describe('harness descriptor wire (POD-4475)', () => {
     }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
+
+  it('parses the headed panel intent and tolerates a missing or newer spelling', () => {
+    // POD-4541: `defaults.panelMode` is optional DATA. OpenCode states
+    // 'native'; absent renders as today (no override); a newer spelling still
+    // parses because the field is a plain string, not an enum.
+    expect(
+      HarnessDescriptorWire.parse({ ...descriptor, defaults: { panelMode: 'native' } }).defaults
+        ?.panelMode,
+    ).toBe('native')
+    expect(HarnessDescriptorWire.parse(descriptor).defaults).toBeUndefined()
+    expect(
+      HarnessDescriptorWire.parse({ ...descriptor, defaults: { panelMode: 'hologram' } }).defaults
+        ?.panelMode,
+    ).toBe('hologram')
+  })
 })

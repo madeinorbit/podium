@@ -22,5 +22,5 @@ export const grokDescriptor: HarnessDescriptorData = {
   },
   brand: { bg: '#ffffff', fg: '#09090b' },
   login: { command: null, installHint: null, signedOutHint: null },
-  defaults: { model: null, effort: null },
+  defaults: { model: null, effort: null, panelMode: null },
 }

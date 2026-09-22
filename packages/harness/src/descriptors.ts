@@ -112,11 +112,14 @@ function assembleDescriptor(manifest: AgentManifest): HarnessDescriptorWire {
           },
         }
       : {}),
-    ...(data.defaults.model !== null || data.defaults.effort !== null
+    ...(data.defaults.model !== null ||
+    data.defaults.effort !== null ||
+    data.defaults.panelMode !== null
       ? {
           defaults: {
             ...(data.defaults.model !== null ? { model: data.defaults.model } : {}),
             ...(data.defaults.effort !== null ? { effort: data.defaults.effort } : {}),
+            ...(data.defaults.panelMode !== null ? { panelMode: data.defaults.panelMode } : {}),
           },
         }
       : {}),
