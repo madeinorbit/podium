@@ -179,6 +179,11 @@ export function layoutKeyFromLegacy(legacyKey: string): string | null {
  * Device-local ui-state keys that MUST NOT become layout rows. POD-403's routing
  * table keeps these in the principal-namespaced local store. Listed here so the
  * model and the client answer "where does this key live?" from one place.
+ *
+ * `podium.dockShells` stays device-local as a CACHE: the server-owned
+ * worktree→shell mapping (POD-4436, `user_dock_shell`) is the authority that
+ * makes the same dock shell open on every device. The client keeps its map as
+ * the instant value until the server answers, then the server wins.
  */
 export const DEVICE_LOCAL_UI_KEYS = [
   /** Main route / view surface. */
@@ -331,3 +336,22 @@ export const LAYOUT_USER_STATE_MEMBERS = [
     table: 'user_layout',
   },
 ] as const
+
+/**
+ * SERVER-OWNED DOCK-SHELL KEY (POD-4436, Phase 2 step 2 of POD-4414).
+ *
+ * "Which shell belongs to this worktree" is a server fact, not a per-device
+ * browser map: per user, per worktree (normalized absolute path) → session id.
+ * One dock shell per worktree (SP-75b1); tab shells from the + menu are
+ * unmapped by design and never enter this mapping.
+ *
+ * Normalization is the whole contract: `a` and `a/` name one directory, so
+ * both spellings must resolve to one mapping row. Absolute paths only — a
+ * relative cwd cannot name a worktree and is refused as null.
+ */
+export function normalizeDockWorktreeKey(worktreePath: string): string | null {
+  const trimmed = worktreePath.trim()
+  if (trimmed.length === 0 || !trimmed.startsWith('/')) return null
+  if (/^\/+$/u.test(trimmed)) return '/'
+  return trimmed.replace(/\/+$/u, '')
+}
