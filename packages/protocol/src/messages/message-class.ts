@@ -234,6 +234,7 @@ export const CONTROL_PLANE_CLASS = {
   sessionResumeRefConflict: 'control.command',
   transcriptMirrorRead: 'bulk.bulk',
   sessionPriority: 'control.command',
+  closeClientTerminal: 'control.command',
   reclaimAttachments: 'control.command',
   scanRequest: 'control.command',
   scanReposRequest: 'control.command',

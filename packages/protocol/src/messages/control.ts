@@ -83,6 +83,7 @@ import {
   ReattachMessage,
   RedrawMessage,
   ResizeMessage,
+  CloseClientTerminalMessage,
   SessionBindingRetireMessage,
   SessionPriorityMessage,
   SessionResumeRefAckMessage,
@@ -191,5 +192,9 @@ export const ControlMessage = z.discriminatedUnion('type', [
   RuntimeDraftRequestMessage,
   SetDaemonLogLevelMessage,
   RuntimeDurableSendRequestMessage,
+  /** Server-ordered attach-TUI warm-park close (POD-4524). Appended at the END
+   *  so the golden corpus's arm-by-index sampling keeps every existing arm's
+   *  index — see the RuntimeConfigureRequestMessage note above. */
+  CloseClientTerminalMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
