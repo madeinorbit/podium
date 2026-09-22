@@ -4,17 +4,18 @@
  * incremental state read or written.
  *
  * It replays the snapshot through the pool's own ingest (`tables.ts`) into
- * fresh plain maps, resolves relations with the same `PoolRelations`, and
- * derives every row with the same `buildRowView` as the live models, with
- * the clock and selection read as plain values. Only the containers differ
- * (plain maps instead of observable ones), which is what the checker holds
- * the live pool to.
+ * fresh plain maps, resolves every relation FROM SCRATCH (`scanRelations`,
+ * `enumerate.ts`: the declared resolvers over whole tables, none of the live
+ * engine's maintenance), and derives every row with the same `buildRowView`
+ * as the live models, with the clock and selection read as plain values. So
+ * the checker holds the live pool's incremental relation maintenance to a
+ * from-scratch resolution, and its derivations to themselves.
  */
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { sliceRowOf } from '../../../shared/src/row-view'
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
-import { PoolRelations } from './relations'
+import { scanRelations } from './enumerate'
 import { createPlainTables, ingestOut, ingestRecord } from './tables'
 import { buildRowView, directParts, type RepoRow, type ViewInputs } from './views'
 
@@ -29,7 +30,7 @@ export function rebuildSnapshot(source: RowSource, locals: LocalsSource): SliceS
 
   const { coarseNow, selectedIssueId } = locals.get()
   const inputs: ViewInputs = {
-    relations: new PoolRelations(tables),
+    relations: scanRelations(tables),
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
     session: (id) => tables.session.get(id) as SliceSession | undefined,
     repo: (id) => tables.repo.get(id) as RepoRow | undefined,

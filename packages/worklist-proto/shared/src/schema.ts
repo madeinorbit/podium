@@ -254,6 +254,33 @@ export type ColdSpec =
     }
   | { readonly kind: 'via'; readonly relation: string; readonly why: string }
 
+/**
+ * A whole-kind membership rule: rows of one entity that share a group key
+ * collapse to ONE kept row, and a collapsed row contributes NO edge to any of
+ * its entity's relations — to every reader of the graph it is not there.
+ *
+ * Declared because the per-row feed cannot apply it (the rule reads a row's
+ * siblings) and every pool must, identically. The decision itself is
+ * {@link collapseLosers}, beside {@link longestPrefixPath}: the other declared
+ * resolver. The only rule today is the session resume-twin collapse (POD-4553
+ * addendum, POD-4566).
+ */
+export interface CollapseSpec {
+  /** Fields the rule reads; a change to any re-evaluates the row's group. */
+  readonly fields: readonly string[]
+  /** The group a row belongs to, or null when the row never collapses. */
+  readonly groupKey: (row: Readonly<Record<string, unknown>>) => string | null
+  /** A group holding any row that passes this keeps EVERY row. */
+  readonly keepsGroup: (row: Readonly<Record<string, unknown>>) => boolean
+  /** Higher is kept. */
+  readonly rank: (row: Readonly<Record<string, unknown>>) => number
+  /** The field compared on a rank tie: the larger value is kept. */
+  readonly recency: string
+  /** The legacy definition this re-expresses, cited. */
+  readonly source: string
+  readonly why: string
+}
+
 export interface EntitySpec {
   /** The identity field. */
   readonly key: string
@@ -261,6 +288,8 @@ export interface EntitySpec {
   readonly fields: Readonly<Record<string, FieldSpec>>
   readonly relations: Readonly<Record<string, RelationSpec>>
   readonly cold: ColdSpec
+  /** A whole-kind collapse rule over this entity's rows, when it has one. */
+  readonly collapse?: CollapseSpec
   readonly why: string
 }
 
@@ -301,6 +330,22 @@ const scan = (schema: 'GitRepositoryWire' | 'GitWorktreeWire', property?: string
   arrivesOn: 'engine:repos',
   ...(property === undefined ? {} : { property }),
 })
+
+// ---------------------------------------------------------------------------
+// Session status vocabulary the resume-twin collapse reads
+// (model/src/identity/session-identity.ts:45-72)
+// ---------------------------------------------------------------------------
+
+/** A group holding a row in one of these is kept in full. */
+const ACTIVE_SESSION_STATUSES: ReadonlySet<string> = new Set(['live', 'starting', 'reconnecting'])
+
+/** Rank within a collapsing group; anything else (exited) ranks 0. */
+const SESSION_STATUS_RANK: Readonly<Record<string, number>> = {
+  live: 3,
+  starting: 2,
+  reconnecting: 2,
+  hibernated: 1,
+}
 
 // ---------------------------------------------------------------------------
 // THE SCHEMA
@@ -493,7 +538,7 @@ export const SCHEMA: ModelSchema = defineSchema({
         type: 'object',
         optional: true,
         source: meta(),
-        note: "Resume twins: sessions sharing a ref collapse to one unless any is live/starting/reconnecting (dedupeSessionsByResume, session-identity.ts:45; the runtime applies it to every session read, optimism.ts:876). A whole-kind rule, so the per-row feed cannot apply it; the pool must (POD-4551).",
+        note: "Resume twins: sessions sharing a ref collapse to one unless any is live/starting/reconnecting (dedupeSessionsByResume, session-identity.ts:45; the runtime applies it to every session read, optimism.ts:876). A whole-kind rule, so the per-row feed cannot apply it; the pool must. Declared once as `session.collapse` below (POD-4566).",
         parts: {
           kind: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },
           value: { type: 'string', source: { schema: 'ResumeRef' }, why: 'Half of the twin key.' },
@@ -530,6 +575,22 @@ export const SCHEMA: ModelSchema = defineSchema({
           why: 'A headless session is never a member (slice §2 R3).',
         },
       }),
+    },
+    collapse: {
+      fields: ['resume', 'headless', 'status', 'lastActiveAt'],
+      groupKey: (row) => {
+        const resume = row['resume'] as { kind?: unknown; value?: unknown } | undefined | null
+        if (row['headless'] === true || resume == null) return null
+        return typeof resume.kind === 'string' && typeof resume.value === 'string'
+          ? `${resume.kind}\u0000${resume.value}`
+          : null
+      },
+      keepsGroup: (row) => ACTIVE_SESSION_STATUSES.has(row['status'] as string),
+      rank: (row) => SESSION_STATUS_RANK[row['status'] as string] ?? 0,
+      recency: 'lastActiveAt',
+      source:
+        'dedupeSessionsByResume (model/src/identity/session-identity.ts:45), applied to every session list the runtime reads (client-core/src/engine/optimism.ts:876).',
+      why: "Resume twins: session rows pointing at the SAME agent conversation collapse to the most useful one (live > starting/reconnecting > hibernated > exited, then the most recently active), EXCEPT that a group holding an active row is kept in full. A headless row never takes part: it shares its terminal twin's ref by design. On an exact tie of rank and recency the legacy keeps the row earlier in the runtime's list, an order a pool does not have; the lower session id is kept instead.",
     },
     cold: {
       kind: 'via',
@@ -693,6 +754,36 @@ export function longestPrefixPath(probePath: string, roots: Iterable<string>): s
   return best
 }
 
+/** One row of a collapse group: its entity key and its row. */
+export interface CollapseMember {
+  readonly id: string
+  readonly row: Readonly<Record<string, unknown>>
+}
+
+/**
+ * The declared resolver for a {@link CollapseSpec}: the ids of `group` (rows
+ * sharing one group key) that the rule collapses away. Empty when the group
+ * has one row or holds a row that keeps the group; otherwise every row but the
+ * kept one — highest `rank`, then the largest `recency` value, then the lower
+ * id (the pool's stand-in for the legacy list order; see the rule's `why`).
+ */
+export function collapseLosers(rule: CollapseSpec, group: readonly CollapseMember[]): string[] {
+  if (group.length < 2 || group.some((member) => rule.keepsGroup(member.row))) return []
+  let kept = group[0] as CollapseMember
+  for (const member of group) if (collapseKeeps(rule, member, kept)) kept = member
+  return group.filter((member) => member !== kept).map((member) => member.id)
+}
+
+function collapseKeeps(rule: CollapseSpec, a: CollapseMember, b: CollapseMember): boolean {
+  const rankA = rule.rank(a.row)
+  const rankB = rule.rank(b.row)
+  if (rankA !== rankB) return rankA > rankB
+  const atA = String(a.row[rule.recency] ?? '')
+  const atB = String(b.row[rule.recency] ?? '')
+  if (atA !== atB) return atA > atB
+  return a.id < b.id
+}
+
 // ---------------------------------------------------------------------------
 // Structural validation
 // ---------------------------------------------------------------------------
@@ -737,6 +828,17 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
     }
     if (entity.cold.kind === 'via' && !(entity.cold.relation in entity.relations)) {
       problems.push(`${from}.cold.via names undeclared relation "${entity.cold.relation}"`)
+    }
+
+    if (entity.collapse !== undefined) {
+      for (const field of [...entity.collapse.fields, entity.collapse.recency]) {
+        if (!(field in entity.fields)) {
+          problems.push(`${from}.collapse names undeclared field "${field}"`)
+        }
+      }
+      if (!entity.collapse.fields.includes(entity.collapse.recency)) {
+        problems.push(`${from}.collapse.recency "${entity.collapse.recency}" is not among its fields`)
+      }
     }
 
     for (const [name, relation] of Object.entries(entity.relations)) {

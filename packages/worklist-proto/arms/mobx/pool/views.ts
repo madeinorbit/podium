@@ -22,8 +22,9 @@
  * `working`, `asking`, `workingSince` — are Mb3 (POD-4571), and `closed`'s
  * "zero waiting" conjunct reads them (`STUB_WAITING`). Fields that read own
  * sessions directly (`activityAt`, the draft title) read `issue.sessions`
- * through the relation accessor, which answers "none" until Ma2
- * (POD-4566), so they are the rule applied to an empty member set.
+ * through the relation accessor, maintained by the pool from the schema
+ * (`relations.ts`, POD-4566): explicit members, resume twins collapsed, in
+ * session-id order.
  *
  * Rules are re-expressed from the frozen slice spec
  * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule); round two's

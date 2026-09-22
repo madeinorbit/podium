@@ -11,6 +11,11 @@
  * drop their model. `applyLocals` is the other action: a click moves two
  * selection keys, a tick fires the deadlines it crosses.
  *
+ * RELATIONS (POD-4566, `relations.ts`). Every table write inside that action
+ * tells the relation engine, which maintains every declared relation from
+ * the schema; the action ends with one `flush`, so each touched bucket is
+ * replaced once. `indexUpdates` counts the relation slots written.
+ *
  * READ PATH. Every table read goes through the reads fence
  * (`reads.wrapTables`), every relation read through `reads.wrapRelations`;
  * with the fence disabled both are the identity. Derivations run lazily: a
@@ -19,8 +24,9 @@
  *
  * STATS (`README.md` has the definitions): `rowsDerived` counts row-view
  * body runs; `notifications` counts actions that changed pool state;
- * `rollupsDerived` and `indexUpdates` stay 0 until the worklist phase and
- * Ma2 add roll-ups and buckets. The pool's own counters are in `counters`.
+ * `indexUpdates` counts relation slots written (forward entries and
+ * buckets); `rollupsDerived` stays 0 until the worklist phase adds roll-ups.
+ * The pool's own counters are in `counters`.
  */
 
 import './enforce'
@@ -34,7 +40,7 @@ import {
 } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import { sliceRowOf } from '../../../shared/src/row-view'
-import type { EntityName } from '../../../shared/src/schema'
+import type { EntityName, ModelSchema } from '../../../shared/src/schema'
 import type {
   LocalsKey,
   SliceIssue,
@@ -115,6 +121,8 @@ export class MobxPool {
   /** The same tables through the reads fence: every read in the pool goes here. */
   readonly fenced: PoolTables
   readonly relations: RelationReader
+  /** The relation engine itself (tests read its write record; unfenced). */
+  readonly graph: PoolRelations
   /** The selection local: at most one entry, the selected issue id. */
   readonly selection: ObservableMap<string, true>
   readonly clock: DeadlineClock
@@ -127,20 +135,31 @@ export class MobxPool {
   constructor(
     readonly reads: ReadFence,
     locals: SliceLocals,
+    schema?: ModelSchema,
   ) {
     this.tables = createObservableTables()
     this.fenced = reads.wrapTables(this.tables)
-    this.relations = reads.wrapRelations(new PoolRelations(this.fenced))
+    this.stats = createStats()
+    const stats = this.stats
+    this.graph = new PoolRelations({
+      tables: this.fenced,
+      probe: this.tables,
+      reads,
+      ...(schema === undefined ? {} : { schema }),
+      onWrite: (slots) => {
+        stats.indexUpdates += slots
+      },
+    })
+    this.relations = reads.wrapRelations(this.graph)
     this.selection = observable.map<string, true>(undefined, {
       deep: false,
       name: 'pool.selection',
     })
     this.clock = new DeadlineClock(locals.coarseNow)
-    this.stats = createStats()
     this.models = Object.fromEntries(
       ENTITIES.map((entity) => [entity, new Map()]),
     ) as MobxPool['models']
-    this.target = { read: this.fenced, write: this.tables }
+    this.target = { read: this.fenced, write: this.tables, relations: this.graph }
     this.selectedId = null
     const fenced = this.fenced
     this.inputs = {
@@ -158,6 +177,7 @@ export class MobxPool {
       tables: false,
       fenced: false,
       relations: false,
+      graph: false,
       selection: false,
       clock: false,
       inputs: false,
@@ -209,9 +229,11 @@ export class MobxPool {
   /** One feed publication, one action. */
   apply(event: RowSourceEvent): void {
     const out = ingestOut()
+    this.graph.begin()
     runInAction(() => {
       if (event.type === 'replace') reseed(this.target, event.rows, out)
       else for (const record of event.rows) ingestRecord(this.target, record, out)
+      this.graph.flush()
     })
     for (const [entity, id] of out.removed) this.models[entity].delete(id)
     this.stats.counters.tableWrites += out.writes
@@ -247,6 +269,7 @@ export class MobxPool {
   dispose(): void {
     runInAction(() => {
       for (const entity of ENTITIES) this.tables[entity].clear()
+      this.graph.clear()
       this.selection.clear()
     })
     for (const entity of ENTITIES) this.models[entity].clear()

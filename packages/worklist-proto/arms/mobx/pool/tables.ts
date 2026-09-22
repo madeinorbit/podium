@@ -29,10 +29,11 @@
  *   (the schema's `repo` component, RepoProjection: id and prefix; and its
  *   `repoScan` component, GitRepositoryWire: the path), so the latest such
  *   lane is the `repo` entity's row, keyed by `repoId`. The one field spelled
- *   differently on a lane is in `FEED_SPELLING` (`models.ts`). Until Ma2's
- *   `repo.worktrees` bucket, a repo whose holding lane is removed is dropped
- *   even if another of its lanes remains; the live feed removes lanes only by
- *   a `replace`, which reseeds every repo.
+ *   differently on a lane is in `FEED_SPELLING` (`models.ts`). When the lane
+ *   holding a repo leaves (or moves to another repo), another of the repo's
+ *   lanes takes over, found through the maintained `repo.worktrees`
+ *   collection (every lane of a repo carries the same repo facts); the repo
+ *   is dropped only with its last lane.
  * - A `worktree` record whose value has no `path` is the replicated repo row
  *   itself, which the feed sends for a repo the scan has not reported
  *   (`row-source.ts` `resolveReposFanout`); it is held as the repo's row until
@@ -40,13 +41,18 @@
  *
  * REMOVAL. A record with `value: undefined` deletes the row (evict and remove
  * look the same, spec §2); every removal is reported in `IngestOut.removed`
- * so the pool drops the row's model. Ma1 maintains no relation buckets, so a
- * table entry is the only thing a row occupies; Ma2 adds the buckets.
+ * so the pool drops the row's model.
+ *
+ * RELATIONS (POD-4566). Every table write — `put` and `drop` — hands the
+ * previous and the new row to `IngestTarget.relations` (`relations.ts`),
+ * which maintains every declared relation the write touches. The rebuild and
+ * the replace staging ingest with no relations: they resolve from scratch.
  */
 
 import { type ObservableMap, observable } from 'mobx'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
+import type { RelationMaintenance } from './relations'
 
 /** A stored row: the borrowed object the feed handed out, untouched. */
 export type StoredRow = object
@@ -96,6 +102,8 @@ export interface IngestOut {
 export interface IngestTarget {
   readonly read: { readonly [E in EntityName]: { get(id: string): unknown } }
   readonly write: TableSet
+  /** Told of every write, in order (the live pool's relations). */
+  readonly relations?: RelationMaintenance
 }
 
 /** Store `row` under `id` unless the slot already holds that very object. */
@@ -106,16 +114,20 @@ export function put(
   row: StoredRow,
   out: IngestOut,
 ): void {
-  if (target.read[entity].get(id) === row) return // unchanged: keep the borrowed object, notify nothing
+  const previous = target.read[entity].get(id) as StoredRow | undefined
+  if (previous === row) return // unchanged: keep the borrowed object, notify nothing
   target.write[entity].set(id, row)
   out.writes += 1
+  target.relations?.changed(entity, id, previous, row)
 }
 
 /** Delete `id`, reporting the removal so its model is dropped. */
 export function drop(target: IngestTarget, entity: EntityName, id: string, out: IngestOut): void {
+  const previous = target.relations === undefined ? undefined : target.read[entity].get(id)
   if (!target.write[entity].delete(id)) return
   out.writes += 1
   out.removed.push([entity, id])
+  target.relations?.changed(entity, id, previous as StoredRow | undefined, undefined)
 }
 
 type LaneLike = { readonly path?: unknown; readonly repoId?: unknown }
@@ -130,10 +142,21 @@ function laneRepoId(row: StoredRow): string | null {
   return typeof repoId === 'string' && repoId.length > 0 ? repoId : null
 }
 
-/** The repo stops being held by `lane` (it moved or left). */
+/**
+ * The repo stops being held by `lane` (it moved or left): another of its
+ * lanes takes over, or, with none left (or no relations to ask), it leaves.
+ */
 function releaseRepo(target: IngestTarget, lane: StoredRow, out: IngestOut): void {
   const repoId = laneRepoId(lane)
-  if (repoId !== null && target.read.repo.get(repoId) === lane) drop(target, 'repo', repoId, out)
+  if (repoId === null || target.read.repo.get(repoId) !== lane) return
+  for (const path of target.relations?.members('repo', repoId, 'worktrees') ?? []) {
+    const other = target.read.worktree.get(path) as StoredRow | undefined
+    if (other !== undefined && other !== lane) {
+      put(target, 'repo', repoId, other, out)
+      return
+    }
+  }
+  drop(target, 'repo', repoId, out)
 }
 
 function ingestWorktree(

@@ -11,10 +11,12 @@
  * fire is not evidence (round-two pitfall: enforcement that only warns).
  */
 
+import { dedupeSessionsByResume } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
   SCHEMA,
   allRelations,
+  collapseLosers,
   expectedLazy,
   longestPrefixPath,
   normalizeRootPath,
@@ -205,6 +207,26 @@ describe('validateStructure', () => {
     } as RelationSpec
     expect(validateStructure(schema).join('\n')).toMatch(/is not the dual of/)
   })
+
+  it('fires when the collapse rule reads a field that is not declared', () => {
+    const schema = clone()
+    const collapse = SCHEMA.session.collapse!
+    ;(schema as Record<string, unknown>).session = {
+      ...schema.session,
+      collapse: { ...collapse, fields: [...collapse.fields, 'resumeRef'] },
+    }
+    expect(validateStructure(schema).join('\n')).toMatch(/session\.collapse names undeclared field "resumeRef"/)
+  })
+
+  it('fires when the collapse tie-break field is not among the fields it reads', () => {
+    const schema = clone()
+    const collapse = SCHEMA.session.collapse!
+    ;(schema as Record<string, unknown>).session = {
+      ...schema.session,
+      collapse: { ...collapse, fields: collapse.fields.filter((field) => field !== 'lastActiveAt') },
+    }
+    expect(validateStructure(schema).join('\n')).toMatch(/collapse\.recency "lastActiveAt" is not among its fields/)
+  })
 })
 
 describe('validateSources', () => {
@@ -285,5 +307,82 @@ describe('the prefix resolver', () => {
     expect(normalizeRootPath('/repo/')).toBe('/repo')
     expect(normalizeRootPath('/')).toBe('/')
     expect(longestPrefixPath('/repo/src', ['/repo/'])).toBe('/repo/')
+  })
+})
+
+describe('the resume-twin collapse (session.collapse)', () => {
+  const rule = SCHEMA.session.collapse!
+  type Twin = {
+    sessionId: string
+    status: string
+    lastActiveAt: string
+    headless?: boolean
+    resume?: { kind: string; value: string }
+  }
+  const ref = { kind: 'codex-thread', value: 't-1' }
+  const at = (h: number) => `2026-09-23T${String(h).padStart(2, '0')}:00:00.000Z`
+
+  /** The kept ids by the declared rule: every row not in a losing set. */
+  function keptByRule(rows: readonly Twin[]): string[] {
+    const groups = new Map<string, Twin[]>()
+    for (const row of rows) {
+      const key = rule.groupKey(row)
+      if (key !== null) groups.set(key, [...(groups.get(key) ?? []), row])
+    }
+    const lost = new Set<string>()
+    for (const group of groups.values()) {
+      for (const id of collapseLosers(rule, group.map((row) => ({ id: row.sessionId, row })))) lost.add(id)
+    }
+    return rows.filter((row) => !lost.has(row.sessionId)).map((row) => row.sessionId).sort()
+  }
+  const keptByLegacy = (rows: Twin[]) =>
+    dedupeSessionsByResume(rows as Parameters<typeof dedupeSessionsByResume>[0])
+      .map((row) => row.sessionId as string)
+      .sort()
+
+  const cases: Record<string, Twin[]> = {
+    'rank beats recency (all inactive: collapses)': [
+      { sessionId: 'a', status: 'hibernated', lastActiveAt: at(1), resume: ref },
+      { sessionId: 'b', status: 'exited', lastActiveAt: at(5), resume: ref },
+    ],
+    'a rank tie keeps the most recent (collapses)': [
+      { sessionId: 'a', status: 'hibernated', lastActiveAt: at(1), resume: ref },
+      { sessionId: 'b', status: 'hibernated', lastActiveAt: at(5), resume: ref },
+    ],
+    'a group with a live row is kept in full (does NOT collapse)': [
+      { sessionId: 'a', status: 'hibernated', lastActiveAt: at(1), resume: ref },
+      { sessionId: 'b', status: 'live', lastActiveAt: at(5), resume: ref },
+    ],
+    'starting and reconnecting also keep the group': [
+      { sessionId: 'a', status: 'exited', lastActiveAt: at(1), resume: ref },
+      { sessionId: 'b', status: 'reconnecting', lastActiveAt: at(2), resume: ref },
+      { sessionId: 'c', status: 'exited', lastActiveAt: at(3), resume: { kind: 'codex-thread', value: 't-2' } },
+      { sessionId: 'd', status: 'starting', lastActiveAt: at(4), resume: { kind: 'codex-thread', value: 't-2' } },
+    ],
+    'a headless row neither collapses nor keeps its group': [
+      { sessionId: 'a', status: 'exited', lastActiveAt: at(1), resume: ref },
+      { sessionId: 'b', status: 'hibernated', lastActiveAt: at(2), resume: ref },
+      { sessionId: 'h', status: 'live', lastActiveAt: at(3), resume: ref, headless: true },
+    ],
+    'rows without a ref are never merged': [
+      { sessionId: 'a', status: 'exited', lastActiveAt: at(1) },
+      { sessionId: 'b', status: 'exited', lastActiveAt: at(2) },
+    ],
+    'three twins keep one': [
+      { sessionId: 'a', status: 'exited', lastActiveAt: at(9), resume: ref },
+      { sessionId: 'b', status: 'hibernated', lastActiveAt: at(2), resume: ref },
+      { sessionId: 'c', status: 'hibernated', lastActiveAt: at(3), resume: ref },
+    ],
+  }
+
+  for (const [name, rows] of Object.entries(cases)) {
+    it(`agrees with dedupeSessionsByResume: ${name}`, () => {
+      expect(keptByRule(rows)).toEqual(keptByLegacy(rows))
+    })
+  }
+
+  it('collapses the all-inactive group and keeps the active one, both directions', () => {
+    expect(keptByRule(cases['rank beats recency (all inactive: collapses)']!)).toEqual(['a'])
+    expect(keptByRule(cases['a group with a live row is kept in full (does NOT collapse)']!)).toEqual(['a', 'b'])
   })
 })
