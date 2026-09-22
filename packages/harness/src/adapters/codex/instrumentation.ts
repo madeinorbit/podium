@@ -777,7 +777,27 @@ function installerDegradedKind(
 // Section: the ONE authoritative instrumentation definition (spec §4).
 // ---------------------------------------------------------------------------
 
+/**
+ * The Codex home the install serializes by (POD-4531).
+ *
+ * The same rule the terminal family applied when it owned the
+ * `global-env` branch: instance-owned homes override session values, an
+ * ambient `CODEX_HOME` redirects otherwise, and the fallback is
+ * `<home>/.codex`. Owned here so the mechanism never reads the environment
+ * section — it only looks the `home` strategy up by scope.
+ */
+function codexHomeOf(destination: InstrumentationDestination): string {
+  const env = {
+    ...process.env,
+    ...(destination.env ?? {}),
+    ...(destination.homeDir ? { CODEX_HOME: join(destination.homeDir, '.codex') } : {}),
+  }
+  const homeDir = destination.homeDir ?? env.HOME ?? homedir()
+  return env.CODEX_HOME?.trim() || join(homeDir, '.codex')
+}
+
 export const codexInstrumentation: HarnessInstrumentation = {
+  scope: { kind: 'home', homeOf: codexHomeOf },
   install: installCodexInstrumentation,
   payloadCodec: {
     eventName: (raw) => strField(raw, 'hook_event_name'),

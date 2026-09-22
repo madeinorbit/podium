@@ -628,7 +628,27 @@ function installerDegradedKind(
 // Section: the ONE authoritative instrumentation definition (spec §4).
 // ---------------------------------------------------------------------------
 
+/**
+ * The Grok home the install serializes by (POD-4531).
+ *
+ * The same rule the terminal family applied when it owned the
+ * `global-env` branch: instance-owned homes override session values, an
+ * ambient `GROK_HOME` redirects otherwise, and the fallback is
+ * `<home>/.grok`. Owned here so the mechanism never reads the environment
+ * section — it only looks the `home` strategy up by scope.
+ */
+function grokHomeOf(destination: InstrumentationDestination): string {
+  const env = {
+    ...process.env,
+    ...(destination.env ?? {}),
+    ...(destination.homeDir ? { GROK_HOME: join(destination.homeDir, '.grok') } : {}),
+  }
+  const homeDir = destination.homeDir ?? env.HOME ?? homedir()
+  return env.GROK_HOME?.trim() || join(homeDir, '.grok')
+}
+
 export const grokInstrumentation: HarnessInstrumentation = {
+  scope: { kind: 'home', homeOf: grokHomeOf },
   install: installGrokInstrumentation,
   payloadCodec: {
     eventName: (raw) => normalizeName(stringField(raw, 'hookEventName') ?? stringField(raw, 'hook_event_name')),
