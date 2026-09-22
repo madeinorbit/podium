@@ -70,6 +70,54 @@ describe('expectedSnapshot at 1x', () => {
   })
 })
 
+describe('manual sort keys among siblings (R-ORDER step 2, POD-4550)', () => {
+  const corpus = buildCorpus(1, 4443)
+  const snapshot = expectedSnapshot(corpus, locals())
+  const visibleIds = Object.keys(snapshot.rowsById)
+  const byId = new Map(corpus.issues.map((i) => [i.id, i]))
+  const keyOf = (id: string): string | null =>
+    ((byId.get(id) as unknown as { sortKey?: string | null } | undefined)?.sortKey ?? null)
+
+  it('keys a meaningful share of visible rows, with keyed and unkeyed siblings mixed', () => {
+    const keyed = visibleIds.filter((id) => keyOf(id) !== null)
+    const siblings = new Map<string, string[]>()
+    for (const id of visibleIds) {
+      const parent = byId.get(id)?.parentId
+      if (!parent) continue
+      siblings.set(parent, [...(siblings.get(parent) ?? []), id])
+    }
+    const mixed = [...siblings.values()].filter(
+      (ids) => ids.some((id) => keyOf(id) !== null) && ids.some((id) => keyOf(id) === null),
+    )
+    const keyedPairs = [...siblings.values()].filter(
+      (ids) => ids.filter((id) => keyOf(id) !== null).length >= 2,
+    )
+    console.info(
+      `[fixture-shape] sortKey: ${keyed.length}/${visibleIds.length} visible rows keyed; ` +
+        `${mixed.length} mixed sibling groups; ${keyedPairs.length} with two keyed siblings`,
+    )
+    expect(keyed.length / visibleIds.length).toBeGreaterThan(0.15)
+    expect(mixed.length).toBeGreaterThanOrEqual(10)
+    expect(keyedPairs.length).toBeGreaterThanOrEqual(5)
+  })
+
+  it('control: ignoring sortKey changes the order, so parity would go red', () => {
+    // An implementation that drops the sortKey comparison orders exactly as
+    // the legacy order does on a corpus with no keys at all.
+    const strip = <T,>(rows: T[]): T[] =>
+      rows.map((r) => ({ ...(r as object), sortKey: null }) as T)
+    const unkeyed: typeof corpus = {
+      ...corpus,
+      issues: strip(corpus.issues),
+      issueProjections: strip(corpus.issueProjections),
+      sliceIssues: strip(corpus.sliceIssues),
+    }
+    const without = expectedSnapshot(unkeyed, locals())
+    expect(Object.keys(without.rowsById).sort()).toEqual([...visibleIds].sort())
+    expect(without.order).not.toEqual(snapshot.order)
+  })
+})
+
 describe('unscanned worktree seat (POD-4550)', () => {
   // The prefix relation must seat a session under a live issue's worktree
   // even when no scan reported that worktree. The fixture's case is a

@@ -567,19 +567,34 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       drafts++
     }
   })
-  // Sibling sort keys on the first vWork roots' children (R-ORDER scope cover).
-  const keyedParents = vWorkIdx.slice(0, 3 * scale)
-  const childLetters = ['a', 'b', 'c']
-  keyedParents.forEach((p, pi) => {
-    let k = 0
-    mints.forEach((m, i) => {
-      if (m.parent === p && k < 3) {
-        const key = `${childLetters[pi % childLetters.length]}${k}`
-        ;(issues[i] as unknown as Record<string, unknown>)['sortKey'] = key
-        ;(issueProjections[i] as unknown as Record<string, unknown>)['sortKey'] = key
-        k++
-      }
-    })
+  // Sibling sort keys (R-ORDER step 2; POD-4550 at POD-4547's request). The
+  // legacy order puts keyed siblings before unkeyed ones and orders keyed
+  // siblings by key; without keys it is creation order, newest first. So the
+  // keys are placed where they CHANGE that order: under every vWork root with
+  // two or more open children, the OLDEST child is keyed (it jumps ahead of
+  // newer unkeyed siblings); under every other such root with three or more,
+  // the second-oldest is keyed too, with a LATER key than the oldest (keyed
+  // order runs against creation order). The rest stay unkeyed, so keyed and
+  // unkeyed siblings mix. Every third vWork root is keyed as well (share).
+  // Deterministic and rng-free: the rest of the corpus is unchanged.
+  const setSortKey = (i: number, key: string): void => {
+    ;(issues[i] as unknown as Record<string, unknown>)['sortKey'] = key
+    ;(issueProjections[i] as unknown as Record<string, unknown>)['sortKey'] = key
+  }
+  const openChildrenOf = new Map<number, number[]>()
+  mints.forEach((m, i) => {
+    if (m.role !== 'vChild' || m.parent === null) return
+    const list = openChildrenOf.get(m.parent) ?? []
+    list.push(i)
+    openChildrenOf.set(m.parent, list)
+  })
+  const createdMs = (i: number): number => Date.parse(issues[i]!.createdAt)
+  vWorkIdx.forEach((root, k) => {
+    if (k % 3 === 0) setSortKey(root, `r${k}`)
+    const kids = [...(openChildrenOf.get(root) ?? [])].sort((a, b) => createdMs(a) - createdMs(b))
+    if (kids.length < 2) return
+    setSortKey(kids[0]!, 'a0')
+    if (kids.length >= 3 && k % 2 === 0) setSortKey(kids[1]!, 'a1')
   })
   // Tucked closed rows (explicit dismissal into the closed fold).
   let tucked = 0
