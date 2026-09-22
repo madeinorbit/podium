@@ -767,8 +767,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(fanout).toEqual([MACHINE, MACHINE, MACHINE])
   })
 
-  test('recordInventory persists the report and it survives a hello reconnect', async () => {
-    const { svc, store } = await makeStoreService()
+  test('recordInventory persists the report and it survives a hello reconnect', async () => {    const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
     assignment: { server: false, agentExecution: true },
       id: MACHINE,
@@ -785,6 +784,34 @@ describe('MachinesService inventory persistence (#222)', () => {
     await store.machines.touchMachine(MACHINE, 'vmi-renamed')
     expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(INV)
     expect((await store.machines.getMachine(MACHINE))?.hostname).toBe('vmi-renamed')
+  })
+
+  test('recordInventory keeps served descriptors in memory and clears them with the incarnation (POD-4475)', async () => {
+    const { svc, store } = await makeStoreService()
+    await store.machines.upsertMachine({
+    assignment: { server: false, agentExecution: true },
+      id: MACHINE,
+      name: 'vmi',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: firstAdminMemberId(),
+    })
+    expect(svc.harnessDescriptorsFor(MACHINE)).toBeUndefined()
+    const descriptors = [
+      {
+        schemaVersion: 1,
+        kind: 'claude-code',
+        label: 'Claude Code',
+        shortLabel: 'Claude',
+        icon: { id: 'claude-code', viewBox: '0 0 24 24', d: 'M0 0h24v24H0z' },
+        capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
+        catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+      },
+    ]
+    await svc.recordInventory(MACHINE, INV, descriptors)
+    expect(svc.harnessDescriptorsFor(MACHINE)).toEqual(descriptors)
+    svc.retireIncarnation(MACHINE)
+    expect(svc.harnessDescriptorsFor(MACHINE)).toBeUndefined()
   })
 
   test('coalesces inventory while the transfer fence is read-only and resumes after abort', async () => {
