@@ -1,3 +1,4 @@
+import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { type ReactNode, useCallback, useEffect, useState } from 'react'
 import { serverConfig, type Trpc } from '@/app/trpc'
@@ -43,6 +44,29 @@ export function quickTunnelWarning(url: string): string | undefined {
     )
   }
   return undefined
+}
+
+/**
+ * THE ADVISORY SENTENCE (POD-4535): the human line for a failed outside probe,
+ * mirroring the CLI's `reachabilityStep`. `null` = no opinion (ok,
+ * CONNECT_UNAVAILABLE, or anything we could not ask) — the caller proceeds
+ * silently, exactly as the screen did before the probe existed.
+ *
+ * Reads CHECK_ERROR_SENTENCES at call time, never a copy: the cloud is deployed
+ * separately and may answer with a code this build predates, so an unknown code
+ * falls back to naming itself rather than rendering `undefined`.
+ */
+export function reachabilityHintFor(verdict: CheckResult | undefined): string | null {
+  if (verdict === undefined || verdict === null || typeof verdict !== 'object') return null
+  if ((verdict as CheckResult).ok) return null
+  const code = String((verdict as { error?: unknown }).error ?? 'UNKNOWN')
+  if (code === 'CONNECT_UNAVAILABLE') return null
+  const sentence =
+    (CHECK_ERROR_SENTENCES as Partial<Record<string, string>>)[code] ??
+    `The outside probe reported a problem it described as ${code}.`
+  const rawDetail = (verdict as { detail?: unknown }).detail
+  const detail = typeof rawDetail === 'string' ? rawDetail.trim() : ''
+  return detail ? `${sentence} The probe reported: ${detail}` : sentence
 }
 
 // Derived from the tRPC client so the web bundle never imports @podium/runtime/setup.
@@ -189,6 +213,12 @@ function NetworkStepForm({
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [savedAt, setSavedAt] = useState(0)
+  // THE ADVISORY PROBE (POD-4535): null = no opinion yet (or no opinion at all),
+  // 'checking' while the cloud is asked, 'failed' holding the hint the operator
+  // may overrule. Never an error: a failed probe blocks nothing.
+  const [reach, setReach] = useState<{ status: 'checking' } | { status: 'failed'; message: string } | null>(
+    null,
+  )
   const hasPassword = initial.hasPassword
   const initialAuthMode = initial.hasPassword ? 'keep' : 'password'
   const [baseline, setBaseline] = useState(() => ({
@@ -232,66 +262,96 @@ function NetworkStepForm({
     })
   }
 
-  const finish = useCallback(async (): Promise<void> => {
-    setErr('')
-    // NOT `password.trim()` (POD-1148). The login route verifies the raw string and
-    // `auth.setPassword` hashes the raw string, so trimming here stored a credential the user
-    // could never type again — and made Settings → Security and Settings → Network disagree
-    // about what identical keystrokes mean. Empty is still empty; whitespace is a character.
-    if (authMode === 'password' && !password) {
-      setErr('Enter a login password or choose no-password mode.')
-      return
-    }
-    if (authMode === 'open' && !ackNoPassword) {
-      setErr('Confirm running without a login password.')
-      return
-    }
-    setBusy(true)
-    const payload: SetupCompleteInput = {
-      publicUrl: url,
-      ...(option ? { networkOption: option } : {}),
-      ...(mode ? { mode } : {}),
-      // 'keep' sends neither field → the server leaves the existing password untouched.
-      ...(authMode === 'password'
-        ? { password }
-        : authMode === 'open'
-          ? { acknowledgeNoPassword: true }
-          : {}),
-    }
-    // Deferred commit: hand the payload to the telemetry sub-step, which sends
-    // ONE setup.complete for the whole wizard. Nothing is written yet.
-    if (onCollected) {
-      setBusy(false)
-      onCollected(payload)
-      return
-    }
-    try {
-      await trpc.setup.complete.mutate(payload)
-      // A PASSWORD LOCKS THIS DEVICE OUT OF THE WRITE IT JUST MADE (POD-1148). `complete`
-      // stores the password last; the instant it lands `credentialsRequired()` goes true and
-      // the open-mode synthetic-admin fallback stops applying, so the very next request —
-      // `onSaved()` → the caller's reload → setup.info — 401s, and the URL write that already
-      // committed is reported to the user as a failure. Take the cookie the guard now wants,
-      // exactly as Settings → Security does after `auth.setPassword`. Unchecked on purpose:
-      // a login hiccup must not turn a write that SUCCEEDED into an error message.
-      if (payload.password !== undefined) {
-        await workspaceFetch(`${httpOrigin}/auth/login`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ password: payload.password }),
-        }).catch(() => {})
+  const finish = useCallback(
+    async (force = false): Promise<void> => {
+      setErr('')
+      // NOT `password.trim()` (POD-1148). The login route verifies the raw string and
+      // `auth.setPassword` hashes the raw string, so trimming here stored a credential the user
+      // could never type again — and made Settings → Security and Settings → Network disagree
+      // about what identical keystrokes mean. Empty is still empty; whitespace is a character.
+      if (authMode === 'password' && !password) {
+        setErr('Enter a login password or choose no-password mode.')
+        return
       }
-      setSaved(true)
-      setSavedAt(Date.now())
-      setBaseline({ option, url, authMode, password, ackNoPassword })
-      onSaved()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
-    }
-  }, [ackNoPassword, authMode, httpOrigin, mode, onCollected, onSaved, option, password, trpc, url])
+      if (authMode === 'open' && !ackNoPassword) {
+        setErr('Confirm running without a login password.')
+        return
+      }
+      const payload: SetupCompleteInput = {
+        publicUrl: url,
+        ...(option ? { networkOption: option } : {}),
+        ...(mode ? { mode } : {}),
+        // 'keep' sends neither field → the server leaves the existing password untouched.
+        ...(authMode === 'password'
+          ? { password }
+          : authMode === 'open'
+            ? { acknowledgeNoPassword: true }
+            : {}),
+      }
+      // THE ADVISORY PROBE (POD-4535): what the cloud says about this URL, shown as a
+      // hint the operator can overrule — never a gate. A throw, a missing `connect`
+      // procedure (a stub without one), CONNECT_UNAVAILABLE, and ok all mean "no
+      // opinion" and commit exactly as the screen did before the probe existed.
+      // `force` is the "Use this URL anyway" override: it commits the SAME payload
+      // without asking again. There is no flag, config, or strict mode that blocks.
+      if (!force && url.trim()) {
+        setBusy(true)
+        setReach({ status: 'checking' })
+        let verdict: CheckResult | undefined
+        try {
+          verdict = await trpc.connect.check.query({ url: url.trim() })
+        } catch {
+          verdict = undefined
+        }
+        const hint = reachabilityHintFor(verdict)
+        if (hint !== null) {
+          // Failed probe, override NOT taken: commit nothing, stay on the URL field.
+          setReach({ status: 'failed', message: hint })
+          setBusy(false)
+          return
+        }
+        setReach(null)
+        // Fall through to the commit below with `busy` still true.
+      } else {
+        setBusy(true)
+        if (force) setReach(null)
+      }
+      // Deferred commit: hand the payload to the telemetry sub-step, which sends
+      // ONE setup.complete for the whole wizard. Nothing is written yet.
+      if (onCollected) {
+        setBusy(false)
+        onCollected(payload)
+        return
+      }
+      try {
+        await trpc.setup.complete.mutate(payload)
+        // A PASSWORD LOCKS THIS DEVICE OUT OF THE WRITE IT JUST MADE (POD-1148). `complete`
+        // stores the password last; the instant it lands `credentialsRequired()` goes true and
+        // the open-mode synthetic-admin fallback stops applying, so the very next request —
+        // `onSaved()` → the caller's reload → setup.info — 401s, and the URL write that already
+        // committed is reported to the user as a failure. Take the cookie the guard now wants,
+        // exactly as Settings → Security does after `auth.setPassword`. Unchecked on purpose:
+        // a login hiccup must not turn a write that SUCCEEDED into an error message.
+        if (payload.password !== undefined) {
+          await workspaceFetch(`${httpOrigin}/auth/login`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ password: payload.password }),
+          }).catch(() => {})
+        }
+        setSaved(true)
+        setSavedAt(Date.now())
+        setBaseline({ option, url, authMode, password, ackNoPassword })
+        onSaved()
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [ackNoPassword, authMode, httpOrigin, mode, onCollected, onSaved, option, password, trpc, url],
+  )
 
   const discard = useCallback((): void => {
     setOption(baseline.option)
@@ -300,6 +360,7 @@ function NetworkStepForm({
     setPassword(baseline.password)
     setAckNoPassword(baseline.ackNoPassword)
     setErr('')
+    setReach(null)
     setSaved(false)
     setSavedAt(0)
   }, [baseline])
@@ -401,6 +462,8 @@ function NetworkStepForm({
           onChange={(e) => {
             setUrl(e.target.value)
             setSaved(false)
+            // A new URL is a new question: drop the old hint so saving re-asks.
+            setReach(null)
           }}
         />
         {/* Same *.trycloudflare.com flag the CLI setup shows — warn, never block. */}
@@ -408,6 +471,35 @@ function NetworkStepForm({
           <p role="alert" className="text-[12px] text-amber-500">
             {urlWarning}
           </p>
+        )}
+        {/* THE ADVISORY PROBE (POD-4535): a failed outside check is a hint, never a
+            gate. Rendered in every host — first-run, dialog, and the Settings save
+            bar alike — because `finish` probes on all three commit paths. */}
+        {reach?.status === 'checking' && (
+          <p role="status" className="text-[12px] text-muted-foreground">
+            Checking that this URL is reachable from the outside…
+          </p>
+        )}
+        {reach?.status === 'failed' && (
+          <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+            <p role="alert" className="text-[12px] text-amber-600">
+              {reach.message}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => void finish(true)}
+              >
+                Use this URL anyway
+              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                Fix the URL above, then save again — or keep it as-is.
+              </span>
+            </div>
+          </div>
         )}
       </div>
       <fieldset className="flex flex-col gap-2">
@@ -557,7 +649,7 @@ function NetworkStepForm({
               }
               onClick={() => void finish()}
             >
-              {busy ? 'Saving…' : embedded ? 'Save network settings' : 'Finish'}
+              {reach?.status === 'checking' ? 'Checking…' : busy ? 'Saving…' : embedded ? 'Save network settings' : 'Finish'}
             </Button>
           </div>
         </div>
