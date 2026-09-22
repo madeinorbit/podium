@@ -124,7 +124,7 @@ of 1,000 steps apply at seed 1.
 
 ## 5. Evidence
 
-As of commit `<landed sha>`, corpus 1x at seed 4443, sequence at seed 1, 1,000 steps.
+As of code commit `c8099a290` (truth-mode feed; the same numbers came out on the overlaid feed before the rebase onto POD-4553), corpus 1x at seed 4443, sequence at seed 1, 1,000 steps.
 Generated = changes of that kind in the sequence; applied = changes the engine
 applied (not skipped). Shapes count changes carrying the tag.
 
@@ -186,7 +186,7 @@ Tests (`bun run test:file -- packages/worklist-proto/shared/src/gen/*.test.ts`):
     shrinker cuts it to exactly `evict X`, `reAdd X`; the buggy consumer still
     fails that, and the control passes it.
 
-Arming (each check planted alone and restored with `cp`; the named test went red):
+Arming (each mutation planted alone on the pre-rebase tree with the overlaid feed, restored with `cp`; the named test went red):
 
 | Mutation | Went red |
 |---|---|
