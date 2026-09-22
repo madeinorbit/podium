@@ -55,6 +55,27 @@ describe('GET /version', () => {
     expect((await fetchVersion()).body).not.toHaveProperty('installationId')
   })
 
+  it('advertises the installation public key next to the id, both-or-neither (POD-4533)', async () => {
+    const app = new Hono()
+    registerVersionRoute(app, {
+      instanceId: 'default',
+      installationId: `pdm_${'a'.repeat(43)}`,
+      installationPublicKey: `ed25519:${'B'.repeat(43)}`,
+    })
+    expect(await (await app.request('/version')).json()).toMatchObject({
+      installationId: `pdm_${'a'.repeat(43)}`,
+      installationPublicKey: `ed25519:${'B'.repeat(43)}`,
+    })
+    // A key without its id advertises neither: a key alone is not an identity.
+    const keyOnly = new Hono()
+    registerVersionRoute(keyOnly, {
+      instanceId: 'default',
+      installationPublicKey: `ed25519:${'B'.repeat(43)}`,
+    })
+    const body = (await (await keyOnly.request('/version')).json()) as Record<string, unknown>
+    expect(body).not.toHaveProperty('installationPublicKey')
+  })
+
   it('reports the baked PODIUM_APP_VERSION as appVersion', async () => {
     process.env.PODIUM_APP_VERSION = '9.9.9'
     const { status, body } = await fetchVersion()

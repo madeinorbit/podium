@@ -16,6 +16,7 @@ import {
 } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { readConnectivityForTest, writeConnectivity } from '@podium/runtime/connectivity'
+import { loadConfig, saveConfig } from '@podium/runtime/config'
 import { readDaemonHealth, writeDaemonHealth } from '@podium/runtime/daemon-health'
 import { ParentProcess } from '@podium/runtime/parent-process'
 import { removeRecord, writeRecord } from '@podium/runtime/run-registry'
@@ -1450,4 +1451,182 @@ it('forwards superseded observations live and replays only retained events after
     await conn.close()
     outbox.close()
   }
+})
+
+describe('podium connect locator rescue (POD-4533)', () => {
+  const INSTALLATION_ID = `pdm_${'a'.repeat(43)}`
+  const INSTALLATION_KEY = `ed25519:${'B'.repeat(43)}`
+  const OTHER_ID = `pdm_${'z'.repeat(43)}`
+  const OTHER_KEY = `ed25519:${'C'.repeat(43)}`
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  const locatorRecordBody = (endpoints: Array<{ url: string; priority: number }>) =>
+    JSON.stringify({
+      generation: 2,
+      issuedAt: '2026-09-22T00:00:00.000Z',
+      expiresAt: null,
+      endpoints,
+    })
+
+  const versionBody = (installationId: string, installationPublicKey?: string) =>
+    JSON.stringify({
+      wireVersion: DAEMON_WIRE_VERSION,
+      appVersion: 'dev',
+      instanceId: 'default',
+      installationId,
+      ...(installationPublicKey ? { installationPublicKey } : {}),
+    })
+
+  function rescueHarness(opts: {
+    recordEndpoints: Array<{ url: string; priority: number }>
+    versions: Record<string, { installationId: string; installationPublicKey?: string }>
+    identity?: { installationId: string; installationPublicKey: string }
+  }) {
+    const stateRoot = temp()
+    vi.stubEnv('PODIUM_STATE_DIR', stateRoot)
+    saveConfig({
+      mode: 'daemon',
+      serverUrl: 'wss://old.example',
+      ...(opts.identity ?? {}),
+    })
+    const fetchCalls: string[] = []
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input)
+      fetchCalls.push(url)
+      if (url.includes('/v1/installations/')) return new Response(locatorRecordBody(opts.recordEndpoints))
+      const origin = url.replace(/\/version$/, '')
+      const identity = opts.versions[origin]
+      if (!identity) return new Response('down', { status: 500 })
+      return new Response(versionBody(identity.installationId, identity.installationPublicKey))
+    }) as unknown as typeof fetch
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchImpl)
+    const harness = timerHarness()
+    const sockets: FakeSocket[] = []
+    const socketUrls: string[] = []
+    const onConnected = vi.fn()
+    const state = createDaemonConnection({
+      options: { serverUrl: 'wss://old.example', identityDir: temp(), reconnectTimers: harness.timers },
+      build: buildReport(process.env, undefined),
+      machineId: MACHINE_ID,
+      identity: { token: 'token' },
+      receiveApplicationFrame: vi.fn(),
+      sendApplicationFrame: vi.fn(() => true),
+      queueDrainOutbox: createQueueDrainOutbox(temp()),
+      runtimeEventOutbox: createRuntimeEventOutbox(temp()),
+      onConnected,
+      onTerminal: vi.fn(),
+      openSocket: (url: string) => {
+        socketUrls.push(url)
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
+      locatorFetch: fetchImpl,
+    })
+    const locatorReads = () => fetchCalls.filter((url) => url.includes('/v1/installations/'))
+    return { state, onConnected, sockets, socketUrls, fetchCalls, locatorReads, timers: harness }
+  }
+
+  const dropSocket = (socket: FakeSocket): void => {
+    socket.emit('error', new Error('ECONNREFUSED'))
+    socket.finishClose()
+  }
+
+  it('a dead server URL resolves, adopts the new URL through set-server, and reconnects', async () => {
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
+      versions: { 'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY } },
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+    })
+    const started = h.state.start()
+    expect(h.socketUrls).toEqual(['wss://old.example/daemon'])
+
+    // The known URL fails on startup: the rescue runs instead of only backing off.
+    dropSocket(h.sockets[0]!)
+    await flush()
+
+    // Adopted through the one write path, and redialled at once — no backoff wait.
+    expect(loadConfig().serverUrl).toBe('wss://new.example')
+    expect(loadConfig()).toMatchObject({
+      installationId: INSTALLATION_ID,
+      installationPublicKey: INSTALLATION_KEY,
+    })
+    expect(h.socketUrls).toEqual(['wss://old.example/daemon', 'wss://new.example/daemon'])
+    expect(h.timers.next(500)).toBeUndefined()
+
+    // The link itself returns on the new address: this is a reconnected daemon,
+    // not a test that only saw resolve() get called.
+    h.sockets[1]!.emit('open')
+    h.sockets[1]!.message(ok)
+    await started
+    expect(h.state.state).toBe('connected')
+    expect(h.onConnected).toHaveBeenCalled()
+    expect(h.locatorReads()).toHaveLength(1)
+
+    // A healthy link never re-resolves. Drop it: the next outage resolves once
+    // more, finds the record still naming the live URL, and backs off as usual.
+    h.sockets[1]!.finishClose()
+    await flush()
+    expect(h.locatorReads()).toHaveLength(2)
+    expect(loadConfig().serverUrl).toBe('wss://new.example')
+    h.timers.runNext(500)
+    expect(h.socketUrls).toEqual([
+      'wss://old.example/daemon',
+      'wss://new.example/daemon',
+      'wss://new.example/daemon',
+    ])
+    dropSocket(h.sockets[2]!)
+    await flush()
+    // One attempt per outage: the third failure backs off without another read.
+    expect(h.locatorReads()).toHaveLength(2)
+    expect(h.timers.next(1000)).toBeDefined()
+    await h.state.close()
+  })
+
+  it('a box with no installation identity backs off exactly as today and phones nobody', async () => {
+    // Would FAIL if resolution were mandatory: Connect is up and has an answer,
+    // and a mandatory resolver would phone it (or refuse to dial at all).
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
+      versions: { 'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY } },
+    })
+    void h.state.start()
+    dropSocket(h.sockets[0]!)
+    await flush()
+
+    expect(h.fetchCalls).toEqual([])
+    expect(loadConfig().serverUrl).toBe('wss://old.example')
+    expect(h.socketUrls).toEqual(['wss://old.example/daemon'])
+    expect(h.state.state).toBe('backoff')
+    expect(h.timers.next(500)).toBeDefined()
+    await h.state.close()
+  })
+
+  it('a resolved URL naming a different installation is refused', async () => {
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://impostor.example', priority: 100 }],
+      versions: {
+        'https://impostor.example': { installationId: OTHER_ID, installationPublicKey: OTHER_KEY },
+      },
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+    })
+    void h.state.start()
+    dropSocket(h.sockets[0]!)
+    await flush()
+
+    // Consulted once, adopted never: still dialling the configured URL.
+    expect(h.locatorReads()).toHaveLength(1)
+    expect(loadConfig().serverUrl).toBe('wss://old.example')
+    expect(h.socketUrls).toEqual(['wss://old.example/daemon'])
+    expect(h.state.state).toBe('backoff')
+    expect(h.timers.next(500)).toBeDefined()
+    await h.state.close()
+  })
 })
