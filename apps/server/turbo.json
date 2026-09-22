@@ -1371,6 +1371,7 @@
         "src/modules/shells/service.ts",
         "src/modules/shells/trpc.test.ts",
         "src/modules/shells/trpc.ts",
+        "src/modules/shells/worktree-free.test.ts",
         "src/modules/shipping/index.ts",
         "src/modules/shipping/lease-projection.ts",
         "src/modules/shipping/policy.ts",
