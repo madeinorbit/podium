@@ -95,6 +95,32 @@ previous corpus, only the reseated sessions, the reparented children, the
 roots, and the rollups of the issues that gave up a session changed. Every
 other row is byte-identical (1x: 26 sessions, 49 wire issues).
 
+### Sort keys a server would send (from L4a, POD-4555)
+
+The corpus used to mint `a0`, `a1` and `r<k>`. `isSortKey`
+(`model/src/predicates/sort-key.ts:58`) refuses `a0` and `r0`, `r30`, and so
+on (a trailing minimum digit), and the model's own `sortKeyBetween` refuses
+them as bounds. Legacy parity ordered them as plain strings, which is why
+nothing caught it. Keys now come from the model's `spreadSortKeys`: two
+sibling keys (oldest, then second-oldest) and one per keyed root, ascending.
+That keeps the ordering properties the sort-key cases rely on: keyed rows
+ahead of unkeyed ones, keyed order running against creation order, and
+mixed groups (`oracle.test.ts` sort-key block, unchanged and green).
+`corpus.test.ts` asserts every key passes `isSortKey` at every scale. A
+planted `a0` fails that check.
+
+### Scenario server writes (from L4a, POD-4555)
+
+`patchIssue` and `patchSession` in `shared/src/scenarios.ts` built their
+"server" rows from the runtime snapshot, which is painted with the client's
+pending overlays. So a scenario write could echo a pending value back as
+server truth. They now read the kernel cache, as the change generator does
+(`gen/run.ts`). Test (`scenarios.test.ts`, "scenario server writes build on
+server truth"): a title edit is held pending by a server that never answers,
+then a stage move lands on the same row. The written row carries the
+server's title. Mutation: building from the snapshot again makes it carry
+"Pending title" and fail.
+
 ## Shape at 1x
 
 - Open issues (no `closedAt`): 2,170 (~2,230).
