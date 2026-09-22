@@ -117,6 +117,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
+import { ATTACH_TUI_WARM_TTL_MS } from '@podium/protocol'
 import type { DurableAttachment } from '@podium/process/screen'
 import type { ClientProcessOwner } from '../session/clients.js'
 import type { SessionRegistry } from '../session/registry.js'
@@ -138,15 +139,16 @@ const log = createLogger('daemon:opencode-attach')
  *  The server owns the decision — the shell lifetime table's attach-TUI row
  *  (unwatched past TTL → park), evaluated on the server's reaper tick and
  *  ordered per session as `closeClientTerminal`. This daemon runs no clock.
- *  This constant survives as the attach endpoint's informational `warmTtlMs`
- *  and as the value the server mirrors in `ATTACH_TUI_WARM_TTL_MS`: the two
- *  must stay the same 30-minute window, and the table is what enforces it.
  *
- *  Configurable through {@link OpencodeClientTerminalPorts} rather than an
- *  env knob: the only caller is the daemon's own wiring, and a setting nobody
- *  sets is a setting nobody maintains. Spawn/reclaim decisions elsewhere in
- *  this file belong to POD-4515, not to that table. */
-export const WARM_TTL_MS = 30 * 60_000
+ *  An ALIAS, not a second literal: the window's one source is
+ *  `ATTACH_TUI_WARM_TTL_MS` in `@podium/protocol`, read by the server's row
+ *  and reported here as the attach endpoint's informational `warmTtlMs`. This
+ *  name survives for the daemon's historic readers; the value cannot diverge
+ *  because there is only one.
+ *
+ *  Spawn/reclaim decisions elsewhere in this file belong to POD-4515, not to
+ *  that table. */
+export const WARM_TTL_MS = ATTACH_TUI_WARM_TTL_MS
 
 /**
  * THE LAST-RESORT BIRTH SIZE, and by POD-3809 the rarest one.
