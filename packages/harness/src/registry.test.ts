@@ -83,6 +83,7 @@ const DECLARED_FIELD_SET: Record<DeclaredKeys<AgentManifest>, true> = {
   instrumentation: true,
   observer: true,
   transcript: true,
+  composer: true,
   handoffTranscript: true,
   classifyBrowserOpen: true,
 }
@@ -290,6 +291,19 @@ describe('agent manifest registry', () => {
     )
     expect(verifying.length).toBeGreaterThan(confirming.length)
     for (const kind of confirming) expect(verifying).toContain(kind)
+  })
+
+  it('composer rules agree with the composerScrape capability', () => {
+    // The capability ("the web controller can scrape the native TUI composer")
+    // and the section (the rules it scrapes WITH) are two statements of one
+    // fact: a harness whose controller may scrape must declare how, and a
+    // harness with rules must admit the controller uses them.
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const declared = declaredValue(AGENT_MANIFESTS[kind].composer) !== undefined
+      expect(declared, `${kind}.composer`).toBe(
+        AGENT_MANIFESTS[kind].capabilities.composerScrape,
+      )
+    }
   })
 
   it('declares parent controls and named-instance state selectors', () => {
