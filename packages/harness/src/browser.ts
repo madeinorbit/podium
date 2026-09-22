@@ -444,8 +444,8 @@ export function refuseUnsupportedOperation(
 // to "no input-ready heuristic", never to a fetched rule and never to
 // another harness's.
 
-import { claudeComposer } from './adapters/claude-code/composer.js'
-import { codexComposer } from './adapters/codex/composer.js'
+import { claudeComposer } from './adapters/claude-code/composer'
+import { codexComposer } from './adapters/codex/composer'
 import type { HarnessComposer } from './manifest.js'
 
 const BUNDLED_COMPOSER_RULES: Record<string, HarnessComposer> = {
