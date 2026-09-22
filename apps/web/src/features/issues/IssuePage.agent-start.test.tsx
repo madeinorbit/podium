@@ -15,6 +15,9 @@ vi.mock('sonner', () => ({
 // so without it every render of the box threw `useStore outside StoreProvider`
 // before a single assertion ran. Same stub the dock's own test uses.
 vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
+vi.mock('@/lib/use-harness-descriptors', () => ({
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
+}))
 
 const start = vi.fn(async () => ({}))
 const update = vi.fn(async (_input: unknown) => ({}))

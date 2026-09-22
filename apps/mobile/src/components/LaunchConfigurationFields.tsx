@@ -1,5 +1,5 @@
 import { shallowEqual } from '@podium/client-core/store'
-import { useModelCatalogState } from '@podium/client-core/react'
+import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
 import { reposToViews } from '@podium/client-core/viewmodels'
 import { agentCapabilityRejection, type MachineId, machinesForRepoOrClone } from '@podium/model'
 import { useLayoutEffect, useMemo, useState } from 'react'
@@ -13,8 +13,8 @@ import {
   decodeModelPick,
   effortOptionsForModel,
   ISSUE_AGENT_KINDS,
-  ISSUE_AGENT_LABELS,
   issueAgentKind,
+  issueAgentLabel,
 } from '../lib/agent-models'
 import {
   type LaunchConfiguration,
@@ -69,7 +69,7 @@ export function LaunchConfigurationFields({
           : !machine.online
             ? `${machine.name} is offline.`
             : rejection !== undefined
-              ? `${machine.name} cannot run ${ISSUE_AGENT_LABELS[value.agentKind]}.`
+              ? `${machine.name} cannot run ${issueAgentLabel(value.agentKind, served)}.`
               : undefined
       return {
         value: machine.id,
@@ -78,12 +78,17 @@ export function LaunchConfigurationFields({
         ...(reason ? { reason } : {}),
       }
     })
-    return [autoLaunchMachineOption(explicit, ISSUE_AGENT_LABELS[value.agentKind]), ...explicit]
+    return [autoLaunchMachineOption(explicit, issueAgentLabel(value.agentKind, served)), ...explicit]
   }, [machines, value.agentKind])
   // An unpinned launch is validated by the server's own authority/default
   // catalog. Never substitute the first eligible repo machine: it may expose a
   // different harness or model set than the host that validates the spawn.
   const { catalog, status: catalogStatus } = useModelCatalogState<MobileTrpc>(
+    value.machineId ? (value.machineId as MachineId) : undefined,
+  )
+  // Served harness descriptors for the launch target (POD-4475): harness
+  // names render from the report, bundled copy offline.
+  const { served } = useHarnessDescriptors<MobileTrpc>(
     value.machineId ? (value.machineId as MachineId) : undefined,
   )
   const plan = useMemo(
@@ -111,19 +116,19 @@ export function LaunchConfigurationFields({
     ...(allowInheritedAgent ? [{ value: '', label: 'Auto' }] : []),
     ...ISSUE_AGENT_KINDS.map((kind) => ({
       value: kind,
-      label: ISSUE_AGENT_LABELS[kind],
+      label: issueAgentLabel(kind, served),
     })),
   ]
   const modelOptions = useMemo<NativePickerOption[]>(() => {
     if (!hasLiveAgentCatalog) return [{ value: AUTO, label: 'Auto' }]
-    const group = ISSUE_AGENT_LABELS[effective.agentKind]
-    return allConnectorModelOptions(catalog)
+    const group = issueAgentLabel(effective.agentKind, served)
+    return allConnectorModelOptions(catalog, served)
       .filter((option) => option.value === AUTO || option.group === group)
       .map(({ value: optionValue, label }) => ({ value: optionValue, label }))
   }, [catalog, effective.agentKind, hasLiveAgentCatalog])
   const decoded = decodeModelPick(effective.modelPick)
   const effortOptions = hasLiveAgentCatalog
-    ? effortOptionsForModel(effective.agentKind, decoded.model, catalog[effective.agentKind])
+    ? effortOptionsForModel(effective.agentKind, decoded.model, catalog[effective.agentKind], served)
     : []
 
   const rows: Array<{
@@ -139,7 +144,7 @@ export function LaunchConfigurationFields({
       label: 'Agent',
       selected: effective.inheritAgent ? '' : effective.agentKind,
       options: agentOptions,
-      valueLabel: effective.inheritAgent ? 'Auto' : ISSUE_AGENT_LABELS[effective.agentKind],
+      valueLabel: effective.inheritAgent ? 'Auto' : issueAgentLabel(effective.agentKind, served),
       select: (selected) => {
         if (!selected && allowInheritedAgent) {
           onChange(selectInheritedLaunchAgent(value))

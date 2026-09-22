@@ -24,3 +24,12 @@ vi.mock('@/lib/use-model-catalog', () => ({
   useModelCatalog: () =>
     (globalThis as FixtureGlobal).__podiumModelCatalogFixture?.current ?? {},
 }))
+
+/**
+ * Served harness descriptors fixture (POD-4475): provider-free tests render
+ * pickers against the bundled descriptors. `served: undefined` exercises the
+ * offline fallback path every suite already depends on.
+ */
+vi.mock('@/lib/use-harness-descriptors', () => ({
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
+}))

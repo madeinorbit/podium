@@ -17,7 +17,7 @@ import {
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
 import { useModelCatalog } from './use-model-catalog'
-import { useHarnessDescriptors } from '@podium/client-core/react'
+import { useHarnessDescriptors } from './use-harness-descriptors'
 import { cn } from './utils'
 
 /**

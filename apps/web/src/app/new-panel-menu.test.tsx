@@ -163,7 +163,7 @@ describe('the new-panel menu', () => {
       opened.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     )
 
-    fireEvent.click(screen.getByRole('menuitem', { name: /New OpenCode — opencode-server/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /New OpenCode — OpenCode 1 \(headless\)/ }))
     await vi.waitFor(() =>
       expect(createSession).toHaveBeenLastCalledWith(
         expect.objectContaining({
