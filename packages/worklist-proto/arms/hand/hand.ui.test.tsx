@@ -13,6 +13,7 @@ import { handArm } from './arm'
 import { issue, LANE, NOW, rec, session, waitingOffer, waitingState, workingState } from './hand.test'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 function mountExample() {
   const replay = createReplaySource({
@@ -31,7 +32,7 @@ function mountExample() {
     worktrees: [rec('worktree', '/wt', LANE)],
   })
   const locals: SliceLocals = { selectedIssueId: null, coarseNow: NOW }
-  const mounted = mountArmForCounts(handArm, replay.source, locals)
+  const mounted = mountArmForCounts(handArm, replay.source, fixedLocals(locals))
   const store = (mounted.handle as unknown as { store: HandStore }).store
   return { replay, mounted, store }
 }

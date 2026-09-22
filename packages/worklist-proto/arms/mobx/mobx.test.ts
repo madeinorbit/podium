@@ -15,6 +15,7 @@ import type { SliceIssue, SliceSession, SliceWorktree } from '../../shared/src/s
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 import { mobxArm } from './arm'
 import type { MobXStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 export const NOW = Date.parse('2026-09-20T12:00:00Z')
 const iso = (ms: number): string => new Date(ms).toISOString()
@@ -88,7 +89,7 @@ export function testWorld(records: RowRecord[]): TestWorld {
       }
     },
   }
-  const handle = mobxArm.create(source, { selectedIssueId: null, coarseNow: NOW }) as unknown as {
+  const handle = mobxArm.create(source, fixedLocals({ selectedIssueId: null, coarseNow: NOW }).source) as unknown as {
     store: MobXStore
   }
   return {

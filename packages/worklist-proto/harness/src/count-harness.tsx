@@ -42,7 +42,8 @@ import {
   type ReadFence,
   type ReadStats,
 } from '../../shared/src/instrument/reads'
-import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
+import type { LocalsSourceHandle } from '../../shared/src/locals-source'
+import type { LocalsKey, SliceSnapshot } from '../../shared/src/slice-types'
 import type { RowViews } from './oracle/row-views'
 import type { RowRecord, RowSourceEvent } from '../../shared/src/stats'
 
@@ -55,6 +56,8 @@ export interface MountedArm {
   log: CommitLog
   /** The reads fence the arm was created with. Disabled means "no reads cell". */
   reads: ReadFence
+  /** The locals channel the arm was created with (POD-4608); null for a bare element mount. */
+  locals: LocalsSourceHandle | null
   unmount(): void
 }
 
@@ -84,17 +87,24 @@ function MountPoint({ handle }: { handle: ArmHandle }): ReactElement {
  * relations. The arm cannot opt out; only the caller can, by passing a
  * disabled fence, and then every reads cell is `null` and `assertReads`
  * throws.
+ *
+ * `locals` (POD-4608) is the locals channel: `fixedLocals(value)` for a run
+ * whose locals never move, `createEngineLocals(engine)` when the scenario
+ * writes selection or the clock through the engine. The harness counts its
+ * traffic per scenario (`CountResult.locals`).
  */
 export function mountArmForCounts(
   arm: Arm,
   source: RowSource,
-  locals: SliceLocals,
+  locals: LocalsSourceHandle,
   options: { reads?: ReadFence } = {},
 ): MountedArm {
   const log = createCommitLog()
   const reads = options.reads ?? createReadFence({ enabled: true })
-  const handle = arm.create(reads.wrapSource(source), locals, reads)
-  return mountElementForCounts(handle, <MountPoint handle={handle} />, log, reads)
+  const handle = arm.create(reads.wrapSource(source), locals.source, reads)
+  const mounted = mountElementForCounts(handle, <MountPoint handle={handle} />, log, reads)
+  locals.stats.reset()
+  return { ...mounted, locals }
 }
 
 /**
@@ -127,6 +137,7 @@ export function mountElementForCounts(
     handle,
     log,
     reads,
+    locals: null,
     unmount(): void {
       act(() => {
         root.unmount()
@@ -161,6 +172,7 @@ export async function mountNativeForCounts(
     handle,
     log,
     reads,
+    locals: null,
     unmount(): void {
       act(() => {
         root.unmount()
@@ -276,6 +288,12 @@ export interface CountResult {
   /** Visible rows in the arm snapshot after the scenario (the isolation denominator). */
   visibleRows: number
   stats: CountStats
+  /**
+   * POD-4608 — the locals channel's traffic during the scenario: notification
+   * passes and, per key, the notifications naming it. `null` when the mount
+   * had no locals channel.
+   */
+  locals: { notifications: number; keys: Record<LocalsKey, number> } | null
   parity: boolean
   parityDiff: string | null
 }
@@ -344,6 +362,7 @@ export async function runCountScenario(
   mounted.handle.stats.reset()
   mounted.log.reset()
   if (mounted.reads.enabled) mounted.reads.reset()
+  mounted.locals?.stats.reset()
   await withCommitLogAsync(mounted.log, async () => {
     await act(async () => {
       await input.apply()
@@ -379,6 +398,13 @@ export async function runCountScenario(
       indexUpdates: stats.indexUpdates,
       notifications: stats.notifications,
     },
+    locals:
+      mounted.locals === null
+        ? null
+        : {
+            notifications: mounted.locals.stats.notifications,
+            keys: { ...mounted.locals.stats.keys },
+          },
     parity,
     parityDiff: parity ? null : firstDiff(snapshot, expected),
   }

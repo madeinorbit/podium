@@ -34,6 +34,7 @@ import { mountArmForCounts, runCountScenario } from '../../harness/src/count-har
 import { snapshotFromStore } from '../../harness/src/oracle/index'
 import { mobxArm } from './arm'
 import type { MobXStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 function changedRows(before: SliceSnapshot, after: SliceSnapshot): string[] {
   const out = new Set<string>()
@@ -53,7 +54,7 @@ async function bootFixture() {
     selectedIssueId: null,
     coarseNow: boot.engine.getSnapshot().coarseNow,
   }
-  const mounted = mountArmForCounts(mobxArm, source.source, locals)
+  const mounted = mountArmForCounts(mobxArm, source.source, fixedLocals(locals))
   const store = (mounted.handle as unknown as { store: MobXStore }).store
   return { boot, source, locals, mounted, store }
 }

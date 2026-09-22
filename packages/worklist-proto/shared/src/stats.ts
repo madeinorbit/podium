@@ -8,7 +8,7 @@
  * harness (POD-4445) and never here.
  */
 
-import type { SliceIssue, SliceSession, SliceWorktree } from './slice-types'
+import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree } from './slice-types'
 
 /** Per-arm derivation counters, reset per scenario by the harness. */
 export interface ArmStats {
@@ -44,4 +44,18 @@ export interface RowRecord {
 export interface RowSourceEvent {
   type: 'replace' | 'update'
   rows: RowRecord[]
+}
+
+/**
+ * POD-4608 — locals traffic, counted by the source (`locals-source.ts`), never
+ * by an arm: one shared place, whatever the arm does underneath.
+ */
+export interface LocalsSourceStats {
+  /** Notification passes to subscribers (one per drain that moved a key). */
+  notifications: number
+  /** Per key: notifications that named it. A tick counts only `coarseNow`. */
+  keys: Record<LocalsKey, number>
+  /** Drains that had a signal, notifying or not. */
+  flushes: number
+  reset(): void
 }

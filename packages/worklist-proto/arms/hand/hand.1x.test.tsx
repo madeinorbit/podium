@@ -29,6 +29,7 @@ import {
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 describe('hand-rolled arm at 1x', () => {
   // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
@@ -40,7 +41,7 @@ describe('hand-rolled arm at 1x', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const mounted = mountArmForCounts(handArm, source.source, locals)
+    const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
     const checkOracle = (): void => {
       const rebuilt = rebuildFromScratch({

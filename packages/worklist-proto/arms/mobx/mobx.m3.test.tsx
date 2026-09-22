@@ -40,6 +40,7 @@ import {
 } from '../../shared/src/scenarios'
 import { mobxArm } from './arm'
 import type { MobXStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 function storeOf(mounted: MountedArm): MobXStore {
   return (mounted.handle as unknown as { store: MobXStore }).store
@@ -63,7 +64,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       selectedIssueId: null,
       coarseNow: cold.engine.getSnapshot().coarseNow,
     }
-    const coldMounted = mountArmForCounts(mobxArm, coldSource.source, coldLocals)
+    const coldMounted = mountArmForCounts(mobxArm, coldSource.source, fixedLocals(coldLocals))
     try {
       const atMount = coldMounted.handle.snapshot()
       // The fixture's 1x visible set (POD-4550; the retired corpus showed 3,000+).
@@ -95,7 +96,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       selectedIssueId: null,
       coarseNow: first.engine.getSnapshot().coarseNow,
     }
-    const firstMounted = mountArmForCounts(mobxArm, firstSource.source, firstLocals)
+    const firstMounted = mountArmForCounts(mobxArm, firstSource.source, fixedLocals(firstLocals))
     const firstStore = storeOf(firstMounted)
     const firstVisible = Object.keys(firstMounted.handle.snapshot().rowsById).length
     expect(firstVisible).toBeGreaterThan(0)
@@ -129,7 +130,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       selectedIssueId: null,
       coarseNow: second.engine.getSnapshot().coarseNow,
     }
-    const secondMounted = mountArmForCounts(mobxArm, secondSource.source, secondLocals)
+    const secondMounted = mountArmForCounts(mobxArm, secondSource.source, fixedLocals(secondLocals))
     try {
       const atMount = secondMounted.handle.snapshot()
       expect(Object.keys(atMount.rowsById).length).toBe(firstVisible)
@@ -157,7 +158,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const mounted = mountArmForCounts(mobxArm, source.source, locals)
+    const mounted = mountArmForCounts(mobxArm, source.source, fixedLocals(locals))
     const grown = await startScenarioEngine(2)
     const grownSource = createRowSource(grown.engine, grown.replica, { mode: 'overlaid' })
     try {
@@ -267,7 +268,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
         selectedIssueId: null,
         coarseNow: ctx.engine.getSnapshot().coarseNow,
       }
-      const mounted = mountArmForCounts(mobxArm, source.source, locals)
+      const mounted = mountArmForCounts(mobxArm, source.source, fixedLocals(locals))
       const store = storeOf(mounted)
       const perStep: Record<string, { rows: number; deriv: string }> = {}
       try {
@@ -352,7 +353,7 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
         coarseNow: ctx.engine.getSnapshot().coarseNow,
       }
       const arm = kind === 'arm' ? mobxArm : legacyControlArmFor(ctx.engine)
-      const mounted = mountArmForCounts(arm, source.source, locals)
+      const mounted = mountArmForCounts(arm, source.source, fixedLocals(locals))
       try {
         const apply =
           scenario === 'heartbeat'
@@ -395,8 +396,8 @@ describe('mobx arm milestone 3: lifecycle, growth, coexistence', () => {
         selectedIssueId: null,
         coarseNow: ctx.engine.getSnapshot().coarseNow,
       }
-      const armMounted = mountArmForCounts(mobxArm, source.source, locals)
-      const controlMounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, locals)
+      const armMounted = mountArmForCounts(mobxArm, source.source, fixedLocals(locals))
+      const controlMounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
       try {
         // One shared publication, both sides reset before it, both read after:
         // neither may wake the other beyond what its solo run shows.

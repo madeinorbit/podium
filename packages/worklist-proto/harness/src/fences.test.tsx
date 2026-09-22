@@ -18,13 +18,13 @@
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { createRowSource } from '../../shared/src/row-source'
 import { startScenarioEngine } from '../../shared/src/scenarios'
 import { assertCommits, assertReads, mountArmForCounts } from './count-harness'
 import {
   engineLocals,
   FENCE_SCENARIOS,
   type FenceStep,
+  openFenceFeeds,
   runFenceScenarios,
   runFenceStep,
 } from './fence-scenarios'
@@ -49,6 +49,7 @@ function writeResults(name: string, steps: FenceStep[]): void {
     oracleChanged: result.oracleChangedRows,
     drawn: result.drawnRows,
     remounted: result.remountedRows,
+    localsNotified: result.locals?.keys ?? null,
     rowsCommitted: result.rowsCommitted,
     visibleRows: result.visibleRows,
     readsPerChange: result.readsPerChange,
@@ -74,10 +75,10 @@ function summary(
 describe('exact-commit fence: reference arm (can say YES)', () => {
   it('redraws exactly the oracle-changed rows on every scenario', async () => {
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-    const mounted = mountArmForCounts(referenceArmFor(ctx.engine), source.source, engineLocals(ctx))
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const mounted = mountArmForCounts(referenceArmFor(ctx.engine), feeds.rows.source, feeds.locals)
     try {
-      const steps = await runFenceScenarios(mounted, ctx, source.flush, ({ result }) => {
+      const steps = await runFenceScenarios(mounted, ctx, feeds.flush, ({ result }) => {
         expect(result.parity, `${result.scenario}: ${result.parityDiff ?? ''}`).toBe(true)
         assertCommits(result)
       })
@@ -90,12 +91,23 @@ describe('exact-commit fence: reference arm (can say YES)', () => {
       const changed = Object.fromEntries(
         steps.map(({ result }) => [result.methodology, result.oracleChangedRows?.length ?? 0]),
       )
-      for (const methodology of ['#2', '#3', '#4', '#5', '#7', '#10']) {
+      for (const methodology of ['#2', '#3', '#4', '#5', '#7', '#8b', '#10']) {
         expect(changed[methodology], `${methodology} must change a visible row`).toBeGreaterThan(0)
+      }
+      // POD-4608: the locals-only steps reach the arm through the channel,
+      // naming only their own keys; the plain tick moves no view.
+      const cell = (m: string) => steps.find((step) => step.result.methodology === m)?.result
+      expect(cell('#3')?.locals?.keys).toEqual({ selectedIssueId: 1, selectedIssueWasFolded: 0, coarseNow: 0 })
+      expect(cell('#8')?.locals?.keys).toEqual({ selectedIssueId: 0, selectedIssueWasFolded: 0, coarseNow: 1 })
+      expect(cell('#8b')?.locals?.keys).toEqual({ selectedIssueId: 0, selectedIssueWasFolded: 0, coarseNow: 1 })
+      expect(changed['#8']).toBe(0)
+      for (const { result } of steps) {
+        if (['#3', '#8', '#8b'].includes(result.methodology)) continue
+        expect(result.locals?.notifications, `${result.methodology} moved a local`).toBe(0)
       }
     } finally {
       mounted.unmount()
-      source.dispose()
+      feeds.dispose()
       ctx.engine.destroy()
     }
   }, 120_000)
@@ -105,13 +117,13 @@ for (const entry of ROUND_THREE_ARMS) {
   describe(`fences: ${entry.name}`, () => {
     it('passes the exact-commit fence, parity, the reads budgets and the copy sweep on every scenario', async () => {
       const ctx = await startScenarioEngine(1)
-      const source = createRowSource(ctx.engine, ctx.replica, { mode: entry.mode })
-      const mounted = mountArmForCounts(entry.armFor(ctx), source.source, engineLocals(ctx))
+      const feeds = openFenceFeeds(ctx, entry.mode)
+      const mounted = mountArmForCounts(entry.armFor(ctx), feeds.rows.source, feeds.locals)
       try {
         const steps = await runFenceScenarios(
           mounted,
           ctx,
-          source.flush,
+          feeds.flush,
           ({ result, readsBudget }) => {
             expect(result.parity, `${result.scenario}: ${result.parityDiff ?? ''}`).toBe(true)
             assertCommits(result)
@@ -123,7 +135,7 @@ for (const entry of ROUND_THREE_ARMS) {
         writeResults(`fences-${entry.folder}-1x.json`, steps)
       } finally {
         mounted.unmount()
-        source.dispose()
+        feeds.dispose()
         ctx.engine.destroy()
       }
     }, 120_000)
@@ -143,8 +155,8 @@ describe('wall-clock independence of the #9 steps', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(systemTime))
     const ctx = await startScenarioEngine(1)
-    const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
-    const mounted = mountArmForCounts(referenceArmFor(ctx.engine), source.source, engineLocals(ctx))
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const mounted = mountArmForCounts(referenceArmFor(ctx.engine), feeds.rows.source, feeds.locals)
     try {
       const cells = []
       const views = []
@@ -152,7 +164,7 @@ describe('wall-clock independence of the #9 steps', () => {
       for (const entry of FENCE_SCENARIOS.filter((candidate) =>
         candidate.methodology.startsWith('#9'),
       )) {
-        const { result } = await runFenceStep(mounted, ctx, source.flush, entry)
+        const { result } = await runFenceStep(mounted, ctx, feeds.flush, entry)
         assertCommits(result)
         cells.push({
           methodology: result.methodology,
@@ -170,7 +182,7 @@ describe('wall-clock independence of the #9 steps', () => {
       return { cells, views, readAts }
     } finally {
       mounted.unmount()
-      source.dispose()
+      feeds.dispose()
       ctx.engine.destroy()
       vi.useRealTimers()
     }

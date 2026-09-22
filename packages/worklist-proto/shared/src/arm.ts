@@ -5,7 +5,7 @@
  */
 
 import type { ReactElement } from 'react'
-import type { SliceLocals, SliceSnapshot } from './slice-types'
+import type { LocalsKey, SliceLocals, SliceSnapshot } from './slice-types'
 import type { RowRecord, RowSourceEvent } from './stats'
 import type { ArmStats } from './stats'
 import type { ReadFence } from './instrument/reads'
@@ -20,6 +20,29 @@ export interface RowSource {
   snapshot(kind: RowRecord['kind']): RowRecord[]
   /** One callback per publication, coalesced: never a transient half-applied list. */
   subscribe(listener: (event: RowSourceEvent) => void): () => void
+}
+
+/**
+ * POD-4608 (L1e) — the locals as the arms see them: selection and the coarse
+ * clock, mirroring {@link RowSource}. Views are functions of the rows and the
+ * locals; this is the locals half.
+ *
+ * `get()` is the value as of the last notification: an arm never sees a local
+ * move without being told which one. Its identity changes only when a value
+ * does. Each notification names WHICH keys changed, so a tick wakes only
+ * clock consumers (`coarseNow`) and a click only selection consumers
+ * (`selectedIssueId`, `selectedIssueWasFolded`). Notifications are coalesced
+ * like row events: one per drain, carrying the union of the keys that moved,
+ * never a key whose value came back to where it was.
+ *
+ * Implementations: `createLocalsSource` / `fixedLocals` / `settableLocals`
+ * (`locals-source.ts`) and the engine-backed `createEngineLocals`
+ * (`harness/src/engine-locals.ts`). Each counts its traffic in
+ * `LocalsSourceStats` (`stats.ts`).
+ */
+export interface LocalsSource {
+  get(): SliceLocals
+  subscribe(listener: (changed: ReadonlySet<LocalsKey>) => void): () => void
 }
 
 /**
@@ -62,6 +85,14 @@ export interface Arm {
    * relation buckets only through `reads.wrapRelations(...)`. Timing runs pass
    * `DISABLED_READ_FENCE`, whose wrappers are the identity. Round-two arms and
    * the legacy control predate it and may ignore it.
+   *
+   * `locals` (POD-4608) is the locals channel. A round-three arm MUST follow
+   * it: a selection click (#3) and a clock tick (#8) are locals-only — the row
+   * source emits nothing for them — so an arm that reads `locals.get()` only
+   * at creation paints a stale selection and stale time-dependent rows. It
+   * MUST wake only the consumers of the keys a notification names. Round-two
+   * arms and the legacy control read `locals.get()` where they used the value
+   * before and may ignore `subscribe`.
    */
-  create(source: RowSource, locals: SliceLocals, reads?: ReadFence): ArmHandle
+  create(source: RowSource, locals: LocalsSource, reads?: ReadFence): ArmHandle
 }

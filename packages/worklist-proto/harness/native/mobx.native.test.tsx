@@ -17,6 +17,7 @@ import {
   writeSelectionClick,
 } from '../../shared/src/scenarios'
 import { mobxArm, preloadMobxNative } from '../../arms/mobx/arm'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 describe('mobx arm on the native renderer', () => {
   it('runs count scenarios #1-#3 with parity; #1 commits zero', async () => {
@@ -27,7 +28,7 @@ describe('mobx arm on the native renderer', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const handle = mobxArm.create(source.source, locals)
+    const handle = mobxArm.create(source.source, fixedLocals(locals).source)
     const mounted = await mountNativeForCounts(handle)
     try {
       const list = document.querySelector('[data-testid="mobx-list"]')

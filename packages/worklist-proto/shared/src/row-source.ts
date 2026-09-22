@@ -62,7 +62,8 @@
  *
  * LOCALS-ONLY PUBLICATIONS (selection, drafts, host metrics, a coarse tick
  * that moved no band) carry no kernel address and move no overlaid row, so
- * they emit NO event. Arms receive locals (`SliceLocals`) out of band.
+ * they emit NO event. Arms receive locals through the `LocalsSource` channel
+ * (`arm.ts`, POD-4608), which names the keys that moved.
  *
  * OUT-OF-SLICE KINDS (`issueEvents`, `pendingInteractions`, `shipOrders`,
  * `conversations`, `automations`, `automationRuns`, `userLayouts`) never

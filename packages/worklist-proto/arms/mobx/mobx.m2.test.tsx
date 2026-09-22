@@ -51,6 +51,7 @@ import {
 } from '../../shared/src/scenarios'
 import { mobxArm } from './arm'
 import type { MobXStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 const STRICT = process.env.PROTO_M2_STRICT === '1'
 
@@ -86,7 +87,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const mounted = mountArmForCounts(mobxArm, source.source, locals)
+    const mounted = mountArmForCounts(mobxArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: MobXStore }).store
     const records: StepRecord[] = []
 

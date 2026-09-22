@@ -28,7 +28,7 @@ import {
   withCommitLogAsync,
   type CommitLog,
 } from '../../shared/src/row-shell'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import { settableLocals } from '../../shared/src/locals-source'
 import {
   applyHeartbeat,
   applyStageMove,
@@ -130,12 +130,12 @@ export function readScale(): 1 | 2 | 4 {
 export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: CommitLog } {
   const { createArm, source, boot, scale, counts, runtimeSha } = options
   const { engine } = boot
-  const locals: SliceLocals = {
+  const locals = settableLocals({
     selectedIssueId: null,
     coarseNow: engine.getSnapshot().coarseNow,
-  }
+  })
   const arm = createArm()
-  const handle = arm.create(source, locals)
+  const handle = arm.create(source, locals.source)
   const log = createCommitLog()
   withCommitLog(log, () => {
     const unmount = handle.mountWeb(options.el)
@@ -188,13 +188,14 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     applyStageMove(boot, firstOpenId())
   }
 
-  /** The page clock: arms tick through their store hook, the control follows
-   *  the locals object its snapshot reads. No row changes — bands and folds
-   *  re-derive from the new now. */
-  let pageNow = locals.coarseNow
+  /** The page clock, published on the locals channel (POD-4608) and drained
+   *  at once: the control reads it there; round-two arms tick through their
+   *  store hook. No row changes — bands and folds re-derive from the new now. */
+  let pageNow = locals.source.get().coarseNow
   async function clock(): Promise<void> {
     pageNow += 60_000
-    locals.coarseNow = pageNow
+    locals.set({ coarseNow: pageNow })
+    locals.flush()
     const store = (handle as unknown as { store?: { setCoarseNow?: (now: number) => void } }).store
     if (store?.setCoarseNow !== undefined) store.setCoarseNow(pageNow)
   }

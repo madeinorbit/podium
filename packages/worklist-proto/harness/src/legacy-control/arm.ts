@@ -40,8 +40,8 @@ import {
   worklistSlice,
   type WorklistSlice,
 } from '@podium/client-core/viewmodels'
-import type { Arm, ArmHandle } from '../../../shared/src/arm'
-import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types'
+import type { Arm, ArmHandle, LocalsSource } from '../../../shared/src/arm'
+import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import { snapshotFromStore } from '../oracle/index'
 import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
@@ -107,7 +107,7 @@ function createControlStats(): ArmStats {
  */
 export function legacyControlArmFor(engine: LegacyControlEngine): Arm {
   return {
-    create(_source, locals: SliceLocals, reads: ReadFence = DISABLED_READ_FENCE): ArmHandle {
+    create(_source, locals: LocalsSource, reads: ReadFence = DISABLED_READ_FENCE): ArmHandle {
       const stats = createControlStats()
       const counted: ControlSliceDef = defineSlice({
         name: 'worklist-control',
@@ -133,7 +133,7 @@ export function legacyControlArmFor(engine: LegacyControlEngine): Arm {
           const store = engine.getSnapshot()
           return snapshotFromStore(store, {
             selectedIssueId: null,
-            coarseNow: locals.coarseNow,
+            coarseNow: locals.get().coarseNow,
           })
         },
         stats,

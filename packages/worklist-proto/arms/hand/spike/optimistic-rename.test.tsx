@@ -24,6 +24,7 @@ import { writeTitleRename } from '../../../shared/src/scenarios'
 import { handArm } from '../arm'
 import { rebuildFromScratch } from '../rebuild'
 import type { HandStore } from '../store'
+import { fixedLocals } from '../../../shared/src/locals-source'
 
 /** The spike's whole write API: pending delta + mark, echo clear, prior restore. */
 class PendingTitles {
@@ -70,7 +71,7 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const mounted = mountArmForCounts(handArm, source.source, locals)
+    const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
     const pending = new PendingTitles(store)
     const checkOracle = (): void => {

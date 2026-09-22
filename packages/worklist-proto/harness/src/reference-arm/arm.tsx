@@ -11,6 +11,14 @@
  * right instants. `fences.test.tsx` requires it to pass `assertCommits` on
  * every scenario; the legacy control is the arm that must fail.
  *
+ * LOCALS THROUGH THE CHANNEL (POD-4608). Selection and the clock come from the
+ * `LocalsSource` it is created with, never from the engine store: it
+ * recomputes on every engine publication (rows) AND on every locals
+ * notification. On the fence's engine-backed source a click or a tick is
+ * published to the channel one drain AFTER the engine publication, so the
+ * row recompute still sees the old locals and only the channel brings the
+ * selection and the clock in. The `deaf` plant shows what that costs.
+ *
  * NOT A CANDIDATE. It reads the engine store, not the feed, and does
  * whole-world work per change; it is exempt from the reads fence and the copy
  * sweep, and it never appears in the round-three roster (`roster.ts`).
@@ -19,7 +27,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import { createElement, memo, type ReactElement, useRef, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { Arm, ArmHandle } from '../../../shared/src/arm'
+import type { Arm, ArmHandle, LocalsSource } from '../../../shared/src/arm'
 import {
   CommitLogContext,
   currentCommitLog,
@@ -43,29 +51,28 @@ import { type RowViews, rowViewsFromStore, snapshotFromStore } from '../oracle/i
  * - `remount`: rows are keyed by a render counter, so every list render
  *   REMOUNTS every row and commits none (round two's isolation fence, which
  *   counts commits only, passes it).
+ * - `deaf`: the locals are read ONCE, at creation, and the channel is never
+ *   subscribed — the round-two contract. A click (#3) never selects a row and
+ *   a tick (#8b) never folds one (under-commit).
  */
 export type ReferencePlant =
   | { kind: 'unmemoised' }
   | { kind: 'stale'; id: string }
   | { kind: 'remount' }
+  | { kind: 'deaf' }
 
 interface ReferenceState {
   order: SliceOrder
   views: RowViews
 }
 
-function localsOf(engine: LegacyControlEngine): SliceLocals {
-  const store = engine.getSnapshot()
-  return { selectedIssueId: store.selectedIssueId ?? null, coarseNow: store.coarseNow }
-}
-
 function stateOf(
   engine: LegacyControlEngine,
+  locals: SliceLocals,
   previous: ReferenceState | null,
   plant: ReferencePlant | null,
 ): ReferenceState {
   const store = engine.getSnapshot()
-  const locals = localsOf(engine)
   const fresh = rowViewsFromStore(store, locals)
   const views: RowViews = {}
   for (const [id, view] of Object.entries(fresh)) {
@@ -164,15 +171,19 @@ export function referenceArmFor(
   plant: ReferencePlant | null = null,
 ): Arm {
   return {
-    create(): ArmHandle {
+    create(_source, channel: LocalsSource): ArmHandle {
       const stats = zeroStats()
-      let state = stateOf(engine, null, plant)
+      const deafTo = plant?.kind === 'deaf' ? channel.get() : null
+      const localsNow = (): SliceLocals => deafTo ?? channel.get()
+      let state = stateOf(engine, localsNow(), null, plant)
       const listeners = new Set<() => void>()
-      const off = engine.subscribe(() => {
+      const refresh = (): void => {
         stats.notifications += 1
-        state = stateOf(engine, state, plant)
+        state = stateOf(engine, localsNow(), state, plant)
         for (const listener of [...listeners]) listener()
-      })
+      }
+      const offRows = engine.subscribe(refresh)
+      const offLocals = deafTo === null ? channel.subscribe(refresh) : () => {}
       const subscribe = (listener: () => void): (() => void) => {
         listeners.add(listener)
         return () => {
@@ -184,13 +195,14 @@ export function referenceArmFor(
       return {
         snapshot(): SliceSnapshot {
           return snapshotFromStore(engine.getSnapshot(), {
-            ...localsOf(engine),
+            ...localsNow(),
             selectedIssueId: null,
           })
         },
         stats,
         dispose(): void {
-          off()
+          offRows()
+          offLocals()
           webRoot?.unmount()
           webRoot = null
         },

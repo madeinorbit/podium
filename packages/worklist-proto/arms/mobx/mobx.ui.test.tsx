@@ -16,6 +16,7 @@ import type { SliceLocals } from '../../shared/src/slice-types'
 import { mobxArm } from './arm'
 import { issue, LANE, NOW, rec, session, waitingOffer, waitingState, workingState } from './mobx.test'
 import type { MobXStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 function mountExample() {
   const replay = createReplaySource({
@@ -34,7 +35,7 @@ function mountExample() {
     worktrees: [rec('worktree', '/wt', LANE)],
   })
   const locals: SliceLocals = { selectedIssueId: null, coarseNow: NOW }
-  const mounted = mountArmForCounts(mobxArm, replay.source, locals)
+  const mounted = mountArmForCounts(mobxArm, replay.source, fixedLocals(locals))
   const store = (mounted.handle as unknown as { store: MobXStore }).store
   return { replay, mounted, store }
 }
@@ -99,7 +100,7 @@ describe('mobx arm UI', () => {
       worktrees: [rec('worktree', '/wt', LANE)],
     })
     const locals: SliceLocals = { selectedIssueId: null, coarseNow: NOW }
-    const mounted = mountArmForCounts(mobxArm, replay.source, locals)
+    const mounted = mountArmForCounts(mobxArm, replay.source, fixedLocals(locals))
     try {
       expect(Object.keys(mounted.handle.snapshot().rowsById).sort()).toEqual(['C', 'L', 'P', 'R', 'S'])
       const beforeS = mounted.handle.snapshot().rowsById['S']
@@ -147,7 +148,7 @@ describe('mobx arm UI', () => {
       worktrees: [rec('worktree', '/wt', LANE)],
     })
     const locals: SliceLocals = { selectedIssueId: null, coarseNow: NOW }
-    const mounted = mountArmForCounts(mobxArm, replay.source, locals)
+    const mounted = mountArmForCounts(mobxArm, replay.source, fixedLocals(locals))
     try {
       const result = await runCountScenario(mounted, {
         scenario: 'heartbeat',

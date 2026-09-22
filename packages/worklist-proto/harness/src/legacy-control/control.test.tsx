@@ -49,6 +49,7 @@ import {
 } from '../../../shared/src/scenarios'
 import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { legacyControlArmFor } from './arm'
+import { fixedLocals } from '../../../shared/src/locals-source'
 
 describe('legacy control (armed)', () => {
   it('FAILS isolation on unrelatedHeartbeat and passes parity exactly', async () => {
@@ -58,7 +59,7 @@ describe('legacy control (armed)', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, locals)
+    const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
     try {
       // Parity on mount, before any action: the control shows what the app shows.
       const atMount = mounted.handle.snapshot()
@@ -146,7 +147,7 @@ describe('legacy control (armed)', () => {
       const mounted = mountArmForCounts(
         legacyControlArmFor(ctx.engine),
         source.source,
-        locals,
+        fixedLocals(locals),
         reads === undefined ? {} : { reads },
       )
       try {
@@ -190,7 +191,7 @@ describe('legacy control (armed)', () => {
     const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
     const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
-    const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, locals)
+    const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
     const run = (scenario: string, methodology: string, write: (ctx: ScenarioEngine) => Promise<unknown>) =>
       runCountScenario(mounted, {
         scenario,

@@ -19,6 +19,7 @@ import {
 import { handArm, preloadHandNative } from '../../arms/hand/arm'
 import { rebuildFromScratch } from '../../arms/hand/rebuild'
 import type { HandStore } from '../../arms/hand/store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 describe('hand-rolled arm on the native renderer', () => {
   it('runs count scenarios #1-#3 with parity; #1 commits zero', async () => {
@@ -29,7 +30,7 @@ describe('hand-rolled arm on the native renderer', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const handle = handArm.create(source.source, locals)
+    const handle = handArm.create(source.source, fixedLocals(locals).source)
     const store = (handle as unknown as { store: HandStore }).store
     const mounted = await mountNativeForCounts(handle)
     const checkOracle = (): void => {

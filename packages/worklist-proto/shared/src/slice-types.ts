@@ -106,7 +106,8 @@ export interface SliceWorktree {
 
 /**
  * Locals (spec §5). Selection is a local, never a row field; the coarse clock
- * is data, never `Date.now()`.
+ * is data, never `Date.now()`. Arms receive them through a `LocalsSource`
+ * (`arm.ts`, POD-4608), never as a value fixed at creation.
  */
 export interface SliceLocals {
   selectedIssueId: string | null
@@ -115,6 +116,16 @@ export interface SliceLocals {
   /** Epoch ms. Arms re-derive time-dependent outputs only from this value. */
   coarseNow: number
 }
+
+/** One local, as a `LocalsSource` notification names it. */
+export type LocalsKey = keyof SliceLocals
+
+/** Every local, in declaration order. The selection keys are the first two. */
+export const LOCALS_KEYS: readonly LocalsKey[] = [
+  'selectedIssueId',
+  'selectedIssueWasFolded',
+  'coarseNow',
+]
 
 /** Row motion phase (spec §3 R-SUM): waiting dominates, then working. */
 export type SlicePhase = 'queued' | 'working' | 'waiting' | 'done'

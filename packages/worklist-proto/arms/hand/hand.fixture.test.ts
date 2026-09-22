@@ -14,6 +14,7 @@ import { snapshotFromStore } from '../../harness/src/oracle/index'
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 // POD-4551 expected failure (coordinator ruling, option 1): the resume-twin tie root (i286 at 1x) collapses in the runtime (runtime.ts:465 and :1172 via dedupeSessions) and this retired round-two arm never collapses, so it shows the stale ask. Delete with the round-two code (Ma1/Ha1); never copy onto a round-three arm.
 it.fails('fixture corpus at 1x: parity with the legacy oracle, rebuild oracle green', async () => {
@@ -25,7 +26,7 @@ it.fails('fixture corpus at 1x: parity with the legacy oracle, rebuild oracle gr
       selectedIssueId: null as string | null,
       coarseNow: boot.engine.getSnapshot().coarseNow,
     }
-    const handle = handArm.create(source.source, locals)
+    const handle = handArm.create(source.source, fixedLocals(locals).source)
     const store = (handle as unknown as { store: HandStore }).store
     const mine = handle.snapshot()
     const expected = snapshotFromStore(boot.engine.getSnapshot(), locals)

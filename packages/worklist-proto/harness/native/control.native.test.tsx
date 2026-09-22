@@ -28,6 +28,7 @@ import {
   writePhaseChange,
   writeSelectionClick,
 } from '../../shared/src/scenarios'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 describe('legacy control on the native renderer', () => {
   it('runs count scenarios #1-#3 with parity; #1 fails isolation', async () => {
@@ -38,7 +39,7 @@ describe('legacy control on the native renderer', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const handle = legacyControlArmFor(ctx.engine).create(source.source, locals)
+    const handle = legacyControlArmFor(ctx.engine).create(source.source, fixedLocals(locals).source)
     const mounted = await mountNativeForCounts(handle)
     try {
       // The render guard: snapshot parity below cannot tell an empty native

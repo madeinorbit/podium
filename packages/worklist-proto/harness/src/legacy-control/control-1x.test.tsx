@@ -23,6 +23,7 @@ import {
 import { snapshotFromStore } from '../oracle/index'
 import { writeHeartbeat } from '../../../shared/src/scenarios'
 import { legacyControlArmFor } from './arm'
+import { fixedLocals } from '../../../shared/src/locals-source'
 
 describe('legacy control at 1x', () => {
   it('heartbeat fails isolation with exact parity in under 60 s', async () => {
@@ -33,7 +34,7 @@ describe('legacy control at 1x', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, locals)
+    const mounted = mountArmForCounts(legacyControlArmFor(ctx.engine), source.source, fixedLocals(locals))
     try {
       const result = await runCountScenario(mounted, {
         scenario: 'unrelatedHeartbeat',

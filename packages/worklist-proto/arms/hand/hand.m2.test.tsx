@@ -44,6 +44,7 @@ import {
 import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 const STRICT = process.env.PROTO_M2_STRICT === '1'
 
@@ -80,7 +81,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
       selectedIssueId: null,
       coarseNow: ctx.engine.getSnapshot().coarseNow,
     }
-    const mounted = mountArmForCounts(handArm, source.source, locals)
+    const mounted = mountArmForCounts(handArm, source.source, fixedLocals(locals))
     const store = (mounted.handle as unknown as { store: HandStore }).store
     const records: StepRecord[] = []
 

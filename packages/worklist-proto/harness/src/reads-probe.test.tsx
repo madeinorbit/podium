@@ -35,6 +35,7 @@ import {
   type CountResult,
 } from './count-harness'
 import { snapshotFromStore } from './oracle/index'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 type ProbeMode = 'borrow' | 'scan' | 'copy'
 
@@ -100,7 +101,7 @@ async function heartbeat(mode: ProbeMode): Promise<{ run: () => Promise<CountRes
   const ctx = await startScenarioEngine(1)
   const source = createRowSource(ctx.engine, ctx.replica, { mode: 'overlaid' })
   const locals: SliceLocals = { selectedIssueId: null, coarseNow: ctx.engine.getSnapshot().coarseNow }
-  const mounted = mountArmForCounts(probeArm(mode), source.source, locals)
+  const mounted = mountArmForCounts(probeArm(mode), source.source, fixedLocals(locals))
   return {
     // The session table the scan walks: the replica's rows, which keep every
     // resume twin the runtime's session list collapses (POD-4551).

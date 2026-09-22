@@ -18,6 +18,7 @@ import {
 import { snapshotFromStore } from '../../harness/src/oracle/index'
 import { writeHeartbeat, writePhaseChange, writeSelectionClick } from '../../shared/src/scenarios'
 import { mobxArm } from './arm'
+import { fixedLocals } from '../../shared/src/locals-source'
 
 async function bootArm() {
   const ctx = await startScenarioEngine(1)
@@ -26,7 +27,7 @@ async function bootArm() {
     selectedIssueId: null,
     coarseNow: ctx.engine.getSnapshot().coarseNow,
   }
-  const mounted = mountArmForCounts(mobxArm, source.source, locals)
+  const mounted = mountArmForCounts(mobxArm, source.source, fixedLocals(locals))
   return { ctx, source, locals, mounted }
 }
 

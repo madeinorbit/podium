@@ -7,8 +7,7 @@
 import './config'
 import { createElement, type ReactElement } from 'react'
 import { observer } from 'mobx-react-lite'
-import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { Arm, ArmHandle, LocalsSource, RowSource } from '../../shared/src/arm'
 import { MobXStore } from './store'
 
 // DYNAMIC on purpose (not a bundle nicety): `./native` imports
@@ -35,8 +34,10 @@ const NativeHost = observer(function NativeHost({ store }: { store: MobXStore })
 })
 
 export const mobxArm: Arm = {
-  create(source: RowSource, locals: SliceLocals): ArmHandle {
-    const store = new MobXStore(source, locals)
+  // Round two predates the locals channel (POD-4608): the store reads its
+  // locals once, here, and is driven by `setSelection` / `setCoarseNow`.
+  create(source: RowSource, locals: LocalsSource): ArmHandle {
+    const store = new MobXStore(source, locals.get())
     return {
       snapshot: () => store.snapshot(),
       stats: store.stats,
