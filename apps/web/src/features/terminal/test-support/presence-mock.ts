@@ -19,5 +19,8 @@ export function presenceSeamStub(): Record<string, unknown> {
     useCurrentPrincipal: () => null,
     useStoreHandle: () => ({ getSnapshot: () => ({ issues: [] }) }),
     useModelCatalog: () => ({}),
+    // Served harness descriptors (POD-4475): provider-free suites render
+    // against the bundled copy.
+    useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
   }
 }

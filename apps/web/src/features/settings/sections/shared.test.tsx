@@ -29,7 +29,11 @@ describe('RoleBackendEditor', () => {
       />,
     )
 
-    expect(screen.getByRole('combobox').textContent).toContain('Codex (ChatGPT)')
+    // One name per harness (POD-4475): the native row reads the descriptor
+    // label 'Codex' — the ChatGPT-login disambiguation lives in the account
+    // note below the row, not in a second display string.
+    expect(screen.getByRole('combobox').textContent).toContain('Codex')
+    expect(screen.getByRole('combobox').textContent).not.toContain('ChatGPT')
     fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
     expect(screen.getByRole('menuitem', { name: 'Extra high' })).toBeTruthy()
   })

@@ -30,6 +30,9 @@ vi.mock('@/lib/use-feature', () => ({
   invalidateFeatures: vi.fn(),
 }))
 vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
+vi.mock('@/lib/use-harness-descriptors', () => ({
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
+}))
 
 import { SettingsView } from './SettingsView'
 

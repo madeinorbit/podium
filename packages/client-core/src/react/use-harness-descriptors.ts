@@ -1,6 +1,6 @@
 import type { MachineId } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PodiumClientApi } from '../api'
 import { useStoreSelector } from './provider'
 
@@ -80,7 +80,13 @@ export function useHarnessDescriptors<TApi extends PodiumClientApi = PodiumClien
   const trpc = useStoreSelector<TApi, TApi>((store) => store.trpc)
   const [, forceRender] = useState(0)
   const key = machineId ?? '__no_machine__'
-  const scope = scopeFor(trpc)
+  // First-render transport wins: some test stores hand out a fresh `trpc`
+  // object per selector call, and keying the scope (or the effect) off its
+  // identity would refetch — and re-render — forever. Production trpc is
+  // stable, so this changes nothing there.
+  const trpcRef = useRef<TApi | null>(null)
+  if (trpcRef.current === null) trpcRef.current = trpc
+  const scope = scopeFor(trpcRef.current)
 
   useEffect(() => {
     const subscriber = () => forceRender((value) => value + 1)
@@ -91,7 +97,8 @@ export function useHarnessDescriptors<TApi extends PodiumClientApi = PodiumClien
       listeners.delete(subscriber)
       if (listeners.size === 0) scope.subscribers.delete(key)
     }
-  }, [key, scope, trpc])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, scope])
 
   useEffect(() => {
     if (!machineId) {
@@ -101,8 +108,10 @@ export function useHarnessDescriptors<TApi extends PodiumClientApi = PodiumClien
       }
       return
     }
+    // Test stores may carry a partial trpc surface (no `machines` router):
+    // unavailable, never a throw — callers render the bundled copy.
     const api = (trpc as Partial<PodiumClientApi>).machines
-    if (!api) {
+    if (!api?.descriptors) {
       if (scope.statusByKey.get(key) !== 'unavailable') {
         scope.statusByKey.set(key, 'unavailable')
         for (const subscriber of scope.subscribers.get(key) ?? []) subscriber()
@@ -110,8 +119,9 @@ export function useHarnessDescriptors<TApi extends PodiumClientApi = PodiumClien
       return
     }
     if (scope.inflight.has(key) || scope.statusByKey.get(key) === 'ready') return
-    void fetchDescriptors(scope, api, key, machineId)
-  }, [key, machineId, scope, trpc])
+    void fetchDescriptors(scope, api as NonNullable<PodiumClientApi['machines']>, key, machineId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, machineId, scope])
 
   return {
     served: scope.cache.get(key),

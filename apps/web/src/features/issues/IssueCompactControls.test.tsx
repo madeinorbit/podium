@@ -15,6 +15,9 @@ vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 // The launch box's model/effort segments read the live catalog through this
 // shim, which hangs off the REAL store provider rather than the mock below.
 vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
+vi.mock('@/lib/use-harness-descriptors', () => ({
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
+}))
 
 const setOpenIssueId = vi.fn()
 const setView = vi.fn()

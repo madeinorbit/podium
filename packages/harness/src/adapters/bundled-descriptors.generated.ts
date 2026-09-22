@@ -271,8 +271,7 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
         "liveMerge": "live-wins-when-non-empty"
       },
       "login": {
-        "command": "cursor-agent login",
-        "installHint": "Install the Cursor CLI on this machine, then run “cursor-agent login”. Podium will detect it automatically."
+        "command": "cursor-agent login"
       }
     },
     {

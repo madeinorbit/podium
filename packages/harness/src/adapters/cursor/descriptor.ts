@@ -8,7 +8,9 @@
  * never stated here.
  *
  * Cursor has no effort flag and no argv prompt: effort rides the model
- * string and the first prompt travels the durable outbox.
+ * string and the first prompt travels the durable outbox. Its login copy is
+ * the command alone: the setup row renders the command pill (no install
+ * paragraph), exactly as the hand-written row did.
  */
 
 import type { HarnessDescriptorData } from '../../descriptor-types.js'
@@ -25,8 +27,7 @@ export const cursorDescriptor: HarnessDescriptorData = {
   brand: null,
   login: {
     command: 'cursor-agent login',
-    installHint:
-      'Install the Cursor CLI on this machine, then run “cursor-agent login”. Podium will detect it automatically.',
+    installHint: null,
     signedOutHint: null,
   },
   defaults: { model: null, effort: null },

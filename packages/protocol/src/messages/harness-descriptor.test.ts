@@ -41,7 +41,10 @@ describe('harness descriptor wire (POD-4475)', () => {
   })
 
   it('renders when every optional field is missing', () => {
-    const { brand: _b, login: _l, defaults: _d, available: _a, sections: _s, ...minimal } = descriptor
+    // Cast to an open record: the point is that these keys MAY be absent.
+    const { brand: _b, login: _l, defaults: _d, available: _a, sections: _s, ...minimal } = {
+      ...descriptor,
+    } as Record<string, unknown>
     void _b
     void _l
     void _d

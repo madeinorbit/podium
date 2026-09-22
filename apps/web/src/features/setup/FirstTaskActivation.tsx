@@ -48,7 +48,14 @@ import { SetupError } from './SetupFeedback'
 function setupHint(
   agent: IssueAgentKind,
   readiness: ActivationAgentReadiness,
-  login: { command?: string | null; installHint?: string | null; signedOutHint?: string | null } | undefined,
+  login:
+    | {
+        command?: string | null | undefined
+        installHint?: string | null | undefined
+        signedOutHint?: string | null | undefined
+      }
+    | null
+    | undefined,
   label: string,
 ): string {
   if (readiness.state === 'logged-out' && login?.signedOutHint) return login.signedOutHint
@@ -432,7 +439,7 @@ export function FirstTaskActivation({
                 {issueAgentLabel(agent, descriptors)}
               </span>
             </div>
-            {setupCommand ? (
+            {setupCommand && !agentLogin(agent)?.installHint ? (
               <p className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[13px] leading-[1.45] text-[#9ba1ab]">
                 <span>Install the CLI, then run</span>
                 {/* No fixed height, and never broken across lines: on a phone
