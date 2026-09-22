@@ -58,7 +58,7 @@ function zeroStats(): ArmStats {
   }
 }
 
-/** `mustDraw`: row ids the page's scenarios need mounted (click targets). */
+/** `mustDraw`: rows drawn even when outside the first window (the library's click targets). */
 export function noopArmFor(boot: ScenarioEngine, mustDraw: readonly string[]): Arm {
   return {
     create(source, locals): ArmHandle {

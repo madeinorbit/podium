@@ -12,10 +12,15 @@
  * - `rename`: title dual-write on the library's visible-root target (#4).
  * - `stagemove`: stage dual-write (open → done/tucked) on a fresh childless
  *   open root per sample, picked from the corpus by rule (#5).
- * - `clock`: advance the slice clock 60 s with no row change; arms re-derive
- *   bands from the new now, the control follows its locals (#8).
- * - `click`: a pointer event and click on a row's pressable, alternating
- *   between two visible roots so every sample is a real selection change (#3).
+ * - `clock`: advance the clock 60 s with no row change, through the runtime's
+ *   own tick path (the control derives from the engine clock) and on the
+ *   locals channel (round-three arms); bands re-derive from the new now (#8).
+ * - `click`: a pointer event and click on a row's pressable (#3). Every
+ *   sample clicks a row this page has never selected, so every sample is a
+ *   selection change plus the eager mark-read (POD-4619); a second click on a
+ *   read row would time a selection alone and mix two workloads in one cell.
+ *   The row is the library's `visibleRootId`, then `markReadId`, then the
+ *   corpus's other childless open roots in id order, the first one mounted.
  *
  * The writes are the scenario library's own (`applyHeartbeat`,
  * `applyTitleRename`, `applyStageMove`: the synchronous half, so the engine
@@ -177,13 +182,14 @@ function createTimedCommitLog(): TimedCommitLog {
 }
 
 /**
- * Fresh stage-move targets, one per sample: childless open human roots, in id
- * order, excluding every other scenario target. The rule is the scenario
- * library's `childlessRoot` (`pickTargets`), so the rows are visible and the
- * move crosses into the closed fold on every arm; it is chosen from the
- * corpus, never from an arm's output order.
+ * Fresh per-sample targets: childless open human roots, in id order,
+ * excluding every other scenario target, split alternately between the stage
+ * move and the click so the two never share a row. The rule is the scenario
+ * library's `childlessRoot` (`pickTargets`), so the rows are visible and a
+ * stage move crosses into the closed fold on every arm; they are chosen from
+ * the corpus, never from an arm's output order.
  */
-function stageMoveSequence(boot: ScenarioEngine): string[] {
+function freshTargets(boot: ScenarioEngine): { stageMoves: string[]; clicks: string[] } {
   type Facts = {
     id: string
     parentId?: string | null
@@ -212,7 +218,7 @@ function stageMoveSequence(boot: ScenarioEngine): string[] {
     ...t.burstIssueIds,
   ])
   const active = new Set(['in_progress', 'planning', 'review'])
-  return issues
+  const pool = issues
     .filter(
       (i) =>
         i.audience === 'human' &&
@@ -228,6 +234,10 @@ function stageMoveSequence(boot: ScenarioEngine): string[] {
     )
     .map((i) => i.id)
     .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+  return {
+    stageMoves: pool.filter((_, i) => i % 2 === 0),
+    clicks: [t.visibleRootId, t.markReadId, ...pool.filter((_, i) => i % 2 === 1)],
+  }
 }
 
 export interface MountPageOptions {
@@ -244,11 +254,6 @@ export interface MountPageOptions {
 export function readScale(): 1 | 2 | 4 {
   const raw = new URLSearchParams(window.location.search).get('scale')
   return raw === '2' ? 2 : raw === '4' ? 4 : 1
-}
-
-/** The two rows the click alternates between (both visible open roots). */
-export function clickTargets(boot: ScenarioEngine): [string, string] {
-  return [boot.targets.visibleRootId, boot.targets.markReadId]
 }
 
 export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: CommitLog } {
@@ -309,7 +314,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     return id
   }
 
-  const stageMoves = stageMoveSequence(boot)
+  const { stageMoves, clicks } = freshTargets(boot)
   let stageMoveNext = 0
   /** A fresh row every sample, so every sample measures a real group move. */
   function nextStageMove(): string {
@@ -321,24 +326,31 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     return id
   }
 
-  /** The page clock, published on the locals channel (POD-4608) and drained
-   *  at once: the control reads it there; round-two arms tick through their
-   *  store hook. No row changes — bands and folds re-derive from the new now. */
+  /** The page clock: the runtime's own tick (the control derives from the
+   *  engine clock), the same instant on the locals channel (POD-4608), drained
+   *  at once, and round-two arms' store hook. No row changes — bands and
+   *  folds re-derive from the new now. */
   let pageNow = locals.source.get().coarseNow
   function clock(): void {
     pageNow += 60_000
+    boot.advanceClock(60_000)
     locals.set({ coarseNow: pageNow })
     locals.flush()
     const store = (handle as unknown as { store?: { setCoarseNow?: (now: number) => void } }).store
     if (store?.setCoarseNow !== undefined) store.setCoarseNow(pageNow)
   }
 
-  const clicks = clickTargets(boot)
-  let clickCount = 0
-  function pressableOf(rowId: string): HTMLElement {
-    const button = el.querySelector(`[data-issue-row="${CSS.escape(rowId)}"] [data-pressable]`)
-    if (!(button instanceof HTMLElement)) throw new Error(`[proto] no pressable for row ${rowId}`)
-    return button
+  const clicked = new Set<string>()
+  /** The first never-clicked candidate the list has mounted, and its pressable. */
+  function nextClick(): { id: string; button: HTMLElement } {
+    for (const id of clicks) {
+      if (clicked.has(id)) continue
+      const button = el.querySelector(`[data-issue-row="${CSS.escape(id)}"] [data-pressable]`)
+      if (!(button instanceof HTMLElement)) continue
+      clicked.add(id)
+      return { id, button }
+    }
+    throw new Error(`[proto] click: no unclicked candidate is mounted (${clicked.size} used); load a fresh page`)
   }
 
   let settledSignals = signals()
@@ -421,9 +433,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
         case 'clock':
           return { target: null, dispatch: clock }
         case 'click': {
-          const id = clicks[clickCount % 2] as string
-          clickCount += 1
-          const button = pressableOf(id)
+          const { id, button } = nextClick()
           return {
             target: id,
             dispatch: () => {

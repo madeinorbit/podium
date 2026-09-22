@@ -1,7 +1,7 @@
 import { buildCorpus } from '../../src/fixture/index'
 import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { createRowSource } from '../../../shared/src/row-source'
-import { clickTargets, mountPage, readScale } from '../entrylib'
+import { mountPage, readScale } from '../entrylib'
 import { noopArmFor } from '../noop-arm'
 
 // POD-4558: the instrument floor — an arm that does nothing on a change,
@@ -13,7 +13,7 @@ const boot = await startEngineOnCorpus(corpus)
 const source = createRowSource(boot.engine, boot.replica, { mode: 'overlaid' })
 mountPage({
   arm: 'noop',
-  createArm: () => noopArmFor(boot, clickTargets(boot)),
+  createArm: () => noopArmFor(boot, [boot.targets.visibleRootId, boot.targets.markReadId]),
   source: source.source,
   boot,
   scale,
