@@ -54,10 +54,14 @@ afterEach(() => disposeOracles())
 const COLLEAGUE: UserId = asUserId('colleague')
 const GHOST = '00000000-0000-4000-8000-000000000000'
 
-const human = (id: UserId): CommandPrincipal => ({
+const human = (id: UserId, role: 'admin' | 'worker' = 'worker'): CommandPrincipal => ({
   kind: 'user',
   user: id,
-  capability: { role: 'admin', scope: { kind: 'all' } },
+  // Worker by default, mirroring machine-access.test.ts: POD-3960 gives admins
+  // universal `see`, so an admin principal can never be told "unknown machine"
+  // and the D20 invisible-identical-to-nonexistent pin below would be
+  // unstatable. Scope stays `all` — the operator channel the router resolves.
+  capability: { role, scope: { kind: 'all' } },
 })
 
 const agentFor = (
@@ -68,7 +72,9 @@ const agentFor = (
   kind: 'agent',
   agentSessionId: asSessionId(sessionId),
   onBehalfOf,
-  capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: asSessionId(sessionId) },
+  // Worker, as above: the delegation tests pin the `absent` answer after the
+  // human's grant is revoked, which an admin-human agent could never produce.
+  capability: { role: 'worker', scope: { kind: 'all' }, actorSessionId: asSessionId(sessionId) },
   chain,
 })
 
@@ -84,6 +90,12 @@ function ownershipTable(
       return {
         machine: machineId as MachineId,
         owner: row.owner,
+        // An attached daemon the registry has assigned for agent execution is
+        // the posture makeOracle leaves behind; without both flags the
+        // assignment/availability split strips `use` from every principal,
+        // owner included, and every positive control below fails closed.
+        daemonAssigned: true,
+        daemonAvailable: true,
         grants: [...(row.owner ? [{ subject: row.owner, verb: 'use' as const }, { subject: row.owner, verb: 'manage' as const, custody: true }] : []), ...row.grants],
         ...(row.name === undefined ? {} : { name: row.name }),
       }
@@ -149,6 +161,7 @@ async function ctxFor(
 describe('draft launch compensation', () => {
   it('stores browser attachments on the draft before starting its session', async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const created = await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
       agentKind: 'codex',
       cwd: '/p',
@@ -179,6 +192,7 @@ describe('draft launch compensation', () => {
 
   it('does not create a draft when an existing issue takes precedence', async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const issue = await o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
 
     const created = await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
@@ -194,6 +208,7 @@ describe('draft launch compensation', () => {
 
   it('purges only the placeholder created for a session spawn that throws', async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(() => {
       throw new Error('spawn failed')
     })
@@ -212,6 +227,7 @@ describe('draft launch compensation', () => {
 
   it('refuses compensation once the session has been registered against the draft', async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const createSession = o.reg.modules.sessions.createSession.bind(o.reg.modules.sessions)
     vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(async (input) => {
       await createSession(input)
@@ -243,10 +259,54 @@ async function oracleWithPairedMachine(): Promise<{
     machineId: asMachineId('box'),
     offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
   })
+  // The offline-row upsert carries no assignment; without it the placement
+  // path refuses every spawn as structurally daemon-less (POD-2700), before
+  // any `use` question is reached. The daemon socket itself is attached by
+  // makeOracle, so this is the execution assignment only.
+  await o.store.machines.setServiceAssignment(asMachineId('box'), {
+    server: false,
+    agentExecution: true,
+  })
   const rows = new Map([
     ['box', { owner: firstAdminMemberId(), grants: [] as MachineGrant[], name: 'The Box' }],
   ])
   return { o, rows }
+}
+
+/**
+ * The posture a real boot leaves behind, which makeOracle does not: the host
+ * row itself (nothing provisions it on construction — the store is empty until
+ * a test writes), assigned for agent execution, owned by the instance owner,
+ * and reporting the /p checkout the tests below place work into. Without the
+ * row the placement path answers "unknown machine"; without the assignment it
+ * answers "no assigned and available daemon" (POD-2700's structural axis);
+ * without the owner the host is quarantined (usable by nobody, POD-3960);
+ * without the checkout no repo path resolves to a repo id (POD-4165). The
+ * daemon socket and its inventory report are already attached by makeOracle,
+ * and presence/availability derive from that socket live, so no re-attach is
+ * needed after the row appears.
+ */
+async function provisionHost(o: Oracle): Promise<void> {
+  const host = o.store.hostMachineId
+  // Fill the boot gap only: if a future makeOracle provisions the host
+  // itself, its row, assignment and owner stand.
+  if (!(await o.store.machines.getMachine(host))) {
+    await o.store.machines.upsertMachine({
+      id: host,
+      name: 'Test Host',
+      hostname: 'test-host',
+      tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: true },
+    })
+  }
+  if ((await o.reg.modules.machines.serviceAssignment(host)).agentExecution !== true) {
+    await o.store.machines.setServiceAssignment(host, { server: true, agentExecution: true })
+  }
+  if ((await o.store.machines.custodian(host)) === null) {
+    await o.store.machines.setMachineOwner(host, firstAdminMemberId())
+  }
+  await o.store.repos.addRepo('/p', host)
 }
 
 describe('the machine `use` gate, on every command that starts or feeds work', () => {
@@ -344,7 +404,32 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     // at construction, owned by whoever set the instance up. There is no sentinel
     // arm underneath any more, so this exercises the same rule as any other machine.
     const o = await makeOracle()
+    await provisionHost(o)
     const host = o.store.hostMachineId
+    // The kill below retires the process through the daemon (POD-4302): answer
+    // the lifecycle RPC the way a real daemon does, or retirement is never
+    // confirmed and the kill fails after the tombstone committed. makeOracle's
+    // own send arm is replicated, not dropped — the create above it still
+    // observes every frame and still gets its repo-op answers.
+    await o.reg.gateway.attachDaemon(host, (msg) => {
+      o.daemon.push(msg)
+      if (msg.type === 'repoOpRequest') {
+        o.reg.gateway.routeDaemonFrame(host, {
+          type: 'repoOpResult',
+          requestId: msg.requestId,
+          ok: true,
+          output: '',
+        })
+      }
+      if (msg.type === 'runtimeLifecycleRequest') {
+        o.reg.gateway.routeDaemonFrame(host, {
+          type: 'runtimeLifecycleResult',
+          requestId: msg.requestId,
+          sessionId: msg.sessionId,
+          result: { ok: true, retirement: 'confirmed' },
+        })
+      }
+    })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     expect((await o.meta(sessionId)).machineId).toBe(host)
 
@@ -445,7 +530,15 @@ describe('delegation, resolved live at every apply', () => {
       name: 'The Box',
     })
     const ownership = ownershipTable(rows)
-    const worker = agentFor('agent-1', firstAdminMemberId())
+    // The agent acts from a live parent session: agent spawns resolve their
+    // delegation through the parent binding, and a fictional id answers
+    // "parent delegation missing" before any grant is consulted.
+    const parent = (await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId()), { ownership }),
+      'create',
+      { agentKind: 'shell', cwd: '/p', machineId: 'box' },
+    )) as { sessionId: string }
+    const worker = agentFor(parent.sessionId, firstAdminMemberId())
 
     const first = (await dispatchSessionCommand(await ctxFor(o, worker, { ownership }), 'create', {
       agentKind: 'shell',
@@ -481,6 +574,12 @@ describe('delegation, resolved live at every apply', () => {
     // exact conflation D18.5 exists to prevent, arriving in the test that is
     // supposed to prove it.
     o.reg.gateway.attachDaemon('b', () => {})
+    // ...and the execution assignment, or every spawn refuses as structurally
+    // daemon-less before the delegation narrowing is even consulted (POD-2700).
+    // Both rows: the counterfactual below spawns on 'a' for real.
+    for (const id of [asMachineId('a'), asMachineId('b')]) {
+      await o.store.machines.setServiceAssignment(id, { server: false, agentExecution: true })
+    }
     const ownership = ownershipTable(
       new Map([
         ['a', { owner: firstAdminMemberId(), grants: [] as MachineGrant[], name: 'A' }],
@@ -491,21 +590,33 @@ describe('delegation, resolved live at every apply', () => {
       // human gate.
       new Map([['parent', ['a']]]),
     )
-    const child = agentFor('child', firstAdminMemberId(), [asSessionId('parent')])
+    const ownerCtx = await ctxFor(o, human(firstAdminMemberId()), { ownership })
 
     // The human may spawn on 'b'...
     await expect(
-      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId()), { ownership }), 'create', {
+      dispatchSessionCommand(ownerCtx, 'create', {
         agentKind: 'shell',
         cwd: '/p',
         machineId: 'b',
       }),
     ).resolves.toMatchObject({ sessionId: expect.any(String) })
 
+    // ...and the leaf the child acts from must exist as a session: agent
+    // spawns resolve their delegation through the parent binding, so a
+    // fictional leaf would answer "parent delegation missing" instead of
+    // reaching the narrowing below. The narrowed LINK stays synthetic — it is
+    // the delegation map above that declares it, keyed by the same id.
+    const leaf = (await dispatchSessionCommand(ownerCtx, 'create', {
+      agentKind: 'shell',
+      cwd: '/p',
+      machineId: 'a',
+    })) as { sessionId: string }
+    const narrowedChild = agentFor(leaf.sessionId, firstAdminMemberId(), [asSessionId('parent')])
+
     // ...the child, delegating through that parent, may not.
     expect(
       await messageOf(async () =>
-        dispatchSessionCommand(await ctxFor(o, child, { ownership }), 'create', {
+        dispatchSessionCommand(await ctxFor(o, narrowedChild, { ownership }), 'create', {
           agentKind: 'shell',
           cwd: '/p',
           machineId: 'b',
@@ -515,7 +626,7 @@ describe('delegation, resolved live at every apply', () => {
 
     // Counterfactual: the narrowing denies 'b' specifically, not everything.
     await expect(
-      dispatchSessionCommand(await ctxFor(o, child, { ownership }), 'create', {
+      dispatchSessionCommand(await ctxFor(o, narrowedChild, { ownership }), 'create', {
         agentKind: 'shell',
         cwd: '/p',
         machineId: 'a',
@@ -527,6 +638,7 @@ describe('delegation, resolved live at every apply', () => {
 describe('invisible fails exactly like nonexistent', () => {
   it('a session hidden from the principal produces the same answer as one that never existed', async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     // The multi-user answer POD-1075 will supply, injected here so the branch is
     // exercised rather than merely present.
@@ -560,6 +672,7 @@ describe('invisible fails exactly like nonexistent', () => {
 
   it('a relayed send to a hidden session throws the same message as one to a ghost', async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const agent = agentFor('agent-1', firstAdminMemberId())
     const hidden = await ctxFor(o, agent, { visibility: () => false })
@@ -580,6 +693,7 @@ describe('invisible fails exactly like nonexistent', () => {
 describe('chat interrupt ordering', () => {
   it('reserves a stopped message id so a send arriving later cannot recreate it', async () => {
     const o = await makeOracle()
+    await provisionHost(o)
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const ctx = await ctxFor(o, human(firstAdminMemberId()))
     vi.spyOn(o.reg.modules.sessions, 'interruptTurn').mockResolvedValue({
@@ -645,15 +759,59 @@ describe('attribution and ownership come from the principal', () => {
       agentKind: 'claude-code',
       geometry: { cols: 80, rows: 24 },
     })
+    // Answers carry the AUTHORITATIVE interaction id (POD-4279): an id-less
+    // answer fails closed as unknown-interaction before any attribution runs,
+    // so the question is raised through the aggregate first — the same entry
+    // the driver path feeds — and answered by its id below.
+    // The menu delivery gate answers "no pending question" unless the session
+    // is observed sitting on one: report the needs_user phase the harness
+    // would. This comes BEFORE the ask: a phase transition runs the
+    // aggregate's supersede sweep, so a row seeded first would be retired as
+    // replaced-menu before the answer lands. The pending-question read itself
+    // comes off the aggregate row below, not the transcript, so no PTY
+    // traffic is needed.
+    o.reg.gateway.routeDaemonFrame('box', {
+      type: 'agentState',
+      sessionId: asSessionId(sessionId),
+      state: {
+        phase: 'needs_user',
+        since: new Date().toISOString(),
+        nativeSubagentCount: 0,
+        need: { kind: 'question', summary: 'Pick' },
+      },
+    })
+    const { row: question } = await o.reg.modules.interactions.ask({
+      interaction: {
+        sessionId: asSessionId(sessionId),
+        kind: 'question',
+        payload: {
+          questions: [{ question: 'Pick', options: [{ label: 'One' }, { label: 'Two' }] }],
+        },
+        source: 'protocol',
+        answerable: 'keystroke-emulated',
+      },
+    })
 
     const answered = await dispatchSessionCommand(ctx, 'answerAskUserQuestion', {
       sessionId,
+      interactionId: question.id,
       choices: [{ optionIndices: [1] }],
       // A payload-supplied answerer, offered and NOT taken.
       humanQuestionAskedBy: firstAdminMemberId(),
     })
 
-    expect(answered).toEqual({ ok: true })
+    // Admitted, claimed, then reopened: a driverless session has no live menu
+    // to press, so delivery fails and the ask stays open for the terminal
+    // (REFUSAL_KEEPS_ASK_OPEN). The `delivery-failed` reason — not a throw,
+    // and not the bare `{ok: false}` of an invisible target — is the
+    // fingerprint that every gate passed and the aggregate claimed the
+    // authoritative id; the reopened row is the other half of that proof.
+    expect(answered).toMatchObject({ ok: false, reason: 'delivery-failed' })
+    expect(
+      (await o.reg.modules.interactions.listOpen(asSessionId(sessionId))).find(
+        (row) => row.id === question.id,
+      ),
+    ).toMatchObject({ status: 'asked' })
     // The pair the write is attributed with comes from the transport principal:
     // the colleague answered, whatever the payload said.
     expect(ctx.principal.kind === 'user' && ctx.principal.user).toBe(COLLEAGUE)
@@ -676,9 +834,16 @@ describe('attribution and ownership come from the principal', () => {
   it('persists an agent-created session under its delegating human with the agent recorded as actor', async () => {
     const { o, rows } = await oracleWithPairedMachine()
     rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
-    const principal = agentFor('agent-1', COLLEAGUE)
+    const ownership = ownershipTable(rows)
+    // As above: the acting agent's session must exist for the binding lookup.
+    const parent = (await dispatchSessionCommand(
+      await ctxFor(o, human(COLLEAGUE), { ownership }),
+      'create',
+      { agentKind: 'shell', cwd: '/p', machineId: 'box' },
+    )) as { sessionId: string }
+    const principal = agentFor(parent.sessionId, COLLEAGUE)
     const created = (await dispatchSessionCommand(
-      await ctxFor(o, principal, { ownership: ownershipTable(rows) }),
+      await ctxFor(o, principal, { ownership }),
       'create',
       { agentKind: 'shell', cwd: '/p', machineId: 'box' },
     )) as { sessionId: SessionId }
@@ -687,7 +852,9 @@ describe('attribution and ownership come from the principal', () => {
       (await o.store.sessions.loadSessions()).find((row) => row.id === created.sessionId),
     ).toMatchObject({
       ownerUserId: COLLEAGUE,
-      spawnedBy: 'session:agent-1',
+      // The actor names the CALLING session: with a live parent that is the
+      // parent's id, exactly as 'session:agent-1' named the fictional one.
+      spawnedBy: `session:${parent.sessionId}`,
     })
     expect(await o.reg.modules.sessions.sessionOwner(created.sessionId)).toEqual({
       owner: COLLEAGUE,
