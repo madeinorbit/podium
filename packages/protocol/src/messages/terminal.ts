@@ -632,6 +632,18 @@ export const SessionPriorityMessage = z.object({
   priority: z.number().int().min(0).max(3),
   nativeView: z.boolean().optional(),
 })
+/**
+ * Server→daemon: the shell lifetime table's attach-TUI row fired (POD-4524) —
+ * this session's client terminal has been unwatched past its warm TTL, so
+ * close it. Drops the Terminal and reclaims the client master; the agent
+ * engine is untouched (that is the daemon's close, not the server's park —
+ * see the table's trigger notes). Idempotent: a session with no client
+ * terminal answers with nothing to do.
+ */
+export const CloseClientTerminalMessage = z.object({
+  type: z.literal('closeClientTerminal'),
+  sessionId: SessionIdField,
+})
 export const RedrawMessage = z.object({
   type: z.literal('redraw'),
   sessionId: SessionIdField,

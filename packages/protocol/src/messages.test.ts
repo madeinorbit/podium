@@ -1321,6 +1321,13 @@ describe('output-scheduling protocol', () => {
     }
     expect(parseControlMessage(encode(m))).toEqual(m)
   })
+  it('round-trips closeClientTerminal (server→daemon)', () => {
+    const m = {
+      type: 'closeClientTerminal' as const,
+      sessionId: asSessionId('s1'),
+    }
+    expect(parseControlMessage(encode(m))).toEqual(m)
+  })
   it('rejects out-of-range / non-int sessionPriority', () => {
     for (const p of [-1, 4, 1.5]) {
       expect(() =>
