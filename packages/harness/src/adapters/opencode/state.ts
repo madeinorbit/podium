@@ -8,7 +8,8 @@
  * generic (`observer.ts`) and names no harness.
  */
 import type { TranscriptItem } from '@podium/model'
-import { type StatTick, scheduleStatPoll } from '../../store/index.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
+import type { OpencodeMessagePartRow } from '../../transcript-types.js'
 import { withEventTime } from '../../observer.js'
 import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
 
@@ -19,34 +20,39 @@ function isoFromMs(ms: number | undefined): string | undefined {
 
 type OpencodeDbModule = typeof import('../../opencode/db.js')
 type OpencodeTranscriptModule = typeof import('./transcript.js')
-// The cursor-stamping helper lives in the Store's host-only sqlite source
-// (shared with the on-demand read path) so live deltas and reads carry
-// IDENTICAL cursors; lazy-load it the same way so observing opencode state
-// stays optional (no eager SQLite import).
-type OpencodeSourceModule = Pick<typeof import('../../store/sources/sqlite.js'), 'stampOpencodeItems'>
-type OpencodeRuntime = OpencodeDbModule & OpencodeTranscriptModule & OpencodeSourceModule
+/**
+ * Cursor-stamping port (POD-4520): the Store's host-only sqlite source owns
+ * `stampOpencodeItems` — POD-4519 closes the search indexer through the same
+ * point — so the adapter RECEIVES it instead of importing store/ (spec §5,
+ * see the adapters-import-no-mechanism guard). Structural type only: naming
+ * the module would name the mechanism. The loader runs lazily on first stamp
+ * need, never at import — observing opencode state stays SQLite-optional.
+ */
+export interface OpencodeItemStamper {
+  stampOpencodeItems(rows: OpencodeMessagePartRow[], sessionId: string): TranscriptItem[]
+}
+type OpencodeCoreRuntime = OpencodeDbModule & OpencodeTranscriptModule
+type OpencodeRuntime = OpencodeCoreRuntime & OpencodeItemStamper
 type OpencodeSessionRow = import('../../opencode/db.js').OpencodeSessionRow
 type OpencodeDb = ReturnType<OpencodeDbModule['openOpencodeDb']>
 
 const POLL_MS = 700
 const FRESH_SESSION_MARGIN_MS = 5_000
 
-let runtimePromise: Promise<OpencodeRuntime> | undefined
+let corePromise: Promise<OpencodeCoreRuntime> | undefined
 
-async function loadOpencodeRuntime(): Promise<OpencodeRuntime> {
-  runtimePromise ??= Promise.all([
-    import('../../opencode/db.js'),
-    import('./transcript.js'),
-    import('../../store/sources/sqlite.js'),
-  ]).then(([db, transcript, source]) => ({ ...db, ...transcript, ...source }) as OpencodeRuntime)
-  return runtimePromise
+async function loadOpencodeCore(): Promise<OpencodeCoreRuntime> {
+  corePromise ??= Promise.all([import('../../opencode/db.js'), import('./transcript.js')]).then(
+    ([db, transcript]) => ({ ...db, ...transcript }),
+  )
+  return corePromise
 }
 
-async function maybeLoadOpencodeRuntime(): Promise<OpencodeRuntime | undefined> {
+async function maybeLoadOpencodeCore(): Promise<OpencodeCoreRuntime | undefined> {
   try {
-    return await loadOpencodeRuntime()
+    return await loadOpencodeCore()
   } catch {
-    runtimePromise = undefined
+    corePromise = undefined
     return undefined
   }
 }
@@ -76,6 +82,14 @@ export function observeOpencodeState(opts: {
   startedAtMs?: number
   pollMs?: number
   statTick?: StatTick
+  /**
+   * Cursor-stamping loader (see {@link OpencodeItemStamper}): the composition
+   * root supplies the Store's host-only source without the adapter naming
+   * store/. Absent (tests driving state-only paths) the observer stays inert,
+   * the same answer a failed module load already gave. Runs lazily on first
+   * stamp need, never at import.
+   */
+  loadSource?: () => Promise<OpencodeItemStamper>
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   onSession?: (sessionId: string) => void
   onModel?: (model: string, effort?: string) => void
@@ -103,14 +117,33 @@ export function observeOpencodeState(opts: {
   // query error drops the handle (via `dropDb`) so the next call reopens — a broken
   // handle is never reused. Closed once in `stop()`.
   let db: OpencodeDb | undefined
-  const databasePathFor = (rt: OpencodeRuntime): string | undefined =>
+  // Per-observer runtime bundle: the core modules (memoized across observers)
+  // plus this observer's injected stamper. Memoized per observer so tests can
+  // supply distinct stampers; the dynamic imports underneath are
+  // module-cached, so production pays no repeated load.
+  let bundle: Promise<OpencodeRuntime> | undefined
+  async function maybeLoadBundle(): Promise<OpencodeRuntime | undefined> {
+    const loadSource = opts.loadSource
+    if (!loadSource) return undefined
+    try {
+      bundle ??= (async () => ({
+        ...(await loadOpencodeCore()),
+        ...(await loadSource()),
+      }))()
+      return await bundle
+    } catch {
+      bundle = undefined
+      return undefined
+    }
+  }
+  const databasePathFor = (rt: OpencodeCoreRuntime): string | undefined =>
     opts.databasePath ??
     rt.opencodeDbPathForSession({
       homeDir: opts.homeDir,
       podiumSessionId: opts.podiumSessionId,
       resumeValue: opts.resumeValue,
     })
-  const getDb = (rt: OpencodeRuntime): OpencodeDb => {
+  const getDb = (rt: OpencodeCoreRuntime): OpencodeDb => {
     db ??= rt.openOpencodeDb(opts.homeDir, databasePathFor(rt))
     return db
   }
@@ -156,7 +189,7 @@ export function observeOpencodeState(opts: {
 
   const discover = async (): Promise<void> => {
     if (stopped || attached) return
-    const rt = await maybeLoadOpencodeRuntime()
+    const rt = await maybeLoadBundle()
     if (!rt || stopped || attached) return
     const handle = getDb(rt)
     if (!handle) return
@@ -192,7 +225,7 @@ export function observeOpencodeState(opts: {
 
   const tick = async (): Promise<void> => {
     if (stopped || !attached) return
-    const rt = await maybeLoadOpencodeRuntime()
+    const rt = await maybeLoadBundle()
     if (!rt || stopped || !attached) return
     const handle = getDb(rt)
     if (!handle) return
@@ -314,7 +347,7 @@ export function observeOpencodeState(opts: {
   // the provider step-finish or abort row closes it. Idle sessions keep the gate.
   const pollOnce = async (): Promise<void> => {
     if (stopped || !attached) return
-    const rt = await maybeLoadOpencodeRuntime()
+    const rt = await maybeLoadBundle()
     if (!rt || stopped || !attached) return
     const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir, databasePathFor(rt))
     if (mtimeMs !== undefined && mtimeMs === lastPollMtimeMs && !turnAwaitingTerminal) return
@@ -324,7 +357,7 @@ export function observeOpencodeState(opts: {
 
   if (opts.resumeValue) {
     void (async () => {
-      const rt = await maybeLoadOpencodeRuntime()
+      const rt = await maybeLoadBundle()
       if (!rt || stopped) return
       const handle = getDb(rt)
       if (!handle) return
@@ -370,7 +403,7 @@ async function opencodeBootEvents(opts: {
   homeDir?: string
   databasePath?: string
 }): Promise<AgentStateEvent[]> {
-  const rt = await maybeLoadOpencodeRuntime()
+  const rt = await maybeLoadOpencodeCore()
   if (!rt) return [{ kind: 'session_started' }]
   const databasePath =
     opts.databasePath ??
@@ -406,7 +439,7 @@ async function opencodeBootEvents(opts: {
 }
 
 function lastAssistantCompletion(
-  rt: OpencodeRuntime,
+  rt: OpencodeCoreRuntime,
   db: OpencodeDb,
   sessionId: string,
 ): { text?: string; timeUpdated: number; interrupted: boolean } | undefined {
@@ -435,7 +468,7 @@ function lastAssistantCompletion(
 }
 
 function lastAssistantText(
-  rt: OpencodeRuntime,
+  rt: OpencodeCoreRuntime,
   db: OpencodeDb,
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string,

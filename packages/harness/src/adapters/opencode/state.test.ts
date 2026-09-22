@@ -55,6 +55,11 @@ vi.mock('../../opencode/db.js', async (importOriginal) => {
   }
 })
 
+// The stamper port every observer needs (see OpencodeItemStamper): tests are
+// exempt from the adapters-import-no-mechanism guard and load the real Store
+// sqlite source — the same module the daemon injects in production.
+const loadSource = () => import('../../store/sources/sqlite.js')
+
 // Poll a predicate until true or a deadline so tests read the observer's effects
 // without coupling to its exact poll cadence.
 async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
@@ -203,6 +208,7 @@ describe('opencode state provider', () => {
       homeDir: home,
       resumeValue: 'ses_model',
       pollMs: 10,
+      loadSource,
       onEvents: () => {},
       onModel: (model, effort) => models.push([model, effort]),
     })
@@ -265,6 +271,7 @@ describe('OpenCode session identity (POD-2871)', () => {
       podiumSessionId: 'pod-fault',
       startedAtMs: discoveryStartMs,
       pollMs: 10,
+      loadSource,
       onEvents: () => {},
       onTranscriptItems: (items) => faultText.push(...items.map((item) => item.text ?? '')),
     })
@@ -274,6 +281,7 @@ describe('OpenCode session identity (POD-2871)', () => {
       podiumSessionId: 'pod-peer',
       startedAtMs: discoveryStartMs,
       pollMs: 10,
+      loadSource,
       onEvents: () => {},
       onTranscriptItems: (items) => peerText.push(...items.map((item) => item.text ?? '')),
     })
@@ -316,6 +324,7 @@ describe('OpenCode session identity (POD-2871)', () => {
       podiumSessionId: 'pod-left',
       startedAtMs: discoveryStartMs,
       pollMs: 10,
+      loadSource,
       onEvents: () => {},
       onTranscriptItems: (items) => leftText.push(...items.map((item) => item.text ?? '')),
     })
@@ -325,6 +334,7 @@ describe('OpenCode session identity (POD-2871)', () => {
       podiumSessionId: 'pod-right',
       startedAtMs: discoveryStartMs,
       pollMs: 10,
+      loadSource,
       onEvents: () => {},
       onTranscriptItems: (items) => rightText.push(...items.map((item) => item.text ?? '')),
     })
@@ -384,6 +394,7 @@ describe('OpenCode session identity (POD-2871)', () => {
       homeDir: home,
       startedAtMs: discoveryStartMs,
       pollMs: 10,
+      loadSource,
       onEvents: (next) => events.push(...next),
       onTranscriptItems: (items) => text.push(...items.map((item) => item.text ?? '')),
     })
@@ -422,6 +433,7 @@ describe('observeOpencodeState DB handle reuse + mtime gate', () => {
       homeDir: home,
       resumeValue: 'ses_gate',
       pollMs: 10,
+      loadSource,
       onEvents: () => {},
     })
     try {
@@ -468,6 +480,7 @@ describe('observeOpencodeState DB handle reuse + mtime gate', () => {
       resumeValue: 'ses_terminal_gate',
       startedAtMs: 1,
       pollMs: 10,
+      loadSource,
       onEvents: (next) => events.push(...next),
     })
     try {
@@ -562,6 +575,7 @@ describe('observeOpencodeState state events (POD-2801)', () => {
       databasePath: join(root, 'opencode.db'),
       startedAtMs: 1,
       pollMs: 10,
+      loadSource,
       onEvents: (e) => events.push(...e.map((x) => x.kind)),
       onTranscriptItems: (i) => items.push(...i),
     })
@@ -642,6 +656,7 @@ describe('observeOpencodeState interrupted verdict', () => {
       resumeValue: 'ses_interrupt',
       startedAtMs: 1,
       pollMs: 10,
+      loadSource,
       onEvents: (next) => events.push(...next),
       onTranscriptItems: (next, reset) => {
         transcriptItems = reset ? [...next] : [...transcriptItems, ...next]
@@ -770,6 +785,7 @@ describe('observeOpencodeState interrupted verdict', () => {
         homeDir: home,
         resumeValue: 'ses_interrupt',
         pollMs: 10,
+      loadSource,
         onEvents: () => {},
         onTranscriptItems: (next) => reloadItems.push(...next),
       })

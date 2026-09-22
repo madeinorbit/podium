@@ -9,7 +9,7 @@
  */
 import { open, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { type StatTick, scheduleStatPoll } from '../../store/index.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 import { LineDecoder } from '../../jsonl-stream.js'
 import { locatePiSessionFile, piSessionDir, piSessionIdFromPath } from '../../pi/paths.js'
 import { withEventTime } from '../../observer.js'

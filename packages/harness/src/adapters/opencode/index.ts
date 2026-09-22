@@ -357,6 +357,7 @@ export const opencodeManifest: AgentManifest = {
       cwd: input.cwd,
       ...(input.podiumSessionId ? { podiumSessionId: input.podiumSessionId } : {}),
       ...(input.statTick ? { statTick: input.statTick } : {}),
+      ...(input.loadOpencodeSource ? { loadSource: input.loadOpencodeSource } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
       ...(input.homeDir ? { homeDir: input.homeDir } : {}),
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
