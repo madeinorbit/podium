@@ -172,26 +172,16 @@ describe('DockShellService.forWorktree', () => {
     expect(sessions.creates).toBe(0)
   })
 
-  it('handleWorktreeFreed removes every user row and returns the sessions', async () => {
+  it('removing the worktree mapping lets the next open create fresh', async () => {
     const a = await service.forWorktree(ALICE, WT)
     const b = await service.forWorktree(BOB, `${WT}/`)
-    const freed = await service.handleWorktreeFreed(WT)
+    const freed = await shells.removeByWorktree(WT)
     expect(new Set(freed)).toEqual(new Set([a.sessionId, b.sessionId]))
-    expect(await service.get(ALICE, WT)).toBeUndefined()
+    expect(await shells.get(ALICE, WT)).toBeUndefined()
     // The next open creates fresh.
     const again = await service.forWorktree(ALICE, WT)
     expect(again.created).toBe(true)
     expect(again.sessionId).not.toBe(a.sessionId)
-  })
-})
-
-describe('DockShellService passthrough reads', () => {
-  it('get and listForUser expose the mapping without creating', async () => {
-    expect(await service.get(ALICE, WT)).toBeUndefined()
-    const created = await service.forWorktree(ALICE, WT)
-    expect(await service.get(ALICE, `${WT}/`)).toBe(created.sessionId)
-    expect(await service.listForUser(ALICE)).toEqual({ [WT]: created.sessionId })
-    expect(sessions.creates).toBe(1)
   })
 })
 

@@ -1779,6 +1779,17 @@ export class SessionRegistry {
         await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
       // A known set, wired [POD-2322] — the issue tree's members.
       sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
+      // Shell lifetime verbs for the worktree-free trigger (POD-4525): live
+      // reads off the registry map, viewer state for held/watched, and the
+      // teardown/kill verbs the policy maps onto.
+      shellPolicy: {
+        liveSession: (sessionId) => sessionsSvc.sessions.get(sessionId),
+        isHeld: (sessionId) => sessionsSvc.state.isHeld(sessionId),
+        isWatched: (sessionId) => sessionsSvc.state.isWatched(sessionId),
+        park: async (sessionId) =>
+          await sessionsSvc.parkShellSession({ sessionId }),
+        kill: async (sessionId) => await sessionsSvc.killSession({ sessionId }),
+      },
       // Resolved for the sole account (POD-1213): the issue service reads
       // `roles.coding` — a personal preference — beside instance-tier git
       // workflow policy. See the note on `NotifyService` above.

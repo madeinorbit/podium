@@ -144,7 +144,7 @@ import type { SessionRuntimeGateway } from './runtime-gateway'
 import type { TurnPreviewAccumulator } from './turn-preview'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
-import { decideShellLifetime, shellQuietMs } from './terminal-lifetime'
+import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs } from './terminal-lifetime'
 import { resolveShellOwningIssue } from '../shells/service'
 
 export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
@@ -781,27 +781,26 @@ export class SessionLifecycle {
     )
     const issue = ownerIssueId ? await this.deps.issueAccess.getMeta(ownerIssueId) : undefined
     const lastHeld = this.state.lastHeldAtMs(sessionId)
-    const decision = decideShellLifetime({
-      purpose: session.loginHarness !== undefined ? 'login' : 'shell',
-      hasInput: session.terminal.lastInputAtMs > 0,
-      heldByTab: this.state.isHeld(sessionId, reporterClientId),
-      watched: this.state.isWatched(sessionId, reporterClientId),
-      lastTabReleased: true,
-      issueClosed: issue ? isIssueClosed(issue) || issue.deletedAt != null : false,
-      worktreeFreed: false,
-      quietMs: shellQuietMs(this.now(), {
-        lastActiveAt: session.lastActiveAt,
-        lastResumedAtMs: session.terminal.lastResumedAtMs,
-        lastInputAtMs: session.terminal.lastInputAtMs,
-        lastOutputAtMs: session.terminal.lastOutputAtMs,
+    const decision = decideShellLifetime(
+      buildShellLifetimeInputs({
+        purpose: session.loginHarness !== undefined ? 'login' : 'shell',
+        hasInput: session.terminal.lastInputAtMs > 0,
+        heldByTab: this.state.isHeld(sessionId, reporterClientId),
+        watched: this.state.isWatched(sessionId, reporterClientId),
+        lastTabReleased: true,
+        issueClosed: issue ? isIssueClosed(issue) || issue.deletedAt != null : false,
+        worktreeFreed: false,
+        quietMs: shellQuietMs(this.now(), {
+          lastActiveAt: session.lastActiveAt,
+          lastResumedAtMs: session.terminal.lastResumedAtMs,
+          lastInputAtMs: session.terminal.lastInputAtMs,
+          lastOutputAtMs: session.terminal.lastOutputAtMs,
+        }),
+        unheldMs: lastHeld === undefined ? undefined : Math.max(0, this.now() - lastHeld),
+        backstopMs: cfg.backstopMinutes ?? undefined,
+        idleGraceMs: cfg.idleShellMinutes ?? undefined,
       }),
-      unheldMs: lastHeld === undefined ? undefined : Math.max(0, this.now() - lastHeld),
-      unwatchedMs: 0,
-      warmTtlMs: 0,
-      backstopMs: cfg.backstopMinutes ?? undefined,
-      idleGraceMs: cfg.idleShellMinutes ?? undefined,
-      exited: false,
-    })
+    )
     if (decision.verdict !== 'kill') return
     log.info('tab release retired an untouched shell', { sessionId, reason: decision.reason })
     await this.sessionKill.killSession({ sessionId })

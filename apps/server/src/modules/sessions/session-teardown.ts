@@ -51,7 +51,7 @@ import type { SessionRepository } from './repository'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
-import { decideShellLifetime, shellQuietMs } from './terminal-lifetime'
+import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs } from './terminal-lifetime'
 import { resolveShellOwningIssue } from '../shells/service'
 import type { SessionView } from './view'
 
@@ -422,27 +422,26 @@ export class SessionTeardown {
     // process kill is deferred until after the relay reply, and tombstoning
     // the caller mid-reply would break exactly what the deferral protects.
     if (wasRunning && session.agentKind === 'shell' && !input.selfStop) {
-      const decision = decideShellLifetime({
-        purpose: session.loginHarness !== undefined ? 'login' : 'shell',
-        hasInput: session.terminal.lastInputAtMs > 0,
-        heldByTab: this.ports.state.isHeld(session.sessionId),
-        watched: this.ports.state.isWatched(session.sessionId),
-        lastTabReleased: false,
-        issueClosed: issue ? isIssueClosed(issue) || issue.deletedAt != null : false,
-        worktreeFreed,
-        quietMs: shellQuietMs(this.ports.now(), {
-          lastActiveAt: session.lastActiveAt,
-          lastResumedAtMs: session.terminal.lastResumedAtMs,
-          lastInputAtMs: session.terminal.lastInputAtMs,
-          lastOutputAtMs: session.terminal.lastOutputAtMs,
+      const decision = decideShellLifetime(
+        buildShellLifetimeInputs({
+          purpose: session.loginHarness !== undefined ? 'login' : 'shell',
+          hasInput: session.terminal.lastInputAtMs > 0,
+          heldByTab: this.ports.state.isHeld(session.sessionId),
+          watched: this.ports.state.isWatched(session.sessionId),
+          lastTabReleased: false,
+          issueClosed: issue ? isIssueClosed(issue) || issue.deletedAt != null : false,
+          worktreeFreed,
+          quietMs: shellQuietMs(this.ports.now(), {
+            lastActiveAt: session.lastActiveAt,
+            lastResumedAtMs: session.terminal.lastResumedAtMs,
+            lastInputAtMs: session.terminal.lastInputAtMs,
+            lastOutputAtMs: session.terminal.lastOutputAtMs,
+          }),
+          unheldMs: undefined,
+          backstopMs: undefined,
+          idleGraceMs: undefined,
         }),
-        unheldMs: undefined,
-        unwatchedMs: 0,
-        warmTtlMs: 0,
-        backstopMs: undefined,
-        idleGraceMs: undefined,
-        exited: false,
-      })
+      )
       if (decision.verdict === 'kill') {
         try {
           await this.ports.killSession({ sessionId: session.sessionId })

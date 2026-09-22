@@ -4,6 +4,7 @@ import {
   asMachineId,
   asUserId,
   DEFER_NEXT_MESSAGE,
+  type IssueId,
   type IssueRehomeTarget,
   type IssueWire,
   isIssueStage,
@@ -16,7 +17,7 @@ import {
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveRole } from '@podium/runtime'
 import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
-import { sessionsForIssue } from '../../../issue-util'
+import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { assertModelSelectionValid } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
@@ -30,6 +31,8 @@ import type { IssueCommentsMailModule } from './mail'
 import type { CreateIssueInput } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
 import { parseGitWorktreeList, sameWorktreePath } from './worktree-safety'
+import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs } from '../../sessions/terminal-lifetime'
+import { resolveShellOwningIssue } from '../../shells/service'
 
 const log = createLogger('server:issues')
 
@@ -914,20 +917,109 @@ export class IssueGitWorkflowModule {
   }
 
   /**
-   * Release every dock shell mapped to a freed worktree (POD-4436 step 4).
+   * Release every dock shell mapped to a freed worktree (POD-4436 step 4) and
+   * run the shell lifetime policy on each (POD-4525, phase 5 defect).
    * Freeing is global — the disk fact holds for all devices — so every user's
-   * dock releases the path. Returns the retired session ids for the lifetime
-   * policy, which parks/kills per its rule once terminal-lifetime lands
-   * (step 3); until then removal is the whole wire. Best-effort: the disk
-   * free already happened, so a mapping-delete failure warns rather than
-   * failing the free.
+   * dock releases the path. Removal runs FIRST, then the policy: a kill
+   * verdict tombstones an already-unmapped shell, so no `user_dock_shell` row
+   * can be left pointing at a tombstone and no `removeBySession` is needed on
+   * the kill path — stated here, the one place that decides it.
+   * Best-effort: the disk free already happened, so a mapping-delete or a
+   * per-shell policy failure warns rather than failing the free.
    */
   private async releaseDockShells(worktreePath: string): Promise<void> {
+    let freed: SessionId[]
     try {
-      await this.store.d.store.dockShells.removeByWorktree(worktreePath)
+      freed = await this.store.d.store.dockShells.removeByWorktree(worktreePath)
     } catch (error) {
       log.warn('dock shell release failed for freed worktree', { worktreePath, err: error })
+      return
     }
+    const policy = this.store.d.shellPolicy
+    if (!policy || freed.length === 0) return
+    for (const sessionId of freed) {
+      try {
+        await this.applyFreedShellPolicy(sessionId)
+      } catch (error) {
+        log.warn('freed dock shell policy failed', { sessionId, worktreePath, err: error })
+      }
+    }
+  }
+
+  /**
+   * THE WORKTREE-FREE TRIGGER (POD-4525): one call site of
+   * decideShellLifetime for the direct-free path. Same inputs the teardown
+   * trigger builds, with worktreeFreed true; park → parkShellSession,
+   * kill → killSession, keep → nothing. No release edge and no grace here:
+   * this trigger answers the free, not a tab, and the backstop stays with
+   * the reaper. Only running shells are evaluated; an already-parked shell
+   * stays as it is.
+   */
+  private async applyFreedShellPolicy(sessionId: SessionId): Promise<void> {
+    const policy = this.store.d.shellPolicy
+    if (!policy) return
+    const live = policy.liveSession(sessionId)
+    if (!live || live.agentKind !== 'shell') return
+    if (live.status !== 'live' && live.status !== 'starting' && live.status !== 'reconnecting') {
+      return
+    }
+    // The owning issue is the one resolver (POD-4526, mapping-first). The
+    // mapping is already removed, so this falls back to the bound issue;
+    // worktreeFreed true dominates rows 7/8 either way.
+    const ownerIssueId = await resolveShellOwningIssue(
+      {
+        worktreeForSession: (id) => this.store.d.store.dockShells.worktreeForSession(id),
+        issueForCwd: async (cwd) => await this.issueForCwd(cwd),
+      },
+      {
+        sessionId: live.sessionId,
+        agentKind: live.agentKind,
+        ...(live.issueId ? { issueId: live.issueId } : {}),
+      },
+    )
+    const ownerRow = ownerIssueId ? this.store.rows.get(ownerIssueId) : undefined
+    const issueClosed = ownerRow ? this.store.isClosed(ownerRow) : false
+    const decision = decideShellLifetime(
+      buildShellLifetimeInputs({
+        purpose: live.loginHarness !== undefined ? 'login' : 'shell',
+        hasInput: live.terminal.lastInputAtMs > 0,
+        heldByTab: policy.isHeld(sessionId),
+        watched: policy.isWatched(sessionId),
+        lastTabReleased: false,
+        issueClosed,
+        worktreeFreed: true,
+        quietMs: shellQuietMs(Date.now(), {
+          lastActiveAt: live.lastActiveAt,
+          lastResumedAtMs: live.terminal.lastResumedAtMs,
+          lastInputAtMs: live.terminal.lastInputAtMs,
+          lastOutputAtMs: live.terminal.lastOutputAtMs,
+        }),
+        unheldMs: undefined,
+        backstopMs: undefined,
+        idleGraceMs: undefined,
+      }),
+    )
+    if (decision.verdict === 'kill') {
+      await policy.kill(sessionId)
+    } else if (decision.verdict === 'park') {
+      const parked = await policy.park(sessionId)
+      if (!parked.ok) {
+        log.warn('freed dock shell park refused', { sessionId, reason: parked.reason })
+      }
+    }
+  }
+
+  /** The issue whose worktree contains `cwd`, or null — same most-specific
+   *  match the reports read uses, over the live row map. */
+  private async issueForCwd(cwd: string): Promise<IssueId | null> {
+    let best: { id: IssueId; len: number } | null = null
+    for (const row of this.store.rows.values()) {
+      if (row.deletedAt) continue
+      if (!isMemberCwd(row.worktreePath, cwd)) continue
+      const len = row.worktreePath?.length ?? 0
+      if (!best || len > best.len) best = { id: row.id, len }
+    }
+    return best?.id ?? null
   }
 
   async releaseWorktreeIfIdle(id: string, principal: CommandPrincipal) {

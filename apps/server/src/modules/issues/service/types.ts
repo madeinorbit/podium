@@ -344,6 +344,29 @@ export interface IssueDeps {
    * Best-effort: the call site swallows a throw.
    */
   onIssueCreated?(event: { issueId: IssueId; title: string; ownerUserId: UserId }): void
+  /** Shell lifetime verbs for the worktree-free trigger (POD-4525). The free
+   *  removes the dock mapping, then parks/kills each freed shell per the same
+   *  rule the stop path uses (teardown inputs with worktreeFreed true). Live
+   *  session reads come from the sessions module; absent ⇒ mapping-only
+   *  removal (legacy unit fixtures without a sessions wiring). Optional so
+   *  existing test deps literals stay valid. */
+  shellPolicy?: {
+    liveSession(sessionId: SessionId):
+      | {
+          sessionId: SessionId
+          agentKind: string
+          loginHarness?: unknown
+          issueId?: IssueId | null
+          status: string
+          lastActiveAt: string
+          terminal: { lastInputAtMs: number; lastResumedAtMs: number; lastOutputAtMs: number }
+        }
+      | undefined
+    isHeld(sessionId: SessionId): boolean
+    isWatched(sessionId: SessionId): boolean
+    park(sessionId: SessionId): Promise<{ ok: boolean; reason?: string }>
+    kill(sessionId: SessionId): Promise<void>
+  }
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441) — the server-pull
    *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
