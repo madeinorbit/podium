@@ -264,14 +264,22 @@ cell = the assertion throws. Round two's `allowOver` list (the #4 origin tick)
 is gone: the tick is a view field.
 
 `harness/src/fence-scenarios.ts` is the one scenario list (#1–#10 with the #9
-steps, one engine, methodology order; row-view locals come from the engine's
-selection and clock). `harness/src/fences.test.tsx` runs it:
+steps and #8b, one engine, methodology order; row-view locals come from the
+engine's selection and clock). Every fenced arm gets its feeds from
+`openFenceFeeds`: the row source and the engine-backed LOCALS CHANNEL
+(POD-4608, `LocalsSource` in `shared/src/arm.ts`), which notifies with the
+keys that moved — `{selectedIssueId}` on the #3 click, `{coarseNow}` on a
+tick, nothing on a row write. #8b ticks 24 h across the finished-grace
+boundary, because the methodology #8 tick moves no view and so cannot fail an
+arm deaf to the clock. `harness/src/fences.test.tsx` runs it:
 
 - the REFERENCE arm (`harness/src/reference-arm/`: the oracle drawn through
   memoised `RowShell` rows) passes `assertCommits` on every step — the fence
   can say YES through a real React tree; `#2 #3 #4 #5 #7 #10` must change at
   least one visible row, so the pass is not 0 == 0. At 1x (seed 4443),
-  changed = drawn: #2 1, #3 1, #4 1, #5 1, #7 2, #10 54, every other step 0.
+  changed = drawn: #2 1, #3 1, #4 1, #5 1, #7 2, #8b 4, #10 54, every other
+  step 0. The locals channel notified on #3, #8 and #8b only, with only their
+  own keys (asserted).
 - every arm in `harness/src/roster.ts` must pass, on every step, the exact
   commit fence, parity, the L5a reads budget where one is fixed, and the copy
   sweep. The roster must name exactly the `arms/*` folders with a
@@ -282,7 +290,10 @@ selection and clock). `harness/src/fences.test.tsx` runs it:
   reference arm), each red with parity green: an unmemoised slot (#1: over,
   all 211 rows), a stale view (#2: under=[i17]), a remount per render (#1:
   over via 211 remounts, `rowsCommitted` 0 — and on the same run round two's
-  `assertIsolation` passes, asserted). Armed: removing the remount-to-redraw
+  `assertIsolation` passes, asserted), and an arm deaf to the locals channel
+  (#3: under=[i17] with the notification delivered; #8b: under=the 4 grace
+  rows) — each beside the same step passing when the arm follows the
+  channel. Armed: removing the remount-to-redraw
   line reddens the remount test; forcing `over` empty reddens the unmemoised
   and remount tests; forcing `under` empty reddens the stale test.
 

@@ -1,5 +1,39 @@
 # worklist-proto — package notes
 
+## POD-4608 (L1e) — the locals channel · 2026-09-22
+
+### Decisions
+
+- **Arms get a `LocalsSource`, not a value** (coordinator ruling: a source,
+  never a setter). `create(source, locals: LocalsSource, reads?)`;
+  `get()` plus `subscribe(listener(changed keys))`. Contract in
+  `shared/src/arm.ts`, implementations in `shared/src/locals-source.ts`
+  (`createLocalsSource`, `fixedLocals`, `settableLocals`) and
+  `harness/src/engine-locals.ts` (`createEngineLocals`).
+- **One drain, like the row source.** A signal schedules one microtask
+  drain; `flush()` drains synchronously. `get()` returns the value as of the
+  last notification, so an arm never sees a local it was not told about. A
+  change that returns to its old value before the drain notifies nothing.
+- **An absent fold latch equals `false`.** The engine holds no
+  `selectedIssueWasFolded`, so the engine-backed source never sets it and a
+  click names `selectedIssueId` alone.
+- **Traffic is counted by the source** (`LocalsSourceStats` in `stats.ts`:
+  notifications, per-key counts, flushes) and reported per scenario as
+  `CountResult.locals`.
+- **Fences get both feeds from `openFenceFeeds`** and drain rows, then
+  locals, after each write. The reference arm reads selection and the clock
+  from the channel only; the `deaf` plant (reads once, never subscribes)
+  fails #3 and #8b with parity green on #3.
+- **New fence step #8b, `clockGraceCrossing`.** The methodology #8 tick
+  (60 s) changes no row view on this corpus, so a clock-deaf arm passes it.
+  #8b ticks 24 h past the finished-grace boundary: the 4 grace rows at 1x
+  (`i300`–`i303`) flip `closed` with no row event. Every round-three arm must
+  pass it.
+- **Round-two arms and the legacy control** read `locals.get()` where they
+  used the value (hand/mobx: once, at creation; control: in `snapshot()`).
+  They ignore `subscribe`. Their tests wrap the old value in `fixedLocals`.
+  The browser page publishes its clock on a `settableLocals` source.
+
 ## POD-4551 (L2b) — corpus shape at every scale · 2026-09-22
 
 Numbers: `docs/measurements/POD-4441-fixture-shape.md`, "Shape at every scale".
