@@ -1,10 +1,11 @@
 import type { TranscriptItem } from '@podium/model'
+import { opencodeDbPathForSession } from '../../opencode/db.js'
 import {
-  loadOpencodeTranscriptTail,
-  opencodeDbPathForSession,
-  openOpencodeDb,
-} from '../../opencode/db.js'
-import { sliceItemsByAnchor, type TranscriptSource } from '../../store/source.js'
+  encodeCursor,
+  type OpencodeMessagePartRow,
+  type SqliteTranscriptLocator,
+} from '../../transcript-types.js'
+export type { OpencodeMessagePartRow } from '../../transcript-types.js'
 import {
   type Declared,
   type HarnessTranscript,
@@ -12,25 +13,7 @@ import {
   unsupported,
   type TranscriptSourceInput,
 } from '../../manifest.js'
-/**
- * One row of opencode's SQLite `part` join (message + part payloads). The type
- * lives here — next to the pure part→items mapper — so the parser package needs
- * no SQLite dependency; @podium/harness's opencode DB reader produces rows
- * of this shape and re-exports the type for compatibility.
- */
-export type OpencodeMessagePartRow = {
-  messageId: string
-  partId: string
-  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-  sessionId: string
-  timeCreated: number
-  timeUpdated: number
-  messageData: string
-  partData: string
-}
-
 import { toolInputPreview } from '../claude-code/transcript.js'
-import { encodeCursor } from '../../store/cursor-codec.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 
 /** Normalize one opencode message+part row into Podium chat transcript items. */
@@ -189,111 +172,38 @@ export function opencodeFileId(sessionId: string): string {
   return `opencode:${sessionId}`
 }
 
-/**
- * Map opencode part rows to cursor-stamped items, stamping each item with a
- * cursor that encodes the part's position in the session's total
- * `(time_created, id, sub)` order. One part → 0..N items (a tool part is a call +
- * a result), so each item gets its own `sub` index within the part.
- *
- *   - `offset` = `row.timeCreated` (the DB's primary order key)
- *   - `uuid`   = `row.partId`      (disambiguates same-`time_created` ties; the
- *                                   secondary `id` order key)
- *   - `sub`    = item index within the part
- *
- * The triple is the part-position analog of the file `(offset, uuid, sub)` and
- * yields a total order matching the DB's `(time_created, id, sub)`. The cursor
- * namespace (`fileId`) is derived from `sessionId` here so callers pass only
- * `(rows, sessionId)` — they never construct the fileId themselves.
- */
-export function stampOpencodeItems(
-  rows: OpencodeMessagePartRow[],
-  /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-  sessionId: string,
-): TranscriptItem[] {
-  const fileId = opencodeFileId(sessionId)
-  const out: TranscriptItem[] = []
-  for (const row of rows) {
-    const items = opencodePartToItems(row)
-    for (let sub = 0; sub < items.length; sub++) {
-      const item = items[sub]
-      if (!item) continue
-      out.push({
-        ...item,
-        ...(item.event === 'interrupt'
-          ? {}
-          : { cursor: encodeCursor({ fileId, offset: row.timeCreated, uuid: row.partId, sub }) }),
-      })
-    }
-  }
-  return out
-}
-
 // ---------------------------------------------------------------------------
-// Transcript section: sqlite-store grammar + source (POD-4471), the ONE
-// authoritative transcript definition for this harness (spec §4). HOST-ONLY:
-// the lake serves opencode transcripts live off the machine's database until
-// the database itself is mirrored (open point) — never from a lake copy.
+// Transcript section: sqlite-store grammar (POD-4471), the ONE authoritative
+// transcript definition for this harness (spec §4): data plus pure functions,
+// never a source. HOST-ONLY READS: the lake serves opencode transcripts live
+// off the machine's database until the database itself is mirrored (open
+// point) — never from a lake copy; the Store builds that source from the
+// locator below (`transcriptSourceFromGrammar`, `store/sources/sqlite.ts`).
 // ---------------------------------------------------------------------------
-
-
-/**
- * Source for opencode. opencode stores transcript "parts" in SQLite ordered by
- * `(time_updated ASC, id ASC)`. A single session's parts are bounded (≤8000, the
- * `loadOpencodeTranscriptTail` cap), so loading them in one indexed query is
- * cheap and IS the bounded read — there is no per-call full-DB scan beyond this
- * one session's capped part list. We then build the full ordered item list and
- * index-slice it in memory, exactly matching `readTranscriptSlice`'s semantics.
- */
-/** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-export function opencodeDbSource(input: {
-  sessionId: string
-  homeDir?: string
-  databasePath?: string
-}): TranscriptSource {
-  return {
-    readSlice: async (opts) => {
-      if (opts.limit <= 0) return { items: [], hasMore: false }
-      const db = openOpencodeDb(input.homeDir, input.databasePath)
-      if (!db) return { items: [], hasMore: false }
-      let rows: OpencodeMessagePartRow[]
-      try {
-        rows = loadOpencodeTranscriptTail(db, input.sessionId)
-      } catch {
-        return { items: [], hasMore: false }
-      } finally {
-        db.close()
-      }
-      // ASC by (time_updated, id); each part expands to 0..N stamped items in
-      // intra-part order, so `all` is the session's full transcript in total order.
-      const all = stampOpencodeItems(rows, input.sessionId)
-      return sliceItemsByAnchor(all, opts)
-    },
-  }
-}
 
 export const opencodeTranscript: Declared<HarnessTranscript> = supported({
-  // SQLite-backed — no file chain; the DB source serves the same cursor
+  // SQLite-backed — no file chain; the Store's DB source serves the same cursor
   // contract as the chain reader.
   storage: 'sqlite',
   recordToItems: unsupported('opencode maps typed SQLite rows rather than native JSONL records'),
   recordRuntime: unsupported('opencode reports no model, effort or context use in its records'),
   recordColor: unsupported('opencode has no identity-colour record'),
   chainPaths: unsupported('opencode stores transcripts in SQLite — there are no files to chain'),
-  async sourceFor(input: TranscriptSourceInput) {
-    // No resume value → nothing to read; hand back an inert empty source so
-    // the caller need not special-case it.
-    if (!input.resumeValue) {
-      return { readSlice: async () => ({ items: [], hasMore: false }) }
-    }
-    const databasePath = opencodeDbPathForSession({
-      homeDir: input.homeDir,
-      podiumSessionId: input.podiumSessionId,
-      resumeValue: input.resumeValue,
-    })
-    return opencodeDbSource({
-      sessionId: input.resumeValue,
-      ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-      ...(databasePath ? { databasePath } : {}),
-    })
-  },
+  sqliteLocator: supported(
+    (input: TranscriptSourceInput): SqliteTranscriptLocator | undefined => {
+      // No resume value → nothing to read; the Store hands back an inert empty
+      // source so the caller need not special-case it.
+      if (!input.resumeValue) return undefined
+      const databasePath = opencodeDbPathForSession({
+        homeDir: input.homeDir,
+        podiumSessionId: input.podiumSessionId,
+        resumeValue: input.resumeValue,
+      })
+      return {
+        sessionKey: input.resumeValue,
+        ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+        ...(databasePath ? { databasePath } : {}),
+      }
+    },
+  ),
 })

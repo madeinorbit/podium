@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { decodeCursor, encodeCursor } from '../../store/cursor-codec.js'
 import type { OpencodeMessagePartRow } from './transcript.js'
 import { classifyOpencodeIdleText, opencodePartToItems, opencodeRowsToItems } from './transcript.js'
-import { opencodeFileId, stampOpencodeItems } from './transcript.js'
+import { opencodeFileId } from './transcript.js'
+import { stampOpencodeItems } from '../../store/sources/sqlite.js'
 
 function row(
   overrides: Partial<OpencodeMessagePartRow> & {

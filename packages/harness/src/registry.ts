@@ -659,6 +659,7 @@ const TRANSCRIPT_SECTIONS: Record<DeclaredKeys<HarnessTranscript>, string> = {
   recordRuntime: 'transcript.recordRuntime',
   recordColor: 'transcript.recordColor',
   chainPaths: 'transcript.chainPaths',
+  sqliteLocator: 'transcript.sqliteLocator',
 }
 
 const CREDENTIALS_SECTIONS: Record<DeclaredKeys<HarnessCredentials>, string> = {

@@ -11,6 +11,7 @@ import {
   registerTestManifest,
 } from '../../registry.js'
 import { declaredValue } from '../../manifest.js'
+import { transcriptSourceFromGrammar } from '../../store/store.js'
 import { fixtureManifest } from './index.js'
 import { fixtureChainPaths, fixtureSessionPath } from './transcript.js'
 
@@ -129,7 +130,11 @@ describe('fixture harness mechanisms (through the registered manifest)', () => {
     // two lines the daemon's transcript route dispatches on.
     const transcript = declaredValue(manifest().transcript)
     if (!transcript) throw new Error('fixture transcript declined')
-    const source = await transcript.sourceFor({ cwd: '/work', resumeValue, homeDir: home })
+    const source = await transcriptSourceFromGrammar(transcript, {
+      cwd: '/work',
+      resumeValue,
+      homeDir: home,
+    })
     const slice = await source.readSlice({ direction: 'before', limit: 10 })
     expect(slice.items.map((item) => [item.role, item.text])).toEqual([
       ['user', 'hello fixture'],

@@ -7,7 +7,7 @@ import { declaredValue, type TranscriptSourceInput } from '../../manifest.js'
 import { manifestFor } from '../../registry.js'
 import { decodeCursor, fileChainSource } from '../../store/index.js'
 import { transcriptSourceFromGrammar } from '../../store/store.js'
-import { opencodeDbSource, stampOpencodeItems } from './transcript.js'
+import { opencodeDbSource, stampOpencodeItems } from '../../store/sources/sqlite.js'
 
 /**
  * opencode sqlite source tests (POD-4471): the DB source and the row stamper

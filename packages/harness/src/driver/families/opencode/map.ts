@@ -16,7 +16,8 @@
  * THE ITEM MAPPER IS NOT REWRITTEN, AND THAT IS THE POINT
  * ---------------------------------------------------------------------------
  *
- * `packages/transcript`'s `opencodePartToItems`/`stampOpencodeItems` already
+ * `packages/transcript`'s `opencodePartToItems` (adapters/opencode/transcript)
+ * and the Store's `stampOpencodeItems` (store/sources/sqlite) already
  * turn an opencode message+part pair into `TranscriptItem`s, because the SQLite
  * transcript source has needed exactly that since long before this epic. The SSE
  * payloads are the SAME two objects the SQLite rows hold, just delivered live
@@ -32,8 +33,8 @@ import { encodeCursor } from '../../../store/index.js'
 import {
   type OpencodeMessagePartRow,
   opencodeFileId,
-  stampOpencodeItems,
 } from '../../../adapters/opencode/transcript.js'
+import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
 import type { InteractionAnswer, PendingInteraction, QuestionPrompt, Refusal } from '../../host.js'
 import type {
   OpencodeMessageInfo,

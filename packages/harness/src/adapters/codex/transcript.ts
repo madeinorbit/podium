@@ -8,8 +8,8 @@ import {
   safeAskQuestionInputJson,
   toolInputPreview,
 } from '../claude-code/transcript.js'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
-import type { HarnessRuntimeObservation } from '../../store/runtime.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
+import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 import { contentToText, isRecord, stringField } from '../shared/json-util.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 

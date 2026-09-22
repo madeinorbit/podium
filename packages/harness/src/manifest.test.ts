@@ -5,6 +5,7 @@ import { claudeRecordToItems } from './adapters/claude-code/transcript.js'
 import { decodeCursor, fileIdFor } from './store/index'
 import { expect, it } from 'vitest'
 import { fileTranscript } from './manifest'
+import { transcriptSourceFromGrammar } from './store/store.js'
 
 it('file sources share the native session namespace across paths and repeated parses', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'manifest-namespace-'))
@@ -17,7 +18,13 @@ it('file sources share the native session namespace across paths and repeated pa
       claudeRecordToItems,
     )
     const read = async (pathHint: string, resumeValue?: string) =>
-      (await transcript.sourceFor({ cwd: dir, pathHint, resumeValue })).readSlice({
+      (
+        await transcriptSourceFromGrammar(transcript, {
+          cwd: dir,
+          pathHint,
+          ...(resumeValue ? { resumeValue } : {}),
+        })
+      ).readSlice({
         direction: 'before',
         limit: 10,
       })

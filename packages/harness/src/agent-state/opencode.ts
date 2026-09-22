@@ -10,11 +10,11 @@ function isoFromMs(ms: number | undefined): string | undefined {
 
 type OpencodeDbModule = typeof import('../opencode/db.js')
 type OpencodeTranscriptModule = typeof import('../adapters/opencode/transcript.js')
-// The cursor-stamping helper lives next to the part mapper in the opencode
-// adapter transcript module (shared with the on-demand read path) so live
-// deltas and reads carry IDENTICAL cursors; lazy-load it the same way so
-// observing opencode state stays optional (no eager SQLite import).
-type OpencodeSourceModule = Pick<typeof import('../adapters/opencode/transcript.js'), 'stampOpencodeItems'>
+// The cursor-stamping helper lives in the Store's host-only sqlite source
+// (shared with the on-demand read path) so live deltas and reads carry
+// IDENTICAL cursors; lazy-load it the same way so observing opencode state
+// stays optional (no eager SQLite import).
+type OpencodeSourceModule = Pick<typeof import('../store/sources/sqlite.js'), 'stampOpencodeItems'>
 type OpencodeRuntime = OpencodeDbModule & OpencodeTranscriptModule & OpencodeSourceModule
 type OpencodeSessionRow = import('../opencode/db.js').OpencodeSessionRow
 type OpencodeDb = ReturnType<OpencodeDbModule['openOpencodeDb']>
@@ -28,7 +28,7 @@ async function loadOpencodeRuntime(): Promise<OpencodeRuntime> {
   runtimePromise ??= Promise.all([
     import('../opencode/db.js'),
     import('../adapters/opencode/transcript.js'),
-    import('../adapters/opencode/transcript.js'),
+    import('../store/sources/sqlite.js'),
   ]).then(([db, transcript, source]) => ({ ...db, ...transcript, ...source }) as OpencodeRuntime)
   return runtimePromise
 }

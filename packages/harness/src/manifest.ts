@@ -14,7 +14,20 @@ import type {
   QuotaHistorySampleWire,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
-import { fileChainSource, fileIdFor, type StatTick, type TranscriptColorReader, type TranscriptRecordMapper, type TranscriptRuntimeReader, type TranscriptSource } from './store/index.js'
+import type {
+  Declared,
+  StatTick,
+  TranscriptColorReader,
+  TranscriptRecordMapper,
+  TranscriptRuntimeReader,
+} from './transcript-types.js'
+import type { SqliteTranscriptLocator } from './transcript-types.js'
+import { supported, unsupported } from './transcript-types.js'
+export type {
+  Declared,
+  SqliteTranscriptLocator,
+} from './transcript-types.js'
+export { declaredValue, supported, unsupported } from './transcript-types.js'
 import type { UsageFileScan, UsageScanCache } from './usage-records.js'
 import type {
   AgentStateEventSource,
@@ -34,43 +47,9 @@ export type HarnessKind = BuiltinHarnessKind
 // Incremental completeness (POD-303).
 // ---------------------------------------------------------------------------
 
-/**
- * A manifest capability that a harness may not implement YET.
- *
- * The registry's totality forces every capability to be DECLARED; this type is
- * what lets a declaration say "not yet" out loud. That is the whole point of the
- * scheme: a new `BuiltinHarnessKind` can land with a minimal manifest — launch
- * and discovery only — and grow state, headless and transcript support in later
- * PRs, without the compiler ever letting someone forget one.
- *
- * Deliberately NOT modelled as `T | undefined` or an optional field. An optional
- * field cannot distinguish "this CLI genuinely has no headless mode" from
- * "somebody added a harness and forgot this line", so the two failure modes get
- * the same silent treatment at every call site. Requiring an explicit `reason`
- * makes the unsupported case self-documenting and makes forgetting it a type
- * error.
- *
- * Consumers MUST branch on `supported`. Degrade the feature — grey out the
- * button, skip the observer, report capabilities unknown — never substitute
- * another harness's behavior as a default.
- */
-export type Declared<T> =
-  | { readonly supported: true; readonly value: T }
-  | { readonly supported: false; readonly reason: string }
-
-/** Declare a capability this harness implements. */
-export function supported<T>(value: T): Declared<T> {
-  return { supported: true, value }
-}
-
-/**
- * Declare a capability this harness does NOT implement, and say why — the reason
- * is surfaced in diagnostics (`podium doctor`, degraded settings UI), so write it
- * for a reader deciding whether the gap is permanent or just unfinished.
- */
-export function unsupported(reason: string): Declared<never> {
-  return { supported: false, reason }
-}
+// `Declared<T>` and its constructors live in the mechanism-free
+// `transcript-types.js` leaf (re-exported above) so the Store and the adapters
+// share one definition without either importing the other.
 
 /**
  * Placeholder decline reasons the registry check refuses (POD-4474, spec §5:
@@ -88,13 +67,6 @@ export const DECLINED_REASON_DENYLIST: readonly string[] = ['n/a', 'na', 'todo',
 export function declinedReasonIsValid(reason: string): boolean {
   const normalized = reason.trim().toLowerCase()
   return normalized.length > 0 && !DECLINED_REASON_DENYLIST.includes(normalized)
-}
-
-/** The declared value, or `undefined` when unsupported — for the many call sites
- *  whose degraded path is simply "don't do it". Keeps `supported` checks from
- *  sprawling without ever inventing a substitute default. */
-export function declaredValue<T>(declared: Declared<T>): T | undefined {
-  return declared.supported ? declared.value : undefined
 }
 
 /**
@@ -115,7 +87,7 @@ export type DeclaredKeys<T> = {
   // keeps an OPTIONAL `Declared<…>` member counted as declared rather than
   // dropped via its `| undefined`.
   [K in keyof T]-?: Exclude<T[K], undefined> extends Declared<unknown> ? K : never
-}[keyof T]
+  }[keyof T]
 
 // ---------------------------------------------------------------------------
 // Launch (interactive PTY spawn) — the agentLaunchCommand axis.
@@ -811,14 +783,23 @@ export interface HarnessTranscript {
   *  bucket holds many DISTINCT conversations, so globbing the bucket would merge
   *  unrelated sessions; no resume value ⇒ []. */
   chainPaths: Declared<(input: TranscriptSourceInput) => Promise<string[]>>
-  /** Resolve this session's transcript read source (file chain or DB-backed). */
-  sourceFor(input: TranscriptSourceInput): Promise<TranscriptSource>
+  /** The sqlite address of this session ('sqlite' storage only; unsupported
+  *  for 'file', which chains JSONL instead). A pure locator — the adapter's
+  *  db-path rule resolved for this input — never a source: the Store builds
+  *  the host-only source from it (`transcriptSourceFromGrammar`), so the
+  *  section stays data plus pure functions and the dependency points one way
+  *  (Store → grammar, spec §5). `undefined` when no resume value names a
+  *  session. */
+  sqliteLocator: Declared<(input: TranscriptSourceInput) => SqliteTranscriptLocator | undefined>
 }
 
 /** Build the common file-backed transcript declaration without restating its
- * mapper in both `recordToItems` and `sourceFor`. The parser implementation
- * lives in the harness's own `adapters/<h>/transcript.ts`; the per-CLI
- * manifest owns the choice of which parser applies. */
+ *  parser. The parser implementation lives in the harness's own
+ *  `adapters/<h>/transcript.ts`; the per-CLI manifest owns the choice of which
+ *  parser applies. Pure data: no source is constructed here — the Store builds
+ *  the file-chain source from `chainPaths` + `recordToItems`
+ *  (`transcriptSourceFromGrammar`), so this helper imports nothing from the
+ *  Store and the section never takes it as a dependency. */
 export function fileTranscript(
   chainPaths: (input: TranscriptSourceInput) => Promise<string[]>,
   recordToItems: TranscriptRecordMapper,
@@ -835,13 +816,7 @@ export function fileTranscript(
       ? supported(recordColor)
       : unsupported('this harness does not report an identity colour in its records'),
     chainPaths: supported(chainPaths),
-    async sourceFor(input) {
-      const sessionIdentity = input.resumeValue
-      const chain = sessionIdentity
-        ? (await chainPaths(input)).map((path) => ({ path, fileId: fileIdFor(sessionIdentity) }))
-        : []
-      return fileChainSource(chain, recordToItems)
-    },
+    sqliteLocator: unsupported('this harness stores transcripts in files — there is no database to locate'),
   }
 }
 
