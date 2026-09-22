@@ -420,7 +420,7 @@ describe('SessionComposerSync injection state machine (the doubling-killer)', ()
 })
 
 describe('ComposerSyncEngine', () => {
-  it('attach returns false for a harness without a composer driver', () => {
+  it('attach returns false for a harness without a declared composer section', () => {
     const engine = new ComposerSyncEngine(() => {})
     expect(engine.attach(asSessionId('s1'), 'shell', 80, 24)).toBe(false)
     expect(engine.attach(asSessionId('s2'), 'grok', 80, 24)).toBe(false)
