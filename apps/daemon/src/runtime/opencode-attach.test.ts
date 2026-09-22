@@ -1226,6 +1226,28 @@ describe('warm-parking', () => {
     expect(state.clients[0]?.disposed).toBe(true)
   })
 
+  /**
+   * POD-4524 PIN: today's warm-park effect, before the decision moves to the
+   * server. An attach TUI left unwatched past WARM_TTL_MS drops the VIEWER —
+   * the client master is reclaimed and its handle disposed — while the AGENT
+   * is untouched: the session entry survives with only the client policy
+   * retired. The server-owned row must preserve exactly this shape: close the
+   * client terminal, never hibernate the agent.
+   */
+  it('POD-4524 pin: unwatched past the warm TTL drops the viewer and keeps the agent', async () => {
+    const { terminals, state, sessions } = harness()
+    await terminals.attach({ sessionId: SESSION, target })
+    terminals.viewers(SESSION, false)
+    // Past the warm TTL: fire the armed deadline.
+    state.fire()
+    await vi.waitFor(() => expect(state.reclaimed).toEqual([opencodeAttachLabel(SESSION)]))
+    expect(state.clients[0]?.disposed).toBe(true)
+    // THE AGENT IS UNTOUCHED: the entry survives, only the client policy retires.
+    const owned = sessions.get(SESSION)
+    expect(owned).toBeDefined()
+    expect(owned?.client).toBeUndefined()
+  })
+
   it('adopts a client that outlived the daemon, so it is reaped instead of resident forever', () => {
     const { terminals, state } = harness({ hasMaster: () => true })
     terminals.adopt(SESSION)
