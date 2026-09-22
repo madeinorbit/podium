@@ -30,7 +30,7 @@ async function bootArm() {
   return { ctx, source, locals, mounted }
 }
 
-describe('mobx arm on the engine (SMALL)', () => {
+describe('mobx arm on the engine (fixture 1x)', () => {
   it('scenarios #1-#3: parity green, isolation within budget', async () => {
     const { ctx, source, locals, mounted } = await bootArm()
     try {
@@ -82,19 +82,13 @@ describe('mobx arm on the engine (SMALL)', () => {
       )
       expect(phase.parityDiff).toBeNull()
       expect(phase.parity).toBe(true)
-      // POD-4496: SMALL #2 now commits nothing. writePhaseChange flips s0
-      // (bound to i0) working→idle, but i0 keeps two working R3 sessions
-      // (s6, s48: unbound, cwd under i0's /repo-0/wt-0 anchor, phase
-      // working) now that the seed dual-carries the anchor on the
-      // projection (legacy reads projection, issue-view-models.ts:88).
-      // i0's SliceRow never moves, so the oracle changes 0 rows and the
-      // arm commits 0 — parity green with an empty commit set. The three
-      // derivation bodies still execute (flat + summary + aggregate input
-      // checks on the replaced session object) and prove zero value
-      // change, hence rollupsDerived stays 3.
-      expect(phase.rowsCommitted).toBe(0)
-      expect(phase.commitsByRow).toEqual({})
-      expect(phase.stats.rowsDerived).toBe(0)
+      // POD-4550: the #2 root's only live session is the one going idle
+      // (no other bound session, none seated by prefix), so its row moves
+      // and exactly that row commits. On the retired corpus R3 orphans kept
+      // the root working and #2 committed nothing (POD-4496).
+      expect(phase.rowsCommitted).toBe(1)
+      expect(phase.commitsByRow).toEqual({ [ctx.targets.visibleRootId]: 1 })
+      expect(phase.stats.rowsDerived).toBe(1)
       expect(phase.stats.rollupsDerived).toBe(3)
       expect(phase.stats.indexUpdates).toBe(0)
 

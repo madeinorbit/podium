@@ -281,10 +281,11 @@ export interface ScenarioTargets {
   /** #1: a session bound to a closed agent root (a row the worklist never
    *  shows) — its heartbeat must move no visible row. */
   heartbeatSessionId: string
-  /** #2/#3/#4, #9 supplement: an open human root with children and exactly
-   *  ONE live working session — so #2 (that session going idle) visibly
-   *  changes the row at every scale, and cross-scale counts compare the same
-   *  workload. */
+  /** #2/#3/#4, #9 supplement: an open human root with children whose ONLY
+   *  live session is one working session — none bound besides it, none
+   *  seated under its worktree by prefix — so #2 (that session going idle)
+   *  visibly changes the row at every scale and cross-scale counts compare
+   *  the same workload. */
   visibleRootId: string
   /** #2: that root's first live working session. */
   phaseSessionId: string
@@ -373,14 +374,18 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
     return hit
   }
 
-  const root = take(
-    'open human root with children and exactly one live working session',
-    (i) =>
-      openHuman(i) &&
-      !i.parentId &&
-      !childless(i) &&
-      (sessionsOf.get(i.id) ?? []).filter(isLiveWorking).length === 1,
-  )
+  const liveOrphanCwds = corpus.sessions
+    .filter((s) => !s.issueId && s.status === 'live')
+    .map((s) => s.cwd)
+  const seatsOrphans = (i: IssueFacts): boolean => {
+    const wt = (i as { worktreePath?: string | null }).worktreePath
+    return !!wt && liveOrphanCwds.some((cwd) => cwd === wt || cwd.startsWith(`${wt}/`))
+  }
+  const root = take('open human root with children and one live session, working', (i) => {
+    if (!openHuman(i) || i.parentId || childless(i) || seatsOrphans(i)) return false
+    const live = (sessionsOf.get(i.id) ?? []).filter((s) => s.status === 'live')
+    return live.length === 1 && isLiveWorking(live[0]!)
+  })
   const phaseSession =
     (sessionsOf.get(root.id) ?? []).find(isLiveWorking) ?? fail('working session on the root')
   const childlessRoot = (rule: string): IssueFacts =>

@@ -85,7 +85,7 @@ describe('mobx arm at 1x', () => {
       expect(phase.parity).toBe(true)
       expect(phase.parityDiff).toBeNull()
       expect(phase.rowsCommitted).toBe(1)
-      expect(phase.commitsByRow).toEqual({ i0: 1 })
+      expect(phase.commitsByRow).toEqual({ [ctx.targets.visibleRootId]: 1 })
       expect(phase.stats.rowsDerived).toBe(1)
       expect(phase.stats.rollupsDerived).toBe(3)
       expect(phase.stats.indexUpdates).toBe(0)

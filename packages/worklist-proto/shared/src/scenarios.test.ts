@@ -145,6 +145,29 @@ describe('targets picked by rule, checked against the oracle (1x)', () => {
   })
 })
 
+describe('#2 target moves its row at every scale (oracle)', () => {
+  // Cross-scale counts only compare like with like if the write has the same
+  // visible effect at every scale: the phase session going idle must change
+  // the root's row at 1x, 2x and 4x.
+  it.each([1, 2, 4] as const)('at %ix', (scale) => {
+    const corpus = buildCorpus(scale, FIXTURE_SEED)
+    const targets = pickTargets(corpus)
+    const locals = { selectedIssueId: null, coarseNow: FIXED_NOW }
+    const before = expectedSnapshot(corpus, locals).rowsById[targets.visibleRootId]
+    const idle: FixtureCorpus = {
+      ...corpus,
+      sessions: corpus.sessions.map((s) =>
+        s.sessionId === targets.phaseSessionId
+          ? ({ ...s, agentState: { ...s.agentState, phase: 'idle' } } as typeof s)
+          : s,
+      ),
+    }
+    const after = expectedSnapshot(idle, locals).rowsById[targets.visibleRootId]
+    expect(before).toBeDefined()
+    expect(after).not.toEqual(before)
+  }, 120_000)
+})
+
 describe('scenarios on the fixture at 1x', () => {
   it('#1 unrelatedHeartbeat: one update, one row; session delta only', async () => {
     const result = await unrelatedHeartbeat()

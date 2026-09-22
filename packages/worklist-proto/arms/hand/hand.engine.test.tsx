@@ -46,7 +46,7 @@ function expectOracle(mounted: { handle: { snapshot(): unknown } }, store: HandS
   expect(mounted.handle.snapshot()).toEqual(rebuilt.snapshot)
 }
 
-describe('hand-rolled arm on the engine (SMALL)', () => {
+describe('hand-rolled arm on the engine (fixture 1x)', () => {
   it('scenarios #1-#3: parity green, rebuild oracle green, isolation within budget', async () => {
     const { ctx, source, locals, mounted } = await bootArm()
     // Reach the live store behind the mounted handle for the rebuild oracle.
