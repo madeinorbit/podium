@@ -112,16 +112,19 @@ export interface HarnessBoundaryAllowlistEntry {
  *  harness choice — never removable, and unmovable: settings ↔
  *  harness-defaults would cycle). One file, two entries, file total
  *  unchanged: leak 259 → 258, policy 35 → 36, total 294.
+ *  POD-4612 deleted the bespoke Claude adopt/resume arm in
+ *  control/session.ts (the Claude engine rebinds through the generic
+ *  server-family arm): that file 5 → 2, leak 253 → 250, total 289 → 286.
  */
-export const HARNESS_BASELINE_LEAK_COUNT = 253
+export const HARNESS_BASELINE_LEAK_COUNT = 250
 export const HARNESS_BASELINE_POLICY_COUNT = 36
-export const HARNESS_BASELINE_TOTAL = 289
+export const HARNESS_BASELINE_TOTAL = 286
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
   { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/binding-store.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/control/inventory.ts', count: 23, category: 'leak', reason: 'credentials/usage/inventory names a harness; move into adapter sections (3.3)', issue: 'POD-4414/3.3' },
-  { file: 'apps/daemon/src/control/session.ts', count: 5, category: 'leak', reason: 'lifecycle names a harness; move into session/terminal lifecycle (2.1)', issue: 'POD-4414/2.1' },
+  { file: 'apps/daemon/src/control/session.ts', count: 2, category: 'leak', reason: 'lifecycle names a harness; move into session/terminal lifecycle (2.1)', issue: 'POD-4414/2.1' },
   { file: 'apps/daemon/src/handoff-package.ts', count: 2, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/harness-version-reporting.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
   { file: 'apps/daemon/src/runtime/opencode-attach.ts', count: 4, category: 'leak', reason: 'daemon headless host/driver names a harness; move into driver families (1.5)', issue: 'POD-4414/1.5' },
