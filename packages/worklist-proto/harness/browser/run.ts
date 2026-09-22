@@ -1,17 +1,29 @@
 /**
  * POD-4445 — Chromium timing driver: the ONE way every arm is timed.
+ * POD-4558 (L5b) — work time only.
  *
  * One invocation times ONE (arm, scale) pair — a killed browser run poisons
  * later renders in the same file (seen on F1), so interleaving across arms
- * happens by invoking this once per pair, never by looping pairs in-process.
- * Within a pair, scenarios rotate round-robin per sample.
+ * happens by invoking this once per pair (`matrix.ts` does that, in rotated
+ * order), never by looping pairs in-process. Within a pair, the scenario
+ * order rotates per sample.
  *
- * Per scenario sample: input-to-paint for the click (pointerdown dispatched
- * in-page, paint after two rAFs), scenario task duration, long tasks,
- * heap before/after with forced GC, per-record loadavg + uptime.
+ * Per scenario sample the page's timer (`harness/web/entrylib.ts`) reports
+ * `actionMs` (change dispatch to the arm's last commit signal: the work),
+ * `drainMs`, `frameMs` (to the next animation frame; reported, not budgeted),
+ * commits, mounts, long tasks in the change's window, and stray commits that
+ * landed between changes. The click goes through the same timer: its
+ * dispatch is the pointer event. There is no task-time metric: no poll, no
+ * frame wait inside any budgeted number. Around the page call the driver adds
+ * heap before/after (CDP, forced GC), loadavg and uptime per record, and the
+ * runtime SHA.
  *
- * Timing runs under the bench lease (`bench:ludovico`); counts do not need
- * it. Above load 8, do not publish walls — run counts only and say so.
+ * A run FAILS (status `failed`, exit 2) when the 1-minute load is above
+ * `--max-load` (default 8) before or during it, or when any cell errors: a
+ * missing cell is never a gap. Its records stay in the JSON for diagnosis;
+ * `summarize.ts` refuses to print them as results.
+ *
+ * Timing runs under the bench lease (`bench:ludovico`).
  *
  * Field names overlap `docs/measurements/POD-4286-stage0-live.json` where
  * they measure the same thing: `runtimeSha`, `browser`, `capturedAt`,
@@ -20,29 +32,37 @@
  *
  * Run (heavy — browser + production build traffic):
  *   bun scripts/test-heavy.ts -- bun packages/worklist-proto/harness/browser/run.ts \
- *     --arm control --scale 1 --samples 5 --out harness/browser/results/control-1x.json
+ *     --arm noop --scale 1 --samples 20 --out packages/worklist-proto/harness/browser/results/noop-1x.json
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
-import { extname, join } from 'node:path'
+import { dirname, extname, join } from 'node:path'
 import { loadavg, uptime } from 'node:os'
 import { chromium } from '@playwright/test'
-
-const ARMS = ['control', 'hand', 'mobx'] as const
-type ArmName = (typeof ARMS)[number]
-type Scale = 1 | 2 | 4
-const SCENARIOS = ['heartbeat', 'rename', 'stagemove', 'clock', 'click'] as const
-type ScenarioName = (typeof SCENARIOS)[number]
+import type { ProtoScenarioResult } from '../web/entrylib'
+import {
+  ARMS,
+  SCENARIOS,
+  type ArmName,
+  type HeapUsage,
+  type RunOutput,
+  type Scale,
+  type ScenarioName,
+  type TimingRecord,
+} from './records'
 
 interface Args {
   arm: ArmName
   scale: Scale
   scenarios: ScenarioName[]
   samples: number
+  warmup: number
+  maxLoad: number
   out: string
   port: number
   serve: string
+  lease: boolean
 }
 
 function parseArgs(argv: string[]): Args {
@@ -69,10 +89,14 @@ function parseArgs(argv: string[]): Args {
     arm: arm as ArmName,
     scale: scale as Scale,
     scenarios: scenarios as ScenarioName[],
-    samples: Number(get('--samples', '5')),
-    out: get('--out', `harness/browser/results/${arm}-${scale}x.json`) ?? '',
+    samples: Number(get('--samples', '20')),
+    warmup: Number(get('--warmup', '1')),
+    maxLoad: Number(get('--max-load', '8')),
+    out: get('--out', `packages/worklist-proto/harness/browser/results/${arm}-${scale}x.json`) ?? '',
     port: Number(get('--port', '8751')),
     serve: get('--serve', 'packages/worklist-proto/harness/web/dist') ?? '',
+    // `matrix.ts` holds the lease around each invocation itself.
+    lease: !argv.includes('--no-lease'),
   }
 }
 
@@ -112,38 +136,8 @@ function serveDist(dir: string, port: number): Promise<Server> {
   })
 }
 
-interface HeapUsage {
-  usedSize: number
-  totalSize: number
-  embedderHeapUsedSize?: number
-  backingStorageSize?: number
-}
-
-interface TimingRecord {
-  arm: ArmName
-  scale: Scale
-  scenario: ScenarioName
-  sample: number
-  /** Click only: paint minus dispatched-pointerdown, ms. */
-  inputToPaintMs: number | null
-  /** Scenario wall including settle, ms. */
-  taskMs: number
-  /** Main-thread pipeline slices measured in-page (no paint, no poll). */
-  actionMs: number
-  longTasks: number
-  longTaskMs: number
-  heapBefore: HeapUsage | null
-  heapAfter: HeapUsage | null
-  commits: number
-  mountedRows: number
-  stats: { rowsDerived: number; rollupsDerived: number; indexUpdates: number; notifications: number }
-  loadavg: number
-  uptime: number
-  runtimeSha: string
-}
-
 function acquireBenchLease(): boolean {
-  const result = spawnSync('podium', ['lock', 'acquire', 'bench:ludovico', '--ttl', '30m'], {
+  const result = spawnSync('podium', ['lock', 'acquire', 'bench:ludovico', '--ttl', '30m', '--wait'], {
     encoding: 'utf-8',
   })
   if (result.status !== 0) {
@@ -158,12 +152,43 @@ function releaseBenchLease(): void {
   spawnSync('podium', ['lock', 'release', 'bench:ludovico'], { encoding: 'utf-8' })
 }
 
-async function main(): Promise<void> {
+function write(out: string, output: RunOutput): void {
+  mkdirSync(dirname(out), { recursive: true })
+  writeFileSync(out, JSON.stringify(output, null, 2))
+}
+
+async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2))
   const runtimeSha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
     encoding: 'utf-8',
   }).trim()
-  if (!acquireBenchLease()) {
+  const output: RunOutput = {
+    status: 'ok',
+    failures: [],
+    runtimeSha,
+    browser: null,
+    capturedAt: new Date().toISOString(),
+    arm: args.arm,
+    scale: args.scale,
+    maxLoad: args.maxLoad,
+    corpus: null,
+    scenarios: args.scenarios,
+    samples: args.samples,
+    warmup: args.warmup,
+    records: [],
+  }
+  const fail = (reason: string): void => {
+    output.status = 'failed'
+    output.failures.push(reason)
+    console.error(`[browser] FAILED: ${reason}`)
+  }
+  const load0 = loadavg()[0] ?? 0
+  if (load0 > args.maxLoad) {
+    fail(`load ${load0.toFixed(2)} > ${args.maxLoad} before the run; nothing timed`)
+    write(args.out, output)
+    return 2
+  }
+  if (args.lease && !acquireBenchLease()) {
     throw new Error(
       '[browser] refusing to time without the bench lease (walls would be contaminated). Counts only.',
     )
@@ -173,167 +198,90 @@ async function main(): Promise<void> {
     headless: true,
     args: ['--no-sandbox', '--disable-dev-shm-usage'],
   })
+  output.browser = browser.version()
   try {
     server = await serveDist(args.serve, args.port)
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
+    page.on('pageerror', (error) => fail(`page error: ${error.message}`))
     const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}`
     await page.goto(url, { waitUntil: 'domcontentloaded' })
-    await page.waitForFunction(() => (window as unknown as { __proto?: { ready: boolean } }).__proto?.ready !== undefined, {}, { timeout: 120_000 })
-    const proto = await page.evaluate(() => (window as unknown as { __proto: Record<string, unknown> }).__proto)
-    if (proto['ready'] === false) {
-      const skipped = {
-        arm: args.arm,
-        scale: args.scale,
-        skipped: true,
-        reason: 'page not ready (arm pending)',
-        runtimeSha,
-        capturedAt: new Date().toISOString(),
-      }
-      mkdirSync(join(args.out, '..'), { recursive: true })
-      writeFileSync(args.out, JSON.stringify(skipped, null, 2))
-      console.log(`[browser] ${args.arm}: page not ready, wrote skip record`)
-      return
-    }
-    const corpus = await page.evaluate(
-      () => (window as unknown as { __proto: { corpus: unknown } }).__proto.corpus,
+    await page.waitForFunction(
+      () => (window as unknown as { __proto?: { ready: boolean } }).__proto?.ready !== undefined,
+      {},
+      { timeout: 120_000 },
     )
+    const ready = await page.evaluate(() => window.__proto.ready)
+    if (!ready) {
+      fail('page not ready (arm pending)')
+      return 2
+    }
+    output.corpus = await page.evaluate(() => window.__proto.corpus)
     const cdp = await page.context().newCDPSession(page)
     await cdp.send('HeapProfiler.enable')
     const heap = async (): Promise<HeapUsage> => {
       await cdp.send('HeapProfiler.collectGarbage')
-      const usage = (await cdp.send('Runtime.getHeapUsage')) as HeapUsage
-      return usage
+      return (await cdp.send('Runtime.getHeapUsage')) as HeapUsage
     }
-    const records: TimingRecord[] = []
-    // Rotate scenarios round-robin per sample so drift hits every scenario.
-    for (let sample = 0; sample < args.samples; sample += 1) {
-      for (const scenario of args.scenarios) {
+    const rounds = args.warmup + args.samples
+    for (let round = 0; round < rounds; round += 1) {
+      const warmup = round < args.warmup
+      // Warm-up rounds number -warmup..-1; measured samples 0..samples-1.
+      const sample = round - args.warmup
+      // Rotate the scenario order per round so drift hits every scenario.
+      const order = args.scenarios.map((_, i) => args.scenarios[(i + round) % args.scenarios.length]!)
+      for (const scenario of order) {
         const heapBefore = await heap()
-        let record: TimingRecord
-        if (scenario === 'click') {
-          const painted = (await page.evaluate(() =>
-            (
-              window as unknown as {
-                __proto: {
-                  clickRow: () => Promise<{
-                    inputMs: number
-                    paintMs: number
-                    actionMs: number
-                    longTasks: { duration: number }[]
-                    commits: number
-                    mountedRows: number
-                  }>
-                }
-              }
-            ).__proto.clickRow(),
-          )) as {
-            inputMs: number
-            paintMs: number
-            actionMs: number
-            longTasks: { duration: number }[]
-            commits: number
-            mountedRows: number
-          }
-          record = {
-            arm: args.arm,
-            scale: args.scale,
-            scenario,
-            sample,
-            inputToPaintMs: painted.paintMs - painted.inputMs,
-            taskMs: painted.paintMs - painted.inputMs,
-            actionMs: painted.actionMs,
-            longTasks: painted.longTasks.length,
-            longTaskMs: painted.longTasks.reduce((sum, t) => sum + t.duration, 0),
-            heapBefore,
-            heapAfter: null,
-            commits: painted.commits,
-            mountedRows: painted.mountedRows,
-            stats: { rowsDerived: 0, rollupsDerived: 0, indexUpdates: 0, notifications: 0 },
-            loadavg: loadavg()[0] ?? 0,
-            uptime: uptime(),
-            runtimeSha,
-          }
-        } else {
-          const result = (await page.evaluate((name: string) =>
-            (
-              window as unknown as {
-                __proto: {
-                  runScenario: (n: string) => Promise<{
-                    commits: number
-                    mountedRows: number
-                    stats: {
-                      rowsDerived: number
-                      rollupsDerived: number
-                      indexUpdates: number
-                      notifications: number
-                    }
-                    taskMs: number
-                    actionMs: number
-                    longTasks: { duration: number }[]
-                  }>
-                }
-              }
-            ).__proto.runScenario(name),
-          scenario)) as unknown as {
-            commits: number
-            mountedRows: number
-            stats: {
-              rowsDerived: number
-              rollupsDerived: number
-              indexUpdates: number
-              notifications: number
-            }
-            taskMs: number
-            actionMs: number
-            longTasks: { duration: number }[]
-          }
-          record = {
-            arm: args.arm,
-            scale: args.scale,
-            scenario,
-            sample,
-            inputToPaintMs: null,
-            taskMs: result.taskMs,
-            actionMs: result.actionMs,
-            longTasks: result.longTasks.length,
-            longTaskMs: result.longTasks.reduce((sum, t) => sum + t.duration, 0),
-            heapBefore,
-            heapAfter: null,
-            commits: result.commits,
-            mountedRows: result.mountedRows,
-            stats: result.stats,
-            loadavg: loadavg()[0] ?? 0,
-            uptime: uptime(),
-            runtimeSha,
-          }
+        let result: ProtoScenarioResult
+        try {
+          result = await page.evaluate((name) => window.__proto.runScenario(name), scenario)
+        } catch (error) {
+          fail(`${scenario}#${sample}: ${(error as Error).message.split('\n')[0]}`)
+          return 2
         }
-        record.heapAfter = await heap()
-        records.push(record)
+        const load = loadavg()[0] ?? 0
+        const record: TimingRecord = {
+          arm: args.arm,
+          scale: args.scale,
+          scenario,
+          sample,
+          warmup,
+          target: result.target,
+          actionMs: result.actionMs,
+          drainMs: result.drainMs,
+          frameMs: result.frameMs,
+          endedBy: result.endedBy,
+          commits: result.commits,
+          mounts: result.mounts,
+          domMutations: result.domMutations,
+          strayCommits: result.strayCommits,
+          longTasks: result.longTasks.length,
+          longTaskMs: result.longTasks.reduce((sum, t) => sum + t.duration, 0),
+          heapBefore,
+          heapAfter: await heap(),
+          mountedRows: result.mountedRows,
+          stats: result.stats,
+          loadavg: load,
+          uptime: uptime(),
+          runtimeSha,
+        }
+        output.records.push(record)
+        if (load > args.maxLoad) fail(`load ${load.toFixed(2)} > ${args.maxLoad} at ${scenario}#${sample}`)
         console.log(
-          `[browser] ${args.arm} ${args.scale}x ${scenario}#${sample}: ` +
-            `taskMs=${Math.round(record.taskMs)} longTasks=${record.longTasks} commits=${record.commits}`,
+          `[browser] ${args.arm} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
+            `actionMs=${record.actionMs.toFixed(2)} frameMs=${record.frameMs.toFixed(1)} ` +
+            `by=${record.endedBy} commits=${record.commits} longTasks=${record.longTasks} ` +
+            `stray=${record.strayCommits} load=${load.toFixed(2)}`,
         )
       }
     }
-    const output = {
-      runtimeSha,
-      browser: browser.version(),
-      capturedAt: new Date().toISOString(),
-      arm: args.arm,
-      scale: args.scale,
-      corpus,
-      scenarios: args.scenarios,
-      samples: args.samples,
-      records,
-    }
-    mkdirSync(join(args.out, '..'), { recursive: true })
-    writeFileSync(args.out, JSON.stringify(output, null, 2))
-    console.log(`[browser] wrote ${args.out} (${records.length} records)`)
+    return output.status === 'ok' ? 0 : 2
   } finally {
+    write(args.out, output)
+    console.log(`[browser] wrote ${args.out} (${output.records.length} records, ${output.status})`)
     await browser.close()
     server !== null && server.close()
-    releaseBenchLease()
+    if (args.lease) releaseBenchLease()
   }
 }
 
-await main()
+process.exitCode = await main()

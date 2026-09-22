@@ -66,6 +66,8 @@ export default defineConfig({
         control: entry('control'),
         hand: entry('hand'),
         mobx: entry('mobx'),
+        // POD-4558: the instrument floor (an arm that does nothing).
+        noop: entry('noop'),
       },
     },
   },
