@@ -2336,4 +2336,34 @@ describe('harness-own-adapter (POD-4530)', () => {
     )
     expect(good.some((v) => v.rule === HARNESS_OWN_ADAPTER_RULE)).toBe(false)
   })
+
+  it('is green on the REAL tree — the sweep that makes the rule bite', () => {
+    // The enforcement half. The per-file cases above document intent, but
+    // only a walk of the real tree FAILS when a NEW violation appears: a
+    // re-added host.ts re-export changes nothing in the cases above and turns
+    // this one red. Same shape as the vendor rule's seeded-counts control.
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+    const ctx = loadHarnessOwnAdapterCtx(repoRoot)
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        if (e.name.startsWith('.')) return []
+        const full = join(dir, e.name)
+        if (e.isDirectory()) {
+          return ['node_modules', 'dist', 'build', 'coverage', 'target', '.expo'].includes(e.name)
+            ? []
+            : walk(full)
+        }
+        return /\.tsx?$/.test(e.name) && !e.name.endsWith('.d.ts') ? [full] : []
+      })
+    const violations: Violation[] = []
+    let files = 0
+    for (const abs of walk(join(repoRoot, 'packages/harness/src'))) {
+      const file = relative(repoRoot, abs).split(sep).join('/')
+      files++
+      violations.push(...checkHarnessOwnAdapter(file, readFileSync(abs, 'utf8'), ctx))
+    }
+    // A walker that read nothing would pass vacuously — floor on files seen.
+    expect(files).toBeGreaterThan(100)
+    expect(violations).toEqual([])
+  })
 })
