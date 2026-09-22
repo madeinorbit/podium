@@ -458,6 +458,14 @@ static void request_kill(void) {
   H.kill_requested = true;
   kill_child(SIGTERM);
   H.kill_deadline_ms = now_ms() + KILL_GRACE_MS;
+  /* Already lingering: the linger was fixed when the exit was announced, from
+   * --linger-secs. A kill is the owner saying nobody needs the ring any more,
+   * so the host goes on the short kill linger instead of holding the socket
+   * (and the label) for the rest of a long one. */
+  if (H.exit_announced) {
+    int64_t soon = now_ms() + 1000;
+    if (!H.linger_deadline_ms || soon < H.linger_deadline_ms) H.linger_deadline_ms = soon;
+  }
 }
 
 static void handle_frame(client_t *c, uint8_t type, const uint8_t *p, uint32_t n) {

@@ -5,21 +5,18 @@
  * WHAT THIS IS
  * ---------------------------------------------------------------------------
  *
- * The legacy headless port (`control/headless.ts` + `headless-drivers.ts` +
- * `durable-headless.ts`) runs superagent and shipwright turns as one-shot
- * harness invocations outside the Agent Runtime contract. This module puts that
- * exact machinery behind the contract — one `RuntimeDriver` (`id: 'headless'`,
- * per harness) whose `send()` runs one headless turn — so those turns can
- * dispatch through the driver-contract WS relay (`runtimeSendRequest` and
- * friends, with the POD-4386 per-turn fields) instead of `headlessTurnRequest`.
+ * Superagent and shipwright turns are one-shot harness invocations. This
+ * module puts them behind the Agent Runtime contract — one `RuntimeDriver`
+ * (`id: 'headless'`, per harness) whose `send()` runs one headless turn — so
+ * those turns dispatch through the driver-contract WS relay
+ * (`runtimeSendRequest` and friends, with the POD-4386 per-turn fields).
  *
- * ADAPTER, NOT A REWRITE. Every behavior below delegates to the functions the
- * legacy path already runs: `runHeadlessTurn` for the in-process child turns,
- * `runDurableHeadlessTurn` for the abduco-journalled ones (which keeps owning
- * replay-without-rerun, identity-checked ack and the original deadline), the
- * harness adapter registry for the no-tools verdict, the native-account fence,
- * and the observers' `bindHeadlessSession` for the transcript rebind. Nothing
- * here reimplements a harness invocation.
+ * EVERY TURN RUNS UNDER PODIUM-HOST (POD-4614). A turn is started through the
+ * session layer's process owner (`./turn.ts`), under the session's durable
+ * label, exactly as every engine is; nothing here spawns. Moved from
+ * apps/daemon/src/runtime/headless-driver.ts, which adapted the legacy port
+ * (`control/headless.ts`, `headless-drivers.ts`, `durable-headless.ts`) — all
+ * three are gone. The daemon supplies the ports below and nothing else.
  *
  * ---------------------------------------------------------------------------
  * WHERE THE TRUTH LIVES (READ THIS BEFORE ADDING A FIELD)
@@ -32,16 +29,16 @@
  *   Live preview travels as turn-scoped `partial` fragments (replaced, never
  *   appended, by the history items on completion) plus turn started/completed /
  *   failed events.
- * - Turn RESULT durability is the durable function's filesystem journal, not a
- *   second journal here. This driver adds no journal of its own: replay,
- *   mismatch refusal, ack discipline and the original `createdAt` deadline all
- *   come out of `runDurableHeadlessTurn` / `acknowledgeDurableHeadlessTurn`.
+ * - Turn RESULT durability is the turn's podium-host ring, not a journal
+ *   here. This driver adds no journal of its own: replay, mismatch refusal,
+ *   ack discipline and the original deadline all come out of
+ *   `runHostedHeadlessTurn` / `acknowledgeHostedTurn` (./turn.ts).
  * - Turn IDENTITY (`turnId` + `requestDigest` + `accountId`) rides `TurnInput`
  *   (`id`, `requestDigest`, `accountId`, all required) exactly as the WS relay
  *   delivers it (`handlers.ts` maps the frame's `turnId` onto `TurnInput.id`).
  *   The digest is recomputed here over the turn-carried facts with
  *   `canonicalHeadlessContractFacts` and refused on mismatch BEFORE dispatch —
- *   the same fence `control/headless.ts` runs, never a rerun.
+ *   never a rerun.
  *
  * ---------------------------------------------------------------------------
  * KNOWN GAPS (FILED, NOT HIDDEN)
@@ -52,26 +49,47 @@
  * contract session is — `spawn`/`reattach` carrying
  * `requestedDriverId: 'headless'`, resolved to this driver by explicit
  * preference (no manifest `select()` ever returns it) and created via
- * `runtime.create`/`resume`/`adopt` on the host-minted session id. The legacy
- * `control/headless.ts` port (`headlessTurnRequest` and friends) keeps serving
- * production turns unchanged until callers migrate; this driver is proven by
- * its tests, not by shadowing production.
+ * `runtime.create`/`resume`/`adopt` on the host-minted session id. The
+ * legacy `headlessTurnRequest` frame is refused (the daemon's control
+ * registry says so); only `headlessTurnAck` still rides a legacy frame, into
+ * `acknowledge` below.
  * - Per-turn `contextPrompt`, `systemPrompt` and `timeoutMs` ride `TurnInput`
  *   (and the WS relay) since the caller-migration lane landed them.
- * - `structuredPermissions: true` routes claude-code turns through the SDK
- *   child with its `canUseTool` callback wired to contract PendingInteractions
- *   (open/answer/close). Other harnesses refuse `unsupported`: their
- *   child-process drivers have no permission callback to route. Structured
- *   turns bypass the durable CLI journal — the durable runner speaks the
- *   non-interactive `claude -p` surface, so a permission that needs a live
- *   answer cannot survive there — and run as in-process SDK turns with the
- *   same digest fence and transcript bind, but no cross-restart replay.
+ * - `structuredPermissions: true` routes claude-code turns through the
+ *   stream-json conversation with its permission callback wired to contract
+ *   PendingInteractions (open/answer/close). Other harnesses refuse
+ *   `unsupported`: their CLIs have no permission channel to route. A
+ *   structured turn runs under podium-host like every other, but a live
+ *   conversation cannot be rejoined by the next daemon generation, so it has
+ *   no cross-restart replay (the adopting generation fails it loudly).
  * - `export()` ships the harness-native transcript file (the same locator the
  *   terminal driver's `export()` and the handoff package use) for harnesses
  *   that declare one, and refuses `unsupported` for those that do not.
  */
 
 import { createHash, randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
+import {
+  asAccountId,
+  asSessionId,
+  type AccountId,
+  type AgentKind,
+  type AgentRuntimeState,
+  type HarnessAgent,
+  type Inventory,
+  type ResumeRef,
+  type SessionId,
+} from '@podium/model'
+import { PermissionAnswer, type HeadlessTurnEvent, type ObservationProvenance } from '@podium/protocol'
+import type {
+  DaemonMessage,
+  RuntimeHistoryPage,
+  RuntimeHistoryRange,
+} from '@podium/protocol/daemon'
+import { isRuntimeFineEvent } from '@podium/protocol/daemon'
+import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
+import { declaredValue, supported, unsupported } from '../../../manifest.js'
+import { harnessAdapterFor } from '../../../registry.js'
 import {
   canonicalHeadlessContractFacts,
   type AgentSessionHandle,
@@ -100,52 +118,27 @@ import {
   type UsageSnapshot,
   createRuntimeEventStream,
   DriverRefusalError,
-  driverLocalCursor,
   headlessAskAndAwait,
-  stampRuntimeEvent,
-} from '@podium/harness/driver/host'
+} from '../../contract.js'
+import { claudeSdkHarnessKind } from '../claude-sdk/session.js'
+import type { EngineProcessOwner } from '../engine-supervision.js'
+import type { SessionDriverSlots } from '../session-slots.js'
+import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
+import { HeadlessTurnFailure } from '../turn-error.js'
 import {
-  declaredValue,
-  harnessAdapterFor,
-  supported,
-  unsupported,
-  type ResolvedHarnessInventory,
-} from '@podium/harness'
-import { createLogger } from '@podium/logger'
-import {
-  asAccountId,
-  asSessionId,
-  type AccountId,
-  type AgentKind,
-  type AgentRuntimeState,
-  type HarnessAgent,
-  type Inventory,
-  type ResumeRef,
-  type SessionId,
-} from '@podium/model'
-import { PermissionAnswer, type HeadlessTurnEvent, type ObservationProvenance } from '@podium/protocol'
+  acknowledgeHostedTurn,
+  type HostedTurnDeps,
+  type HostedTurnInput,
+  runHostedHeadlessTurn,
+} from './turn.js'
 import type {
-  DaemonMessage,
-  RuntimeHistoryPage,
-  RuntimeHistoryRange,
-} from '@podium/protocol/daemon'
-import { isRuntimeFineEvent } from '@podium/protocol/daemon'
-import type { DurableProcess } from '@podium/process/durable'
-import {
-  type HeadlessEmit,
-  type HeadlessTurnHandle,
-  type HeadlessTurnSpec,
-  runHeadlessTurn,
-} from '../headless-drivers.js'
-import { driverSlotsOver } from '../session/driver-slots.js'
-import type { SessionRegistry } from '../session/registry.js'
-import { HeadlessTurnFailure, claudeSdkHarnessKind } from '@podium/harness/driver/host'
-import {
-  acknowledgeDurableHeadlessTurn,
-  runDurableHeadlessTurn,
-} from '../durable-headless.js'
+  HeadlessEmit,
+  HeadlessTurnHandle,
+  HeadlessTurnSpec,
+  HostedTurnIdentity,
+} from './types.js'
 
-const log = createLogger('daemon:headless-driver')
+const log = createLogger('harness:headless-driver')
 
 export const HEADLESS_DRIVER_ID = 'headless' as const
 
@@ -174,11 +167,23 @@ export interface HeadlessDriverHost {
   send(msg: DaemonMessage): void
   /** This generation's harness inventory (executables, command environment). */
   snapshot(): Promise<ResolvedHarnessInventory>
-  /** The daemon's durable host, or undefined when this daemon runs backend=none
-   *  and every turn is an in-process child. */
-  durable(): DurableProcess | undefined
+  /** The session layer's process owner: every turn's podium-host is started,
+   *  re-attached and released through it — the same door every engine uses.
+   *  A daemon without a host backend refuses there, loudly. */
+  engines(): EngineProcessOwner
+  /** Compose one invocation's child environment: the instance-owned env
+   *  (`sessionEnv` below), the adapter's per-invocation env and the family's
+   *  overlay, with stored-login precedence applied and the variables to strip
+   *  at the process boundary. Precedence is the daemon's decision. */
+  turnChildEnv(input: {
+    agent: HarnessAgent
+    specEnv: Record<string, string> | undefined
+    snapshot: ResolvedHarnessInventory
+    execEnv?: Record<string, string>
+    envOverlay?: Record<string, string>
+  }): { env: Record<string, string>; stripEnv: readonly string[] }
   /** Fail closed when the live native login no longer matches a tool-less turn.
-   *  Throws with the same wording `control/headless.ts` reports today. The
+   *  Throws with `assertNativeHeadlessAccount`'s wording. The
    *  inventory slice comes from the same snapshot the dispatch runs under, so
    *  the check cannot pass on a login the launch does not see. */
   assertNativeAccount(
@@ -235,36 +240,47 @@ export interface HeadlessPermissionRequest {
   suggestions?: readonly unknown[]
 }
 
-/** Live SDK callbacks a structured-permission turn routes into interactions.
- *  Only honoured on the in-process SDK path; the durable CLI runner has no
- *  permission channel and never receives these. */
+/** Live callbacks a structured-permission turn routes into interactions.
+ *  Only the stream-json claude turn honours them; every other turn is a
+ *  non-interactive CLI surface with no permission channel. */
 export interface HeadlessRunnerHooks {
   onPermission?: (request: HeadlessPermissionRequest) => void
 }
 
-/** The turn-execution seam. Production passes the real headless functions;
- *  tests inject fakes that record specs and simulate outcomes. */
+/** The turn-execution seam. Production passes the hosted-turn functions
+ *  (./turn.ts); tests inject fakes that record specs and simulate outcomes. */
 export interface HeadlessDriverRunners {
-  runTurn(
-    spec: HeadlessTurnSpec,
-    emit: HeadlessEmit,
-    snapshot: ResolvedHarnessInventory,
-    hooks?: HeadlessRunnerHooks,
-  ): HeadlessTurnHandle
-  runDurableTurn(
-    turnId: string,
-    sessionId: SessionId,
-    spec: HeadlessTurnSpec,
-    emit: HeadlessEmit,
-    snapshot: ResolvedHarnessInventory,
-    durable: DurableProcess,
-  ): HeadlessTurnHandle
+  runTurn(deps: HostedTurnDeps, input: HostedTurnInput): HeadlessTurnHandle
+  acknowledge(owner: EngineProcessOwner, label: string, identity: HostedTurnIdentity): Promise<void>
 }
 
 const defaultRunners: HeadlessDriverRunners = {
-  runTurn: (spec, emit, snapshot, hooks) => runHeadlessTurn(spec, emit, snapshot, hooks),
-  runDurableTurn: (turnId, sessionId, spec, emit, snapshot, durable) =>
-    runDurableHeadlessTurn(turnId, sessionId, spec, emit, snapshot, durable),
+  runTurn: runHostedHeadlessTurn,
+  acknowledge: acknowledgeHostedTurn,
+}
+
+/**
+ * The tool-less account fence (spec: a `toolPolicy: 'none'` turn runs under a
+ * separately provisioned account HOME, logged in as exactly the native
+ * account the server selected). Throws before anything spawns.
+ */
+export function assertNativeHeadlessAccount(input: {
+  agent: HarnessAgent
+  accountId: AccountId
+  accountHome: { path: string } | undefined
+  inventory: Pick<Inventory, 'agents'>
+}): void {
+  if (!input.accountHome) {
+    throw new Error('tool-less headless turns require a separately provisioned account HOME')
+  }
+  const identity = input.inventory.agents.find((agent) => agent.kind === input.agent)?.login
+    .identity
+  const expected = identity?.fingerprint
+    ? `native:${input.agent}:${identity.fingerprint}`
+    : undefined
+  if (!expected || input.accountId !== expected) {
+    throw new Error(`native ${input.agent} account fingerprint changed before launch`)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -431,37 +447,31 @@ export interface HeadlessRuntime {
   createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
   resumeWithId(sessionId: SessionId, ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle>
   adopt(binding: SessionBinding): Promise<AgentSessionHandle>
-  /** Release a durable turn journal on exact identity match; throws otherwise
-   *  and retains. The WS ack verb for this is a filed gap — today the legacy
-   *  `headlessTurnAck` frame and this method are the two callers. */
-  acknowledge(identity: {
-    sessionId: SessionId
-    turnId: string
-    requestDigest: string
-    accountId: AccountId
-  }): void
+  /** Release a turn's host on exact identity match; rejects otherwise and
+   *  retains. The WS ack verb for this is a filed gap — today the legacy
+   *  `headlessTurnAck` frame is the one caller. */
+  acknowledge(identity: HostedTurnIdentity): Promise<void>
   clear(sessionId: SessionId): void
   dispose(): void
 }
 
 /**
- * Build the headless driver over a session registry (POD-4512): the ONE live
- * driver handle per session lives ON the DaemonSession entry, not in a
- * per-session index here. The driver-internal `sessions` map below keeps the
- * mechanism (the HeadlessDriverSession record: turn journal, stream position);
- * the entry owns the handle.
+ * Build the headless driver over the supervisor's session slots (POD-4512,
+ * POD-4610): the ONE live driver handle per session lives ON the session's
+ * entry, not in a per-session index here. The driver-internal `sessions` map
+ * below keeps the mechanism (the HeadlessDriverSession record: turn state,
+ * stream position); the entry owns the handle.
  */
 export function createHeadlessRuntime(
   host: HeadlessDriverHost,
+  // This driver's own VIEW of the entries' slots (the daemon passes
+  // `driverSlotsOver(registry)`), so a lookup never answers with — and a
+  // teardown never empties — a slot another driver has bound (POD-4610).
+  slots: SessionDriverSlots,
   runners: HeadlessDriverRunners = defaultRunners,
-  registry: SessionRegistry,
 ): HeadlessRuntime {
   const sessions = new Map<SessionId, HeadlessDriverSession>()
-  // NO HANDLE INDEX HERE (POD-4512): the entry owns the handle; the reads and
-  // writes below go through this driver's own view of the entries' slots, so a
-  // lookup never answers with — and a teardown never empties — a slot another
-  // driver has bound (POD-4610).
-  const slots = driverSlotsOver(registry)
+  // NO HANDLE INDEX HERE (POD-4512): reads and writes go through `slots`.
   /** Forget one entry's driver handle without touching the handle itself. */
   const forgetDriver = (sessionId: SessionId): void => slots.release(sessionId)
 
@@ -1035,18 +1045,16 @@ export function createHeadlessRuntime(
     )
     let handle: HeadlessTurnHandle
     try {
-      const durable = structured ? undefined : host.durable()
       const emitFn: HeadlessEmit = (event) => {
         const current = session.liveTurn
         if (current && current.turnEpoch === turnEpoch) onTurnEvent(session, current, event)
       }
-      // A structured turn needs the SDK's live `canUseTool` callback, which the
-      // durable CLI runner cannot offer — it speaks the non-interactive `claude
-      // -p` surface. So structured turns bypass the durable journal and run as
-      // in-process SDK turns, with the same digest fence and transcript bind
-      // but no cross-restart replay. The bypass is deliberate and visible: the
-      // capability declares the permission channel, and the receipt still proves
-      // `protocol-ack`.
+      // A structured turn needs the live permission callback, which only the
+      // stream-json conversation offers. It runs under podium-host like every
+      // other turn, with the same digest fence and transcript bind, but a live
+      // conversation cannot be rejoined after a restart: no cross-restart
+      // replay for it. The capability declares the permission channel, and the
+      // receipt still proves `protocol-ack`.
       const hooks: HeadlessRunnerHooks | undefined = structured
         ? {
             onPermission: (request) => {
@@ -1055,14 +1063,30 @@ export function createHeadlessRuntime(
             },
           }
         : undefined
-      handle =
-        durable !== undefined
-          ? runners.runDurableTurn(turnId, session.sessionId, spec, emitFn, snapshot, durable)
-          : runners.runTurn(spec, emitFn, snapshot, hooks)
+      const specEnv = spec.env
+      handle = runners.runTurn(
+        {
+          owner: host.engines(),
+          childEnv: (invocation) =>
+            host.turnChildEnv({ agent, specEnv, snapshot, ...invocation }),
+          now: () => host.now(),
+          isRoot: process.getuid?.() === 0,
+        },
+        {
+          spec,
+          identity: {
+            sessionId: session.sessionId,
+            turnId,
+            requestDigest: input.requestDigest ?? '',
+            accountId: asAccountId(accountId),
+          },
+          snapshot,
+          emit: emitFn,
+          ...(hooks ? { hooks } : {}),
+        },
+      )
     } catch (error) {
-      // Dispatch itself failed (no spawn, no journal beyond the durable
-      // identity the durable runner owns exactly as the legacy path does):
-      // rewind the epoch the failed dispatch claimed so the next send keeps
+      // Dispatch itself failed (nothing started under the label): rewind the epoch the failed dispatch claimed so the next send keeps
       // the stream's numbering dense, and report what is true — nothing ran.
       session.turnEpoch = turnEpoch - 1
       return {
@@ -1158,9 +1182,9 @@ export function createHeadlessRuntime(
         if (session.interactions.size > 0)
           return refuse('needs_user', 'a permission ask is waiting for an answer')
         if (session.liveTurn) return refuse('busy', 'a turn is running')
-        // Between turns a headless session holds no process: the harness owns
-        // the conversation on disk and the durable journal (where there is one)
-        // survives the handle either way.
+        // Between turns a headless session holds no running process: the
+        // harness owns the conversation on disk, and a finished turn's host
+        // (kept for its result until acknowledged) survives the handle.
         return { ok: true }
       },
       async kill(): Promise<void> {
@@ -1551,9 +1575,9 @@ export function createHeadlessRuntime(
   /** Rebind a SURVIVING session after a supervisor restart. Matches on the
    *  exact durable label — a prefix or heuristic match here adopts the wrong
    *  process, which is worse than not adopting at all. Turn-level recovery
-   *  needs no handle work: the next send with the same turn identity reattaches
-   *  to the running durable turn (or replays its journal) inside
-   *  `runDurableHeadlessTurn`, preserving the original deadline. */
+   *  needs no handle work: the next send with the same turn identity adopts
+   *  the running turn's host (or replays its ring) inside
+   *  `runHostedHeadlessTurn`, preserving the original deadline. */
   async function adoptBinding(binding: SessionBinding): Promise<AgentSessionHandle> {
     if (binding.driver !== HEADLESS_DRIVER_ID) {
       throw new DriverRefusalError(
@@ -1679,14 +1703,12 @@ export function createHeadlessRuntime(
     createWithId,
     resumeWithId,
     adopt: adoptBinding,
-    acknowledge: (identity) => {
-      acknowledgeDurableHeadlessTurn({
-        sessionId: identity.sessionId,
-        turnId: identity.turnId,
-        accountId: identity.accountId,
-        requestDigest: identity.requestDigest,
-      })
-    },
+    acknowledge: (identity) =>
+      runners.acknowledge(
+        host.engines(),
+        sessions.get(identity.sessionId)?.label ?? host.durableLabel(identity.sessionId),
+        identity,
+      ),
     clear: (sessionId) => {
       const session = sessions.get(sessionId)
       if (session) {

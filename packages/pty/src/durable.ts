@@ -95,6 +95,7 @@ export {
   HOST_TAIL,
   hostCreateArgs,
   type HostCreateCommand,
+  type HostRetention,
   encodeHostFrame,
   encodeHello,
   createHostFrameDecoder,

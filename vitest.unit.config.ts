@@ -58,7 +58,6 @@ export const unitTestExclude = [
   // Heavy process/PTY/server-boot suites — run in the integration lane instead
   // (mirrored in vitest.integration.config.ts's include list).
   'apps/cli/src/podium-update.test.ts',
-  'apps/daemon/src/durable-headless.test.ts',
   'apps/server/src/sync-e2e.test.ts',
   'apps/server/src/server.plugins.test.ts',
   'apps/server/src/server.port-in-use.test.ts',

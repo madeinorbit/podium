@@ -141,12 +141,6 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     writeSites: ['apps/daemon/src/control/files.ts', 'apps/daemon/src/file-access.ts'],
   },
   {
-    store: '<stateDir>/headless-turns',
-    kind: 'filesystem',
-    row: 'headless-turn-spool',
-    writeSites: ['apps/daemon/src/durable-headless.ts'],
-  },
-  {
     store: '<stateDir>/session-bindings',
     kind: 'filesystem',
     row: 'session-binding',

@@ -514,7 +514,7 @@ describe('test lane configuration', () => {
   })
   it('keeps an all-five turn-and-resume case in the real-agent lane', () => {
     const source = readFileSync(
-      new URL('../apps/daemon/src/headless-drivers.smoke.test.ts', import.meta.url),
+      new URL('../apps/daemon/src/headless-turns.smoke.test.ts', import.meta.url),
       'utf8',
     )
     const kind = {

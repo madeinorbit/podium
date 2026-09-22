@@ -92,11 +92,16 @@ export class SessionEngineScope implements EngineProcessOwner {
   /** Create-or-adopt the engine's process (spec §4.8 step 2). */
   async startEngine(req: EngineSpawnRequest): Promise<EngineAttachment> {
     const adapter = engineAdapter(this.durable, req.label)
-    return toEngineAttachment(await adapter.spawnHeadless(req))
+    const { retention, ...spawn } = req
+    return toEngineAttachment(await adapter.spawnHeadless({ ...spawn, ...retention }))
   }
 
-  /** Re-attach to the surviving engine as the writer. */
-  async reattachEngine(input: { label: string; fromSeq: 'tail' }): Promise<EngineAttachment> {
+  /** Re-attach to the surviving engine as the writer (`'tail'`), or replay a
+   *  one-shot turn's ring from a seq. */
+  async reattachEngine(input: {
+    label: string
+    fromSeq: 'tail' | bigint
+  }): Promise<EngineAttachment> {
     const adapter = engineAdapter(this.durable, input.label)
     return toEngineAttachment(await adapter.attachHeadless(input))
   }

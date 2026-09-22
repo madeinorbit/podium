@@ -26,11 +26,13 @@ import {
 import type { AcceptedDriverId } from '@podium/harness'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { DaemonMessage, RuntimeWatchLevel } from '@podium/protocol/daemon'
-import type {
-  DaemonClaudeSdkRuntime,
-  ServerFamilyRuntime,
+import {
+  type DaemonClaudeSdkRuntime,
+  HEADLESS_DRIVER_ID,
+  type HeadlessRuntime,
+  type HostedTurnIdentity,
+  type ServerFamilyRuntime,
 } from '@podium/harness/driver/host'
-import { HEADLESS_DRIVER_ID, type HeadlessRuntime } from './headless-driver'
 import { type DriverResolution, resolveRuntimeDriver, terminalProfileFor } from './registry'
 import type {
   TerminalHarnessProfile,
@@ -116,6 +118,13 @@ export interface DaemonMachineRuntime extends MachineAgentRuntime {
   /** Drop any watch held for a session whose handle is gone or replaced. */
   forgetWatch(sessionId: SessionId): void
   journalledServerProcess(sessionId: SessionId): JournalledServerProcess | undefined
+  /**
+   * The server durably committed a headless turn's result: release the host
+   * that kept it (POD-4614). Rejects on an identity mismatch and releases
+   * nothing. Rides the legacy `headlessTurnAck` frame until the relay grows
+   * an ack verb.
+   */
+  acknowledgeHeadlessTurn(identity: HostedTurnIdentity): Promise<void>
   dispose(): void
 }
 
@@ -231,9 +240,8 @@ export function createDaemonMachineRuntime(input: {
    * `requestedDriverId: 'headless'` establishes these sessions over the existing
    * WS relay with no dedicated create/resume/adopt verb. Once established the
    * handle answers every relay verb (`handleFor`), capabilities resolve
-   * (`driverFor`), and a surviving binding re-adopts (`adopt`). Legacy
-   * production turns still arrive via `control/headless.ts` until callers
-   * migrate.
+   * (`driverFor`), and a surviving binding re-adopts (`adopt`). The legacy
+   * `headlessTurnRequest` frame is refused (control/registry.ts).
    */
   const headlessSource: AgentRuntimeDriverSource = {
     driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined {
@@ -428,6 +436,7 @@ export function createDaemonMachineRuntime(input: {
       }
       return undefined
     },
+    acknowledgeHeadlessTurn: (identity) => input.headless.acknowledge(identity),
     journalledServerProcess(sessionId) {
       const matches = journalled(sessionId)
       if (matches.length > 1)

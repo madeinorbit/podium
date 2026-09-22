@@ -1,9 +1,15 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { materializeLaunchFiles } from './session'
-import { foreignCredentialEnv, serverChildEnv, spawnEnv } from './session-env'
+import {
+  foreignCredentialEnv,
+  headlessSpawnEnv,
+  headlessTurnEnv,
+  serverChildEnv,
+  spawnEnv,
+} from './session-env'
 
 it("drops the credential vars that would outrank a claude session's own login", () => {
   // POD-2296: measured on Claude Code 2.1.224 — with a `max` credential in the
@@ -174,4 +180,71 @@ it('materializes nested ephemeral launch files with owner-only permissions', () 
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+// Moved from headless-drivers.test.ts with the composition (POD-4614).
+describe('headlessSpawnEnv', () => {
+  // POD-3059. `bindHarnessExec` folds the machine command environment into every
+  // adapter's exec env, so `execEnv` carries the OPERATOR `HOME` even when the
+  // adapter only meant to contribute a bearer token. Letting it win reverted the
+  // child to the operator account home; on a named instance the harness then
+  // wrote its transcript where the reader does not look, and `sessions.read`
+  // answered empty for every item type.
+  const commandEnv = { PATH: '/opt:/usr/bin:/bin', HOME: '/home/operator' }
+
+  it('keeps the instance HOME when the adapter env carries the machine HOME', () => {
+    const env = headlessSpawnEnv({
+      specEnv: { ...commandEnv, HOME: '/state/blue/agent-home', PODIUM_SESSION_ID: 's1' },
+      execEnv: { ...commandEnv, PODIUM_MCP_BEARER_PODIUM: 'sekret' },
+      commandEnv,
+    })
+    expect(env.HOME).toBe('/state/blue/agent-home')
+    // ...and the adapter's own per-turn key still reaches the child (POD-1021).
+    expect(env.PODIUM_MCP_BEARER_PODIUM).toBe('sekret')
+    expect(env.PODIUM_SESSION_ID).toBe('s1')
+  })
+
+  it('lets an adapter override a key the instance did not decide', () => {
+    // PATH is the command environment's own value in specEnv — the instance
+    // never chose it — so an adapter that resolved a different one still wins.
+    const env = headlessSpawnEnv({
+      specEnv: { ...commandEnv, HOME: '/state/blue/agent-home' },
+      execEnv: { PATH: '/adapter/bin' },
+      commandEnv,
+    })
+    expect(env.PATH).toBe('/adapter/bin')
+    expect(env.HOME).toBe('/state/blue/agent-home')
+  })
+
+  it('falls back to the command environment when no child environment was supplied', () => {
+    expect(headlessSpawnEnv({ execEnv: { X: '1' }, commandEnv })).toEqual({ ...commandEnv, X: '1' })
+  })
+})
+
+describe('headlessTurnEnv', () => {
+  const commandEnv = { PATH: '/opt:/usr/bin:/bin', HOME: '/home/operator' }
+
+  it('composes the instance env, the adapter env and the family overlay, instance HOME last', () => {
+    const { env } = headlessTurnEnv({
+      agent: 'claude-code',
+      specEnv: { ...commandEnv, HOME: '/state/blue/agent-home' },
+      execEnv: { ...commandEnv, BEARER: 't' },
+      envOverlay: { IS_SANDBOX: '1', HOME: '/overlay-must-not-win' },
+      commandEnv,
+    })
+    expect(env.HOME).toBe('/state/blue/agent-home')
+    expect(env.BEARER).toBe('t')
+    expect(env.IS_SANDBOX).toBe('1')
+  })
+
+  it('strips inherited credentials the turn did not set, never ones it did', () => {
+    const inherited = headlessTurnEnv({ agent: 'claude-code', commandEnv })
+    const explicit = headlessTurnEnv({
+      agent: 'claude-code',
+      specEnv: { ...commandEnv, ANTHROPIC_API_KEY: 'managed' },
+      commandEnv,
+    })
+    expect(inherited.stripEnv).toContain('ANTHROPIC_API_KEY')
+    expect(explicit.stripEnv).not.toContain('ANTHROPIC_API_KEY')
+  })
 })

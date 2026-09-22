@@ -1087,28 +1087,28 @@ const SESSION_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.headlessTurnSpool,
     section: 'sessions',
-    title: 'Durable headless turn spool (`<stateDir>/headless-turns/<hash>/`)',
+    title: 'Durable headless turn output (the turn’s podium-host ring)',
     sites: [
-      '`<stateDir>/headless-turns/<sha256(turnId)>/` — `input.txt`, `stdout.jsonl`, `result.json`, `mcp.json`, … in NO schema',
-      'apps/daemon/src/durable-headless.ts',
+      'The podium-host ring of the turn’s `--no-pty` host (POD-4614): an identity marker line, then the harness’s stdout and prefixed stderr — in memory, in NO schema, nothing on disk',
+      'packages/harness/src/driver/families/headless/turn.ts',
     ],
     home: 'runtime-local',
     idMinting:
-      'Directory name is `sha256(turnId)`; the turn id is minted by whoever started the turn',
+      'Addressed by the session’s durable label; the marker carries a hash of (sessionId, turnId, requestDigest, accountId), the turn id minted by whoever started the turn',
     writers: ['agent-session', 'system'],
     replication: 'none',
     replicationNote:
-      'Daemon-local spool that lets a headless turn survive a daemon restart. Never replicated; in the matrix for its D4 declaration.',
+      'Host-local ring that lets a headless turn survive a daemon restart (the next daemon replays it from seq 0). Never replicated; in the matrix for its D4 declaration.',
     conflict: 'n/a',
     conflictNote:
-      'One directory per turn, written by the one process running that turn, with atomic file replacement.',
+      'One host per session label, written only by the one process running that turn; a replay adopts only a matching identity marker.',
     tombstone: 'hard-delete',
     tombstoneNote:
-      'Removed when the turn is reaped; a crashed turn leaves its directory until the next sweep, which is what makes the spool durable.',
+      'Released when the server acknowledges the result or the session’s next turn replaces it; otherwise the host exits after its linger (one hour), taking the ring with it.',
     offline: 'observe-only',
     secret: 'secret-presence',
     secretNote:
-      'THE SHARPEST CELL ON THIS ROW: `input.txt` is the prompt, `stdout.jsonl` is the agent’s whole output, and `mcp.json` is a HARNESS CONFIG that can name credentials. Conversation content and configuration on a plain filesystem path, with no row in any schema to make anyone look.',
+      'THE SHARPEST CELL ON THIS ROW: the ring is the agent’s whole output, readable by anyone who can open the session’s host socket (the user’s own runtime dir, mode 0700). The prompt and any MCP config ride the host’s argv and stdin, not a file.',
     owner: { kind: 'inherits', from: ROW.sessionIdentity, note: 'The session whose turn it is.' },
     visibility: 'personal',
     grants: { kind: 'inherits', from: ROW.sessionIdentity },
@@ -1119,7 +1119,7 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     visibilityMutability: {
       mutable: true,
       verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows its session. Nothing serves these files over the wire today; the risk is a future diagnostic that does.',
+      note: 'PHASE 2 MUST HANDLE: follows its session. Nothing serves this ring over the wire today; the risk is a future diagnostic that does.',
     },
     open: [],
   },

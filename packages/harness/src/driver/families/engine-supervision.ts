@@ -53,6 +53,14 @@ export interface EngineSpawnRequest {
   env: Record<string, string>
   /** Credential overrides that must not reach the child (stored-login precedence). */
   stripEnv: readonly string[]
+  /**
+   * Keep the output after the child exits (POD-4614). A long-lived engine
+   * leaves this off: a live supervisor always sees its exit. A ONE-SHOT turn
+   * sets it, because its output is its result and the supervisor that
+   * started it may be restarting when it ends — the host's ring is then the
+   * only record, held `lingerSecs` for the next generation to collect.
+   */
+  retention?: { lingerSecs: number; ringBytes: number }
 }
 
 /**
@@ -90,8 +98,13 @@ export interface EngineSupervisor {
 export interface EngineProcessOwner {
   /** Create-or-adopt the engine's process (spec §4.8 step 2). */
   startEngine(req: EngineSpawnRequest): Promise<EngineAttachment>
-  /** Re-attach to the surviving engine as the writer. */
-  reattachEngine(input: { label: string; fromSeq: 'tail' }): Promise<EngineAttachment>
+  /**
+   * Re-attach to the surviving engine as the writer. `'tail'` for a protocol
+   * channel whose pre-restart correlation died with the old supervisor; a
+   * seq (`0n`: everything the ring holds) for a one-shot turn whose output is
+   * its result and must be replayed, not rerun.
+   */
+  reattachEngine(input: { label: string; fromSeq: 'tail' | bigint }): Promise<EngineAttachment>
   /** A live host owns the label AND its program is still running. */
   engineAlive(label: string): Promise<boolean>
   /** Detach-or-terminate the engine's process (spec §4.8 step 6). */

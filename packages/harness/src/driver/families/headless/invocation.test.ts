@@ -1,17 +1,16 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+/**
+ * WHAT A HEADLESS TURN RUNS (POD-4614). The argv suite moved from
+ * apps/daemon/src/headless-drivers.test.ts with the builder it pins; the
+ * composition cases below are new with the one merged invocation shape.
+ */
 import { asAccountId } from '@podium/model'
-import type { HeadlessTurnEvent } from '@podium/protocol'
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
+  assertHeadlessToolPolicy,
   buildHeadlessExec,
-  HeadlessTurnError,
-  headlessChildEnv,
-  headlessSpawnEnv,
-  runHeadlessTurn,
-} from './headless-drivers.js'
-import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
+  composeHeadlessInvocation,
+} from './invocation.js'
+import { testHarnessSnapshot } from './test-support.js'
 
 const snapshot = testHarnessSnapshot()
 const identity = {
@@ -19,18 +18,16 @@ const identity = {
   requestDigest: 'a'.repeat(64),
 }
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-})
-
 describe('buildHeadlessExec argv shapes', () => {
   it('refuses a no-tools turn for adapters without a native all-tools-off mechanism', () => {
     expect(() =>
-      runHeadlessTurn(
-        { agent: 'codex', ...identity, cwd: '/repo', prompt: 'repair', toolPolicy: 'none' },
-        () => {},
-        snapshot,
-      ),
+      assertHeadlessToolPolicy({
+        agent: 'codex',
+        ...identity,
+        cwd: '/repo',
+        prompt: 'repair',
+        toolPolicy: 'none',
+      }),
     ).toThrow(/cannot enforce a no-tools headless turn/)
   })
   it('codex first turn: exec --json with positional prompt, no resume subcommand', () => {
@@ -106,10 +103,10 @@ describe('buildHeadlessExec argv shapes', () => {
 
   it('refuses Grok repair turns because hook/config isolation is not proven', () => {
     expect(() =>
-      runHeadlessTurn(
+      composeHeadlessInvocation(
         { agent: 'grok', ...identity, cwd: '/repo', prompt: 'repair', toolPolicy: 'none' },
-        () => {},
         snapshot,
+        { isRoot: false },
       ),
     ).toThrow(/cannot enforce a no-tools headless turn/)
   })
@@ -237,134 +234,101 @@ describe('buildHeadlessExec argv shapes', () => {
   })
 })
 
-describe('headlessSpawnEnv', () => {
-  // POD-3059. `bindHarnessExec` folds the machine command environment into every
-  // adapter's exec env, so `execEnv` carries the OPERATOR `HOME` even when the
-  // adapter only meant to contribute a bearer token. Letting it win reverted the
-  // child to the operator account home; on a named instance the harness then
-  // wrote its transcript where the reader does not look, and `sessions.read`
-  // answered empty for every item type.
-  const commandEnv = { PATH: '/opt:/usr/bin:/bin', HOME: '/home/operator' }
+describe('composeHeadlessInvocation', () => {
+  const base = { ...identity, cwd: '/repo', prompt: 'the prompt' }
 
-  it('keeps the instance HOME when the adapter env carries the machine HOME', () => {
-    const env = headlessSpawnEnv({
-      specEnv: { ...commandEnv, HOME: '/state/blue/agent-home', PODIUM_SESSION_ID: 's1' },
-      execEnv: { ...commandEnv, PODIUM_MCP_BEARER_PODIUM: 'sekret' },
-      commandEnv,
-    })
-    expect(env.HOME).toBe('/state/blue/agent-home')
-    // ...and the adapter's own per-turn key still reaches the child (POD-1021).
-    expect(env.PODIUM_MCP_BEARER_PODIUM).toBe('sekret')
-    expect(env.PODIUM_SESSION_ID).toBe('s1')
-  })
-
-  it('lets an adapter override a key the instance did not decide', () => {
-    // PATH is the command environment's own value in specEnv — the instance
-    // never chose it — so an adapter that resolved a different one still wins.
-    const env = headlessSpawnEnv({
-      specEnv: { ...commandEnv, HOME: '/state/blue/agent-home' },
-      execEnv: { PATH: '/adapter/bin' },
-      commandEnv,
-    })
-    expect(env.PATH).toBe('/adapter/bin')
-    expect(env.HOME).toBe('/state/blue/agent-home')
-  })
-
-  it('falls back to the command environment when no child environment was supplied', () => {
-    expect(headlessSpawnEnv({ execEnv: { X: '1' }, commandEnv })).toEqual({ ...commandEnv, X: '1' })
-  })
-})
-
-/**
- * The pi driver end to end against a stand-in `pi`: a shell script that speaks
- * pi 0.84.4's verified `--mode json` stream. Proves the prompt reaches stdin,
- * the pinned id is honoured, partial text and tool status stream out, and an
- * in-turn provider error becomes a HeadlessTurnError despite exit 0.
- */
-describe('pi driver against a stand-in binary', () => {
-  const dirs: string[] = []
-  afterAll(() => {
-    for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
-  })
-
-  function fakePi(): string {
-    const dir = mkdtempSync(join(tmpdir(), 'podium-fake-pi-'))
-    dirs.push(dir)
-    const script = join(dir, 'pi')
-    writeFileSync(
-      script,
-      `#!/bin/sh
-sid=""
-while [ $# -gt 0 ]; do
-  if [ "$1" = "--session-id" ]; then shift; sid="$1"; fi
-  shift
-done
-prompt=$(cat)
-# JSON-escape the echoed prompt (newlines only; the fixture has no quotes).
-prompt=$(printf '%s' "$prompt" | sed ':a;N;$!ba;s/\\n/\\\\n/g')
-printf '%s\\n' "{\\"type\\":\\"session\\",\\"version\\":3,\\"id\\":\\"$sid\\",\\"timestamp\\":\\"2026-09-02T09:48:46.898Z\\",\\"cwd\\":\\"/w\\"}"
-printf '%s\\n' '{"type":"agent_start"}'
-printf '%s\\n' '{"type":"message_start","message":{"role":"assistant","content":[],"stopReason":"pending","responseId":"r1"}}'
-case "$prompt" in
-  *FAIL*)
-    printf '%s\\n' '{"type":"message_end","message":{"role":"assistant","content":[],"stopReason":"error","errorMessage":"500: simulated provider outage"}}'
-    printf '%s\\n' '{"type":"auto_retry_end","success":false,"attempt":3,"finalError":"500: simulated provider outage"}'
-    ;;
-  *)
-    printf '%s\\n' '{"type":"tool_execution_start","toolCallId":"call_1","toolName":"bash","args":{"command":"ls"}}'
-    printf '%s\\n' '{"type":"message_update","usage":{},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"Echo: "}}'
-    printf '%s\\n' "{\\"type\\":\\"message_end\\",\\"message\\":{\\"role\\":\\"assistant\\",\\"content\\":[{\\"type\\":\\"text\\",\\"text\\":\\"Echo: $prompt\\"}],\\"stopReason\\":\\"stop\\"}}"
-    ;;
-esac
-printf '%s\\n' '{"type":"agent_settled"}'
-exit 0
-`,
+  it('claude: a bounded `claude -p` run with the prompt on stdin, pinned to the minted session', () => {
+    const invocation = composeHeadlessInvocation(
+      { agent: 'claude-code', ...base, sessionUuid: 'u-1' },
+      snapshot,
+      { isRoot: false },
     )
-    chmodSync(script, 0o755)
-    return script
-  }
+    expect(invocation.cmd).toBe('/opt/claude')
+    expect(invocation.args.slice(0, 4)).toEqual(['-p', '--verbose', '--output-format', 'stream-json'])
+    expect(invocation.args).toContain('--session-id')
+    expect(invocation.stdin).toEqual({ kind: 'bytes', data: 'the prompt' })
+    expect(invocation.pinnedSessionId).toBe('u-1')
+  })
 
-  it('delivers the prompt on stdin, keeps the pinned id, streams partial text and tool status', async () => {
-    const piSnapshot = testHarnessSnapshot({ pi: fakePi() })
-    const events: HeadlessTurnEvent[] = []
-    const handle = runHeadlessTurn(
+  it('claude: MCP rides argv as inline JSON — no staged file outlives the turn', () => {
+    const mcpConfig = JSON.stringify({
+      mcpServers: { podium: { url: 'http://127.0.0.1:1/mcp', headers: { 'x-a': 'b' } } },
+    })
+    const { args } = composeHeadlessInvocation(
+      { agent: 'claude-code', ...base, mcpConfig },
+      snapshot,
+      { isRoot: false },
+    )
+    const inline = args[args.indexOf('--mcp-config') + 1] as string
+    expect(JSON.parse(inline)).toEqual({
+      mcpServers: { podium: { type: 'http', url: 'http://127.0.0.1:1/mcp', headers: { 'x-a': 'b' } } },
+    })
+  })
+
+  it('claude: a tool-less turn mounts no MCP at all', () => {
+    const { args } = composeHeadlessInvocation(
       {
-        agent: 'pi',
-        ...identity,
-        cwd: tmpdir(),
-        prompt: 'multi\nline prompt',
-        sessionUuid: '9e804279-978a-4644-adc4-f815f25a5728',
+        agent: 'claude-code',
+        ...base,
+        toolPolicy: 'none',
+        mcpConfig: JSON.stringify({ mcpServers: { p: { url: 'http://x' } } }),
       },
-      (event) => events.push(event),
-      piSnapshot,
+      snapshot,
+      { isRoot: false },
     )
-    const outcome = await handle.done
-    expect(outcome).toEqual({
-      harnessSessionId: '9e804279-978a-4644-adc4-f815f25a5728',
-      output: 'Echo: multi\nline prompt',
-    })
-    expect(events).toContainEqual({ kind: 'status', status: 'tool', label: 'bash' })
-    expect(events).toContainEqual({ kind: 'partial-text', text: 'Echo: ', itemHint: 'r1' })
-    expect(events.at(-1)).toEqual({
-      kind: 'partial-text',
-      text: 'Echo: multi\nline prompt',
-      itemHint: 'r1',
-    })
+    expect(args).not.toContain('--mcp-config')
+    expect(args).toContain('--tools')
   })
 
-  it('an in-turn provider error fails the turn WITH its session id, despite exit 0', async () => {
-    const piSnapshot = testHarnessSnapshot({ pi: fakePi() })
-    const handle = runHeadlessTurn(
-      { agent: 'pi', ...identity, cwd: tmpdir(), prompt: 'please FAIL', resumeValue: 'resumed-1' },
-      () => {},
-      piSnapshot,
+  it('claude: a structured turn is the stream-json conversation with a live stdin', () => {
+    const invocation = composeHeadlessInvocation(
+      { agent: 'claude-code', ...base, structuredPermissions: true, resumeValue: 'r-1' },
+      snapshot,
+      { isRoot: false },
     )
-    const error = await handle.done.then(
-      () => undefined,
-      (err: unknown) => err,
+    expect(invocation.args).toContain('--input-format')
+    expect(invocation.args).toContain('--permission-prompt-tool')
+    expect(invocation.stdin).toEqual({ kind: 'live' })
+    expect(invocation.pinnedSessionId).toBe('r-1')
+  })
+
+  it('codex: stdin closed at once, the MCP bearer as per-invocation env, no pin on a first turn', () => {
+    const invocation = composeHeadlessInvocation(
+      {
+        agent: 'codex',
+        ...base,
+        mcpConfig: JSON.stringify({
+          mcpServers: { podium: { url: 'http://x', headers: { 'x-podium-mcp-token': 't' } } },
+        }),
+      },
+      snapshot,
+      { isRoot: false },
     )
-    expect(error).toBeInstanceOf(HeadlessTurnError)
-    expect((error as HeadlessTurnError).message).toBe('500: simulated provider outage')
-    expect((error as HeadlessTurnError).harnessSessionId).toBe('resumed-1')
+    expect(invocation.stdin).toEqual({ kind: 'none' })
+    expect(invocation.execEnv).toMatchObject({ PODIUM_MCP_BEARER_PODIUM: 't' })
+    expect(invocation.pinnedSessionId).toBeUndefined()
+  })
+
+  it("resume-exec: the server's pre-minted id wins (POD-782), and pi's prompt rides stdin", () => {
+    const invocation = composeHeadlessInvocation(
+      { agent: 'pi', ...base, sessionUuid: 'minted-by-server' },
+      snapshot,
+      { isRoot: false },
+    )
+    expect(invocation.pinnedSessionId).toBe('minted-by-server')
+    expect(invocation.args).toContain('minted-by-server')
+    expect(invocation.stdin).toEqual({ kind: 'bytes', data: 'the prompt' })
+  })
+
+  it('cursor: refuses to run without the allocated chat id, and pins to it once allocated', () => {
+    expect(() =>
+      composeHeadlessInvocation({ agent: 'cursor', ...base }, snapshot, { isRoot: false }),
+    ).toThrow(/allocated conversation id/)
+    const invocation = composeHeadlessInvocation({ agent: 'cursor', ...base }, snapshot, {
+      allocated: 'chat-9',
+      isRoot: false,
+    })
+    expect(invocation.pinnedSessionId).toBe('chat-9')
+    expect(invocation.args).toEqual(['-p', '--resume', 'chat-9', '--model', 'auto', 'the prompt'])
   })
 })

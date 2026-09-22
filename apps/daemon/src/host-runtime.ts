@@ -92,10 +92,9 @@ import { deliveryCaps } from './build-report'
 import { ComposerSyncEngine } from './composer-sync'
 import { appliedGeometryFor, bindFrame } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
-import { assertNativeHeadlessAccount } from './control/headless'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
 import { launchSpawn, recoverTerminalHost, rememberDurableSeq, sessionRelayEnv, stopSessionProcess } from './control/session'
-import { spawnEnv } from './control/session-env'
+import { headlessTurnEnv, spawnEnv } from './control/session-env'
 import { sourceForRead } from './control/transcripts'
 import {
   createSchemaGate,
@@ -112,8 +111,12 @@ import { createGrantRunner } from './grant-apply'
 import { sweepHandoffStage, transcriptForExport } from './handoff-package'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { withHarnessVersionReporting } from './harness-version-reporting'
-import type { HeadlessTurnHandle } from './headless-drivers.js'
-import { startHookIngest } from '@podium/harness/driver/host'
+import {
+  assertNativeHeadlessAccount,
+  createHeadlessRuntime,
+  type HeadlessRuntime,
+  startHookIngest,
+} from '@podium/harness/driver/host'
 import { sampleHostLoad, sampleHostMemory } from './host-metrics'
 import { loadIdentity } from './identity'
 import type { DaemonInstanceBootstrap } from './instance-bootstrap'
@@ -148,7 +151,6 @@ import {
   opencode2VersionProbeForExecutable,
   opencodeVersionProbeForExecutable,
 } from './runtime/version-probe'
-import { createHeadlessRuntime, type HeadlessRuntime } from './runtime/headless-driver'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createSessionClientScope } from './session/clients.js'
@@ -1007,7 +1009,6 @@ export async function createDaemonHostRuntime(args: {
     primeInjector,
     reattachGate: gates.reattachGate,
     tailSeedGate: gates.tailSeedGate,
-    runningHeadlessTurns: new Map<string, HeadlessTurnHandle>(),
     hookSocketPath: instance.hookSocketPath,
     bindingStore,
     sessionBinding,
@@ -1422,11 +1423,11 @@ export async function createDaemonHostRuntime(args: {
     ...sessionFrames,
   })
   /**
-   * THE HEADLESS RUNTIME (POD-4392): process-per-turn harness sessions behind
-   * the contract. Constructed unconditionally like the server-family runtimes —
-   * it allocates maps, and no harness child starts until a headless turn
-   * dispatches through it. `control/headless.ts` keeps serving the legacy port
-   * until the caller migration lands; this runtime is the destination it moves to.
+   * THE HEADLESS RUNTIME (POD-4392): one-shot harness turns behind the
+   * contract. Constructed unconditionally like the server-family runtimes —
+   * it allocates maps, and nothing starts until a headless turn dispatches
+   * through it. Every turn runs under podium-host through the session
+   * layer's engine hold (POD-4614), the same door every engine uses.
    */
   headlessRuntime = createHeadlessRuntime({
     send,
@@ -1437,7 +1438,15 @@ export async function createDaemonHostRuntime(args: {
             ...(ctx.homeDir ? { machineHome: ctx.homeDir } : {}),
             ...(ctx.accountHome ? { credentialHome: ctx.accountHome.path } : {}),
           }),
-    durable: () => durableProcessFor(ctx),
+    engines: () => sessionEngines,
+    turnChildEnv: ({ agent, specEnv, snapshot, execEnv, envOverlay }) =>
+      headlessTurnEnv({
+        agent,
+        ...(specEnv ? { specEnv } : {}),
+        ...(execEnv ? { execEnv } : {}),
+        ...(envOverlay ? { envOverlay } : {}),
+        commandEnv: snapshot.commandEnvironment.env,
+      }),
     assertNativeAccount: (agent, accountId, inventory) =>
       assertNativeHeadlessAccount({
         agent,
@@ -1499,7 +1508,7 @@ export async function createDaemonHostRuntime(args: {
       }),
     readFileBytes: async (path) => new Uint8Array(await readFile(path)),
     now: () => Date.now(),
-  }, undefined, ctx.sessions)
+  }, driverSlotsOver(ctx.sessions))
   agentRuntime = createDaemonMachineRuntime({
     terminal: terminalRuntime,
     claude: claudeRuntime,
@@ -1619,13 +1628,9 @@ export async function createDaemonHostRuntime(args: {
     reapingBindings = true
     try {
       await bindingStore.reapQuarantined(async (id) => {
-        if (
-          sessions.get(id)?.terminal?.kind === 'headed' ||
-          [...ctx.runningHeadlessTurns.values()].some(
-            (turn) => !turn.identity || turn.identity.sessionId === id,
-          )
-        )
-          return true
+        // A headless session's running turn answers through its driver
+        // handle below, like every other contract session.
+        if (sessions.get(id)?.terminal?.kind === 'headed') return true
         const handle = ctx.agentRuntime?.handleFor(id)
         if (handle && (await handle.health()).alive) return true
         const journal = ctx.agentRuntime?.journalledServerProcess(id)
@@ -1772,11 +1777,6 @@ export async function createDaemonHostRuntime(args: {
       }
     }
     ctx.sessions.clear()
-    for (const turn of ctx.runningHeadlessTurns.values()) {
-      if (reapSessions) turn.interrupt()
-      else turn.dispose?.()
-    }
-    ctx.runningHeadlessTurns.clear()
     try {
       await reapServerSessionsBeforeDispose(serverReaps, () => {
         closeAgentRuntime?.dispose()

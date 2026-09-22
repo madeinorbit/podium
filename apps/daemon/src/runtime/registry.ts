@@ -179,8 +179,8 @@ export function availableDriverIds(probe: {
  *  silently ignored — a spawn that asked for `opencode-sever` and got a terminal
  *  session would look like the override did not work. `headless` is the
  *  process-per-turn harness driver: never returned by a manifest `select()`,
- *  selectable only by explicit preference, established for legacy rows by
- *  `control/headless.ts` and for contract rows by direct address. */
+ *  selectable only by explicit preference, established by direct address
+ *  (the legacy `control/headless.ts` port is gone, POD-4614). */
 const IMPLEMENTED: ReadonlySet<string> = new Set<DriverId>([
   'claude-sdk',
   'generic-pty',

@@ -526,7 +526,7 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
   it('surfaces a digest-mismatch refusal as an identity mismatch', async () => {
     const h = await harness()
     const { turn, req } = await startProbeTurn(h, 'turn:digest-probe')
-    // Exact daemon fence detail (POD-4386): apps/daemon/src/runtime/headless-driver.ts
+    // Exact daemon fence detail (POD-4386): packages/harness/src/driver/families/headless/runtime.ts
     refuseTurn(h, req, { reason: 'invalid_value', detail: 'headless request digest mismatch' })
     const result = await turn
     expect(result).toMatchObject({ ok: false, error: 'headless result identity mismatch' })
@@ -536,7 +536,7 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
   it('surfaces an account-fingerprint mismatch refusal as an identity mismatch', async () => {
     const h = await harness()
     const { turn, req } = await startProbeTurn(h, 'turn:account-probe')
-    // Exact daemon fence detail (POD-4392): apps/daemon/src/control/headless.ts
+    // Exact daemon fence detail (POD-4392): assertNativeHeadlessAccount, families/headless/runtime.ts
     refuseTurn(h, req, {
       reason: 'invalid_value',
       detail: 'native claude-code account fingerprint changed before launch',

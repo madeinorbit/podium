@@ -122,9 +122,7 @@ function foreignReason(site: ReturnType<typeof entityIdSites>[number]): string |
     return 'a provider account id, not a server-minted Podium AccountId'
   if (
     site.brand === 'Thread' &&
-    (site.file.startsWith('packages/harness/') ||
-      site.file === 'apps/daemon/src/durable-headless.ts' ||
-      site.file === 'apps/daemon/src/headless-drivers.ts')
+    site.file.startsWith('packages/harness/')
   )
     return 'a provider/harness-native thread id, not a Podium messaging ThreadId'
   if (site.brand !== 'Session') return undefined
@@ -134,7 +132,6 @@ function foreignReason(site: ReturnType<typeof entityIdSites>[number]): string |
     return 'a provider/harness-native session id, not a Podium SessionId'
   }
   if (
-    site.file === 'apps/daemon/src/durable-headless.ts' ||
     /^(?:providerSessionId|harnessSessionId|terminalSessionId|nextProviderSessionId|fromProviderSessionId|toProviderSessionId|newSessionId|knownSessionId)$/.test(
       site.key,
     )

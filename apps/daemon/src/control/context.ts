@@ -11,7 +11,6 @@ import type { BindingStore } from '../binding-store'
 import type { BrowserOpenManager } from '../browser-open'
 import type { ComposerSyncEngine } from '../composer-sync'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
-import type { HeadlessTurnHandle } from '../headless-drivers.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
 import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
@@ -133,8 +132,6 @@ export interface DaemonContext {
   reattachGate<T>(fn: () => Promise<T>): Promise<T>
   /** Paces transcript reseeds independently of immediate bridge wiring. */
   tailSeedGate(fn: () => Promise<void>, priority?: number): Promise<void>
-  /** One live headless turn per session. */
-  runningHeadlessTurns: Map<string, HeadlessTurnHandle>
 
   // -- services --------------------------------------------------------------
   /** Stable instance-scoped Codex hook endpoint; absent on Windows. */

@@ -2,7 +2,7 @@
  * `packages/harness/src/driver/host.ts` — THE HOST ENTRY (POD-4469, daemon only).
  *
  * The contract (`./contract.js`) PLUS the driver families that act on a host:
- * terminal, codex, opencode, opencode2, grok-acp and claude-sdk. Importing this
+ * terminal, codex, opencode, opencode2, grok-acp, claude-sdk and headless. Importing this
  * module means taking the capability to spawn agent processes — the
  * architecture manifest restricts it to the machine host (`apps/daemon`) and
  * the build tier, exactly as it restricted `@podium/agent-runtime` before the
@@ -58,6 +58,10 @@ export * from './families/terminal/composer-sync.js'
 export * from './families/engine-supervision.js'
 /** The shared lost-queue reporter every server-family session adapter wires. */
 export { reportQueueAbandonment } from './families/queue-report.js'
+/** One-shot headless turns under podium-host and the `RuntimeDriver
+ *  'headless'` that runs them (POD-4614). The daemon supplies the session
+ *  layer's process owner, the child environment and the session registry. */
+export * from './families/headless/index.js'
 /** The turn failure every one-shot turn implementation throws. */
 export { HeadlessTurnFailure } from './families/turn-error.js'
 /** Where a family's live handle lives: the supervisor's per-session entry (POD-4610). */

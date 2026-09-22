@@ -194,3 +194,74 @@ export function serverChildEnv(input: {
     .join(delimiter)
   return env
 }
+
+/**
+ * The explicit overlay a headless turn's child runs under (moved from
+ * headless-drivers.ts, POD-4614: headless turns run under podium-host now,
+ * and this is the one piece of their spawn that is the daemon's decision).
+ *
+ * Three inputs, and the order between them is load-bearing:
+ *  - `commandEnv` — the machine's recovered command environment. Its `HOME` is
+ *    `commandEnvironment.machineHome`, the OPERATOR account home.
+ *  - `specEnv` — the instance-owned child environment (the headless driver's
+ *    `sessionEnv` port). It is built ON TOP of `commandEnv`, and the keys where
+ *    the two differ are the ones the instance decided: `HOME` (the named
+ *    instance's agent home), the agent-relay routing, the Podium CLI binding.
+ *  - `execEnv` — what the harness adapter bound for this exact invocation.
+ *    `bindHarnessExec` folds `commandEnv` into it (executable-runtime.ts
+ *    `effectiveEnv`), so it too carries the machine `HOME` alongside genuinely
+ *    per-turn keys like codex's MCP bearer (POD-1021).
+ *
+ * Letting `execEnv` win outright put the machine `HOME` back on the child. On a
+ * named instance the harness then wrote its transcript under the operator
+ * account home while the reader resolved the file under the instance's agent
+ * home (control/transcripts.ts `sourceForRead`), and every `sessions.read`
+ * answered empty — the whole conversation, prompt and answer included, not one
+ * item type (POD-3059). `claude-code` declares no `instanceHome` selector, so
+ * the trailing {@link harnessInstanceEnv} layer cannot catch it: for that
+ * harness `HOME` alone decides where the record lands.
+ *
+ * So the adapter contributes the keys the instance did not decide, and never
+ * overrides the ones it did.
+ */
+export function headlessSpawnEnv(input: {
+  specEnv?: Readonly<Record<string, string>>
+  execEnv?: Readonly<Record<string, string>>
+  commandEnv: Readonly<Record<string, string>>
+}): Record<string, string> {
+  const base = input.specEnv ?? input.commandEnv
+  const instanceOwned = Object.entries(base).filter(
+    ([key, value]) => input.commandEnv[key] !== value,
+  )
+  return { ...base, ...input.execEnv, ...Object.fromEntries(instanceOwned) }
+}
+
+/**
+ * The complete environment for one hosted headless turn, and what to strip at
+ * the process boundary. Headless turns are another way to launch the same
+ * CLI, so the manifest's stored-login precedence applies exactly as it does
+ * to terminal and server-driver children (POD-2296): explicit per-turn values
+ * are managed credentials Podium selected and win; only inherited daemon
+ * values are removed. The harness-specific state selector stays LAST: it must
+ * follow the instance home even against everything above it.
+ */
+export function headlessTurnEnv(input: {
+  agent: AgentKind | string
+  specEnv?: Readonly<Record<string, string>>
+  execEnv?: Readonly<Record<string, string>>
+  envOverlay?: Readonly<Record<string, string>>
+  commandEnv: Readonly<Record<string, string>>
+}): { env: Record<string, string>; stripEnv: string[] } {
+  // The family's overlay is adapter-side env like `execEnv`: it adds what the
+  // child needs, and never overrides a key the instance decided.
+  const execEnv = { ...input.execEnv, ...input.envOverlay }
+  const env = {
+    ...headlessSpawnEnv({
+      ...(input.specEnv ? { specEnv: input.specEnv } : {}),
+      ...(Object.keys(execEnv).length > 0 ? { execEnv } : {}),
+      commandEnv: input.commandEnv,
+    }),
+    ...harnessInstanceEnv(input.agent, input.specEnv?.HOME),
+  }
+  return { env, stripEnv: harnessChildStripEnv(input.agent, env) }
+}

@@ -14,6 +14,7 @@ import {
 } from './abduco.js'
 import {
   type HostDurableAttachment,
+  type HostRetention,
   attachHostAgent,
   hostHasSession,
   hostSocketPath,
@@ -133,7 +134,8 @@ export interface DurableAdapter {
  * geometry. The engine's address (socket path, port+secret) travels beside the
  * label in the family's own journal, never here — this stays harness-agnostic.
  */
-export type HeadlessSpawnOptions = Omit<AbducoSpawnOptions, 'cols' | 'rows' | 'noPty' | 'backend'>
+export type HeadlessSpawnOptions = Omit<AbducoSpawnOptions, 'cols' | 'rows' | 'noPty' | 'backend'> &
+  HostRetention
 
 export interface HeadlessAttachOptions {
   label: string
