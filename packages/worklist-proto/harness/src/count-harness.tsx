@@ -380,9 +380,10 @@ export const READ_BUDGETS = {
   phaseChangePerLevel: 3,
   /**
    * #5: the visible neighbourhood of a row that moves between groups — the
-   * row, two neighbours at the old and at the new position, and the probes of
-   * a binary-search placement at 4x (log2 of ~13k visible rows ≈ 14), rounded
-   * up. A re-sort of the visible collection reads every visible row and fails.
+   * row, two neighbours at the old and at the new position (5), plus the
+   * probes of a binary-search placement at 4x (~850 visible rows: log2 ≈ 10),
+   * rounded up for a header lookup and the fold boundary. A re-sort that
+   * re-reads every visible row fails.
    */
   stageMoveNeighbourhood: 24,
 } as const

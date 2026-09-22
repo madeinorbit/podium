@@ -189,23 +189,25 @@ after measuring.
 | #2 visible phase change | ≤ 3 × (ancestors + 1) (`phaseChangeReadBudget`) | 3 rows per level of the changed session's issue chain: the issue itself plus each ancestor. A roll-up that re-reads a level's siblings grows with the family, not the chain, and fails. |
 | #3 selection click | 0 | Selection is a local. No table read. |
 | #4 visible title rename | ≤ 3 | The renamed issue, and at most two rows to place or label it. |
-| #5 stage move across groups | ≤ 24 (`stageMoveNeighbourhood`) | The **visible neighbourhood**: the moved row, two neighbours at the old position and two at the new, and the probes of a binary-search placement at 4x (log2 of ~13,000 visible rows ≈ 14), rounded up to 24. A re-sort of the visible collection reads every visible row and fails. |
+| #5 stage move across groups | ≤ 24 (`stageMoveNeighbourhood`) | The **visible neighbourhood**: the moved row, two neighbours at the old position and two at the new (5), plus the probes of a binary-search placement at 4x (211 visible rows at 1x, so ~850 at 4x: log2 ≈ 10), is 15; rounded up to 24 for a group-header lookup and the closed-fold boundary. A constant: it does not grow with the corpus. A re-sort of the visible collection reads every visible row and fails. |
 
 `assertReads(result, { readsPerChange })` throws with the per-entity
 breakdown when the budget is exceeded, and also when the result has no reads
 cell (fence disabled): a missing cell fails, never passes.
 
 **The legacy control fails it.** `legacyControlArmFor` reads its store
-through the fence (`legacy-control/fenced-store.ts`). SMALL corpus: 60
-issues, 50 sessions, 6 repos. Measured 2026-09-22 on this branch (`control.test.tsx`, happy-dom counts; load does not move them).
+through the fence (`legacy-control/fenced-store.ts`). The one corpus at 1x
+(`startScenarioEngine(1)`): 4,867 issues, 4,304 sessions, 500 lanes. Measured
+2026-09-22 at `da7e6c1b3` on this branch (`control.test.tsx`; happy-dom
+counts, which box load does not move).
 
 | Scenario | Legacy reads | Of which | Budget |
 |---|---|---|---|
-| #1 unrelated heartbeat | 116 | 60 issues, 50 sessions, 6 repo-root lanes | 3 |
-| #2 visible phase change | 127 | 60 issues, 50 sessions, 6 lanes, 6 repo rows, 5 dep edges | 3 × (ancestors + 1) |
-| #3 selection click | 127 | same (the eager mark-read row republishes) | 0 |
-| #4 visible title rename | 116 | 60 issues, 50 sessions, 6 repo-root lanes | 3 |
-| #5 stage move | 127 | 60 issues, 50 sessions, 6 lanes, 6 repo rows, 5 dep edges | 24 |
+| #1 unrelated heartbeat | 9,671 | 4,867 issues, 4,304 sessions, 500 lanes | 3 |
+| #2 visible phase change | 9,920 | the same plus 249 dep edges | 3 × (ancestors + 1) |
+| #3 selection click | 9,920 | the same (the eager mark-read row republishes) | 0 |
+| #4 visible title rename | 9,671 | 4,867 issues, 4,304 sessions, 500 lanes | 3 |
+| #5 stage move | 9,920 | 4,867 issues, 4,304 sessions, 500 lanes, 249 dep edges | 24 |
 
 Every scenario reads the whole corpus: the derive is whole-world.
 `control.test.tsx` asserts the heartbeat reads exactly every session and every
@@ -225,7 +227,8 @@ array. That is one extra O(N) identity pass per derive, with the same output.
 same mount path an arm takes). Three probe arms differ in one dimension:
 - reads the changed session and its issue by id: 2 rows, `assertReads`
   passes;
-- the same plus one walk over the sessions table: 50 rows, throws;
+- the same plus one walk over the sessions table: every session (4,304 at
+  1x), throws;
 - stores copies instead of borrowed rows: the count run throws on the sticky
   violation, although the feed swallowed the original throw.
 
