@@ -199,6 +199,20 @@ export class SessionStateService {
 
   private readonly lastPriority = new Map<SessionId, string>()
   /**
+   * THE LAST TIME NATIVE VIEW WENT AWAY (POD-4524): the newest pass at which a
+   * session stopped being rendered in native mode. Ephemeral, never persisted —
+   * the attach-TUI warm-park trigger measures unwatchedMs from here, and absent
+   * means "never seen watched-then-unwatched", which disables the row rather
+   * than arming it (a session with no client terminal has nothing to park, and
+   * a blip must never look like abandonment).
+   *
+   * Survives `resetPriorities` on purpose: a daemon reconnect re-fans every
+   * priority, and the warm deadline of an adopted master must continue across
+   * it rather than restart. Cleared when the session is watched again (the next
+   * unwatch starts a fresh window) and when the session is removed.
+   */
+  private readonly lastUnwatchedAt = new Map<SessionId, number>()
+  /**
    * THE LAST TIME ANYTHING HELD A SESSION (POD-4435): the newest pass at which
    * some connected client rendered it (viewVisible) or streamed it (attached).
    * Ephemeral, never persisted — the shell policy's unheld grace reads it, and
@@ -289,6 +303,7 @@ export class SessionStateService {
     this.draftTimes.delete(sessionId)
     this.lastPriority.delete(sessionId)
     this.lastHeldAt.delete(sessionId)
+    this.lastUnwatchedAt.delete(sessionId)
     this.draftSendSuppressUntil.delete(sessionId)
     const versioned = this.draftDocWriteTimers.get(sessionId)
     if (versioned) clearTimeout(versioned)
@@ -590,6 +605,16 @@ export class SessionStateService {
   }
 
   /**
+   * When native view last went away (see {@link lastUnwatchedAt}), or undefined
+   * when the session was never seen watched-then-unwatched since boot. The
+   * attach-TUI warm-park trigger measures unwatchedMs from here; undefined
+   * disables its row.
+   */
+  lastUnwatchedAtMs(sessionId: SessionId): number | undefined {
+    return this.lastUnwatchedAt.get(sessionId)
+  }
+
+  /**
    * Whether any connected client renders the session in native mode right now
    * (the shell policy's viewer input for attach TUIs). Same exclusion contract
    * as {@link isHeld}.
@@ -637,10 +662,17 @@ export class SessionStateService {
         nativeView,
       })
       if (!nativeView && previous?.endsWith(':1')) {
+        // POD-4524: the warm window starts when the last native viewer leaves —
+        // tier-only changes (1:1 → 0:1) never touch it, and a repeat unwatched
+        // frame never restarts it.
+        this.lastUnwatchedAt.set(sessionId, heldAt)
         // NOT awaited: pushPriorities is a synchronous fan-out over clients,
         // and the release only re-arms a drain (rule 57 — same durable-row
         // contract as machine-reconciler's).
         void this.ports.onNativeViewReleased?.(sessionId)
+      } else if (nativeView) {
+        // Watched again: the next unwatch starts a fresh warm window.
+        this.lastUnwatchedAt.delete(sessionId)
       }
     }
   }

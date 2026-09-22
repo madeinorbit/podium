@@ -1641,8 +1641,23 @@ export class SessionRegistry {
               hasInput: session.terminal.lastInputAtMs > 0,
               heldByTab: sessionsSvc.state.isHeld(session.sessionId),
               watched: sessionsSvc.state.isWatched(session.sessionId),
-              purpose: session.loginHarness !== undefined ? 'login' : 'shell',
+              // POD-4524: the attach-TUI row's production producer. A bound
+              // server-family session renders its native surface through a
+              // daemon-side client terminal, so it goes through the table as
+              // 'attach-tui'; login still wins, and everything else stays a
+              // shell. `driverFamily` is unknown until the daemon binds, and
+              // unknown reads as shell — a session with no client terminal has
+              // nothing the warm-park row could close.
+              purpose:
+                session.loginHarness !== undefined
+                  ? 'login'
+                  : driverFamily === 'server'
+                    ? 'attach-tui'
+                    : 'shell',
               lastHeldAtMs: sessionsSvc.state.lastHeldAtMs(session.sessionId),
+              // POD-4524: when native view last went away; the reaper measures
+              // unwatchedMs from here. Absent disables the warm-park row.
+              lastUnwatchedAtMs: sessionsSvc.state.lastUnwatchedAtMs(session.sessionId),
               resume: session.resume,
               agentState: session.agentState,
               lastActiveAt: session.lastActiveAt,
