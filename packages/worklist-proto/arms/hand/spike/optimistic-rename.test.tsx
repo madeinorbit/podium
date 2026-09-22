@@ -86,7 +86,7 @@ describe('hand-rolled write-path spike: optimistic title rename', () => {
       expect(mounted.handle.snapshot()).toEqual(rebuilt.snapshot)
     }
     try {
-      const id = 'i0'
+      const id = ctx.targets.visibleRootId
       const priorTitle = store.rows.rows.get(id)?.title
       expect(priorTitle).toBeDefined()
 

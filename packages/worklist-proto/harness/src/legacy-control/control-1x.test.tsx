@@ -51,7 +51,10 @@ describe('legacy control at 1x', () => {
           `stats=${JSON.stringify(result.stats)} parity=${result.parity} ` +
           `elapsedMs=${Math.round(elapsedMs)}`,
       )
-      expect(result.visibleRows).toBeGreaterThan(0)
+      // The fixture's visible set at 1x (POD-4550: one corpus). The retired
+      // synthetic corpus showed 3,230 rows here; the live installation the
+      // budgets were measured on shows ~211.
+      expect(result.visibleRows).toBe(211)
       expect(result.parityDiff).toBeNull()
       expect(result.parity).toBe(true)
       expect(result.rowsCommitted).toBeGreaterThan(0)
@@ -85,9 +88,11 @@ describe('legacy control at 1x', () => {
             }).trim(),
             capturedAt: new Date().toISOString(),
             corpus: {
-              issues: 1.issues,
-              sessions: 1.sessions,
-              repos: 1.repos,
+              scale: 1,
+              seed: ctx.corpus.seed,
+              issues: ctx.corpus.stats.issues,
+              sessions: ctx.corpus.stats.sessions,
+              repos: ctx.corpus.stats.repos,
               worktrees: repos.reduce((sum, repo) => sum + (repo.worktrees?.length ?? 0), 0),
               rows: result.visibleRows,
             },

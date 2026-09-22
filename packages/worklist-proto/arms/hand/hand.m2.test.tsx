@@ -5,12 +5,12 @@
  * oracle after every step.
  *
  * One engine, methodology order (#4 rename, #5 stage move, #6a new, #6b
- * archive, #6c evict, #6d keeper setup + keeper evict, #7 reparent, #8
+ * archive, #6c evict, #6d keeper evict, #7 reparent, #8
  * clock, #9 optimism in four steps, #10 burst50). Each step records rows
  * committed, arm stats, parity and the rebuild-oracle verdict into a table;
  * budget assertions run when `PROTO_M2_STRICT=1` (the gate), otherwise the
- * table is printed for the before/after record. Corpus scale via
- * `PROTO_M2_SPEC=small` (iteration) or the default 1x (the record).
+ * table is printed for the before/after record. Corpus: the fixture at 1x,
+ * targets picked by rule (`ctx.targets`, POD-4550: one corpus everywhere).
  *
  * Counts only — no walls under box load (methodology §5.7).
  */
@@ -34,7 +34,6 @@ import {
   writeBurst50,
   writeEvictIssue,
   writeEvictKeeperIssue,
-  writeKeeperPair,
   writeNewIssue,
   writeOptimisticEcho,
   writeOptimisticPress,
@@ -46,7 +45,6 @@ import { handArm } from './arm'
 import { rebuildFromScratch } from './rebuild'
 import type { HandStore } from './store'
 
-const SPEC = process.env.PROTO_M2_SPEC === 'small' ? SMALL_CORPUS : 1
 const STRICT = process.env.PROTO_M2_STRICT === '1'
 
 interface StepRecord {
@@ -75,7 +73,7 @@ function changedRows(before: SliceSnapshot, after: SliceSnapshot): string[] {
 describe('hand-rolled arm milestone 2: structural scenarios', () => {
   it('scenarios #4-#10 with parity, rebuild oracle, and budgets', async () => {
     const started = performance.now()
-    const ctx = await startScenarioEngine(SPEC)
+    const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica)
     let locals: SliceLocals = {
       selectedIssueId: null,
@@ -151,14 +149,13 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
 
       const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx))
       const stageMove = await step('stageMoveAcrossGroups', '#5', () => writeStageMove(ctx))
-      const newIssue = await step('newIssue', '#6a', () => writeNewIssue(ctx, SPEC))
+      const newIssue = await step('newIssue', '#6a', () => writeNewIssue(ctx))
       const archive = await step('archiveIssue', '#6b', () => writeArchiveIssue(ctx))
       const evict = await step('evictWithoutRevision', '#6c', () => writeEvictIssue(ctx))
-      // #6d — keeper setup seeds the rescue pair (POD-4503: the seed corpus
-      // carries no rescue rows), then the keeper leaf is evicted and its
-      // rescue parent must leave with it. Parity + rebuild oracle fire on a
-      // missing keeper-seat cleanup; #6c cannot fail that way.
-      const keeperSetup = await step('keeperPairSetup', '#6d setup', () => writeKeeperPair(ctx, SPEC))
+      // #6d — the only child of one of the fixture's rescue parents is
+      // evicted, and its rescue parent must leave with it (POD-4503). Parity
+      // + rebuild oracle fire on a missing keeper-seat cleanup; #6c cannot
+      // fail that way.
       const keeperEvict = await step('evictKeeperWithoutRevision', '#6d', () =>
         writeEvictKeeperIssue(ctx),
       )
@@ -182,7 +179,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
       // #9 — optimistic press, server echo, second press, definitive
       // rejection. Row identity is captured per step: the rejection must
       // restore the echo step's committed object (compare by identity).
-      const target = 'i6'
+      const target = ctx.targets.markReadId
       const prePress = store.rows.rows.get(target)
       const press1 = await step('optimisticPress', '#9a', () => writeOptimisticPress(ctx, target))
       const afterPress1 = store.rows.rows.get(target)
@@ -204,7 +201,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
       // must survive press + confirm with identity intact. Both i6 and i0
       // are visible at 1x (POD-4496: the R3 anchor dual-carry makes s6 join
       // i6), so both halves touch all three bodies.
-      const visibleTarget = 'i0'
+      const visibleTarget = ctx.targets.visibleRootId
       const visibleBefore = store.rows.rows.get(visibleTarget)
       expect(visibleBefore, 'supplement needs a visible row').toBeDefined()
       const pressVisible = await step('optimisticPressVisible', '#9 suppl.', () =>
@@ -216,7 +213,7 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
           `committed=${pressVisible.rowsCommitted} evals=${pressVisible.stats.rollupsDerived}`,
       )
 
-      const burst = await step('burst50', '#10', () => writeBurst50(ctx, SPEC))
+      const burst = await step('burst50', '#10', () => writeBurst50(ctx))
 
       if (STRICT) {
         // #4: exactly the renamed row; derivation bodies: own-summary,
@@ -245,12 +242,9 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
         expect(evict.stats.rowsDerived).toBe(1)
         expect(evict.rowsCommitted).toBe(0)
         expect(evict.stats.notifications).toBe(1)
-        // #6d setup: two arrivals mount (mount-phase excluded, commits stay
-        // 0); #6d evict: the keeper leaf unmounts and its rescue parent
-        // leaves with it (both unmounts uncounted, commits stay 0). Either
-        // step failing parity is the armed eviction check (POD-4503).
-        expect(keeperSetup.rowsCommitted).toBe(0)
-        expect(keeperSetup.stats.notifications).toBe(1)
+        // #6d: the keeper leaf unmounts and its rescue parent leaves with it
+        // (both unmounts uncounted, commits stay 0). Failing parity here is
+        // the armed eviction check (POD-4503).
         expect(keeperEvict.rowsCommitted).toBe(0)
         expect(keeperEvict.stats.notifications).toBe(1)
         // #7: both chains (old parent, new parent); the moved row itself is
@@ -299,12 +293,12 @@ describe('hand-rolled arm milestone 2: structural scenarios', () => {
         : join(cwd, 'packages', 'worklist-proto', 'harness', 'browser', 'results')
       mkdirSync(resultsDir, { recursive: true })
       writeFileSync(
-        join(resultsDir, `hand-m2-counts-${process.env.PROTO_M2_SPEC === 'small' ? 'small' : '1x'}.json`),
+        join(resultsDir, 'hand-m2-counts-1x.json'),
         JSON.stringify(
           {
             arm: 'hand',
             milestone: 2,
-            spec: process.env.PROTO_M2_SPEC === 'small' ? 'small' : '1x',
+            corpus: { scale: 1, seed: ctx.corpus.seed, targets: ctx.targets },
             strict: STRICT,
             runtimeSha: execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
               encoding: 'utf-8',

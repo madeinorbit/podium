@@ -4,12 +4,12 @@
  * G4 count harness at live corpus (1x), with oracle parity after every step.
  *
  * One engine, methodology order (#4 rename, #5 stage move, #6a new, #6b
- * archive, #6c evict, #6d keeper setup + keeper evict, #7 reparent, #8
+ * archive, #6c evict, #6d keeper evict, #7 reparent, #8
  * clock, #9 optimism in four steps, #10 burst50). Each step records rows
  * committed, arm stats, scans, and parity into a table; budget assertions
  * run when `PROTO_M2_STRICT=1` (the gate), otherwise the table is printed
- * for the before/after record. Corpus scale via `PROTO_M2_SPEC=small`
- * (iteration) or the default 1x (the record).
+ * for the before/after record. Corpus: the fixture at 1x, targets picked by
+ * rule (`ctx.targets`, POD-4550: one corpus everywhere).
  *
  * MobX has no rebuild oracle (H4: one computed path instead of incremental +
  * from-scratch); parity against `snapshotFromStore` plus the over-commit
@@ -42,7 +42,6 @@ import {
   writeBurst50,
   writeEvictIssue,
   writeEvictKeeperIssue,
-  writeKeeperPair,
   writeNewIssue,
   writeOptimisticEcho,
   writeOptimisticPress,
@@ -53,7 +52,6 @@ import {
 import { mobxArm } from './arm'
 import type { MobXStore } from './store'
 
-const SPEC = process.env.PROTO_M2_SPEC === 'small' ? SMALL_CORPUS : 1
 const STRICT = process.env.PROTO_M2_STRICT === '1'
 
 interface StepRecord {
@@ -81,7 +79,7 @@ function changedRows(before: SliceSnapshot, after: SliceSnapshot): string[] {
 describe('mobx arm milestone 2: structural scenarios', () => {
   it('scenarios #4-#10 with parity and budgets', async () => {
     const started = performance.now()
-    const ctx = await startScenarioEngine(SPEC)
+    const ctx = await startScenarioEngine(1)
     const source = createRowSource(ctx.engine, ctx.replica)
     let locals: SliceLocals = {
       selectedIssueId: null,
@@ -139,15 +137,22 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       expect(Object.keys(atMount.rowsById).length).toBeGreaterThan(0)
       expect(atMount).toEqual(snapshotFromStore(ctx.engine.getSnapshot(), locals))
 
-      const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx), locals, ['i1'])
+      // The renamed row's R4 spin-offs tick with it (UI-only, outside the
+      // oracle — see the #4 budget below), so they may commit.
+      const spinOffs = ctx.corpus.issues
+        .filter((i) =>
+          (i.deps ?? []).some(
+            (d) => d.id === ctx.targets.visibleRootId && d.type === 'discovered-from',
+          ),
+        )
+        .map((i) => i.id)
+      const rename = await step('visibleTitleRename', '#4', () => writeTitleRename(ctx), locals, spinOffs)
       const stageMove = await step('stageMoveAcrossGroups', '#5', () => writeStageMove(ctx))
-      const newIssue = await step('newIssue', '#6a', () => writeNewIssue(ctx, SPEC))
+      const newIssue = await step('newIssue', '#6a', () => writeNewIssue(ctx))
       const archive = await step('archiveIssue', '#6b', () => writeArchiveIssue(ctx))
       const evict = await step('evictWithoutRevision', '#6c', () => writeEvictIssue(ctx))
-      // #6d — keeper setup seeds the rescue pair (POD-4503: the seed corpus
-      // carries no rescue rows), then the keeper leaf is evicted and its
-      // rescue parent must leave with it.
-      const keeperSetup = await step('keeperPairSetup', '#6d setup', () => writeKeeperPair(ctx, SPEC))
+      // #6d — the only child of one of the fixture's rescue parents is
+      // evicted, and its rescue parent must leave with it (POD-4503).
       const keeperEvict = await step('evictKeeperWithoutRevision', '#6d', () =>
         writeEvictKeeperIssue(ctx),
       )
@@ -171,7 +176,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       // four steps, and the borrowed value must settle back to the pre-press
       // content (deep-equal; the stream delivers fresh objects, so object
       // identity of the VALUE is not the invariant — model identity is).
-      const target = 'i6'
+      const target = ctx.targets.markReadId
       const prePressModel = store.issues.get(target)
       expect(prePressModel, 'optimism target exists').toBeDefined()
       const press1 = await step('optimisticPress', '#9a', () => writeOptimisticPress(ctx, target))
@@ -194,7 +199,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
       // #9 supplement (not a G3 scenario): the same optimistic press on a
       // VISIBLE row. readAt moves no derived value, so nothing may commit and
       // the model must survive press + confirm untouched.
-      const visibleTarget = 'i0'
+      const visibleTarget = ctx.targets.visibleRootId
       const visibleBefore = store.issues.get(visibleTarget)
       expect(visibleBefore, 'supplement needs a visible row').toBeDefined()
       expect(visibleBefore?.row, 'supplement needs a visible row').toBeDefined()
@@ -207,7 +212,7 @@ describe('mobx arm milestone 2: structural scenarios', () => {
           `committed=${pressVisible.rowsCommitted} evals=${pressVisible.stats.rollupsDerived}`,
       )
 
-      const burst = await step('burst50', '#10', () => writeBurst50(ctx, SPEC))
+      const burst = await step('burst50', '#10', () => writeBurst50(ctx))
 
       if (STRICT) {
         // #4: the renamed row plus its R4 spin-off's tick (POD-4491/POD-4496:
@@ -239,11 +244,8 @@ describe('mobx arm milestone 2: structural scenarios', () => {
         expect(archive.stats.notifications).toBe(1)
         expect(evict.rowsCommitted).toBe(0)
         expect(evict.stats.notifications).toBe(1)
-        // #6d setup: two arrivals mount (commits stay 0); #6d evict: the
-        // keeper leaf unmounts and its rescue parent leaves with it
+        // #6d: the keeper leaf unmounts and its rescue parent leaves with it
         // (POD-4503: the armed eviction check).
-        expect(keeperSetup.rowsCommitted).toBe(0)
-        expect(keeperSetup.stats.notifications).toBe(1)
         expect(keeperEvict.rowsCommitted).toBe(0)
         expect(keeperEvict.stats.notifications).toBe(1)
         // #7: both chains (old parent, new parent); the moved row itself is
@@ -287,12 +289,12 @@ describe('mobx arm milestone 2: structural scenarios', () => {
         : join(cwd, 'packages', 'worklist-proto', 'harness', 'browser', 'results')
       mkdirSync(resultsDir, { recursive: true })
       writeFileSync(
-        join(resultsDir, `mobx-m2-counts-${process.env.PROTO_M2_SPEC === 'small' ? 'small' : '1x'}.json`),
+        join(resultsDir, 'mobx-m2-counts-1x.json'),
         JSON.stringify(
           {
             arm: 'mobx',
             milestone: 2,
-            spec: process.env.PROTO_M2_SPEC === 'small' ? 'small' : '1x',
+            corpus: { scale: 1, seed: ctx.corpus.seed, targets: ctx.targets },
             strict: STRICT,
             runtimeSha: execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
               encoding: 'utf-8',

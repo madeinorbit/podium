@@ -80,7 +80,7 @@ describe('mobx write-path spike: optimistic title rename', () => {
     const store = (mounted.handle as unknown as { store: MobXStore }).store
     const pending = new PendingTitles(store)
     try {
-      const id = 'i0'
+      const id = ctx.targets.visibleRootId
       const priorTitle = store.issues.get(id)?.value.title
       expect(priorTitle).toBeDefined()
 
