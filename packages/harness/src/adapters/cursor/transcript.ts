@@ -1,6 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
 import { toolInputPreview } from '../claude-code/transcript.js'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 import { cursorSessionPaths } from '../../cursor/paths.js'
 import {

@@ -3,12 +3,12 @@ import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import type { OpencodeMessagePartRow } from '../adapters/opencode/transcript.js'
+import type { OpencodeMessagePartRow } from '../transcript-types.js'
 
-// The row TYPE lives next to the pure part→items mapper in the opencode
-// adapter transcript module; re-exported here for compatibility (this module
-// is the SQLite producer of it).
-export type { OpencodeMessagePartRow } from '../adapters/opencode/transcript.js'
+// The row TYPE is pure data in `transcript-types.js` (importable by adapters,
+// the Store and this reader alike); re-exported here for compatibility (this
+// module is the SQLite producer of it).
+export type { OpencodeMessagePartRow } from '../transcript-types.js'
 
 export type OpencodeSessionRow = {
   id: string

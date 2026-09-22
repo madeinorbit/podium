@@ -1,15 +1,8 @@
+import type { SharedStatTick, StatTick } from '../transcript-types.js'
+
 const STAT_POLL_MS = 700
 
-/** A daemon-owned cadence shared by file/DB observers whose hot path begins
- * with a cheap stat/mtime check. Subscriptions do not run immediately: callers
- * retain ownership of their existing seed/discovery read. */
-export interface StatTick {
-  subscribe(watcher: () => void): () => void
-}
-
-export interface SharedStatTick extends StatTick {
-  stop(): void
-}
+export type { SharedStatTick, StatTick } from '../transcript-types.js'
 
 /**
  * Fan every registered stat watcher out from one interval. The callback list is

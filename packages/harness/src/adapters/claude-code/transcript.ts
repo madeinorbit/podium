@@ -1,9 +1,10 @@
 import type { TranscriptItem, TranscriptTag } from '@podium/model'
-// The cursor codec is shared pure identity infrastructure owned by the Store
-// (spec rule 8): grammars mark provisional ids with its prefix, the reader's
-// stampCursors replaces them with cursors. No reader behaviour is imported.
-import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../store/cursor-codec.js'
-import type { HarnessRuntimeObservation } from '../../store/runtime.js'
+// The cursor codec is shared pure identity infrastructure (spec rule 8):
+// grammars mark provisional ids with its prefix, the reader's stampCursors
+// replaces them with cursors. The leaf is mechanism-free — importing it is not
+// importing the Store. No reader behaviour is imported.
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
+import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 import { locateClaudeSessionFile } from '../../agent-state/claude-locate.js'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 import { safeToolCommandJson } from '../shared/tool-command.js'

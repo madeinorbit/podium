@@ -10,9 +10,10 @@ import { readTranscriptSlice, readTranscriptSliceCached, type SliceResult } from
  * `SliceResult` over the SAME opaque cursor contract, so cursors interoperate
  * and callers never branch on the harness. A NEW harness is added as a new
  * `TranscriptSource` implementation — no change to callers. The per-harness
- * grammar (file locators, the opencode SQLite source) lives in that harness's
+ * grammar (file locators, the sqlite locator) lives in that harness's
  * `adapters/<h>/transcript.ts`; the Store takes it as a parameter (see
- * `./store.ts`) and holds only the storage-neutral parts here.
+ * `./store.ts`) and builds every source here or in `sources/` — adapters hold
+ * no source implementation.
  */
 export interface TranscriptSource {
   /** Cursor-anchored read; SAME contract as `readTranscriptSlice`. */
@@ -30,10 +31,7 @@ export interface TranscriptSource {
   }): Promise<SliceResult>
 }
 
-/** Pure parser from one harness-native record to neutral transcript items. The
- * implementations live in this package; selection belongs to the harness
- * manifest so adding a CLI never mutates a second registry here. */
-export type TranscriptRecordMapper = (record: unknown) => TranscriptItem[]
+export type { TranscriptRecordMapper } from '../transcript-types.js'
 
 // ---------------------------------------------------------------------------
 // File-chain source — the file-based harnesses (claude/codex/grok/cursor).

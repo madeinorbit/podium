@@ -1,4 +1,5 @@
-import { opencodePartToItems, stampOpencodeItems } from '../../../adapters/opencode/transcript.js'
+import { opencodePartToItems } from '../../../adapters/opencode/transcript.js'
+import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
 import { describe, expect, it } from 'vitest'
 import messagesFixture from './__fixtures__/messages-permission-turn.json'
 import { deltaItemIdForPart, deltaItemIdOf, partToItems } from './map.js'

@@ -2,17 +2,10 @@ import { open, stat } from 'node:fs/promises'
 import type { TranscriptItem } from '@podium/model'
 import { recordUuid, stampCursors } from './cursor-codec'
 import { fileIdFor } from './file-chain'
-import type { HarnessRuntimeObservation } from './runtime'
+import type { HarnessRuntimeObservation } from '../transcript-types.js'
 import { type StatTick, scheduleStatPoll } from './stat-tick'
 
-/**
- * Extract an agent identity colour from a native record, if any. One
- * implementation per harness lives in that harness's adapter transcript
- * module; WHICH one applies is the manifest's answer (`HarnessTranscript.
- * recordColor`), resolved by the caller and passed as `recordColor` — the
- * tailer itself carries no harness default (POD-4471).
- */
-export type TranscriptColorReader = (record: unknown) => string | undefined
+export type { TranscriptColorReader } from '../transcript-types.js'
 
 const POLL_MS = 700
 // Initial-read cap: a long-running transcript can be hundreds of MB, but the

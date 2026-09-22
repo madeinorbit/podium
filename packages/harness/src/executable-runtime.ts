@@ -5,7 +5,19 @@ import type { ResolvedHarnessInventory } from './inventory/build-inventory.js'
 export type HarnessInvocationSpec = Omit<LaunchSpec, 'cmd'> & { cmd?: string }
 export type HarnessExecInvocationSpec = Omit<HarnessExecSpec, 'cmd'> & { cmd?: string }
 
-function executablePath(snapshot: ResolvedHarnessInventory, kind: BuiltinHarnessKind): string {
+/**
+ * The narrow slice of the inventory an invocation needs: the resolved
+ * executable map plus the command environment it was resolved in. Named here
+ * (not in the inventory) so adapters can take it as a parameter without
+ * importing the inventory mechanism — the inventory snapshot satisfies it
+ * structurally, so host callers pass what they hold.
+ */
+export type HarnessExecutableSnapshot = Pick<
+  ResolvedHarnessInventory,
+  'executables' | 'commandEnvironment'
+>
+
+function executablePath(snapshot: HarnessExecutableSnapshot, kind: BuiltinHarnessKind): string {
   const executable = snapshot.executables.get(kind)
   if (!executable) throw new Error(`harness ${kind} is not installed in command-environment generation ${snapshot.commandEnvironment.generation}`)
   // Do not resolve again here. If the verified file disappeared, spawn fails against
@@ -45,7 +57,7 @@ export function bindHarnessExec(
 }
 
 export function resolvedHarnessPath(
-  snapshot: ResolvedHarnessInventory,
+  snapshot: HarnessExecutableSnapshot,
   kind: BuiltinHarnessKind,
 ): string {
   return executablePath(snapshot, kind)
