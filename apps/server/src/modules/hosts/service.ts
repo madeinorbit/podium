@@ -1147,14 +1147,14 @@ export class HostsService {
 
   /**
    * Whether this session runs behind the driver contract with no PTY (server
-   * or embedded family — the registry notes embedded has no PTY either).
+   * family, which since POD-4612 includes the Claude stream engine).
    * Unknown (field absent: unbound, older daemon, unclaimed id) reads as
    * PTY-backed — "assume a terminal", the same conservative default as the
    * client wire — so the quiet rules below only relax for a KNOWN
    * contract-backed session.
    */
   private isContractBacked(session: HostSessionView): boolean {
-    return session.driverFamily === 'server' || session.driverFamily === 'embedded'
+    return session.driverFamily === 'server'
   }
 
   private unknownQuietWindowMs(idleMinutes: number): number {

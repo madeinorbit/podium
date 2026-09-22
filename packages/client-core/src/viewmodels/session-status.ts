@@ -67,10 +67,13 @@ const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
 /**
  * IS THERE A TERMINAL BEHIND THIS SESSION'S NATIVE VIEW (POD-2290)?
  *
- * The chat/native pair is not a pair for every session. An `embedded`-family
- * session has no external terminal. A `server`-family session does: its native
- * surface is the harness's original resume/attach TUI, launched on demand while
- * the headless engine remains the session driver.
+ * The chat/native pair is not a pair for every session. `attachKinds` — the
+ * bound driver's declared attach capability — is the answer: a codex, opencode
+ * or grok server session's native surface is the harness's original
+ * resume/attach TUI, launched on demand beside the engine, while the Claude
+ * stream engine (server family too, since POD-4612) declares none. The family
+ * alone cannot tell those apart, so before a bind reports `attachKinds` a
+ * known family reads as a terminal — the fail-open direction argued below.
  *
  * ABSENT READS AS A TERMINAL, deliberately and in one place. `driverFamily` is
  * transient (it rides `driverId`, re-established on bind), so it is legitimately
@@ -100,9 +103,8 @@ export function sessionTerminalOutlook(
 ): TerminalOutlook {
   if (session?.attachKinds !== undefined)
     return session.attachKinds.length > 0 ? 'terminal' : 'none'
-  const family = session?.driverFamily
-  if (family === undefined) return 'unknown'
-  return family === 'embedded' ? 'none' : 'terminal'
+  if (session?.driverFamily === undefined) return 'unknown'
+  return 'terminal'
 }
 
 /**

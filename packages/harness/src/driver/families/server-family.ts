@@ -100,8 +100,10 @@ export interface ServerFamilyRuntime {
   readonly describe: string
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   bindings(): readonly SessionBinding[]
-  /** Start a session on this family and put it behind the contract. */
-  launch(input: ServerFamilyLaunch): Promise<void>
+  /** Start a session on this family and put it behind the contract. The
+   *  result is the family's own business; the supervisor reads the handle
+   *  back through {@link handleFor}. */
+  launch(input: ServerFamilyLaunch): Promise<unknown>
   /**
    * Start a session that CONTINUES an existing harness conversation, under the
    * server's session id. Absent ⇒ this family resumes only from its own
@@ -110,7 +112,7 @@ export interface ServerFamilyRuntime {
    * servers. The Claude stream engine declares it: its conversation outlives
    * any engine, so `--resume` works from the ref alone.
    */
-  launchResumed?(input: ServerFamilyLaunch, resume: ResumeRef): Promise<void>
+  launchResumed?(input: ServerFamilyLaunch, resume: ResumeRef): Promise<unknown>
   /** Re-bind a session after a supervisor restart, from the journal alone. */
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
   /** The journal's normalized facts, or `undefined` when this family does

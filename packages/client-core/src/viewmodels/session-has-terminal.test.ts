@@ -9,8 +9,10 @@ import { sessionHasTerminal, sessionTerminalOutlook } from './session-status'
 // ---------------------------------------------------------------------------
 
 describe('sessionHasTerminal', () => {
-  it('says no for the embedded family', () => {
-    expect(sessionHasTerminal({ driverFamily: 'embedded' })).toBe(false)
+  it('says no for a driver that declares no attach (the Claude stream engine)', () => {
+    // Server family since POD-4612, so the family cannot say it; the bound
+    // driver's declared `attachKinds` does.
+    expect(sessionHasTerminal({ driverFamily: 'server', attachKinds: [] })).toBe(false)
   })
 
   it('says yes for engine terminals and server-family client terminals', () => {
@@ -53,7 +55,6 @@ describe('sessionTerminalOutlook', () => {
   it('answers the known families', () => {
     expect(sessionTerminalOutlook({ driverFamily: 'terminal' })).toBe('terminal')
     expect(sessionTerminalOutlook({ driverFamily: 'server' })).toBe('terminal')
-    expect(sessionTerminalOutlook({ driverFamily: 'embedded' })).toBe('none')
   })
 
   it('prefers the RuntimeDriver attach contract after fresh hydration', () => {
@@ -63,7 +64,7 @@ describe('sessionTerminalOutlook', () => {
   })
 
   it('is what the two-valued reading is built from, so they cannot disagree', () => {
-    for (const family of ['terminal', 'server', 'embedded', undefined] as const) {
+    for (const family of ['terminal', 'server', undefined] as const) {
       const session = family === undefined ? {} : { driverFamily: family }
       expect(sessionHasTerminal(session), String(family)).toBe(
         sessionTerminalOutlook(session) !== 'none',

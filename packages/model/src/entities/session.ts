@@ -62,7 +62,7 @@ import {
   SessionIdField,
 } from '../ids'
 import { SESSION_FLAT_PROVENANCE_SHAPE } from '../provenance/envelope'
-import { AgentKind } from './agent'
+import { AgentKind, DriverFamilyWire } from './agent'
 
 // ---------------------------------------------------------------------------
 // Terminal value objects
@@ -539,10 +539,10 @@ export const SessionMetaEntity = z.object({
    * The FAMILY of the driver in `driverId` (POD-2290) — the fact a client needs
    * to pick a surface, projected so no client has to learn driver ids.
    *
-   * `terminal` sessions have a PTY behind the native view. `server` and
-   * `embedded` ones do NOT: their agent runs as a server child or an in-process
-   * loop, nothing ever attaches, and a panel that offers the terminal view for
-   * them shows a spinner that can never resolve.
+   * `terminal` sessions have a PTY behind the native view. `server` ones do
+   * NOT: their agent runs as an engine child under podium-host, and whether a
+   * client terminal can be produced beside it is `attachKinds`, not this.
+   * An older peer's `embedded` arrives as `server` ({@link DriverFamilyWire}).
    *
    * TRANSIENT, EXACTLY LIKE `driverId`, which it is derived from — absent for an
    * older daemon, a legacy session with no runtime handle, a row that has not
@@ -562,7 +562,7 @@ export const SessionMetaEntity = z.object({
    * cheap. For a VIEW the same guess takes the terminal away from a session
    * that has one, so this side fails open instead.
    */
-  driverFamily: z.enum(['server', 'embedded', 'terminal']).optional(),
+  driverFamily: DriverFamilyWire.optional(),
   /**
    * WHAT THIS SESSION'S LIVE DRIVER CAN CHANGE WHILE IT RUNS (POD-3087) — the
    * `configure.fields` its capabilities declare, reported by the daemon on bind.
