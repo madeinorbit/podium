@@ -5,6 +5,7 @@
  */
 
 import {
+  AgentKind,
   asIssueId,
   asSessionId,
   asThreadId,
@@ -181,7 +182,7 @@ export async function buildSuperagentTools(
           properties: {
             agentKind: {
               type: 'string',
-              enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi', 'shell'],
+              enum: [...AgentKind.options],
             },
             cwd: {
               type: 'string',

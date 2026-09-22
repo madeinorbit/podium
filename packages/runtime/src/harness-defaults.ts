@@ -93,6 +93,20 @@ export const SUPERAGENT_HARNESS_DEFAULTS: Readonly<Record<HarnessAgent, HarnessR
   pi: { model: 'auto', effort: 'auto' },
 }
 
+/**
+ * Shipwright router eval-corpus policy (POD-4539, 4.R D2).
+ *
+ * The eval CASES stay provider-name-free (`shipwright-router.test.ts` asserts
+ * the corpus JSON names no harness), but the EVALUATOR still has to run each
+ * case AS some harness: `supported: true` needs one with a native
+ * all-tools-off mechanism, `supported: false` needs one without. That choice
+ * is product policy, not adapter knowledge, so it lives here beside
+ * SUPERAGENT_HARNESS_PRIORITY and the router reads it. Typed `HarnessAgent`
+ * so a name no manifest ships fails at compile, not at eval time.
+ */
+export const SHIPWRIGHT_EVAL_SUPPORTED_HARNESS: HarnessAgent = 'claude-code'
+export const SHIPWRIGHT_EVAL_UNSUPPORTED_HARNESS: HarnessAgent = 'grok'
+
 /** One harness as the caller's fleet reports it. */
 export interface HarnessCandidate {
   harness: HarnessAgent

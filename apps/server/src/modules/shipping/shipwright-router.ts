@@ -2,11 +2,18 @@ import {
   type AgentQuotaWire,
   DEFAULT_SHIPWRIGHT_BUDGET,
   type HarnessAgent,
+  isBuiltinHarnessKind,
   ShipwrightBudget,
   type ShipwrightLevel,
   type ShipwrightRoute,
 } from '@podium/model'
-import { normalizeSettings, type PodiumSettings, resolveRole } from '@podium/runtime'
+import {
+  normalizeSettings,
+  type PodiumSettings,
+  resolveRole,
+  SHIPWRIGHT_EVAL_SUPPORTED_HARNESS,
+  SHIPWRIGHT_EVAL_UNSUPPORTED_HARNESS,
+} from '@podium/runtime'
 import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 
@@ -136,10 +143,8 @@ export function routeShipwright(input: ShipwrightRouteInput): ShipwrightRoute | 
   if (!harnessSupportsNoTools(preferred.harness)) return null
   const candidates: Candidate[] = []
   for (const [agentRaw, models] of Object.entries(input.catalog.byAgent)) {
-    const parsed = (['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'] as const).find(
-      (agent) => agent === agentRaw,
-    )
-    if (!parsed) continue
+    if (!isBuiltinHarnessKind(agentRaw)) continue
+    const parsed = agentRaw
     if (parsed !== preferred.harness) continue
     if (!harnessSupportsNoTools(parsed)) continue
     for (const model of models) {
@@ -278,7 +283,9 @@ export function evaluateShipwrightRouterCase(input: (typeof SHIPWRIGHT_ROUTER_EV
   route: string | null
   turnCeiling: number
 } {
-  const harness = input.supported ? 'claude-code' : 'grok'
+  const harness = input.supported
+    ? SHIPWRIGHT_EVAL_SUPPORTED_HARNESS
+    : SHIPWRIGHT_EVAL_UNSUPPORTED_HARNESS
   const settings = normalizeSettings({
     roles: {
       shipwright: {
