@@ -72,13 +72,14 @@ it.each([
     ...(loginHarness ? { loginHarness } : {}),
   } as Parameters<typeof launchSpawn>[1])
 
-  // The one specific refusal, naming podium-host.
-  expect(sent).toEqual([{ type: 'spawnError', sessionId, message: noDurableBackendRefusal() }])
-  expect(noDurableBackendRefusal()).toContain('podium-host')
-  // And nothing started: no launch resolved, no cwd pinned, no terminal held.
+  // Nothing started: no launch resolved, no cwd pinned, no terminal held, no bind.
   expect(launch).not.toHaveBeenCalled()
   expect(setLaunchCwd).not.toHaveBeenCalled()
   expect(ctx.sessions.get(sessionId)?.attached).toBeFalsy()
+  expect(sent.filter((m) => m.type === 'bind')).toEqual([])
+  // And the one specific refusal, naming podium-host.
+  expect(sent).toEqual([{ type: 'spawnError', sessionId, message: noDurableBackendRefusal() }])
+  expect(noDurableBackendRefusal()).toContain('podium-host')
 })
 
 it('names Windows, where podium-host does not run yet, in its own words', () => {
