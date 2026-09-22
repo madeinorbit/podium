@@ -15,6 +15,7 @@ import type { Replica } from '@podium/client-core/replica'
 import { allIssueViewModels } from '@podium/client-core/replica'
 import {
   groupUnifiedWorkRows,
+  type IssueNavigationModel,
   indexMissionSessions,
   issueDisplayTitle,
   missionRollup,
@@ -24,10 +25,9 @@ import {
   rowWaitingCount,
   sortUnifiedWorkRows,
   splitPinnedWork,
-  unifiedRowBand,
-  type IssueNavigationModel,
   type UnifiedIssueRow,
   type UnifiedWorkRow,
+  unifiedRowBand,
   type WorklistSlice,
   worklistSlice,
 } from '@podium/client-core/viewmodels'
@@ -116,7 +116,8 @@ function projectRow(
 ): SliceRow {
   const { models, sessions, allWorktreePaths } = derivation
   const rollup =
-    row.missionRollup ?? missionRollup(models, sessions, row.issue.id, indexMissionSessions(sessions))
+    row.missionRollup ??
+    missionRollup(models, sessions, row.issue.id, indexMissionSessions(sessions))
   const band = unifiedRowBand(row, locals.coarseNow)
   return {
     id: row.issue.id,
@@ -178,7 +179,10 @@ export function projectSnapshot(derivation: LegacyDerivation, locals: SliceLocal
  * Worktree rows have no slice rendering and are dropped before ordering. The
  * row-view oracle (`row-views.ts`) projects the same rows.
  */
-export function visibleIssueRows(derivation: LegacyDerivation, locals: SliceLocals): UnifiedIssueRow[] {
+export function visibleIssueRows(
+  derivation: LegacyDerivation,
+  locals: SliceLocals,
+): UnifiedIssueRow[] {
   return sortUnifiedWorkRows(flattenIssueRows(derivation.slice.work), locals.coarseNow).filter(
     (row): row is UnifiedIssueRow => row.kind === 'issue',
   )
@@ -232,7 +236,14 @@ export function oracleSnapshot(store: Store<PodiumClientApi>): SliceSnapshot {
 }
 
 /** The store fields the derivation reads as whole collections. */
-const STORE_COLLECTIONS = new Set(['issues', 'issueProjections', 'repos', 'machines', 'sessions', 'pins'])
+const STORE_COLLECTIONS = new Set([
+  'issues',
+  'issueProjections',
+  'repos',
+  'machines',
+  'sessions',
+  'pins',
+])
 
 /**
  * POD-4556 (L4b) — {@link snapshotFromStore} with every legacy memo bypassed:
@@ -243,13 +254,17 @@ const STORE_COLLECTIONS = new Set(['issues', 'issueProjections', 'repos', 'machi
  * hit. Row objects are shared: they are server truth, not derived state. This
  * is the legacy control's `rebuildFromScratch`.
  */
-export function rebuiltSnapshotFromStore(store: Store<PodiumClientApi>, locals: SliceLocals): SliceSnapshot {
+export function rebuiltSnapshotFromStore(
+  store: Store<PodiumClientApi>,
+  locals: SliceLocals,
+): SliceSnapshot {
   const live = store.replica
   const liveRows = (kind: string): readonly unknown[] | undefined =>
     (live?.rows as ((k: string) => readonly unknown[] | undefined) | undefined)?.call(live, kind)
   const rowCopies = new Map<string, unknown[]>()
   const replica = {
-    rows: (kind: string) => rowCopies.get(kind) ?? rowCopies.set(kind, [...(liveRows(kind) ?? [])]).get(kind),
+    rows: (kind: string) =>
+      rowCopies.get(kind) ?? rowCopies.set(kind, [...(liveRows(kind) ?? [])]).get(kind),
     subscribeRows: () => () => {},
     batch: <T>(fn: () => T): T => fn(),
     persistent: true,
@@ -260,7 +275,8 @@ export function rebuiltSnapshotFromStore(store: Store<PodiumClientApi>, locals: 
     get(target, key, receiver) {
       if (key === 'replica') return replica
       const value: unknown = Reflect.get(target, key, receiver)
-      if (typeof key !== 'string' || !STORE_COLLECTIONS.has(key) || !Array.isArray(value)) return value
+      if (typeof key !== 'string' || !STORE_COLLECTIONS.has(key) || !Array.isArray(value))
+        return value
       let copy = copies.get(key)
       if (copy === undefined) {
         copy = [...value]

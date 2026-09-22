@@ -18,19 +18,22 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
+import { snapshotFromStore } from '../../../harness/src/oracle/index'
+import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, CheckableArmHandle, RowSource } from '../arm'
 import type { ScenarioEngine } from '../scenarios'
 import type { SliceIssue, SliceRow, SliceSession, SliceSnapshot } from '../slice-types'
 import type { ArmStats, RowRecord } from '../stats'
-import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
-import { snapshotFromStore } from '../../../harness/src/oracle/index'
-import { writeResult } from '../../../harness/src/results'
 import { gen } from './changes'
 import { checkArm, describeSequence, diffSnapshots } from './check'
 
 // ------------------------------------------------------------------ diff
 
-function snap(groups: Record<string, string[]>, rows: Record<string, Partial<SliceRow>> = {}): SliceSnapshot {
+function snap(
+  groups: Record<string, string[]>,
+  rows: Record<string, Partial<SliceRow>> = {},
+): SliceSnapshot {
   const rowsById: Record<string, SliceRow> = {}
   for (const id of Object.values(groups).flat()) {
     rowsById[id] = {
@@ -51,7 +54,12 @@ function snap(groups: Record<string, string[]>, rows: Record<string, Partial<Sli
   return {
     order: {
       pinnedIds: [],
-      groups: Object.entries(groups).map(([key, rowIds]) => ({ key, label: key, rowIds, closedIds: [] })),
+      groups: Object.entries(groups).map(([key, rowIds]) => ({
+        key,
+        label: key,
+        rowIds,
+        closedIds: [],
+      })),
     },
     rowsById,
   }
@@ -228,7 +236,10 @@ describe('checkArm on the tiny reference arm', () => {
 
   it('passes the correct arm, fails the planted one and shrinks to at most 5 steps', async () => {
     const correct = await checkArm(tinyArm(false), sequence, { oracleEvery: 0 })
-    expect(correct.ok, correct.ok ? '' : `${correct.diff}\n${describeSequence(correct.shrunk)}`).toBe(true)
+    expect(
+      correct.ok,
+      correct.ok ? '' : `${correct.diff}\n${describeSequence(correct.shrunk)}`,
+    ).toBe(true)
     expect(correct.counts.rebuildChecks).toBe(sequence.length + 1)
 
     const planted = await checkArm(tinyArm(true), sequence, { oracleEvery: 0 })
@@ -261,7 +272,10 @@ function staleClockControl(rebuildToo: boolean): (ctx: ScenarioEngine) => Checka
         const handle = arm.create(source, locals, reads)
         const frozen = locals.get()
         const stale = (): SliceSnapshot =>
-          snapshotFromStore(ctx.engine.getSnapshot(), { selectedIssueId: null, coarseNow: frozen.coarseNow })
+          snapshotFromStore(ctx.engine.getSnapshot(), {
+            selectedIssueId: null,
+            coarseNow: frozen.coarseNow,
+          })
         return { ...handle, snapshot: stale, ...(rebuildToo ? { rebuildFromScratch: stale } : {}) }
       },
     }
@@ -277,7 +291,10 @@ describe('checkArm on the legacy control', () => {
 
   it('passes the control; the stale-clock control fails and shrinks to at most 5 steps', async () => {
     const correct = await checkArm((ctx) => legacyControlArmFor(ctx.engine), sequence, sampled)
-    expect(correct.ok, correct.ok ? '' : `${correct.diff}\n${describeSequence(correct.shrunk)}`).toBe(true)
+    expect(
+      correct.ok,
+      correct.ok ? '' : `${correct.diff}\n${describeSequence(correct.shrunk)}`,
+    ).toBe(true)
     expect(correct.counts.rebuildChecks).toBe(sequence.length / 10 + 1)
     expect(correct.counts.oracleChecks).toBe(sequence.length / 10 + 1)
 
@@ -290,7 +307,11 @@ describe('checkArm on the legacy control', () => {
     expect(planted.shrunk.length).toBeLessThanOrEqual(5)
     expect(planted.shrunkDivergence).not.toBeNull()
     writeResult('check-control', { correct, planted })
-    const control = await checkArm((ctx) => legacyControlArmFor(ctx.engine), planted.shrunk, sampled)
+    const control = await checkArm(
+      (ctx) => legacyControlArmFor(ctx.engine),
+      planted.shrunk,
+      sampled,
+    )
     expect(control.ok).toBe(true)
   }, 600_000)
 

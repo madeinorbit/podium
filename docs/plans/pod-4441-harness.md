@@ -19,7 +19,7 @@ so the detector is proven before any arm is trusted.
 | `shared/src/scenarios.ts` | THE scenario library (POD-4550): boot (`startScenarioEngine`, `startEngineOnCorpus`), rule-picked targets (`pickTargets`), every write (`write*` settled / `apply*` synchronous), the thirteen scenarios. Count runs, web entries and native lanes all use it |
 | `harness/src/fixture/` | The ONE corpus: `buildCorpus(scale, seed)` |
 | `harness/src/legacy-control/` | The control: `arm.ts` (`legacyControlArmFor`), `list.tsx`, `native.tsx`, `fenced-store.ts` (its store read through the reads fence), `control.test.tsx` (armed), `control-1x.test.tsx` (CI budget + JSON) |
-| `harness/src/oracle/` | G2 oracle, plus `projectSnapshot` and `snapshotFromStore` (parity over live engine state), `oracleSnapshot` (the engine's own clock) and `rebuiltOracleSnapshot` (every legacy memo bypassed) |
+| `harness/src/oracle/` | G2 oracle, plus `projectSnapshot` and `snapshotFromStore` (parity over live engine state), `oracleSnapshot` (the engine's own clock) and `rebuiltSnapshotFromStore` (every legacy memo bypassed) |
 | `shared/src/gen/check.ts` | The correctness gate (POD-4556): `checkArm`, `diffSnapshots`; tests `check.test.ts` (armed), `check-ci.test.ts` (the CI-sized run, opt-in) |
 | `harness/web/` | Vite pages per arm/control (`entries/`), shared page wiring (`entrylib.ts`, `window.__proto`) |
 | `harness/browser/run.ts` | Chromium timing driver (one invocation per arm/scale) |
@@ -370,14 +370,14 @@ divergence stops the run. The failing prefix is shrunk (`shrink.ts`, with
 sequence in a report, not the raw run.
 
 **Contract.** A checked arm is a `CheckableArm` (`shared/src/arm.ts`). Its
-handle adds `rebuildFromScratch()`, which must read no incremental state and
-write none, and `setCoarseNow(now)`. The Arm contract had no clock channel
-before this: locals arrive out of band, but nothing delivered a tick. The
-roster (`harness/src/roster.ts`) requires a `CheckableArm`, so a round-three
-arm without either is a type error. A `refresh` is a new page: the checker
-disposes the arm and creates a new one over the new engine and feed. An arm
-that closes over the engine is therefore passed as a factory
-(`(ctx) => arm`). `mode` names the feed (default `overlaid`). A `truth` arm
+handle adds `rebuildFromScratch()`, which reads the feed's current tables and
+`locals.get()`, and must read no incremental state and write none. The roster
+(`harness/src/roster.ts`) requires a `CheckableArm`, so a round-three arm
+without it is a type error. The checker hands the arm the engine-backed locals
+channel (`createEngineLocals`, POD-4608), so a tick reaches the arm only there.
+A `refresh` is a new page: the checker disposes the arm and creates a new one
+over the new engine's feed and locals. An arm that closes over the engine is
+therefore passed as a factory (`(ctx) => arm`). `mode` names the feed (default `overlaid`). A `truth` arm
 owns its optimism and must still match the overlaid oracle.
 
 **Sampling.** `rebuildEvery`/`oracleEvery` above 1 compare at checkpoints
@@ -386,37 +386,37 @@ is exact. A divergence that heals itself between two checkpoints goes unseen.
 Sample only an arm whose snapshot or rebuild is expensive. The legacy control
 is one: both are a whole legacy derivation.
 
-**The control.** `legacyControlArmFor` is checkable. Its `snapshot()` is
-`oracleSnapshot` and its `rebuildFromScratch()` is `rebuiltOracleSnapshot`: the
-same derivation over copied collections and a fresh stub replica, so the
-per-replica view-model cache starts empty. Before this issue the control
-projected with its create-time `locals.coarseNow` while the derivation read
-the engine's clock. After a 25 h tick, rows the oracle closes kept
-`closed: false`. That was fixed, and the old behaviour is the planted defect
-below. `snapshotFromStore` still projects with the caller's clock: a caller
-whose clock differs from the engine's gets two clocks (round-two
-`mobx.clock.test.tsx` +60 d does), so new code calls `oracleSnapshot`.
+**The control.** `legacyControlArmFor` is checkable. Its
+`rebuildFromScratch()` is `rebuiltSnapshotFromStore`: the same derivation and
+projection over copied collections and a fresh stub replica, so the
+per-replica view-model cache starts empty. What it checks is the legacy cache
+plumbing, not the rules. Until POD-4608 the control projected with its
+create-time `locals.coarseNow` while the derivation read the engine's clock:
+after a 25 h tick, rows the oracle closes kept `closed: false`. That
+behaviour (reading `locals.get()` once, at creation) is the planted defect
+below. `snapshotFromStore` still projects with the caller's clock, so a
+caller whose clock differs from the engine's gets two clocks. The oracle here
+is `oracleSnapshot`, which takes both from the store.
 
 ### Proof that it can fail (`shared/src/gen/check.test.ts`)
 
-Measured at commit `6d68b602c`, corpus 1x (seed 4443).
+Measured at commit `407389b1a` (rebased onto POD-4608), corpus 1x (seed 4443).
 
 | Subject | Run | Result |
 |---|---|---|
 | Tiny reference arm (a pool over the feed with one index, sessions by issue; output is not the worklist, so `oracleEvery: 0`) | `gen(7, 200)`, default weights | correct: pass, 201 rebuild checks, 1 reload |
-| same, PLANTED: a removed session stays in its issue's bucket | same run | red at step 120 `remove session s876`, against the rebuild: `row i2996: progressTotal: 1 (expected 0)`. Shrunk in 18 runs to **1 step**: `[remove session s876]`. The correct arm passes the shrunk sequence |
-| Legacy control, checkpoints every 10 | `gen(3, 120)` | correct: pass, 13 rebuild + 13 oracle checks, 2 reloads |
-| same, PLANTED: the pre-fix stale projection clock | same run | noticed at the step-39 checkpoint, named at step 34 `clockTick 25 h` (the dense re-run), against the rebuild: 5 rows `closed: false (expected true)`, and group row and closed ids moved. Shrunk in 15 runs to **1 step**: `[clockTick 90000000]`. The correct control passes it |
-| same, PLANTED stale in BOTH snapshot and rebuild (self-consistent) | same run | passes its own rebuild; red against the **oracle** at step 34, shrunk to the same single tick |
-| same arm, clock fed by `setCoarseNow` | same run | pass (the checker delivers every tick, and the clock survives reloads) |
+| same, PLANTED: a removed session stays in its issue's bucket | same run | red at step 121 `remove session s875`, against the rebuild (`progressTotal` one too high on its issue's row). Shrunk in 18 runs to **1 step**: `[remove session s875]`. The correct arm passes the shrunk sequence |
+| Legacy control, checkpoints every 10 | `gen(3, 120)` | correct: pass, 13 rebuild + 13 oracle checks, 1 reload. It crosses a 25 h tick, so the pass also shows the checker delivers the clock |
+| same, PLANTED: reads `locals.get()` once, at creation | same run | noticed at the step-39 checkpoint, named at step 33 `clockTick 25 h` (the dense re-run), against the rebuild: 5 rows `closed: false (expected true)`, and group row and closed ids moved. Shrunk in 15 runs to **1 step**: `[clockTick 90000000]`. The correct control passes it |
+| same, PLANTED stale in BOTH snapshot and rebuild (self-consistent) | same run | passes its own rebuild; red against the **oracle** at step 33, shrunk to the same single tick |
 
 Mutations of `check.ts`, each planted alone and restored with `cp`. Each
 turned the named test red:
 
 | Mutation | Went red |
 |---|---|
-| no `setCoarseNow` delivery | the clock-fed control: "rows differing (5)" |
-| no dense re-run after a sampled failure | the planted control reports `heartbeat` (the checkpoint's step), not `clockTick` |
+| the arm gets frozen locals (`fixedLocals`) instead of the engine's | the correct control: "rows differing (5)" |
+| no dense re-run after a sampled failure | the planted control reports the checkpoint's step (`offline`), not `clockTick` |
 | rebuild comparison always equal | "the planted bucket leak passed the checker" |
 
 ### The CI-sized run
@@ -439,15 +439,16 @@ POD_CHECK_CI=1 PODIUM_TEST_WORKERS=4 bun scripts/test-heavy.ts -- -- bun run tes
 path.) Each shard asserts it finished in under 5 minutes. Per-seed counts and
 times land in `harness/browser/results/check-ci-<n>.json`.
 
-As of `6d68b602c`: **all 20 seeds pass**. Totals: 6,000 steps, 5 skipped by
-the runner, 124 arms created (20 at boot, 104 on reloads), 620
-rebuild and 620 oracle checks. **Wall 117 s** (Duration of the command; the
-shards took 101, 103, 103 and 107 s). Load was 8.3 at the start and 14.0 at
-the end, so the wall is an upper bound, not a timing result. The same run on
-one worker took 348 s. Serially, with every checkpoint, the time went apply
-83 s, snapshot 87 s, rebuild 91 s, oracle 58 s (load 7–10). That is ~0.14 s
-per control snapshot and ~0.15 s per rebuild. Comparing every step would
-cost ~0.3 s a step, about 30 minutes, which is why the control samples.
+As of `407389b1a`: **all 20 seeds pass**. Totals: 6,000 steps, 10 skipped
+by the runner (target gone), 128 arms created (20 at boot, 108 on reloads),
+620 rebuild and 620 oracle checks. **Wall 125 s** (the command's Duration;
+the shards took 111, 113, 111 and 114 s). Load was 10.5 at the start and
+13.9 at the end, so the wall is an upper bound, not a timing result. On one
+worker the same run took 348 s (at `6d68b602c`, before the rebase). Summed
+over the shards, the time went: apply 114 s, snapshot 124 s, rebuild 126 s,
+oracle 81 s. That is ~0.2 s per control snapshot and per rebuild at this
+load. Comparing every step would cost ~0.4 s a step, over 30 minutes, which
+is why the control samples.
 
 A round-three arm's snapshot is incremental and its rebuild is a pool
 rebuild. The tiny arm's cost 14 ms and 25 ms a step at 1x, so run it with the

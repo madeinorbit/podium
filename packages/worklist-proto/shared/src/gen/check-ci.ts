@@ -20,7 +20,7 @@ import { expect } from 'vitest'
 import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
 import { writeResult } from '../../../harness/src/results'
 import { gen } from './changes'
-import { checkArm, type CheckResult, describeSequence } from './check'
+import { type CheckResult, checkArm, describeSequence } from './check'
 
 export const CI_ENABLED = process.env['POD_CHECK_CI'] === '1'
 export const CI_SHARDS = 4

@@ -31,23 +31,20 @@
  * - `notifications`: runtime publications observed since reset.
  */
 
-import { createElement, type ReactElement } from 'react'
-import { createRoot } from 'react-dom/client'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { Store } from '@podium/client-core/engine'
-import {
-  defineSlice,
-  worklistSlice,
-  type WorklistSlice,
-} from '@podium/client-core/viewmodels'
+import { defineSlice, type WorklistSlice, worklistSlice } from '@podium/client-core/viewmodels'
+import { createElement, type ReactElement } from 'react'
+import { createRoot } from 'react-dom/client'
 import type { CheckableArm, CheckableArmHandle, LocalsSource } from '../../../shared/src/arm'
+import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
+import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
 import type { SliceSnapshot } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import { rebuiltSnapshotFromStore, snapshotFromStore } from '../oracle/index'
-import { CommitLogContext, currentCommitLog } from '../../../shared/src/row-shell'
-import { LegacyControlList, type ControlSliceDef } from './list'
-import { DISABLED_READ_FENCE, type ReadFence } from '../../../shared/src/instrument/reads'
 import { fencedLegacyStore } from './fenced-store'
+import { type ControlSliceDef, LegacyControlList } from './list'
+
 // DYNAMIC on purpose (not a bundle nicety): `./native` imports `react-native`,
 // whose Flow-typed source the root node/unit lanes cannot parse. A static
 // import would put that chain in every file importing this arm and break
@@ -107,7 +104,11 @@ function createControlStats(): ArmStats {
  */
 export function legacyControlArmFor(engine: LegacyControlEngine): CheckableArm {
   return {
-    create(_source, locals: LocalsSource, reads: ReadFence = DISABLED_READ_FENCE): CheckableArmHandle {
+    create(
+      _source,
+      locals: LocalsSource,
+      reads: ReadFence = DISABLED_READ_FENCE,
+    ): CheckableArmHandle {
       const stats = createControlStats()
       const counted: ControlSliceDef = defineSlice({
         name: 'worklist-control',

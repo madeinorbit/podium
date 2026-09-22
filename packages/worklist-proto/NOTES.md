@@ -7,13 +7,14 @@ correctness gate".
 
 ### Decisions
 
-- **`CheckableArm` in `shared/src/arm.ts`, not new members on `ArmHandle`.**
-  `rebuildFromScratch()` and `setCoarseNow()` are required of every
-  round-three arm (the roster's `armFor` returns a `CheckableArm`, so a missing
-  one is a type error), and round-two arms stay untouched (MobX has no rebuild).
-- **The Arm contract had no clock channel.** `SliceLocals` arrive "out of
-  band", but nothing delivered a tick to an arm; the round-two stores have
-  `setCoarseNow` only behind their test hooks. `setCoarseNow` is now contract.
+- **`CheckableArm` in `shared/src/arm.ts`, not a new member on `ArmHandle`.**
+  `rebuildFromScratch()` is required of every round-three arm (the roster's
+  `armFor` returns a `CheckableArm`, so a missing one is a type error), and
+  round-two arms stay untouched (MobX has no rebuild).
+- **Clock: the POD-4608 locals channel.** The first cut added
+  `setCoarseNow()` to the contract; POD-4608 landed `LocalsSource` first, so
+  the checker hands every arm `createEngineLocals(engine)` instead, re-created
+  on reload.
 - **The oracle is the engine store (the app's paint), whatever the arm's
   feed.** A `truth` arm owns its optimism and must match the overlaid view.
 - **The rebuild reads the feed's `snapshot(kind)`**, so a change the feed
@@ -21,14 +22,12 @@ correctness gate".
 - **A `refresh` makes a new arm** over the new engine and feed (a reload is a
   new page), so arms are given as a factory over the engine when they close
   over it (the control).
-- **The control projected with a stale clock.** Its `snapshot()` used the
-  create-time `locals.coarseNow` while `worklistSlice.derive` read the
-  engine's: after a 25 h tick, rows kept `closed: false` that the oracle
-  closes. Fixed (`oracleSnapshot`); the pre-fix control is the planted defect
-  in `check.test.ts`. `snapshotFromStore` itself still takes the caller's
-  clock for the projection only; round-two tests that pass a clock ahead of the
-  engine (`mobx.clock.test.tsx` +60 d) derive and project with two clocks.
-  Not touched here (frozen round-two tests).
+- **The planted control is the stale clock.** Reading `locals.get()` once at
+  creation projects with a stale clock while `worklistSlice.derive` reads the
+  engine's: after a 25 h tick, rows keep `closed: false` that the oracle
+  closes (the control did this until POD-4608). `snapshotFromStore` still
+  takes the caller's clock for the projection only, so the checker's oracle
+  is `oracleSnapshot`, which takes both from the store.
 - **Sampling for the control.** Its snapshot and rebuild are each a whole
   legacy derivation (~0.12 s / ~0.15 s at 1x), so the CI run compares at
   checkpoints every 10 steps and re-runs a failure densely over its prefix to

@@ -2,10 +2,10 @@ export type { LegacyDerivation } from './oracle'
 export {
   expectedSnapshot,
   legacyDerivationFromStore,
-  projectSnapshot,
-  runLegacyDerivation,
   oracleSnapshot,
+  projectSnapshot,
   rebuiltSnapshotFromStore,
+  runLegacyDerivation,
   snapshotFromStore,
   visibleIssueRows,
 } from './oracle'

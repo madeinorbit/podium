@@ -44,13 +44,13 @@
  */
 
 import { isDeepStrictEqual } from 'node:util'
+import { createEngineLocals } from '../../../harness/src/engine-locals'
+import type { FixtureCorpus } from '../../../harness/src/fixture/index'
+import { oracleSnapshot } from '../../../harness/src/oracle/index'
 import type { CheckableArm, CheckableArmHandle } from '../arm'
 import type { RowSourceMode } from '../row-source'
 import type { ScenarioEngine } from '../scenarios'
 import type { SliceGroup, SliceSnapshot } from '../slice-types'
-import type { FixtureCorpus } from '../../../harness/src/fixture/index'
-import { createEngineLocals } from '../../../harness/src/engine-locals'
-import { oracleSnapshot } from '../../../harness/src/oracle/index'
 import type { Change } from './changes'
 import { startGenRun } from './run'
 import { shrink } from './shrink'
@@ -171,10 +171,20 @@ interface RunOutcome {
   timing: CheckTiming
 }
 
-async function runCheck(arm: CheckedArm, sequence: readonly Change[], opts: CheckOptions): Promise<RunOutcome> {
+async function runCheck(
+  arm: CheckedArm,
+  sequence: readonly Change[],
+  opts: CheckOptions,
+): Promise<RunOutcome> {
   const rebuildEvery = opts.rebuildEvery ?? 1
   const oracleEvery = opts.oracleEvery ?? 10
-  const counts: CheckCounts = { steps: 0, skipped: 0, rebuildChecks: 0, oracleChecks: 0, creates: 0 }
+  const counts: CheckCounts = {
+    steps: 0,
+    skipped: 0,
+    rebuildChecks: 0,
+    oracleChecks: 0,
+    creates: 0,
+  }
   const timing: CheckTiming = { applyMs: 0, snapshotMs: 0, rebuildMs: 0, oracleMs: 0 }
   const run = await startGenRun({
     ...(opts.corpus ? { corpus: opts.corpus } : {}),
@@ -189,7 +199,12 @@ async function runCheck(arm: CheckedArm, sequence: readonly Change[], opts: Chec
   }
   let handle = create()
 
-  const compare = (step: number, change: Change | null, withRebuild: boolean, withOracle: boolean): Divergence | null => {
+  const compare = (
+    step: number,
+    change: Change | null,
+    withRebuild: boolean,
+    withOracle: boolean,
+  ): Divergence | null => {
     // The step settled over macrotasks, so the locals drain (a microtask) has
     // run; flushing makes that explicit.
     locals.flush()
@@ -282,7 +297,8 @@ export function diffSnapshots(actual: SliceSnapshot, expected: SliceSnapshot): s
   if (changed.length > 0) {
     lines.push(`rows differing (${changed.length}):`)
     for (const line of changed.slice(0, MAX_ROWS_REPORTED)) lines.push(`  ${line}`)
-    if (changed.length > MAX_ROWS_REPORTED) lines.push(`  … ${changed.length - MAX_ROWS_REPORTED} more`)
+    if (changed.length > MAX_ROWS_REPORTED)
+      lines.push(`  … ${changed.length - MAX_ROWS_REPORTED} more`)
   }
 
   const pinned = listDiff(actual.order.pinnedIds, expected.order.pinnedIds)
@@ -300,13 +316,17 @@ export function diffSnapshots(actual: SliceSnapshot, expected: SliceSnapshot): s
   }
 
   // Deep-unequal with nothing named above: a key outside the frozen shape.
-  if (lines.length === 0) lines.push(`snapshots differ outside rows and order: ${JSON.stringify(actual).slice(0, 300)}`)
+  if (lines.length === 0)
+    lines.push(`snapshots differ outside rows and order: ${JSON.stringify(actual).slice(0, 300)}`)
   return lines.join('\n')
 }
 
 function groupDiff(a: SliceGroup, e: SliceGroup): string[] {
   const out: string[] = []
-  if (a.label !== e.label) out.push(`group ${e.key} label: ${JSON.stringify(a.label)} (expected ${JSON.stringify(e.label)})`)
+  if (a.label !== e.label)
+    out.push(
+      `group ${e.key} label: ${JSON.stringify(a.label)} (expected ${JSON.stringify(e.label)})`,
+    )
   const rows = listDiff(a.rowIds, e.rowIds)
   if (rows !== null) out.push(`group ${e.key} rowIds: ${rows}`)
   const closed = listDiff(a.closedIds, e.closedIds)
