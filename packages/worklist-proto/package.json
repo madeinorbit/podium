@@ -20,6 +20,7 @@
   },
   "scripts": {
     "typecheck": "bun ../../scripts/typecheck-project.ts",
+    "lint": "bunx eslint --config eslint.config.mjs arms && bunx eslint --config arms/mobx/eslint.config.mjs arms/mobx",
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/worklist-proto:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {

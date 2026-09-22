@@ -317,8 +317,9 @@ const noStoreInComponent = {
           if (target === null) continue
           const path = relative(arm.root, target).split(sep).join('/')
           if (path.startsWith('..')) continue
-          const chain = listed(arm.manifest.store, path) ? [path] : storeChain(target, arm)
-          if (chain === null) continue
+          const deeper = listed(arm.manifest.store, path) ? [] : storeChain(target, arm)
+          if (deeper === null) continue
+          const chain = [path, ...deeper]
           context.report({
             node: program,
             message: `${kind} imports the store: '${source}' reaches ${chain.join(' → ')}. A row gets its RowView and nothing else; a list gets the store through props (import type is fine)`,
