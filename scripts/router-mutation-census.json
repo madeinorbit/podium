@@ -85,6 +85,11 @@
       "owner": "PDM-51",
       "$note": "Podium Connect. `connect.check` is a QUERY: it asks the cloud to probe a public URL and returns the answer verbatim, storing nothing. Reads only, and must keep serving reads only.",
       "keys": []
+    },
+    "shells": {
+      "owner": "POD-4436",
+      "$note": "Server-owned dock-shell mapping (POD-4436). `keys: []` is exact by this census's own definition \u2014 it counts hand-written `.mutation(` in router.ts, and this router's procedures are defined in apps/server/src/modules/shells/trpc.ts, the same shape as `operations`. It carries ONE write there, `shells.forWorktree`, which returns-or-creates the caller's dock shell for a worktree. Recorded as pending rather than migrated so the claim stays true.",
+      "keys": []
     }
   }
 }
