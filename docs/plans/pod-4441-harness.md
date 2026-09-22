@@ -22,7 +22,10 @@ so the detector is proven before any arm is trusted.
 | `harness/src/oracle/` | G2 oracle, plus `projectSnapshot` and `snapshotFromStore` (parity over live engine state), `oracleSnapshot` (the engine's own clock) and `rebuiltSnapshotFromStore` (every legacy memo bypassed) |
 | `shared/src/gen/check.ts` | The correctness gate (POD-4556): `checkArm`, `diffSnapshots`; tests `check.test.ts` (armed), `check-ci.test.ts` (the CI-sized run, opt-in) |
 | `harness/web/` | Vite pages per arm/control (`entries/`), shared page wiring (`entrylib.ts`, `window.__proto`) |
+| `harness/web/noop-arm.tsx` | The no-op arm: the instrument floor page, and the timer's planted mistakes (POD-4558) |
 | `harness/browser/run.ts` | Chromium timing driver (one invocation per arm/scale) |
+| `harness/browser/matrix.ts` | Interleaved arms × scales × rounds, load-gated, lease per invocation |
+| `harness/browser/summarize.ts` | Tables: actionMs per cell, floor, budget as floor + allowance, slope; refuses failed runs |
 | `harness/native/` | React Native count lane (`control.native.test.tsx`) |
 
 ## One corpus (POD-4550)
@@ -85,25 +88,65 @@ the harness provider's context. Outside the harness the shell is a pass-through.
 Every arm test needs the can-say-NO guard: a visible change must commit rows,
 or the detector is blind.
 
-## Timings (Chromium) — walls, second
+## Timings (Chromium) — walls, second (POD-4558: work time only)
 
 ```bash
 # production build (heavy):
 bun scripts/test-heavy.ts -- bunx vite build --config packages/worklist-proto/harness/web/vite.config.ts
-# one invocation per (arm, scale) — never loop pairs in-process (F1 lesson):
-bun scripts/test-heavy.ts -- bun packages/worklist-proto/harness/browser/run.ts \
-  --arm control --scale 1 --samples 5 --out harness/browser/results/control-1x.json
+# the interleaved matrix: one run.ts invocation per (arm, scale) per round, pair
+# order rotated each round, load-gated, bench lease per invocation:
+bun scripts/test-heavy.ts -- bun packages/worklist-proto/harness/browser/matrix.ts \
+  --arms noop,control --scales 1,2,4 --rounds 4 --samples 5 --tag floor
+bun packages/worklist-proto/harness/browser/summarize.ts packages/worklist-proto/harness/browser/results/floor
 ```
 
 The driver serves `harness/web/dist`, loads `<arm>.html?scale=N&sha=<HEAD>`,
-waits for `window.__proto.ready`, then rotates scenarios round-robin per
-sample: `runScenario` (heartbeat/rename: task wall, long tasks, commits) and
-`clickRow` (pointerdown dispatched in-page, paint after two rAFs =
-input-to-paint). Heap comes from CDP (`HeapProfiler.collectGarbage` +
-`Runtime.getHeapUsage`) before and after; every record carries `loadavg`,
-`uptime` and `runtimeSha`. Timing runs under the `bench:ludovico` lease —
-without it the driver refuses (walls would be contaminated). Pending arm stubs
-expose `ready:false`; the driver writes a skip record and exits 0.
+waits for `window.__proto.ready`, settles the page (boot commits never land in
+a record), then runs one warm-up round and `--samples` rounds of the five
+scenarios, the order rotated per round. Every scenario, the click included,
+goes through ONE timer in the page (`entrylib.ts`, `measure`):
+
+    start → dispatch the change → drain → last commit signal → next frame
+
+| Field | What it is | Budgeted |
+|---|---|---|
+| `actionMs` | Dispatch to the arm's last commit signal, or to the drain when the change commits nothing. Commit signals: the page's `RowShell`/`CommitBoundary` commit log (every row commit and mount, timestamped when React calls the shell's profiler) and DOM mutations under the arm's root | yes |
+| `drainMs` | Dispatch to the first task after it (a `MessageChannel` message: runs once the dispatch's microtasks — feed flush, arm dispatch, React sync-lane commit — have drained; no timer clamp, no poll) | no |
+| `frameMs` | Dispatch to the first animation frame after `actionMs` ends; for the click, pointer event to the first frame after the arm's commit | no (its vsync phase is not the arm's) |
+| `endedBy` | `drain`, `commit` or `dom`: which signal ended `actionMs` | — |
+| `commits`, `mounts`, `domMutations` | In the change's window | counts |
+| `strayCommits` | Commit signals that arrived after the previous settle and before this change | any > 0 FAILS the run |
+| `longTasks`, `longTaskMs` | Long tasks overlapping the change's window (`takeRecords` after the settle) | reported |
+
+The click is a pointer event plus `click()` on a row's pressable; every
+sample clicks a row the page has never selected (the library's `visibleRootId`
+or `markReadId` when mounted, else the mounted issue row with the lowest id,
+never one a stage move took), so every sample is a selection change plus the
+eager mark-read. Round two re-clicked one row: after the first click the
+control committed 0 rows (the row was already read), mixing two workloads in
+one cell. The stage move takes a fresh childless open root per sample, by id
+from the corpus. The clock ticks the runtime's own clock (the control derives
+from it; round two's control clock was a no-op) and the locals channel at
+the same instant. Every record carries `actionMs`, `drainMs`, `frameMs`,
+`commits`, `longTasks`, `heapBefore`/`heapAfter` (CDP forced GC +
+`Runtime.getHeapUsage`), `stats`, `loadavg`, `uptime` and `runtimeSha`.
+
+Removed (round two's taskMs): the 50 ms `waitForNotifications` poll and the
+two nested animation frames it wrapped, and `inputToPaintMs` (two frames
+after a synthetic click, null on every non-click record, zero stats on the
+click). No budgeted number contains a frame wait or a poll.
+
+**The settle is untimed.** After the change the page waits until 250 ms
+(`?quiet=`) and at least two frames pass with no new commit signal, so an
+arm's work deferred to a later task inside that window is charged to
+`actionMs`; work deferred past it lands between changes, shows as
+`strayCommits` on the next record and FAILS the run. A settle that never
+quiets fails after 5 s.
+
+**What fails a run** (status `failed`, exit 2; `summarize.ts` lists it and
+never prints its numbers): 1-minute load above `--max-load` (8) before or
+during the run; any cell that errors (a missing cell is never a gap); any
+stray commit; a page error.
 
 Field names overlap `docs/measurements/POD-4286-stage0-live.json` where they
 measure the same thing: `runtimeSha`, `browser`, `capturedAt`, heap
@@ -117,9 +160,9 @@ no per-scenario equivalent here; `records[]` (one per scenario sample) is new.
 |---|---|---|
 | Idle client | zero derivation work except on the clock tick | count harness (`notifications` on settle-only runs) |
 | Unrelated heartbeat | 0 rows committed, 0 derivations, ≤ 3 rows read, publish ≤ 2 ms | counts in CI (`assertIsolation` + `rollupsDerived` + `assertReads`); publish wall in Chromium |
-| Any single hot-path event | ≤ 8 ms main-thread p95 at live corpus | `taskMs` p95 in driver JSON |
-| Row click, input to paint, inside the slice | ≤ 16 ms p95 at 1x, ≤ 32 ms at 4x | `inputToPaintMs` p95 in driver JSON |
-| Cost follows the change, not the corpus | per-event slope across 1x/2x/4x ≤ 1.2 | driver runs at three scales; counts must match at all three |
+| Any single hot-path event | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
+| Row click, pointer event to the arm's commit | `actionMs` p95 ≤ floor p95 + 16 ms at 1x, + 32 ms at 4x | same; `frameMs` (to the next frame) reported, not budgeted |
+| Cost follows the change, not the corpus | `actionMs` p50 at 4x / p50 at 1x ≤ 1.2, per scenario | `summarize.ts` slope table; counts must match at all three scales. A low read count is not proof of constant work (see "Instrument floor") |
 | Bootstrap / principal switch | ≤ 1.1x / ≤ 2x control | driver `coldBootstrap`/`principalSwitch` vs control JSON |
 | Memory | retained heap ≤ 1.1x control, no growth after rescope | `heapAfter` vs control; rescope disposal check |
 | Bundle | ≤ +60 KB gzip on web, no native-incompatible dep | entry chunk sizes in build output; native lane mount |
@@ -128,6 +171,45 @@ Per-scenario row budgets are methodology §5.8 (#1: 0 rows; #2: 1 + ancestors;
 #3: 2; #4: 1; #5–#7: affected + order; #10: bounded; #11–#13: full once).
 Counts are asserted in CI; walls in Chromium. The growth slope (§1a, scenario
 #14) is the performance differentiator among arms that pass.
+
+## Instrument floor (POD-4558)
+
+The no-op page (`harness/web/entries/noop.html`, `noop-arm.tsx`) mounts an
+arm that takes every change and does nothing with it: it subscribes to the
+feed and the locals (so the kernel write and the feed drain run as under any
+arm), ignores every notification, and draws one window of rows once, from the
+oracle, through `RowShell` — so its commit signal comes from its own shell
+and it is timed on exactly the arms' path. Its `actionMs` is the cost of the
+write, the feed and the timer's own settle hop: the floor. Every wall budget
+is stated as **floor p95 + allowance**, per scenario and scale (table above);
+the allowances are methodology §1a's numbers, fixed here before any
+round-three arm is timed and not re-read on another dimension afterwards.
+
+FLOOR_TABLE_PLACEHOLDER
+
+**The timer can say NO** (planted mistakes on the no-op page, `--plant`,
+summarised under their own label, never a floor run; 1x, functional runs):
+
+| Plant | What it does | Timer result |
+|---|---|---|
+| `sync:20` | busy-waits 20 ms inside every feed/locals notification, commits nothing | charged: actionMs 20.6–28.9, `endedBy` drain |
+| `late:30` | re-renders every drawn row from a 30 ms timer after every notification | charged: actionMs 32.5–38.6, `endedBy` commit, 51 commits. The first cut (settle after one quiet frame) missed it entirely — actionMs 0.3–5.0 with 0 commits, the 51 commits surfacing as strays on the next record — which is why the settle waits a quiet window and strays fail the run |
+| `late:400` | the same, 400 ms late (past the quiet window) | run FAILED: 51 stray commits on the next record |
+
+And the legacy control fails the budget it must fail: at 1x it commits 345–346
+rows on every hot-path change (0 on the no-op page) — see the floor run.
+
+**A low read count is not proof of constant work.** The reads fence counts
+ENTITY rows; an arm that walks its own per-row caches on every change reads
+few entity rows while its wall time grows with the corpus. The `actionMs`
+slope across 1x/2x/4x, per scenario (`summarize.ts`), is the empirical catch
+for that case; read the two together.
+
+**Scenario-target note.** In the windowed arms (hand, MobX: 17 rows mounted
+at 1600×1000) the library's `visibleRootId` is not in the first window, so
+the rename (#4) changes a visible-but-undrawn row and commits 0 rows there,
+while the control (which draws all 346 rows) commits them all. The timer is
+not blind to it (0 DOM mutations, and the click on a mounted row commits 2).
 
 ## Reads per change (POD-4557)
 

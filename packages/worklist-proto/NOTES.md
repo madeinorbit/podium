@@ -1,5 +1,42 @@
 # worklist-proto — package notes
 
+## POD-4558 (L5b) — browser driver, work time only · 2026-09-23
+
+What landed and how it is proven: `docs/plans/pod-4441-harness.md`, "Timings"
+and "Instrument floor".
+
+### Decisions
+
+- **No commit-settled promise existed in `RowShell`** (the brief assumed
+  one). The page wraps the commit log instead (`createTimedCommitLog` in
+  `entrylib.ts`): each commit/mount records `performance.now()`. No shared
+  file changed.
+- **actionMs = dispatch → max(drain, last row commit, last DOM mutation).**
+  The drain is a `MessageChannel` hop (after all microtasks), not five
+  `Promise.resolve()` ticks: a React default-lane commit or any later-task
+  work would have been invisible to the old drain.
+- **The settle waits a 250 ms quiet window; strays fail the run.** The first
+  cut settled after one quiet frame and the `late:30` plant escaped it
+  entirely (actionMs ≈ 1 ms, commits 0; 51 strays on the next record). Any
+  fixed window can be outwaited, so work past it fails the run instead of
+  being dropped.
+- **Click = fresh row per sample.** Re-clicking a read row made the control
+  commit 0 (selection only, no mark-read): two workloads in one cell.
+- **Clock also ticks the runtime** (`boot.advanceClock`): the control derives
+  from the engine clock, so round two's control clock was a no-op.
+- **Stage-move targets from the corpus by rule** (mirrors `pickTargets`'s
+  `childlessRoot`, in `entrylib.ts` because `scenarios.ts` is POD-4618's
+  file); click targets by id from the mounted rows, never by arm draw order.
+- **p95 needs n ≥ 20** (nearest rank; below that it is the max). Per page load
+  a windowed arm has ~17 fresh rows to click, so n comes from rounds of 5
+  interleaved by `matrix.ts`.
+
+### Open
+
+- The library's `visibleRootId` is outside the windowed arms' first window:
+  the browser rename (#4) commits 0 rows on hand/MobX, all rows on the
+  control. Reported to the coordinator.
+
 ## POD-4609 (L5g) — reads budgets for #6–#10 · 2026-09-22
 
 Derivations and evidence: `docs/plans/pod-4441-harness.md`, "Reads per
