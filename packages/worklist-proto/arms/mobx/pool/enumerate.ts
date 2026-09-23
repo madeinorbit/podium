@@ -94,9 +94,12 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
  * Every row a lazy pool KNOWS, in plain tables (POD-4567): for an entity that
  * can be cold, the feed's current rows (cold ones included, which the engine
  * links by id though the pool's tables never hold them); for one that is
- * never cold, the pool's own table, as Ma2's check read it (the feed's lanes
- * include discovery-only ones it never announces, POD-4606: not residency).
- * What a relation check holds a lazy pool's engine to.
+ * never cold, the pool's own table, as Ma2's check read it. The reason Ma2
+ * gave (the feed never announced discovery-only lanes) closed with POD-4606
+ * (ca53a62d5): the feed's `snapshot('worktree')` is now the stronger input,
+ * one that does not lean on the pool. Kept here because POD-4568's gate of
+ * record ran on this input; the switch rides with Mb4 (POD-4572), which
+ * re-runs the gate. What a relation check holds a lazy pool's engine to.
  */
 export function knownTables(
   pool: { readonly tables: PoolTables; readonly residency: Residency | null },

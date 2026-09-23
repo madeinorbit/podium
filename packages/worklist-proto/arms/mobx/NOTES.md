@@ -209,6 +209,10 @@ entries, buckets). Models built: 0 in every cell.
    for a lane it was never sent. The scan (`knownTables`) takes the feed's
    rows for the entities that can be cold and the pool's own lanes and repos,
    as Ma2's check did.
+   CLOSED by POD-4606 (ca53a62d5): the feed now announces discovery-only
+   lanes and repo roots. The check still reads the pool's lanes (POD-4568's
+   gate of record ran on that input); switching to the feed's lanes is Mb4's
+   (see `enumerate.ts` `knownTables`).
 4. **Visible rows can be cold.** A closed top-level issue inside the 24 h
    grace window is still drawn (not folded yet), yet the schema's rule makes
    it cold, so it will load on first paint (loading, then data). At 1x that is
