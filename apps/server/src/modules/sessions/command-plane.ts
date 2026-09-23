@@ -52,8 +52,8 @@ import {
   actorUser,
   asAgentIdentityId,
   asMutationId,
-  STOPPED_SEND_REASON,
   type SpawnedByRef,
+  STOPPED_SEND_REASON,
   spawnedByTag,
 } from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
