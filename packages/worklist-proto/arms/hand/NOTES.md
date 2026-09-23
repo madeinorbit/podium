@@ -1,5 +1,49 @@
 # arms/hand — notes
 
+## Round three: a-phase gate, Ha4 (POD-4581) · 2026-09-23
+
+L4b (20 x 300, rebuild-only), the L5a reads fence and the L6a commit and
+copy fences on fence steps #1-#3 at 1x. The note of record is
+`docs/measurements/POD-4581-a.md`. Built after Ma4 (POD-4568) and to its
+corrected scope (coordinator, 2026-09-23): no parity, the roster exception
+kept and now naming Hb4 (POD-4585), and #3 budgeted at 3 reads (POD-4619).
+
+### Decisions
+
+- **#2 is fixed the MobX way, in the hand idiom.** `activityAt` walked
+  `issue.sessions` and read every member ROW on any member's change: 7
+  reads on the live-shaped target (budget 3). Now:
+  - a `sessionIds` part is the one reader of the bucket (sorted, for a
+    draft's first member);
+  - each member's contribution is its own cell (`HandPool.sessionActivity`,
+    `sessionCells`), disposed when the session leaves the pool;
+  - `activityAt` re-composes from those cached values.
+  #2 reads 1 row (the changed session) and runs 3 cells.
+- **`loading` and a draft's title read `sessionIds` too**, so no part walks
+  the bucket but that one.
+- **The rebuild computes `sessionActivity` directly**, over the same
+  `sessionActivityOf`, so L4b holds both paths to one rule.
+- **The sibling re-read is a plant in `counts.test.tsx`**: member activity
+  read from the rows inside `activityAt`. It must read `{ session: 7 }` and
+  fail #2's reads fence on its own (POD-4635 made the #2 family larger than
+  one level's budget).
+
+### Findings
+
+1. **#1's `rowsDerived` (1,802) is the mount's pending loads, not the
+   heartbeat.** `runCountScenario` reads `stats` after `snapshot()`, which
+   settles the loads the mount queued (666 issues and 720 sessions). Reads
+   and commits are taken before it, so no verdict moves. The cell is the
+   same at base. The MobX counts test drains before counting; the hand test
+   does not, since Ha3 left it to the shared drain hook.
+2. **Cells per first paint grow by one per member session of a drawn row**
+   (the activity cells, cold members included).
+   `residency.test.tsx` now holds them to the members of drawn rows.
+
+### Open
+
+- None of this issue's own. Parity and the roster entry are Hb4's.
+
 ## Round three: residency, a3 (POD-4580) · 2026-09-23
 
 Cold rows (closed issues and their sessions) stay out of the pool until
@@ -252,7 +296,7 @@ a 3 x 200 gate (every plant included): 12 files, 156 tests, green.
 - Hb1: the closed fold lists ids from metadata and loads rows only when
   drawn; the grace rows of finding 5 load on first paint.
 - Hb3: progress from `lazyMany(...).ready`, `loading` while pending.
-- Ha4: #2's per-member re-read (Ma4's lesson) is still in `activityAt`.
+- Ha4: #2's per-member re-read (Ma4's lesson) was in `activityAt`; fixed by Ha4 (above).
 
 ## Round three: relations, a2 (POD-4579) · 2026-09-23
 
@@ -455,7 +499,7 @@ document, POD-4597, is not written yet).
   in `pool/` imports anything under `arms/` outside `pool/`), proven red on
   planted files in `harness/lint/fence-lint.test.ts` (round two's
   `indexes.ts`, `store.ts`, `arm.ts`, `rollup.ts` and the MobX pool). The
-  roster names `hand` pending until POD-4581 (Ha4).
+  roster names `hand` pending until POD-4581 (Ha4); moved to POD-4585 (Hb4) by the coordinator's correction of 2026-09-23.
 - **Dependencies are recorded, not listed.** The hand-rolled answer to "no
   sensitivity sets": every derived value is a `Cell` whose reads go through
   tracked doors, and each door records the running cell under its key
