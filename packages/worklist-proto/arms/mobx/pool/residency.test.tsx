@@ -377,8 +377,9 @@ describe('the loader', () => {
       titles.push((pool.coldRow('issue', closed.id) as { title?: string } | undefined)?.title)
     })
     try {
-      // An untracked check between steps (the gate's partition check asks this).
-      expect(pool.residency?.known('issue', closed.id)).toBe(true)
+      // An untracked check between steps, inside an action, as the gate's
+      // relation scan asks it (`diffRelations` under `runInAction`).
+      expect(runInAction(() => pool.residency?.known('issue', closed.id))).toBe(true)
       r.push({ type: 'update', rows: [issueRecord(closed.id, { title: 'Renamed while cold' })] })
       expect(titles.at(-1)).toBe('Renamed while cold')
     } finally {
