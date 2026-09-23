@@ -182,11 +182,12 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
 - **Fence steps** #1, #2, #3, #4, #8, #8b, `pool/counts.test.tsx`: the
   shared `assertCommits` (where the a1 list can meet it), `assertReads` and
   `assertNoCopies`, no parity; the roster entry with parity is Hb4's
-  (POD-4585; `harness/src/fences.test.tsx` names it pending). The mount's
-  queued loads are held pending (the window never closes on its own there),
-  so none lands inside a counted step's reads; the harness's `snapshot()`
-  after the step settles them, which shows in #1's `rowsDerived` (not in
-  its reads or commits). A second test plants the sibling re-read (member
+  (POD-4585; `harness/src/fences.test.tsx` names it pending). The load
+  window never closes on its own there; the shared fence lands loads
+  through the handle's `settleLoads()` (POD-4568 G2): the mount's before
+  #1, outside the count, and each step's own inside it. `settleLoads`
+  flushes the arm's redraws, drains what they queued, and repeats until a
+  redraw queues nothing. A second test plants the sibling re-read (member
   activity read from the rows inside `activityAt`) and must fail #2's reads
   fence on its own (a-phase note: `docs/measurements/POD-4581-a.md`).
 - Relations: `pool/relations.test.ts` — per relation, the §4.5 worked

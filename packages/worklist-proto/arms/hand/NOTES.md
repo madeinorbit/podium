@@ -30,14 +30,16 @@ kept and now naming Hb4 (POD-4585), and #3 budgeted at 3 reads (POD-4619).
 
 ### Findings
 
-1. **#1's `rowsDerived` (1,802) is the mount's pending loads, not the
-   heartbeat.** `runCountScenario` reads `stats` after `snapshot()`, which
-   settles the loads the mount queued (666 issues and 720 sessions). Reads
-   and commits are taken before it, so no verdict moves. The cell is the
-   same at base. The MobX counts test drains before counting; the hand test
-   does not, since Ha3 left it to the shared drain hook.
-2. **Cells per first paint grow by one per member session of a drawn row**
-   (the activity cells, cold members included).
+1. **#1's `rowsDerived` was 1,802 before POD-4568's G2, and none of it was
+   the heartbeat's.** `runCountScenario` read `stats` after `snapshot()`,
+   which settled the loads the mount had queued (666 issues and 720
+   sessions). Reads and commits were taken before that, so no verdict
+   moved. G2 (b29ea68ce) settles the mount before #1 through the new
+   `settleLoads()` hook, and the cell is 0. The hook flushes this arm's
+   redraws and drains, like the MobX arm's.
+2. **Cells per first paint grow from 23,827 to 26,822 at 1x**: one
+   `sessionIds` part per drawn row (2,166) and one activity cell per member
+   session of a drawn row (829, cold members included).
    `residency.test.tsx` now holds them to the members of drawn rows.
 
 ### Open
