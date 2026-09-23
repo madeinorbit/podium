@@ -46,6 +46,8 @@ installMobxWarnTrap()
 /** The steps a1 runs, and whether the commit fence applies yet. */
 const STEPS: readonly { methodology: string; commits: boolean }[] = [
   { methodology: '#1', commits: true },
+  { methodology: '#2', commits: true },
+  { methodology: '#3', commits: true },
   { methodology: '#4', commits: false },
 ]
 
