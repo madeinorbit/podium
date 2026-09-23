@@ -1,5 +1,101 @@
 # arms/mobx — notes
 
+## Round three: visible collection and order, b1 (POD-4569) · 2026-09-23
+
+Code: `pool/worklist/visible.ts`. Tests: `pool/worklist/visible.test.tsx`
+(parity and fences), `pool/worklist/first-paint.test.tsx` (outside measures).
+
+### Finding: visible rows are mostly COLD
+
+On the live-shaped 1x fixture at `FIXED_NOW`, 376 of the oracle's 732
+visible rows are closed issues, which the schema's rule keeps cold. Only 82
+are closed top-level rows (68 folded). About 294 are closed CHILDREN kept by
+a retained session (mostly idle sessions with no `stoppedAt`, which never
+decay) or by the finished-child decay window. So "hot predicate plus the
+closed fold's ids" cannot reach parity: the visible predicate must answer
+cold rows too. Ma3 finding 4 (four grace rows) was the old fixture. Reported
+to the coordinator; design accepted; whether the shared cold rule should
+change is POD-4665.
+
+### Decisions
+
+- **R-VIS is the spec's and the oracle's; this file only computes it.** Each
+  part cites the legacy line it follows (`rows.ts` flat pass, rescue,
+  `nestStartedByIssues`; `visibility.ts`). Two things the spec lists as out
+  still decide VISIBILITY in the oracle, so they are computed: started-by
+  nesting (an agent-audience row is shown only nested; a parentless
+  non-spin-off nests under the present issue owning its `startedBySession`)
+  and R3 membership (sessions of `issue.worktree` with no `issueId`).
+- **One node per KNOWN issue, hot or cold.** A node's parts read the row from
+  the hot table slot, or a cold row by id through the feed (`MobxPool.coldRow`:
+  the fenced per-row read, counted, tracked by residency's per-id atom, which
+  now reports every relink). Cold rows stay out of the tables and get no
+  model; the residency rule is untouched (coordinator condition 3).
+- **Session parts are per session** (`SessionNode.retention`, `.activityMs`),
+  so a heartbeat re-runs one session's part and stops there.
+- **Rescue reads DOWN the children relation** (`keeps` / `keptBelow`), each
+  child's cached `keeps`; no walk. The nest parent walks UP the raw
+  `parentId` through present checks only (cycle-guarded like legacy).
+- **The collection is MAINTAINED**: one reaction per node adds or deletes its
+  id in an observable set. Nodes follow the issue records of each event
+  (`MobxPool.syncWorklist`); the only whole walk is `knownIssueIds` at a
+  `replace`. A re-enumerating computed would count every id (`keys()` reads,
+  POD-4621) on every flip: ~2,170 reads on #6 against a budget of 16.
+- **Order** is a computed over the set: `compareRank` over each visible
+  node's cached `rank` (L1b `rankOf` on the own row), shallow-equal. It reads
+  no row and sorts exactly the visible ids.
+- **The list draws the order.** A visible cold row is asked for and drawn as
+  a bare placeholder outside `RowShell` until its load lands, so its first
+  row commit is its data (the addendum's "second paint").
+- **The snapshot** is the visible rows in rank order, `pinnedIds` in rank
+  order, no groups (Mb2). The rebuild decides visibility from scratch with the
+  same part functions (`directVisibility`), over every row the feed holds.
+- **Not handled, named**: a started-by nesting cycle (legacy skips the edge
+  that would close it, order-dependently); two present issues sharing a
+  worktree that owns a starter session (legacy takes its list order, the
+  pool the lowest id). Neither is in the fixture or the generator.
+
+### Numbers (1x, `FIXED_NOW`; `harness/browser/results/mobx-visible-*.json`, gitignored)
+
+Parity (`visible.test.tsx`), after bootstrap and after each of #1-#5: 732
+visible rows, order equal to the oracle's flat R-ORDER rows, snapshot equal to
+the rebuild, 0 own-row field differences.
+
+| step | oracle changed | drawn | reads / budget | order sorts | set flips |
+|---|---|---|---|---|---|
+| #1 heartbeat | none | none | 2 / 3 (session, worktree) | 0 | 0 |
+| #2 phase | i214 | i214 | 2 / 3 | 0 | 0 |
+| #3 click | i214 | i214 | 1 / 3 | 0 | 0 |
+| #4 rename | i214 | i214 | 1 / 3 | 0 | 0 |
+| #5 stage move | i5 | i5 | 1 / 24 | 0 | 0 |
+
+Rank change (pin the last unpinned visible row): one sort of the visible
+count, the row moves up, only that row commits. A list that draws every
+known issue (the plant) fails the commit fence on #1 and #4 and nothing else.
+
+Bootstrap and first paint, measured OUTSIDE the pool (`first-paint.test.tsx`:
+a counting wrapper on `RowSource.row`, MobX's own reaction graph, the DOM):
+
+| | 1x | 4x |
+|---|---|---|
+| issues / sessions | 4,867 / 4,304 | 19,468 / 17,216 |
+| visible rows | 732 | 2,928 |
+| visible rows cold at first paint (drawn loading) | 376 | 1,504 |
+| cold rows in the first 96-row window | 45 | 17 |
+| visibility reactions = IssueNodes (MobX graph) | 4,867 | 19,468 |
+| SessionNodes (MobX graph) | 2,641 | 9,415 |
+| per-row feed reads at bootstrap (distinct) | 4,710 (2,701 issues, 2,009 sessions) | 17,591 (10,804, 6,787) |
+| rows loaded settling first paint (distinct feed reads) | 1,145 (464 issues, 681 sessions) | 4,452 (1,852, 2,600) |
+| load windows to settle | 2 | 2 |
+
+Reading: every cold issue is read once at bootstrap to answer its
+visibility (its row, and the member sessions the retention part needs), and
+every known issue holds a node and a reaction. That is the price of the
+schema's cold rule meeting R-VIS on this corpus; POD-4665 decides whether
+the rule changes. Mb1 draws every visible row, so all 376 / 1,504 cold
+visible rows load at first paint; with Mb2's window only the first
+window's cold rows would (45 / 17).
+
 ## Round three: a-phase gates, a4 (POD-4568) · 2026-09-23
 
 ### Rework after M3 (POD-4591 FAIL) · 2026-09-23

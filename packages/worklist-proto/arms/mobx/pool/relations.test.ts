@@ -42,8 +42,8 @@ import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { diffRelations } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool, tracked } from './pool'
-import { ancestorPaths } from './relations'
 import { rebuildSnapshot } from './rebuild'
+import { ancestorPaths } from './relations'
 
 installMobxWarnTrap()
 
@@ -873,6 +873,11 @@ function countedOutside(fn: () => void): OutsideCount {
       return result
     }
   const one = (): number => 1
+  // POD-4569: the visible collection's set (`pool.visible`) is not a relation
+  // bucket; a row entering the worklist adds its id there, one element per
+  // membership flip either way (`counters.membershipFlips`).
+  const bucketOnly = (self: unknown): number =>
+    (self as { name_?: string }).name_ === 'pool.visible' ? 0 : 1
   const length = (self: unknown): number => (self as unknown[]).length
   const countingIterator = (it: Iterator<unknown>, tick: () => void): IterableIterator<unknown> => {
     const counting: IterableIterator<unknown> = {
@@ -912,8 +917,8 @@ function countedOutside(fn: () => void): OutsideCount {
       source !== null &&
       Object.getPrototypeOf(source) === observableSetProto)
   const patches: [Patched, PropertyKey, After][] = [
-    [set, 'add', counted('added', one)],
-    [set, 'delete', counted('deleted', one)],
+    [set, 'add', counted('added', bucketOnly)],
+    [set, 'delete', counted('deleted', bucketOnly)],
     [
       set,
       'values',

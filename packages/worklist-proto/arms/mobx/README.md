@@ -12,8 +12,9 @@ Built on the declared schema (`shared/src/schema.ts`, L1a), fed row by row
 by the kernel feed (`shared/src/row-source.ts`, `overlaid` mode), handing
 each row its L1b `RowView` (`shared/src/row-view.ts`). Phase a1 (POD-4565)
 holds the tables and the row views; Ma2 (POD-4566) maintains every declared
-relation; Ma3 (POD-4567) keeps cold rows out until something reads them; the
-visible collection, order, groups and roll-ups (Mb1-Mb3) come next.
+relation; Ma3 (POD-4567) keeps cold rows out until something reads them;
+Mb1 (POD-4569) builds the visible collection and its order; groups and
+roll-ups (Mb2-Mb3) come next.
 
 ### Idiom
 
@@ -97,12 +98,27 @@ visible collection, order, groups and roll-ups (Mb1-Mb3) come next.
   installs it and the sessions that inherited coldness from it at once. A
   resident row never goes cold except on `replace`, which re-partitions.
 
+- **Visible collection and order** (`pool/worklist/visible.ts`, Mb1): R-VIS
+  (slice spec §3, executable in the oracle) as parts on one node per KNOWN
+  issue, hot or cold (`IssueNode`), and one per member session
+  (`SessionNode`): own-row standing, R2+R3 members, retention against the
+  clock's deadlines, the flat pass, the rescue read down `children`
+  (`keeps`/`keptBelow`), and nesting (nearest present ancestor, the started-by
+  fallback). A cold row is read by id through the feed (`MobxPool.coldRow`,
+  counted, tracked by residency's per-id atom); it is loaded only when drawn.
+  The set of visible ids is MAINTAINED by one reaction per node (nodes follow
+  each event's issue records, `MobxPool.syncWorklist`); the order is a
+  computed `compareRank` sort of the visible nodes' cached ranks, reading no
+  row. The lists draw `worklist.order`; a cold visible row is a placeholder
+  outside `RowShell` until its load lands.
+
 ### The enumeration module
 
 `pool/enumerate.ts` is the ONE module that walks a whole table
 (`fence.json` `enumeration`; the lint's `no-table-walk` refuses a walk
-anywhere else in `pool/`): `issueIdsOf` (every issue id, for the a1 list and
-`snapshot()`, until Mb1's visible collection) and `reseed` (a `replace`).
+anywhere else in `pool/`): `issueIdsOf` (every resident issue id),
+`knownIssueIds` (every known issue id, hot or cold, which the visible
+collection syncs its nodes to at a `replace`) and `reseed` (a `replace`).
 It also holds the from-scratch relation resolution the live pool never
 runs: `scanRelations` (the rebuild's relations: the declared resolvers over
 whole tables) and `diffRelations` (the live engine against that scan, for

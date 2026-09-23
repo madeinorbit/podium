@@ -3,12 +3,16 @@
  * the pool that walks a whole table. The lint fence (`no-table-walk`)
  * refuses a table walk anywhere else in `pool/`.
  *
- * Two walks, both membership-sized by nature:
- * - `issueIdsOf`: every RESIDENT issue id, for the Ma1 list and `snapshot()`.
- *   Mb1 (POD-4569) replaces it with the visible collection. It iterates the
- *   fenced table's KEYS, which count each id without reading its value
- *   (POD-4621), so the enclosing computed subscribes to membership only (a
- *   rename does not re-run it) and the walk costs what it walks.
+ * Three walks, all membership-sized by nature:
+ * - `issueIdsOf`: every RESIDENT issue id (`MobxPool.issueIds`: the
+ *   rebuild's residency input and the tests). The worklist no longer reads it
+ *   (POD-4569). It iterates the fenced table's KEYS, which count each id
+ *   without reading its value (POD-4621), so the enclosing computed
+ *   subscribes to membership only and the walk costs what it walks.
+ * - `knownIssueIds` (POD-4569): every issue id the pool knows, hot or cold,
+ *   which the visible collection (`worklist/visible.ts`) syncs its nodes to
+ *   at a `replace`. An update syncs only the ids it names: the collection is
+ *   maintained, never re-enumerated.
  * - `reseed`: a `replace` publication (bootstrap, principal switch, rescope)
  *   installs the new slice and removes every row it does not name, in the
  *   caller's single action. In the live pool it re-partitions residency
@@ -57,6 +61,18 @@ import {
 /** Every issue id in the pool; tracked on membership, counted per id. */
 export function issueIdsOf(pool: { readonly fenced: PoolTables }): string[] {
   return [...pool.fenced.issue.keys()]
+}
+
+/**
+ * Every issue id the pool KNOWS (POD-4569): the resident ones (the fenced
+ * table's keys) and the cold ones (the registry). The visible collection
+ * syncs its nodes to it at a `replace`; an update syncs only the ids it names.
+ */
+export function knownIssueIds(pool: {
+  readonly fenced: PoolTables
+  readonly residency: Residency | null
+}): string[] {
+  return [...pool.fenced.issue.keys(), ...(pool.residency?.ids('issue') ?? [])]
 }
 
 /**

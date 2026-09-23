@@ -331,13 +331,13 @@ describe('correctness gate (L4b), rebuild-only', () => {
         relationChecked.snapshots = 0
         relationChecked.cold = emptyTally()
         const result = await checkArm(relationChecked, sequence, { oracleEvery: 0 })
-        expect(relationChecked.snapshots).toBeGreaterThan(STEPS)
         if (!result.ok) {
           throw new Error(
             `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
               `shrunk:\n${describeSequence(result.shrunk)}`,
           )
         }
+        expect(relationChecked.snapshots).toBeGreaterThan(STEPS)
         const cold = { ...relationChecked.cold }
         // The run must have exercised cold rows, or its green says nothing about them.
         expect(cold.coldWrites, `seed ${seed} touched no cold row`).toBeGreaterThan(0)

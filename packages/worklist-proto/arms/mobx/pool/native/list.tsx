@@ -1,24 +1,28 @@
 /**
- * POD-4565 (Ma1) — the pool's native list (React Native primitives): the same
- * observation discipline as the web list (`../react/list.tsx`). Loaded
- * lazily by `../arm.ts` so the node lanes never parse `react-native`.
+ * POD-4565 (Ma1), POD-4569 (Mb1) — the pool's native list (React Native
+ * primitives): the same visible rows, order and observation discipline as
+ * the web list (`../react/list.tsx`). Loaded lazily by `../arm.ts` so the
+ * node lanes never parse `react-native`.
  */
 
 import { observer } from 'mobx-react-lite'
 import type { ReactElement } from 'react'
-import { ScrollView } from 'react-native'
+import { ScrollView, View } from 'react-native'
 import { RowShell } from '../../../../shared/src/row-shell'
-import type { IssueModel } from '../models'
 import type { MobxPool } from '../pool'
 import { PoolNativeRow } from './row'
 
 const PoolNativeSlot = observer(function PoolNativeSlot({
-  model,
+  pool,
+  id,
 }: {
-  model: IssueModel
+  pool: MobxPool
+  id: string
 }): ReactElement | null {
-  const view = model.view
-  if (view === undefined) return null
+  const view = pool.issue(id)?.view
+  if (view === undefined) {
+    return pool.resident('issue', id) === 'loading' ? <View testID={`loading-${id}`} /> : null
+  }
   return <RowShell row={view} component={PoolNativeRow} />
 })
 
@@ -29,10 +33,9 @@ const PoolNativeList = observer(function PoolNativeList({
 }): ReactElement {
   return (
     <ScrollView testID="mobx-pool-list">
-      {pool.issueIds.map((id) => {
-        const model = pool.issue(id)
-        return model === undefined ? null : <PoolNativeSlot key={id} model={model} />
-      })}
+      {pool.worklist.order.map((id) => (
+        <PoolNativeSlot key={id} pool={pool} id={id} />
+      ))}
     </ScrollView>
   )
 })

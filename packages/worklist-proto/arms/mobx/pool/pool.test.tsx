@@ -394,11 +394,13 @@ describe('dispose', () => {
       r.handle.mountWeb(el)
     })
     const { pool } = r.handle
-    expect(el.querySelectorAll('[data-issue-row]').length).toBe(openIssues.length)
-    const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
-    expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(
-      openIssues.length / 2,
+    // Mb1 (POD-4569): the list draws the visible rows; cold ones wait for their load.
+    const visibleHot = tracked(
+      () => pool.worklist.order.filter((id) => pool.tables.issue.has(id)).length,
     )
+    expect(el.querySelectorAll('[data-issue-row]').length).toBe(visibleHot)
+    const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
+    expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(visibleHot / 2)
     // A reader asked for a cold row: queued, and disposal must drop the
     // queue with everything else.
     const closed = corpus.sliceIssues.find((issue) => issue.closedAt != null)!
@@ -408,7 +410,8 @@ describe('dispose', () => {
     r.locals.set({ selectedIssueId: models[0]!.id })
     r.locals.flush()
     expect(r.listeners()).toBe(2)
-    expect(getObserverTree(pool, 'issueIds').observers?.length ?? 0).toBeGreaterThan(0)
+    expect(getObserverTree(pool.worklist, 'order').observers?.length ?? 0).toBeGreaterThan(0)
+    expect(pool.worklist.size('issue')).toBeGreaterThan(0)
 
     await act(async () => {
       r.dispose()
@@ -422,7 +425,9 @@ describe('dispose', () => {
       expect(getObserverTree(pool.tables[entity]).observers ?? [], entity).toEqual([])
     }
     expect(tracked(() => pool.selection.size)).toBe(0)
-    expect(getObserverTree(pool, 'issueIds').observers ?? []).toEqual([])
+    expect(getObserverTree(pool.worklist, 'order').observers ?? []).toEqual([])
+    expect(pool.worklist.size('issue')).toBe(0)
+    expect(pool.worklist.size('session')).toBe(0)
     for (const model of models) expect(getObserverTree(model, 'view').observers ?? []).toEqual([])
     expect(pool.clock.waiting).toBe(0)
     expect(pool.residency?.hasQueued()).toBe(false)

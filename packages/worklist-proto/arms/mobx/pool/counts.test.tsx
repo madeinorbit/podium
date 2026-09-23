@@ -12,13 +12,13 @@
  * entry with every scenario and parity is Mb4's (POD-4572; coordinator
  * correction of 2026-09-23).
  *
- * THE COMMIT FENCE is asserted on #1-#3. #1 (Ma3): the heartbeat's closed
+ * THE COMMIT FENCE is asserted on #1-#4. #1 (Ma3): the heartbeat's closed
  * root and its session are cold, so the heartbeat is a registry write and the
  * list never drew the row. #2 and #3 change exactly the visible root the
- * oracle names. #4's commit cell is written, not asserted: #4 renames an
- * origin, its hidden spin-off (`i933`, open, so resident) redraws its ⤷
- * tick, and the a1 list draws every resident issue; the visible collection
- * is Mb1's (POD-4569), which asserts it.
+ * oracle names. #4 (POD-4569): the rename's hidden spin-off (`i933`, open,
+ * so resident) still re-derives its ⤷ tick, but the list now draws only the
+ * visible collection, so it is never drawn; `worklist/visible.test.tsx`
+ * shows a list that draws hidden rows failing #1 and #4.
  *
  * #2 BEFORE AND AFTER (POD-4568). Before this issue an issue's `activityAt`
  * and draft title read every member session's ROW on any member's change:
@@ -71,7 +71,7 @@ const STEPS: readonly { methodology: string; commits: boolean }[] = [
   { methodology: '#1', commits: true },
   { methodology: '#2', commits: true },
   { methodology: '#3', commits: true },
-  { methodology: '#4', commits: false },
+  { methodology: '#4', commits: true },
 ]
 
 /**
@@ -108,7 +108,7 @@ describe('fence steps #1-#4', () => {
         cells.push({
           methodology: result.methodology,
           scenario: result.scenario,
-          commitFence: step.commits ? 'asserted' : 'Mb1 (the a1 list draws hidden rows)',
+          commitFence: step.commits ? 'asserted' : 'not asserted',
           oracleChanged: result.oracleChangedRows,
           drawn: result.drawnRows,
           oracleVisible: Object.fromEntries(
@@ -217,12 +217,15 @@ describe('fence steps #1-#4', () => {
       expect(target, 'a cold issue with two sessions').not.toBeNull()
       const hydrated = pool.residency!.counters.hydrated
       const two = await step('#2')
-      // The load lands inside #2, and the reads fence names what it cost:
-      // the resident-issue list re-runs over the table the loaded issue
-      // joined (M3 §6.3 arm B: 2,839 reads, 2,833 of them issue iterations).
+      // The load lands inside #2, and the reads fence names what it cost. In
+      // the a phase that was the resident-issue list re-running over the
+      // table the loaded issue joined (M3 §6.3 arm B: 2,839 reads); since Mb1
+      // (POD-4569) the list is the maintained visible collection, which does
+      // not re-enumerate, so the charge is the load and what the plant reads
+      // after it: still over the budget, inside the step.
       expect(pool.residency!.counters.hydrated - hydrated, 'rows loaded in #2').toBeGreaterThan(0)
       expect(two.readsBudget).toBe(3)
-      expect(two.result.reads?.byEntity.issue).toBeGreaterThan(two.readsBudget)
+      expect(two.result.readsPerChange).toBeGreaterThan(two.readsBudget)
       expect(() => assertReads(two.result, { readsPerChange: two.readsBudget })).toThrow(
         `read ${two.result.readsPerChange} rows, budget ${two.readsBudget}`,
       )

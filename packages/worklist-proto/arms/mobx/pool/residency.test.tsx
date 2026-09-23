@@ -188,7 +188,13 @@ describe('bootstrap', () => {
     expect(built['pool.session']).toBe(hotSessions.length)
     expect(pool.stats.counters.modelsCreated).toBe(0)
     expect(pool.residency?.counters.requests).toBe(0)
-    expect(r.loads).toEqual([])
+    // Mb1 (POD-4569): the visible collection answers every cold row's
+    // visibility by reading it once by id through the feed; none is loaded
+    // (no slot, no model, no request above), and no hot row is read that way.
+    expect(r.loads.filter((key) => !isColdKey(pool, key))).toEqual([])
+    expect(new Set(r.loads.filter((key) => key.startsWith('issue:'))).size).toBe(
+      corpus.sliceIssues.length - hotIssues.length,
+    )
     expect(diffResidency(pool, r.replay.source)).toEqual([])
 
     // The same bootstrap with every row resident (the Ma2 pool), for the record.
@@ -238,24 +244,42 @@ describe('bootstrap', () => {
     const drawn = [...el.querySelectorAll('[data-issue-row]')].map((row) =>
       row.getAttribute('data-issue-row'),
     )
-    expect(drawn.length).toBe(hotIssues.length)
+    // Mb1 (POD-4569): the list draws the VISIBLE rows; a cold one is a
+    // loading placeholder until its load lands, so the rows drawn are the
+    // visible hot ones.
+    const visibleHot = tracked(() => pool.worklist.order.filter((id) => pool.tables.issue.has(id)))
+    expect(drawn).toEqual(visibleHot)
     // A drawn row's activity re-composes from its member sessions' cached
     // values (POD-4568), so its resident members get a model too: models ==
-    // rows drawn + their resident member sessions, nothing else.
+    // rows drawn + the resident origins they tick + their resident member
+    // sessions, nothing else.
     const members = new Set(
       tracked(() => drawn.flatMap((id) => pool.issue(id!)?.sessionIds ?? [])).filter(
         (id) => tracked(() => pool.resident('session', id)) === 'resident',
       ),
     )
     expect(members.size).toBeGreaterThan(0)
-    expect(pool.modelCount('issue')).toBe(drawn.length)
+    // A drawn spin-off's ⤷ tick reads its origin's parts, so a RESIDENT origin
+    // the list hides gets a model too (Mb1: the list no longer draws every
+    // resident issue).
+    const drawnSet = new Set(drawn)
+    const origins = new Set(
+      tracked(() =>
+        drawn.flatMap((id) => {
+          const origin = pool.issue(id!)?.originId
+          return origin != null && !drawnSet.has(origin) ? [origin] : []
+        }),
+      ),
+    )
+    const issueModels = drawn.length + origins.size
+    expect(pool.modelCount('issue')).toBe(issueModels)
     expect(pool.modelCount('session')).toBe(members.size)
-    expect(pool.stats.counters.modelsCreated).toBe(drawn.length + members.size)
+    expect(pool.stats.counters.modelsCreated).toBe(issueModels + members.size)
     // No cold row got a model, and none was drawn.
     for (const issue of corpus.sliceIssues) {
       if (isClosed(issue)) expect(tracked(() => pool.resident('issue', issue.id))).toBe('loading')
     }
-    expect(pool.modelCount('issue')).toBe(drawn.length)
+    expect(pool.modelCount('issue')).toBe(issueModels)
     await act(async () => {
       unmount()
     })
@@ -263,10 +287,18 @@ describe('bootstrap', () => {
   })
 })
 
+/** Whether a `kind:id` read names a row the pool holds cold. */
+function isColdKey(pool: MobxPool, key: string): boolean {
+  const [kind, id] = key.split(':') as ['issue' | 'session', string]
+  return pool.residency?.isCold(kind, id) === true
+}
+
 describe('the loader', () => {
   it('loads every row asked for inside one 50 ms window through the per-row read, in one action', () => {
     const r = rig()
     const { pool } = r
+    // The bootstrap's visibility reads of cold rows (Mb1) are not loads.
+    r.loads.length = 0
     const [a, b] = corpus.sliceIssues.filter(isClosed)
     const seen: string[] = []
     const watch = autorun(() => {
@@ -333,6 +365,25 @@ describe('the loader', () => {
     expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
     r.fire()
     expect(tracked(() => pool.issue(closed.id)?.view?.title)).toBe('Renamed while cold')
+  })
+
+  it('a cold row read by a derivation stays tracked across an untracked residency check (POD-4569)', () => {
+    const r = rig()
+    const { pool } = r
+    const closed = corpus.sliceIssues.find(isClosed)!
+    // A long-lived derivation reads the cold row by id (as a visibility node does).
+    const titles: (string | undefined)[] = []
+    const watch = autorun(() => {
+      titles.push((pool.coldRow('issue', closed.id) as { title?: string } | undefined)?.title)
+    })
+    try {
+      // An untracked check between steps (the gate's partition check asks this).
+      expect(pool.residency?.known('issue', closed.id)).toBe(true)
+      r.push({ type: 'update', rows: [issueRecord(closed.id, { title: 'Renamed while cold' })] })
+      expect(titles.at(-1)).toBe('Renamed while cold')
+    } finally {
+      watch()
+    }
   })
 
   it('leaves a row whose read finds nothing cold until its removal arrives', () => {

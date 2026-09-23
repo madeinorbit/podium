@@ -11,19 +11,20 @@
  * the checker holds the live pool's incremental relation maintenance to a
  * from-scratch resolution, and its derivations to themselves.
  *
- * RESIDENCY (POD-4567). The live pool's output holds its RESIDENT issues, and
- * which cold rows it has loaded is the user's history, like the selection, so
- * it comes in as an input: `resident`, the pool's resident issue ids. The
- * rebuild's rows are every issue the schema's rule keeps hot (`coldByRule`
- * over the feed's rows, the function the pool partitions with) plus the
- * resident ones that still exist. A hot issue the pool failed to hold, or a
- * removed one it kept, is a row-set difference. Every row reads full data
- * (`loading` is always false): the live `snapshot()` settles its loads first.
+ * VISIBILITY (POD-4569). The rows are the VISIBLE issues, decided from
+ * scratch by the same part functions the live nodes memoize
+ * (`worklist/visible.ts` `directVisibility`, memoized per id for this one
+ * pass), over every row the feed holds, cold ones included; the pinned ids
+ * in L1b rank order. So the live collection's maintenance (its reactions,
+ * its cold-row reads, its node syncing) is held to a from-scratch answer.
+ * Residency no longer shapes the row set: the live `snapshot()` loads every
+ * visible cold row and settles first, and every row here reads full data
+ * (`loading` is always false). `resident` is accepted and unused (the
+ * checker's call shape).
  */
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { sliceRowOf } from '../../../shared/src/row-view'
-import { coldByRule, type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
 import { scanRelations } from './enumerate'
 import { createPlainTables, ingestOut, ingestRecord } from './tables'
@@ -34,11 +35,19 @@ import {
   sessionActivityOf,
   type ViewInputs,
 } from './views'
+import {
+  directSessionVisibility,
+  directVisibility,
+  type IssueVisibility,
+  type SessionVisibility,
+  sortByRank,
+  type VisibleInputs,
+} from './worklist/visible'
 
 export function rebuildSnapshot(
   source: RowSource,
   locals: LocalsSource,
-  resident?: ReadonlySet<string>,
+  _resident?: ReadonlySet<string>,
 ): SliceSnapshot {
   const tables = createPlainTables()
   const target = { read: tables, write: tables }
@@ -62,15 +71,41 @@ export function rebuildSnapshot(
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
-  const coldTarget = (to: EntityName, id: string): boolean => {
-    const row = tables[to].get(id)
-    return row !== undefined && coldByRule(SCHEMA, to, row, coldTarget)
+  const memo = new Map<string, IssueVisibility>()
+  const sessions = new Map<string, SessionVisibility>()
+  const visibleInputs: VisibleInputs = {
+    relations: inputs.relations,
+    issueRow: inputs.issue,
+    sessionRow: inputs.session,
+    issue: (id) => (tables.issue.has(id) ? directVisibility(visibleInputs, id, memo) : undefined),
+    session: (id) => {
+      let parts = sessions.get(id)
+      if (parts === undefined) {
+        parts = directSessionVisibility(visibleInputs, id)
+        sessions.set(id, parts)
+      }
+      return parts
+    },
+    passed: inputs.passed,
+    reached: inputs.reached,
   }
+  const visible = issues
+    .map(({ id }) => id)
+    .filter((id) => directVisibility(visibleInputs, id, memo).visible)
+  const order = sortByRank(visible, (id) => directVisibility(visibleInputs, id, memo).rank)
   const rowsById: SliceSnapshot['rowsById'] = {}
-  for (const { id } of issues) {
-    if (resident !== undefined && !resident.has(id) && coldTarget('issue', id)) continue
+  const pinnedIds: string[] = []
+  for (const id of order) {
     const view = buildRowView(inputs, id, directParts(inputs, id))
-    if (view !== undefined) rowsById[id] = sliceRowOf(view)
+    if (view === undefined) continue
+    rowsById[id] = sliceRowOf(view)
+    if (view.pinned) pinnedIds.push(id)
   }
-  return { order: { pinnedIds: [], groups: [] }, rowsById }
+  return { order: { pinnedIds, groups: [] }, rowsById }
+}
+
+/** The visible ids in rank order, from scratch (tests: the live `worklist.order` against it). */
+export function rebuildOrder(source: RowSource, locals: LocalsSource): string[] {
+  const snapshot = rebuildSnapshot(source, locals)
+  return Object.keys(snapshot.rowsById)
 }

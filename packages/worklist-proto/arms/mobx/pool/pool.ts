@@ -60,7 +60,7 @@ import type {
 } from '../../../shared/src/slice-types'
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import { DeadlineClock } from './clock'
-import { issueIdsOf, reseed } from './enumerate'
+import { issueIdsOf, knownIssueIds, reseed } from './enumerate'
 import { type EntityModel, MODEL_CLASSES, type ModelOf, type SessionModel } from './models'
 import { PoolRelations, type ReadableTables } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
@@ -73,9 +73,10 @@ import {
   type PoolTables,
 } from './tables'
 import type { RepoRow, ViewInputs } from './views'
+import { VisibleCollection, type VisibleCounters, type VisibleInputs } from './worklist/visible'
 
 /** The pool's own counters, beside the shared `ArmStats`. */
-export interface PoolCounters {
+export interface PoolCounters extends VisibleCounters {
   /** Models built (first access). Zero after bootstrap until something reads. */
   modelsCreated: number
   /** Table slots written (set to a different object, or deleted). */
@@ -98,6 +99,11 @@ function createStats(residency: Residency | null): PoolStats {
     tableWrites: 0,
     rowsRemoved: 0,
     bucketElements: 0,
+    issueNodes: 0,
+    sessionNodes: 0,
+    orderSorts: 0,
+    orderElements: 0,
+    membershipFlips: 0,
   }
   const stats: PoolStats = {
     rowsDerived: 0,
@@ -114,6 +120,11 @@ function createStats(residency: Residency | null): PoolStats {
       counters.tableWrites = 0
       counters.rowsRemoved = 0
       counters.bucketElements = 0
+      counters.issueNodes = 0
+      counters.sessionNodes = 0
+      counters.orderSorts = 0
+      counters.orderElements = 0
+      counters.membershipFlips = 0
       if (residency !== null) {
         const r = residency.counters
         r.coldWrites = 0
@@ -146,8 +157,10 @@ export interface LazyMembers {
 /** Settle rounds before `snapshot()` gives up (a load that never lands). */
 const MAX_SETTLE_ROUNDS = 64
 
-/** The worklist's order until Mb1 builds the visible collection. */
-const EMPTY_ORDER = Object.freeze({ pinnedIds: Object.freeze([]), groups: Object.freeze([]) })
+/** No groups until Mb2 (POD-4570): the snapshot's order is the pinned ids alone. */
+const NO_GROUPS: SliceSnapshot['order']['groups'] = Object.freeze(
+  [],
+) as unknown as SliceSnapshot['order']['groups']
 
 /**
  * Run `read` inside a transient reaction and return its result, so reads made
@@ -185,6 +198,10 @@ export class MobxPool {
   readonly selection: ObservableMap<string, true>
   readonly clock: DeadlineClock
   readonly inputs: ViewInputs
+  /** What the visibility parts read (POD-4569, `worklist/visible.ts`). */
+  readonly visibleInputs: VisibleInputs
+  /** The visible collection and its order (POD-4569). */
+  readonly worklist: VisibleCollection
   readonly stats: PoolStats
   /** Residency (POD-4567); null when the pool holds every row. */
   readonly residency: Residency | null
@@ -287,7 +304,22 @@ export class MobxPool {
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
     }
-    makeObservable<MobxPool, 'models' | 'target' | 'selectedId' | 'select'>(this, {
+    this.visibleInputs = {
+      relations: this.relations,
+      issueRow: (id) =>
+        (fenced.issue.get(id) ?? this.coldRow('issue', id)) as SliceIssue | undefined,
+      sessionRow: (id) =>
+        (fenced.session.get(id) ?? this.coldRow('session', id)) as SliceSession | undefined,
+      issue: (id) => this.worklist.issue(id),
+      session: (id) => this.worklist.session(id),
+      passed: (t) => this.clock.passed(t),
+      reached: (t) => this.clock.reached(t),
+    }
+    this.worklist = new VisibleCollection({
+      visibleInputs: this.visibleInputs,
+      counters: stats.counters,
+    })
+    makeObservable<MobxPool, 'models' | 'target' | 'selectedId' | 'select' | 'syncWorklist'>(this, {
       tables: false,
       fenced: false,
       relations: false,
@@ -295,6 +327,10 @@ export class MobxPool {
       selection: false,
       clock: false,
       inputs: false,
+      visibleInputs: false,
+      worklist: false,
+      coldRow: false,
+      knows: false,
       stats: false,
       models: false,
       target: false,
@@ -316,9 +352,28 @@ export class MobxPool {
       snapshot: false,
       dispose: false,
       select: false,
+      syncWorklist: false,
     })
     runInAction(() => this.select(locals.selectedIssueId))
     residency?.onDue(() => this.hydrate())
+  }
+
+  /**
+   * TRACKED: a COLD row's current value, read by id through the feed and
+   * counted as a read (POD-4569): the visibility parts answer a closed
+   * issue without loading it. Tracked by residency's per-id atom, which
+   * reports every relink. Undefined when the row is not cold.
+   */
+  coldRow(entity: EntityName, id: string): object | undefined {
+    const residency = this.residency
+    if (residency === null || !residency.known(entity, id)) return undefined
+    this.reads.touch(entity, id, 'get')
+    return residency.read(entity, id)
+  }
+
+  /** Whether the pool knows the issue `id`, hot or cold (plain: maintenance, inside actions). */
+  knows(id: string): boolean {
+    return this.tables.issue.has(id) || this.residency?.isCold('issue', id) === true
   }
 
   /** Every RESIDENT issue id, in table order. Re-derived only when membership changes. */
@@ -428,11 +483,36 @@ export class MobxPool {
       if (event.type === 'replace') reseed(this.target, event.rows, out)
       else for (const record of event.rows) ingestRecord(this.target, record, out)
       this.graph.flush()
+      this.syncWorklist(event)
     })
     for (const [entity, id] of out.removed) this.models[entity].delete(id)
     this.stats.counters.tableWrites += out.writes
     this.stats.counters.rowsRemoved += out.removed.length
     if (out.writes > 0 || out.cold > 0) this.stats.notifications += 1
+  }
+
+  /**
+   * The visible collection's nodes follow the issues the event named (all of
+   * them at a `replace`: the one whole walk, `knownIssueIds`); a removed
+   * session drops its node. Inside the event's action.
+   */
+  private syncWorklist(event: RowSourceEvent): void {
+    const knows = (id: string) => this.knows(id)
+    if (event.type === 'replace') {
+      this.worklist.sync([...this.worklist.heldIds(), ...knownIssueIds(this)], knows)
+      this.worklist.forgetSessions(
+        (id) => this.tables.session.has(id) || this.residency?.isCold('session', id) === true,
+      )
+      return
+    }
+    const issues: string[] = []
+    for (const record of event.rows) {
+      if (record.kind === 'issue') issues.push(record.id)
+      else if (record.kind === 'session' && record.value === undefined) {
+        this.worklist.forgetSession(record.id)
+      }
+    }
+    if (issues.length > 0) this.worklist.sync(issues, knows)
   }
 
   /** One locals notification, one action: only the keys it names. */
@@ -448,20 +528,28 @@ export class MobxPool {
   }
 
   /**
-   * The Ma1 slice output: every RESIDENT issue's row, no order yet (Mb1).
-   * Settled: reading the rows queues the cold rows they reach, and those are
-   * loaded and the rows read again until nothing is queued, as a reader that
-   * waits out its loading state would see them.
+   * The slice output: every VISIBLE issue's row (POD-4569), the pinned ids in
+   * rank order, no groups yet (Mb2). Settled: a visible row that is cold is
+   * asked for (it loads, as a drawn row does), and reading the rows queues
+   * the cold rows they reach; those are loaded and the rows read again until
+   * nothing is queued, as a reader that waits out its loading state would
+   * see them.
    */
   snapshot(): SliceSnapshot {
     for (let round = 0; ; round += 1) {
       const snapshot = tracked(() => {
         const rowsById: SliceSnapshot['rowsById'] = {}
-        for (const id of this.issueIds) {
+        const pinnedIds: string[] = []
+        for (const id of this.worklist.order) {
           const view = this.issue(id)?.view
-          if (view !== undefined) rowsById[id] = sliceRowOf(view)
+          if (view === undefined) {
+            this.resident('issue', id)
+            continue
+          }
+          rowsById[id] = sliceRowOf(view)
+          if (this.worklist.issue(id)?.standing?.pinned === true) pinnedIds.push(id)
         }
-        return { order: EMPTY_ORDER as unknown as SliceSnapshot['order'], rowsById }
+        return { order: { pinnedIds, groups: NO_GROUPS }, rowsById }
       })
       if (this.residency?.hasQueued() !== true) return snapshot
       if (round >= MAX_SETTLE_ROUNDS) {
@@ -479,6 +567,7 @@ export class MobxPool {
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
     runInAction(() => {
+      this.worklist.clear()
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
       this.selection.clear()

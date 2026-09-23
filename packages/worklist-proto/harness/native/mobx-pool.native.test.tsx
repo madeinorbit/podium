@@ -6,9 +6,11 @@
  * heartbeat's session belongs to a closed root that the worklist hides; since
  * Ma3 (POD-4567) that root and its session are COLD, so the heartbeat only
  * relinks a registry entry and the list, which draws every RESIDENT issue,
- * never drew the row (Ma2 redrew it: its `activityAt` moved). Parity and
- * the counted scenarios are the web lane's (`arms/mobx/pool/counts.test.tsx`)
- * until the pool has an order (Mb1).
+ * never drew the row (Ma2 redrew it: its `activityAt` moved). Since Mb1
+ * (POD-4569) the list draws the visible collection in rank order, and a
+ * rename redraws visible rows only (its hidden spin-off is not drawn).
+ * Parity and the counted scenarios are the web lane's
+ * (`arms/mobx/pool/worklist/visible.test.tsx`).
  */
 
 import { act } from 'react'
@@ -40,8 +42,12 @@ describe('mobx pool on the native renderer', () => {
         },
         { timeout: 20_000, interval: 50 },
       )
-      const issues = tracked(() => handle.pool.issueIds.length)
-      expect(list?.querySelectorAll('[data-testid^="row-"]').length).toBe(issues)
+      // Mb1 (POD-4569): the list draws the VISIBLE collection. Visible rows
+      // that are cold draw as loading placeholders until their load lands.
+      const visible = tracked(() => handle.pool.worklist.order.length)
+      const drawn = list?.querySelectorAll('[data-testid^="row-"]').length ?? 0
+      const loading = list?.querySelectorAll('[data-testid^="loading-"]').length ?? 0
+      expect(drawn + loading).toBe(visible)
 
       mounted.log.reset()
       await act(async () => {
@@ -60,7 +66,11 @@ describe('mobx pool on the native renderer', () => {
         await writeTitleRename(ctx)
         feeds.flush()
       })
-      expect([...mounted.log.counts.keys()]).toContain(ctx.targets.visibleRootId)
+      // Only visible rows redraw: the rename's hidden spin-off is not drawn (#4).
+      const redrawn = [...mounted.log.counts.keys()]
+      expect(redrawn).toContain(ctx.targets.visibleRootId)
+      const shown = new Set(tracked(() => [...handle.pool.worklist.ids]))
+      expect(redrawn.filter((id) => !shown.has(id))).toEqual([])
     } finally {
       mounted.unmount()
       feeds.dispose()

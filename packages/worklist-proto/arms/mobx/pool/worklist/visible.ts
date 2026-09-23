@@ -1,0 +1,888 @@
+/**
+ * POD-4569 (Mb1) — the worklist's visible collection and its order, over the
+ * pool's graph.
+ *
+ * THE RULE IS NOT DEFINED HERE. Which issue earns a row is the slice spec's
+ * R-VIS (`docs/plans/pod-4441-round-two-slice.md` §3, "R-VIS — visible
+ * predicate"), whose executable definition is the legacy derivation the
+ * parity oracle runs (`buildUnifiedRows` and `nestStartedByIssues`,
+ * `client-core/src/viewmodels/slices/worklist/rows.ts`, with
+ * `sessionRetainsWorklistRow` / `issueVisibleInSidebar` from `visibility.ts`).
+ * The functions below are that rule re-expressed as parts over the graph,
+ * each citing the legacy line it follows. The order is L1b's `rankOf` /
+ * `compareRank` (`shared/src/row-view.ts`, spec R-ORDER), applied at view
+ * time over the visible set (audit §7: Linear sorts a collection when a view
+ * reads it).
+ *
+ * ONE RULE, TWO CALLERS (as `views.ts`). The live pool runs each part in its
+ * own computed on a node (`IssueNode`, `SessionNode`); the rebuild runs the
+ * same functions directly over plain maps (`directVisibility`, `rebuild.ts`).
+ *
+ * THE PARTS OF ONE ISSUE, each reading only its own inputs:
+ * - `standing`: the own row's facts (structural exclusion, finished, the
+ *   sessionless keep's inputs, the raw parent, the rank). Hot OR cold: a cold
+ *   row is read by id through the feed (`VisibleInputs.issueRow`), so a closed
+ *   issue's visibility is known without loading it (1x: 376 of 732 visible
+ *   rows are closed, so cold; POD-4569 NOTES).
+ * - `seatIds` (R2, `issue.sessions`) and `memberIds` (R2 then R3: the
+ *   sessions of `issue.worktree` with no `issueId`, `session-ownership.ts`
+ *   `indexSessionOwnership`): bucket reads, cached, so a member's change never
+ *   re-reads its family.
+ * - `retained` / `liveRoster` / `unread`: re-composed from each member's
+ *   cached part (`SessionNode.retention`, `.activityMs`) and the clock as
+ *   deadlines (`passed(t)`): a tick wakes only the rows whose deadline it
+ *   crosses.
+ * - `flat`: the flat pass (`rows.ts:59-107`).
+ * - `keeps` / `keptBelow`: the rescue (`rows.ts:121-158`) read DOWN the
+ *   children relation: a parent is kept by a child that is flat or kept, and
+ *   the walk passes through any non-excluded child. Composed from each child's
+ *   cached `keeps`, never a subtree walk.
+ * - `present`: has a row before nesting (flat, or rescued).
+ * - `nestParent` / `placed`: nesting (`nestStartedByIssues`, `rows.ts:254-359`)
+ *   decides whether a present row reaches the screen: a nested row shows
+ *   under its nest parent, a top-level one unless it is agent-audience
+ *   (`rows.ts:354`). The nest parent is the nearest PRESENT ancestor by the
+ *   raw `parentId` (`rows.ts:271-283`), else, for a parentless non-spin-off,
+ *   the present issue owning its `startedBySession` (`rows.ts:288-305`).
+ * - `visible` = `present && placed`.
+ * - `rank`: L1b `rankOf` over the own row (read by the order only).
+ *
+ * THE COLLECTION IS MAINTAINED, NOT RE-ENUMERATED. Every KNOWN issue (hot or
+ * cold) has a node and one reaction on its `visible`, which adds or deletes
+ * its id in one observable set. Nodes are created and disposed per changed
+ * issue record (`sync`); the only whole-table walk is `enumerate.ts`
+ * `knownIssueIds`, at a `replace`. So a membership change costs its own
+ * node's parts, never the table (a computed re-enumerating the table would
+ * count every id on every flip: POD-4621's `keys()` reads).
+ *
+ * THE ORDER is a computed over the set: the visible ids sorted by each node's
+ * cached `rank` (`compareRank`). It re-runs when membership changes or a
+ * VISIBLE row's rank changes (it reads only visible nodes' ranks), reads no
+ * row (ranks are cached), sorts exactly the visible ids, and is shallow-equal
+ * across runs that leave the order unchanged, so the list redraws only when
+ * the order moves, and then commits no row (keyed slots move).
+ */
+
+import {
+  compareShallow,
+  computed,
+  computedStruct,
+  type IReactionDisposer,
+  makeObservable,
+  type ObservableSet,
+  observable,
+  reaction,
+} from 'mobx'
+import type { RelationReader } from '../../../../shared/src/instrument/reads'
+import { compareRank, type RowRank, type RowView, rankOf } from '../../../../shared/src/row-view'
+import type { SliceIssue, SliceSession } from '../../../../shared/src/slice-types'
+import { bandOf, parseMs } from '../views'
+
+/** `SIDEBAR_FINISHED_GRACE_MS` (`visibility.ts:18`). */
+export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
+/** `SIDEBAR_FINISHED_UNREAD_WINDOW_MS` (`visibility.ts:22`). */
+export const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+/** Everything the visibility parts read. Tracked in the live pool; plain in the rebuild. */
+export interface VisibleInputs {
+  readonly relations: RelationReader
+  /** An issue's row, hot or cold (a cold one read by id through the feed); undefined when unknown. */
+  issueRow(id: string): SliceIssue | undefined
+  /** A session's row, hot or cold; undefined when unknown. */
+  sessionRow(id: string): SliceSession | undefined
+  /** Another issue's parts (its node in the live pool); undefined when unknown. */
+  issue(id: string): IssueVisibility | undefined
+  /** A session's parts (its node in the live pool). */
+  session(id: string): SessionVisibility
+  /** `coarseNow > t`. */
+  passed(t: number): boolean
+  /** `coarseNow >= t`. */
+  reached(t: number): boolean
+}
+
+// ------------------------------------------------------------ own-row facts
+
+/** The own row's facts the visibility parts read (`rows.ts:62-107`). */
+export interface Standing {
+  /** Archived, deleted, `proposed` or a system-owned stage (`rows.ts:62-69`). */
+  readonly excluded: boolean
+  /** `stage === 'done' || closedReason != null` (`rows.ts:82`). */
+  readonly finished: boolean
+  readonly agent: boolean
+  /** Human and planning / in_progress / review (`rows.ts:83-85`). */
+  readonly activeHuman: boolean
+  /**
+   * The sessionless keep, before the clock (`rows.ts:86-96`): `keep`
+   * (active human), `drop`, `fold` (a closed top-level issue: kept, no decay,
+   * `visibility.ts:30`), or `decay` (a finished formal child: kept inside the
+   * `issueVisibleInSidebar` window).
+   */
+  readonly sessionless: 'keep' | 'drop' | 'fold' | 'decay'
+  /** Rescue-eligible: human and not finished (`rows.ts:147`). */
+  readonly rescuable: boolean
+  /** The raw `parentId` (the nesting walk follows it through ANY issue, `rows.ts:276-283`). */
+  readonly parentId: string | null
+  /** Parentless, not a spin-off, with a `startedBySession`: the started-by fallback applies (`rows.ts:288`). */
+  readonly startedBy: string | null
+  /** A draft with no worktree: a vessel when it has live sessions (`isDraftAgentVessel`). */
+  readonly draftVessel: boolean
+  /** `issueFinishedAt` (`issues.ts:310`): `closedAt ?? updatedAt`, epoch ms. */
+  readonly finishedMs: number
+  /** The raw `readAt`, epoch ms, or null when absent or unparseable (the unread rollup). */
+  readonly readMs: number | null
+  readonly hasReadAt: boolean
+  readonly updatedMs: number | null
+  readonly deleted: boolean
+  readonly pinned: boolean
+}
+
+/** `isSystemOwnedIssueStage` (`model/src/entities/issue-vocabulary.ts:59`). */
+function systemOwnedStage(stage: string): boolean {
+  return stage === 'shipping'
+}
+
+/** `isClosedTopLevelIssue` (`slices/issues.ts:318-322`). */
+function closedTopLevel(issue: SliceIssue): boolean {
+  return issue.closedReason != null && !issue.parentId && issue.audience === 'human'
+}
+
+export function standingOf(issue: SliceIssue): Standing {
+  const excluded =
+    issue.archived === true ||
+    issue.deletedAt != null ||
+    issue.stage === 'proposed' ||
+    systemOwnedStage(issue.stage)
+  const finished = issue.stage === 'done' || issue.closedReason != null
+  const human = issue.audience === 'human'
+  const activeHuman =
+    human &&
+    (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
+  // `issueAwaitingMerge` reads branch and git state no slice row carries: never
+  // true here (`arms/mobx/rules.ts` `issueAwaitingMerge`, round two).
+  const sessionless = activeHuman
+    ? 'keep'
+    : !finished
+      ? 'drop'
+      : closedTopLevel(issue)
+        ? 'fold'
+        : !issue.parentId || issue.audience === 'agent'
+          ? 'drop'
+          : 'decay'
+  const spinOff = issue.deps?.some((dep) => dep.type === 'discovered-from') === true
+  const readRaw = typeof issue.readAt === 'string' ? Date.parse(issue.readAt) : Number.NaN
+  return {
+    excluded,
+    finished,
+    agent: issue.audience === 'agent',
+    activeHuman,
+    sessionless,
+    rescuable: human && !finished,
+    parentId: issue.parentId || null,
+    startedBy:
+      !issue.parentId && !spinOff && issue.startedBySession ? issue.startedBySession : null,
+    draftVessel: issue.draft === true && !issue.worktreePath,
+    finishedMs: parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
+    readMs: Number.isFinite(readRaw) ? readRaw : null,
+    hasReadAt: Boolean(issue.readAt),
+    updatedMs: parseMs(issue.updatedAt),
+    deleted: issue.deletedAt != null,
+    pinned: issue.pinned === true,
+  }
+}
+
+/** L1b `rankOf` over the own row: the fields it reads, band from the clock (spec R-ORDER). */
+export function rankPartOf(input: VisibleInputs, id: string): RowRank | undefined {
+  const issue = input.issueRow(id)
+  if (issue === undefined) return undefined
+  const placement: Pick<RowView, 'id' | 'band' | 'sortKey' | 'createdAt' | 'seq'> = {
+    id,
+    band: bandOf(issue, input),
+    sortKey: issue.sortKey ?? null,
+    createdAt: issue.createdAt,
+    seq: issue.seq,
+  }
+  return rankOf(placement as RowView)
+}
+
+// ------------------------------------------------------------ member sessions
+
+/**
+ * One session's part in its issue's visibility, without the clock and
+ * without its issue (`sessionRetainsWorklistRow`, `visibility.ts:44-70`). An
+ * idle session whose turn finished decays from its ISSUE's finish time when
+ * that issue is finished, so `finish` names the case and the issue part
+ * resolves it (`retainsAt`).
+ */
+export interface Retention {
+  /** `issueId`, raw: `undefined` makes the session R3 (prefix-owned) material. */
+  readonly issueId: string | null | undefined
+  readonly archived: boolean
+  /** Counts toward a row at all: not archived, not a shell (`isRowSeat`). */
+  readonly seat: boolean
+  readonly shell: boolean
+  readonly exited: boolean
+  /** `open`: never finished; `at`: finished at `ms`; `idleDone`: an idle finished turn. */
+  readonly finish:
+    | { readonly kind: 'open' }
+    | { readonly kind: 'at'; readonly ms: number }
+    | { readonly kind: 'idleDone'; readonly sinceRaw: string | null }
+  readonly unread: boolean
+  readonly readMs: number | null
+}
+
+/** `idleVerdictFinishedTurn` (`model/src/predicates/idle-verdict.ts:37-55`). */
+function finishedTurn(kind: unknown): boolean {
+  return kind === 'done' || kind === 'open_todos'
+}
+
+export function retentionOf(session: SliceSession | undefined): Retention | null {
+  if (session === undefined) return null
+  const state = session.agentState as
+    | (SliceSession['agentState'] & { idle?: { kind?: unknown } })
+    | undefined
+  const phase = state?.phase
+  const idleDone = phase === 'idle' && finishedTurn(state?.idle?.kind)
+  const finishedRaw = session.stoppedAt ?? (phase === 'ended' ? state?.since : undefined)
+  return {
+    issueId: session.issueId,
+    archived: session.archived === true,
+    seat: session.archived !== true && session.agentKind !== 'shell',
+    shell: session.agentKind === 'shell',
+    exited: session.status === 'exited',
+    finish: finishedRaw
+      ? { kind: 'at', ms: Date.parse(finishedRaw) || 0 }
+      : idleDone
+        ? { kind: 'idleDone', sinceRaw: state?.since ?? null }
+        : { kind: 'open' },
+    unread: session.unread === true,
+    readMs:
+      typeof session.readAt === 'string' && session.readAt ? Date.parse(session.readAt) || 0 : null,
+  }
+}
+
+/**
+ * Whether a session with `retention` keeps its row at the clock, its issue's
+ * `standing` resolving an idle finished turn (`visibility.ts:51-69`).
+ */
+function retains(
+  retention: Retention,
+  issue: SliceIssue | undefined,
+  standing: Standing | undefined,
+  input: Pick<VisibleInputs, 'passed'>,
+): boolean {
+  let finishedMs: number
+  if (retention.finish.kind === 'open') return true
+  if (retention.finish.kind === 'at') finishedMs = retention.finish.ms
+  else {
+    if (standing?.finished !== true) return true
+    const raw = issue?.closedAt ?? issue?.updatedAt ?? retention.finish.sinceRaw
+    if (!raw) return true
+    finishedMs = Date.parse(raw) || 0
+  }
+  if (retention.unread || retention.readMs === null) {
+    return !input.passed(finishedMs + FINISHED_UNREAD_WINDOW_MS)
+  }
+  return !input.passed(Math.max(finishedMs, retention.readMs) + FINISHED_GRACE_MS)
+}
+
+/** A session's `lastActiveAt`, epoch ms (the unread rollup). */
+export function activityMsOf(session: SliceSession | undefined): number | null {
+  if (session?.lastActiveAt === undefined || session.lastActiveAt === '') return null
+  const ms = Date.parse(session.lastActiveAt)
+  return Number.isFinite(ms) ? ms : null
+}
+
+// ------------------------------------------------------------------ parts
+
+/** One session's cached parts. */
+export interface SessionVisibility {
+  readonly retention: Retention | null
+  readonly activityMs: number | null
+  /** `session.issue` through the engine (members only: headless out, twins collapsed). */
+  readonly issueLink: string | null
+  /** `session.worktree` through the engine (the prefix relation). */
+  readonly worktreeLink: string | null
+}
+
+/** A session's parts computed directly (the rebuild). */
+export function directSessionVisibility(
+  input: Pick<VisibleInputs, 'relations' | 'sessionRow'>,
+  id: string,
+): SessionVisibility {
+  const row = input.sessionRow(id)
+  return {
+    retention: retentionOf(row),
+    activityMs: activityMsOf(row),
+    issueLink: input.relations.one('session', id, 'issue'),
+    worktreeLink: input.relations.one('session', id, 'worktree'),
+  }
+}
+
+/** One issue's parts (see the header). */
+export interface IssueVisibility {
+  readonly standing: Standing | undefined
+  readonly seatIds: readonly string[]
+  readonly memberIds: readonly string[]
+  readonly childIds: readonly string[]
+  readonly retained: boolean
+  readonly liveRoster: boolean
+  readonly unread: boolean
+  readonly flat: boolean
+  readonly keptBelow: boolean
+  readonly keeps: boolean
+  readonly present: boolean
+  readonly nestParent: string | null
+  readonly placed: boolean
+  readonly visible: boolean
+  readonly rank: RowRank | undefined
+}
+
+export function standingPartOf(input: VisibleInputs, id: string): Standing | undefined {
+  const issue = input.issueRow(id)
+  return issue === undefined ? undefined : standingOf(issue)
+}
+
+/** R2: the explicit members (`issue.sessions`: headless out, twins collapsed), id order. */
+export function seatIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
+  return [...input.relations.many('issue', id, 'sessions')].sort()
+}
+
+/**
+ * R2 then R3: the explicit members, then the sessions of the issue's
+ * worktree that carry no `issueId` (`indexSessionOwnership`,
+ * `session-ownership.ts:152-165`). Unfiltered: each reader applies its seat
+ * rule.
+ */
+export function memberIdsPartOf(
+  input: VisibleInputs,
+  id: string,
+  seatIds: readonly string[],
+): readonly string[] {
+  const worktree = input.relations.one('issue', id, 'worktree')
+  if (worktree === null) return seatIds
+  const members = new Set(seatIds)
+  for (const sessionId of input.relations.many('worktree', worktree, 'sessions')) {
+    const retention = input.session(sessionId).retention
+    if (retention !== null && retention.issueId === undefined) members.add(sessionId)
+  }
+  return members.size === seatIds.length ? seatIds : [...members].sort()
+}
+
+export function childIdsPartOf(input: VisibleInputs, id: string): readonly string[] {
+  return [...input.relations.many('issue', id, 'children')].sort()
+}
+
+/** ≥1 retained member session (`rows.ts:70-76`). */
+export function retainedPartOf(input: VisibleInputs, id: string, self: IssueVisibility): boolean {
+  const standing = self.standing
+  if (standing === undefined || standing.excluded) return false
+  let issue: SliceIssue | undefined
+  for (const sessionId of self.memberIds) {
+    const retention = input.session(sessionId).retention
+    if (retention === null || !retention.seat) continue
+    if (retention.finish.kind === 'idleDone' && standing.finished) {
+      issue ??= input.issueRow(id)
+    }
+    if (retains(retention, issue, standing, input)) return true
+  }
+  return false
+}
+
+/** A retained member still on the live roster (`sessionVisibleInLiveRoster`): a draft vessel's test. */
+export function liveRosterPartOf(input: VisibleInputs, id: string, self: IssueVisibility): boolean {
+  const standing = self.standing
+  if (standing === undefined) return false
+  let issue: SliceIssue | undefined
+  for (const sessionId of self.memberIds) {
+    const retention = input.session(sessionId).retention
+    if (retention === null || !retention.seat || retention.exited) continue
+    if (retention.finish.kind === 'idleDone' && standing.finished) {
+      issue ??= input.issueRow(id)
+    }
+    if (retains(retention, issue, standing, input)) return true
+  }
+  return false
+}
+
+/**
+ * The replica's unread rollup (`issue-views.ts:391-410`): never read, updated
+ * past the cursor, or an explicit non-shell seat (archived included) active
+ * past it; a deleted issue reads as read.
+ */
+export function unreadPartOf(input: VisibleInputs, self: IssueVisibility): boolean {
+  const standing = self.standing
+  if (standing === undefined || standing.deleted) return false
+  if (standing.readMs === null) return true
+  if (standing.updatedMs !== null && standing.updatedMs > standing.readMs) return true
+  for (const sessionId of self.seatIds) {
+    const session = input.session(sessionId)
+    if (session.retention === null || session.retention.shell) continue
+    const at = session.activityMs
+    if (at !== null && at > standing.readMs) return true
+  }
+  return false
+}
+
+/** The flat pass (`rows.ts:59-107`): retained sessions, else the sessionless keep. */
+export function flatPartOf(input: VisibleInputs, self: IssueVisibility): boolean {
+  const standing = self.standing
+  if (standing === undefined || standing.excluded) return false
+  if (self.retained) return true
+  switch (standing.sessionless) {
+    case 'keep':
+    case 'fold':
+      return true
+    case 'drop':
+      return false
+    case 'decay': {
+      // `issueVisibleInSidebar` (`visibility.ts:25-41`) for a finished child.
+      if (self.unread || !standing.hasReadAt) {
+        return !input.passed(standing.finishedMs + FINISHED_UNREAD_WINDOW_MS)
+      }
+      return !input.passed(Math.max(standing.finishedMs, standing.readMs ?? 0) + FINISHED_GRACE_MS)
+    }
+  }
+}
+
+/** Some child is flat or kept, through non-excluded children (`rows.ts:130-146`). */
+export function keptBelowPartOf(input: VisibleInputs, self: IssueVisibility): boolean {
+  for (const childId of self.childIds) {
+    if (input.issue(childId)?.keeps === true) return true
+  }
+  return false
+}
+
+/** What this issue gives its parent's rescue: not excluded, and flat or kept below. */
+export function keepsPartOf(self: IssueVisibility): boolean {
+  const standing = self.standing
+  if (standing === undefined || standing.excluded) return false
+  return self.flat || self.keptBelow
+}
+
+/** Has a row before nesting: flat, or a rescued live human ancestor (`rows.ts:121-158`). */
+export function presentPartOf(self: IssueVisibility): boolean {
+  if (self.flat) return true
+  const standing = self.standing
+  if (standing === undefined || standing.excluded || !standing.rescuable) return false
+  return self.keptBelow
+}
+
+/**
+ * The nearest present ancestor by the raw `parentId`, through any known issue
+ * (`rows.ts:271-283`); else, for a parentless non-spin-off, the present
+ * issue owning its `startedBySession` unless that one is a draft vessel
+ * (`rows.ts:288-305`, `issueIdOwningSession`, `session-ownership.ts:371-410`).
+ */
+export function nestParentPartOf(
+  input: VisibleInputs,
+  id: string,
+  self: IssueVisibility,
+): string | null {
+  const standing = self.standing
+  if (standing === undefined || !self.present) return null
+  // Cycle-safe like the legacy walk (`seenParents`, `rows.ts:273-281`).
+  const seen = new Set<string>([id])
+  let parentId = standing.parentId
+  while (parentId !== null) {
+    if (seen.has(parentId)) return null
+    seen.add(parentId)
+    const parent = input.issue(parentId)
+    if (parent === undefined) break
+    if (parent.present) return parentId
+    parentId = parent.standing?.parentId ?? null
+  }
+  if (standing.parentId !== null || standing.startedBy === null) return null
+  const owner = ownerOf(input, standing.startedBy)
+  if (owner === null || owner === id) return null
+  const candidate = input.issue(owner)
+  if (candidate?.standing?.draftVessel === true && candidate.liveRoster) return null
+  return owner
+}
+
+/**
+ * The present issue a session belongs to (`issueIdOwningSession` with the
+ * ownership index): its explicit issue when that one is present, else, for a
+ * session with no `issueId`, a present issue checked out at its worktree
+ * (lowest id: legacy takes the first in its list order, which no pool has).
+ */
+function ownerOf(input: VisibleInputs, sessionId: string): string | null {
+  // The session's CACHED parts, never its row: a heartbeat of a starter
+  // session re-runs none of the issues it started.
+  const session = input.session(sessionId)
+  const retention = session.retention
+  if (retention === null || retention.archived) return null
+  if (retention.issueId !== undefined) {
+    const issueId = session.issueLink
+    return issueId !== null &&
+      issueId === retention.issueId &&
+      input.issue(issueId)?.present === true
+      ? issueId
+      : null
+  }
+  const worktree = session.worktreeLink
+  if (worktree === null) return null
+  let owner: string | null = null
+  for (const issueId of input.relations.many('worktree', worktree, 'issues')) {
+    if (owner !== null && issueId > owner) continue
+    const issue = input.issue(issueId)
+    if (issue?.standing?.excluded === false && issue.present) owner = issueId
+  }
+  return owner
+}
+
+/** Reaches the screen: under a placed nest parent, or top-level and not agent-audience (`rows.ts:343-357`). */
+export function placedPartOf(input: VisibleInputs, self: IssueVisibility): boolean {
+  if (!self.present) return false
+  const parent = self.nestParent
+  if (parent !== null) return input.issue(parent)?.placed === true
+  return self.standing?.agent === false
+}
+
+// ----------------------------------------------------------- direct (rebuild)
+
+/**
+ * The parts of `id` computed directly (the rebuild), memoized per id for ONE
+ * rebuild only (`memo`): a from-scratch pass, like the legacy's own maps.
+ */
+export function directVisibility(
+  input: VisibleInputs,
+  id: string,
+  memo: Map<string, IssueVisibility>,
+): IssueVisibility {
+  const cached = memo.get(id)
+  if (cached !== undefined) return cached
+  const values = new Map<string, unknown>()
+  const once = <T>(key: string, compute: () => T): T => {
+    if (!values.has(key)) values.set(key, compute())
+    return values.get(key) as T
+  }
+  const parts: IssueVisibility = {
+    get standing() {
+      return once('standing', () => standingPartOf(input, id))
+    },
+    get seatIds() {
+      return once('seatIds', () => seatIdsPartOf(input, id))
+    },
+    get memberIds() {
+      return once('memberIds', () => memberIdsPartOf(input, id, parts.seatIds))
+    },
+    get childIds() {
+      return once('childIds', () => childIdsPartOf(input, id))
+    },
+    get retained() {
+      return once('retained', () => retainedPartOf(input, id, parts))
+    },
+    get liveRoster() {
+      return once('liveRoster', () => liveRosterPartOf(input, id, parts))
+    },
+    get unread() {
+      return once('unread', () => unreadPartOf(input, parts))
+    },
+    get flat() {
+      return once('flat', () => flatPartOf(input, parts))
+    },
+    get keptBelow() {
+      return once('keptBelow', () => keptBelowPartOf(input, parts))
+    },
+    get keeps() {
+      return once('keeps', () => keepsPartOf(parts))
+    },
+    get present() {
+      return once('present', () => presentPartOf(parts))
+    },
+    get nestParent() {
+      return once('nestParent', () => nestParentPartOf(input, id, parts))
+    },
+    get placed() {
+      return once('placed', () => placedPartOf(input, parts))
+    },
+    get visible() {
+      return once('visible', () => parts.present && parts.placed)
+    },
+    get rank() {
+      return once('rank', () => rankPartOf(input, id))
+    },
+  }
+  memo.set(id, parts)
+  return parts
+}
+
+/** Visible ids in L1b rank order (the rebuild's order; the live `order` sorts the same way). */
+export function sortByRank(
+  ids: Iterable<string>,
+  rankOfId: (id: string) => RowRank | undefined,
+): string[] {
+  const ranks = new Map<string, RowRank>()
+  for (const id of ids) {
+    const rank = rankOfId(id)
+    if (rank !== undefined) ranks.set(id, rank)
+  }
+  return [...ranks.keys()].sort((a, b) =>
+    compareRank(ranks.get(a) as RowRank, ranks.get(b) as RowRank),
+  )
+}
+
+// ----------------------------------------------------------------- live nodes
+
+/** What the nodes read from the pool. */
+export interface VisibleHost {
+  readonly visibleInputs: VisibleInputs
+  readonly counters: VisibleCounters
+}
+
+/** The collection's own counters (`MobxPool.stats.counters` carries them). */
+export interface VisibleCounters {
+  /** Issue nodes built (one per known issue, hot or cold). */
+  issueNodes: number
+  /** Session nodes built (first access). */
+  sessionNodes: number
+  /** Runs of the order computed. */
+  orderSorts: number
+  /** Ids sorted across those runs (the visible count per run). */
+  orderElements: number
+  /** Visible-set membership flips (an id added or deleted). */
+  membershipFlips: number
+}
+
+export class SessionNode implements SessionVisibility {
+  private readonly input: VisibleInputs
+
+  constructor(
+    readonly id: string,
+    host: VisibleHost,
+  ) {
+    this.input = host.visibleInputs
+    makeObservable<SessionNode, 'input'>(this, {
+      id: false,
+      input: false,
+      retention: computedStruct,
+      activityMs: computed,
+      issueLink: computed,
+      worktreeLink: computed,
+    })
+  }
+
+  get retention(): Retention | null {
+    return retentionOf(this.input.sessionRow(this.id))
+  }
+
+  get activityMs(): number | null {
+    return activityMsOf(this.input.sessionRow(this.id))
+  }
+
+  get issueLink(): string | null {
+    return this.input.relations.one('session', this.id, 'issue')
+  }
+
+  get worktreeLink(): string | null {
+    return this.input.relations.one('session', this.id, 'worktree')
+  }
+}
+
+export class IssueNode implements IssueVisibility {
+  private readonly input: VisibleInputs
+
+  constructor(
+    readonly id: string,
+    host: VisibleHost,
+  ) {
+    this.input = host.visibleInputs
+    makeObservable<IssueNode, 'input'>(this, {
+      id: false,
+      input: false,
+      standing: computedStruct,
+      seatIds: computedStruct,
+      memberIds: computedStruct,
+      childIds: computedStruct,
+      retained: computed,
+      liveRoster: computed,
+      unread: computed,
+      flat: computed,
+      keptBelow: computed,
+      keeps: computed,
+      present: computed,
+      nestParent: computed,
+      placed: computed,
+      visible: computed,
+      rank: computedStruct,
+    })
+  }
+
+  get standing(): Standing | undefined {
+    return standingPartOf(this.input, this.id)
+  }
+
+  get seatIds(): readonly string[] {
+    return seatIdsPartOf(this.input, this.id)
+  }
+
+  get memberIds(): readonly string[] {
+    return memberIdsPartOf(this.input, this.id, this.seatIds)
+  }
+
+  get childIds(): readonly string[] {
+    return childIdsPartOf(this.input, this.id)
+  }
+
+  get retained(): boolean {
+    return retainedPartOf(this.input, this.id, this)
+  }
+
+  get liveRoster(): boolean {
+    return liveRosterPartOf(this.input, this.id, this)
+  }
+
+  get unread(): boolean {
+    return unreadPartOf(this.input, this)
+  }
+
+  get flat(): boolean {
+    return flatPartOf(this.input, this)
+  }
+
+  get keptBelow(): boolean {
+    return keptBelowPartOf(this.input, this)
+  }
+
+  get keeps(): boolean {
+    return keepsPartOf(this)
+  }
+
+  get present(): boolean {
+    return presentPartOf(this)
+  }
+
+  get nestParent(): string | null {
+    return nestParentPartOf(this.input, this.id, this)
+  }
+
+  get placed(): boolean {
+    return placedPartOf(this.input, this)
+  }
+
+  get visible(): boolean {
+    return this.present && this.placed
+  }
+
+  get rank(): RowRank | undefined {
+    return rankPartOf(this.input, this.id)
+  }
+}
+
+/**
+ * The visible collection: one node per known issue, one reaction per node on
+ * its `visible`, one observable set of visible ids, and the order over it.
+ */
+export class VisibleCollection {
+  /** The visible ids, maintained by the nodes' reactions. Unordered. */
+  readonly ids: ObservableSet<string>
+  private readonly issues = new Map<string, { node: IssueNode; stop: IReactionDisposer }>()
+  private readonly sessions = new Map<string, SessionNode>()
+
+  constructor(private readonly host: VisibleHost) {
+    this.ids = observable.set<string>(undefined, { deep: false, name: 'pool.visible' })
+    makeObservable<VisibleCollection, 'issues' | 'sessions' | 'host'>(this, {
+      ids: false,
+      issues: false,
+      sessions: false,
+      host: false,
+      order: computed({ equals: compareShallow }),
+      issue: false,
+      session: false,
+      sync: false,
+      forgetSession: false,
+      forgetSessions: false,
+      heldIds: false,
+      size: false,
+      clear: false,
+    })
+  }
+
+  /**
+   * The visible ids in L1b rank order: a view-time sort of the visible set
+   * over each node's cached `rank`. Reads no row.
+   */
+  get order(): readonly string[] {
+    const counters = this.host.counters
+    counters.orderSorts += 1
+    counters.orderElements += this.ids.size
+    return sortByRank(this.ids, (id) => this.issues.get(id)?.node.rank)
+  }
+
+  /** The node of a known issue (hot or cold), else undefined. */
+  issue(id: string): IssueNode | undefined {
+    return this.issues.get(id)?.node
+  }
+
+  /** The node of a session, built on first access. */
+  session(id: string): SessionNode {
+    let node = this.sessions.get(id)
+    if (node === undefined) {
+      node = new SessionNode(id, this.host)
+      this.sessions.set(id, node)
+      this.host.counters.sessionNodes += 1
+    }
+    return node
+  }
+
+  /**
+   * Bring the nodes in line with whether each named issue is known (call
+   * inside the action that changed it): a newly known issue gets its node and
+   * reaction, a gone one loses both and leaves the set.
+   */
+  sync(ids: Iterable<string>, known: (id: string) => boolean): void {
+    for (const id of ids) {
+      const held = this.issues.get(id)
+      if (known(id)) {
+        if (held !== undefined) continue
+        const node = new IssueNode(id, this.host)
+        const counters = this.host.counters
+        const stop = reaction(
+          () => node.visible,
+          (visible) => {
+            if (visible === this.ids.has(id)) return
+            if (visible) this.ids.add(id)
+            else this.ids.delete(id)
+            counters.membershipFlips += 1
+          },
+          { fireImmediately: true, name: `pool.visible.${id}` },
+        )
+        this.issues.set(id, { node, stop })
+        counters.issueNodes += 1
+        continue
+      }
+      if (held === undefined) continue
+      held.stop()
+      this.issues.delete(id)
+      if (this.ids.delete(id)) this.host.counters.membershipFlips += 1
+    }
+  }
+
+  /** A session left: drop its node. */
+  forgetSession(id: string): void {
+    this.sessions.delete(id)
+  }
+
+  /** Drop the node of every session `known` no longer answers for (a `replace`). */
+  forgetSessions(known: (id: string) => boolean): void {
+    for (const id of [...this.sessions.keys()]) if (!known(id)) this.sessions.delete(id)
+  }
+
+  /** The issue ids holding a node (a `replace` re-syncs them with the known ids). */
+  heldIds(): string[] {
+    return [...this.issues.keys()]
+  }
+
+  /** Nodes held, per kind (tests: lifecycle). */
+  size(kind: 'issue' | 'session'): number {
+    return kind === 'issue' ? this.issues.size : this.sessions.size
+  }
+
+  /** Stop every reaction and forget every node (the pool's dispose; call inside an action). */
+  clear(): void {
+    for (const { stop } of this.issues.values()) stop()
+    this.issues.clear()
+    this.sessions.clear()
+    this.ids.clear()
+  }
+}

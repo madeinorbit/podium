@@ -396,7 +396,6 @@ export class Residency {
 
   private register(entity: EntityName, id: string, row: object): void {
     const ids = this.cold.get(entity) as Map<string, string | null>
-    const known = ids.has(id)
     const before = ids.get(id) ?? null
     const after = viaTargetOf(this.schema, entity, row)?.id ?? null
     ids.set(id, after)
@@ -405,7 +404,9 @@ export class Residency {
       if (before !== null) unindex(byTarget, before, id)
       if (after !== null) index(byTarget, after, id)
     }
-    if (!known) this.atoms.get(`${entity}:${id}`)?.reportChanged()
+    // A relink is a new value too: a derivation that read the cold row by id
+    // (`MobxPool.coldRow`, POD-4569) must see it.
+    this.atoms.get(`${entity}:${id}`)?.reportChanged()
   }
 
   private unregister(entity: EntityName, id: string): void {
@@ -425,15 +426,22 @@ export class Residency {
   private observe(entity: EntityName, id: string): void {
     const key = `${entity}:${id}`
     let atom = this.atoms.get(key)
+    let fresh = false
     if (atom === undefined) {
       const created = createAtom(`pool.cold.${key}`, undefined, () => {
         if (this.atoms.get(key) === created) this.atoms.delete(key)
       })
       this.atoms.set(key, created)
       atom = created
+      fresh = true
     }
-    // Outside any derivation nothing will observe it: do not keep it.
-    if (!atom.reportObserved()) this.atoms.delete(key)
+    // Outside any derivation nothing will observe an atom made just now: do
+    // not keep it. An atom made earlier is kept whatever this read is: a
+    // derivation may observe it, and dropping it would leave that derivation
+    // deaf to the row's next change (POD-4569: an untracked presence check
+    // between two steps, the gate's partition check, orphaned a visibility
+    // node's atom). It drops itself once unobserved (`onBecomeUnobserved`).
+    if (!atom.reportObserved() && fresh) this.atoms.delete(key)
   }
 }
 
