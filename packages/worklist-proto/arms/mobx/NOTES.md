@@ -50,6 +50,18 @@ change is POD-4665.
 - **The snapshot** is the visible rows in rank order, `pinnedIds` in rank
   order, no groups (Mb2). The rebuild decides visibility from scratch with the
   same part functions (`directVisibility`), over every row the feed holds.
+- **A row slot resolves its model on presence change only** (`react/list.tsx`,
+  `native/list.tsx`): an outer observer looks the row up (a counted presence
+  read) when it mounts or its row loads; the inner one observes the view. The
+  first version looked it up on every redraw, and #2 charged the redrawn root
+  (`i214`) as a second read.
+- **Residency bug found by the gate** (`residency.ts` `observe`): an untracked
+  presence check (the gate's relation scan, inside an action) DELETED a cold
+  row's atom that a visibility node still observed, so the node never saw the
+  row's next change (seed 1 step 6: a mark-read on the hidden finished child
+  `i1380` should have made it visible). An atom is now dropped only by the
+  call that made it; `residency.test.tsx` "a cold row read by a derivation
+  stays tracked..." fails with the old line.
 - **Not handled, named**: a started-by nesting cycle (legacy skips the edge
   that would close it, order-dependently); two present issues sharing a
   worktree that owns a starter session (legacy takes its list order, the
@@ -64,7 +76,7 @@ the rebuild, 0 own-row field differences.
 | step | oracle changed | drawn | reads / budget | order sorts | set flips |
 |---|---|---|---|---|---|
 | #1 heartbeat | none | none | 2 / 3 (session, worktree) | 0 | 0 |
-| #2 phase | i214 | i214 | 2 / 3 | 0 | 0 |
+| #2 phase | i214 | i214 | 1 / 3 (the changed session) | 0 | 0 |
 | #3 click | i214 | i214 | 1 / 3 | 0 | 0 |
 | #4 rename | i214 | i214 | 1 / 3 | 0 | 0 |
 | #5 stage move | i5 | i5 | 1 / 24 | 0 | 0 |
