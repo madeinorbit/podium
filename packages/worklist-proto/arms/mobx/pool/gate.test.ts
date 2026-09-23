@@ -17,14 +17,25 @@
  * view (`activityAt`, a draft's title) also fails the snapshot comparison.
  *
  * RESIDENCY (POD-4567). The pool holds only its resident rows, so the
- * relation check scans the FEED's current rows (`feedTables`: cold rows
- * included, which the engine links by id), and every compared step also
+ * relation check scans every row the pool KNOWS (`knownTables`: the feed's
+ * issues and sessions, cold ones included, which the engine links by id;
+ * the pool's own lanes and repos), and every compared step also
  * holds the hot/cold partition to the feed (`diffResidency`). The rebuild's
  * rows are the issues the rule keeps hot plus the ones the pool has loaded
  * (`rebuild.ts`). A second plant is deaf to updates of COLD rows only (a
  * cold row's reparent, removal or reopen never reaches the pool): it must
  * fail every seed too. The cells record how much each seed touched cold rows
  * (registry writes, loads, rows warmed by a reopen or removal).
+ *
+ * FULL-RESIDENCY CHECKPOINT (coordinator's safeguard). Passing the pool's
+ * resident set into the rebuild lets the rebuild lean on the state it checks.
+ * So at the end of every arm's life (each reload, and the run's end) the
+ * gated arm loads EVERY cold row, settles, and is held, with no input from
+ * the pool, to: no row left cold (a row that cannot load is one the pool
+ * should have forgotten), every relation against a scan, and its snapshot
+ * against a rebuild with every row resident. Its own NO: a third plant skips
+ * relation maintenance for updates of cold rows only, and with the per-step
+ * checks OFF, the checkpoint alone must fail it on every seed.
  *
  * FIDELITY. The fields Ma1 derives from the row, one hop and the locals are
  * compared with the oracle's row views (`rowViewsFromStore`) for every
@@ -39,13 +50,14 @@ import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
 import { countKinds, gen } from '../../../shared/src/gen/changes'
-import { checkArm, describeSequence } from '../../../shared/src/gen/check'
+import { checkArm, describeSequence, diffSnapshots } from '../../../shared/src/gen/check'
 import type { RowView } from '../../../shared/src/row-view'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
-import { diffRelations, diffResidency, feedTables } from './enumerate'
+import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { tracked } from './pool'
+import { rebuildSnapshot } from './rebuild'
 
 installMobxWarnTrap()
 
@@ -96,6 +108,23 @@ const coldDeaf: CheckableArm = {
   },
 }
 
+/**
+ * The checkpoint's plant: once bootstrapped, a COLD row's update skips
+ * relation maintenance (its registry entry still moves). Nothing else.
+ */
+const coldRelinkSkipped: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = mobxPoolArm.create(source, locals, reads)
+    const { graph, residency } = handle.pool
+    const changed = graph.changed.bind(graph)
+    graph.changed = (entity, id, prev, next) => {
+      if (residency?.isCold(entity, id) === true && next !== undefined) return
+      changed(entity, id, prev, next)
+    }
+    return handle
+  },
+}
+
 /** What the gated arms did with cold rows, summed over every arm a run created. */
 interface ColdTally {
   coldWrites: number
@@ -103,26 +132,67 @@ interface ColdTally {
   batches: number
   hydrated: number
   warmed: number
+  /** Full-residency checkpoints passed. */
+  checkpoints: number
 }
 
 function emptyTally(): ColdTally {
-  return { coldWrites: 0, requests: 0, batches: 0, hydrated: 0, warmed: 0 }
+  return { coldWrites: 0, requests: 0, batches: 0, hydrated: 0, warmed: 0, checkpoints: 0 }
+}
+
+/**
+ * The full-residency checkpoint: load every cold row, settle, then hold the
+ * pool to the feed with no input from the pool. Throws on any difference.
+ */
+function fullResidencyCheck(
+  handle: MobxPoolHandle,
+  source: RowSource,
+  locals: Parameters<CheckableArm['create']>[1],
+  label: string,
+): void {
+  const { pool } = handle
+  const residency = pool.residency
+  if (residency === null) throw new Error(`${label}: the pool has no residency`)
+  for (const entity of ['issue', 'session'] as const) {
+    for (const id of residency.ids(entity)) residency.request(entity, id)
+  }
+  pool.hydrate()
+  const settled = pool.snapshot()
+  const left = [...residency.ids('issue'), ...residency.ids('session')]
+  if (left.length > 0) {
+    throw new Error(
+      `full residency (${label}): ${left.length} rows never loaded: ${left.slice(0, 6).join(', ')}`,
+    )
+  }
+  const relations = runInAction(() => diffRelations(pool.graph, knownTables(pool, source)))
+  if (relations.length > 0) {
+    throw new Error(`full residency (${label}): relations diverged:\n${relations.join('\n')}`)
+  }
+  const diff = diffSnapshots(settled, rebuildSnapshot(source, locals))
+  if (diff !== null) throw new Error(`full residency (${label}): snapshot diverged:\n${diff}`)
 }
 
 /**
  * `arm`, with every relation checked against a scan of the feed and the
  * hot/cold partition checked against the feed, at each snapshot.
  */
-function checked(arm: CheckableArm): CheckableArm & { snapshots: number; cold: ColdTally } {
+function checked(
+  arm: CheckableArm,
+  checks: { perStep: boolean; full: boolean } = { perStep: true, full: true },
+): CheckableArm & { snapshots: number; cold: ColdTally } {
   const wrapper = {
     snapshots: 0,
     cold: emptyTally(),
-    create(source: RowSource, ...rest: [Parameters<CheckableArm['create']>[1], Parameters<CheckableArm['create']>[2]?]) {
-      const handle = arm.create(source, ...rest) as MobxPoolHandle
+    create(
+      source: RowSource,
+      locals: Parameters<CheckableArm['create']>[1],
+      reads?: Parameters<CheckableArm['create']>[2],
+    ) {
+      const handle = arm.create(source, locals, reads) as MobxPoolHandle
       const tally = (): void => {
         const counters = handle.pool.residency?.counters
         if (counters === undefined) return
-        for (const key of Object.keys(wrapper.cold) as (keyof ColdTally)[]) {
+        for (const key of Object.keys(counters) as (keyof typeof counters)[]) {
           wrapper.cold[key] += counters[key]
           counters[key] = 0
         }
@@ -133,9 +203,10 @@ function checked(arm: CheckableArm): CheckableArm & { snapshots: number; cold: C
           wrapper.snapshots += 1
           const { pool } = handle
           const settled = handle.snapshot()
+          if (!checks.perStep) return settled
           // In an action, not a reaction: the check reads every relation of
           // every row, and a reaction would subscribe to all of them.
-          const diff = runInAction(() => diffRelations(pool.graph, feedTables(source)))
+          const diff = runInAction(() => diffRelations(pool.graph, knownTables(pool, source)))
           if (diff.length > 0) {
             throw new Error(
               `relations diverged from the scan (snapshot ${wrapper.snapshots}):\n${diff.join('\n')}`,
@@ -151,8 +222,15 @@ function checked(arm: CheckableArm): CheckableArm & { snapshots: number; cold: C
           return settled
         },
         dispose() {
-          tally()
-          handle.dispose()
+          try {
+            if (checks.full) {
+              fullResidencyCheck(handle, source, locals, `after snapshot ${wrapper.snapshots}`)
+              wrapper.cold.checkpoints += 1
+            }
+          } finally {
+            tally()
+            handle.dispose()
+          }
         },
       }
     },
@@ -161,6 +239,13 @@ function checked(arm: CheckableArm): CheckableArm & { snapshots: number; cold: C
 }
 
 const relationChecked = checked(mobxPoolArm)
+
+/** Which check caught a plant, from the error it threw. */
+function caughtBy(message: string): string {
+  if (message.startsWith('full residency')) return 'checkpoint'
+  if (message.startsWith('residency')) return 'partition'
+  return 'relations'
+}
 
 /**
  * A plant's run: a checked arm's relation or partition check THROWS from its
@@ -182,7 +267,7 @@ async function plantOutcome(
       ok: false,
       // The checker snapshots once at boot, then once per step.
       step: step === null ? null : Number(step[1]) - 2,
-      against: message.startsWith('residency') ? 'partition' : 'relations',
+      against: caughtBy(message),
       diff: message,
     }
   }
@@ -193,6 +278,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
     const cells = []
     let plantedFailures = 0
     let coldPlantFailures = 0
+    let checkpointPlantFailures = 0
     for (const seed of SEEDS) {
       const sequence = gen(seed, STEPS)
       relationChecked.snapshots = 0
@@ -208,10 +294,16 @@ describe('correctness gate (L4b), rebuild-only', () => {
       const cold = { ...relationChecked.cold }
       // The run must have exercised cold rows, or its green says nothing about them.
       expect(cold.coldWrites, `seed ${seed} touched no cold row`).toBeGreaterThan(0)
+      expect(cold.checkpoints, `seed ${seed} ran no full-residency checkpoint`).toBeGreaterThan(0)
       const plant = await checkArm(planted, sequence, { oracleEvery: 0, shrink: false })
       if (!plant.ok) plantedFailures += 1
       const coldPlant = await plantOutcome(checked(coldDeaf), sequence)
       if (!coldPlant.ok) coldPlantFailures += 1
+      const checkpointPlant = await plantOutcome(
+        checked(coldRelinkSkipped, { perStep: false, full: true }),
+        sequence,
+      )
+      if (!checkpointPlant.ok && checkpointPlant.against === 'checkpoint') checkpointPlantFailures += 1
       cells.push({
         seed,
         steps: STEPS,
@@ -225,11 +317,17 @@ describe('correctness gate (L4b), rebuild-only', () => {
         coldPlantStep: coldPlant.ok ? null : coldPlant.step,
         coldPlantCaughtBy: coldPlant.ok ? null : coldPlant.against,
         coldPlantDiff: coldPlant.ok ? null : coldPlant.diff.split('\n').slice(0, 2).join(' | '),
+        checkpointPlantFailed: !checkpointPlant.ok,
+        checkpointPlantCaughtBy: checkpointPlant.ok ? null : checkpointPlant.against,
+        checkpointPlantDiff: checkpointPlant.ok
+          ? null
+          : checkpointPlant.diff.split('\n').slice(0, 2).join(' | '),
       })
     }
     writeResult('mobx-pool-gate-1x', { seeds: SEEDS, cells })
     expect(plantedFailures).toBe(SEEDS.length)
     expect(coldPlantFailures).toBe(SEEDS.length)
+    expect(checkpointPlantFailures).toBe(SEEDS.length)
   }, 1_500_000)
 })
 

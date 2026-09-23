@@ -101,16 +101,27 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
 }
 
 /**
- * The feed's CURRENT rows, every one (cold included), in plain tables through
- * the pool's own ingest routing: what a relation check holds a lazy pool's
- * engine to, since its own tables hold only the resident rows (POD-4567).
+ * Every row a lazy pool KNOWS, in plain tables (POD-4567): for an entity that
+ * can be cold, the feed's current rows (cold ones included, which the engine
+ * links by id though the pool's tables never hold them); for one that is
+ * never cold, the pool's own table, as Ma2's check read it (the feed's lanes
+ * include discovery-only ones it never announces, POD-4606: not residency).
+ * What a relation check holds a lazy pool's engine to.
  */
-export function feedTables(source: RowSource): TableSet<Map<string, StoredRow>> {
+export function knownTables(
+  pool: { readonly tables: PoolTables; readonly residency: Residency | null },
+  source: RowSource,
+): TableSet<Map<string, StoredRow>> {
   const tables = createPlainTables()
   const target: IngestTarget = { read: tables, write: tables }
   const out = ingestOut()
-  for (const kind of ['session', 'issue', 'worktree'] as const) {
+  for (const kind of ['session', 'issue'] as const) {
+    if (pool.residency?.capable(kind) !== true) continue
     for (const record of source.snapshot(kind)) ingestRecord(target, record, out)
+  }
+  for (const entity of ENTITIES) {
+    if (pool.residency?.capable(entity) === true) continue
+    for (const [id, row] of pool.tables[entity]) tables[entity].set(id, row)
   }
   return tables
 }
