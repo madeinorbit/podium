@@ -2981,8 +2981,15 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
   const REWOUND_SCREEN = [RULE, PROMPT, RULE, '  ⏸ manual mode on']
 
   async function openClaudeTurn(settleMs = 20) {
+    // Where Claude really keeps it: the adapter locates the conversation under the
+    // account home at spawn and points the live tail there.
     const root = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
-    const transcript = join(root, 'claude-1.jsonl')
+    const home = join(root, 'home')
+    const cwd = join(root, 'work')
+    const bucket = join(home, '.claude', 'projects', claudeProjectSlug(cwd))
+    await mkdir(bucket, { recursive: true })
+    await mkdir(cwd, { recursive: true })
+    const transcript = join(bucket, 'claude-1.jsonl')
     await writeFile(transcript, promptRecord('p-1', 'Write the numbers from 1 to 2000'))
     const sessionId = asSessionId('podium-interrupt')
     const sent: DaemonMessage[] = []
@@ -2992,6 +2999,7 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
       onTranscriptDirty: vi.fn(),
       cwdTracker: { onHookCwd: vi.fn(async () => {}) },
       statTick: tick,
+      homeDir: home,
       interruptSettleMs: settleMs,
     })
     const observations = () =>
@@ -3018,7 +3026,7 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
         type: 'spawn',
         sessionId,
         agentKind: 'claude-code',
-        cwd: root,
+        cwd,
         geometry: G,
         durableLabel: 'podium-podium-interrupt',
         resume: { kind: 'claude-session', value: 'claude-1' },
@@ -3035,7 +3043,7 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
         hook_event_name,
         session_id: 'claude-1',
         transcript_path: transcript,
-        cwd: root,
+        cwd,
         prompt_id,
       })
     hook('UserPromptSubmit', 'p-1')
@@ -3057,9 +3065,11 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
     try {
       // Claude had begun answering; Esc makes it write the interrupt record.
       await appendFile(turn.transcript, answerRecord('1\n2\n3') + interruptRecord('p-1'))
-      for (const watcher of turn.tick.watchers) watcher()
-
-      await vi.waitFor(() => expect(turn.observations()).toHaveLength(3))
+      // The shared tick keeps firing; a tail still busy with its first read skips one.
+      await vi.waitFor(() => {
+        for (const watcher of turn.tick.watchers) watcher()
+        expect(turn.observations()).toHaveLength(3)
+      })
       const ended = turn.observations()[2]!
       expect(ended).toMatchObject({
         transitionKind: 'turn_terminal',
