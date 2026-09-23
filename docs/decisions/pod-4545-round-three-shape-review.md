@@ -35,7 +35,7 @@ records PASS.
 | C7 | Untracked state read inside a derivation (pitfall j) | PASS, with notes (N1, N2) | Plain state reached from derivations: the clock's `now` (`clock.ts:121-135`, paired with atoms); the residency registry (`residency.ts:239-252`, each question observes a per-id atom that `register`/`unregister`/`notify` fire, :432, 445, 255-257); the relation plain twins (`relations.ts:333-336, 356-360`, which observe that atom, while every plain write calls `cold.changed`, :550, 432, 639); and the model identity memo `models.session` (`pool.ts:261-263`), whose answer is the member's `activityMs`, tracked on the same slot either way (N1). None of these can produce a stale answer without a tracked dependency. The per-step gate (§2.2) holds the pool to a from-scratch rebuild and scan. |
 | C8 | Stats honest | **FAIL (F1, counting side)** | `rowsDerived` counts `view` bodies (`models.ts:166`), `notifications` counts actions (`pool.ts:370, 390, 402`), `rollupsDerived` is honestly 0 (`pool.ts:91`), and all of these match the README definitions. But `indexUpdates` counts one per bucket **replaced** (`relations.ts:435, 656-659`), whatever the bucket's size. One new issue counts `indexUpdates +2` on the old fixture (19 elements copied), at 4× (42) and on live data (**4,575**); one new session counts +2 for **2,264** on live data (§2.3). This is pitfall (e): a per-slot counter hiding table-sized work. Also uncounted: the prefix ancestor index `under` (`relations.ts:555-579`, O(path depth) set writes per placement) and the collapse maps (:465-516). Separately, a reads-fence bypass (N4): `pool.ts:229-230` answers `resident` from the raw table, so presence probes from `one()`/`bucket()` are not counted, which contradicts the README ("every table read goes through `reads.wrapTables`"). |
 | C9 | Size within reason | PASS | Non-test `pool/`: 2,264 code lines (3,281 with comments), covering tables, models, relations (493), residency (325), row views (283), enumeration and oracle (238 + 52), and React/native slots (80). No roll-ups, order or list yet. For comparison, round two's whole MobX arm was 2,516 lines (1.7× its envelope, audit §3.3). The pool is a larger base, but each module has one job and nothing is dead: every export has a production or gate caller, except the `forward` read path (F2). |
-| C10 | L4b correctness gate, 5 seeds, run by me | TBD | §2.2. |
+| C10 | L4b correctness gate, 5 seeds, run by me | PASS (old fixture) | 5 seeds × 300 steps, 0 skipped, 301 rebuild checks and 301 relation-vs-scan checks per seed, zero divergence. All four planted defects (`planted`, `coldDeaf`, `coldRelinkSkipped`, `promoteSkipped`) fail on every seed (§2.2). What it cannot see: F1 (cost, not correctness), and F2, because the rebuild reuses the same part functions and `relationRef` (`rebuild.ts:31-37`, `enumerate.ts:184`). |
 | C11 | L6a lint clean, and able to fire on the pool | PASS, with a blind spot recorded | `bun run lint` (package: fence plugin plus `eslint-plugin-mobx`) exits 0. A walk planted in `views.ts` (`[...tables.issue.keys()]`) fires `fence/no-table-walk` at `views.ts:449`. A walk over the `repo.issues` bucket (`for (… of input.relations.many('repo', id, 'issues'))`) is silent: the rule matches table **names** (`fence-plugin.mjs:174-233`), so it cannot see F1. File restored with `cp`, tree clean. |
 
 ## 2. Evidence I ran
@@ -58,9 +58,27 @@ passes 8 of 8. The five enforcement tests run under the pool's own trap
 trap covers it by construction. The pool's own `pool.test.tsx:133-150` also
 plants an untracked `model.view` read.
 
-### 2.2 L4b gate, 5 seeds × 300 steps
+### 2.2 L4b gate, 5 seeds × 300 steps (old fixture 1×)
 
-TBD
+Run from the repo root under the heavy lease (`test:heavy`), at `4c0ccde73` plus
+my probe commits (which touch no pool file):
+`POD_POOL_GATE_SEEDS=5 POD_POOL_GATE_STEPS=300 bun scripts/test-heavy.ts -- bash -c "bun --bun ./node_modules/vitest/vitest.mjs run --config vitest.unit.config.ts --project node packages/worklist-proto/arms/mobx/pool/gate.test.ts"`.
+Result: `Tests 2 passed (2)`, 1,971 s, exit 0. Cells from
+`harness/browser/results/mobx-pool-gate-1x-5x300.json` (gitignored):
+
+| seed | steps / skipped | rebuild checks | relation checks | cold writes / hydrated / warmed | plant (removals) fails at step | coldDeaf caught by | relink-skipped caught by | promote-skipped caught by |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 300 / 0 | 301 | 301 | 111 / 46 / 17 | 15 | partition | relations | checkpoint |
+| 2 | 300 / 0 | 301 | 301 | 125 / 0 / 19 | 56 | relations | relations | checkpoint |
+| 3 | 300 / 0 | 301 | 301 | 110 / 0 / 18 | 21 | relations | relations | checkpoint |
+| 4 | 300 / 0 | 301 | 301 | 140 / 14 / 9 | 29 | relations | relations | checkpoint |
+| 5 | 300 / 0 | 301 | 301 | 100 / 3 / 10 | 17 | relations | relations | checkpoint |
+
+Seed 1's sequence covers every change kind, including the shapes round
+two's hand arm got wrong (`evictThenReAdd` 8, `twoRankMovesInOneBatch` 6,
+`clockDecay` 26, `offerRemovedOnFinishedChild` 10). The gate is `oracleEvery: 0`
+by design (`gate.test.ts:6-8`): order and roll-ups are Mb4's. Its fidelity test
+compares the own-row fields with the legacy oracle (`gate.test.ts:52-56`).
 
 ### 2.3 Bucket sizes (old fixture), and what the live export says
 
