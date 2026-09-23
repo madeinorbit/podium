@@ -305,6 +305,8 @@ export class MobxPool {
       resident: false,
       lazyMany: false,
       hydrate: false,
+      settleLoads: false,
+      pendingLoads: false,
       issueIds: computedStruct,
       model: false,
       issue: false,
