@@ -241,8 +241,9 @@ a seed created (reloads re-bootstrap); "loads" include the cascades of
 finding 6 (a loaded origin drawn by the a1 list asks for its sessions).
 Commits after c83711642 add the loader drain (`pendingLoads`/`drainLoads`,
 additive), remove the counts test's settle loop and patch `Map` in the F1
-counter; the focused suites and a 3 x 200 gate re-ran on the landed tip
-(below).
+counter. On the rebased tip 0bcfef308 (integration at 7ebeb9897), the pool's
+whole folder, the native lane, the fence lint and the schema tests ran with
+a 3 x 200 gate (every plant included): 12 files, 156 tests, green.
 
 
 ### Open
