@@ -20,6 +20,7 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { locateClaudeSessionFile } from './state-locate.js'
+import { isClaudeInterruptMarker } from './transcript.js'
 import { deterministicStateToEvents } from '../../agent-state/deterministic.js'
 import { carryAcrossRebuild, reduceAgentState } from '../../observer.js'
 import {
@@ -199,6 +200,9 @@ export class ClaudeCausalObserver {
   private hookSequence = 0
   private bootstrapped = false
   private epochOpen = false
+  /** Where the open epoch began in the transcript — the only proof an interrupt
+   *  record belongs to it when its prompt hook carried no native prompt id. */
+  private epochOpenedOffset: number
   private closing = false
   private currentOrigin: ObservationInputOrigin = 'unknown'
   private readonly pendingOrigins: ObservationInputOrigin[] = []
@@ -230,6 +234,7 @@ export class ClaudeCausalObserver {
       options.transcriptSegmentId ?? `claude:${options.providerSessionId}:${options.transcriptPath}`
     this.bootstrapOffset = options.bootstrapOffset
     this.lastOffset = options.bootstrapOffset
+    this.epochOpenedOffset = options.bootstrapOffset
     const acceptedCursor = checkpoint?.providerCursor
     const acceptedHook = acceptedCursor?.components.hook
     if (Number.isSafeInteger(acceptedHook)) this.hookSequence = acceptedHook ?? 0
@@ -238,6 +243,7 @@ export class ClaudeCausalObserver {
       if (Number.isSafeInteger(offset)) {
         this.bootstrapOffset = Math.max(this.bootstrapOffset, offset ?? 0)
         this.lastOffset = this.bootstrapOffset
+        this.epochOpenedOffset = offset ?? 0
       }
     } else if (acceptedCursor) {
       this.predecessorSegmentId = acceptedCursor.segmentId
@@ -325,6 +331,12 @@ export class ClaudeCausalObserver {
    *  `closing` must not absorb the turn for one. */
   private get liveChildCount(): number {
     return this.state.nativeSubagents?.length ?? 0
+  }
+
+  /** The epoch a turn is open in, or null when none is — what a caller records
+   *  when it sends a Stop, so the evidence it later reads names that turn. */
+  get openTurnEpoch(): number | null {
+    return this.epochOpen && !this.closing ? this.turnEpoch : null
   }
 
   get pendingInputOriginCount(): number {
@@ -517,6 +529,7 @@ export class ClaudeCausalObserver {
       this.providerPromptId =
         str(p.prompt_id) ?? (promptFingerprint ? `fingerprint:${promptFingerprint}` : null)
       this.epochOpen = true
+      this.epochOpenedOffset = transcriptOffset
       this.closing = false
       const origin =
         inputOrigin ??
@@ -591,6 +604,7 @@ export class ClaudeCausalObserver {
       this.turnEpoch += 1
       this.providerPromptId = hookPromptId
       this.epochOpen = true
+      this.epochOpenedOffset = transcriptOffset
       this.closing = false
       // No prompt record backs this turn, so the origin is genuinely unknown —
       // inheriting the previous turn's would misattribute it.
@@ -622,6 +636,88 @@ export class ClaudeCausalObserver {
       identity,
       providerAt: str(p.timestamp) ?? null,
     })
+  }
+
+  /**
+   * A USER INTERRUPT, WHICH FIRES NO HOOK (POD-4633). Measured on Claude Code
+   * 2.1.280: Esc mid-turn sends no Stop, so the epoch the Stop would have closed
+   * stayed open, the session read Working, and every later message waited its
+   * turn. Claude leaves the stop in one of two places, and each is proof only of
+   * the turn it names:
+   *
+   * - `marker`: once it has started answering, Claude writes an interrupt record
+   *   carrying the interrupted turn's own prompt id (~0.2 s after the Esc). The
+   *   caller passes it only while it is the transcript's LAST conversational
+   *   record — a later prompt or answer means the conversation moved on.
+   * - `rewound`: Esc before any output writes nothing; Claude takes the turn
+   *   back and returns the prompt to its input box. The caller reads that off
+   *   the screen after a Stop Podium sent itself, and passes the epoch that was
+   *   open when it sent it plus the transcript's latest prompt. A prompt with an
+   *   answer after it was not taken back, so it can never qualify: a normal turn
+   *   always writes its answer before its Stop.
+   *
+   * The fence is the Stop's own shape — `turn_terminal`, verdict `interrupted` —
+   * so it is exactly as absorbing: a late Stop for the same turn is discarded.
+   */
+  observeInterrupt(evidence: ClaudeInterruptEvidence): AgentObservation | null {
+    if (!this.bootstrapped || !this.epochOpen || this.closing) return null
+    const phase = this.state.phase
+    if (evidence.kind === 'marker') {
+      if (phase !== 'working' && phase !== 'compacting' && phase !== 'needs_user') return null
+      if (!this.interruptNamesOpenTurn(evidence)) return null
+    } else {
+      if (phase !== 'working' || evidence.turnEpoch !== this.turnEpoch) return null
+      if (evidence.prompt.hasAssistantOutputAfter || !this.promptOpenedThisTurn(evidence.prompt)) {
+        return null
+      }
+    }
+
+    const prior = this.state
+    const next = reduceAgentState(
+      prior,
+      withStateChannelEvent(
+        { kind: 'turn_completed', verdict: { kind: 'interrupted', summary: 'request interrupted by user' } },
+        'classifier',
+      ),
+      this.now(),
+    )
+    if (next === prior) return null
+    this.state = next
+    this.epochOpen = false
+    this.closing = next.awaitingSubagents === true && this.liveChildCount > 0
+    // The record's boundary is the evidence's position; a hook read after Claude
+    // had already flushed it may have carried the offset past it. The sequence
+    // component advances either way, so the fence is strictly after the checkpoint.
+    const offset =
+      evidence.kind === 'marker' ? Math.max(this.lastOffset, evidence.recordBoundary) : this.lastOffset
+    this.lastOffset = offset
+    this.hookSequence += 1
+    return this.observation({
+      sourceEventKind: evidence.kind === 'marker' ? 'TranscriptInterrupt' : 'ScreenInterrupt',
+      transitionKind: 'turn_terminal',
+      provenance: 'live',
+      inputOrigin: this.currentOrigin,
+      priorPhase: prior.phase,
+      state: next,
+      offset,
+      identity: `${this.turnEpoch}:interrupt:${evidence.kind}:${offset}`,
+    })
+  }
+
+  private interruptNamesOpenTurn(record: ClaudeInterruptRecord): boolean {
+    const current = this.providerPromptId
+    if (current !== null && !current.startsWith('fingerprint:')) return record.promptId === current
+    // The prompt hook carried no native id to match, so position is the proof:
+    // only a record written after this epoch began can be its stop.
+    return record.recordBoundary > this.epochOpenedOffset
+  }
+
+  private promptOpenedThisTurn(prompt: ClaudePromptEvidence): boolean {
+    const current = this.providerPromptId
+    if (current === null) return false
+    return current.startsWith('fingerprint:')
+      ? current === `fingerprint:${prompt.payloadFingerprint}`
+      : prompt.promptId === current
   }
 
   private hookIdentity(hook: string, p: Record<string, unknown>): string {
@@ -694,7 +790,21 @@ export interface ClaudePromptEvidence {
   payloadFingerprint: string
   origin: ObservationInputOrigin
   hasAssistantOutputAfter: boolean
+  /** The native prompt id Claude stamps on the record — the same id its hooks carry. */
+  promptId: string | null
 }
+
+/** An interrupt record that ends the transcript (see {@link ClaudeCausalObserver.observeInterrupt}). */
+export interface ClaudeInterruptRecord {
+  /** The byte boundary just past the record. */
+  recordBoundary: number
+  /** The interrupted turn's native prompt id, as Claude stamped the record. */
+  promptId: string | null
+}
+
+export type ClaudeInterruptEvidence =
+  | ({ kind: 'marker' } & ClaudeInterruptRecord)
+  | { kind: 'rewound'; turnEpoch: number; prompt: ClaudePromptEvidence }
 
 export interface ClaudeTranscriptCapture {
   boundary: number
@@ -708,6 +818,8 @@ export interface ClaudeTranscriptCapture {
   promptCount: number
   firstPrompt: ClaudePromptEvidence | null
   latestPrompt: ClaudePromptEvidence | null
+  /** The interrupt record the classification tail ENDS with, or null. */
+  terminalInterrupt: ClaudeInterruptRecord | null
 }
 
 export interface ClaudeTranscriptCaptureOptions {
@@ -831,6 +943,7 @@ function collectClaudePromptEvidence(
     payloadFingerprint: fingerprintPromptPayload(prompt.payload),
     origin: prompt.origin,
     hasAssistantOutputAfter: false,
+    promptId: str(record.promptId) ?? null,
   }
   accumulator.count += 1
   accumulator.first ??= evidence
@@ -954,6 +1067,43 @@ function bootEventsForClaudeRecords(records: unknown[]): AgentStateEvent[] {
   return [{ kind: 'session_started', ...(timestamp ? { at: timestamp } : {}) }]
 }
 
+/** Whether a user/assistant record carries anything a reader would see: text, a
+ *  tool call, or a tool result. The same bar the transcript classifier sets for
+ *  its terminal record, so a thinking-only record or bookkeeping never counts. */
+function conversationalTexts(record: Record<string, unknown>): string[] | null {
+  if (record.type !== 'user' && record.type !== 'assistant') return null
+  const message = record.message
+  if (typeof message !== 'object' || message === null) return null
+  const content = (message as Record<string, unknown>).content
+  if (typeof content === 'string') return content.trim() ? [content.trim()] : null
+  if (!Array.isArray(content)) return null
+  let visible = false
+  const texts: string[] = []
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue
+    const b = block as Record<string, unknown>
+    if (b.type === 'text' && typeof b.text === 'string' && b.text.trim()) {
+      texts.push(b.text.trim())
+      visible = true
+    } else if (b.type === 'tool_use' || b.type === 'tool_result') {
+      visible = true
+    }
+  }
+  return visible ? texts : null
+}
+
+function terminalInterruptOf(rows: readonly ClaudeRecordRow[]): ClaudeInterruptRecord | null {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const { record, boundary } = rows[index]!
+    const texts = conversationalTexts(record)
+    if (!texts) continue
+    return record.type === 'user' && texts.length > 0 && texts.every(isClaudeInterruptMarker)
+      ? { recordBoundary: boundary, promptId: str(record.promptId) ?? null }
+      : null
+  }
+  return null
+}
+
 /** Capture classification, prompt evidence, exact file identity, and the last
  * complete JSONL boundary from one descriptor/fstat snapshot. */
 export async function captureClaudeTranscript(
@@ -1030,6 +1180,7 @@ export async function captureClaudeTranscript(
       promptCount: promptAccumulator.count,
       firstPrompt: promptAccumulator.first,
       latestPrompt: promptAccumulator.latest,
+      terminalInterrupt: terminalInterruptOf(classificationRows),
     }
   } finally {
     await handle.close()

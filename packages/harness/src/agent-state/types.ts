@@ -138,6 +138,13 @@ export interface AgentScreenObservation {
   events: ProviderAgentStateEvent[]
   interactionVisible?: boolean
   auth?: 'logged-in'
+  /**
+   * Whether the harness's own "a turn is running" marks are on screen. Read
+   * only to confirm a Stop Podium sent: a harness that fires no hook when
+   * interrupted before any output leaves this as the one sign it stopped
+   * (POD-4633). Absent = the provider does not say.
+   */
+  turnRunning?: boolean
 }
 
 export interface AgentStateProvider {

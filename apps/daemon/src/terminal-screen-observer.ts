@@ -27,6 +27,9 @@ export interface TerminalScreenObserverCallbacks {
 export interface TerminalScreenObserver {
   onData(data: Uint8Array): void
   onResize(cols: number, rows: number): void
+  /** Classify the screen as it stands now, with no side effects — for a caller
+   *  confirming something it caused (a Stop it sent, POD-4633). */
+  read(): Promise<AgentScreenObservation | undefined>
   dispose(): void
 }
 
@@ -118,6 +121,16 @@ export function createTerminalScreenObserver(
       if (disposed) return
       if (ownsScreen) screenReader.resize(cols, rows)
       else schedule()
+    },
+    async read() {
+      if (disposed) return undefined
+      try {
+        await screenReader.flush()
+        if (disposed) return undefined
+        return provider.screen?.(screenReader.lines(false))
+      } catch {
+        return undefined
+      }
     },
     dispose() {
       disposed = true

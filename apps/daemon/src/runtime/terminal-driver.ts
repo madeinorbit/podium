@@ -272,6 +272,14 @@ export interface TerminalRuntimeHost {
   }): { ok: true } | { ok: false; reason: string }
   onDrainRejected?(input: { sessionId: SessionId; turn: QueuedTurn; reason: string }): void
   /**
+   * The driver sent this session its interrupt key. A harness can obey it and
+   * report nothing — Claude fires no hook on a user interrupt, and a stop before
+   * any output leaves no transcript record either — so whoever reads the screen
+   * needs to know a Stop went out to read it as one (POD-4633). The fence itself
+   * still arrives only as a provider-confirmed observation.
+   */
+  onInterruptRequested?(sessionId: SessionId): void
+  /**
    * The drain reached its deadline or was torn down with queued turns, so the
    * turns below were never typed (POD-2107, POD-2202). See
    * `TerminalInjectionPorts.onDrainAbandoned` for why this cannot stay silent.
@@ -2060,6 +2068,7 @@ export function createTerminalRuntime(
           // later — the exact shape of `interruptText`, whose gap is what lets
           // the CLI dismiss its prompt before the paste lands.
           session.injection.interrupt()
+          host.onInterruptRequested?.(session.sessionId)
           await new Promise<void>((resolve) => {
             host.setTimer(resolve, SUBMIT_CR_DELAY_MS)
           })
@@ -2101,6 +2110,7 @@ export function createTerminalRuntime(
         // A driver that emitted its own here would let a consumer believe a turn
         // ended that the agent is still running.
         session.injection.interrupt()
+        host.onInterruptRequested?.(session.sessionId)
       },
 
       async answer(interactionId, answer, answerOptions): Promise<InteractionAnswerOutcome> {

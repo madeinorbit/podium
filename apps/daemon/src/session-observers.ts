@@ -104,6 +104,8 @@ export interface SessionObserversDeps {
    *  instead of constructing a second emulator. Omitted (tests) = the observer
    *  mirrors into its own emulator exactly as before. */
   sharedScreenFor?: (sessionId: SessionId) => ScreenReader | undefined
+  /** Test override for {@link CLAUDE_INTERRUPT_SETTLE_MS}. */
+  interruptSettleMs?: number
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */
@@ -121,6 +123,24 @@ export type SessionObservers = ReturnType<typeof createSessionObservers>
  * [docs/agent-comms-target.html §04c]
  */
 export const IDLE_TRANSITION_DEBOUNCE_MS = 1000
+
+/**
+ * How long after Podium sends Claude its Stop key the daemon looks for the stop
+ * Claude leaves no record of — a turn taken back before any output (POD-4633).
+ * Claude reacts to Esc within ~100 ms; the margin keeps a turn that ended on its
+ * own a moment earlier with its own Stop, whose verdict is the richer one.
+ * Re-read a few times, in case the screen had not repainted yet.
+ */
+export const CLAUDE_INTERRUPT_SETTLE_MS = 1_500
+const CLAUDE_INTERRUPT_PROBES = 3
+
+/** A request to look for a user interrupt, queued behind the hooks on the same
+ *  causal chain so it can never overtake one. `rewoundEpoch` is set only for a
+ *  Stop Podium sent itself: the epoch that was open when it went out. */
+const CLAUDE_INTERRUPT_PROBE = Symbol('claude-interrupt-probe')
+type ClaudeInterruptProbe = { [CLAUDE_INTERRUPT_PROBE]: true; rewoundEpoch?: number }
+const isClaudeInterruptProbe = (payload: unknown): payload is ClaudeInterruptProbe =>
+  typeof payload === 'object' && payload !== null && CLAUDE_INTERRUPT_PROBE in payload
 
 export const CAUSAL_DELIVERY_RETRY_BASE_MS = 250
 export const CAUSAL_DELIVERY_RETRY_MAX_MS = 4_000
@@ -178,6 +198,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     cwd: string
   }
   type ClaudeCausalTracker = {
+    sessionId: SessionId
     observerGeneration: number
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     providerSessionId: string
@@ -192,6 +213,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     pendingObservation: AgentObservation | null
     confirming: boolean
     stopConfirmationPoll?: () => void
+    interruptTimer?: ReturnType<typeof setTimeout>
   }
   const causalLeases = new Map<string, CausalLease>()
   const claudeCausal = new Map<string, ClaudeCausalTracker>()
@@ -435,6 +457,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       causal.bufferedHooks.push(payload)
       return
     }
+    if (isClaudeInterruptProbe(payload)) {
+      await applyClaudeInterruptProbe(causal, payload)
+      return
+    }
     const p = payload as Record<string, unknown>
     const path = typeof p.transcript_path === 'string' ? p.transcript_path : ''
     // An unreadable transcript costs this hook its POSITION, not its existence.
@@ -487,6 +513,80 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       return
     }
     drainClaudeHooks(causal)
+  }
+
+  /**
+   * A USER INTERRUPT FIRES NO HOOK (POD-4633): read the stop where Claude left
+   * it. The transcript's closing interrupt record is proof on its own; a turn
+   * taken back before any output left none, so it additionally needs a Stop
+   * Podium sent and a screen with Claude's running marks gone. The observer owns
+   * every decision about which turn the evidence may end.
+   */
+  async function applyClaudeInterruptProbe(
+    causal: ClaudeCausalTracker,
+    probe: ClaudeInterruptProbe,
+  ): Promise<void> {
+    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>> | null = null
+    try {
+      capture = await captureTranscript(causal.transcriptPath)
+    } catch {
+      capture = null
+    }
+    let observation: AgentObservation | null = null
+    if (capture?.terminalInterrupt) {
+      observation = causal.observer.observeInterrupt({
+        kind: 'marker',
+        ...capture.terminalInterrupt,
+      })
+    } else if (probe.rewoundEpoch !== undefined && capture?.latestPrompt) {
+      const screen = await screenObservers.get(causal.sessionId)?.read()
+      if (screen?.turnRunning === false) {
+        observation = causal.observer.observeInterrupt({
+          kind: 'rewound',
+          turnEpoch: probe.rewoundEpoch,
+          prompt: capture.latestPrompt,
+        })
+      }
+    }
+    if (observation && claudeCausal.get(causal.sessionId) === causal) {
+      causal.pendingObservation = observation
+      emitObservation(observation.podiumSessionId, observation)
+      return
+    }
+    drainClaudeHooks(causal)
+  }
+
+  const enqueueClaudeInterruptProbe = (sessionId: SessionId, rewoundEpoch?: number): void => {
+    const causal = claudeCausal.get(sessionId)
+    if (!causal) return
+    const probe: ClaudeInterruptProbe = {
+      [CLAUDE_INTERRUPT_PROBE]: true,
+      ...(rewoundEpoch !== undefined ? { rewoundEpoch } : {}),
+    }
+    if (causal.awaitingBootstrapAck) causal.bufferedHooks.push(probe)
+    else causal.processing = causal.processing.then(() => applyClaudeHook(causal, probe))
+  }
+
+  /** Podium sent this session its Stop key. Claude may take the turn back
+   *  without leaving a record, so look at the screen once it has had time to. */
+  const onInterruptRequested = (sessionId: SessionId): void => {
+    const causal = claudeCausal.get(sessionId)
+    const epoch = causal?.observer.openTurnEpoch
+    if (!causal || epoch === null || epoch === undefined) return
+    if (causal.interruptTimer !== undefined) clearTimeout(causal.interruptTimer)
+    const settleMs = deps.interruptSettleMs ?? CLAUDE_INTERRUPT_SETTLE_MS
+    let probes = 0
+    const probeLater = (): void => {
+      causal.interruptTimer = setTimeout(() => {
+        causal.interruptTimer = undefined
+        if (claudeCausal.get(sessionId) !== causal || causal.observer.openTurnEpoch !== epoch) return
+        enqueueClaudeInterruptProbe(sessionId, epoch)
+        probes += 1
+        if (probes < CLAUDE_INTERRUPT_PROBES) probeLater()
+      }, settleMs)
+      causal.interruptTimer.unref?.()
+    }
+    probeLater()
   }
 
   function drainClaudeHooks(causal: ClaudeCausalTracker): void {
@@ -569,6 +669,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       promptCount: 0,
       firstPrompt: null,
       latestPrompt: null,
+      terminalInterrupt: null,
     }
     const bootstrapOffset = capture.boundary
     // Capture is asynchronous; Spawn/Reattach may have replaced this exact
@@ -677,6 +778,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const snapshot = observer.bootstrap()
     if (!snapshot) return
     const causal: ClaudeCausalTracker = {
+      sessionId,
       observerGeneration: snapshot.observerGeneration,
       providerSessionId,
       transcriptPath: effectivePath,
@@ -846,6 +948,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     causal.pendingObservation = null
     causal.awaitingBootstrapAck = false
     drainClaudeHooks(causal)
+    // A turn inherited open may already have been interrupted — the tester's
+    // restart re-derived Working from exactly that (POD-4633).
+    if (causal.observer.openTurnEpoch !== null) enqueueClaudeInterruptProbe(msg.sessionId)
     if (!causal.stopConfirmationPoll) {
       causal.stopConfirmationPoll = statTick.subscribe(() => {
         if (causal.awaitingBootstrapAck || causal.confirming || !causal.acceptedCursor) return
@@ -1109,6 +1214,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         path,
         (items, meta) => {
           if (items.length === 0 && !meta.reset) return
+          // Claude writes its interrupt record and fires no hook (POD-4633).
+          if (items.some((item) => item.event === 'interrupt')) {
+            enqueueClaudeInterruptProbe(sessionId)
+          }
           countTail()
           // The per-batch delta publish (encode + ws send + dirty-mark) is
           // synchronous loop work — timed so a chatty transcript shows up in
@@ -1784,7 +1893,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     cancelPendingRebind(sessionId)
     cancelSessionObservationDeliveries(sessionId)
     pendingBindingHooks.delete(sessionId)
-    claudeCausal.get(sessionId)?.stopConfirmationPoll?.()
+    const causal = claudeCausal.get(sessionId)
+    causal?.stopConfirmationPoll?.()
+    if (causal?.interruptTimer !== undefined) clearTimeout(causal.interruptTimer)
     claudeCausal.delete(sessionId)
     claudeStarting.delete(sessionId)
     pendingClaudeOrigins.delete(sessionId)
@@ -1820,6 +1931,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     trackedState,
     onObservationAck,
     onProviderRebindAck,
+    onInterruptRequested,
     recordInputOrigin,
     clearSession,
     stopAllTails,

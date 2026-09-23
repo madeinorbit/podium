@@ -1160,7 +1160,11 @@ export async function createDaemonHostRuntime(args: {
   // Built AFTER the context because the driver hosts need that context. The
   // single assignment at the end closes the wiring cycle: handlers reach every
   // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
-  const contractHost = { ...daemonRuntimeHost(ctx, send, stageAttachment), boundaryContext: mailContext.pendingContext }
+  const contractHost = {
+    ...daemonRuntimeHost(ctx, send, stageAttachment),
+    boundaryContext: mailContext.pendingContext,
+    onInterruptRequested: (sessionId: SessionId) => observers.onInterruptRequested(sessionId),
+  }
   terminalRuntime = createTerminalRuntime(contractHost, primeSource, ctx.sessions)
   const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   // Engine-family facts (POD-4494, spec §4.1/§5): this composition root reads

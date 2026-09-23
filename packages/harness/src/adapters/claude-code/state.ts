@@ -141,6 +141,23 @@ function folderTrustVisible(text: string, visibleLines: readonly string[]): bool
 }
 
 /**
+ * Claude's own marks that a turn is running, measured on 2.1.280 (POD-4633): the
+ * footer's "esc to interrupt" hint, and the spinner row ("✽ Precipitating… (3s ·
+ * thinking)"). Each covers the other's gap — a draft in the input box drops the
+ * hint while the spinner stays, and streamed text replaces the spinner while the
+ * hint stays. A finished turn's row reads "✻ Churned for 3s · done", with no
+ * ellipsis, and an interrupted one "⎿ Interrupted · What should Claude do instead?".
+ */
+const TURN_RUNNING_HINT = 'esc to interrupt'
+const TURN_SPINNER_ROW = /^\S [A-Z][a-z]+…(?: |$)/u
+
+function turnRunningVisible(visibleLines: readonly string[]): boolean {
+  return visibleLines.some(
+    (line) => line.includes(TURN_RUNNING_HINT) || TURN_SPINNER_ROW.test(line),
+  )
+}
+
+/**
  * Classify the small amount of Claude UI that has no hook or transcript
  * representation yet. This intentionally recognizes the title plus one of
  * its actions, rather than a generic "permission" word that would turn every
@@ -171,6 +188,7 @@ export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObser
   return {
     events: withStateChannel(events, 'classifier'),
     interactionVisible,
+    turnRunning: turnRunningVisible(visibleLines),
     // Claude prints this exact standalone status line after the browser login
     // callback. It is the event that lets the daemon re-probe immediately;
     // the inventory command remains the authority for the resulting state.
