@@ -15,7 +15,7 @@ import {
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { createTranscriptController } from '@podium/client-core/transcript'
-import { asMutationId, type IssueWire, type SessionMeta } from '@podium/model'
+import { asMutationId, type IssueWire, isAgentComputing, type SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
@@ -442,6 +442,25 @@ export function SessionConversation({
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
   const composer = composerState({ session, headless: false, turnRunning: false, compact: false })
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
+  /**
+   * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
+   * running as far as this phone can tell — the agent is computing, or a send
+   * has just left — and only when a stop may be attempted at all. The press is
+   * the shared controller's `interrupt`, the same call the desktop composer's
+   * Stop makes: it puts the last prompt back in an empty draft and sends
+   * `sessions.interrupt` with the queued message it selected, so whatever the
+   * server does per harness to end the turn, the phone gets too.
+   */
+  const turnActive = isAgentComputing(session) || justSent
+  const stopTurn =
+    turnActive && conversation.canInterrupt
+      ? () => void conversationController.interrupt(conversation.draft)
+      : undefined
+  // "Not stopped", not "Not sent": what failed is that the agent is STILL
+  // running, and the phone has no other place that would say so.
+  const composerCaption = conversation.interruptError
+    ? `Not stopped: ${conversation.interruptError}`
+    : transcriptStatus
   // A question Claude Code has not written into its transcript yet: the hook
   // channel carries it from the moment the dialog opens, the transcript only
   // once the call resolves (POD-1273). The transcript stays the better source
@@ -616,11 +635,13 @@ export function SessionConversation({
             onSend={send}
             value={conversation.draft}
             onChangeText={conversationController.setDraft.bind(conversationController)}
-            caption={transcriptStatus}
+            caption={composerCaption}
+            captionTone={conversation.interruptError ? 'attention' : 'working'}
             sendDisabled={!composer.deliverable}
             draftInsertion={draftInsertion}
             attachments={attachments}
             onRestingHeight={setComposerHeight}
+            onStop={stopTurn}
           />
         </View>
       )}

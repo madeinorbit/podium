@@ -673,6 +673,8 @@ function demoTrpc(): MobileTrpc {
       },
       sendText: { mutate: noop },
       answerAskUserQuestion: { mutate: noop },
+      // The working demo sessions draw Stop; a press must land, not read "Not stopped".
+      interrupt: { mutate: async () => ({ ok: true }) },
     },
     issues: {
       promote: { mutate: async () => ({}) },

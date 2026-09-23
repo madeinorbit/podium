@@ -122,6 +122,7 @@ export function Composer({
   leading: leadingSlot,
   bottomInset = 0,
   onRestingHeight,
+  onStop,
 }: {
   placeholder: string
   /**
@@ -180,6 +181,11 @@ export function Composer({
    * content-size update.
    */
   onRestingHeight?: (height: number) => void
+  /**
+   * Ends the running turn. Passed only while one runs and may be stopped;
+   * absent draws no control, so an idle composer keeps its two-control rail.
+   */
+  onStop?: () => void
 }) {
   const [localText, setLocalText] = useState('')
   const text = controlledValue ?? localText
@@ -405,6 +411,7 @@ export function Composer({
             <View style={[styles.leading, !takesAttach && styles.leadingAlone]}>{leadingSlot}</View>
           ) : null}
           <View style={styles.controlGap} pointerEvents="none" />
+          {onStop ? <StopTurnButton onPress={onStop} /> : null}
           {voice.supported ? (
             <VoiceButton
               starting={voice.starting}
@@ -493,6 +500,31 @@ function VoiceButton({
         size={listening ? 14 : GLYPH}
         color={listening ? color.bg : failed ? color.dangerText : color.textDim}
       />
+    </PressableScale>
+  )
+}
+
+/**
+ * Stop the running turn [POD-4645] — the phone's half of the desktop
+ * composer's Stop. Danger ink on a danger-tinted disc: it is the one control in
+ * the capsule that throws work away, and it must not read as the mic's own
+ * ink-disc square, which stops dictation, not the agent.
+ */
+function StopTurnButton({ onPress }: { onPress: () => void }) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel="Stop this turn"
+      testID="composer-stop"
+      onPress={onPress}
+      scaleTo={0.9}
+      haptic
+      style={({ pressed }) => [styles.control, pressed && styles.controlPressed]}
+    >
+      <View style={[styles.controlDisc, styles.stopDisc]} />
+      {/* A SOLID square, not the outline glyph: the outline is the mic's
+          stop-dictation mark, and this one ends the agent's turn. */}
+      <View style={styles.stopGlyph} />
     </PressableScale>
   )
 }
@@ -761,6 +793,15 @@ const styles = StyleSheet.create({
   },
   voiceFailed: {
     backgroundColor: alpha(color.danger, 0.12),
+  },
+  stopDisc: {
+    backgroundColor: alpha(color.danger, 0.16),
+  },
+  stopGlyph: {
+    width: 11,
+    height: 11,
+    borderRadius: 2.5,
+    backgroundColor: color.dangerText,
   },
   sendDisc: {
     backgroundColor: color.text,
