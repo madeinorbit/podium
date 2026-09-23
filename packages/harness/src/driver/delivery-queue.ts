@@ -2,7 +2,22 @@ import type { AgentSessionHandle } from './driver.js'
 import type { RuntimeEventBody } from './events.js'
 import type { SendOptions, TurnInput, TurnReceipt } from './turns.js'
 
-/** Disposable daemon delivery state. Admission, ordering and holds belong to the server. */
+/**
+ * Phases a row waits through for up to {@link BOUNDARY_CEILING_MS}: each ends on
+ * its own — a turn finishes, a compaction completes, the human answers the
+ * question. The server does not hold a message for any of them [POD-4661], so
+ * this queue must. Every other phase (`unknown`: no signal at all; `errored`: the
+ * turn stopped and a continue is a new send; `ended`) and a composer that never
+ * reports ready get the short {@link STUCK_CEILING_MS}, so a row that cannot land
+ * is reported rather than held for half an hour. (A never-ready composer reads
+ * `idle`, so it takes the short ceiling too.)
+ */
+const ENDS_ON_ITS_OWN: ReadonlySet<string> = new Set(['working', 'compacting', 'needs_user'])
+const BOUNDARY_CEILING_MS = 30 * 60_000
+const STUCK_CEILING_MS = 60_000
+
+/** Disposable daemon delivery state. Admission and ordering belong to the server;
+ *  waiting for the agent belongs here [POD-4661]. */
 export function withDeliveryQueue(
   handle: AgentSessionHandle,
   emit: (event: RuntimeEventBody) => void,
@@ -62,7 +77,7 @@ export function withDeliveryQueue(
           const state = await handle.state()
           if (row.abort.signal.aborted) continue
           if (state.phase !== 'idle' || !ready()) {
-            const ceiling = (state.phase === 'working' || state.phase === 'compacting') ? 30 * 60_000 : 60_000
+            const ceiling = ENDS_ON_ITS_OWN.has(state.phase) ? BOUNDARY_CEILING_MS : STUCK_CEILING_MS
             if (Date.now() - row.admittedAt >= ceiling) {
               settle(id, 'failed', 'the agent did not become ready before the delivery deadline')
             } else {
@@ -97,7 +112,7 @@ export function withDeliveryQueue(
           receipt.outcome === 'refused' &&
           ['busy', 'needs_user', 'lease_held'].includes(receipt.refusal.reason)
         ) {
-          if (Date.now() - row.admittedAt >= 30 * 60_000) {
+          if (Date.now() - row.admittedAt >= BOUNDARY_CEILING_MS) {
             settle(id, 'failed', 'the agent stayed busy before accepting this input')
           } else {
             await pause(200)

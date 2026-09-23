@@ -31,6 +31,9 @@ describe('durable row delivery', () => {
       ready: () => {
         phase = 'idle'
       },
+      setPhase: (next: string) => {
+        phase = next
+      },
     }
   }
   it('refuses durable boundary delivery without rewriting it to when-ready', async () => {
@@ -189,6 +192,45 @@ describe('durable row delivery', () => {
     expect(f.send).not.toHaveBeenCalled()
     expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'busy', outcome: 'failed' }))
   })
+
+  // A human answering a question ends needs_user just as a turn's end ends
+  // working. The server no longer holds a message for that [POD-4661], so the
+  // daemon must: a send made while the agent waits on the human is delivered
+  // after the answer, not failed a minute in.
+  it('waits through a needs_user question like a running turn, then delivers', async () => {
+    const f = fixture()
+    f.setPhase('needs_user')
+    await f.handle.send({ rowId: 'asked', text: 'after the answer' }, { origin: 'mail', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(10 * 60_000)
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.emit).not.toHaveBeenCalled()
+    f.ready()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'asked', outcome: 'delivered' }))
+  })
+
+  it('bounds a needs_user wait at the same ceiling as a running turn', async () => {
+    const f = fixture()
+    f.setPhase('needs_user')
+    await f.handle.send({ rowId: 'unanswered', text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
+    await vi.advanceTimersByTimeAsync(30 * 60_000 + 200)
+    expect(f.send).not.toHaveBeenCalled()
+    expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: 'unanswered', outcome: 'failed' }))
+  })
+
+  // These phases do not end on their own, so a short ceiling reports the stuck
+  // row instead of holding it for half an hour.
+  for (const phase of ['unknown', 'errored', 'ended'] as const) {
+    it(`keeps the short ceiling for a ${phase} agent`, async () => {
+      const f = fixture()
+      f.setPhase(phase)
+      await f.handle.send({ rowId: phase, text: 'wait' }, { origin: 'mail', delivery: 'when-ready' })
+      await vi.advanceTimersByTimeAsync(60_200)
+      expect(f.send).not.toHaveBeenCalled()
+      expect(f.emit).toHaveBeenCalledWith(expect.objectContaining({ rowId: phase, outcome: 'failed' }))
+    })
+  }
 
   it('bounds a never-ready composer', async () => {
     vi.useFakeTimers()
