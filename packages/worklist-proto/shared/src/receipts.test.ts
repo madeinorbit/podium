@@ -11,7 +11,12 @@ import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import { asMutationId, type MutationId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { createWriteTransport, type ReceiptEvent, type ReceiptsRuntime, subscribeReceipts } from './receipts'
+import {
+  createWriteTransport,
+  type ReceiptEvent,
+  type ReceiptsRuntime,
+  subscribeReceipts,
+} from './receipts'
 import {
   armMarkReadRejection,
   type ScenarioEngine,
@@ -50,7 +55,10 @@ function switchableNetwork(): {
   }
 }
 
-describe.each(['legacy', 'kernel'] as const)('#9 optimisticEchoAndRejection steps on the %s queue', (outbox) => {
+describe.each([
+  'legacy',
+  'kernel',
+] as const)('#9 optimisticEchoAndRejection steps on the %s queue', (outbox) => {
   it('press → one accepted; echo and a duplicate echo → nothing; refused press → one rejected', async () => {
     const ctx = await startScenarioEngine(1, { outbox })
     const id = ctx.targets.markReadId
@@ -58,7 +66,9 @@ describe.each(['legacy', 'kernel'] as const)('#9 optimisticEchoAndRejection step
     const off = subscribeReceipts(ctx.engine, (e) => events.push(e))
 
     await writeOptimisticPress(ctx)
-    expect(events).toEqual([{ type: 'accepted', txId: expect.any(String), kind: 'issueMarkRead', id }])
+    expect(events).toEqual([
+      { type: 'accepted', txId: expect.any(String), kind: 'issueMarkRead', id },
+    ])
     // The txId IS the queue entry's mutation id: the ledger holds this
     // mark-read awaiting truth under exactly that id.
     const accepted = events[0]!.txId
@@ -180,7 +190,9 @@ describe('write transport on the kernel queue', () => {
 
     network.goOnline()
     await tick()
-    expect(events.slice(1)).toEqual([{ type: 'accepted', txId: tx('4'), kind: 'issueMarkRead', id }])
+    expect(events.slice(1)).toEqual([
+      { type: 'accepted', txId: tx('4'), kind: 'issueMarkRead', id },
+    ])
     // Applied, and held by the kernel until its echo: awaiting truth.
     expect(transport.pending()).toEqual([{ ...queued[0], acked: true }])
     ctx.engine.destroy()
@@ -199,7 +211,13 @@ describe('write transport on the kernel queue', () => {
     await ctx.reload()
     const after = createWriteTransport(ctx.engine).pending()
     expect(after).toEqual([
-      { txId: tx('5'), kind: 'issueUpdate', input: { id, patch: { title: 'Queued' } }, queuedAt: expect.any(Number), acked: false },
+      {
+        txId: tx('5'),
+        kind: 'issueUpdate',
+        input: { id, patch: { title: 'Queued' } },
+        queuedAt: expect.any(Number),
+        acked: false,
+      },
     ])
     ctx.engine.destroy()
   }, 60_000)
@@ -260,12 +278,21 @@ describe('receipts over a stub runtime', () => {
     transport.send(tx('b'), { kind: 'issueMarkRead', input: { id: 'i1' } })
     await tick(0)
     expect(events).toEqual([
-      { type: 'rejected', txId: tx('b'), kind: 'issueMarkRead', id: 'i1', error: { message: 'disk full', parked: false } },
+      {
+        type: 'rejected',
+        txId: tx('b'),
+        kind: 'issueMarkRead',
+        id: 'i1',
+        error: { message: 'disk full', parked: false },
+      },
     ])
   })
 
   it('a throw after the entry reached the queue is not a rejection: the kernel still owes the outcome', async () => {
-    const { runtime, emit } = stub({ enqueue: () => Promise.reject(new Error('late')), queued: [tx('c')] })
+    const { runtime, emit } = stub({
+      enqueue: () => Promise.reject(new Error('late')),
+      queued: [tx('c')],
+    })
     const transport = createWriteTransport(runtime)
     const events: ReceiptEvent[] = []
     transport.subscribe((e) => events.push(e))

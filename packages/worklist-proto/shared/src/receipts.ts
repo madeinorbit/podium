@@ -61,7 +61,12 @@ export interface ReceiptsRuntime {
  * contract's `WriteEvent`.
  */
 export type ReceiptEvent =
-  | { readonly type: 'accepted'; readonly txId: TxId; readonly kind: string; readonly id: string | undefined }
+  | {
+      readonly type: 'accepted'
+      readonly txId: TxId
+      readonly kind: string
+      readonly id: string | undefined
+    }
   | {
       readonly type: 'rejected'
       readonly txId: TxId
@@ -139,7 +144,10 @@ const kernelSource =
  * The kernel's outcome for every queued write, keyed by its outbox mutation id
  * (the transaction id), at most once per id. Returns the unsubscribe.
  */
-export function subscribeReceipts(runtime: ReceiptsRuntime, listener: (event: ReceiptEvent) => void): () => void {
+export function subscribeReceipts(
+  runtime: ReceiptsRuntime,
+  listener: (event: ReceiptEvent) => void,
+): () => void {
   return once([kernelSource(runtime)], listener)
 }
 
