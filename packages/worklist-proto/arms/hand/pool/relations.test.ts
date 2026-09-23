@@ -815,8 +815,9 @@ describe('the reads fence and the write record', () => {
       r.push(session('S2', { issueId: 'I2', lastActiveAt: at(7) }))
       expect(heard).toEqual(['I2'])
       expect(r.pool.view('I2')?.activityAt).toBe(Date.parse(at(7)))
-      // activityAt:I2 and view:I2 only: a non-draft's title reads no member.
-      expect(r.pool.stats.counters.cellRuns - runs).toBe(2)
+      // activityAt:I2, loading:I2 (POD-4580: it asks each member's residency)
+      // and view:I2 only: a non-draft's title reads no member.
+      expect(r.pool.stats.counters.cellRuns - runs).toBe(3)
       // Evict S1 then re-add it: I1 falls back to its own time and comes back.
       heard.length = 0
       r.push(gone('session', 'S1'))
