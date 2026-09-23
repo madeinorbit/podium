@@ -8,7 +8,8 @@
  * the machine scan from `discovery.refreshRepos`, pins from `pins.list`.
  *
  * ANONYMISATION. Every string is hashed with a keyed HMAC unless its key is on
- * {@link KEEP_KEYS} (ids, enums, timestamps, the `displayRef` prefix). An
+ * {@link KEEP_KEYS} (ids, enums, timestamps, the `displayRef` prefix) AND the
+ * value is a single token ({@link TOKEN}). An
  * unknown field therefore leaks nothing; a field the derivation reads that
  * hashing broke shows up as a parity failure (`anonymisationParity`), never as
  * a silently different shape. Paths are hashed per segment so every
@@ -134,7 +135,15 @@ export const KEEP_KEYS: ReadonlySet<string> = new Set([
 /** Keys whose string values are filesystem paths (hashed per segment). */
 export const PATH_KEYS: ReadonlySet<string> = new Set(['cwd', 'path', 'repoPath', 'worktreePath'])
 
-const keepKey = (keep: ReadonlySet<string>, key: string): boolean => keep.has(key) || /At$/.test(key)
+const keepKey = (keep: ReadonlySet<string>, key: string): boolean =>
+  keep.has(key) || /At$/.test(key)
+
+/** A kept key keeps its value only when the value is one token: an id, an
+ *  enum member, a timestamp. Live rows put sentences in fields that look like
+ *  enums (`closedReason` holds closing summaries), so a value with a space, a
+ *  slash or unusual length is hashed even under a kept key. The derivation
+ *  reads those fields for presence, which a hash keeps. */
+const TOKEN = /^[A-Za-z0-9_:.|#+-]{1,128}$/
 
 /**
  * Keyed, deterministic hashing: equal inputs stay equal, nothing is
@@ -174,8 +183,8 @@ export class Hasher {
     const parts = path.split('/')
     for (let i = 1; i < parts.length; i++) {
       const parent = parts.slice(0, i).join('/')
-      let set = this.siblings.get(parent)
-      if (set === undefined) this.siblings.set(parent, (set = new Set()))
+      const set = this.siblings.get(parent) ?? new Set<string>()
+      this.siblings.set(parent, set)
       set.add(parts[i]!)
     }
   }
@@ -200,7 +209,12 @@ export class Hasher {
     if (cached !== undefined) return cached
     let base: string | null = null
     for (const sib of this.siblingAware ? (this.siblings.get(parent) ?? []) : []) {
-      if (sib !== seg && sib.length > 0 && seg.startsWith(sib) && (base === null || sib.length > base.length))
+      if (
+        sib !== seg &&
+        sib.length > 0 &&
+        seg.startsWith(sib) &&
+        (base === null || sib.length > base.length)
+      )
         base = sib
     }
     const encoded =
@@ -227,7 +241,7 @@ function notePaths(value: unknown, hasher: Hasher, key = ''): void {
 function anonymiseValue(value: unknown, hasher: Hasher, key = ''): unknown {
   if (typeof value === 'string') {
     if (PATH_KEYS.has(key)) return hasher.path(value)
-    if (keepKey(hasher.keep, key)) {
+    if (keepKey(hasher.keep, key) && TOKEN.test(value)) {
       hasher.counts.kept++
       hasher.keptKeys.add(key)
       return value
@@ -248,7 +262,10 @@ function anonymiseValue(value: unknown, hasher: Hasher, key = ''): unknown {
  * resume ref hashes the same wherever it appears). Pins name worktrees and
  * repos by path and panels by id.
  */
-export function anonymiseCollections(raw: LiveCollections, hasher: Hasher = new Hasher()): LiveCollections {
+export function anonymiseCollections(
+  raw: LiveCollections,
+  hasher: Hasher = new Hasher(),
+): LiveCollections {
   const { pins, ...rest } = raw
   for (const rows of Object.values(rest)) notePaths(rows, hasher)
   for (const path of [...pins.worktrees, ...pins.repos]) hasher.notePath(path)

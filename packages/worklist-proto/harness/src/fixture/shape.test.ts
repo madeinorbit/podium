@@ -66,7 +66,11 @@ describe('measureShape on the fixture (1x) agrees with the generator', () => {
 // (`<repo>/.worktrees/a`, longest prefix must win), and a string-prefix
 // sibling (`/r` vs `/r-fork`).
 const scanRow = (path: string, worktrees: string[] = []): GitRepositoryWire =>
-  ({ path, branch: 'main', worktrees: worktrees.map((p) => ({ path: p, branch: 'task' })) }) as never
+  ({
+    path,
+    branch: 'main',
+    worktrees: worktrees.map((p) => ({ path: p, branch: 'task' })),
+  }) as never
 
 const session = (sessionId: string, cwd: string): SessionMeta =>
   ({
@@ -150,6 +154,28 @@ describe('anonymisation', () => {
     for (const s of fixture.sessions.slice(0, 50)) expect(text).not.toContain(`"${s.cwd}"`)
     expect(text).not.toContain('/w/alpha')
   }, 60_000)
+
+  it('hashes a sentence under a kept key (live closedReason) and keeps a token', () => {
+    const summary = 'Fixed and landed on the integration branch as 6d4b48ddb.'
+    const raw = collectionsOf(fixture)
+    const closed = raw.issues.filter((i) => (i as { closedAt?: string }).closedAt).slice(0, 2)
+    const withReasons: LiveCollections = {
+      ...raw,
+      issues: raw.issues.map((i) =>
+        i.id === closed[0]!.id
+          ? { ...i, closedReason: summary }
+          : i.id === closed[1]!.id
+            ? { ...i, closedReason: 'abandoned' }
+            : i,
+      ),
+    }
+    const out = anonymiseCollections(withReasons)
+    const reason = (id: string) =>
+      (out.issues.find((i) => i.id === id) as { closedReason?: string }).closedReason
+    expect(reason(closed[0]!.id)).toMatch(/^t[0-9a-f]{16}$/)
+    expect(reason(closed[1]!.id)).toBe('abandoned')
+    expect(JSON.stringify(out)).not.toContain('6d4b48ddb')
+  })
 
   it('control: hashing a field the derivation reads (stage) fails parity', () => {
     const raw = collectionsOf(fixture)

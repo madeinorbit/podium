@@ -211,7 +211,8 @@ export function measureShape(
     sessionsInRootLanes: inRoot,
     withStartedBySession: corpus.issues.filter((i) => str(i, 'startedBySession') !== null).length,
     withCoordinator: corpus.issues.filter((i) => str(i, 'coordinatorSessionId') !== null).length,
-    needsHuman: corpus.issues.filter((i) => (i as { needsHuman?: boolean }).needsHuman === true).length,
+    needsHuman: corpus.issues.filter((i) => (i as { needsHuman?: boolean }).needsHuman === true)
+      .length,
     sessionsWithResume: withResume,
     liveSessions: live,
     groups: snapshot.order.groups.length,
@@ -247,7 +248,11 @@ export interface ShapeComparisonRow {
   followUp: boolean
 }
 
-type Picker = { measure: string; value: (m: ShapeMeasures) => number; per?: (m: ShapeMeasures) => number }
+type Picker = {
+  measure: string
+  value: (m: ShapeMeasures) => number
+  per?: (m: ShapeMeasures) => number
+}
 
 const perIssue = (m: ShapeMeasures) => m.issues
 const perSession = (m: ShapeMeasures) => m.sessions
@@ -279,31 +284,67 @@ export function comparisonPickers(fixture: ShapeMeasures, live: ShapeMeasures): 
       per: perIssue,
     })),
     { measure: 'max depth', value: (m) => m.maxDepth },
-    { measure: 'discovered-from edges / issues', value: (m) => m.discoveredFromEdges, per: perIssue },
+    {
+      measure: 'discovered-from edges / issues',
+      value: (m) => m.discoveredFromEdges,
+      per: perIssue,
+    },
     ...depTypes
       .filter((t) => t !== 'discovered-from')
-      .map<Picker>((t) => ({ measure: `\`${t}\` deps / issues`, value: (m) => m.depsByType[t] ?? 0, per: perIssue })),
-    { measure: 'prefix-owned sessions / sessions', value: (m) => m.prefixOwnedSessions, per: perSession },
+      .map<Picker>((t) => ({
+        measure: `\`${t}\` deps / issues`,
+        value: (m) => m.depsByType[t] ?? 0,
+        per: perIssue,
+      })),
+    {
+      measure: 'prefix-owned sessions / sessions',
+      value: (m) => m.prefixOwnedSessions,
+      per: perSession,
+    },
     { measure: 'lanes', value: (m) => m.lanes },
     { measure: 'repo-root lanes', value: (m) => m.rootLanes },
     { measure: 'worktree lanes', value: (m) => m.worktreeLanes },
     { measure: 'nested lanes (inside another lane)', value: (m) => m.nestedLanes },
     { measure: 'fork-trap lane pairs', value: (m) => m.forkTrapPairs },
-    { measure: 'prefix-owned → repo-root lane / sessions', value: (m) => m.prefixOwnedByRootLane, per: perSession },
-    { measure: 'prefix-owned → worktree lane / sessions', value: (m) => m.prefixOwnedByWorktreeLane, per: perSession },
-    { measure: 'prefix-owned → no lane / sessions', value: (m) => m.prefixOwnedUnresolved, per: perSession },
-    { measure: 'sessions in repo-root lanes / sessions', value: (m) => m.sessionsInRootLanes, per: perSession },
+    {
+      measure: 'prefix-owned → repo-root lane / sessions',
+      value: (m) => m.prefixOwnedByRootLane,
+      per: perSession,
+    },
+    {
+      measure: 'prefix-owned → worktree lane / sessions',
+      value: (m) => m.prefixOwnedByWorktreeLane,
+      per: perSession,
+    },
+    {
+      measure: 'prefix-owned → no lane / sessions',
+      value: (m) => m.prefixOwnedUnresolved,
+      per: perSession,
+    },
+    {
+      measure: 'sessions in repo-root lanes / sessions',
+      value: (m) => m.sessionsInRootLanes,
+      per: perSession,
+    },
     { measure: '`startedBySession` / issues', value: (m) => m.withStartedBySession, per: perIssue },
     { measure: '`coordinatorSessionId` / issues', value: (m) => m.withCoordinator, per: perIssue },
     { measure: '`needsHuman` / issues', value: (m) => m.needsHuman, per: perIssue },
-    { measure: 'sessions with `resume` / sessions', value: (m) => m.sessionsWithResume, per: perSession },
+    {
+      measure: 'sessions with `resume` / sessions',
+      value: (m) => m.sessionsWithResume,
+      per: perSession,
+    },
     { measure: 'live sessions / sessions', value: (m) => m.liveSessions, per: perSession },
     { measure: 'groups', value: (m) => m.groups },
     { measure: 'pinned rows', value: (m) => m.pinnedRows },
     { measure: 'closed-fold rows / visible', value: (m) => m.closedFoldRows, per: perVisible },
     { measure: 'asking rows / visible', value: (m) => m.askingRows, per: perVisible },
     { measure: 'working rows / visible', value: (m) => m.workingRows, per: perVisible },
-    ...phases.map<Picker>((p) => ({ measure: `phase ${p} / visible`, value: (m) => m.phases[p] ?? 0, per: perVisible })),
+    ...phases.map<Picker>((p) => ({
+      measure: `phase ${p} / visible`,
+      value: (m) => m.phases[p] ?? 0,
+      per: perVisible,
+    })),
   ]
 }
 

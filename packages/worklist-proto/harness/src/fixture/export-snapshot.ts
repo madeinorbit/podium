@@ -19,7 +19,7 @@
  * attach it to the issue. The hashing key is random per run and never stored.
  */
 
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
@@ -48,9 +48,14 @@ function arg(name: string): string | undefined {
 
 function sessionToken(): string {
   const file = arg('--token-file') ?? join(homedir(), '.podium', 'cli-session.json')
-  const { token, expiresAt } = JSON.parse(readFileSync(file, 'utf8')) as { token: string; expiresAt?: string }
+  const { token, expiresAt } = JSON.parse(readFileSync(file, 'utf8')) as {
+    token: string
+    expiresAt?: string
+  }
   if (expiresAt !== undefined && Date.parse(expiresAt) < Date.now())
-    throw new Error(`${file}: the CLI session expired at ${expiresAt}; run any \`podium\` command to refresh it`)
+    throw new Error(
+      `${file}: the CLI session expired at ${expiresAt}; run any \`podium\` command to refresh it`,
+    )
   return token
 }
 
@@ -58,7 +63,10 @@ function sessionToken(): string {
 function clientApi(
   origin: string,
   cookie: string,
-): { discovery: Pick<PodiumClientApi['discovery'], 'refreshRepos'>; pins: Pick<PodiumClientApi['pins'], 'list'> } {
+): {
+  discovery: Pick<PodiumClientApi['discovery'], 'refreshRepos'>
+  pins: Pick<PodiumClientApi['pins'], 'list'>
+} {
   const call = async <O>(path: string, method: 'GET' | 'POST'): Promise<O> => {
     const url =
       method === 'GET'
@@ -69,7 +77,10 @@ function clientApi(
       headers: { cookie, 'content-type': 'application/json' },
       ...(method === 'POST' ? { body: '{}' } : {}),
     })
-    const body = (await response.json()) as Array<{ result?: { data: O }; error?: { message: string } }>
+    const body = (await response.json()) as Array<{
+      result?: { data: O }
+      error?: { message: string }
+    }>
     const first = body[0]
     if (!response.ok || first?.result === undefined)
       throw new Error(`${path}: HTTP ${response.status} ${first?.error?.message ?? ''}`)
@@ -97,7 +108,10 @@ async function readLive(origin: string): Promise<{
   const cookie = `podium_session=${sessionToken()}`
   const source = new HttpBootstrapSource({
     origin,
-    streamingFetch: { fetch: (input, init) => fetch(input, { ...init, headers: { ...(init.headers as object), cookie } }) },
+    streamingFetch: {
+      fetch: (input, init) =>
+        fetch(input, { ...init, headers: { ...(init.headers as object), cookie } }),
+    },
   })
   const byEntity = new Map<string, Map<string, unknown>>()
   const bootstrapEntityCounts: Record<string, number> = {}
@@ -106,8 +120,8 @@ async function readLive(origin: string): Promise<{
     for (const change of chunk.changes) {
       bootstrapEntityCounts[change.entity] = (bootstrapEntityCounts[change.entity] ?? 0) + 1
       if (!(change.entity in EXPORTED_ENTITIES)) continue
-      let rows = byEntity.get(change.entity)
-      if (rows === undefined) byEntity.set(change.entity, (rows = new Map()))
+      const rows = byEntity.get(change.entity) ?? new Map<string, unknown>()
+      byEntity.set(change.entity, rows)
       if (change.op === 'upsert') rows.set(change.entityId, change.payload)
       else rows.delete(change.entityId)
     }
@@ -135,7 +149,8 @@ async function readLive(origin: string): Promise<{
 
 export function readSnapshot(file: string): LiveSnapshot {
   const snapshot = JSON.parse(gunzipSync(readFileSync(file)).toString('utf8')) as LiveSnapshot
-  if (snapshot.format !== LIVE_SNAPSHOT_FORMAT) throw new Error(`${file}: not a ${LIVE_SNAPSHOT_FORMAT} file`)
+  if (snapshot.format !== LIVE_SNAPSHOT_FORMAT)
+    throw new Error(`${file}: not a ${LIVE_SNAPSHOT_FORMAT} file`)
   return snapshot
 }
 
@@ -152,8 +167,16 @@ async function main(): Promise<void> {
   if (compareFile !== undefined) {
     const { fixture, live, rows, table } = compareWithFixture(readSnapshot(compareFile))
     console.log(table)
-    console.log(`\nfollow-ups (> 20%): ${rows.filter((r) => r.followUp).map((r) => r.measure).join('; ')}`)
-    writeFileSync(`${compareFile}.shape.json`, `${JSON.stringify({ fixture, live, rows }, null, 2)}\n`)
+    console.log(
+      `\nfollow-ups (> 20%): ${rows
+        .filter((r) => r.followUp)
+        .map((r) => r.measure)
+        .join('; ')}`,
+    )
+    writeFileSync(
+      `${compareFile}.shape.json`,
+      `${JSON.stringify({ fixture, live, rows }, null, 2)}\n`,
+    )
     return
   }
   const origin = (arg('--origin') ?? process.env.PODIUM_ORIGIN ?? DEFAULT_ORIGIN).replace(/\/$/, '')
