@@ -68,7 +68,11 @@ Numbers and commands: `docs/measurements/POD-4568-a.md`.
    bucket is written where it lives; residency places only a bucket that
    does not exist yet. Test: `residency.test.tsx`, "a removed resident
    parent's children follow a child that moves away" (red before the fix
-   on `i0`, green after). The gate's per-step relation check caught it; the
+   on `i0`, green after). Reproduced on the pre-fix commit (f739adac9) by a scratch
+   probe: seed 8 fails at step 124, as the gate did; seed 8's sequence is
+   `evict i80` (step 92), `archive i229` (107, the child leaves `parent`),
+   `reAdd i80` (124, the stale bucket is read again). Seeds 1-7 pass there.
+   The gate's per-step relation check caught it; the
    rebuild comparison alone would have only if a row view read that bucket.
 
 ## Round three: residency, a3 (POD-4567) · 2026-09-23
