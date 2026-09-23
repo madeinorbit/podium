@@ -25,6 +25,7 @@ import {
   asMutationId,
   asSessionId,
   asUserId,
+  UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
 import { createElement, Profiler, act, useSyncExternalStore } from 'react'
 import { render } from '@testing-library/react'
@@ -1942,7 +1943,7 @@ describe('resumeAndSend holds for optimistic spawn (POD-546)', () => {
     api.sessions.resumeAndSend = {
       mutate: vi.fn(async () => ({
         ok: false,
-        reason: 'dead-lettered: session no longer exists',
+        reason: 'session archived',
         disposition: 'dead_letter',
       })),
     }
@@ -1962,6 +1963,34 @@ describe('resumeAndSend holds for optimistic spawn (POD-546)', () => {
     expect(engine.getSnapshot().outboxDeadLetters).toMatchObject([
       { entry: { kind: 'resumeAndSend' } },
     ])
+    engine.dispose()
+  })
+  it('a send whose session no longer exists resolves with a note instead of parking (POD-4660)', async () => {
+    // The one refusal with nothing to recover: no session is left to deliver
+    // to. It must not park — a parked send holds every later send to the
+    // session — and the operator must still learn it did not go out.
+    const api = spawnSendApi()
+    api.sessions.resumeAndSend = {
+      mutate: vi.fn(async () => ({
+        ok: false,
+        reason: UNADDRESSABLE_SEND_REASON,
+        disposition: 'dead_letter',
+      })),
+    }
+    const { engine, hub, errors } = makeEngine({ api })
+    engine.start()
+    hub.health = { status: 'ok', rttMs: 1, since: 0 }
+    hub.emit('connectionHealth', hub.health)
+    await settle(40)
+
+    engine.replica.applyChanges('sessions', [session('s-known', '/w')], [])
+    await settle(10)
+    await engine.getSnapshot().resumeAndSend(asSessionId('s-known'), 'too late')
+    await settle(40)
+
+    expect(engine.getSnapshot().outboxSize).toBe(0)
+    expect(engine.getSnapshot().outboxDeadLetters).toEqual([])
+    expect(errors).toEqual(['Message not sent — the session no longer exists: “too late”'])
     engine.dispose()
   })
 })

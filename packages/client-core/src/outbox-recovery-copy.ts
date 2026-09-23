@@ -266,6 +266,17 @@ export function couldNotSaveNotice(kind: string, input: unknown): string {
   return `Couldn’t save ${named}`
 }
 
+/** Toast line for a queued message whose session was deleted before it
+ *  arrived (POD-4660). The entry resolves, so this is the only place the words
+ *  still show: quote the start of them, so the operator knows which message
+ *  did not go out. */
+export function sessionGoneNotice(text: string): string {
+  const firstLine = text.trim().split('\n', 1)[0] ?? ''
+  const quoted = firstLine.length > 60 ? `${firstLine.slice(0, 59).trimEnd()}…` : firstLine
+  const words = quoted.length === 0 ? '' : `: “${quoted}”`
+  return `Message not sent — the session no longer exists${words}`
+}
+
 /** The keys an author's own prose can arrive under, in the order we prefer them. */
 const AUTHORED_KEYS = [
   'text',

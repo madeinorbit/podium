@@ -35,13 +35,14 @@ import {
   platformIsOnline,
   platformOnlineEvents,
 } from '../outbox'
-import { couldNotSaveNotice } from '../outbox-recovery-copy'
+import { couldNotSaveNotice, sessionGoneNotice } from '../outbox-recovery-copy'
 import {
   type CreateEngineOutbox,
   deadLetterHandlingFor,
   type EngineOutbox,
   type EngineOutboxCallbacks,
   OUTBOX_COMMANDS,
+  type OutboxExecutorHooks,
   type OutboxKinds,
   outboxExecutors,
   outboxRoutingFor,
@@ -111,10 +112,14 @@ async function discardAutomaticDeadLetters(kernel: KernelOutbox): Promise<void> 
  * envelope, and a new kind now fails to COMPILE rather than failing under a
  * user's pointer.
  */
-function submit(api: PodiumClientApi, envelope: OutboxEnvelope): Promise<unknown> {
+function submit(
+  api: PodiumClientApi,
+  envelope: OutboxEnvelope,
+  hooks: OutboxExecutorHooks,
+): Promise<unknown> {
   const input = { ...(envelope.input as object), mutationId: envelope.mutationId }
   const kind = kindByCommand.get(envelope.command)
-  const execute = kind === undefined ? undefined : outboxExecutors(api)[kind]
+  const execute = kind === undefined ? undefined : outboxExecutors(api, hooks)[kind]
   if (execute === undefined) {
     throw Object.assign(new Error(`unknown kernel Outbox command: ${envelope.command}`), {
       data: { code: 'BAD_REQUEST' },
@@ -282,6 +287,12 @@ class KernelEngineOutbox implements EngineOutbox {
     this.metadata.delete(mutationId)
   }
 
+  /** A send resolved undelivered because its session was deleted (POD-4660):
+   *  the entry is done, so say so rather than let it vanish. */
+  sessionGone(input: OutboxKinds['resumeAndSend']): void {
+    this.callbacks.notices.error(sessionGoneNotice(input.text))
+  }
+
   notifyConnected(): void {
     void this.drain()
   }
@@ -396,7 +407,9 @@ export async function openKernelEngineOutbox(
     submit: {
       submit: async (envelope) => {
         try {
-          await submit(options.api, envelope)
+          await submit(options.api, envelope, {
+            sessionGone: (input) => adapter?.sessionGone(input),
+          })
           return { kind: 'applied' }
         } catch (error) {
           const refusal = classifyRefusal(error)

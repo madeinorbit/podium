@@ -55,6 +55,7 @@ import {
   type SpawnedByRef,
   STOPPED_SEND_REASON,
   spawnedByTag,
+  UNADDRESSABLE_SEND_REASON,
 } from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
 import type { Refusal, RuntimeAttachmentRef } from '@podium/protocol/daemon'
@@ -527,7 +528,8 @@ async function substrateSend(
  */
 const UNADDRESSABLE_SEND = {
   ok: false,
-  reason: 'dead-lettered: session no longer exists',
+  // One literal with the client that resolves this reply (POD-4660).
+  reason: UNADDRESSABLE_SEND_REASON,
   disposition: 'dead_letter',
 } as const
 

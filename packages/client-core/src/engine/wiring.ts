@@ -7,7 +7,13 @@
  */
 
 import type { ConfirmationRule } from '@podium/commands'
-import { isStoppedSend, type MutationId, type SessionId, type WorkState } from '@podium/model'
+import {
+  isStoppedSend,
+  isUnaddressableSend,
+  type MutationId,
+  type SessionId,
+  type WorkState,
+} from '@podium/model'
 import {
   ENQUEUEABLE_DELIVERY,
   type OutboxCommand,
@@ -22,7 +28,11 @@ import {
   platformIsOnline,
   platformOnlineEvents,
 } from '../outbox'
-import { couldNotSaveNotice, recoverableAuthoredText } from '../outbox-recovery-copy'
+import {
+  couldNotSaveNotice,
+  recoverableAuthoredText,
+  sessionGoneNotice,
+} from '../outbox-recovery-copy'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
 import type { Replica } from '../replica/replica'
@@ -642,6 +652,12 @@ export function createEngineHub(args: {
   })
 }
 
+/** What an executor reports that is neither applied nor refused. */
+export interface OutboxExecutorHooks {
+  /** A send resolved without delivery because its session no longer exists. */
+  readonly sessionGone?: (input: OutboxKinds['resumeAndSend']) => void
+}
+
 /**
  * THE ONE PLACE A QUEUED KIND MEETS ITS PROCEDURE, and it is one place because
  * POD-781 group 3 found out what two places cost.
@@ -660,7 +676,10 @@ export function createEngineHub(args: {
  * kind fails to compile here rather than failing at runtime on a user's drop.
  * Both queues read it.
  */
-export function outboxExecutors(api: PodiumClientApi): {
+export function outboxExecutors(
+  api: PodiumClientApi,
+  hooks: OutboxExecutorHooks = {},
+): {
   [K in keyof OutboxKinds]: (input: OutboxKinds[K]) => Promise<unknown>
 } {
   return {
@@ -675,6 +694,13 @@ export function outboxExecutors(api: PodiumClientApi): {
       // stop took effect, so the entry is done. Parked, it would hold every later
       // message to the session behind it for good.
       if (isStoppedSend(result)) return result
+      // The session was deleted before this send arrived (POD-4660). No session
+      // is left to deliver it to and a retry gets the same answer, so the entry
+      // is done — the operator is told it was not sent instead.
+      if (isUnaddressableSend(result)) {
+        hooks.sessionGone?.(i)
+        return result
+      }
       // dead_letter / refused is HTTP 200 with ok:false — must not be applied
       assertSendAccepted(result)
       return result
@@ -721,7 +747,9 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
     awaitingStorage: args.replica.outboxAwaitingStorage(),
     deadLetterStorage: args.replica.outboxDeadLetterStorage(),
     shouldDiscardDeadLetter: (entry) => !shouldParkDeadLetter(entry.kind, entry.input),
-    executors: outboxExecutors(api),
+    executors: outboxExecutors(api, {
+      sessionGone: (input) => args.notices.error(sessionGoneNotice(input.text)),
+    }),
     onApplied: args.onApplied,
     // A refused write with no typed words is reverted (overlay drops) and
     // toasted. Authored prose is parked so the words are not lost — a toast
