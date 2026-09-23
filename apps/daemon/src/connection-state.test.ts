@@ -527,7 +527,8 @@ function timerHarness() {
     timer.cleared = true
     timer.fn()
   }
-  return { timers, next, runNext }
+  const pending = (): ScheduledTimer[] => scheduled.filter((timer) => !timer.cleared)
+  return { timers, next, runNext, pending }
 }
 
 function remoteConnection(sockets: FakeSocket[], timers: ReconnectTimers, identityDir = temp()) {
@@ -1497,10 +1498,11 @@ describe('podium connect locator rescue (POD-4533)', () => {
       ...(opts.identity ?? {}),
     })
     const fetchCalls: string[] = []
+    let recordEndpoints = opts.recordEndpoints
     const fetchImpl = (async (input: string | URL | Request) => {
       const url = String(input)
       fetchCalls.push(url)
-      if (url.includes('/v1/installations/')) return new Response(locatorRecordBody(opts.recordEndpoints))
+      if (url.includes('/v1/installations/')) return new Response(locatorRecordBody(recordEndpoints))
       const origin = url.replace(/\/version$/, '')
       const identity = opts.versions[origin]
       if (!identity) return new Response('down', { status: 500 })
@@ -1531,12 +1533,30 @@ describe('podium connect locator rescue (POD-4533)', () => {
       locatorFetch: fetchImpl,
     })
     const locatorReads = () => fetchCalls.filter((url) => url.includes('/v1/installations/'))
-    return { state, onConnected, sockets, socketUrls, fetchCalls, locatorReads, timers: harness }
+    const republish = (endpoints: Array<{ url: string; priority: number }>): void => {
+      recordEndpoints = endpoints
+    }
+    return { state, onConnected, sockets, socketUrls, fetchCalls, locatorReads, republish, timers: harness }
   }
 
   const dropSocket = (socket: FakeSocket): void => {
     socket.emit('error', new Error('ECONNREFUSED'))
     socket.finishClose()
+  }
+
+  /**
+   * One reconnect tick of a server that stays dead: fire the single pending
+   * backoff timer, fail the dial it makes. Returns the backoff that elapsed.
+   */
+  const failNextDial = async (h: ReturnType<typeof rescueHarness>): Promise<number> => {
+    const pending = h.timers.pending()
+    expect(pending).toHaveLength(1)
+    const timer = pending[0]!
+    timer.cleared = true
+    timer.fn()
+    dropSocket(h.sockets.at(-1)!)
+    await flush()
+    return timer.ms
   }
 
   it('a dead server URL resolves, adopts the new URL through set-server, and reconnects', async () => {
@@ -1584,7 +1604,8 @@ describe('podium connect locator rescue (POD-4533)', () => {
     ])
     dropSocket(h.sockets[2]!)
     await flush()
-    // One attempt per outage: the third failure backs off without another read.
+    // Not one read per drop: the ask that opened this outage covers the next
+    // failures until 30 s of backoff have passed (POD-4646 re-arms after that).
     expect(h.locatorReads()).toHaveLength(2)
     expect(h.timers.next(1000)).toBeDefined()
     await h.state.close()
@@ -1627,6 +1648,111 @@ describe('podium connect locator rescue (POD-4533)', () => {
     expect(h.socketUrls).toEqual(['wss://old.example/daemon'])
     expect(h.state.state).toBe('backoff')
     expect(h.timers.next(500)).toBeDefined()
+    await h.state.close()
+  })
+
+  it('a rotating tunnel: the record is stale at the drop, republished later, and adopted without a restart (POD-4646)', async () => {
+    // THE ROTATING-TUNNEL SEQUENCE. The tunnel dies, the link drops, and the
+    // record still names the url that just died — the replacement tunnel has
+    // not printed its url yet. The first resolution skips the dead url and
+    // answers nothing. The record is republished moments later. Before
+    // POD-4646 the outage had spent its one attempt, 'established' could never
+    // fire against a dead url, and the daemon stayed stranded until restart.
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
+      versions: {
+        'https://old.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+        'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+      },
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+    })
+    const started = h.state.start()
+    dropSocket(h.sockets[0]!)
+    await flush()
+    // t=0: consulted, found only the dead url, kept dialling it.
+    expect(h.locatorReads()).toHaveLength(1)
+    expect(loadConfig().serverUrl).toBe('wss://old.example')
+
+    // A few seconds on, the new tunnel's url is published.
+    let elapsedMs = await failNextDial(h)
+    h.republish([{ url: 'https://new.example', priority: 100 }])
+
+    // The same process, still in the same outage, picks it up.
+    const budgetMs = 5 * 60_000
+    while (loadConfig().serverUrl === 'wss://old.example' && elapsedMs < budgetMs) {
+      elapsedMs += await failNextDial(h)
+    }
+    expect(loadConfig().serverUrl).toBe('wss://new.example')
+    expect(h.socketUrls.at(-1)).toBe('wss://new.example/daemon')
+    // Within the re-arm window (30s of backoff), not minutes later.
+    expect(elapsedMs).toBeLessThanOrEqual(35_000)
+    expect(h.locatorReads()).toHaveLength(2)
+
+    h.sockets.at(-1)!.emit('open')
+    h.sockets.at(-1)!.message(ok)
+    await started
+    expect(h.state.state).toBe('connected')
+    await h.state.close()
+  })
+
+  it('a healthy link performs zero resolutions over a long run (POD-4646)', async () => {
+    // Fake the global clock BEFORE the link exists, so a poll armed at connect
+    // time on the real timers would be advanced below, not escape the test.
+    vi.useFakeTimers()
+    try {
+      const h = rescueHarness({
+        recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
+        versions: { 'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY } },
+        identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+      })
+      const started = h.state.start()
+      h.sockets[0]!.emit('open')
+      h.sockets[0]!.message(ok)
+      await started
+      expect(h.state.state).toBe('connected')
+
+      // An hour of wall clock, and every timer the connection armed, fired.
+      await vi.advanceTimersByTimeAsync(60 * 60_000)
+      for (const timer of h.timers.pending()) {
+        timer.cleared = true
+        timer.fn()
+      }
+      await vi.advanceTimersByTimeAsync(1_000)
+
+      expect(h.state.state).toBe('connected')
+      expect(h.locatorReads()).toHaveLength(0)
+      expect(h.fetchCalls).toEqual([])
+      await h.state.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('the re-arm is bounded: a ten-minute outage resolves 21 times, not once per tick (POD-4646)', async () => {
+    const h = rescueHarness({
+      // The record never moves on: every resolution finds only the dead url.
+      recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
+      versions: {},
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+    })
+    void h.state.start()
+    dropSocket(h.sockets[0]!)
+    await flush()
+
+    let elapsedMs = 0
+    let ticks = 0
+    while (elapsedMs < 10 * 60_000) {
+      elapsedMs += await failNextDial(h)
+      ticks += 1
+    }
+    // Backoff 0.5+1+2+4 s, then 5 s a tick: 123 reconnect ticks cover ten
+    // minutes. Resolutions: one at the drop, one once 30 s of backoff has
+    // elapsed (tick 9, 32.5 s), then one every six 5 s ticks — 1 + 1 + 19.
+    expect(ticks).toBe(123)
+    expect(h.locatorReads()).toHaveLength(21)
+    // Nothing was adopted and nothing probed the dead url it keeps skipping.
+    expect(loadConfig().serverUrl).toBe('wss://old.example')
+    expect(h.fetchCalls.filter((url) => url.endsWith('/version'))).toEqual([])
     await h.state.close()
   })
 })
