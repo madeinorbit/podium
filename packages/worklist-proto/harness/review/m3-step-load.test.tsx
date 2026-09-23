@@ -206,7 +206,63 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
     const c = await runArm('C microtask, no plant', MICROTASK, false)
     const b = await runArm('B microtask, planted', MICROTASK, true)
     expect(new Set([a.target, b.target, c.target, d.target]).size).toBe(1)
-    // Recorded, not asserted: the review doc reads the printed lines.
-    for (const arm of [a, b, c, d]) expect(arm.charged).toBeGreaterThan(0)
+    // The window alone changes nothing on the clean pool.
+    expect(c.charged).toBe(d.charged)
+    expect(c.hydratedInStep).toBe(0)
+    // The plant's load lands in the step only when the window closes in it:
+    // the counts test's pool (A) charges the step its request and passes;
+    // the same step with the load inside it (B) fails the reads fence.
+    expect(a.hydratedInStep).toBe(0)
+    expect(a.fence).toBe('pass')
+    expect(b.hydratedInStep).toBeGreaterThan(0)
+    expect(b.fence).not.toBe('pass')
+  }, 600_000)
+
+  it('clean pool, steps #1-#4: does any step trigger a load of its own?', async () => {
+    for (const [name, schedule] of [
+      ['never', NEVER],
+      ['microtask', MICROTASK],
+    ] as const) {
+      const ctx = await startScenarioEngine(1)
+      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const plant: Plant = { target: null, runs: 0, loadedRuns: 0 }
+      const mounted = mountArmForCounts(plantedArm(schedule, plant), feeds.rows.source, feeds.locals)
+      try {
+        const { pool } = mounted.handle as MobxPoolHandle
+        const residency = pool.residency!
+        while (residency.hasQueued()) act(() => pool.hydrate())
+        mounted.log.reset()
+        mounted.handle.stats.reset()
+        mounted.reads.reset()
+        const snapshot = pool.snapshot.bind(pool)
+        let atSample = -1
+        pool.snapshot = () => {
+          if (atSample < 0) atSample = residency.counters.hydrated
+          return snapshot()
+        }
+        const cells = []
+        for (const methodology of ['#1', '#2', '#3', '#4']) {
+          const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)!
+          const before = residency.counters.hydrated
+          atSample = -1
+          const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry)
+          cells.push({
+            methodology,
+            charged: result.readsPerChange,
+            readsBudget,
+            rowsCommitted: result.rowsCommitted,
+            hydratedInStep: atSample - before,
+            hydratedAfterSample: residency.counters.hydrated - atSample,
+          })
+        }
+        const line = `[m3-step-load clean] ${name} ${JSON.stringify(cells)}\n`
+        if (process.env.M3_PROBE_OUT) appendFileSync(process.env.M3_PROBE_OUT, line)
+        else console.info(line)
+      } finally {
+        mounted.unmount()
+        feeds.dispose()
+        ctx.engine.destroy()
+      }
+    }
   }, 600_000)
 })
