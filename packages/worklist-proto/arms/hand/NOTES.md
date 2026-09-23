@@ -191,8 +191,8 @@ children, a progress cell over `lazyMany`: `{ done 0, total <hot>, pending
 <cold> }` until the window closes, then `{ done <cold>, total <all>,
 pending 0 }` (closed children count as done once loaded).
 
-Fence steps (`counts.test.tsx`, 1x engine, live-shaped fixture, loads
-settled before counting):
+Fence steps (`counts.test.tsx`, 1x engine, live-shaped fixture, the
+mount's loads held pending, none landing in a step):
 
 | step | oracle changed | drawn | commit fence | reads / budget |
 | --- | --- | --- | --- | --- |
@@ -203,7 +203,7 @@ settled before counting):
 | #8b grace | 6 rows | the 3 resident ones | missed rows asserted cold | 3 / 144 |
 
 **Gate of record (L4b, rebuild-only, live-shaped 1x), 2026-09-23: GREEN.**
-Seeds 1-20 x 300 steps at c83711642,  "correctness gate", in
+Seeds 1-20 x 300 steps at c83711642, `gate.test.ts` "correctness gate", in
 four sequential chunks of five seeds (`POD_POOL_GATE_FIRST_SEED`) under the
 heavy lease, 17:53-19:50 (the chunks took 21-24 min each; box load 9-21:
 pass/fail and counts only, no walls). Every step compared the settled
@@ -388,10 +388,10 @@ of the old and new cwd). Upkeep vs bucket size: one new issue in a repo of
 
 Asserted: the 4,000 and 8,000 rows are equal, elements ≤ 4, ops < 100; the
 plant's ops exceed b and grow with it. POD-4580 (the coordinator's G3):
-the counter now patches  set/delete/iterator too; honest engine 11 / 12
+the counter now patches `Map` set/delete/iterator too; honest engine 11 / 12
 ops per add / remove at b = 4,000 and 8,000 (equal), the copy-and-sort plant
-12,016 / 24,016, and a new plant copying the forward  per change 16,023
-/ 32,023, so the  patch is proven armed.
+12,016 / 24,016, and a new plant copying the forward `Map` per change 16,023
+/ 32,023, so the `Map` patch is proven armed.
 
 **F2 plant** (`relations.test.ts`, "row views resolve single-valued
 relations through the engine (M3 F2)"): a wrong forward entry planted for
