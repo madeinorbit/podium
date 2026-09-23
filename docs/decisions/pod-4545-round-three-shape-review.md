@@ -1,7 +1,18 @@
 # M3: MobX pool shape review (POD-4591)
 
-> **Re-review 2, 2026-09-23 at `7ebeb9897`: FAIL on two lines (G2, G3), sent
-> back to POD-4568.** G1 now PASSES: the F1 guard counts from outside the pool
+> **Final review, 2026-09-23 at `b29ea68ce`: FAIL on two lines (G4, G5), both
+> small, and neither changes what the pool does.** G2 and G3 PASS: my cold-issue plant now fails #2 through
+> the shared fence (2,839 reads against a budget of 3), and the F1 guard is
+> red on both of my copy-on-write plants. (G4) Two other copy idioms,
+> `set.union(new Set())` and `structuredClone(set)`, still get past the F1
+> guard, at 8,002 elements per new session. A check that no engine set is
+> replaced by another object catches all four plants, and it is written
+> (`harness/review/m3-index-identity.test.ts`). (G5) The arm's lint is red at
+> `b29ea68ce`: the new load hooks have no `makeObservable` annotation. This
+> is the complete list. It does not block Mb1 (operator decision). See §7.
+>
+> Re-review 2, 2026-09-23 at `7ebeb9897`: FAIL on two lines (G2, G3), sent
+> back to POD-4568. G1 now PASSES: the F1 guard counts from outside the pool
 > and fails on my plant and on the old flush. But two ways of doing
 > change-sized work still get past the tests. (G2) A load that a fence step's
 > own change triggers lands after the counts test has sampled its reads, so
