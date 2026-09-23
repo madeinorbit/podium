@@ -33,7 +33,11 @@ function specOf(from: EntityName, relation: string): RelationSpec {
 }
 
 function singleValued(spec: RelationSpec): boolean {
-  return spec.kind === 'belongsTo' || spec.kind === 'prefix' || (spec.kind === 'edge' && spec.direction === 'out')
+  return (
+    spec.kind === 'belongsTo' ||
+    spec.kind === 'prefix' ||
+    (spec.kind === 'edge' && spec.direction === 'out')
+  )
 }
 
 /**
@@ -70,7 +74,8 @@ export class PoolRelations implements RelationReader {
 
   one(from: EntityName, id: string, relation: string): string | null {
     const spec = specOf(from, relation)
-    if (!singleValued(spec)) throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
+    if (!singleValued(spec))
+      throw new Error(`[pool] ${from}.${relation} is a collection; read it with many()`)
     if (spec.kind === 'prefix') return null // Ha2
     const row = this.tables[from].get(id) as object | undefined
     if (row === undefined) return null

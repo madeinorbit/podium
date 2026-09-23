@@ -246,7 +246,8 @@ export class CellGraph {
     const { sourceIndexes, sourceKeys } = cell
     for (let i = 0; i < sourceKeys.length; i += 1) {
       const index = sourceIndexes[i]
-      if (index === null || index === undefined) (sourceKeys[i] as Cell<unknown>).readers.delete(cell)
+      if (index === null || index === undefined)
+        (sourceKeys[i] as Cell<unknown>).readers.delete(cell)
       else index.remove(sourceKeys[i], cell)
     }
     sourceIndexes.length = 0

@@ -31,10 +31,14 @@ describe('cells', () => {
   it('re-runs only on an input it read on its LAST run (a branch not taken is not an input)', () => {
     const r = rig()
     let runs = 0
-    const cell = r.graph.cell('pick', () => {
-      runs += 1
-      return r.get('flag') === 0 ? r.get('a') : r.get('b')
-    }, sameData)
+    const cell = r.graph.cell(
+      'pick',
+      () => {
+        runs += 1
+        return r.get('flag') === 0 ? r.get('a') : r.get('b')
+      },
+      sameData,
+    )
     expect(r.graph.read(cell)).toBe(1)
     r.set('b', 20)
     expect(runs).toBe(1) // b was not read
@@ -50,10 +54,14 @@ describe('cells', () => {
     let outer = 0
     const inner = r.graph.cell('inner', () => ({ positive: r.get('a') > 0 }), sameData)
     const first = r.graph.read(inner)
-    const reader = r.graph.cell('outer', () => {
-      outer += 1
-      return r.graph.read(inner).positive
-    }, sameData)
+    const reader = r.graph.cell(
+      'outer',
+      () => {
+        outer += 1
+        return r.graph.read(inner).positive
+      },
+      sameData,
+    )
     r.graph.read(reader)
     r.set('a', 5)
     expect(r.graph.read(inner)).toBe(first)
@@ -68,10 +76,14 @@ describe('cells', () => {
     let sink = 0
     const left = r.graph.cell('left', () => r.get('a') + 1, sameData)
     const right = r.graph.cell('right', () => r.get('a') * 2, sameData)
-    const bottom = r.graph.cell('bottom', () => {
-      sink += 1
-      return r.graph.read(left) + r.graph.read(right)
-    }, sameData)
+    const bottom = r.graph.cell(
+      'bottom',
+      () => {
+        sink += 1
+        return r.graph.read(left) + r.graph.read(right)
+      },
+      sameData,
+    )
     expect(r.graph.read(bottom)).toBe(4)
     r.set('a', 3)
     expect(sink).toBe(2)
@@ -82,10 +94,14 @@ describe('cells', () => {
     const r = rig()
     const inner = r.graph.cell('inner', () => r.get('a'), sameData)
     let woke = 0
-    const reader = r.graph.cell('reader', () => {
-      woke += 1
-      return r.graph.read(inner)
-    }, sameData)
+    const reader = r.graph.cell(
+      'reader',
+      () => {
+        woke += 1
+        return r.graph.read(inner)
+      },
+      sameData,
+    )
     r.graph.read(reader)
     r.graph.dispose(inner)
     expect(r.rows.size).toBe(0)

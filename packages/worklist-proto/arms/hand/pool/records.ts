@@ -22,8 +22,9 @@ import type { RepoRow } from './views'
  * Where a feed row spells a schema field differently. Only the repo: its row
  * is a lane (`tables.ts`), which carries the repo's path as `repoPath`.
  */
-export const FEED_SPELLING: Readonly<Partial<Record<EntityName, Readonly<Record<string, string>>>>> =
-  { repo: { path: 'repoPath' } }
+export const FEED_SPELLING: Readonly<
+  Partial<Record<EntityName, Readonly<Record<string, string>>>>
+> = { repo: { path: 'repoPath' } }
 
 /** A record's own instance fields: a schema field of the same name would be shadowed. */
 const RECORD_FIELDS: readonly string[] = ['entity', 'id', 'tables']
@@ -54,7 +55,11 @@ export type RecordOf = {
 
 /** One record class per schema entity, each with its fields installed. */
 export const RECORD_CLASSES: {
-  readonly [E in EntityName]: new (entity: E, id: string, tables: TableSet<ReadableTable>) => EntityRecord
+  readonly [E in EntityName]: new (
+    entity: E,
+    id: string,
+    tables: TableSet<ReadableTable>,
+  ) => EntityRecord
 } = Object.fromEntries(
   (Object.keys(SCHEMA) as EntityName[]).map((entity) => {
     const RecordClass = class extends EntityRecord {}

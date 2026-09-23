@@ -335,7 +335,11 @@ describe('thawed import fence on the hand-rolled pool (POD-4578, same ruling)', 
       ),
     ).toEqual([])
     expect(
-      await problems("import { HandPool } from './pool'\nexport const p = HandPool\n", at, realLint),
+      await problems(
+        "import { HandPool } from './pool'\nexport const p = HandPool\n",
+        at,
+        realLint,
+      ),
     ).toEqual([])
   })
 

@@ -1,3 +1,74 @@
+# arms/hand — notes
+
+## Round three: the pool, a1 (POD-4578) · 2026-09-23
+
+Decisions, findings and open questions for `pool/`. The idiom, write path,
+stats and "how to add a field" are in `README.md`. Built after the MobX
+pool (Ma1-Ma4) by operator decision; its lessons came in the brief (the M4
+document, POD-4597, is not written yet).
+
+### Decisions
+
+- **Placement (coordinator ruling on Ma1, symmetric).** The pool lives in
+  `arms/hand/pool/`; the round-two files stay frozen until the pool's
+  worklist replaces them. The lint thaws `hand/pool`, so every fence rule
+  runs on it against `arms/hand/fence.json`, plus the import fence (nothing
+  in `pool/` imports anything under `arms/` outside `pool/`), proven red on
+  planted files in `harness/lint/fence-lint.test.ts` (round two's
+  `indexes.ts`, `store.ts`, `arm.ts`, `rollup.ts` and the MobX pool). The
+  roster names `hand` pending until POD-4581 (Ha4).
+- **Dependencies are recorded, not listed.** The hand-rolled answer to "no
+  sensitivity sets": every derived value is a `Cell` whose reads go through
+  tracked doors, and each door records the running cell under its key
+  (`cells.ts` `DepIndex`). The delta handlers name no derived value: a row
+  delta dirties the readers of `entity:id`, a membership delta the readers
+  of the table's id list, a click the readers of the two selection keys, a
+  tick the readers of the deadlines it crosses. The cost is a reverse index
+  entry per (cell, key read) and one unlink/relink per re-run; the gain is
+  that a derived value cannot forget an input it reads, which is the round-
+  two bug class (the clock reaching the roll-up but `ClockChanged` a no-op).
+  This is the core of the arm and the first thing H3 (POD-4598) should
+  review.
+- **One commit per event, handlers in topological order** over a closed
+  `Delta` union with a never-check in each: `invalidate` → `release` →
+  `flush` → `publish`. A replace is one event: observers see one transition
+  (`pool.test.tsx`, "replaces atomically").
+- **Cells are born on first read and kept current by every drain after.**
+  Nothing is ever dirty outside a drain except a cell that has never run,
+  so a pull outside a commit (a render, `snapshot()`) never sees a stale
+  value. The price: a cell created once (every issue, when the a1 list or
+  the checker's `snapshot()` reads it) is re-run on its inputs' changes
+  until its row leaves or the pool is disposed. Releasing off-screen rows'
+  cells is the windowed list's (Hb2) to decide.
+- **Every part of a row view is its own cell; a relation is split into
+  reference and resolution**, as the MobX build found (Ma1: 9 → 5 → 1 rows
+  read on #4). Taken over, not re-measured by bisection.
+- **One-hop relations resolved from the own row plus the target's slot**
+  (`relations.ts`), like Ma1: no bucket is maintained at a1, and a target's
+  arrival, change or departure reaches its readers because they read its
+  slot. `displayRef` and `originTick` are real values; collections and
+  prefix answer "none" until Ha2.
+- **The repo's row is a lane.** When the lane holding a repo leaves, another
+  lane of the repo takes over (`enumerate.ts` `otherLaneOf`, a walk of the
+  worktree table: tens of rows), found without relations; Ma1 dropped the
+  repo with its holding lane and Ma2 fixed it with `repo.worktrees`. Ha2
+  should switch to the maintained collection.
+- **L4b rebuild-only at a1** (`oracleEvery: 0`, ruled acceptable). The
+  gate's NO is the same pool planted deaf to removals.
+- **Round-two `it.fails` tests stay** (7 files' worth, POD-4551): the pool
+  does not replace the round-two code yet. They go with that code.
+
+### Findings
+
+(filled in from the runs below)
+
+### Open
+
+- Draft titles read the first member session in the rule; members are none
+  until Ha2, so a draft shows "New agent" (as in Ma1).
+
+## Round two (frozen)
+
 # POD-4446 NOTES — hand-rolled arm, milestone 1
 ## Decisions
 

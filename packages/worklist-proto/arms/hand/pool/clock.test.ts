@@ -12,10 +12,14 @@ function rig(now: number, ...deadlines: number[]) {
   const clock = new DeadlineClock(graph, now)
   const runs: number[] = []
   const cells = deadlines.map((t, i) =>
-    graph.cell(`at:${t}`, () => {
-      runs.push(i)
-      return { reached: clock.reached(t), passed: clock.passed(t) }
-    }, sameData),
+    graph.cell(
+      `at:${t}`,
+      () => {
+        runs.push(i)
+        return { reached: clock.reached(t), passed: clock.passed(t) }
+      },
+      sameData,
+    ),
   )
   const read = () => cells.map((cell) => graph.read(cell))
   const move = (to: number) => {

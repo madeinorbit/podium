@@ -60,7 +60,10 @@ describe('schema fields on records', () => {
       for (const entity of ENTITIES) {
         for (const [field, spec] of Object.entries(SCHEMA[entity].fields)) {
           if (spec.optional === true) continue
-          expect(covered[`${entity}.${field}`] ?? 0, `${entity}.${field} never had a value`).toBeGreaterThan(0)
+          expect(
+            covered[`${entity}.${field}`] ?? 0,
+            `${entity}.${field} never had a value`,
+          ).toBeGreaterThan(0)
         }
       }
       expect(checked).toBeGreaterThan(1000)

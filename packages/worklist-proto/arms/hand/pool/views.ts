@@ -231,7 +231,11 @@ function firstMemberOf(input: ViewInputs, id: string): SliceSession | undefined 
 
 // ------------------------------------------------------------------- parts
 
-type PartRule<K extends PartName> = (input: ViewInputs, id: string, self: IssueParts) => IssueParts[K]
+type PartRule<K extends PartName> = (
+  input: ViewInputs,
+  id: string,
+  self: IssueParts,
+) => IssueParts[K]
 
 /**
  * Every part of a row view, once. `self` is the same issue's parts (a cell
@@ -291,7 +295,12 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
     const origin = input.parts(originId)
     const own = origin?.own
     if (origin === undefined || own === undefined) return null
-    return { id: originId, seq: own.seq, title: origin.displayTitle ?? '', ref: origin.displayRef ?? '' }
+    return {
+      id: originId,
+      seq: own.seq,
+      title: origin.displayTitle ?? '',
+      ref: origin.displayRef ?? '',
+    }
   },
   /** Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec R-BAND). */
   activityAt(input, id) {
