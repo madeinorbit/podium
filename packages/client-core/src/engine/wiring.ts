@@ -7,7 +7,7 @@
  */
 
 import type { ConfirmationRule } from '@podium/commands'
-import type { MutationId, SessionId, WorkState } from '@podium/model'
+import { isStoppedSend, type MutationId, type SessionId, type WorkState } from '@podium/model'
 import {
   ENQUEUEABLE_DELIVERY,
   type OutboxCommand,
@@ -671,6 +671,10 @@ export function outboxExecutors(api: PodiumClientApi): {
     settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
     resumeAndSend: async (i) => {
       const result = await api.sessions.resumeAndSend.mutate(i)
+      // A Stop that reached the server first retracted this send (POD-4654): the
+      // stop took effect, so the entry is done. Parked, it would hold every later
+      // message to the session behind it for good.
+      if (isStoppedSend(result)) return result
       // dead_letter / refused is HTTP 200 with ok:false — must not be applied
       assertSendAccepted(result)
       return result

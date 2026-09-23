@@ -355,6 +355,10 @@ export class ConversationController {
       const messageId = this.state.interruptMessageId
       await this.options.interrupt(messageId ?? undefined)
       this.markInterrupted(messageId ?? undefined)
+      // The stop landed, so nothing is "just sent" any more (POD-4654). A send
+      // it retracted before the agent saw it has no echo and no turn to end it,
+      // and the flag would otherwise hold the Stop up until the send ceiling.
+      this.endOpenSend()
       return true
     } catch (error) {
       this.patch({ interruptError: errorText(error) })
@@ -589,6 +593,11 @@ export class ConversationController {
 
   private clearOpenSend(seq: number): void {
     if (this.openSend?.seq !== seq) return
+    this.endOpenSend()
+  }
+
+  private endOpenSend(): void {
+    if (!this.openSend && !this.state.justSent) return
     this.openSend = null
     this.clearTimer('send')
     this.patch({ justSent: false })

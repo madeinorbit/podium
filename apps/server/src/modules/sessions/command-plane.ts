@@ -52,6 +52,7 @@ import {
   actorUser,
   asAgentIdentityId,
   asMutationId,
+  STOPPED_SEND_REASON,
   type SpawnedByRef,
   spawnedByTag,
 } from '@podium/model'
@@ -534,7 +535,7 @@ const UNADDRESSABLE_SEND = {
  * so that late request replays this refusal instead of creating new work. */
 const INTERRUPTED_SEND: SubstrateOutcome = {
   ok: false,
-  reason: 'interaction interrupted',
+  reason: STOPPED_SEND_REASON,
   disposition: 'dead_letter',
 }
 
