@@ -18,6 +18,24 @@
  * heap before/after (CDP, forced GC), loadavg and uptime per record, and the
  * runtime SHA.
  *
+ * LIFECYCLE (POD-4561, L5e; methodology #11-#13). `--scenarios` may name
+ * `coldBootstrap`, `principalSwitch` and `rescope` (never in the default set;
+ * timed at 1x, rescope refuses 4x). Each lifecycle sample, warm-ups included,
+ * loads its OWN page in a fresh browser context (`?hold=1`: the engine boots,
+ * the arm waits): a killed or repeated lifecycle step poisons later renders
+ * in the same page, and a fresh renderer gives each sample its own heap. The
+ * page's timer is the hot path's. coldBootstrap times the arm's build and
+ * first list (`actionMs` = the entry's own load plus that window; the shared
+ * fixture and engine boot are reported as `engineMs`); principalSwitch times
+ * dispose + rebuild over a fresh replica booted untimed for the next
+ * principal; rescope times the install onto the 2x corpus plus the install
+ * back. The forced-GC heap brackets each step (`heapBefore`: engine booted,
+ * no arm / the built arm with the next runtime or the 2x rows staged;
+ * `heapAfter`: after the step). The run FAILS on a parity mismatch after the
+ * step or at the grown state, on commit signals outside the step's window,
+ * and when any object of the old principal survives the switch's forced GC
+ * (`survivors`: runtime, store, replica, cache, arm handle, row source).
+ *
  * PARITY (POD-4559). After every sample, outside the timed window, the driver
  * compares the page's `snapshotHash()` (the arm's slice output) with its
  * `oracleHash()` (the oracle over the same engine state); a mismatch fails
@@ -433,13 +451,15 @@ async function main(): Promise<number> {
           firstDifference: window.__proto.firstDifference(),
         }))
         const late = await page.evaluate(() => window.__proto.lateSignals())
+        // After `heapAfter`'s forced GC: nothing of the old principal may be alive.
+        const survivors = await page.evaluate(() => window.__proto.survivors())
         return {
           result: { ...result, strayCommits: result.strayCommits + late },
           check: null,
           parity,
           heapBefore,
           heapAfter,
-          lifecycle: { phases: result.phases, midParity: result.midParity },
+          lifecycle: { phases: result.phases, midParity: result.midParity, survivors },
         }
       } finally {
         await open.close()
@@ -522,6 +542,11 @@ async function main(): Promise<number> {
             `${scenario}#${sample}: parity at the grown state — arm ${mid.arm} vs oracle ${mid.oracle}; first difference ${mid.firstDifference ?? '(hashes differ, no row differs)'}`,
           )
         }
+        if ((taken.lifecycle?.survivors.length ?? 0) > 0) {
+          fail(
+            `${scenario}#${sample}: after the switch and a forced GC the old principal's ${taken.lifecycle?.survivors.join(', ')} still alive (retained by the page or the arm)`,
+          )
+        }
         if (record.strayCommits > 0) {
           fail(
             `${scenario}#${sample}: ${record.strayCommits} commit signals landed outside the step's window (work deferred past ${output.quietMs} ms cannot be attributed)`,
@@ -532,7 +557,9 @@ async function main(): Promise<number> {
             ? ''
             : ` ${Object.entries(taken.lifecycle.phases)
                 .map(([k, v]) => `${k}=${v.toFixed(1)}`)
-                .join(' ')} heap=${((taken.heapBefore?.usedSize ?? 0) / 1e6).toFixed(1)}->${((taken.heapAfter?.usedSize ?? 0) / 1e6).toFixed(1)}MB`
+                .join(
+                  ' ',
+                )} heap=${((taken.heapBefore?.usedSize ?? 0) / 1e6).toFixed(1)}->${((taken.heapAfter?.usedSize ?? 0) / 1e6).toFixed(1)}MB`
         console.log(
           `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
             `actionMs=${record.actionMs.toFixed(2)} frameMs=${record.frameMs.toFixed(1)} ` +

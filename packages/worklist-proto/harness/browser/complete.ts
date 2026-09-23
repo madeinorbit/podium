@@ -7,7 +7,14 @@
  *
  * Importing this never starts a browser.
  */
-import { type RunOutput, SCENARIOS, type Scale, type ScenarioName } from './records'
+import {
+  isLifecycle,
+  LIFECYCLE_SCENARIOS,
+  type RunOutput,
+  SCENARIOS,
+  type Scale,
+  type ScenarioName,
+} from './records'
 
 /** The 1-minute load ceiling (methodology §5.7). `--max-load` may lower it, never raise it. */
 export const MAX_LOAD = 8
@@ -127,12 +134,15 @@ const labelOf = (r: { arm: string; plant: string | null }): string =>
   r.plant ? `${r.arm}+${r.plant}` : r.arm
 
 /**
- * Why a set of ok runs cannot be summarised. The grid is every arm present
- * plus the no-op floor (every budget is floor + allowance) × 1x/2x/4x × every
- * scenario any run declared; each cell must hold the same number of measured
- * records, at least `minSamples`, and — with a matrix plan — exactly
- * rounds × samples, from every planned file. Any record over the load ceiling
- * refuses the set. Empty when complete.
+ * Why a set of ok runs cannot be summarised. The hot-path grid is every arm
+ * present plus the no-op floor (every budget is floor + allowance) × 1x/2x/4x
+ * × every hot-path scenario any run declared. The lifecycle grid (POD-4561)
+ * is every arm present plus the control (every lifecycle budget is a multiple
+ * of the control's) × the planned scales (1x without a plan) × every
+ * lifecycle scenario declared. Each cell must hold the same number of
+ * measured records, at least `minSamples`, and — with a matrix plan —
+ * exactly rounds × samples, from every planned file. Any record over the load
+ * ceiling refuses the set. Empty when complete.
  */
 export function gridShortfalls(
   runs: RunOutput[],
@@ -146,11 +156,16 @@ export function gridShortfalls(
   const out: string[] = []
   const { plan } = options
   if (runs.length === 0) return ['no ok runs']
-  const arms = new Set([...(plan?.arms ?? []), ...runs.map(labelOf), 'noop'])
+  const present = [...(plan?.arms ?? []), ...runs.map(labelOf)]
+  const arms = new Set([...present, 'noop'])
   const scenarios = new Set<ScenarioName>(plan?.scenarios ?? runs.flatMap((r) => r.scenarios))
+  const hotPath = SCENARIOS.filter((s) => scenarios.has(s))
+  const lifecycle = LIFECYCLE_SCENARIOS.filter((s) => scenarios.has(s))
   const scales = plan?.scales ?? SCALES
-  for (const scale of SCALES) {
-    if (!scales.includes(scale)) out.push(`plan omits ${scale}x`)
+  if (hotPath.length > 0) {
+    for (const scale of SCALES) {
+      if (!scales.includes(scale)) out.push(`plan omits ${scale}x`)
+    }
   }
   const n = new Map<string, number>()
   for (const run of runs) {
@@ -171,13 +186,23 @@ export function gridShortfalls(
   if (plan && required < options.minSamples) {
     out.push(`plan gives ${required} samples per cell, fewer than ${options.minSamples}`)
   }
+  const cell = (arm: string, scenario: ScenarioName, scale: Scale): void => {
+    const have = n.get(`${arm}|${scenario}|${scale}`) ?? 0
+    if (have !== required)
+      out.push(`cell ${arm} ${scenario} ${scale}x: ${have} of ${required} samples`)
+  }
   for (const arm of [...arms].sort()) {
-    for (const scenario of SCENARIOS.filter((s) => scenarios.has(s))) {
-      for (const scale of SCALES) {
-        const have = n.get(`${arm}|${scenario}|${scale}`) ?? 0
-        if (have !== required)
-          out.push(`cell ${arm} ${scenario} ${scale}x: ${have} of ${required} samples`)
-      }
+    for (const scenario of hotPath) for (const scale of SCALES) cell(arm, scenario, scale)
+  }
+  const lifecycleScales = plan?.scales ?? [1]
+  for (const arm of [...new Set([...present, 'control'])].sort()) {
+    for (const scenario of lifecycle)
+      for (const scale of lifecycleScales) cell(arm, scenario, scale)
+  }
+  for (const key of n.keys()) {
+    const [arm, scenario, scale] = key.split('|') as [string, ScenarioName, string]
+    if (isLifecycle(scenario) && !lifecycleScales.includes(Number(scale) as Scale)) {
+      out.push(`cell ${arm} ${scenario} ${scale}x is outside the plan's scales`)
     }
   }
   if (plan) {

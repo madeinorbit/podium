@@ -271,6 +271,9 @@ export interface ProtoPage {
   rescope(scale: 1 | 2 | 4): Promise<ProtoLifecycleResult>
   /** Commit signals since the last settle (a lifecycle step's late work). */
   lateSignals(): number
+  /** After a principal switch: the old principal's objects (runtime, store,
+   *  replica, cache, arm handle, row source) still alive; call after a GC. */
+  survivors(): string[]
 }
 
 declare global {
@@ -437,8 +440,13 @@ interface LiveArm {
 }
 
 export function mountPage(options: MountPageOptions): void {
-  const { createArm, boot, scale, counts, runtimeSha, el } = options
-  const { engine } = boot
+  // No closure below reads `options`, and `boot`/`engine` move to the new
+  // runtime on a principal switch: nothing on the page keeps the old one
+  // alive, so the switch's retained heap is the arm's, not the harness's.
+  const { createArm, scale, counts, runtimeSha, el, scriptAt } = options
+  const armName = options.arm
+  let boot = options.boot
+  let engine = boot.engine
   /** The engine is booted when the entry calls here (fixture built, corpus installed). */
   const engineAt = performance.now()
   const params = new URLSearchParams(window.location.search)
@@ -558,7 +566,7 @@ export function mountPage(options: MountPageOptions): void {
   function assertDrawn(scenario: ProtoScenarioName, id: string): void {
     if (el.querySelector(`[data-issue-row="${CSS.escape(id)}"]`) === null) {
       throw new Error(
-        `[proto] ${scenario}: target ${id} is not drawn by ${options.arm} (first window ${firstWindow().join(',')}); refusing to time an undrawn row`,
+        `[proto] ${scenario}: target ${id} is not drawn by ${armName} (first window ${firstWindow().join(',')}); refusing to time an undrawn row`,
       )
     }
   }
@@ -848,7 +856,9 @@ export function mountPage(options: MountPageOptions): void {
       actionMs: end - start,
       frameMs: frameAt - start,
       endedBy,
-      longTasks: longTasks.filter((t) => t.startTime + t.duration > start && t.startTime < settleEnd),
+      longTasks: longTasks.filter(
+        (t) => t.startTime + t.duration > start && t.startTime < settleEnd,
+      ),
       mountedRows: el.querySelectorAll('[data-issue-row]').length,
     }
   }
@@ -952,13 +962,13 @@ export function mountPage(options: MountPageOptions): void {
         }),
       )
       page.corpus = corpusCounts()
-      const scriptMs = options.scriptAt
+      const scriptMs = scriptAt
       return {
         ...resultOf(window, strayCommits, null),
         actionMs: scriptMs + window.actionMs,
         phases: {
           scriptMs,
-          engineMs: engineAt - options.scriptAt,
+          engineMs: engineAt - scriptAt,
           buildMs: window.actionMs,
           heldMs: window.start - engineAt,
           // Navigation to the first frame after the list's last commit, the
@@ -982,6 +992,8 @@ export function mountPage(options: MountPageOptions): void {
   }
 
   let prepared: { principal: string; boot: ScenarioEngine; engineMs: number } | null = null
+  /** The old principal's objects after a switch, weakly (`survivors`). */
+  let oldRefs: Record<string, WeakRef<object>> | null = null
 
   /** Untimed: boot the next principal's runtime over a FRESH replica (and
    *  cache) on the same corpus, as a switch receives it from the kernel. */
@@ -1020,6 +1032,18 @@ export function mountPage(options: MountPageOptions): void {
         }),
       )
       old.boot.engine.destroy()
+      // Watched, never held: after the driver's forced GC none may be alive.
+      oldRefs = {
+        runtime: new WeakRef(old.boot.engine),
+        store: new WeakRef(old.boot.engine.getSnapshot()),
+        replica: new WeakRef(old.boot.replica),
+        cache: new WeakRef(old.boot.cache),
+        armHandle: new WeakRef(old.handle),
+        rowSource: new WeakRef(old.source),
+        scenarioEngine: new WeakRef(old.boot),
+      }
+      boot = next.boot
+      engine = boot.engine
       page.corpus = corpusCounts()
       return {
         ...resultOf(window, strayCommits, null),
@@ -1055,7 +1079,8 @@ export function mountPage(options: MountPageOptions): void {
     const keep = new Set(rows.map((row) => `${row.entity}:${row.entityId}`))
     replica.batch(() => {
       for (const row of [...cache.records]) {
-        if (!keep.has(`${row.entity}:${row.entityId}`)) cache.drop(row.entity as Entity, row.entityId)
+        if (!keep.has(`${row.entity}:${row.entityId}`))
+          cache.drop(row.entity as Entity, row.entityId)
       }
       for (const row of rows) cache.put(row.entity as Entity, row.entityId, row.value)
     })
@@ -1173,7 +1198,7 @@ export function mountPage(options: MountPageOptions): void {
   const page: ProtoPage = {
     ready: true,
     held,
-    arm: options.arm,
+    arm: armName,
     scale,
     corpus: corpusCounts(),
     runtimeSha,
@@ -1209,6 +1234,10 @@ export function mountPage(options: MountPageOptions): void {
     prepareRescope,
     rescope,
     lateSignals: () => signals() - settledSignals,
+    survivors: () =>
+      Object.entries(oldRefs ?? {})
+        .filter(([, ref]) => ref.deref() !== undefined)
+        .map(([name]) => name),
   }
   window.__proto = page
 }
@@ -1243,5 +1272,6 @@ export function mountStub(arm: string, reason: string, runtimeSha: string): void
     prepareRescope: refuse,
     rescope: refuse,
     lateSignals: () => 0,
+    survivors: () => [],
   }
 }

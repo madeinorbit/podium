@@ -70,9 +70,15 @@ export interface TimingRecord {
    *  engine state, taken after the sample (untimed); `firstDifference` names
    *  the first differing row, null when the hashes agree. */
   parity?: ProtoParity
-  /** POD-4561: a lifecycle step's phases (ms, and row counts where named so)
-   *  and, for rescope, the parity at the grown state. Absent on hot-path records. */
-  lifecycle?: { phases: Record<string, number>; midParity: ProtoParity | null }
+  /** POD-4561: a lifecycle step's phases (ms, and row counts where named so);
+   *  for rescope the parity at the grown state; for principalSwitch the old
+   *  principal's objects still alive after the forced GC (any fails the run).
+   *  Absent on hot-path records. */
+  lifecycle?: {
+    phases: Record<string, number>
+    midParity: ProtoParity | null
+    survivors: string[]
+  }
   stats: ProtoScenarioResult['stats']
   loadavg: number
   uptime: number

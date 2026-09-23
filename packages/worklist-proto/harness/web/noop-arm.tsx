@@ -31,7 +31,10 @@
  * `actionMs`; `leak:<mb>` holds an `mb` MB block per store and, on `dispose`
  * and on every feed `replace` (a rescope), moves the block to a page global
  * instead of dropping it (and takes a new one on replace), so a principal
- * switch retains `mb` MB more and a rescope (two replaces) `2 × mb`.
+ * switch retains `mb` MB more and a rescope (two replaces) `2 × mb`;
+ * `retain:1` keeps the disposed store (its handle, and through it the feed
+ * and the runtime it was built over) in a page global, so a principal switch
+ * leaves the old principal alive and the driver's survivor check must fail.
  */
 
 import { createElement, type ReactElement } from 'react'
@@ -78,18 +81,21 @@ function zeroStats(): ArmStats {
   }
 }
 
-export type NoopPlant = { kind: 'sync' | 'late' | 'walk' | 'build' | 'leak'; ms: number } | null
+export type NoopPlant = {
+  kind: 'sync' | 'late' | 'walk' | 'build' | 'leak' | 'retain'
+  ms: number
+} | null
 
-const PLANT_KINDS = new Set(['sync', 'late', 'walk', 'build', 'leak'])
+const PLANT_KINDS = new Set(['sync', 'late', 'walk', 'build', 'leak', 'retain'])
 
-/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>` / `build:<ms>` / `leak:<mb>`; null when absent. */
+/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>` / `build:<ms>` / `leak:<mb>` / `retain:1`; null when absent. */
 export function readPlant(): NoopPlant {
   const raw = new URLSearchParams(window.location.search).get('plant')
   if (raw === null) return null
   const [kind, ms] = raw.split(':')
   if (!PLANT_KINDS.has(kind ?? '') || !Number.isFinite(Number(ms))) {
     throw new Error(
-      `[noop] bad plant ${raw} (want sync:<ms>, late:<ms>, walk:<passes>, build:<ms> or leak:<mb>)`,
+      `[noop] bad plant ${raw} (want sync:<ms>, late:<ms>, walk:<passes>, build:<ms>, leak:<mb> or retain:1)`,
     )
   }
   return { kind: kind as NonNullable<NoopPlant>['kind'], ms: Number(ms) }
@@ -100,8 +106,8 @@ function heapBlock(mb: number): number[] {
   return Array.from({ length: mb * 131_072 }, (_, i) => i + 0.5)
 }
 
-/** Where `leak:<mb>` puts the blocks it should have dropped. */
-const leaked: number[][] = []
+/** Where `leak:<mb>` and `retain:1` put what they should have dropped. */
+const leaked: unknown[] = []
 
 export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
   return {
@@ -116,7 +122,7 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
       let redraw = (): void => {}
       const onChange = (event?: RowSourceEvent): void => {
         if (plant === null) return
-        if (plant.kind === 'build') return
+        if (plant.kind === 'build' || plant.kind === 'retain') return
         if (plant.kind === 'leak') {
           if (event?.type === 'replace' && block !== null) {
             leaked.push(block)
@@ -149,10 +155,11 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
       const ordered = [...frozen.order.pinnedIds, ...frozen.order.groups.flatMap((g) => g.rowIds)]
       const rows = ordered.slice(0, DRAWN_ROWS).flatMap((id) => (views[id] ? [views[id]] : []))
       let root: ReturnType<typeof createRoot> | null = null
-      return {
+      const handle: ArmHandle = {
         snapshot: () => frozen,
         stats: zeroStats(),
         dispose() {
+          if (plant?.kind === 'retain') leaked.push({ handle, source, boot })
           if (block !== null) leaked.push(block)
           block = null
           offSource()
@@ -190,6 +197,7 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
           throw new Error('[noop] the instrument floor is a web page only')
         },
       }
+      return handle
     },
   }
 }

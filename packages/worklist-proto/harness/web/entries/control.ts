@@ -1,5 +1,5 @@
-import { buildCorpus } from '../../src/fixture/index'
 import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
+import { buildCorpus } from '../../src/fixture/index'
 import { legacyControlArmFor } from '../../src/legacy-control/arm'
 import { mountPage, readScale } from '../entrylib'
 
@@ -9,19 +9,23 @@ const scriptAt = performance.now()
 const scale = readScale()
 const sha = new URLSearchParams(window.location.search).get('sha') ?? 'dev'
 const corpus = buildCorpus(scale, FIXTURE_SEED)
-const boot = await startEngineOnCorpus(corpus)
-mountPage({
-  arm: 'control',
-  createArm: (over) => legacyControlArmFor(over.engine),
-  boot,
-  scale,
-  counts: {
-    issues: corpus.stats.issues,
-    sessions: corpus.stats.sessions,
-    repos: corpus.stats.repos,
-    worktrees: corpus.stats.worktrees,
-  },
-  runtimeSha: sha,
-  el: document.getElementById('root')!,
-  scriptAt,
+// No top-level await and no module binding for the runtime: an async
+// module's generator keeps its awaited values alive, and a principal switch
+// must be able to drop the old runtime (POD-4561).
+void startEngineOnCorpus(corpus).then((boot) => {
+  mountPage({
+    arm: 'control',
+    createArm: (over) => legacyControlArmFor(over.engine),
+    boot,
+    scale,
+    counts: {
+      issues: corpus.stats.issues,
+      sessions: corpus.stats.sessions,
+      repos: corpus.stats.repos,
+      worktrees: corpus.stats.worktrees,
+    },
+    runtimeSha: sha,
+    el: document.getElementById('root')!,
+    scriptAt,
+  })
 })

@@ -30,6 +30,17 @@
  *   excess taken as at least `SLOPE_MIN_EXCESS_MS`. The raw p50 ratio is
  *   printed beside it, not budgeted.
  *
+ * Lifecycle budgets (POD-4561, methodology §1a, stated on the CONTROL's
+ * measured values before any lifecycle run; one page load per sample, so the
+ * p50 is compared — the typical load, not its compile/GC tail):
+ * - coldBootstrap: actionMs p50 <= 1.1 × the control's;
+ * - principalSwitch: actionMs p50 <= 2 × the control's;
+ * - retained heap: coldBootstrap's heapAfter p50 (forced GC, the list drawn)
+ *   <= 1.1 × the control's;
+ * - no growth: principalSwitch and rescope heapAfter / heapBefore p50 <= the
+ *   control's + 0.05 (the harness and kernel's own growth is the control's too);
+ * - rescope's wall is reported: §1a sets it no budget.
+ *
  * A low read count (the reads fence) is not proof of constant work: the fence
  * counts entity rows, not an arm's walks over its own per-row caches. The
  * slope is where that work shows.
@@ -42,6 +53,8 @@ import { gridShortfalls, MATRIX_PLAN_FILE, type MatrixPlan } from './complete'
 import {
   type Distribution,
   distribution,
+  isLifecycle,
+  type LifecycleScenario,
   MIN_SAMPLES_FOR_P95,
   type RunOutput,
   type Scale,
@@ -74,6 +87,123 @@ export function excessSlope(
 ): number | null {
   if (arm1x === null || arm4x === null || floor1x === null || floor4x === null) return null
   return (arm4x - floor4x) / Math.max(arm1x - floor1x, SLOPE_MIN_EXCESS_MS)
+}
+
+/** POD-4561: lifecycle wall budgets, multiples of the control's actionMs p50. */
+export const LIFECYCLE_WALL_BUDGET: Partial<Record<LifecycleScenario, number>> = {
+  coldBootstrap: 1.1,
+  principalSwitch: 2,
+}
+/** coldBootstrap's retained heap (heapAfter p50) over the control's. */
+export const RETAINED_HEAP_BUDGET = 1.1
+/** principalSwitch and rescope: heapAfter / heapBefore p50 above the control's. */
+export const HEAP_GROWTH_ALLOWANCE = 0.05
+
+export interface LifecycleCell {
+  arm: string
+  scenario: LifecycleScenario
+  scale: Scale
+  actionMs: Distribution
+  /** p50 of each phase the page reported (ms, or rows where named so). */
+  phases: Record<string, number | null>
+  heapBeforeMb: number | null
+  heapAfterMb: number | null
+  /** p50 of heapAfter / heapBefore (`usedSize`, both after a forced GC). */
+  growth: number | null
+  maxLoad: number
+}
+
+export interface LifecycleVerdict {
+  arm: string
+  scenario: LifecycleScenario
+  scale: Scale
+  check: 'wall' | 'retained heap' | 'heap growth'
+  value: number
+  control: number
+  budget: number
+  verdict: 'within' | 'OVER'
+}
+
+const inMb = (bytes: number | null): number | null => (bytes === null ? null : bytes / 1e6)
+
+/** One cell per (label, lifecycle scenario, scale), warm-ups dropped. */
+export function lifecycleCells(runs: RunOutput[]): LifecycleCell[] {
+  const groups = new Map<string, TimingRecord[]>()
+  for (const run of runs) {
+    for (const record of run.records) {
+      if (record.warmup || !isLifecycle(record.scenario)) continue
+      const label = record.plant ? `${record.arm}+${record.plant}` : record.arm
+      const key = `${label}|${record.scenario}|${record.scale}`
+      groups.set(key, [...(groups.get(key) ?? []), record])
+    }
+  }
+  return [...groups.entries()].map(([key, records]) => {
+    const [arm, scenario] = key.split('|') as [string, LifecycleScenario]
+    const phaseNames = [...new Set(records.flatMap((r) => Object.keys(r.lifecycle?.phases ?? {})))]
+    const used = (pick: (r: TimingRecord) => number | undefined): number[] =>
+      records.flatMap((r) => {
+        const v = pick(r)
+        return v === undefined ? [] : [v]
+      })
+    return {
+      arm,
+      scenario,
+      scale: (records[0] as TimingRecord).scale,
+      actionMs: distribution(records.map((r) => r.actionMs)),
+      phases: Object.fromEntries(
+        phaseNames.map((name) => [name, median(used((r) => r.lifecycle?.phases[name]))]),
+      ),
+      heapBeforeMb: inMb(median(used((r) => r.heapBefore?.usedSize))),
+      heapAfterMb: inMb(median(used((r) => r.heapAfter?.usedSize))),
+      growth: median(
+        used((r) =>
+          r.heapBefore && r.heapAfter ? r.heapAfter.usedSize / r.heapBefore.usedSize : undefined,
+        ),
+      ),
+      maxLoad: Math.max(...records.map((r) => r.loadavg)),
+    }
+  })
+}
+
+/**
+ * Every lifecycle cell that is not the control's, held to the budgets above
+ * against the control's cell at the same scenario and scale. A missing
+ * control cell yields no verdict (`gridShortfalls` refuses such a set first).
+ */
+export function lifecycleVerdicts(table: LifecycleCell[]): LifecycleVerdict[] {
+  const out: LifecycleVerdict[] = []
+  const controlOf = (c: LifecycleCell): LifecycleCell | undefined =>
+    table.find((x) => x.arm === 'control' && x.scenario === c.scenario && x.scale === c.scale)
+  const judge = (
+    c: LifecycleCell,
+    check: LifecycleVerdict['check'],
+    value: number | null,
+    control: number | null,
+    budget: (control: number) => number,
+  ): void => {
+    if (value === null || control === null) return
+    const b = budget(control)
+    out.push({
+      arm: c.arm,
+      scenario: c.scenario,
+      scale: c.scale,
+      check,
+      value,
+      control,
+      budget: b,
+      verdict: value <= b ? 'within' : 'OVER',
+    })
+  }
+  for (const c of table) {
+    const control = controlOf(c)
+    if (c.arm === 'control' || control === undefined) continue
+    const wall = LIFECYCLE_WALL_BUDGET[c.scenario]
+    if (wall !== undefined) judge(c, 'wall', c.actionMs.p50, control.actionMs.p50, (v) => v * wall)
+    if (c.scenario === 'coldBootstrap')
+      judge(c, 'retained heap', c.heapAfterMb, control.heapAfterMb, (v) => v * RETAINED_HEAP_BUDGET)
+    else judge(c, 'heap growth', c.growth, control.growth, (v) => v + HEAP_GROWTH_ALLOWANCE)
+  }
+  return out
 }
 
 export interface Cell {
@@ -236,21 +366,27 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
     for (const m of mismatches) print(`TARGETS DIFFER (not summarised): ${m}`)
     return 2
   }
-  const table = cells(ok).sort(
-    (a, b) =>
-      a.arm.localeCompare(b.arm) || a.scenario.localeCompare(b.scenario) || a.scale - b.scale,
-  )
+  const table = cells(ok)
+    .filter((c) => !isLifecycle(c.scenario))
+    .sort(
+      (a, b) =>
+        a.arm.localeCompare(b.arm) || a.scenario.localeCompare(b.scenario) || a.scale - b.scale,
+    )
   const floor = (scenario: ScenarioName, scale: Scale): Cell | undefined =>
     table.find((c) => c.arm === 'noop' && c.scenario === scenario && c.scale === scale)
   const shas = [...new Set(ok.map((r) => r.runtimeSha))]
   print(
     `host ${hosts.join(', ')}; runtimeSha ${shas.join(', ')}; ${ok.length} ok runs, ${failed.length} failed`,
   )
-  print('')
-  print(
+  // A lifecycle-only matrix has no hot-path table.
+  const hotHeader = (...lines: string[]): void => {
+    if (table.length > 0) for (const line of lines) print(line)
+  }
+  hotHeader(
+    '',
     '| Arm | Scenario | Scale | n | actionMs p50 / p95 / max | drainMs p50 | frameMs p50 | commits (median) | long tasks | stray | floor p95 | budget p95 | verdict | max load |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|',
   )
-  print('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|')
   for (const c of table) {
     const fl = floor(c.scenario, c.scale)
     const allowance = allowanceMs(c.scenario, c.scale)
@@ -269,11 +405,11 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
         `${f(fl?.actionMs.p95 ?? null)} | ${f(budget)} | ${verdict} | ${c.maxLoad.toFixed(2)} |`,
     )
   }
-  print('')
-  print(
+  hotHeader(
+    '',
     '| Arm | Scenario | p50 1x / 2x / 4x | raw p50 4x/1x | excess over floor 4x/1x (budget ≤ 1.2) |',
+    '|---|---|---|---|---|',
   )
-  print('|---|---|---|---|---|')
   const slopes: {
     arm: string
     scenario: ScenarioName
@@ -299,11 +435,49 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
       `| ${arm} | ${scenario} | ${f(p1)} / ${f(at(2))} / ${f(p4)} | ${f(slope)} | ${f(excess)}${verdict} |`,
     )
   }
+  const lifecycle = lifecycleCells(ok).sort(
+    (a, b) =>
+      a.scenario.localeCompare(b.scenario) || a.arm.localeCompare(b.arm) || a.scale - b.scale,
+  )
+  const verdicts = lifecycleVerdicts(lifecycle)
+  if (lifecycle.length > 0) {
+    print('')
+    print(
+      '| Arm | Lifecycle | Scale | n | actionMs p50 / p95 / max | phases p50 | heap before → after p50 (MB) | growth p50 | max load |',
+    )
+    print('|---|---|---|---|---|---|---|---|---|')
+    for (const c of lifecycle) {
+      const phases = Object.entries(c.phases)
+        .map(([name, v]) => `${name} ${f(v, 1)}`)
+        .join(', ')
+      print(
+        `| ${c.arm} | ${c.scenario} | ${c.scale}x | ${c.actionMs.n} | ` +
+          `${f(c.actionMs.p50)} / ${f(c.actionMs.p95)} / ${f(c.actionMs.max)} | ${phases} | ` +
+          `${f(c.heapBeforeMb)} → ${f(c.heapAfterMb)} | ${f(c.growth, 3)} | ${c.maxLoad.toFixed(2)} |`,
+      )
+    }
+    print('')
+    print('| Arm | Lifecycle | Scale | Check | value | control | budget | verdict |')
+    print('|---|---|---|---|---|---|---|---|')
+    for (const v of verdicts) {
+      const digits = v.check === 'heap growth' ? 3 : 2
+      print(
+        `| ${v.arm} | ${v.scenario} | ${v.scale}x | ${v.check} | ${f(v.value, digits)} | ${f(v.control, digits)} | ${f(v.budget, digits)} | ${v.verdict} |`,
+      )
+    }
+  }
   if (jsonOut !== undefined) {
     writeFileSync(
       jsonOut,
       JSON.stringify(
-        { runtimeSha: shas, cells: table, slopes, failed: failed.map((x) => x.path) },
+        {
+          runtimeSha: shas,
+          cells: table,
+          slopes,
+          lifecycle,
+          lifecycleVerdicts: verdicts,
+          failed: failed.map((x) => x.path),
+        },
         null,
         2,
       ),
