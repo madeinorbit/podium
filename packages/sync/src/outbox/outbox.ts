@@ -374,6 +374,8 @@ export class Outbox {
   private records: readonly OutboxRecord[]
   private readonly listeners = new Set<(event: OutboxEvent) => void>()
   private draining: Promise<void> | null = null
+  /** A drain was asked for while a pass ran. See `drain`. */
+  private drainRequested = false
   /** The serialization chain. Every mutation queues behind the previous one, so
    *  two concurrent `enqueue` calls cannot interleave stage-and-write and commit
    *  out of order. */
@@ -561,18 +563,36 @@ export class Outbox {
   }
 
   /**
-   * One drain pass. Single-flight: concurrent callers await the same pass, so a
-   * reconnect burst cannot double-submit the head of a partition.
+   * Drain until no caller is left unserved. Single-flight: concurrent callers
+   * await the same run, so a reconnect burst cannot double-submit the head of a
+   * partition.
+   *
+   * A caller that arrives while a pass is running gets ANOTHER pass once that
+   * one ends (POD-4658). A pass reads its partitions once, at its start, so an
+   * entry enqueued while the head is still on the wire is invisible to it. The
+   * phone hit exactly that: its next message, queued while a stopped send's
+   * reply was coming back, joined the running pass, was never read, and waited
+   * minutes for an unrelated nudge. The follow-up pass re-reads every record,
+   * so what the first pass already sent is not sent again.
    *
    * Partitions run concurrently; each partition is strictly FIFO and stops at
    * its first unresolved entry (D12).
    */
   async drain(): Promise<void> {
-    if (!this.draining) {
-      this.draining = this.drainPass().finally(() => {
-        this.draining = null
-      })
+    if (this.draining) {
+      this.drainRequested = true
+      return this.draining
     }
+    this.draining = (async () => {
+      try {
+        do {
+          this.drainRequested = false
+          await this.drainPass()
+        } while (this.drainRequested)
+      } finally {
+        this.draining = null
+      }
+    })()
     return this.draining
   }
 
