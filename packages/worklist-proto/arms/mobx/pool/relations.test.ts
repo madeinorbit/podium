@@ -21,7 +21,7 @@
  */
 
 import { dedupeSessions } from '@podium/client-core/engine'
-import { autorun, runInAction } from 'mobx'
+import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { createReplaySource, type ReplaySource } from '../../../harness/src/count-harness'
 import { buildCorpus } from '../../../harness/src/fixture/index'
@@ -779,6 +779,71 @@ describe('the reads fence and the write record', () => {
 
 // ------------------------------------------- bucket upkeep (M3 F1, POD-4568 rework)
 
+/** Element work on observable sets and sorts, counted outside the pool (M3 G1). */
+interface OutsideCount {
+  added: number
+  deleted: number
+  iterated: number
+  sorted: number
+}
+
+const outsideTotal = (c: OutsideCount): number => c.added + c.deleted + c.iterated + c.sorted
+
+/**
+ * Run `fn` with MobX's `ObservableSet` prototype and `Array.prototype.sort` /
+ * `toSorted` patched to count, then restore them. Nothing here reads a pool
+ * counter: a bucket is an `ObservableSet`, and every way to read one member by
+ * member (`for…of`, spread, `Array.from`, `new Set(bucket)`, `forEach`, `keys`,
+ * `entries`) goes through its `values()`, so a copy of the bucket is counted
+ * whether or not the pool reports it. Every observable set counts, not only
+ * the ones the pool names as buckets, and every sort counts, since a
+ * regression could sort a plain copy.
+ */
+function countedOutside(fn: () => void): OutsideCount {
+  const count: OutsideCount = { added: 0, deleted: 0, iterated: 0, sorted: 0 }
+  type Method = (this: unknown, ...args: unknown[]) => unknown
+  type Patched = Record<string, Method>
+  const set = Object.getPrototypeOf(observable.set<string>()) as Patched
+  const array = Array.prototype as unknown as Patched
+  const patches: [Patched, string, (self: unknown, result: unknown) => unknown][] = [
+    [set, 'add', (_self, result) => ((count.added += 1), result)],
+    [set, 'delete', (_self, result) => ((count.deleted += 1), result)],
+    [
+      set,
+      'values',
+      (_self, result) => {
+        const it = result as Iterator<unknown>
+        const counting: IterableIterator<unknown> = {
+          next: () => {
+            const step = it.next()
+            if (step.done !== true) count.iterated += 1
+            return step
+          },
+          [Symbol.iterator]: () => counting,
+        }
+        return counting
+      },
+    ],
+    [array, 'sort', (self, result) => ((count.sorted += (self as unknown[]).length), result)],
+    [array, 'toSorted', (self, result) => ((count.sorted += (self as unknown[]).length), result)],
+  ]
+  const restore = patches.map(([proto, name, after]) => {
+    const original = proto[name] as Method
+    proto[name] = function (this: unknown, ...args: unknown[]) {
+      return after(this, original.apply(this, args))
+    }
+    return () => {
+      proto[name] = original
+    }
+  })
+  try {
+    fn()
+  } finally {
+    for (const undo of restore) undo()
+  }
+  return count
+}
+
 describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)', () => {
   // The live export's largest buckets: repo.issues 4,574, worktree.sessions
   // 2,263 (docs/decisions/pod-4545-round-three-shape-review.md §2.3). One
@@ -796,18 +861,22 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
     try {
       expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(B)
       expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
-      const touched = (...change: RowRecord[]): number => {
+      const touched = (label: string, ...change: RowRecord[]): void => {
         const before = r.pool.stats.counters.bucketElements
-        r.push(...change)
-        expect(r.pool.graph.lastElements).toBe(r.pool.stats.counters.bucketElements - before)
-        return r.pool.graph.lastElements
+        const outside = countedOutside(() => r.push(...change))
+        // The evidence: counted outside the pool (M3 re-review G1).
+        expect(outsideTotal(outside), `${label}: ${JSON.stringify(outside)}`).toBe(PER_EDGE)
+        // The published stat agrees with it.
+        const reported = r.pool.stats.counters.bucketElements - before
+        expect(reported, `${label}: bucketElements`).toBe(outsideTotal(outside))
+        expect(r.pool.graph.lastElements, `${label}: lastElements`).toBe(reported)
       }
       // belongsTo (issue.repo → repo.issues)
-      expect(touched(issue('N1')), 'new issue').toBe(PER_EDGE)
-      expect(touched(gone('issue', 'B7')), 'removed issue').toBe(PER_EDGE)
+      touched('new issue', issue('N1'))
+      touched('removed issue', gone('issue', 'B7'))
       // prefix (session.worktree → worktree.sessions)
-      expect(touched(session('NS1', { cwd: '/repo/y' })), 'new session').toBe(PER_EDGE)
-      expect(touched(gone('session', 'BS7')), 'removed session').toBe(PER_EDGE)
+      touched('new session', session('NS1', { cwd: '/repo/y' }))
+      touched('removed session', gone('session', 'BS7'))
       expect(tracked(() => r.pool.graph.size('repo', 'R', 'issues'))).toBe(B)
       expect(tracked(() => r.pool.graph.size('worktree', '/repo', 'sessions'))).toBe(B)
       r.check({ issue: ['B7'], session: ['BS7'] })
