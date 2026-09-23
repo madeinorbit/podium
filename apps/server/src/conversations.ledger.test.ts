@@ -45,9 +45,10 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     opts: {
       diagnostics?: { severity: 'warning' | 'error'; message: string }[]
       removed?: string[]
+      machineId?: string
     } = {},
   ): Promise<void> {
-    await registry.gateway.routeDaemonFrame('m1', {
+    await registry.gateway.routeDaemonFrame(opts.machineId ?? 'm1', {
       type: 'conversationsChanged',
       conversations,
       diagnostics: opts.diagnostics ?? [],
@@ -178,6 +179,36 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect((await registry.sessionStore.conversations.index.search({})).map((r) => r.id)).not.toContain(
       'c2',
     )
+  })
+
+  it('(a3) a daemon\'s `removed` list deletes only conversations indexed under ITS machine (POD-4628)', async () => {
+    // The acceptance-run loss: a fresh machine whose copied discovery cache
+    // named the ORIGINAL machine's transcripts reported every one of them as
+    // removed, and the server deleted them all. Removal is a claim about the
+    // reporter's own disk, so it can only reach rows that machine indexed.
+    const store = await openTestStore(':memory:')
+    await store.conversations.index.enableFts()
+    const registry = await makeRegistry(store)
+    await registry.gateway.attachDaemon('m1', () => {})
+    await registry.gateway.attachDaemon('m2', () => {})
+    await push(registry, [conv('a1', { title: 'alphaone' }), conv('a2', { title: 'alphatwo' })])
+    // `shared` was first seen on m1, then m2 reported it last — the row is m2's now.
+    await push(registry, [conv('shared', { title: 'sharedone' })])
+    await push(registry, [conv('b1'), conv('shared', { title: 'sharedone' })], { machineId: 'm2' })
+    const cursor = await cursorOf(registry)
+
+    await push(registry, [conv('b1')], { machineId: 'm2', removed: ['a1', 'a2', 'shared'] })
+
+    const ids = (await store.conversations.index.search({})).map((r) => r.id).sort()
+    expect(ids).toEqual(['a1', 'a2', 'b1'])
+    // The fts rows ride the row: m1's conversations are still searchable.
+    expect((await store.conversations.index.search({ query: 'alphaone' })).map((r) => r.id)).toEqual(['a1'])
+    expect((await store.conversations.index.search({ query: 'alphatwo' })).map((r) => r.id)).toEqual(['a2'])
+    // The change log (and so change_latest) removes only what was really deleted.
+    const removes = (await conversationChangesSince(registry, cursor))
+      .filter((c) => c.op === 'remove')
+      .map((c) => c.id)
+    expect(removes).toEqual(['shared'])
   })
 
   it('(b) volatile-only churn appends NOTHING; a stable-field change appends the FULL wire payload', async () => {
