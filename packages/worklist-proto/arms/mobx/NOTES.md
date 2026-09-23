@@ -49,6 +49,34 @@
   before, MobX swallowed it and the caller saw "ran inside a batch".
 - **Roster exception** now names POD-4572 (Mb4), per the coordinator.
 
+### Numbers (1x corpus: 4,867 issues, 4,304 sessions, 468 lanes)
+
+- **L4b gate** (`gate.test.ts`, `results/mobx-pool-gate-1x.json`): seeds
+  1-3, 200 steps each, rebuild compared after every step (201 checks per
+  seed) and every relation of every row held to the scan at every one of
+  those checks; the removal-deaf plant fails every seed (steps 15, 37, 7).
+  Oracle comparison stays off (`oracleEvery: 0`): order and roll-ups are
+  Mb1-Mb3's. 475 s for the file at load ~7.
+- **Relation tests** (`relations.test.ts`, 40 tests): per relation, twins,
+  the doc §4.5 example (including its write record), 12 change kinds each
+  asserting the exact relation slots written, the fixture schema, and 8
+  seeded random runs x 300 steps over a colliding id universe against the
+  scan (worktree removal, cwd moves, session re-homing, deps changes and
+  twin flips, which the L4a generator does not draw).
+- **Fence steps** (`counts.test.tsx`, `results/mobx-pool-counts-1x.json`):
+  #1 heartbeat reads 2 rows (budget 3), writes 0 relation slots; #4 rename
+  reads 2 (budget 3). A lookup through the fenced reader: `one` 1 read,
+  `many` 1 per member, `size` 0 (`relations.test.ts`).
+- **#1's commit fence moved to Mb1, like #4's.** The heartbeat's issue
+  (`i1211`, a closed agent-audience root) is hidden in the worklist; with
+  `issue.sessions` maintained its `activityAt` moves, and the a1 list draws
+  every issue, so the one drawn row is that hidden row
+  (`oracleVisible: {i1211: false}` in the results cell). The native lane
+  test now expects exactly that one row.
+- Per compared gate step (dev timing at load ~8, not evidence): snapshot
+  ~250 ms (~170 ms of it before relations answered anything), rebuild
+  ~80 ms, relation diff ~110 ms.
+
 ### Findings
 
 - The warn trap throws INSIDE MobX when a reaction reads nothing
