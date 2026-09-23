@@ -20,7 +20,43 @@
  * the same pool planted to skip relation upkeep on every UPDATE of a row it
  * already holds (inserts and removals still maintained) must fail every seed.
  *
- * Defaults are 3 seeds x 200 steps; `POD_POOL_GATE_SEEDS=<n>` runs seeds
+ * RESIDENCY (POD-4580, Ha3). The pool holds only its resident rows, so the
+ * relation check scans every row the pool KNOWS (`knownTables`: the feed's
+ * rows, cold ones included, which the engine links by id), and every compared
+ * step also holds the hot/cold partition to the feed (`diffResidency`). The
+ * rebuild's rows are the issues the rule keeps hot plus the ones the pool has
+ * loaded (`rebuild.ts`).
+ *
+ * FULL-RESIDENCY CHECKPOINT (the coordinator's safeguard, as in Ma3). Passing
+ * the pool's resident set into the rebuild lets the rebuild lean on the state
+ * it checks. So at the run's last compared step the gated arm loads EVERY
+ * cold row, settles, and is held, with no input from the pool, to: no row
+ * left cold, every relation against a scan, and its snapshot against a
+ * rebuild with every row resident. It runs at the last step because loading
+ * everything ends the run's cold state.
+ *
+ * THE PLANTS, each of which must fail every seed:
+ * - `planted`: deaf to removals (Ha1's; the rebuild catches it).
+ * - `relinkSkipped`: an update of a row the pool HOLDS maintains no relation
+ *   (Ha2's; the per-step relation check).
+ * - `coldDeaf`: an update to a row the pool holds cold never reaches it.
+ * - `coldRelinkSkipped`: a cold row's update skips relation maintenance only.
+ *   Checked per step with the checkpoint OFF: the per-step relation check,
+ *   which reads no residency from the pool, must catch a relation error
+ *   confined to cold rows. (The checkpoint cannot: loading a row relinks it
+ *   from its current value, so this error heals when everything loads.)
+ * - `coldForgotten`: a cold SESSION's update that leaves it cold drops it
+ *   from the registry instead of keeping it (a row the pool no longer knows
+ *   and will never load). Checked with the per-step relation and partition
+ *   checks OFF: the checkpoint must catch it (the row never loads). The
+ *   hand pool has no promotion step (its relation maps are plain whatever
+ *   the residency), so this is its error that survives loading.
+ * The cells count cold-row work AFTER each bootstrap and before the
+ * checkpoint: registry writes, loads on access, rows warmed by a reopen or
+ * removal.
+ *
+ * Defaults are 3 seeds x 200 steps; the gate of record is 20 x 300 (Ma4's
+ * lesson: 3 x 200 missed a relation bug seed 8 found); `POD_POOL_GATE_SEEDS=<n>` runs seeds
  * 1..n, `POD_POOL_GATE_FIRST_SEED=<k>` starts at k instead (a long run in
  * chunks), and `POD_POOL_GATE_STEPS=<n>` sets the length (`README.md`,
  * "Gates").
@@ -40,11 +76,13 @@ import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
 import type { CheckableArm, RowSource } from '../../../shared/src/arm'
 import { countKinds, gen } from '../../../shared/src/gen/changes'
-import { checkArm, describeSequence } from '../../../shared/src/gen/check'
+import { checkArm, describeSequence, diffSnapshots } from '../../../shared/src/gen/check'
 import type { RowView } from '../../../shared/src/row-view'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from './arm'
-import { diffRelations } from './enumerate'
+import { diffRelations, diffResidency, knownTables } from './enumerate'
+import { rebuildSnapshot } from './rebuild'
+import type { Residency } from './residency'
 
 const FIRST_SEED = Number(process.env['POD_POOL_GATE_FIRST_SEED'] ?? 1)
 const SEEDS = Array.from(
@@ -52,11 +90,14 @@ const SEEDS = Array.from(
   (_, i) => i + FIRST_SEED,
 )
 const STEPS = Number(process.env['POD_POOL_GATE_STEPS'] ?? 200)
+/** 2.5 s per seed-step, never under 25 min. */
+const GATE_TIMEOUT_MS = Math.max(1_500_000, SEEDS.length * STEPS * 2_500)
 
 /** The planted mistake: removals never reach the pool. */
 function deafToRemovals(source: RowSource): RowSource {
   return {
     snapshot: (kind) => source.snapshot(kind),
+    ...(source.row === undefined ? {} : { row: source.row.bind(source) }),
     subscribe: (listener) =>
       source.subscribe((event) =>
         listener({ ...event, rows: event.rows.filter((row) => row.value !== undefined) }),
@@ -66,31 +107,6 @@ function deafToRemovals(source: RowSource): RowSource {
 
 const planted: CheckableArm = {
   create: (source, locals, reads) => handPoolArm.create(deafToRemovals(source), locals, reads),
-}
-
-/** `arm`, with every relation checked against a from-scratch scan at each snapshot. */
-function relationChecked(arm: CheckableArm): CheckableArm & { snapshots: number } {
-  const wrapper = {
-    snapshots: 0,
-    create(...args: Parameters<CheckableArm['create']>) {
-      const handle = arm.create(...args) as HandPoolHandle
-      return {
-        ...handle,
-        snapshot() {
-          wrapper.snapshots += 1
-          const settled = handle.snapshot()
-          const diff = diffRelations(handle.pool.engine, handle.pool.tables)
-          if (diff.length > 0) {
-            throw new Error(
-              `relations diverged from the scan (snapshot ${wrapper.snapshots}):\n${diff.join('\n')}`,
-            )
-          }
-          return settled
-        },
-      }
-    },
-  }
-  return wrapper
 }
 
 /** The relation plant: an update of a row the pool already holds maintains no relation. */
@@ -107,56 +123,285 @@ const relinkSkipped: CheckableArm = {
   },
 }
 
-/** Whether `arm` fails the check on `sequence` (a divergence, or a throw from its checks). */
-async function fails(
+/** The residency plant: an update to a row the pool holds cold never reaches it. */
+const coldDeaf: CheckableArm = {
+  create(source, locals, reads) {
+    let handle: HandPoolHandle | null = null
+    const filtered: RowSource = {
+      snapshot: (kind) => source.snapshot(kind),
+      ...(source.row === undefined ? {} : { row: source.row.bind(source) }),
+      subscribe: (listener) =>
+        source.subscribe((event) => {
+          const residency = handle?.pool.residency
+          if (event.type === 'replace' || residency == null) return listener(event)
+          listener({
+            ...event,
+            rows: event.rows.filter(
+              (row) => row.kind === 'worktree' || !residency.isCold(row.kind, row.id),
+            ),
+          })
+        }),
+    }
+    handle = handPoolArm.create(filtered, locals, reads)
+    return handle
+  },
+}
+
+/** Once bootstrapped, a COLD row's update skips relation maintenance (its registry entry still moves). */
+const coldRelinkSkipped: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = handPoolArm.create(source, locals, reads)
+    const { engine, residency } = handle.pool
+    const changed = engine.changed.bind(engine)
+    engine.changed = (entity, id, prev, next) => {
+      if (residency?.isCold(entity, id) === true && next !== undefined) return
+      changed(entity, id, prev, next)
+    }
+    return handle
+  },
+}
+
+/** Once bootstrapped, a cold session's update that keeps it cold forgets it instead. */
+const coldForgotten: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = handPoolArm.create(source, locals, reads)
+    const residency = handle.pool.residency as unknown as {
+      keepCold: (target: unknown, entity: string, id: string, value: object) => void
+      forget: (target: unknown, entity: string, id: string) => void
+    }
+    const keepCold = residency.keepCold.bind(residency)
+    residency.keepCold = (target, entity, id, value) => {
+      if (entity === 'session') residency.forget(target, entity, id)
+      else keepCold(target, entity, id, value)
+    }
+    return handle
+  },
+}
+
+/** What the gated arms did with cold rows, summed over every arm a run created. */
+interface ColdTally {
+  coldWrites: number
+  requests: number
+  batches: number
+  hydrated: number
+  warmed: number
+  /** Full-residency checkpoints passed. */
+  checkpoints: number
+}
+
+function emptyTally(): ColdTally {
+  return { coldWrites: 0, requests: 0, batches: 0, hydrated: 0, warmed: 0, checkpoints: 0 }
+}
+
+/**
+ * The full-residency checkpoint: load every cold row, settle, then hold the
+ * pool to the feed with no input from the pool. Throws on any difference.
+ */
+function fullResidencyCheck(
+  handle: HandPoolHandle,
+  source: RowSource,
+  locals: Parameters<CheckableArm['create']>[1],
+  label: string,
+): void {
+  const { pool } = handle
+  const residency = pool.residency as Residency
+  for (const entity of ['issue', 'session'] as const) {
+    for (const id of residency.ids(entity)) residency.request(entity, id)
+  }
+  pool.hydrate()
+  const settled = pool.snapshot()
+  const left = [...residency.ids('issue'), ...residency.ids('session')]
+  if (left.length > 0) {
+    throw new Error(
+      `full residency (${label}): ${left.length} rows never loaded: ${left.slice(0, 6).join(', ')}`,
+    )
+  }
+  const relations = diffRelations(pool.engine, knownTables(source))
+  if (relations.length > 0) {
+    throw new Error(`full residency (${label}): relations diverged:\n${relations.join('\n')}`)
+  }
+  const diff = diffSnapshots(settled, rebuildSnapshot(source, locals))
+  if (diff !== null) throw new Error(`full residency (${label}): snapshot diverged:\n${diff}`)
+}
+
+/**
+ * `arm`, with every relation checked against a scan of the feed and the
+ * hot/cold partition checked against the feed at each snapshot (`perStep`),
+ * and the full-residency checkpoint at the last compared step (`full`).
+ */
+function checked(
   arm: CheckableArm,
-  sequence: Parameters<typeof checkArm>[1],
-): Promise<number | null> {
+  checks: { perStep: boolean; full: boolean } = { perStep: true, full: true },
+): CheckableArm & { snapshots: number; cold: ColdTally } {
+  const wrapper = {
+    snapshots: 0,
+    cold: emptyTally(),
+    create(
+      source: RowSource,
+      locals: Parameters<CheckableArm['create']>[1],
+      reads?: Parameters<CheckableArm['create']>[2],
+    ) {
+      const handle = arm.create(source, locals, reads) as HandPoolHandle
+      const tally = (count = true): void => {
+        const counters = handle.pool.residency?.counters
+        if (counters === undefined) return
+        for (const key of Object.keys(counters) as (keyof typeof counters)[]) {
+          if (count) wrapper.cold[key] += counters[key]
+          counters[key] = 0
+        }
+      }
+      // The bootstrap's registrations are the bootstrap test's, not the run's.
+      tally(false)
+      return {
+        ...handle,
+        snapshot() {
+          wrapper.snapshots += 1
+          const { pool } = handle
+          // The checker snapshots once at boot and once per step.
+          if (checks.full && wrapper.snapshots === STEPS + 1) {
+            tally()
+            fullResidencyCheck(handle, source, locals, `step ${STEPS - 1}`)
+            tally(false)
+            wrapper.cold.checkpoints += 1
+          }
+          const settled = handle.snapshot()
+          if (!checks.perStep) return settled
+          const diff = diffRelations(pool.engine, knownTables(source))
+          if (diff.length > 0) {
+            throw new Error(
+              `relations diverged from the scan (snapshot ${wrapper.snapshots}):\n${diff.join('\n')}`,
+            )
+          }
+          const partition = diffResidency(pool, source)
+          if (partition.length > 0) {
+            throw new Error(
+              `residency diverged from the feed (snapshot ${wrapper.snapshots}):\n${partition.join('\n')}`,
+            )
+          }
+          tally()
+          return settled
+        },
+        dispose() {
+          tally()
+          handle.dispose()
+        },
+      }
+    },
+  }
+  return wrapper
+}
+
+/** Which check caught a plant, from the error it threw. */
+function caughtBy(message: string): string {
+  if (message.startsWith('full residency')) return 'checkpoint'
+  if (message.startsWith('residency')) return 'partition'
+  return 'relations'
+}
+
+/**
+ * A plant's run: a checked arm's relation or partition check THROWS from its
+ * snapshot, which is a detection too (the checker does not catch it).
+ */
+async function plantOutcome(
+  arm: CheckableArm,
+  sequence: ReturnType<typeof gen>,
+): Promise<{ ok: true } | { ok: false; step: number | null; against: string; diff: string }> {
   try {
     const result = await checkArm(arm, sequence, { oracleEvery: 0, shrink: false })
-    return result.ok ? null : result.step
+    return result.ok
+      ? { ok: true }
+      : { ok: false, step: result.step, against: result.against, diff: result.diff }
   } catch (error) {
-    const match = /snapshot (\d+)/.exec(String(error))
-    return match === null ? -1 : Number(match[1]) - 2
+    const message = error instanceof Error ? error.message : String(error)
+    const step = /snapshot (\d+)/.exec(message)
+    return {
+      ok: false,
+      // The checker snapshots once at boot, then once per step.
+      step: step === null ? null : Number(step[1]) - 2,
+      against: caughtBy(message),
+      diff: message,
+    }
   }
 }
 
-describe('correctness gate (L4b), rebuild-only', () => {
-  it('passes every seed, and the removal-deaf plant fails', async () => {
-    const cells = []
-    let plantedFailures = 0
-    let relinkFailures = 0
-    for (const seed of SEEDS) {
-      const sequence = gen(seed, STEPS)
-      const gated = relationChecked(handPoolArm)
-      const result = await checkArm(gated, sequence, { oracleEvery: 0 })
-      if (!result.ok) {
-        throw new Error(
-          `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
-            `shrunk:\n${describeSequence(result.shrunk)}`,
-        )
+const brief = (outcome: Awaited<ReturnType<typeof plantOutcome>>) =>
+  outcome.ok
+    ? { failed: false }
+    : {
+        failed: true,
+        step: outcome.step,
+        caughtBy: outcome.against,
+        diff: outcome.diff.split('\n').slice(0, 2).join(' | '),
       }
-      const plantStep = await fails(planted, sequence)
-      if (plantStep !== null) plantedFailures += 1
-      const relinkStep = await fails(relationChecked(relinkSkipped), sequence)
-      if (relinkStep !== null) relinkFailures += 1
-      cells.push({
-        seed,
-        steps: STEPS,
-        counts: result.counts,
-        relationChecks: gated.snapshots,
-        kinds: countKinds(sequence),
-        plantFailed: plantStep !== null,
-        plantStep,
-        relinkPlantFailed: relinkStep !== null,
-        relinkPlantStep: relinkStep,
+
+describe('correctness gate (L4b), rebuild-only', () => {
+  it(
+    'passes every seed, and every plant fails every seed',
+    async () => {
+      const cells = []
+      const failures = { planted: 0, relink: 0, coldDeaf: 0, coldRelink: 0, checkpoint: 0 }
+      for (const seed of SEEDS) {
+        const sequence = gen(seed, STEPS)
+        const gated = checked(handPoolArm)
+        const result = await checkArm(gated, sequence, { oracleEvery: 0 })
+        expect(gated.snapshots).toBeGreaterThan(STEPS)
+        if (!result.ok) {
+          throw new Error(
+            `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
+              `shrunk:\n${describeSequence(result.shrunk)}`,
+          )
+        }
+        const cold = { ...gated.cold }
+        // The run must have exercised cold rows, or its green says nothing about them.
+        expect(cold.coldWrites, `seed ${seed} touched no cold row`).toBeGreaterThan(0)
+        expect(cold.checkpoints, `seed ${seed} ran no full-residency checkpoint`).toBeGreaterThan(0)
+        const plant = await plantOutcome(planted, sequence)
+        if (!plant.ok) failures.planted += 1
+        const relink = await plantOutcome(checked(relinkSkipped, { perStep: true, full: false }), sequence)
+        if (!relink.ok) failures.relink += 1
+        const deaf = await plantOutcome(checked(coldDeaf), sequence)
+        if (!deaf.ok) failures.coldDeaf += 1
+        const coldRelink = await plantOutcome(
+          checked(coldRelinkSkipped, { perStep: true, full: false }),
+          sequence,
+        )
+        if (!coldRelink.ok && coldRelink.against === 'relations') failures.coldRelink += 1
+        const forgotten = await plantOutcome(
+          checked(coldForgotten, { perStep: false, full: true }),
+          sequence,
+        )
+        if (!forgotten.ok && forgotten.against === 'checkpoint') failures.checkpoint += 1
+        cells.push({
+          seed,
+          steps: STEPS,
+          counts: result.counts,
+          relationChecks: gated.snapshots,
+          cold,
+          kinds: countKinds(sequence),
+          plants: {
+            removalDeaf: brief(plant),
+            relinkSkipped: brief(relink),
+            coldDeaf: brief(deaf),
+            coldRelinkSkipped: brief(coldRelink),
+            coldForgotten: brief(forgotten),
+          },
+        })
+      }
+      const name =
+        FIRST_SEED === 1
+          ? `hand-pool-gate-1x-${SEEDS.length}x${STEPS}`
+          : `hand-pool-gate-1x-${SEEDS.length}x${STEPS}-from-${FIRST_SEED}`
+      writeResult(name, { seeds: SEEDS, steps: STEPS, cells })
+      expect(failures).toEqual({
+        planted: SEEDS.length,
+        relink: SEEDS.length,
+        coldDeaf: SEEDS.length,
+        coldRelink: SEEDS.length,
+        checkpoint: SEEDS.length,
       })
-    }
-    const name = FIRST_SEED === 1 ? 'hand-pool-gate-1x' : `hand-pool-gate-1x-from-${FIRST_SEED}`
-    writeResult(name, { seeds: SEEDS, steps: STEPS, cells })
-    expect(plantedFailures).toBe(SEEDS.length)
-    expect(relinkFailures).toBe(SEEDS.length)
-  }, 3_600_000)
+    },
+    GATE_TIMEOUT_MS,
+  )
 })
 
 describe('own-row and one-hop fields against the oracle', () => {
@@ -168,6 +413,10 @@ describe('own-row and one-hop fields against the oracle', () => {
       const expected = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
       const ids = Object.keys(expected)
       expect(ids.length).toBeGreaterThan(100)
+      // Visible closed rows (the grace window, the fold) are cold: a reader
+      // asks for them, and the settled snapshot loads them and what they read.
+      for (const id of ids) handle.pool.resident('issue', id)
+      handle.pool.snapshot()
       const same: (keyof RowView)[] = [
         'id',
         'displayRef',
