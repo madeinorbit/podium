@@ -186,6 +186,10 @@ by the engine.
   That count must stay under the change's own bookkeeping (16) plus two per
   ancestor path of the row, plus one: an unsorted copy of one prefix set
   (8,003 elements per new session) fails it.
+  AND NO SET IS SWAPPED (M3 G4): a copy no patched method makes
+  (`set.union(new Set())`, `structuredClone(set)`) is caught by identity: no
+  set the engine holds (`under`, `buckets`, `coldBuckets`, collapse
+  `groups`) may be a different object after one edge.
   M3's probe (`harness/review/m3-shape-probes.test.tsx`, with
   `M3_LIVE_EXPORT`) prints the same count on the live export.
 - **Fence steps #1-#4**, `pool/counts.test.tsx`: the shared
@@ -195,6 +199,8 @@ by the engine.
   the arm's redraws and lands what they queued until nothing is queued, and
   the shared fence (`runFenceStep`) awaits it inside each step before the
   reads are sampled; `pendingLoads()` lets it refuse a step that leaves one.
+  It finds the feeds by `feeds.flush`'s identity and refuses any other
+  flush (N9), so a wrapper cannot switch the lazy-arm refusal off.
   M3's cold-issue plant fails #2 there (2,839 reads, budget 3).
 - Numbers: `docs/measurements/POD-4568-a.md`.
 
