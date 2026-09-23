@@ -27,12 +27,13 @@
  * from each member's cached value (`SessionModel.activityMs`) and a
  * non-draft title reads no member: #2 reads 1.
  *
- * FINDING, pinned below (not a NO). The sibling re-read ALONE is not caught
- * on this target: `i17` has exactly 3 member sessions, so re-reading the
- * whole family costs 3 reads, the budget of one level. The base failed only
- * because a second part also read `i17`. The planted pool (member activity
- * read from the rows again) passes #2 at 3; the pin makes that visible, and
- * goes red if the fence or the target changes so that it is caught.
+ * THE SIBLING RE-READ, planted below. On the old fixture's target (`i17`, 3
+ * member sessions) re-reading the whole family cost 3 reads, the budget of
+ * one level, and passed; the base failed only because a second part also
+ * read `i17`. POD-4635 changed the #2 target rule (`pickTargets`,
+ * `PHASE_FAMILY_FLOOR`): the target's family is now larger than one level's
+ * budget, so the planted pool (member activity read from the rows again)
+ * must FAIL #2's reads fence on its own.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -112,7 +113,7 @@ describe('fence steps #1-#4', () => {
     }
   }, 120_000)
 
-  it('pins the #2 finding: a sibling re-read alone sits at the budget on this target', async () => {
+  it('a sibling re-read alone fails #2: the target family is larger than the budget', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads) as MobxPoolHandle
@@ -131,12 +132,21 @@ describe('fence steps #1-#4', () => {
         expect(entry, methodology).toBeDefined()
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
         assertCommits(result)
-        assertReads(result, { readsPerChange: readsBudget })
-        if (methodology !== '#2') continue
-        // The whole family of the changed session, and nothing else: exactly the budget.
+        if (methodology !== '#2') {
+          assertReads(result, { readsPerChange: readsBudget })
+          continue
+        }
+        // The whole family of the changed session, and nothing else: more
+        // than one level's budget, so the fence names it.
+        const family = ctx.corpus.sessions.filter(
+          (s) => s.issueId === ctx.targets.visibleRootId,
+        ).length
         expect(readsBudget).toBe(3)
-        expect(result.reads?.byEntity).toEqual({ session: 3 })
-        expect(result.readsPerChange).toBe(readsBudget)
+        expect(family).toBeGreaterThan(readsBudget)
+        expect(result.reads?.byEntity).toEqual({ session: family })
+        expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
+          `read ${family} rows, budget ${readsBudget}`,
+        )
       }
     } finally {
       mounted.unmount()

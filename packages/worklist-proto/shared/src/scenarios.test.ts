@@ -10,6 +10,7 @@
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../../harness/src/fixture/index'
+import { READ_BUDGETS } from '../../harness/src/count-harness'
 import { expectedSnapshot } from '../../harness/src/oracle/index'
 import {
   applyStageMove,
@@ -24,6 +25,7 @@ import {
   newIssue,
   OPTIMISTIC_ECHO_READ_AT,
   optimisticEchoAndRejection,
+  PHASE_FAMILY_FLOOR,
   parentReassignment,
   pickTargets,
   principalSwitch,
@@ -145,6 +147,46 @@ describe('targets picked by rule, checked against the oracle (1x)', () => {
     expect(keeper.rowsById[targets.keeperParentId]).toBeUndefined()
     const evicted = expectedSnapshot(without(targets.evictId), locals)
     expect(Object.keys(evicted.rowsById).length).toBe(Object.keys(snapshot.rowsById).length - 1)
+  })
+})
+
+describe('#2 target family is larger than one level of the reads budget (POD-4635)', () => {
+  // Ma4 (POD-4568): on a family of exactly the budget, a pool that re-reads
+  // every sibling on a phase change costs the budget and passes, so the #2
+  // fence could not catch it. The rule now demands a larger family.
+  const familyOf = (corpus: FixtureCorpus, id: string) =>
+    corpus.sessions.filter(
+      (s) => s.issueId === id && (s as { headless?: boolean }).headless !== true,
+    )
+
+  it('the floor is the harness budget for one level', () => {
+    expect(PHASE_FAMILY_FLOOR).toBe(READ_BUDGETS.phaseChangePerLevel)
+  })
+
+  it.each([1, 2, 4] as const)('at %ix the target family exceeds the floor', (scale) => {
+    const corpus = buildCorpus(scale, FIXTURE_SEED)
+    const { visibleRootId } = pickTargets(corpus)
+    expect(familyOf(corpus, visibleRootId).length).toBeGreaterThan(PHASE_FAMILY_FLOOR)
+  })
+
+  it('control: the same root with its family trimmed to the floor is refused', () => {
+    const corpus = buildCorpus(1, FIXTURE_SEED)
+    const targets = pickTargets(corpus)
+    const others = familyOf(corpus, targets.visibleRootId).filter(
+      (s) => s.sessionId !== targets.phaseSessionId && s.agentState?.phase !== 'working',
+    )
+    const keep = new Set([
+      targets.phaseSessionId,
+      ...others.slice(0, PHASE_FAMILY_FLOOR - 1).map((s) => s.sessionId),
+    ])
+    const trimmed: FixtureCorpus = {
+      ...corpus,
+      sessions: corpus.sessions.filter(
+        (s) => s.issueId !== targets.visibleRootId || keep.has(s.sessionId),
+      ),
+    }
+    expect(familyOf(trimmed, targets.visibleRootId)).toHaveLength(PHASE_FAMILY_FLOOR)
+    expect(pickTargets(trimmed).visibleRootId).not.toBe(targets.visibleRootId)
   })
 })
 
@@ -333,8 +375,11 @@ describe('scenarios on the fixture at 1x', () => {
     // The hydrate-first seed names no kernel address, so no issue or session
     // row is emitted. Discovery lands after the source primed, so every lane
     // it found is announced, once (POD-4606): repo roots plus worktrees.
+    // The scan also reports each linked worktree as a standalone entry; the
+    // source drops those, as legacy `reposToViews` does (POD-4635).
     const corpus = buildCorpus(result.corpus.scale, result.corpus.seed)
-    const lanes = corpus.repos.length + corpus.repos.reduce((n, repo) => n + repo.worktrees.length, 0)
+    const linked = new Set(corpus.repos.flatMap((repo) => repo.worktrees.map((wt) => wt.path)))
+    const lanes = corpus.repos.filter((repo) => !linked.has(repo.path)).length + linked.size
     expect(result.events).toHaveLength(1)
     expect(result.events[0]?.type).toBe('update')
     expect(result.events[0]?.rows.every((row) => row.kind === 'worktree')).toBe(true)

@@ -1,13 +1,13 @@
 /**
- * POD-4443 — fixture tests: determinism, exact counts, shape rules.
- *
- * Timing tests (4x build) live here too; walls are recorded, counts verdict.
+ * POD-4443 / POD-4635 — fixture tests: determinism, exact counts, and the
+ * shape against the live table at every scale.
  */
 import { isSortKey } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SliceLocals } from '../../../shared/src/slice-types'
 import { expectedSnapshot } from '../oracle/index'
 import { BASE_COUNTS, buildCorpus, type CorpusStats, FIXED_NOW, type FixtureCorpus } from './index'
+import { measureShape, type ShapeMeasures } from './shape'
 
 describe('buildCorpus determinism', () => {
   it('two 1x builds with the same seed are deep-equal', () => {
@@ -30,6 +30,9 @@ describe('buildCorpus counts', () => {
     expect(corpus.stats.sessions).toBe(BASE_COUNTS.sessions * scale)
     expect(corpus.stats.repos).toBe(BASE_COUNTS.repos * scale)
     expect(corpus.stats.worktrees).toBe(BASE_COUNTS.worktrees * scale)
+    expect(corpus.stats.repoRows).toBe(BASE_COUNTS.repoRows * scale)
+    expect(corpus.stats.rootLanes).toBe(BASE_COUNTS.rootLanes * scale)
+    expect(corpus.repoProjections).toHaveLength(BASE_COUNTS.repoRows * scale)
     expect(corpus.issues).toHaveLength(BASE_COUNTS.issues * scale)
     expect(corpus.sessions).toHaveLength(BASE_COUNTS.sessions * scale)
     expect(corpus.issueProjections).toHaveLength(BASE_COUNTS.issues * scale)
@@ -43,14 +46,6 @@ describe('buildCorpus counts', () => {
 
 describe('buildCorpus shape (1x)', () => {
   const corpus = buildCorpus(1, 4443)
-
-  it('has parent chains depth 1-4 with ~40% children', () => {
-    const ratio = corpus.stats.withParent / corpus.stats.issues
-    expect(ratio).toBeGreaterThan(0.35)
-    expect(ratio).toBeLessThan(0.45)
-    expect(corpus.stats.maxDepth).toBeLessThanOrEqual(4)
-    expect(corpus.stats.maxDepth).toBeGreaterThanOrEqual(3)
-  })
 
   it('has ~2,230 open issues (no closedAt)', () => {
     expect(corpus.stats.open).toBeGreaterThan(2000)
@@ -67,17 +62,25 @@ describe('buildCorpus shape (1x)', () => {
   it('mints unique session ids; only the resume-twin groups share a resume ref', () => {
     const ids = corpus.sessions.map((s) => s.sessionId)
     expect(new Set(ids).size).toBe(ids.length)
+    // Most sessions carry a resume ref (live 75.5%); outside the planted
+    // twin groups every ref is its own.
     const twinIds = new Set(corpus.resumeTwins.flatMap((g) => g.sessionIds))
-    for (const s of corpus.sessions) {
-      if (!twinIds.has(s.sessionId)) expect(s).not.toHaveProperty('resume')
-    }
+    const refs = corpus.sessions
+      .filter((s) => s.resume && !twinIds.has(s.sessionId))
+      .map((s) => `${s.resume!.kind}:${s.resume!.value}`)
+    expect(refs.length).toBeGreaterThan(corpus.sessions.length / 2)
+    expect(new Set(refs).size).toBe(refs.length)
   })
 
   it('covers both displayRef spellings (prefix-seq and #seq)', () => {
-    const withPrefix = corpus.sliceIssues.filter((i) => i.repoId !== null).length
-    const withoutRepo = corpus.sliceIssues.filter((i) => i.repoId === null).length
-    expect(withPrefix).toBeGreaterThan(0)
-    expect(withoutRepo).toBeGreaterThan(0)
+    // `#seq` comes from issues whose repo id has no repo row (live: 4 such
+    // ids, 2 visible rows); every other row joins a prefix.
+    const snapshot = expectedSnapshot(corpus, { selectedIssueId: null, coarseNow: FIXED_NOW })
+    const labels = Object.values(snapshot.rowsById).map((row) => row.displayRef)
+    expect(labels.filter((ref) => ref.startsWith('#')).length).toBeGreaterThan(0)
+    expect(labels.filter((ref) => /^[A-Z]{3}-\d+$/.test(ref)).length).toBeGreaterThan(0)
+    const known = new Set(corpus.repoProjections.map((r) => r.id as string))
+    expect(corpus.sliceIssues.some((i) => i.repoId !== null && !known.has(i.repoId))).toBe(true)
   })
 
   it('names one live issue worktree no scan reported, with an orphan under it (POD-4550)', () => {
@@ -106,6 +109,111 @@ const malformedSortKeys = (corpus: FixtureCorpus): string[] =>
     return key === null || isSortKey(key) ? [] : [`${row.id}:${key}`]
   })
 
+/**
+ * The live table: one anonymised export of the live workspace
+ * (2026-09-23T06:38:21Z, seq 5,828,147), measured by `measureShape`
+ * (`docs/measurements/POD-4441-fixture-shape.md`, "Fixture vs live"). The
+ * fixture is measured by the same instrument. Counts scale with the corpus;
+ * shares and depths stay (POD-4635).
+ */
+const LIVE = {
+  issues: 5170,
+  sessions: 4624,
+  visibleRows: 759,
+  maxDepth: 6,
+} as const
+const LIVE_DEP_TYPES = ['blocks', 'related', 'supersedes', 'duplicate', 'waits-on', 'blocked-by']
+const TOLERANCE = 0.2
+
+interface LiveTarget {
+  name: string
+  live: number
+  value: (m: ShapeMeasures) => number
+  band: [number, number]
+}
+
+function liveTargets(scale: number): LiveTarget[] {
+  const within = (live: number): [number, number] => [live * (1 - TOLERANCE), live * (1 + TOLERANCE)]
+  /** A count: live times the scale. */
+  const count = (name: string, live: number, value: (m: ShapeMeasures) => number): LiveTarget => ({
+    name,
+    live,
+    value,
+    band: within(live * scale),
+  })
+  /** A share of issues, sessions or visible rows: the same at every scale. */
+  const share = (
+    name: string,
+    live: number,
+    per: 'issues' | 'sessions' | 'visible',
+    value: (m: ShapeMeasures) => number,
+  ): LiveTarget => {
+    const denominator = (m: ShapeMeasures) =>
+      per === 'issues' ? m.issues : per === 'sessions' ? m.sessions : m.visibleRows
+    const liveShare =
+      live / (per === 'issues' ? LIVE.issues : per === 'sessions' ? LIVE.sessions : LIVE.visibleRows)
+    return { name, live: liveShare, value: (m) => value(m) / denominator(m), band: within(liveShare) }
+  }
+  const depthAtLeast = (m: ShapeMeasures, d: number) =>
+    Object.entries(m.depthHistogram).reduce((sum, [k, n]) => sum + (Number(k) >= d ? n : 0), 0)
+  return [
+    // Rows.
+    count('visible rows', 759, (m) => m.visibleRows),
+    count('top-level rows', 283, (m) => m.topLevelRows),
+    count('nested rows', 476, (m) => m.nestedRows),
+    count('worktree-kind rows', 4, (m) => m.worktreeRows),
+    count('pinned rows', 21, (m) => m.pinnedRows),
+    count('groups', 8, (m) => m.groups),
+    share('closed-fold rows / visible', 71, 'visible', (m) => m.closedFoldRows),
+    // Hierarchy.
+    share('with parent / issues', 3159, 'issues', (m) => m.withParent),
+    share('depth 3+ / issues', 889 + 506 + 61 + 4, 'issues', (m) => depthAtLeast(m, 3)),
+    share('open / issues', 2284, 'issues', (m) => m.openIssues),
+    // Edges.
+    share('discovered-from / issues', 1788, 'issues', (m) => m.discoveredFromEdges),
+    share('blocks / issues', 1751, 'issues', (m) => m.depsByType['blocks'] ?? 0),
+    share('related / issues', 249, 'issues', (m) => m.depsByType['related'] ?? 0),
+    share('supersedes / issues', 27, 'issues', (m) => m.depsByType['supersedes'] ?? 0),
+    share('duplicate / issues', 16, 'issues', (m) => m.depsByType['duplicate'] ?? 0),
+    share('blocked-by / issues', 13, 'issues', (m) => m.depsByType['blocked-by'] ?? 0),
+    share('waits-on / issues', 11, 'issues', (m) => m.depsByType['waits-on'] ?? 0),
+    share('startedBySession / issues', 3770, 'issues', (m) => m.withStartedBySession),
+    share('coordinatorSessionId / issues', 1315, 'issues', (m) => m.withCoordinator),
+    share('needsHuman / issues', 46, 'issues', (m) => m.needsHuman),
+    // Repos and lanes.
+    count('kernel repo prefixes', 9, (m) => m.repoPrefixes),
+    count('repo-root lanes', 17, (m) => m.rootLanes),
+    count('nested lanes', 202, (m) => m.nestedLanes),
+    count('fork-trap lane pairs', 19, (m) => m.forkTrapPairs),
+    // Sessions and seating.
+    share('prefix-owned / sessions', 701, 'sessions', (m) => m.prefixOwnedSessions),
+    share('prefix-owned seated by a root / sessions', 152, 'sessions', (m) => m.prefixOwnedByRootLane),
+    share('prefix-owned seated by a worktree / sessions', 40, 'sessions', (m) => m.prefixOwnedByWorktreeLane),
+    share('prefix-owned seated by no lane / sessions', 509, 'sessions', (m) => m.prefixOwnedUnresolved),
+    share('sessions in repo-root lanes / sessions', 1287, 'sessions', (m) => m.sessionsInRootLanes),
+    share('sessions with resume / sessions', 3493, 'sessions', (m) => m.sessionsWithResume),
+    // One moment's snapshot (06:38Z, the quiet end of the day). Phase
+    // shares follow it; the working share does not (live 0.7% of rows, 32
+    // live sessions): the corpus keeps a working-day level so #2 and the
+    // working roll-up have work to move. See the measurement doc.
+    share('phase queued / visible', 284, 'visible', (m) => m.phases['queued'] ?? 0),
+    share('phase waiting / visible', 281, 'visible', (m) => m.phases['waiting'] ?? 0),
+    share('phase done / visible', 189, 'visible', (m) => m.phases['done'] ?? 0),
+    {
+      name: 'working rows / visible (chosen 2-10%, live 1.2%)',
+      live: 9 / LIVE.visibleRows,
+      value: (m) => m.workingRows / m.visibleRows,
+      band: [0.02, 0.1],
+    },
+    {
+      name: 'live sessions / sessions (chosen 1-4%, live 0.7%)',
+      live: 32 / LIVE.sessions,
+      value: (m) => m.liveSessions / m.sessions,
+      band: [0.01, 0.04],
+    },
+  ]
+}
+
 /** Depth proportions in percent of all issues, keyed by depth. */
 const depthShares = (stats: CorpusStats): Record<string, number> =>
   Object.fromEntries(
@@ -115,9 +223,9 @@ const depthShares = (stats: CorpusStats): Record<string, number> =>
     ]),
   )
 
-describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale) => {
+describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551, POD-4635)', (scale) => {
   // Growth measurements only mean something if the corpus grows the way real
-  // usage would: the same proportions, the visible set linear in scale.
+  // usage would: counts linear in scale, shares and depths the live ones.
   const corpus = buildCorpus(scale, 4443)
   const oneX = scale === 1 ? corpus : buildCorpus(1, 4443)
   const { stats } = corpus
@@ -139,37 +247,42 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551)', (scale)
   )
   const byId = new Map(corpus.issues.map((i) => [i.id as string, i]))
   const sessionById = new Map(corpus.sessions.map((s) => [s.sessionId as string, s]))
+  // The instrument the live table was measured with (shape.ts).
+  const measures = measureShape(corpus)
 
-  it('shows 211 x scale +/- 10% visible rows', () => {
-    const count = Object.keys(snapshot.rowsById).length
-    expect(count).toBeGreaterThanOrEqual(Math.ceil(211 * scale * 0.9))
-    expect(count).toBeLessThanOrEqual(Math.floor(211 * scale * 1.1))
+  it.each(liveTargets(scale))('$name: within 20% of the live table', (target) => {
+    const got = target.value(measures)
+    const [lo, hi] = target.band
+    expect(got, `${target.name} = ${got}, live ${target.live}`).toBeGreaterThanOrEqual(lo)
+    expect(got, `${target.name} = ${got}, live ${target.live}`).toBeLessThanOrEqual(hi)
   })
 
-  it('keeps the parent depth histogram within 5 points of 1x', () => {
+  it('reaches the live max depth (6) and keeps the depth histogram within 5 points of 1x', () => {
+    expect(stats.maxDepth).toBe(LIVE.maxDepth)
+    expect(measures.maxDepth).toBe(LIVE.maxDepth)
     const shares = depthShares(stats)
     const base = depthShares(oneX.stats)
     expect(Object.keys(shares).sort()).toEqual(Object.keys(base).sort())
     for (const depth of Object.keys(base)) {
       expect(Math.abs(shares[depth]! - base[depth]!), `depth ${depth}`).toBeLessThanOrEqual(5)
     }
-    expect(stats.maxDepth).toBe(4)
   })
 
-  it('attaches ~10% of sessions to a worktree path with no issueId', () => {
-    const ratio = stats.prefixOwnedSessions / stats.sessions
-    expect(ratio).toBeGreaterThan(0.09)
-    expect(ratio).toBeLessThan(0.11)
-    for (const s of corpus.sliceSessions) {
-      if (s.issueId == null) expect(s.cwd).toMatch(/^\/w\//)
-    }
+  it('carries every live dependency type', () => {
+    for (const type of LIVE_DEP_TYPES) expect(measures.depsByType[type] ?? 0, type).toBeGreaterThan(0)
+    expect(corpus.issueDeps).toHaveLength(
+      Object.values(stats.depsByType).reduce((sum, n) => sum + n, 0),
+    )
+    expect(stats.withOriginEdge).toBe(measures.discoveredFromEdges)
   })
 
-  it('carries discovered-from edges on ~5% of issues', () => {
-    const ratio = stats.withOriginEdge / stats.issues
-    expect(ratio).toBeGreaterThan(0.04)
-    expect(ratio).toBeLessThan(0.06)
-    expect(corpus.issueDeps).toHaveLength(stats.withOriginEdge)
+  it('never blocks a visible row on open work (spec §6: dependency semantics are out)', () => {
+    // A `blocks` edge to unfinished work changes what a row asks
+    // (issuePendingDecision). Live: 4 of 759 rows. The fixture keeps the
+    // edges and leaves the semantics out of the comparison.
+    const blocked = new Set(corpus.sliceIssues.filter((i) => i.blocked).map((i) => i.id))
+    expect(blocked.size).toBeGreaterThan(0)
+    expect(Object.keys(snapshot.rowsById).filter((id) => blocked.has(id))).toEqual([])
   })
 
   it('mints only sort keys the model accepts (isSortKey), on a meaningful share of rows', () => {

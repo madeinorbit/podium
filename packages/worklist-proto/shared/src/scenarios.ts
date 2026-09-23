@@ -325,7 +325,10 @@ export interface ScenarioTargets {
    *  anywhere in its subtree, bound or seated by prefix (a row reads working
    *  if any descendant does) — so #2
    *  (that session going idle) flips the row's `working` at every scale and
-   *  cross-scale counts compare the same workload. */
+   *  cross-scale counts compare the same workload. Its family (the sessions
+   *  bound to it) is larger than one level of the #2 reads budget
+   *  ({@link PHASE_FAMILY_FLOOR}), so a pool that re-reads the family on a
+   *  phase change fails the fence (POD-4635, from Ma4 POD-4568). */
   visibleRootId: string
   /** #2: that root's first live working session. */
   phaseSessionId: string
@@ -369,6 +372,15 @@ interface IssueFacts {
 const numericId = (id: string): number => Number(id.slice(1))
 
 /** An open human issue: the population every row target is drawn from. */
+/**
+ * The #2 reads budget per chain level (`READ_BUDGETS.phaseChangePerLevel` in
+ * `harness/src/count-harness.tsx`; `scenarios.test.ts` holds the two equal).
+ * The #2 target's family must be LARGER than this: on a family of exactly
+ * the budget, re-reading every sibling on a phase change costs the budget
+ * and passes (Ma4, POD-4568), so the fence could not catch it.
+ */
+export const PHASE_FAMILY_FLOOR = 3
+
 function isOpenHuman(i: IssueFacts): boolean {
   return (
     i.audience === 'human' &&
@@ -467,10 +479,23 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
       const issue = byId.get(child)
       return sum + (issue ? workingIn(issue) + subtreeWorking(child) : 0)
     }, 0)
-  const root = take('open human root with children and exactly one working session', (i) => {
-    if (!openHuman(i) || i.parentId || childless(i)) return false
-    return workingIn(i) === 1 && !seatsOrphans(i) && subtreeWorking(i.id) === 0
-  })
+  // The family is every session bound to the issue (`issue.sessions`, the
+  // schema's R2 membership: headless sessions excepted).
+  const familyOf = (i: IssueFacts): number =>
+    (sessionsOf.get(i.id) ?? []).filter((s) => (s as { headless?: boolean }).headless !== true)
+      .length
+  const root = take(
+    `open human root with children, exactly one working session and a family over ${PHASE_FAMILY_FLOOR}`,
+    (i) => {
+      if (!openHuman(i) || i.parentId || childless(i)) return false
+      return (
+        workingIn(i) === 1 &&
+        !seatsOrphans(i) &&
+        subtreeWorking(i.id) === 0 &&
+        familyOf(i) > PHASE_FAMILY_FLOOR
+      )
+    },
+  )
   const phaseSession =
     (sessionsOf.get(root.id) ?? []).find(isLiveWorking) ?? fail('working session on the root')
   const childlessRoot = (rule: string): IssueFacts =>

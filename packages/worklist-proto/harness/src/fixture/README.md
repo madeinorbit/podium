@@ -1,9 +1,12 @@
 # fixture/ — owned by the deterministic corpus (POD-4443)
 
-`buildCorpus(scale, seed)` mints the live-shaped corpus at 1x/2x/4x:
-4,867 issues / 4,304 sessions / 500 repos / 468 worktrees at 1x, all four
-multiplied by the scale. Seeded PRNG only — no `Math.random`, no `Date.now()`;
-two builds with the same `(scale, seed)` are deep-equal.
+`buildCorpus(scale, seed)` mints the live-shaped corpus at 1x/2x/4x: `scale`
+copies of one workspace unit of 4,867 issues / 4,304 sessions / 9 kernel
+repos / 17 repo roots / 468 worktrees (485 scan entries: the roots plus the
+standalone entry a real scan reports for each linked worktree). Counts
+multiply with the scale; shares and depths stay. Seeded PRNG only — no
+`Math.random`, no `Date.now()`; two builds with the same `(scale, seed)` are
+deep-equal.
 
 The corpus carries BOTH spellings every consumer needs: the legacy rows the
 parity oracle feeds to the real derivation (`issues`, `issueProjections`,
@@ -11,13 +14,31 @@ parity oracle feeds to the real derivation (`issues`, `issueProjections`,
 the slice-shaped projection the row stream publishes (`sliceIssues`,
 `sliceSessions`, `worktrees`).
 
-Shape notes (see `docs/measurements/POD-4441-fixture-shape.md` for counts):
-- Parent chains depth 1–4 with ~40% children; `discovered-from` edges on ~5%.
-- ~2,230 open issues (no `closedAt`); sessions on ~60% of open issues, ~10%
-  of sessions attached to a worktree path with no `issueId` (R3 ownership).
-- The bulk is historical (decayed `exited` sessions, done/backlog issues) so
-  the visible set stays at the live ~211 rows; agent-audience issues with
-  live sessions exercise the legacy nesting drop.
+Shape (POD-4635; counts in `docs/measurements/POD-4441-fixture-shape.md`):
+the unit plan is the live export's per-kind table (POD-4552, 2026-09-23)
+scaled to 4,867 issues. Only the export's SHAPE is used, never its content.
+`corpus.test.ts` holds every dimension of the live table within 20% at every
+scale, measured by the same `measureShape` the live comparison uses.
+- ~732 visible rows at 1x: ~271 top-level (review / in-progress / planning
+  roots, closed top-level rows in the fold, a rescue parent per keeper
+  pair) and ~461 nested ones. Nesting is mostly formal: 30 mission roots
+  carry deep agent subtrees; 12 top-level issues nest by `startedBySession`.
+- 61% of issues have a parent; depth 3+ is 28%; max depth 6.
+- Edges: `discovered-from` on 34% of issues (mostly proposed spin-offs),
+  `blocks` ~33%, plus `related`, `supersedes`, `duplicate`, `blocked-by`,
+  `waits-on`, `duplicates` and one unknown type. A visible row is never
+  blocked by open work and no visible review row is a spin-off origin:
+  both change what a row asks, and spec §6 keeps dependency semantics and
+  the continuation walk out of the comparison.
+- `startedBySession` on 73%, `coordinatorSessionId` on 26%, resume refs
+  on 76% of sessions (unique outside the planted twin groups).
+- Lanes: 17 roots per unit, 202 worktrees nested inside a root, 19
+  fork-trap pairs (`/w/alpha` vs `/w/alpha-fork` among them); 15% of
+  sessions carry no issue, 11% sit in no lane at all.
+- Ids follow creation order (a child after its parent), as live `seq` does.
+- One moment's measures are chosen, not copied: about 2% of sessions are
+  live and 5-8% of rows working (live at 06:38Z: 0.7% and 1.2%), so #2 and
+  the working roll-up have work to move. The phase shares match live.
 - `FIXED_NOW` sits inside the defer band thresholds (past/future `deferUntil`
   both present) so bands 0/1/2 are all non-trivial.
 - Resume twins (POD-4551): one group per branch of `dedupeSessionsByResume`
@@ -30,8 +51,7 @@ Shape notes (see `docs/measurements/POD-4441-fixture-shape.md` for counts):
 - Hidden askers (POD-4551, the POD-4549 shape): 20 x scale asking sessions
   on archived/proposed children of visible roots (`edgedAskers`); legacy
   detaches the ask, so the roots do not ask.
-- The shape holds at 2x and 4x (`corpus.test.ts`, "shape at %ix"): visible
-  rows 211 x scale +/- 10%, depth shares within 5 points of 1x, ~10%
-  prefix-owned sessions, ~5% discovered-from edges.
-- No `startedBySession`, no `blocks` edges, no `supersededBy` /
-  `duplicateOf` — the oracle drops or never reads those paths.
+- The unscanned worktree (POD-4550) and the rescue/keeper pair (#6d) are
+  planted as before.
+- The #2 target (`pickTargets`) has a family larger than one level of the
+  reads budget (`PHASE_FAMILY_FLOOR`), so a sibling re-read fails #2.
