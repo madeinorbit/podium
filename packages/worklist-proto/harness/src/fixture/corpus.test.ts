@@ -31,7 +31,9 @@ describe('buildCorpus determinism', () => {
 })
 
 describe('buildCorpus counts', () => {
-  it.each([1, 2, 4] as const)('scale %i multiplies issues, sessions and worktrees; repos stay', (scale) => {
+  it.each([
+    1, 2, 4,
+  ] as const)('scale %i multiplies issues, sessions and worktrees; repos stay', (scale) => {
     const corpus = buildCorpus(scale, 4443)
     expect(corpus.stats.issues).toBe(BASE_COUNTS.issues * scale)
     expect(corpus.stats.sessions).toBe(BASE_COUNTS.sessions * scale)
@@ -88,7 +90,7 @@ describe('buildCorpus shape (1x)', () => {
     expect(labels.filter((ref) => ref.startsWith('#')).length).toBeGreaterThan(0)
     expect(labels.filter((ref) => /^[A-Z]{3}-\d+$/.test(ref)).length).toBeGreaterThan(0)
     const known = new Set(corpus.repoProjections.map((r) => r.id as string))
-    expect(corpus.sliceIssues.some((i) => i.repoId !== null && !known.has(i.repoId))).toBe(true)
+    expect(corpus.sliceIssues.some((i) => i.repoId != null && !known.has(i.repoId))).toBe(true)
   })
 
   it('names one live issue worktree no scan reported, with an orphan under it (POD-4550)', () => {
@@ -141,7 +143,10 @@ interface LiveTarget {
 }
 
 function liveTargets(scale: number): LiveTarget[] {
-  const within = (live: number): [number, number] => [live * (1 - TOLERANCE), live * (1 + TOLERANCE)]
+  const within = (live: number): [number, number] => [
+    live * (1 - TOLERANCE),
+    live * (1 + TOLERANCE),
+  ]
   /** A count: live times the scale. */
   const count = (name: string, live: number, value: (m: ShapeMeasures) => number): LiveTarget => ({
     name,
@@ -166,8 +171,14 @@ function liveTargets(scale: number): LiveTarget[] {
     const denominator = (m: ShapeMeasures) =>
       per === 'issues' ? m.issues : per === 'sessions' ? m.sessions : m.visibleRows
     const liveShare =
-      live / (per === 'issues' ? LIVE.issues : per === 'sessions' ? LIVE.sessions : LIVE.visibleRows)
-    return { name, live: liveShare, value: (m) => value(m) / denominator(m), band: within(liveShare) }
+      live /
+      (per === 'issues' ? LIVE.issues : per === 'sessions' ? LIVE.sessions : LIVE.visibleRows)
+    return {
+      name,
+      live: liveShare,
+      value: (m) => value(m) / denominator(m),
+      band: within(liveShare),
+    }
   }
   const depthAtLeast = (m: ShapeMeasures, d: number) =>
     Object.entries(m.depthHistogram).reduce((sum, [k, n]) => sum + (Number(k) >= d ? n : 0), 0)
@@ -204,9 +215,24 @@ function liveTargets(scale: number): LiveTarget[] {
     count('fork-trap lane pairs', 19, (m) => m.forkTrapPairs),
     // Sessions and seating.
     share('prefix-owned / sessions', 701, 'sessions', (m) => m.prefixOwnedSessions),
-    share('prefix-owned seated by a root / sessions', 152, 'sessions', (m) => m.prefixOwnedByRootLane),
-    share('prefix-owned seated by a worktree / sessions', 40, 'sessions', (m) => m.prefixOwnedByWorktreeLane),
-    share('prefix-owned seated by no lane / sessions', 509, 'sessions', (m) => m.prefixOwnedUnresolved),
+    share(
+      'prefix-owned seated by a root / sessions',
+      152,
+      'sessions',
+      (m) => m.prefixOwnedByRootLane,
+    ),
+    share(
+      'prefix-owned seated by a worktree / sessions',
+      40,
+      'sessions',
+      (m) => m.prefixOwnedByWorktreeLane,
+    ),
+    share(
+      'prefix-owned seated by no lane / sessions',
+      509,
+      'sessions',
+      (m) => m.prefixOwnedUnresolved,
+    ),
     share('sessions in repo-root lanes / sessions', 1287, 'sessions', (m) => m.sessionsInRootLanes),
     share('sessions with resume / sessions', 3493, 'sessions', (m) => m.sessionsWithResume),
     // One moment's snapshot (06:38Z, the quiet end of the day). Phase
@@ -286,7 +312,8 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551, POD-4635)
   })
 
   it('carries every live dependency type', () => {
-    for (const type of LIVE_DEP_TYPES) expect(measures.depsByType[type] ?? 0, type).toBeGreaterThan(0)
+    for (const type of LIVE_DEP_TYPES)
+      expect(measures.depsByType[type] ?? 0, type).toBeGreaterThan(0)
     expect(corpus.issueDeps).toHaveLength(
       Object.values(stats.depsByType).reduce((sum, n) => sum + n, 0),
     )

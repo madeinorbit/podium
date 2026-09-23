@@ -116,8 +116,7 @@ function projectRow(
   sessionIndex: () => ReturnType<typeof indexMissionSessions>,
 ): SliceRow {
   const { models, sessions, allWorktreePaths } = derivation
-  const rollup =
-    row.missionRollup ?? missionRollup(models, sessions, row.issue.id, sessionIndex())
+  const rollup = row.missionRollup ?? missionRollup(models, sessions, row.issue.id, sessionIndex())
   const band = unifiedRowBand(row, locals.coarseNow)
   return {
     id: row.issue.id,

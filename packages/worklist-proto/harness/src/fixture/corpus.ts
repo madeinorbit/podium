@@ -274,9 +274,36 @@ const PLAN: RoleSpec[] = [
     coord: 0.45,
     history: 0.5,
   },
-  { role: 'topReview', audience: H, stages: [['review', 100]], roots: 100, sbs: 0.13, df: 0.23, coord: 0.38, history: 0.3 },
-  { role: 'topInProg', audience: H, stages: [['in_progress', 10]], roots: 10, sbs: 0.17, df: 0.26, coord: 0.5, history: 0.8 },
-  { role: 'topPlanning', audience: H, stages: [['planning', 16]], roots: 16, sbs: 0, df: 0.05, coord: 0.36, history: 0.3 },
+  {
+    role: 'topReview',
+    audience: H,
+    stages: [['review', 100]],
+    roots: 100,
+    sbs: 0.13,
+    df: 0.23,
+    coord: 0.38,
+    history: 0.3,
+  },
+  {
+    role: 'topInProg',
+    audience: H,
+    stages: [['in_progress', 10]],
+    roots: 10,
+    sbs: 0.17,
+    df: 0.26,
+    coord: 0.5,
+    history: 0.8,
+  },
+  {
+    role: 'topPlanning',
+    audience: H,
+    stages: [['planning', 16]],
+    roots: 16,
+    sbs: 0,
+    df: 0.05,
+    coord: 0.36,
+    history: 0.3,
+  },
   // Sessionless active roots: the hidden askers, the resume twins and the
   // unscanned worktree each take one (they decide what the row shows).
   {
@@ -292,11 +319,38 @@ const PLAN: RoleSpec[] = [
     coord: 0,
     history: 0,
   },
-  { role: 'topBacklog', audience: H, stages: [['backlog', 11]], roots: 11, sbs: 0.3, df: 0.3, coord: 0.1, history: 0.2 },
+  {
+    role: 'topBacklog',
+    audience: H,
+    stages: [['backlog', 11]],
+    roots: 11,
+    sbs: 0.3,
+    df: 0.3,
+    coord: 0.1,
+    history: 0.2,
+  },
   // A sessionless backlog parent with exactly one visible child: the legacy
   // rescue materialises it (the #6d keeper pair).
-  { role: 'rescueParent', audience: H, stages: [['backlog', 10]], roots: 10, sbs: 0, df: 0, coord: 0, history: 0 },
-  { role: 'topClosed', audience: H, stages: [['done', 68]], roots: 68, sbs: 0.25, df: 0.3, coord: 0.12, history: 0.6 },
+  {
+    role: 'rescueParent',
+    audience: H,
+    stages: [['backlog', 10]],
+    roots: 10,
+    sbs: 0,
+    df: 0,
+    coord: 0,
+    history: 0,
+  },
+  {
+    role: 'topClosed',
+    audience: H,
+    stages: [['done', 68]],
+    roots: 68,
+    sbs: 0.25,
+    df: 0.3,
+    coord: 0.12,
+    history: 0.6,
+  },
   // Top-level issues with no parent and no spin-off edge whose starter session
   // belongs to a visible row: legacy nests them under it (rows.ts:289).
   {
@@ -315,8 +369,28 @@ const PLAN: RoleSpec[] = [
     history: 0.3,
   },
   // Nested rows: each inside a mission subtree, each earning its row.
-  { role: 'nAgentDone', audience: A, stages: [['done', 254]], roots: 0, depth: DEPTH_AGENT_DONE, sbs: 0.88, df: 0.15, coord: 0.45, history: 0.15 },
-  { role: 'nAgentReview', audience: A, stages: [['review', 104]], roots: 0, depth: DEPTH_AGENT_REVIEW, sbs: 0.99, df: 0.34, coord: 0.7, history: 0.3 },
+  {
+    role: 'nAgentDone',
+    audience: A,
+    stages: [['done', 254]],
+    roots: 0,
+    depth: DEPTH_AGENT_DONE,
+    sbs: 0.88,
+    df: 0.15,
+    coord: 0.45,
+    history: 0.15,
+  },
+  {
+    role: 'nAgentReview',
+    audience: A,
+    stages: [['review', 104]],
+    roots: 0,
+    depth: DEPTH_AGENT_REVIEW,
+    sbs: 0.99,
+    df: 0.34,
+    coord: 0.7,
+    history: 0.3,
+  },
   {
     role: 'nAgentActive',
     audience: A,
@@ -331,7 +405,17 @@ const PLAN: RoleSpec[] = [
     coord: 0.5,
     history: 0.3,
   },
-  { role: 'nHumanDone', audience: H, stages: [['done', 40]], roots: 0, depth: DEPTH_HUMAN_DONE, sbs: 0.28, df: 0.3, coord: 0.12, history: 0.3 },
+  {
+    role: 'nHumanDone',
+    audience: H,
+    stages: [['done', 40]],
+    roots: 0,
+    depth: DEPTH_HUMAN_DONE,
+    sbs: 0.28,
+    df: 0.3,
+    coord: 0.12,
+    history: 0.3,
+  },
   {
     role: 'nHumanActive',
     audience: H,
@@ -347,7 +431,17 @@ const PLAN: RoleSpec[] = [
     coord: 0.45,
     history: 0.5,
   },
-  { role: 'nHumanBacklog', audience: H, stages: [['backlog', 4]], roots: 0, depth: [1, 1], sbs: 0.3, df: 0.4, coord: 0, history: 0 },
+  {
+    role: 'nHumanBacklog',
+    audience: H,
+    stages: [['backlog', 4]],
+    roots: 0,
+    depth: [1, 1],
+    sbs: 0.3,
+    df: 0.4,
+    coord: 0,
+    history: 0,
+  },
   {
     role: 'rescueChild',
     audience: H,
@@ -363,9 +457,43 @@ const PLAN: RoleSpec[] = [
     history: 0,
   },
   // Hidden bulk.
-  { role: 'humanDone', audience: H, stages: [['done', 292]], roots: 0, depth: DEPTH_HUMAN_DONE, inMission: 0.3, sbs: 0.28, df: 0.3, coord: 0.12, history: 0.6 },
-  { role: 'humanDoneArch', audience: H, stages: [['done', 396]], archived: true, roots: 315, depth: [51, 24, 6], inMission: 0.2, sbs: 0.3, df: 0.4, coord: 0.08, history: 0.9 },
-  { role: 'humanBacklog', audience: H, stages: [['backlog', 156]], roots: 72, depth: [38, 46], inMission: 0, sbs: 0.31, df: 0.42, coord: 0.08, history: 0.15 },
+  {
+    role: 'humanDone',
+    audience: H,
+    stages: [['done', 292]],
+    roots: 0,
+    depth: DEPTH_HUMAN_DONE,
+    inMission: 0.3,
+    sbs: 0.28,
+    df: 0.3,
+    coord: 0.12,
+    history: 0.6,
+  },
+  {
+    role: 'humanDoneArch',
+    audience: H,
+    stages: [['done', 396]],
+    archived: true,
+    roots: 315,
+    depth: [51, 24, 6],
+    inMission: 0.2,
+    sbs: 0.3,
+    df: 0.4,
+    coord: 0.08,
+    history: 0.9,
+  },
+  {
+    role: 'humanBacklog',
+    audience: H,
+    stages: [['backlog', 156]],
+    roots: 72,
+    depth: [38, 46],
+    inMission: 0,
+    sbs: 0.31,
+    df: 0.42,
+    coord: 0.08,
+    history: 0.15,
+  },
   {
     role: 'humanDeleted',
     audience: H,
@@ -399,11 +527,65 @@ const PLAN: RoleSpec[] = [
     history: 1.2,
   },
   // A system-owned stage the derivation skips (not seen live; kept as cover).
-  { role: 'shipping', audience: H, stages: [['shipping', 5]], roots: 5, sbs: 0, df: 0, coord: 0, history: 0 },
-  { role: 'agentDone', audience: A, stages: [['done', 1080]], roots: 37, depth: DEPTH_AGENT_DONE, inMission: 0.3, sbs: 0.88, df: 0.15, coord: 0.45, history: 0.85 },
-  { role: 'agentDoneArch', audience: A, stages: [['done', 556]], archived: true, roots: 0, depth: [465, 121, 4, 1], inMission: 0.25, sbs: 1, df: 0.04, coord: 0.62, history: 0.85 },
-  { role: 'agentBacklog', audience: A, stages: [['backlog', 330]], roots: 2, depth: [170, 132, 42, 5], inMission: 0.35, sbs: 0.86, df: 0.17, coord: 0.01, history: 0 },
-  { role: 'agentReview', audience: A, stages: [['review', 33]], roots: 0, depth: DEPTH_AGENT_REVIEW, inMission: 0.5, sbs: 0.99, df: 0.34, coord: 0.7, history: 1 },
+  {
+    role: 'shipping',
+    audience: H,
+    stages: [['shipping', 5]],
+    roots: 5,
+    sbs: 0,
+    df: 0,
+    coord: 0,
+    history: 0,
+  },
+  {
+    role: 'agentDone',
+    audience: A,
+    stages: [['done', 1080]],
+    roots: 37,
+    depth: DEPTH_AGENT_DONE,
+    inMission: 0.3,
+    sbs: 0.88,
+    df: 0.15,
+    coord: 0.45,
+    history: 0.85,
+  },
+  {
+    role: 'agentDoneArch',
+    audience: A,
+    stages: [['done', 556]],
+    archived: true,
+    roots: 0,
+    depth: [465, 121, 4, 1],
+    inMission: 0.25,
+    sbs: 1,
+    df: 0.04,
+    coord: 0.62,
+    history: 0.85,
+  },
+  {
+    role: 'agentBacklog',
+    audience: A,
+    stages: [['backlog', 330]],
+    roots: 2,
+    depth: [170, 132, 42, 5],
+    inMission: 0.35,
+    sbs: 0.86,
+    df: 0.17,
+    coord: 0.01,
+    history: 0,
+  },
+  {
+    role: 'agentReview',
+    audience: A,
+    stages: [['review', 33]],
+    roots: 0,
+    depth: DEPTH_AGENT_REVIEW,
+    inMission: 0.5,
+    sbs: 0.99,
+    df: 0.34,
+    coord: 0.7,
+    history: 1,
+  },
   {
     role: 'agentActive',
     audience: A,
@@ -437,8 +619,26 @@ const PLAN: RoleSpec[] = [
     coord: 0.2,
     history: 0.3,
   },
-  { role: 'agentProposed', audience: A, stages: [['proposed', 19]], roots: 19, sbs: 0.1, df: 0.75, coord: 0, history: 0 },
-  { role: 'proposed', audience: H, stages: [['proposed', 0]], roots: 0, sbs: 0.96, df: 0.89, coord: 0, history: 0 },
+  {
+    role: 'agentProposed',
+    audience: A,
+    stages: [['proposed', 19]],
+    roots: 19,
+    sbs: 0.1,
+    df: 0.75,
+    coord: 0,
+    history: 0,
+  },
+  {
+    role: 'proposed',
+    audience: H,
+    stages: [['proposed', 0]],
+    roots: 0,
+    sbs: 0.96,
+    df: 0.89,
+    coord: 0,
+    history: 0,
+  },
 ]
 
 const TOP_ROLES = new Set<Role>([
@@ -503,8 +703,30 @@ const HIDDEN_REPO_WEIGHTS: Array<[number | 'a' | 'b', number]> = [
   ['b', 1],
 ]
 
-const TITLE_NOUNS = ['sidebar', 'rollup', 'replica', 'session', 'worktree', 'fold', 'timer', 'palette', 'rail', 'harness']
-const TITLE_VERBS = ['reconcile', 'stabilize', 'collapse', 'reindex', 'replay', 'quieten', 'rescope', 'reorder', 'retire', 'unflake']
+const TITLE_NOUNS = [
+  'sidebar',
+  'rollup',
+  'replica',
+  'session',
+  'worktree',
+  'fold',
+  'timer',
+  'palette',
+  'rail',
+  'harness',
+]
+const TITLE_VERBS = [
+  'reconcile',
+  'stabilize',
+  'collapse',
+  'reindex',
+  'replay',
+  'quieten',
+  'rescope',
+  'reorder',
+  'retire',
+  'unflake',
+]
 const AGENT_KINDS: Array<[string, number]> = [
   ['claude-code', 47],
   ['codex', 42],
@@ -715,15 +937,13 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     for (const [rid, list] of freeLanes) freeLanes.set(rid, shuffle(list))
 
     // -- issues by role --------------------------------------------------------
-    const fixed = PLAN.reduce(
-      (sum, spec) => sum + spec.stages.reduce((s, [, n]) => s + n, 0),
-      0,
-    )
+    const fixed = PLAN.reduce((sum, spec) => sum + spec.stages.reduce((s, [, n]) => s + n, 0), 0)
     const proposedCount = BASE_COUNTS.issues - fixed
     if (proposedCount < 0) fail(`unit plan exceeds ${BASE_COUNTS.issues} issues`)
     const byRole = new Map<Role, number[]>()
     for (const spec of PLAN) {
-      const stages = spec.role === 'proposed' ? [['proposed', proposedCount] as [string, number]] : spec.stages
+      const stages =
+        spec.role === 'proposed' ? [['proposed', proposedCount] as [string, number]] : spec.stages
       const list: number[] = []
       for (const [stage, n] of stages) {
         for (let c = 0; c < n; c++) {
@@ -787,9 +1007,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     const hiddenTreeRoots = shuffle(
       hiddenRoots.filter((i) => {
         const m = mints[i]!
-        return (
-          m.role !== 'proposed' && m.role !== 'agentProposed' && m.role !== 'shipping'
-        )
+        return m.role !== 'proposed' && m.role !== 'agentProposed' && m.role !== 'shipping'
       }),
     )
     const missionWeights = missions.map((m, k) => [m, 1 / (k + 1) ** 0.9] as const)
@@ -825,7 +1043,9 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       }
     }
     // The rescue pairs: one visible child under each sessionless backlog root.
-    roleList('rescueChild').forEach((i, k) => attach(i, roleList('rescueParent')[k]!))
+    roleList('rescueChild').forEach((i, k) => {
+      attach(i, roleList('rescueParent')[k]!)
+    })
 
     // -- repos per issue ------------------------------------------------------------
     // Visible top rows form eight groups (live: 8): the main repo, five
@@ -850,10 +1070,11 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       const alternates = rootsOf.get(rid) ?? []
       // A few issues sit in an alternate checkout of the same repo (one
       // group, two paths).
-      m.repoPath =
-        alternates.length > 1 && rng() < 0.03 ? alternates[1]! : primaryRoot.get(rid)!
+      m.repoPath = alternates.length > 1 && rng() < 0.03 ? alternates[1]! : primaryRoot.get(rid)!
     }
-    visibleTop.forEach((i, k) => setRepo(i, topRepos[k]!))
+    visibleTop.forEach((i, k) => {
+      setRepo(i, topRepos[k]!)
+    })
     // The `#seq` cover and the closed-only group.
     setRepo(roleList('topReview')[0]!, 'a')
     setRepo(roleList('topClosed')[0]!, 'a')
@@ -969,7 +1190,9 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     })
 
     const quietMissions = new Set(
-      missions.filter((i) => mints[i]!.stage !== 'done' && (childCount.get(i) ?? 0) > 0).slice(0, 5),
+      missions
+        .filter((i) => mints[i]!.stage !== 'done' && (childCount.get(i) ?? 0) > 0)
+        .slice(0, 5),
     )
     units.push({
       first,
@@ -1025,7 +1248,10 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
         unread: false,
       }
       if (kind !== 'shell' && rng() < 0.96)
-        s['resume'] = { kind: RESUME_KIND[kind] ?? 'codex-thread', value: `${RESUME_KIND[kind]}-${id}` }
+        s['resume'] = {
+          kind: RESUME_KIND[kind] ?? 'codex-thread',
+          value: `${RESUME_KIND[kind]}-${id}`,
+        }
       return s
     }
     const push = (s: SessionRecord, issue: number | null): SessionRecord => {
@@ -1125,31 +1351,89 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
         continue
       }
       if (m.closed) {
-        if (rng() < 0.5) rowSession(i, weighted([['retained', 1], ['exitedRecent', 1]]))
+        if (rng() < 0.5)
+          rowSession(
+            i,
+            weighted([
+              ['retained', 1],
+              ['exitedRecent', 1],
+            ]),
+          )
         continue
       }
       const n = int(1, 3)
       for (let c = 0; c < n; c++)
-        rowSession(i, variantOf([['offer', 40], ['retained', 30], ['working', 20], ['liveOffer', 10]], i))
+        rowSession(
+          i,
+          variantOf(
+            [
+              ['offer', 40],
+              ['retained', 30],
+              ['working', 20],
+              ['liveOffer', 10],
+            ],
+            i,
+          ),
+        )
     }
     for (const i of roleList('topReview')) {
       if (rng() >= 0.72) continue
       const n = rng() < 0.8 ? 1 : 2
       for (let c = 0; c < n; c++)
-        rowSession(i, variantOf([['offer', 45], ['retained', 30], ['exitedRecent', 10], ['liveOffer', 10], ['working', 5]], i))
+        rowSession(
+          i,
+          variantOf(
+            [
+              ['offer', 45],
+              ['retained', 30],
+              ['exitedRecent', 10],
+              ['liveOffer', 10],
+              ['working', 5],
+            ],
+            i,
+          ),
+        )
     }
     for (const i of roleList('topInProg')) {
       const n = int(1, 2)
-      for (let c = 0; c < n; c++) rowSession(i, variantOf([['working', 35], ['retained', 45], ['offer', 20]], i))
+      for (let c = 0; c < n; c++)
+        rowSession(
+          i,
+          variantOf(
+            [
+              ['working', 35],
+              ['retained', 45],
+              ['offer', 20],
+            ],
+            i,
+          ),
+        )
     }
     for (const i of roleList('topPlanning'))
-      rowSession(i, variantOf([['retained', 50], ['offer', 30], ['working', 20]], i))
+      rowSession(
+        i,
+        variantOf(
+          [
+            ['retained', 50],
+            ['offer', 30],
+            ['working', 20],
+          ],
+          i,
+        ),
+      )
     roleList('topBacklog').forEach((i, k) => {
       // The first two are draft vessels: an agent working in a draft.
       rowSession(i, k < 2 ? 'working' : 'retained', k < 2 ? rootLaneOf(i) : cwdFor(i))
     })
     for (const i of roleList('topClosed'))
-      if (rng() < 0.3) rowSession(i, weighted([['retained', 2], ['exitedRecent', 1]]))
+      if (rng() < 0.3)
+        rowSession(
+          i,
+          weighted([
+            ['retained', 2],
+            ['exitedRecent', 1],
+          ]),
+        )
     for (const i of roleList('sbsNested')) {
       const m = mints[i]!
       if (m.stage === 'in_progress' || m.stage === 'backlog') rowSession(i, 'retained')
@@ -1167,13 +1451,54 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       rowSession(i, v)
     }
     for (const i of roleList('nAgentDone')) finishedRun(i, 0.45)
-    for (const i of roleList('nAgentReview')) rowSession(i, variantOf([['offer', 45], ['retained', 55]], i))
-    for (const i of roleList('nAgentActive')) rowSession(i, variantOf([['working', 35], ['retained', 65]], i))
+    for (const i of roleList('nAgentReview'))
+      rowSession(
+        i,
+        variantOf(
+          [
+            ['offer', 45],
+            ['retained', 55],
+          ],
+          i,
+        ),
+      )
+    for (const i of roleList('nAgentActive'))
+      rowSession(
+        i,
+        variantOf(
+          [
+            ['working', 35],
+            ['retained', 65],
+          ],
+          i,
+        ),
+      )
     for (const i of roleList('nHumanDone')) finishedRun(i, 0.4)
     for (const i of roleList('nHumanActive'))
-      if (rng() < 0.7) rowSession(i, variantOf([['working', 45], ['retained', 35], ['offer', 20]], i))
+      if (rng() < 0.7)
+        rowSession(
+          i,
+          variantOf(
+            [
+              ['working', 45],
+              ['retained', 35],
+              ['offer', 20],
+            ],
+            i,
+          ),
+        )
     for (const i of roleList('nHumanBacklog')) rowSession(i, 'retained')
-    for (const i of roleList('rescueChild')) rowSession(i, variantOf([['working', 40], ['retained', 60]], i))
+    for (const i of roleList('rescueChild'))
+      rowSession(
+        i,
+        variantOf(
+          [
+            ['working', 40],
+            ['retained', 60],
+          ],
+          i,
+        ),
+      )
 
     // -- rows the nesting pass drops -----------------------------------------------------
     // Hidden agent issues whose last run never stopped (live: most agent
@@ -1214,7 +1539,11 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       s['clientCount'] = 1
       s['lastActiveAt'] = activeAt
       s['readAt'] = iso(Date.parse(activeAt) + 5 * MIN_MS)
-      s['agentState'] = { phase: k % 4 === 3 ? 'idle' : 'working', since: activeAt, nativeSubagentCount: 0 }
+      s['agentState'] = {
+        phase: k % 4 === 3 ? 'idle' : 'working',
+        since: activeAt,
+        nativeSubagentCount: 0,
+      }
       push(s, null)
     }
     // Four unbound runs in a repo root that never stopped: the worktree rows
@@ -1229,7 +1558,13 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     for (let k = 0; k < 70; k++) history(null, rootCwd(), 'shell')
     for (let k = 0; k < 20; k++) history(null, pick(u.lanes), 'shell')
     for (let k = 0; k < 270; k++) history(null, gone(), 'shell')
-    const withSessions = [...new Set(sessions.slice(start).flatMap((s) => (typeof s['issueId'] === 'string' ? [s['issueId'] as string] : [])))]
+    const withSessions = [
+      ...new Set(
+        sessions
+          .slice(start)
+          .flatMap((s) => (typeof s['issueId'] === 'string' ? [s['issueId'] as string] : [])),
+      ),
+    ]
     for (let k = 0; k < 540; k++) {
       const issueId = pick(withSessions)
       const i = mintOf(issueId)
@@ -1238,7 +1573,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
 
     // -- history to the exact session count ------------------------------------------------
     const remaining = target - (sessions.length - start)
-    if (remaining < 0) fail(`unit ${unit} plans ${sessions.length - start} sessions, want ${target}`)
+    if (remaining < 0)
+      fail(`unit ${unit} plans ${sessions.length - start} sessions, want ${target}`)
     const historyWeights: Array<[number, number]> = []
     const specOf = new Map(PLAN.map((spec) => [spec.role, spec]))
     for (let i = u.first; i < u.end; i++) {
@@ -1477,7 +1813,8 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       .filter((i) => i >= u.first && i < u.end && agentSessionsOf(i).length > 0)
       .sort((a, b) => a - b),
   )
-  const reviewRow = (i: number): boolean => VISIBLE_ROLES.has(mints[i]!.role) && mints[i]!.stage === 'review'
+  const reviewRow = (i: number): boolean =>
+    VISIBLE_ROLES.has(mints[i]!.role) && mints[i]!.stage === 'review'
   const isVisibleRow = (i: number): boolean => VISIBLE_ROLES.has(mints[i]!.role)
 
   // Spin-off origins (`discovered-from`, live 34.6%). An origin is never a
@@ -1549,7 +1886,10 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     }
     const own = agentSessionsOf(i)
     if (own.length === 0) continue
-    coordinator.set(i, (rng() < 0.95 ? own[0]! : pick(unitAgentSessions[m.unit]!))['sessionId'] as string)
+    coordinator.set(
+      i,
+      (rng() < 0.95 ? own[0]! : pick(unitAgentSessions[m.unit]!))['sessionId'] as string,
+    )
   }
 
   // Dependency edges. `blocks` (live 33.9% of issues): mostly between
@@ -1592,13 +1932,12 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
       [5, 7],
       [6, 6],
     ] as const)
-    const siblings = m.parent === null ? [] : (childrenOf.get(m.parent) ?? []).filter((s) => s !== i)
+    const siblings =
+      m.parent === null ? [] : (childrenOf.get(m.parent) ?? []).filter((s) => s !== i)
     const seen = new Set<number>()
     for (let c = 0; c < count; c++) {
       const to =
-        siblings.length > 0 && rng() < 0.75
-          ? pick(siblings)
-          : pick(unitOriginPool[m.unit]!)
+        siblings.length > 0 && rng() < 0.75 ? pick(siblings) : pick(unitOriginPool[m.unit]!)
       if (to === i || seen.has(to)) continue
       if (isVisibleRow(i) && !mints[to]!.closed) continue
       if (mints[to]!.stage !== 'done' && isVisibleRow(i)) continue
@@ -1658,14 +1997,21 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
   // -------------------------------------------------------------------------
   const titleOf = (i: number): string => `${pick(TITLE_VERBS)} ${pick(TITLE_NOUNS)} ${i}`
   const deferOf = (m: Mint): string | null => {
-    if (!['mission', 'topReview', 'topInProg', 'topPlanning'].includes(m.role) || m.closed) return null
+    if (!['mission', 'topReview', 'topInProg', 'topPlanning'].includes(m.role) || m.closed)
+      return null
     const r = rng()
     if (r < 0.14) return iso(FIXED_NOW + 45 * DAY_MS + rng() * 10 * DAY_MS)
     if (r < 0.24) return iso(FIXED_NOW - 45 * DAY_MS - rng() * 10 * DAY_MS)
     if (r < 0.265) return 'next-message'
     return null
   }
-  const drafts = new Set(units.flatMap((u) => allOf('topBacklog').filter((i) => i >= u.first && i < u.end).slice(0, 2)))
+  const drafts = new Set(
+    units.flatMap((u) =>
+      allOf('topBacklog')
+        .filter((i) => i >= u.first && i < u.end)
+        .slice(0, 2),
+    ),
+  )
   const issues: IssueWire[] = []
   const issueProjections: IssueProjection[] = []
   mints.forEach((m, i) => {
@@ -1760,7 +2106,9 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     const inUnit = (i: number): boolean => i >= u.first && i < u.end
     const pinnedRows = [
       ...allOf('topReview').filter(inUnit).slice(1, 9),
-      ...allOf('mission').filter((i) => inUnit(i) && !u.quietMissions.has(i)).slice(0, 3),
+      ...allOf('mission')
+        .filter((i) => inUnit(i) && !u.quietMissions.has(i))
+        .slice(0, 3),
       ...allOf('topInProg').filter(inUnit).slice(0, 2),
       ...allOf('topPlanning').filter(inUnit).slice(0, 2),
       ...allOf('topClosed').filter(inUnit).slice(30, 35),
@@ -1808,7 +2156,9 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     string,
     ...string[],
   ]
-  keyedRoots.forEach((root, j) => setSortKey(root, rootKeys[j]!))
+  keyedRoots.forEach((root, j) => {
+    setSortKey(root, rootKeys[j]!)
+  })
   for (const group of siblingGroups.values()) {
     if (group.length < 2) continue
     const oldestFirst = [...group].sort((a, b) => createdMs(a) - createdMs(b))
@@ -1819,8 +2169,7 @@ export function buildCorpus(scale: CorpusScale, seed = 4443): FixtureCorpus {
     const closedTop = allOf('topClosed').filter((i) => i >= u.first && i < u.end)
     // Tucked closed rows (explicit dismissal into the closed fold), past the
     // grace window.
-    for (const i of closedTop.slice(6, 14))
-      setWire(i, 'tuckedAt', ago(30 * MIN_MS, 5 * HOUR_MS))
+    for (const i of closedTop.slice(6, 14)) setWire(i, 'tuckedAt', ago(30 * MIN_MS, 5 * HOUR_MS))
     // Awaiting-merge rows: finished + unmerged delivery on a private branch.
     for (const i of closedTop.slice(14, 19)) {
       setWire(i, 'branch', `podium/merge-${i}`)
