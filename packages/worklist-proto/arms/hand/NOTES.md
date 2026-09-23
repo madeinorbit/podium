@@ -153,7 +153,26 @@ Fence steps (`counts.test.tsx`, 1x engine, OLD FIXTURE, shared budgets):
 | #8 tick | — | — | asserted | 0 / 0 |
 | #8b grace | i300-i303 | i300-i303 | asserted | 4 / 96 |
 
-GATE: see below.
+**Gate of record (L4b, rebuild-only, OLD FIXTURE 1x), 2026-09-23: GREEN.**
+Seeds 1-5 × 200 steps, every change kind (optimistic kinds included and
+green), `gate.test.ts` "correctness gate", run in foreground chunks
+(`POD_POOL_GATE_FIRST_SEED`, seed 1 / 2-3 / 4-5; an unchunked 5-seed run
+also passed, 681 s, its record overwritten by the first chunk). 1,005
+rebuild comparisons, and 1,005 per-step scans of EVERY relation of every row
+against `diffRelations` (201 per seed). Both plants fail every seed:
+
+| seed | rebuild checks | relation scans | arm creations | removal-deaf plant fails at | relink-skipped plant fails at |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 201 | 201 | 5 | step 15 | step 62 |
+| 2 | 201 | 201 | 7 | step 37 | step 25 |
+| 3 | 201 | 201 | 2 | step 7 | step 3 |
+| 4 | 201 | 201 | 4 | step 3 | step 44 |
+| 5 | 201 | 201 | 3 | step 1 | step 1 |
+
+The removal-deaf steps are Ha1's (same sequences). Round-two bug shapes on
+these sequences: `evictThenReAdd` 30, `offerRemovedOnFinishedChild` 49,
+`clockDecay` 46, `twoRankMovesInOneBatch` 19, `rankMoveWithinGroup` 10.
+Box load 8-14 during the runs: counts and pass/fail only, no walls.
 
 ### Open
 
