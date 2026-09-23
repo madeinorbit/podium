@@ -321,6 +321,12 @@ Both F2 guards are armed. The lint alone would not catch a view that reads
 | 4 | 300 / 0 | 301 | 301 | 140 / 14 / 9 | 1 | 29 | relations | relations | checkpoint |
 | 5 | 300 / 0 | 301 | 301 | 100 / 3 / 10 | 1 | 17 | relations | relations | checkpoint |
 
+This is the old 1× fixture. POD-4635 (L2d) landed its live-shaped
+fixture on `integrate/4545-round-three` (tip `164b9ae7d`) during this
+re-review. It changes no non-test file in `arms/mobx/pool/`
+(`git diff --stat 62e1a17b5 164b9ae7d`), so the source checks above stand.
+The gate numbers are old-fixture numbers.
+
 Zero divergence on the clean pool. All four plants fail on every seed, each
 caught by its intended check. Package lint (`bun run lint` in
 `packages/worklist-proto`) exits 0.
