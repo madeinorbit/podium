@@ -51,8 +51,13 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { createServer, type Server } from 'node:http'
 import { hostname, loadavg, uptime } from 'node:os'
 import { dirname, extname, join } from 'node:path'
-import { chromium } from '@playwright/test'
-import type { ProtoOracleCheck, ProtoScenarioResult } from '../web/entrylib'
+import { chromium, type Page } from '@playwright/test'
+import type {
+  ProtoLifecycleResult,
+  ProtoOracleCheck,
+  ProtoParity,
+  ProtoScenarioResult,
+} from '../web/entrylib'
 import {
   checkMaxLoad,
   describePlan,
@@ -62,9 +67,13 @@ import {
   runShortfalls,
 } from './complete'
 import {
+  ALL_SCENARIOS,
   ARMS,
   type ArmName,
   type HeapUsage,
+  type HotPathScenario,
+  isLifecycle,
+  type LifecycleScenario,
   type RunOutput,
   SCENARIOS,
   type Scale,
@@ -85,6 +94,32 @@ const CANDIDATE_ARMS = new Set<ArmName>(['hand', 'mobx'])
 
 /** The floor draws its boot snapshot forever: parity is reported, not enforced, unless `--strict-parity`. */
 const PARITY_EXEMPT = new Set<ArmName>(['noop'])
+
+/** principalSwitch: the page boots as `operator` and switches to this principal. */
+const SWITCH_PRINCIPAL = 'operator-2'
+
+/** rescope grows to twice the page's corpus and comes back; the fixture stops at 4x. */
+function rescopeScale(scale: Scale): 2 | 4 {
+  if (scale === 4) throw new Error('rescope grows to 2x the page corpus: run it at --scale 1 or 2')
+  return scale === 1 ? 2 : 4
+}
+
+interface OpenPage {
+  page: Page
+  /** Forced GC, then the V8 heap (CDP). */
+  heap: () => Promise<HeapUsage>
+  close: () => Promise<void>
+}
+
+/** What one scenario sample yields before it becomes a record. */
+interface Sample {
+  result: ProtoScenarioResult
+  check: ProtoOracleCheck | null
+  parity: ProtoParity
+  heapBefore: HeapUsage
+  heapAfter: HeapUsage
+  lifecycle: TimingRecord['lifecycle']
+}
 
 interface Args {
   arm: ArmName
@@ -124,10 +159,11 @@ function parseArgs(argv: string[]): Args {
     (s) => s.trim(),
   )
   for (const scenario of scenarios) {
-    if (!(SCENARIOS as readonly string[]).includes(scenario)) {
-      throw new Error(`unknown scenario ${scenario} (want ${SCENARIOS.join(', ')})`)
+    if (!(ALL_SCENARIOS as readonly string[]).includes(scenario)) {
+      throw new Error(`unknown scenario ${scenario} (want ${ALL_SCENARIOS.join(', ')})`)
     }
   }
+  if (scenarios.includes('rescope')) rescopeScale(scale as Scale)
   return {
     arm: arm as ArmName,
     scale: scale as Scale,
@@ -292,59 +328,137 @@ async function main(): Promise<number> {
   output.browser = browser.version()
   try {
     server = await serveDist(args.serve, args.port)
-    const page = await browser.newPage({ viewport: VIEWPORT })
-    page.on('pageerror', (error) => fail(`page error: ${error.message}`))
     const plant = args.plant === null ? '' : `&plant=${encodeURIComponent(args.plant)}`
     const proof = `${args.check ? '&check=1' : ''}${args.offwindow ? '&offwindow=1' : ''}${args.markSettle ? '' : '&marksettle=0'}`
     const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}${plant}${proof}`
-    await page.goto(url, { waitUntil: 'domcontentloaded' })
-    await page.waitForFunction(
-      () => (window as unknown as { __proto?: { ready: boolean } }).__proto?.ready !== undefined,
-      {},
-      { timeout: 120_000 },
-    )
-    const ready = await page.evaluate(() => window.__proto.ready)
-    if (!ready) {
-      fail('page not ready (arm pending)')
-      return 2
+    /**
+     * One page load of the arm in its own browser context (a fresh renderer:
+     * nothing cached, a heap of its own), booted and ready; null when the arm
+     * is pending (the run has failed). `hold`: a lifecycle page, the arm
+     * waiting for the driver.
+     */
+    const openPage = async (hold: boolean): Promise<OpenPage | null> => {
+      const context = await browser.newContext({ viewport: VIEWPORT })
+      const page = await context.newPage()
+      page.on('pageerror', (error) => fail(`page error: ${error.message}`))
+      await page.goto(hold ? `${url}&hold=1` : url, { waitUntil: 'domcontentloaded' })
+      await page.waitForFunction(
+        () => (window as unknown as { __proto?: { ready: boolean } }).__proto?.ready !== undefined,
+        {},
+        { timeout: 120_000 },
+      )
+      if (!(await page.evaluate(() => window.__proto.ready))) {
+        fail('page not ready (arm pending)')
+        await context.close()
+        return null
+      }
+      output.quietMs = await page.evaluate(() => window.__proto.quietMs)
+      const cdp = await context.newCDPSession(page)
+      await cdp.send('HeapProfiler.enable')
+      const heap = async (): Promise<HeapUsage> => {
+        await cdp.send('HeapProfiler.collectGarbage')
+        return (await cdp.send('Runtime.getHeapUsage')) as HeapUsage
+      }
+      return { page, heap, close: () => context.close() }
     }
-    output.corpus = await page.evaluate(() => window.__proto.corpus)
-    output.quietMs = await page.evaluate(() => window.__proto.quietMs)
-    // Boot commits land before the first change, never in its record.
-    await page.evaluate(() => window.__proto.settle())
-    const cdp = await page.context().newCDPSession(page)
-    await cdp.send('HeapProfiler.enable')
-    const heap = async (): Promise<HeapUsage> => {
-      await cdp.send('HeapProfiler.collectGarbage')
-      return (await cdp.send('Runtime.getHeapUsage')) as HeapUsage
+
+    // The hot-path changes share one page (their order rotates per round);
+    // every lifecycle sample loads its own (`lifecycleSample`).
+    let hot: OpenPage | null = null
+    if (args.scenarios.some((scenario) => !isLifecycle(scenario))) {
+      hot = await openPage(false)
+      if (hot === null) return 2
+      const { page } = hot
+      output.corpus = await page.evaluate(() => window.__proto.corpus)
+      // Boot commits land before the first change, never in its record.
+      await page.evaluate(() => window.__proto.settle())
     }
+
+    /** A hot-path change on the shared page: pick and assert the drawn target
+     *  (untimed), the forced GC, the change, then the untimed checks. */
+    const hotSample = async (open: OpenPage, scenario: HotPathScenario): Promise<Sample> => {
+      const { page, heap } = open
+      await page.evaluate((name) => window.__proto.prepare(name), scenario)
+      const heapBefore = await heap()
+      const result = await page.evaluate((name) => window.__proto.runScenario(name), scenario)
+      const check = await page.evaluate(() => window.__proto.verify())
+      // Untimed: the arm's output against the oracle's for the same state.
+      const parity = await page.evaluate(() => {
+        const arm = window.__proto.snapshotHash()
+        const oracle = window.__proto.oracleHash()
+        return {
+          arm,
+          oracle,
+          firstDifference: arm === oracle ? null : window.__proto.firstDifference(),
+        }
+      })
+      return { result, check, parity, heapBefore, heapAfter: await heap(), lifecycle: undefined }
+    }
+
+    /**
+     * POD-4561 (L5e): one lifecycle sample on a fresh held page. The forced-GC
+     * heap brackets the timed step: coldBootstrap from the booted engine with
+     * no arm to the drawn list; principalSwitch from the built arm (the next
+     * principal's runtime already booted) to the rebuilt one, the old runtime
+     * destroyed; rescope from the built arm (the 2x rows staged) to the
+     * install back. Late commit signals after the step count as strays.
+     */
+    const lifecycleSample = async (scenario: LifecycleScenario): Promise<Sample> => {
+      const open = await openPage(true)
+      if (open === null) throw new Error('page not ready (arm pending)')
+      const { page, heap } = open
+      try {
+        let heapBefore: HeapUsage
+        let result: ProtoLifecycleResult
+        if (scenario === 'coldBootstrap') {
+          heapBefore = await heap()
+          result = await page.evaluate(() => window.__proto.coldBootstrap())
+        } else if (scenario === 'principalSwitch') {
+          await page.evaluate(() => window.__proto.build())
+          await page.evaluate((p) => window.__proto.prepareRebuild(p), SWITCH_PRINCIPAL)
+          heapBefore = await heap()
+          result = await page.evaluate((p) => window.__proto.rebuild(p), SWITCH_PRINCIPAL)
+        } else {
+          const to = rescopeScale(args.scale)
+          await page.evaluate(() => window.__proto.build())
+          await page.evaluate((s) => window.__proto.prepareRescope(s), to)
+          heapBefore = await heap()
+          result = await page.evaluate((s) => window.__proto.rescope(s), to)
+        }
+        const heapAfter = await heap()
+        output.corpus ??= await page.evaluate(() => window.__proto.corpus)
+        const parity = await page.evaluate(() => ({
+          arm: window.__proto.snapshotHash(),
+          oracle: window.__proto.oracleHash(),
+          firstDifference: window.__proto.firstDifference(),
+        }))
+        const late = await page.evaluate(() => window.__proto.lateSignals())
+        return {
+          result: { ...result, strayCommits: result.strayCommits + late },
+          check: null,
+          parity,
+          heapBefore,
+          heapAfter,
+          lifecycle: { phases: result.phases, midParity: result.midParity },
+        }
+      } finally {
+        await open.close()
+      }
+    }
+
     // The same rounds `--dry-run` prints (`complete.ts`).
     for (const { sample, warmup, order } of plannedRounds(args)) {
       for (const scenario of order) {
-        let result: ProtoScenarioResult
-        let heapBefore: HeapUsage
-        let check: ProtoOracleCheck | null
-        let parity: NonNullable<TimingRecord['parity']>
+        let taken: Sample
         try {
-          // Pick and assert the drawn target (untimed), then the forced GC, then the change.
-          await page.evaluate((name) => window.__proto.prepare(name), scenario)
-          heapBefore = await heap()
-          result = await page.evaluate((name) => window.__proto.runScenario(name), scenario)
-          check = await page.evaluate(() => window.__proto.verify())
-          // Untimed: the arm's output against the oracle's for the same state.
-          parity = await page.evaluate(() => {
-            const arm = window.__proto.snapshotHash()
-            const oracle = window.__proto.oracleHash()
-            return {
-              arm,
-              oracle,
-              firstDifference: arm === oracle ? null : window.__proto.firstDifference(),
-            }
-          })
+          taken = isLifecycle(scenario)
+            ? await lifecycleSample(scenario)
+            : await hotSample(hot as OpenPage, scenario)
         } catch (error) {
           fail(`${scenario}#${sample}: ${(error as Error).message.split('\n')[0]}`)
           return 2
         }
+        const { result, check, parity } = taken
         const load = loadavg()[0] ?? 0
         const record: TimingRecord = {
           arm: args.arm,
@@ -364,8 +478,8 @@ async function main(): Promise<number> {
           strayCommits: result.strayCommits,
           longTasks: result.longTasks.length,
           longTaskMs: result.longTasks.reduce((sum, t) => sum + t.duration, 0),
-          heapBefore,
-          heapAfter: await heap(),
+          heapBefore: taken.heapBefore,
+          heapAfter: taken.heapAfter,
           mountedRows: result.mountedRows,
           oracle:
             check === null
@@ -377,6 +491,7 @@ async function main(): Promise<number> {
                   under: check.under,
                 },
           parity,
+          ...(taken.lifecycle === undefined ? {} : { lifecycle: taken.lifecycle }),
           stats: result.stats,
           loadavg: load,
           uptime: uptime(),
@@ -395,26 +510,40 @@ async function main(): Promise<number> {
             `${scenario}#${sample}: target ${result.target} redrew [${check.drawn.join(',')}], the oracle changed [${check.changed.join(',')}]`,
           )
         }
-        if (parity.arm !== parity.oracle && (args.strictParity || !PARITY_EXEMPT.has(args.arm))) {
+        const held = args.strictParity || !PARITY_EXEMPT.has(args.arm)
+        if (parity.arm !== parity.oracle && held) {
           fail(
             `${scenario}#${sample}: parity — arm ${parity.arm} vs oracle ${parity.oracle}; first difference ${parity.firstDifference ?? '(hashes differ, no row differs)'}`,
           )
         }
-        if (record.strayCommits > 0) {
+        const mid = taken.lifecycle?.midParity ?? null
+        if (mid !== null && mid.arm !== mid.oracle && held) {
           fail(
-            `${scenario}#${sample}: ${record.strayCommits} commit signals landed after the previous settle (work deferred past ${output.quietMs} ms cannot be attributed)`,
+            `${scenario}#${sample}: parity at the grown state — arm ${mid.arm} vs oracle ${mid.oracle}; first difference ${mid.firstDifference ?? '(hashes differ, no row differs)'}`,
           )
         }
+        if (record.strayCommits > 0) {
+          fail(
+            `${scenario}#${sample}: ${record.strayCommits} commit signals landed outside the step's window (work deferred past ${output.quietMs} ms cannot be attributed)`,
+          )
+        }
+        const phases =
+          taken.lifecycle === undefined
+            ? ''
+            : ` ${Object.entries(taken.lifecycle.phases)
+                .map(([k, v]) => `${k}=${v.toFixed(1)}`)
+                .join(' ')} heap=${((taken.heapBefore?.usedSize ?? 0) / 1e6).toFixed(1)}->${((taken.heapAfter?.usedSize ?? 0) / 1e6).toFixed(1)}MB`
         console.log(
           `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
             `actionMs=${record.actionMs.toFixed(2)} frameMs=${record.frameMs.toFixed(1)} ` +
             `by=${record.endedBy} commits=${record.commits} longTasks=${record.longTasks} ` +
             `stray=${record.strayCommits} target=${result.target} parity=${parity.arm === parity.oracle ? 'ok' : 'MISMATCH'}` +
             `${check === null ? '' : ` oracle=${check.changed.length} drawn=${check.drawn.length} over=${check.over.length} under=${check.under.length}`}` +
-            ` load=${load.toFixed(2)}`,
+            `${phases} load=${load.toFixed(2)}`,
         )
       }
     }
+    await hot?.close()
   } finally {
     finish(args.out, output)
     await browser.close()

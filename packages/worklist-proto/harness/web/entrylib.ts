@@ -259,6 +259,8 @@ export interface ProtoPage {
   stats(): ProtoScenarioResult['stats']
   /** Held page, timed: build the arm and draw its list (page load to first painted list). */
   coldBootstrap(): Promise<ProtoLifecycleResult>
+  /** Held page, untimed: build the arm and settle (a switch's or rescope's setup). */
+  build(): Promise<void>
   /** Untimed: boot `principal`'s runtime over a fresh replica for `rebuild`. */
   prepareRebuild(principal: string): Promise<void>
   /** Held page, timed: dispose the arm and rebuild it over the prepared runtime. */
@@ -970,6 +972,15 @@ export function mountPage(options: MountPageOptions): void {
     }
   }
 
+  /** Held page, untimed: build the arm and settle; the setup of a
+   *  principalSwitch or rescope sample (not a lifecycle sample itself). */
+  async function buildUntimed(): Promise<void> {
+    if (!held || liveArm !== null) throw new Error('[proto] build: a held page with no arm only')
+    liveArm = build(boot)
+    page.corpus = corpusCounts()
+    await settleQuiet()
+  }
+
   let prepared: { principal: string; boot: ScenarioEngine; engineMs: number } | null = null
 
   /** Untimed: boot the next principal's runtime over a FRESH replica (and
@@ -1192,6 +1203,7 @@ export function mountPage(options: MountPageOptions): void {
     firstDifference: () => parityNow().firstDifference,
     stats: statsOf,
     coldBootstrap,
+    build: buildUntimed,
     prepareRebuild,
     rebuild,
     prepareRescope,
@@ -1225,6 +1237,7 @@ export function mountStub(arm: string, reason: string, runtimeSha: string): void
     firstDifference: () => null,
     stats: () => ({ rowsDerived: 0, rollupsDerived: 0, indexUpdates: 0, notifications: 0 }),
     coldBootstrap: refuse,
+    build: refuse,
     prepareRebuild: refuse,
     rebuild: refuse,
     prepareRescope: refuse,

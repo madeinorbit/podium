@@ -3,11 +3,12 @@
  * every consumer computes the same way (`run.ts` writes, `summarize.ts`
  * reads). Importing this never starts a browser.
  */
-import type { ProtoScenarioResult } from '../web/entrylib'
+import type { ProtoParity, ProtoScenarioResult } from '../web/entrylib'
 
 export const ARMS = ['control', 'hand', 'mobx', 'noop'] as const
 export type ArmName = (typeof ARMS)[number]
 export type Scale = 1 | 2 | 4
+/** The hot-path changes: one page load per run, the default scenario set. */
 export const SCENARIOS = [
   'heartbeat',
   'visibleHeartbeat',
@@ -16,7 +17,19 @@ export const SCENARIOS = [
   'clock',
   'click',
 ] as const
-export type ScenarioName = (typeof SCENARIOS)[number]
+export type HotPathScenario = (typeof SCENARIOS)[number]
+/**
+ * POD-4561 (L5e) — the lifecycle steps (methodology #11–#13), one page load
+ * per sample, timed at 1x: never in the default set, named with `--scenarios`.
+ */
+export const LIFECYCLE_SCENARIOS = ['coldBootstrap', 'principalSwitch', 'rescope'] as const
+export type LifecycleScenario = (typeof LIFECYCLE_SCENARIOS)[number]
+export const ALL_SCENARIOS = [...SCENARIOS, ...LIFECYCLE_SCENARIOS] as const
+export type ScenarioName = HotPathScenario | LifecycleScenario
+
+export function isLifecycle(scenario: string): scenario is LifecycleScenario {
+  return (LIFECYCLE_SCENARIOS as readonly string[]).includes(scenario)
+}
 
 export interface HeapUsage {
   usedSize: number
@@ -56,7 +69,10 @@ export interface TimingRecord {
   /** POD-4559: the arm's slice-output hash against the oracle's for the same
    *  engine state, taken after the sample (untimed); `firstDifference` names
    *  the first differing row, null when the hashes agree. */
-  parity?: { arm: string; oracle: string; firstDifference: string | null }
+  parity?: ProtoParity
+  /** POD-4561: a lifecycle step's phases (ms, and row counts where named so)
+   *  and, for rescope, the parity at the grown state. Absent on hot-path records. */
+  lifecycle?: { phases: Record<string, number>; midParity: ProtoParity | null }
   stats: ProtoScenarioResult['stats']
   loadavg: number
   uptime: number
