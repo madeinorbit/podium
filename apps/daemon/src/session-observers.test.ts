@@ -1701,7 +1701,6 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
               payloadFingerprint: 'later-prompt',
               origin: 'human' as const,
               hasAssistantOutputAfter: false,
-              promptId: null,
             },
           ],
         }

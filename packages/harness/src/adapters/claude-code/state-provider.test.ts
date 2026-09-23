@@ -2352,7 +2352,7 @@ describe('Claude user interrupt [POD-4633]', () => {
           promptId: 'p-1',
           recordBoundary: Buffer.byteLength(body),
         })
-        expect(capture.latestPrompt).toMatchObject({ promptId: 'p-1', hasAssistantOutputAfter: true })
+        expect(capture.assistantOutputInRange).toBe(true)
 
         // The mid-tool wording counts too, after the refused tool's result.
         const toolBody =
@@ -2389,7 +2389,34 @@ describe('Claude user interrupt [POD-4633]', () => {
         await writeFile(path, prompt('p-3', 'stopped early'))
         const early = await captureClaudeTranscript(path)
         expect(early.terminalInterrupt).toBeNull()
-        expect(early.latestPrompt).toMatchObject({ promptId: 'p-3', hasAssistantOutputAfter: false })
+        expect(early.assistantOutputInRange).toBe(false)
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+
+    it("reads the open turn's own range, past Claude's large attachment records", async () => {
+      // Measured on 2.1.280: each prompt is followed by 130–160 KB of attachment
+      // records (tool and skill listings, prompt snapshots). A turn's records then
+      // sit outside the bounded classification tail, which saw neither the
+      // prompt nor a marker a snapshot had followed.
+      const dir = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
+      const path = join(dir, 'claude.jsonl')
+      const attachment = line({ type: 'attachment', attachment: { type: 'skill_listing', content: 'x'.repeat(160 * 1024) } })
+      const before = prompt('p-0', 'earlier') + answer('done')
+      const turnStart = Buffer.byteLength(before)
+      try {
+        await writeFile(path, before + prompt('p-1', 'stopped early') + attachment)
+        const early = await captureClaudeTranscript(path, { promptScanStart: turnStart })
+        expect(early.assistantOutputInRange).toBe(false)
+        expect(early.terminalInterrupt).toBeNull()
+
+        const body = before + prompt('p-1', 'stopped late') + attachment + answer('1\n2') + marker('p-1')
+        await writeFile(path, body + attachment)
+        expect((await captureClaudeTranscript(path)).terminalInterrupt).toBeNull()
+        const late = await captureClaudeTranscript(path, { promptScanStart: turnStart })
+        expect(late.terminalInterrupt).toEqual({ promptId: 'p-1', recordBoundary: Buffer.byteLength(body) })
+        expect(late.assistantOutputInRange).toBe(true)
       } finally {
         await rm(dir, { recursive: true, force: true })
       }
@@ -2445,18 +2472,10 @@ describe('Claude user interrupt [POD-4633]', () => {
   })
 
   describe('turn taken back before any output', () => {
-    const early = (promptId: string, hasAssistantOutputAfter = false) => ({
-      offset: 100,
-      recordBoundary: 110,
-      payloadFingerprint: 'f',
-      origin: 'unknown' as const,
-      hasAssistantOutputAfter,
-      promptId,
-    })
-
-    it('ends the open turn as interrupted when its prompt never got an answer', async () => {
+    it('ends the open turn as interrupted when it never got an answer', async () => {
       const { causal, checkpoint } = await openTurn()
-      const ended = causal.observeInterrupt({ kind: 'rewound', turnEpoch: 1, prompt: early('p-1') })
+      expect(causal.openTurnStart).toBe(110)
+      const ended = causal.observeInterrupt({ kind: 'rewound', turnEpoch: 1, answered: false })
       expect(ended).toMatchObject({
         transitionKind: 'turn_terminal',
         turnEpoch: 1,
@@ -2467,11 +2486,11 @@ describe('Claude user interrupt [POD-4633]', () => {
       expect(acceptAgentObservation(checkpoint, lease, ended, at).kind).toBe('live_transition_accepted')
     })
 
-    it('never ends a turn that has answered, another turn, or a later epoch', async () => {
+    it('never ends a turn that has answered, or any turn but the one Stop was sent in', async () => {
       const { causal } = await openTurn()
-      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 1, prompt: early('p-1', true) })).toBeNull()
-      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 1, prompt: early('p-0') })).toBeNull()
-      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 0, prompt: early('p-1') })).toBeNull()
+      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 1, answered: true })).toBeNull()
+      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 0, answered: false })).toBeNull()
+      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 2, answered: false })).toBeNull()
     })
   })
 })

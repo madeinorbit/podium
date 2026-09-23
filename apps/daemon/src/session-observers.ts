@@ -526,11 +526,16 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     causal: ClaudeCausalTracker,
     probe: ClaudeInterruptProbe,
   ): Promise<void> {
+    // Read only the open turn's own range: Claude writes 100+ KB of attachment
+    // records after each prompt, so a bounded tail cannot be trusted to hold it.
+    const turnStart = causal.observer.openTurnStart
     let capture: Awaited<ReturnType<typeof captureClaudeTranscript>> | null = null
-    try {
-      capture = await captureTranscript(causal.transcriptPath)
-    } catch {
-      capture = null
+    if (turnStart !== null) {
+      try {
+        capture = await captureTranscript(causal.transcriptPath, { promptScanStart: turnStart })
+      } catch {
+        capture = null
+      }
     }
     let observation: AgentObservation | null = null
     if (capture?.terminalInterrupt) {
@@ -538,13 +543,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         kind: 'marker',
         ...capture.terminalInterrupt,
       })
-    } else if (probe.rewoundEpoch !== undefined && capture?.latestPrompt) {
+    } else if (probe.rewoundEpoch !== undefined && capture) {
       const screen = await screenObservers.get(causal.sessionId)?.read()
       if (screen?.turnRunning === false) {
         observation = causal.observer.observeInterrupt({
           kind: 'rewound',
           turnEpoch: probe.rewoundEpoch,
-          prompt: capture.latestPrompt,
+          answered: capture.assistantOutputInRange,
         })
       }
     }
@@ -670,6 +675,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       firstPrompt: null,
       latestPrompt: null,
       terminalInterrupt: null,
+      assistantOutputInRange: false,
     }
     const bootstrapOffset = capture.boundary
     // Capture is asynchronous; Spawn/Reattach may have replaced this exact

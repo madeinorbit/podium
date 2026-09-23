@@ -339,6 +339,12 @@ export class ClaudeCausalObserver {
     return this.epochOpen && !this.closing ? this.turnEpoch : null
   }
 
+  /** Where the open turn began in the transcript, or null when none is open —
+   *  the range a caller reads for how that turn ended. */
+  get openTurnStart(): number | null {
+    return this.epochOpen && !this.closing ? this.epochOpenedOffset : null
+  }
+
   get pendingInputOriginCount(): number {
     return this.pendingOrigins.length
   }
@@ -652,9 +658,9 @@ export class ClaudeCausalObserver {
    * - `rewound`: Esc before any output writes nothing; Claude takes the turn
    *   back and returns the prompt to its input box. The caller reads that off
    *   the screen after a Stop Podium sent itself, and passes the epoch that was
-   *   open when it sent it plus the transcript's latest prompt. A prompt with an
-   *   answer after it was not taken back, so it can never qualify: a normal turn
-   *   always writes its answer before its Stop.
+   *   open when it sent it plus whether Claude wrote anything since the turn
+   *   began ({@link openTurnStart}). A turn with output was not taken back, so
+   *   it can never qualify: a normal turn always writes its answer before its Stop.
    *
    * The fence is the Stop's own shape — `turn_terminal`, verdict `interrupted` —
    * so it is exactly as absorbing: a late Stop for the same turn is discarded.
@@ -666,8 +672,7 @@ export class ClaudeCausalObserver {
       if (phase !== 'working' && phase !== 'compacting' && phase !== 'needs_user') return null
       if (!this.interruptNamesOpenTurn(evidence)) return null
     } else {
-      if (phase !== 'working' || evidence.turnEpoch !== this.turnEpoch) return null
-      if (evidence.prompt.hasAssistantOutputAfter || !this.promptOpenedThisTurn(evidence.prompt)) {
+      if (phase !== 'working' || evidence.turnEpoch !== this.turnEpoch || evidence.answered) {
         return null
       }
     }
@@ -714,14 +719,6 @@ export class ClaudeCausalObserver {
     // The prompt hook carried no native id to match, so position is the proof:
     // only a record written after this epoch began can be its stop.
     return record.recordBoundary > this.epochOpenedOffset
-  }
-
-  private promptOpenedThisTurn(prompt: ClaudePromptEvidence): boolean {
-    const current = this.providerPromptId
-    if (current === null) return false
-    return current.startsWith('fingerprint:')
-      ? current === `fingerprint:${prompt.payloadFingerprint}`
-      : prompt.promptId === current
   }
 
   private hookIdentity(hook: string, p: Record<string, unknown>): string {
@@ -794,8 +791,6 @@ export interface ClaudePromptEvidence {
   payloadFingerprint: string
   origin: ObservationInputOrigin
   hasAssistantOutputAfter: boolean
-  /** The native prompt id Claude stamps on the record — the same id its hooks carry. */
-  promptId: string | null
 }
 
 /** An interrupt record that ends the transcript (see {@link ClaudeCausalObserver.observeInterrupt}). */
@@ -808,7 +803,12 @@ export interface ClaudeInterruptRecord {
 
 export type ClaudeInterruptEvidence =
   | ({ kind: 'marker' } & ClaudeInterruptRecord)
-  | { kind: 'rewound'; turnEpoch: number; prompt: ClaudePromptEvidence }
+  | {
+      kind: 'rewound'
+      turnEpoch: number
+      /** Whether Claude wrote any output since {@link ClaudeCausalObserver.openTurnStart}. */
+      answered: boolean
+    }
 
 export interface ClaudeTranscriptCapture {
   boundary: number
@@ -822,8 +822,12 @@ export interface ClaudeTranscriptCapture {
   promptCount: number
   firstPrompt: ClaudePromptEvidence | null
   latestPrompt: ClaudePromptEvidence | null
-  /** The interrupt record the classification tail ENDS with, or null. */
+  /** The interrupt record the prompt-scan range ENDS with (its last
+   *  conversational record), or null. Without a scan start, the classification
+   *  tail is the range. */
   terminalInterrupt: ClaudeInterruptRecord | null
+  /** Whether Claude wrote any output record in that same range. */
+  assistantOutputInRange: boolean
 }
 
 export interface ClaudeTranscriptCaptureOptions {
@@ -947,7 +951,6 @@ function collectClaudePromptEvidence(
     payloadFingerprint: fingerprintPromptPayload(prompt.payload),
     origin: prompt.origin,
     hasAssistantOutputAfter: false,
-    promptId: str(record.promptId) ?? null,
   }
   accumulator.count += 1
   accumulator.first ??= evidence
@@ -1096,16 +1099,38 @@ function conversationalTexts(record: Record<string, unknown>): string[] | null {
   return visible ? texts : null
 }
 
-function terminalInterruptOf(rows: readonly ClaudeRecordRow[]): ClaudeInterruptRecord | null {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const { record, boundary } = rows[index]!
-    const texts = conversationalTexts(record)
-    if (!texts) continue
-    return record.type === 'user' && texts.length > 0 && texts.every(isClaudeInterruptMarker)
-      ? { recordBoundary: boundary, promptId: str(record.promptId) ?? null }
-      : null
+/**
+ * How a range of the transcript ends, for reading a user interrupt (POD-4633).
+ * It walks the same range as the prompt scan — from where the open turn began —
+ * and not the bounded classification tail: Claude 2.1.280 writes 130–160 KB of
+ * attachment records (tool and skill listings, prompt snapshots) right after a
+ * prompt, so a turn's own records routinely sit outside a 128 KB tail.
+ */
+function createTurnEndReader() {
+  let last: ClaudeRecordRow | null = null
+  let assistantOutput = false
+  return {
+    add(row: ClaudeRecordRow): void {
+      if (row.record.type === 'assistant') assistantOutput = true
+      if (conversationalTexts(row.record)) last = row
+    },
+    result(): Pick<ClaudeTranscriptCapture, 'terminalInterrupt' | 'assistantOutputInRange'> {
+      const texts = last ? conversationalTexts(last.record) : null
+      const interrupted =
+        last !== null &&
+        last.record.type === 'user' &&
+        texts !== null &&
+        texts.length > 0 &&
+        texts.every(isClaudeInterruptMarker)
+      return {
+        terminalInterrupt:
+          interrupted && last
+            ? { recordBoundary: last.boundary, promptId: str(last.record.promptId) ?? null }
+            : null,
+        assistantOutputInRange: assistantOutput,
+      }
+    },
   }
-  return null
 }
 
 /** Capture classification, prompt evidence, exact file identity, and the last
@@ -1150,6 +1175,7 @@ export async function captureClaudeTranscript(
       collected: [],
       collectAll: options.promptScanStart === undefined,
     }
+    const turnEnd = createTurnEndReader()
     const device = String(info.dev)
     const inode = String(info.ino)
     const samePromptScanIdentity =
@@ -1166,10 +1192,12 @@ export async function captureClaudeTranscript(
     ) {
       await scanDescriptorRange(handle, promptStart, boundary, false, (row) => {
         collectClaudePromptEvidence(row.record, row.offset, row.boundary, promptAccumulator)
+        turnEnd.add(row)
       })
     } else {
       for (const row of classificationRows) {
         collectClaudePromptEvidence(row.record, row.offset, row.boundary, promptAccumulator)
+        turnEnd.add(row)
       }
     }
     return {
@@ -1184,7 +1212,7 @@ export async function captureClaudeTranscript(
       promptCount: promptAccumulator.count,
       firstPrompt: promptAccumulator.first,
       latestPrompt: promptAccumulator.latest,
-      terminalInterrupt: terminalInterruptOf(classificationRows),
+      ...turnEnd.result(),
     }
   } finally {
     await handle.close()
