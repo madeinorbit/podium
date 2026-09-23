@@ -12,7 +12,9 @@
  * on POD-4558 finding (a): the no-op alone failed the raw slope and the 2 ms
  * publish, so those budgets failed every arm before it did anything):
  * - unrelated heartbeat (publish): actionMs p95 at 1x <= noop p95 + 2 ms;
- * - other hot-path events (rename, stagemove, clock): p95 at 1x <= noop p95 + 8 ms;
+ * - other hot-path events (rename, stagemove, clock, and visibleHeartbeat — a
+ *   one-row redraw like the rename, set before any measurement, POD-4560):
+ *   p95 at 1x <= noop p95 + 8 ms;
  * - click: actionMs p95 <= noop p95 + 16 ms at 1x, + 32 ms at 4x;
  * - slope: (arm p50 - noop p50) at 4x over the same at 1x <= 1.2, the 1x
  *   excess taken as at least `SLOPE_MIN_EXCESS_MS`. The raw p50 ratio is

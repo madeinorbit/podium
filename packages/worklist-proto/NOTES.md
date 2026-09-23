@@ -548,3 +548,38 @@ mapping, audit §3.3 shapes, seed-1 coverage table, findings).
 - Mutation (planted rule swapped into the assertions): 4 tests red (the two
   oracle.test.ts cases and both "no row, and the root reads quiet" unit cases);
   restored: 20/20 green.
+
+## POD-4560 (L5d) — unrelated and visible heartbeat in the browser · 2026-09-23
+
+### Already landed before this issue (checked, not redone)
+
+- **Unrelated heartbeat.** `entrylib.ts` `heartbeat` already bumps the
+  library's `targets.heartbeatSessionId` (a session on a closed, childless
+  agent root no issue names as its origin) through `applyHeartbeat` (POD-4550,
+  finding above: the page used to bump `sessions[0]`, a visible row).
+- **Control clock.** `clock` already calls `boot.advanceClock(60_000)`, the
+  runtime's own `coarseClock` tick (POD-4558 `b053a7bbf`); the control derives
+  from the engine store, and every arm hears the tick on the engine locals
+  channel (`createEngineLocals`, POD-4608), with round-two stores bridged in
+  `mountPage`. The control's clock row is a real engine write, not an arm
+  handle.
+
+### Decisions
+
+- **`visibleHeartbeat` target by the library's rule.** `targetRules`
+  gains `heartbeatSession(id)` (the row's lowest-numbered bound session,
+  headless excepted); `pickVisibleHeartbeat(rules, window)` takes the first
+  drawn root with one that neither the rename nor the stage-move rule wants,
+  else the first with one. The page picks it once, from the boot window, like
+  the rename target.
+- **No restore between samples.** A heartbeat only moves forward in
+  production, and `activityAt` is display only (band, order and groups never
+  read it), so every forward bump is the same one-field change of the same
+  row. A restore would time nothing but add a backward `lastActiveAt` write
+  production never makes.
+- **Reserved from other scenarios.** A click never selects the visible
+  heartbeat row, and the stage move skips it (it can only coincide on the
+  fallback), so no other scenario changes its view between samples.
+- **Budget.** The summary gives `visibleHeartbeat` the hot-path allowance
+  (noop p95 + 8 ms at 1x), stated before any measurement: a one-row redraw
+  like the rename. The coordinator may overrule; `heartbeat` keeps its 2 ms.
