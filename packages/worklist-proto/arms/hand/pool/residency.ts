@@ -54,7 +54,12 @@
  * plain maps no cell reads.
  */
 
-import { coldByRule, type EntityName, type ModelSchema, viaTargetOf } from '../../../shared/src/schema'
+import {
+  coldByRule,
+  type EntityName,
+  type ModelSchema,
+  viaTargetOf,
+} from '../../../shared/src/schema'
 import {
   drop,
   type IngestOut,

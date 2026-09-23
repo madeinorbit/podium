@@ -269,7 +269,10 @@ describe('the loader', () => {
     const r = rig()
     const { pool } = r
     const [a, b] = corpus.sliceIssues.filter(isClosed)
-    const seen = watch(pool, () => `${pool.resident('issue', a!.id)}:${pool.view(a!.id)?.title ?? '-'}`)
+    const seen = watch(
+      pool,
+      () => `${pool.resident('issue', a!.id)}:${pool.view(a!.id)?.title ?? '-'}`,
+    )
     // Asked for: queued, the window armed once at 50 ms, nothing read yet.
     expect(r.timers.map((timer) => timer.ms)).toEqual([LOAD_WINDOW_MS])
     expect(r.loads).toEqual([])

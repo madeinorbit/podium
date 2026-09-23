@@ -144,7 +144,8 @@ function createStats(graph: CellGraph, residency: () => Residency | null): PoolS
       stats.notifications = 0
       for (const key of Object.keys(counters) as (keyof PoolCounters)[]) counters[key] = 0
       const cold = residency()?.counters
-      if (cold !== undefined) for (const key of Object.keys(cold) as (keyof typeof cold)[]) cold[key] = 0
+      if (cold !== undefined)
+        for (const key of Object.keys(cold) as (keyof typeof cold)[]) cold[key] = 0
     },
   }
   return stats
@@ -337,8 +338,7 @@ export class HandPool {
       schema,
       rows: known,
       roots: this.tables,
-      present: (entity, id) =>
-        tracked[entity].has(id) || (residency?.known(entity, id) ?? false),
+      present: (entity, id) => tracked[entity].has(id) || (residency?.known(entity, id) ?? false),
       touch: (entity, id) => reads.touch(entity, id, 'get'),
       read: (relation, id) => graph.track(relationReaders, `${relation}:${id}`),
       onWrite: (elements) => {
@@ -490,7 +490,7 @@ export class HandPool {
 
   /** The resident issue ids, untracked (the rebuild's residency input). */
   residentIssueIds(): ReadonlySet<string> {
-    return new Set(this.tables.issue.keys())
+    return new Set(issueIdsOf(this.tables.issue))
   }
 
   /**

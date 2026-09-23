@@ -96,7 +96,8 @@ export function reseed(
     if (residency?.capable(entity) === true) {
       // POD-4580: re-partition. Cold rows the slice no longer names are
       // forgotten; every named row is placed by the rule (a resident row stays).
-      for (const id of residency.ids(entity)) if (!next.has(id)) residency.forget(target, entity, id)
+      for (const id of residency.ids(entity))
+        if (!next.has(id)) residency.forget(target, entity, id)
       for (const [id, row] of next) residency.place(target, entity, id, row, staged, out)
       continue
     }

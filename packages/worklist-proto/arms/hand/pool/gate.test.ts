@@ -357,7 +357,10 @@ describe('correctness gate (L4b), rebuild-only', () => {
         expect(cold.checkpoints, `seed ${seed} ran no full-residency checkpoint`).toBeGreaterThan(0)
         const plant = await plantOutcome(planted, sequence)
         if (!plant.ok) failures.planted += 1
-        const relink = await plantOutcome(checked(relinkSkipped, { perStep: true, full: false }), sequence)
+        const relink = await plantOutcome(
+          checked(relinkSkipped, { perStep: true, full: false }),
+          sequence,
+        )
         if (!relink.ok) failures.relink += 1
         const deaf = await plantOutcome(checked(coldDeaf), sequence)
         if (!deaf.ok) failures.coldDeaf += 1

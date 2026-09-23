@@ -45,8 +45,8 @@ import {
 } from '../../../harness/src/fence-scenarios'
 import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
-import { startScenarioEngine } from '../../../shared/src/scenarios'
 import type { CheckableArm } from '../../../shared/src/arm'
+import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type HandPoolHandle, handPoolArm } from './arm'
 
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
