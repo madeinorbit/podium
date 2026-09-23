@@ -1710,8 +1710,10 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
     }
     const phase = async () => (await registry.modules.sessions.sessionById(sessionId))?.agentState?.phase
     const forwarded = (text: string) =>
-      commands.filter((message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId &&
-        (message as { text?: string }).text === text)
+      // Either custody frame hands the row to the daemon's driver.
+      commands.filter((message) =>
+        (message.type === 'runtimeSendRequest' || message.type === 'runtimeDurableSendRequest') &&
+        message.sessionId === sessionId && JSON.stringify(message).includes(JSON.stringify(text)))
     return { store, registry, sessionId, send, phase, forwarded }
   }
 
@@ -1803,6 +1805,14 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
       await driver.send(snapshot('working', 2), { turnEpoch: 1, second: 2 })
       await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' } }, { turnEpoch: 1, second: 5 })
       await driver.send(snapshot('idle', 5, 'interrupted'), { turnEpoch: 1, second: 5 })
+      expect(await driver.phase()).toBe('idle')
+      // The driver reconciles the turn's transcript only after it has seen the
+      // turn end, so the turn's last item arrives in its closed epoch.
+      await driver.send(
+        { t: 'item', item: { kind: 'complete', item: { id: 'answer', cursor: 'answer', role: 'assistant', text: 'the answer', ts: at(5) } } },
+        { turnEpoch: 1, second: 5 },
+      )
+      expect((await driver.store.events.listRuntimeEvents(driver.sessionId)).some((event) => event.t === 'item')).toBe(true)
       expect(await driver.phase()).toBe('idle')
       await expectFollowUpForwarded(driver)
     } finally {

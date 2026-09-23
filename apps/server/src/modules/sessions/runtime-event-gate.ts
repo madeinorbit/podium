@@ -199,6 +199,51 @@ function announcesAdoption(event: RuntimeEvent): boolean {
   return event.t === 'process' && event.ev.ev === 'adopted' && event.provenance === 'live'
 }
 
+/**
+ * THE CLOSING TURN'S OWN LAST WORD (POD-4641).
+ *
+ * `turn/completed` closes the epoch, and a driver says what the turn left
+ * behind right after it, in that same epoch: opencode, codex and grok-acp emit
+ * the verdict first and then the state it folds (`turn_completed` /
+ * `turn_failed`), and the terminal driver reconciles the turn's final
+ * transcript items once it has seen the turn end. Rejecting those as late work
+ * threw away the one state that says the agent stopped: the session read
+ * Working forever, and the acceptance run's opencode session did exactly that
+ * after its first answer.
+ *
+ * Only the CLOSED epoch itself, and only arms that cannot reopen it: a
+ * verdict state lands idle or errored, and a complete item is the record the
+ * turn already produced. `activity`, `prompt_submitted` and every other arm
+ * stay fenced, and an older epoch never gets here (`turn-epoch-regressed`).
+ */
+function endsClosedTurn(event: RuntimeEvent): boolean {
+  if (event.t === 'state') {
+    return event.change.kind === 'turn_completed' || event.change.kind === 'turn_failed'
+  }
+  return event.t === 'item' && event.item.kind === 'complete'
+}
+
+/**
+ * A LIVE SNAPSHOT THAT SAYS A CLOSED TURN IS STILL RUNNING (POD-4641).
+ *
+ * Snapshots are exempt from the closed-epoch fence because they carry
+ * bookkeeping — subagent counts, attention, compaction — that can change after
+ * a turn ends. `working` is not bookkeeping: it is a turn in progress, and a
+ * new turn opens a new epoch with its own `turn/started`. A terminal driver's
+ * screen poll published `working` a minute after grok's turn closed, still in
+ * that epoch; it was accepted and the session stayed Working with no turn open
+ * to ever end it. A bootstrap snapshot is a state restore, not an observation,
+ * and keeps its exemption.
+ */
+function reopensClosedTurn(event: RuntimeEvent): boolean {
+  return (
+    event.t === 'state' &&
+    event.provenance === 'live' &&
+    event.change.kind === 'state_snapshot' &&
+    (event.change.state as { phase?: string } | undefined)?.phase === 'working'
+  )
+}
+
 function turnEpochMatches(event: RuntimeEvent): boolean {
   return event.t !== 'turn' || event.ev.turnEpoch === event.turnEpoch
 }
@@ -513,20 +558,22 @@ export class RuntimeEventGate {
     // event rather than being mistaken for a late turn update. Workspace and
     // browser auxiliaries join that set for the same reason: a commit observed
     // after completion is still that session's commit.
-    if (
-      current.closedTurnEpoch !== null &&
-      event.turnEpoch <= current.closedTurnEpoch &&
-      event.t !== 'process' &&
-      event.t !== 'delivery' &&
-      event.t !== 'binding' &&
-      event.t !== 'draft' &&
-      event.t !== 'metadata' &&
-      !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
-      event.t !== 'transcript-reset' &&
-      event.t !== 'workspace' &&
-      event.t !== 'open-url'
-    ) {
-      return { kind: 'rejected', reason: 'terminal-epoch-closed' }
+    if (current.closedTurnEpoch !== null && event.turnEpoch <= current.closedTurnEpoch) {
+      if (reopensClosedTurn(event)) return { kind: 'rejected', reason: 'terminal-epoch-closed' }
+      if (
+        event.t !== 'process' &&
+        event.t !== 'delivery' &&
+        event.t !== 'binding' &&
+        event.t !== 'draft' &&
+        event.t !== 'metadata' &&
+        !(event.t === 'state' && event.change.kind === 'state_snapshot') &&
+        event.t !== 'transcript-reset' &&
+        event.t !== 'workspace' &&
+        event.t !== 'open-url' &&
+        !(event.turnEpoch === current.closedTurnEpoch && endsClosedTurn(event))
+      ) {
+        return { kind: 'rejected', reason: 'terminal-epoch-closed' }
+      }
     }
     if (event.turnEpoch > current.turnEpoch && !announcesAdoption(event)) {
       if (
