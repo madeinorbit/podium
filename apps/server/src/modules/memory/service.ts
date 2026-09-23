@@ -147,7 +147,8 @@ export class MemoryService {
   ): Promise<void> {
     for (const conversation of conversations)
       this.machineByConversation.set(conversation.id, machineId)
-    for (const id of removed) this.machineByConversation.delete(id)
+    for (const id of removed)
+      if (this.machineByConversation.get(id) === machineId) this.machineByConversation.delete(id)
     this.latestConversations.install(await this.indexConversations(conversations, machineId, removed))
     this.latestDiagnostics = diagnostics
     this.broadcastDiagnostics()
@@ -227,9 +228,9 @@ export class MemoryService {
               : {}),
           })),
         )
-        if (removed.length) await this.deps.store.conversations.index.delete(removed)
+        return await this.deps.store.conversations.index.delete(machineId, removed)
       },
-      changes: () => [
+      changes: (deleted) => [
         ...enriched.map(
           (conversation): EntityChangeSpec => ({
             entity: 'conversation',
@@ -238,7 +239,7 @@ export class MemoryService {
             value: conversation,
           }),
         ),
-        ...removed.map(
+        ...deleted.map(
           (id): EntityChangeSpec => ({
             entity: 'conversation',
             id,

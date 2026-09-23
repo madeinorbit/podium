@@ -1,5 +1,5 @@
 import { asMachineId, type MachineId } from '@podium/model'
-import { eq, isNotNull, or, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, or, sql } from 'drizzle-orm'
 import { conversations } from '../../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
 import { currentTransaction } from '../executor/sync-drizzle'
@@ -176,11 +176,28 @@ export class ConversationIndexRepository {
     })
   }
 
-  async delete(ids: string[]): Promise<void> {
-    if (ids.length === 0) return
-    await this.createOrJoinTransaction(async () => {
-      for (const id of ids) await this.db.delete(conversations).where(eq(conversations.id, id)).run()
-    })
+  /**
+   * Delete the conversations `machineId` reports as gone, and ONLY those
+   * [POD-4628]. A daemon's `removed` list is a claim about its own disk, so it
+   * can never reach a row indexed under another machine: a fresh machine whose
+   * copied discovery cache named the original machine's transcripts once
+   * deleted all 1960 of them. One statement, the ids bound as one json_each
+   * parameter; returns the ids actually deleted, which is what the change log
+   * may remove.
+   */
+  async delete(machineId: MachineId, ids: string[]): Promise<string[]> {
+    if (ids.length === 0) return []
+    const rows = await this.db
+      .delete(conversations)
+      .where(
+        and(
+          eq(conversations.machineId, machineId),
+          sql`${conversations.id} in (select value from json_each(${JSON.stringify([...new Set(ids)])}))`,
+        ),
+      )
+      .returning({ id: conversations.id })
+      .all()
+    return rows.map((row) => row.id)
   }
 
   async curatedMeta(): Promise<Map<string, { name?: string; summary?: string }>> {

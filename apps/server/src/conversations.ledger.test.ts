@@ -133,7 +133,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
               machineId: store.hostMachineId,
             },
           ])
-          await store.conversations.index.delete(['c-old'])
+          await store.conversations.index.delete(store.hostMachineId, ['c-old'])
         },
         changes: () => {
           throw new Error('declaration failed')
@@ -156,7 +156,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
             machineId: store.hostMachineId,
           },
         ])
-        await store.conversations.index.delete(['c-old'])
+        await store.conversations.index.delete(store.hostMachineId, ['c-old'])
       },
       changes: () => [
         { entity: 'conversation', id: 'c-new', op: 'upsert', value: { id: 'c-new' } },

@@ -945,7 +945,7 @@ describe('conversation index', () => {
         .sort(),
     ).toEqual(['a', 'b'])
 
-    await store.conversations.index.delete(['b'])
+    expect(await store.conversations.index.delete(TEST_MACHINE, ['b'])).toEqual(['b'])
 
     // Browse (empty query, table read) no longer lists the deleted row...
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
@@ -955,10 +955,19 @@ describe('conversation index', () => {
     await store.close()
   })
 
+  it('deleteConversations reaches only rows indexed under the reporting machine (POD-4628)', async () => {
+    const store = await openTestStore(':memory:')
+    const other = asMachineId('other-machine')
+    await store.conversations.index.upsert([conv('mine'), conv('theirs', { machineId: other })])
+    expect(await store.conversations.index.delete(TEST_MACHINE, ['mine', 'theirs', 'unknown'])).toEqual(['mine'])
+    expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['theirs'])
+    await store.close()
+  })
+
   it('deleteConversations is a no-op on an empty id list', async () => {
     const store = await openTestStore(':memory:')
     await store.conversations.index.upsert([conv('a')])
-    await store.conversations.index.delete([])
+    expect(await store.conversations.index.delete(TEST_MACHINE, [])).toEqual([])
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     await store.close()
   })
