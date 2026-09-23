@@ -7,10 +7,11 @@
  * asks the provider to classify only when the rendered screen changed.
  */
 
-import type {
-  AgentScreenObservation,
-  AgentStateProvider,
-  ProviderAgentStateEvent,
+import {
+  type AgentScreenObservation,
+  type AgentStateProvider,
+  type ProviderAgentStateEvent,
+  STATE_CHANNEL_STALENESS_MS,
 } from '@podium/harness'
 import type { Geometry } from '@podium/model'
 // P2c: the screen model is owned by @podium/process/screen. Readers import the
@@ -18,6 +19,8 @@ import type { Geometry } from '@podium/model'
 import { createHeadlessScreen, type ScreenReader } from '@podium/process/screen'
 
 export const TERMINAL_SCREEN_COALESCE_MS = 60
+/** How far past the reducer's staleness window a still-visible prompt is restated. */
+export const TERMINAL_SCREEN_RESTATE_MARGIN_MS = 250
 
 export interface TerminalScreenObserverCallbacks {
   onStateEvents: (events: ProviderAgentStateEvent[]) => void
@@ -56,6 +59,7 @@ export function createTerminalScreenObserver(
 
   let disposed = false
   let timer: ReturnType<typeof setTimeout> | undefined
+  let restateTimer: ReturnType<typeof setTimeout> | undefined
   let lastScreen: string | undefined
   let interactionVisible = false
   let authSignaled = false
@@ -73,6 +77,7 @@ export function createTerminalScreenObserver(
       const signature = lines.join('\n')
       if (signature === lastScreen) return
       lastScreen = signature
+      cancelRestate()
 
       const observation: AgentScreenObservation | undefined = provider.screen?.(lines)
       if (!observation) return
@@ -93,6 +98,9 @@ export function createTerminalScreenObserver(
         interactionVisible = observation.interactionVisible
       }
       if (events.length > 0) callbacks.onStateEvents(events)
+      if (observation.interactionVisible === true && observation.events.length > 0) {
+        restate([...observation.events])
+      }
       if (observation.auth === 'logged-in' && !authSignaled) {
         authSignaled = true
         callbacks.onLoginSignal()
@@ -101,6 +109,28 @@ export function createTerminalScreenObserver(
       // A malformed/incomplete PTY sequence must never affect the live bridge.
       // The next output frame will provide another complete screen to classify.
     }
+  }
+
+  const cancelRestate = (): void => {
+    if (restateTimer !== undefined) clearTimeout(restateTimer)
+    restateTimer = undefined
+  }
+
+  /**
+   * A PROMPT STILL ON SCREEN IS SAID AGAIN, ONCE (POD-4650). The reducer drops a
+   * screen reading that lands within STATE_CHANNEL_STALENESS_MS of a stronger
+   * channel's, and a modal that just sits there paints no new frame to be read
+   * again. Codex draws its trust prompt right after SessionStart and its
+   * usage-limit menu right after UserPromptSubmit, so both were lost that way.
+   * Past the window a screen reading is never stale, so one restatement is
+   * enough; any new screen cancels it, and an unchanged wait is idempotent.
+   */
+  const restate = (events: ProviderAgentStateEvent[]): void => {
+    restateTimer = setTimeout(() => {
+      restateTimer = undefined
+      if (!disposed) callbacks.onStateEvents(events)
+    }, STATE_CHANNEL_STALENESS_MS + TERMINAL_SCREEN_RESTATE_MARGIN_MS)
+    restateTimer.unref?.()
   }
 
   const schedule = (): void => {
@@ -136,6 +166,7 @@ export function createTerminalScreenObserver(
       disposed = true
       if (timer !== undefined) clearTimeout(timer)
       timer = undefined
+      cancelRestate()
       if (ownsScreen) screenReader.dispose()
     },
   }

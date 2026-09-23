@@ -47,12 +47,20 @@ import {
   isCodexQuestionTool,
   translateCodexEvent,
 } from './instrumentation.js'
-import { classifyCodexVerdict } from './state.js'
+import {
+  CODEX_TRUST_SUMMARY,
+  classifyCodexScreen,
+  classifyCodexVerdict,
+  codexUsageLimitSummary,
+} from './state.js'
 
 export {
+  CODEX_TRUST_SUMMARY,
   PODIUM_CODEX_HOOK_SOCKET_ENV,
   PODIUM_CODEX_HOOK_URL_ENV,
+  classifyCodexScreen,
   classifyCodexVerdict,
+  codexUsageLimitSummary,
   codexQuestionSummary,
   isCodexQuestionTool,
   translateCodexEvent,
@@ -844,6 +852,7 @@ export const codexStateProvider: AgentStateProvider = {
     }
   },
   translate: (payload) => codexInstrumentation.payloadCodec.decode(payload),
+  screen: classifyCodexScreen,
   bootEvents: async (opts) => withStateChannel(await codexBootEvents(opts), 'poll'),
 }
 
