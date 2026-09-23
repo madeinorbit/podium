@@ -320,8 +320,11 @@ export class TranscriptController {
     const generation = this.generation
     const serial = ++this.readSerial
     // Stamped as of the read's START: activity that lands while it is in
-    // flight may not be in it, and must still earn its own reconcile.
-    const signal = this.activity?.signal ?? null
+    // flight may not be in it, and must still earn its own reconcile. A read
+    // that began before any row was observed (a host that starts the
+    // controller first) takes the row as of its completion instead, rather
+    // than paying a second read on every mount.
+    const signal = this.activity?.signal
     if (options.disclose && this.state.items.length > 0) this.patch({ freshness: 'checking' })
     try {
       const page = await this.options.source.read({
@@ -331,7 +334,7 @@ export class TranscriptController {
       })
       if (!this.accepts(generation, serial)) return false
       this.windowEpoch += 1
-      this.reconciledSignal = signal
+      this.reconciledSignal = signal ?? this.activity?.signal ?? null
       this.pagedBack = false
       const reconciled = page.reset
         ? mergeTranscriptFrame([], page.items)

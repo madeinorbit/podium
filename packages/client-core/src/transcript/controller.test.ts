@@ -551,3 +551,19 @@ describe('a live window that the stream stopped feeding heals itself (POD-4643)'
     }
   })
 })
+
+it('a host that starts the controller before reporting the row pays no second read (POD-4643)', async () => {
+  vi.useFakeTimers()
+  const authority = silentStreamAuthority([item('a', 'c1')])
+  const controller = createTranscriptController({ sessionId: asSessionId('s1'), source: authority.port })
+  try {
+    const starting = controller.start()
+    controller.observeActivity({ signal: 'row-1', live: false })
+    await starting
+    await vi.advanceTimersByTimeAsync(TRANSCRIPT_ACTIVITY_SETTLE_MS * 5)
+    expect(authority.reads).toHaveLength(1)
+  } finally {
+    controller.dispose()
+    vi.useRealTimers()
+  }
+})
