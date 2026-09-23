@@ -892,7 +892,7 @@ function countedOutside(fn: () => void): OutsideCount {
       if (!calledByMobx()) tick(self, result, args)
       return result
     }
-  const plainIterator: After = (self, result) =>
+  const plainIterator: After = (_self, result) =>
     calledByMobx()
       ? result
       : countingIterator(result as Iterator<unknown>, () => {

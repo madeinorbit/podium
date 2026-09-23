@@ -62,6 +62,21 @@ export interface ArmHandle {
   stats: ArmStats
   dispose(): void
   /**
+   * POD-4568 (G2) — REQUIRED of a LAZY arm: one that loads cold rows through
+   * the feed's per-row read (`RowSource.row`). Land every load queued so far,
+   * and every load those loads queue in turn, until nothing is queued. The
+   * shared fence (`runFenceStep`) awaits it inside each measured step, after
+   * the write and the feed drain, so a load the step's own change triggers is
+   * charged to that step. Never a no-op on a lazy arm: the fence refuses an
+   * arm that reads rows through `RowSource.row` without this hook, one that
+   * still has loads pending after a step, and one that loads a row after the
+   * step settled (a load there is charged to no step). An eager arm leaves
+   * both hooks out.
+   */
+  settleLoads?(): void | Promise<void>
+  /** POD-4568 (G2) — rows queued for a load and not yet landed (see `settleLoads`). */
+  pendingLoads?(): number
+  /**
    * Mount the arm's own windowed web list into `el`; returns the unmount.
    *
    * Every row in the list MUST render through
@@ -81,6 +96,12 @@ export interface ArmHandle {
   mountWeb(el: Element): () => void
   /** The arm's own native list element (React Native unit renderer). */
   mountNative(): ReactElement
+}
+
+/** POD-4568 (G2) — a lazy arm's handle: the load hooks are not optional. */
+export interface LazyArmHandle extends ArmHandle {
+  settleLoads(): void | Promise<void>
+  pendingLoads(): number
 }
 
 export interface Arm {

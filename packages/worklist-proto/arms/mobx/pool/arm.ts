@@ -12,10 +12,12 @@
  */
 
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
+import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import type {
   CheckableArm,
   CheckableArmHandle,
+  LazyArmHandle,
   LocalsSource,
   RowSource,
 } from '../../../shared/src/arm'
@@ -25,12 +27,18 @@ import { MobxPool, type PoolLazyOptions } from './pool'
 import { PoolList } from './react/list'
 import { rebuildSnapshot } from './rebuild'
 
+/** Redraw-then-load rounds `settleLoads` allows before it gives up. */
+const SETTLE_ROUNDS = 64
+
 /** Loaded on first native mount only: the node lanes cannot parse `react-native`. */
 const PoolNativeList = lazy(() => import('./native/list'))
 
+/** The pool is lazy: the shared fence's load hooks are required (G2, `LazyArmHandle`). */
 export interface MobxPoolHandle extends CheckableArmHandle {
   /** The live pool (tests; the copy sweep reaches the tables through it). */
   readonly pool: MobxPool
+  settleLoads: LazyArmHandle['settleLoads']
+  pendingLoads: LazyArmHandle['pendingLoads']
 }
 
 export const mobxPoolArm = {
@@ -64,6 +72,20 @@ export const mobxPoolArm = {
       stats: pool.stats,
       snapshot: () => pool.snapshot(),
       rebuildFromScratch: () => rebuildSnapshot(source, locals, pool.residentIssueIds()),
+      // A change reaches a cold row when a row REDRAWS (its view reads the
+      // row in render), so a settle flushes this arm's redraws, lands what
+      // they queued, and repeats until a redraw queues nothing (G2).
+      settleLoads: () => {
+        for (let round = 0; ; round += 1) {
+          if (roots.size > 0) flushSync(() => {})
+          if (pool.pendingLoads() === 0) return
+          if (round >= SETTLE_ROUNDS) {
+            throw new Error(`[pool] loads did not settle in ${SETTLE_ROUNDS} redraw rounds`)
+          }
+          pool.settleLoads()
+        }
+      },
+      pendingLoads: () => pool.pendingLoads(),
       dispose(): void {
         offRows()
         offLocals()

@@ -278,6 +278,13 @@ export class Residency {
     return this.queue.size > 0
   }
 
+  /** Rows queued for a load and not yet taken. */
+  queued(): number {
+    let rows = 0
+    for (const ids of this.queue.values()) rows += ids.size
+    return rows
+  }
+
   /** Close the window now: the queued rows, cleared. */
   take(): [LoadableEntity, string][] {
     this.cancel?.()

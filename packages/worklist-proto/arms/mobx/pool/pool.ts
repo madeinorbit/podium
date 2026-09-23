@@ -389,6 +389,30 @@ export class MobxPool {
     if (out.writes > 0) this.stats.notifications += 1
   }
 
+  /**
+   * Close the load window until nothing is queued: every queued row, and
+   * every row those rows' installation queues in turn (G2: the fence's
+   * `settleLoads`, inside the measured step). Returns the windows closed.
+   */
+  settleLoads(): number {
+    const residency = this.residency
+    if (residency === null) return 0
+    let rounds = 0
+    while (residency.hasQueued()) {
+      if (rounds >= MAX_SETTLE_ROUNDS) {
+        throw new Error(`[pool] loads did not settle in ${MAX_SETTLE_ROUNDS} load rounds`)
+      }
+      this.hydrate()
+      rounds += 1
+    }
+    return rounds
+  }
+
+  /** Rows queued for a load and not yet landed (G2: the fence's `pendingLoads`). */
+  pendingLoads(): number {
+    return this.residency?.queued() ?? 0
+  }
+
   /** Models currently held, per entity (tests: lifecycle). */
   modelCount(entity: EntityName): number {
     return this.models[entity].size

@@ -34,9 +34,19 @@
  * `PHASE_FAMILY_FLOOR`): the target's family is now larger than one level's
  * budget, so the planted pool (member activity read from the rows again)
  * must FAIL #2's reads fence on its own.
+ *
+ * A STEP'S OWN LOADS (G2, M3 re-review 2 §6.3). The pool's load window never
+ * closes on its own here, so every load lands through the shared fence:
+ * `runFenceStep` lands the mount's loads before #1, outside the count, and
+ * awaits the arm's `settleLoads()` inside each step, so a load the step's own
+ * change triggers is charged to it. Before, this test settled the mount
+ * itself and a step's load landed in the harness's `snapshot()`, after the
+ * reads were sampled: M3's cold-issue plant charged #2 2 reads and passed.
+ * Planted below, it now fails #2's reads fence. The clean cells did not move
+ * (#1 reads 2, #2-#4 read 1; commits 0/1/1/1). The fence also refuses a lazy
+ * arm without the hooks, or with a settle that lands nothing.
  */
 
-import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { assertCommits, assertReads, mountArmForCounts } from '../../../harness/src/count-harness'
 import {
@@ -51,6 +61,7 @@ import type { CheckableArm } from '../../../shared/src/arm'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { installMobxWarnTrap } from './mobx-trap'
+import { tracked } from './pool'
 import { sessionActivityOf } from './views'
 
 installMobxWarnTrap()
@@ -63,7 +74,10 @@ const STEPS: readonly { methodology: string; commits: boolean }[] = [
   { methodology: '#4', commits: false },
 ]
 
-/** The pool with a load window that never closes on its own: no load lands inside a counted step. */
+/**
+ * The pool with a load window that never closes on its own: every load lands
+ * through the shared fence's `settleLoads` (G2), none by a timer in a later step.
+ */
 const arm: CheckableArm = {
   create: (source, locals, reads) =>
     mobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
@@ -77,24 +91,9 @@ describe('fence steps #1-#4', () => {
     try {
       // Drawn rows reach cold ones on the live-shaped fixture (open issues
       // with closed spin-off origins: live has 842 such edges, POD-4635), so
-      // the mount queues loads. The window never closes on its own here:
-      // close it before counting, so the counted steps see a settled pool
-      // and no load lands inside one.
-      // Settle as the mount does: the redraw commits under act, then the
-      // log, stats and reads start from zero.
-      const { pool } = mounted.handle as MobxPoolHandle
-      let rounds = 0
-      while (pool.residency?.hasQueued() && rounds < 100) {
-        act(() => {
-          pool.hydrate()
-        })
-        rounds += 1
-      }
-      console.info(`[mobx-counts] settled after ${rounds} load windows`)
-      expect(pool.residency?.hasQueued()).toBe(false)
-      mounted.log.reset()
-      mounted.handle.stats.reset()
-      mounted.reads.reset()
+      // the mount queues loads. The shared fence lands them before step #1,
+      // outside the count, and each step's own loads inside it (G2).
+      expect((mounted.handle as MobxPoolHandle).pendingLoads()).toBeGreaterThan(0)
       const cells = []
       for (const step of STEPS) {
         const entry = FENCE_SCENARIOS.find(
@@ -169,6 +168,103 @@ describe('fence steps #1-#4', () => {
       mounted.unmount()
       feeds.dispose()
       ctx.engine.destroy()
+    }
+  }, 120_000)
+  it('a load the step itself triggers is charged to it: the cold-issue plant fails #2 (G2)', async () => {
+    // M3's plant (harness/review/m3-step-load.test.tsx, `plantedArm`): from
+    // #2 on, the `sessionActivity` input the #2 change re-runs also asks
+    // whether a cold issue is resident (queueing its load, as a view does
+    // before it reads a row) and, once it is, lists its sessions.
+    let target: string | null = null
+    const planted: CheckableArm = {
+      create(source, locals, reads) {
+        const handle = arm.create(source, locals, reads) as MobxPoolHandle
+        const { pool } = handle
+        const inputs = pool.inputs as { sessionActivity: (id: string) => number | null }
+        const original = inputs.sessionActivity
+        inputs.sessionActivity = (id) => {
+          if (target !== null && pool.resident('issue', target) === 'resident') {
+            for (const _ of pool.inputs.relations.many('issue', target, 'sessions')) void _
+          }
+          return original(id)
+        }
+        return handle
+      },
+    }
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const mounted = mountArmForCounts(planted, feeds.rows.source, feeds.locals)
+    try {
+      const step = (methodology: string) =>
+        runFenceStep(
+          mounted,
+          ctx,
+          feeds.flush,
+          FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)!,
+        )
+      const one = await step('#1')
+      assertReads(one.result, { readsPerChange: one.readsBudget })
+      // A cold issue with two sessions, still cold after the mount's loads.
+      const { pool } = mounted.handle as MobxPoolHandle
+      const byIssue = new Map<string, number>()
+      for (const s of ctx.corpus.sessions) {
+        if (s.issueId != null) byIssue.set(s.issueId, (byIssue.get(s.issueId) ?? 0) + 1)
+      }
+      target =
+        [...byIssue].find(
+          ([id, sessions]) => sessions === 2 && tracked(() => pool.residency!.known('issue', id)),
+        )?.[0] ?? null
+      expect(target, 'a cold issue with two sessions').not.toBeNull()
+      const hydrated = pool.residency!.counters.hydrated
+      const two = await step('#2')
+      // The load lands inside #2, and the reads fence names what it cost:
+      // the resident-issue list re-runs over the table the loaded issue
+      // joined (M3 §6.3 arm B: 2,839 reads, 2,833 of them issue iterations).
+      expect(pool.residency!.counters.hydrated - hydrated, 'rows loaded in #2').toBeGreaterThan(0)
+      expect(two.readsBudget).toBe(3)
+      expect(two.result.reads?.byEntity.issue).toBeGreaterThan(two.readsBudget)
+      expect(() => assertReads(two.result, { readsPerChange: two.readsBudget })).toThrow(
+        `read ${two.result.readsPerChange} rows, budget ${two.readsBudget}`,
+      )
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
+    }
+  }, 120_000)
+  it('a lazy arm without the load hooks, or with a no-op settle, is refused (G2)', async () => {
+    for (const [name, strip, message] of [
+      [
+        'no hooks',
+        (handle: MobxPoolHandle) => {
+          const bare: Partial<MobxPoolHandle> = { ...handle }
+          delete bare.settleLoads
+          delete bare.pendingLoads
+          return bare as MobxPoolHandle
+        },
+        'does not implement both settleLoads() and pendingLoads()',
+      ],
+      [
+        'a no-op settle',
+        (handle: MobxPoolHandle) => ({ ...handle, settleLoads: () => {} }),
+        'did not settle',
+      ],
+    ] as const) {
+      const stripped: CheckableArm = {
+        create: (source, locals, reads) =>
+          strip(arm.create(source, locals, reads) as MobxPoolHandle),
+      }
+      const ctx = await startScenarioEngine(1)
+      const feeds = openFenceFeeds(ctx, 'overlaid')
+      const mounted = mountArmForCounts(stripped, feeds.rows.source, feeds.locals)
+      try {
+        const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === '#1')!
+        await expect(runFenceStep(mounted, ctx, feeds.flush, entry), name).rejects.toThrow(message)
+      } finally {
+        mounted.unmount()
+        feeds.dispose()
+        ctx.engine.destroy()
+      }
     }
   }, 120_000)
 })

@@ -25,10 +25,24 @@
  * finished 1–20 h before `FIXED_NOW`), so those rows' `closed` flips with no
  * row event at all. That is a sleep/wake, or the one 60 s tick that lands on
  * the boundary: an arm cannot tell them apart.
+ *
+ * A STEP COUNTS THE LOADS ITS OWN CHANGE TRIGGERS (POD-4568 G2). A lazy arm
+ * (one that loads cold rows through the feed's per-row read, `RowSource.row`)
+ * queues a load when a view reaches a cold row, and lands it when its window
+ * closes. Left to the window, a load the step's change queues can land after
+ * the step's reads are sampled, and is charged to no step (M3 re-review 2,
+ * §6.3: 2 reads and a pass, against 2,839 and a fail with the load inside the
+ * step). So `runFenceStep` awaits the arm's `settleLoads()` INSIDE the
+ * measured step, after the write and the feed drain, and afterwards refuses
+ * an arm that still has loads pending or that loaded a row after that settle.
+ * The feeds count the arm's per-row reads (`FenceFeeds.rowReads`), so an arm
+ * that loads rows without the hooks is refused too: the hook cannot be
+ * skipped by leaving it out.
  */
 
 import { isDeepStrictEqual } from 'node:util'
-import type { ArmHandle } from '../../shared/src/arm'
+import { act } from 'react'
+import type { ArmHandle, LazyArmHandle, RowSource } from '../../shared/src/arm'
 import type { LocalsSourceHandle } from '../../shared/src/locals-source'
 import {
   createRowSource,
@@ -105,24 +119,58 @@ export interface FenceFeeds {
   locals: LocalsSourceHandle
   /** Drain both, rows first: what each step runs after its write. */
   flush(): void
+  /**
+   * Per-row reads (`RowSource.row`) the arm has made through `rows.source`
+   * since the feeds opened: a lazy arm's loads (G2). Non-zero means the arm is
+   * lazy, and `runFenceStep` then requires its load hooks.
+   */
+  rowReads(): number
   dispose(): void
 }
 
+/** The feeds behind a `flush` handed to `runFenceStep`: how a step finds `rowReads`. */
+const FEEDS_OF_FLUSH = new WeakMap<() => void, FenceFeeds>()
+
 export function openFenceFeeds(ctx: ScenarioEngine, mode: RowSourceMode): FenceFeeds {
-  const rows = createRowSource(ctx.engine, ctx.replica, { mode })
+  const raw = createRowSource(ctx.engine, ctx.replica, { mode })
   const locals = createEngineLocals(ctx.engine)
-  return {
+  let rowReads = 0
+  const row = raw.source.row?.bind(raw.source)
+  const source: RowSource = {
+    snapshot: (kind) => raw.source.snapshot(kind),
+    subscribe: (listener) => raw.source.subscribe(listener),
+    ...(row === undefined
+      ? {}
+      : {
+          row(kind: 'issue' | 'session', id: string) {
+            rowReads += 1
+            return row(kind, id)
+          },
+        }),
+  }
+  const rows: RowSourceHandle = {
+    source,
+    get stats() {
+      return raw.stats
+    },
+    flush: () => raw.flush(),
+    dispose: () => raw.dispose(),
+  }
+  const feeds: FenceFeeds = {
     rows,
     locals,
     flush(): void {
       rows.flush()
       locals.flush()
     },
+    rowReads: () => rowReads,
     dispose(): void {
       rows.dispose()
       locals.dispose()
     },
   }
+  FEEDS_OF_FLUSH.set(feeds.flush, feeds)
+  return feeds
 }
 
 /** The parity snapshot's locals: the engine clock, no selection (spec §7). */
@@ -293,24 +341,92 @@ export async function runFenceScenarios(
   return steps
 }
 
-/** One fence scenario against a mounted arm: the count result with the row-view oracle. */
+/** Rounds of redraw-then-load the pre-step settle allows before it gives up. */
+const SETTLE_ROUNDS = 100
+
+/**
+ * The arm's load hooks (G2), or null for an eager arm. THROWS for an arm that
+ * has read rows through `RowSource.row` (when the feeds are known) or has one
+ * hook without the other: a lazy arm without them would have its loads
+ * charged to no step.
+ */
+function loadHooks(
+  handle: ArmHandle,
+  feeds: FenceFeeds | undefined,
+  step: string,
+): LazyArmHandle | null {
+  const settle = typeof handle.settleLoads === 'function'
+  const pending = typeof handle.pendingLoads === 'function'
+  if (settle && pending) return handle as LazyArmHandle
+  const reads = feeds?.rowReads() ?? 0
+  if (settle || pending || reads > 0) {
+    throw new Error(
+      `${step}: the arm is lazy (${reads} per-row read(s) through RowSource.row) but does not ` +
+        'implement both settleLoads() and pendingLoads(): its loads would be charged to no step',
+    )
+  }
+  return null
+}
+
+/**
+ * One fence scenario against a mounted arm: the count result with the row-view oracle.
+ *
+ * A lazy arm's loads (G2): what was queued BEFORE the step (the mount's loads;
+ * a step never leaves one, below) lands first, outside the count. The step's
+ * own loads land inside it: `settleLoads()` after the write and the feed
+ * drain, before the reads are sampled. Afterwards a load still pending, or a
+ * row read through the feed after that settle, is refused.
+ */
 export async function runFenceStep(
   mounted: MountedArm,
   ctx: ScenarioEngine,
   flush: () => void,
   entry: FenceScenario,
 ): Promise<FenceStep> {
+  const step = `${entry.methodology} ${entry.scenario}`
   const readsBudget = entry.readsBudget(ctx)
+  const feeds = FEEDS_OF_FLUSH.get(flush)
+  const before = loadHooks(mounted.handle, feeds, step)
+  // Each round under its own act: the rows it lands redraw when act exits,
+  // and a redrawn row can reach another cold row.
+  for (let round = 0; before !== null && before.pendingLoads() > 0; round += 1) {
+    if (round >= SETTLE_ROUNDS) {
+      throw new Error(
+        `${step}: loads queued before the step did not settle in ${SETTLE_ROUNDS} rounds`,
+      )
+    }
+    await act(async () => {
+      await before.settleLoads()
+    })
+  }
+  let settledAt = feeds?.rowReads() ?? 0
   const result = await runCountScenario(mounted, {
     scenario: entry.scenario,
     methodology: entry.methodology,
     apply: async () => {
       await entry.write(ctx)
       flush()
+      // A handle that turns lazy inside the step is asked here too.
+      await loadHooks(mounted.handle, feeds, step)?.settleLoads()
+      settledAt = feeds?.rowReads() ?? 0
     },
     expected: () => snapshotFromStore(ctx.engine.getSnapshot(), parityLocals(ctx)),
     views: () => rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx)),
   })
+  // LOAD ISOLATION (G2): a load pending now, or one that landed after the
+  // step's settle (in the harness's own `snapshot()`, after the reads were
+  // sampled), is charged to no step. Refuse it here, where it was triggered.
+  const after = loadHooks(mounted.handle, feeds, step)
+  const pendingLoads = after?.pendingLoads() ?? 0
+  if (pendingLoads > 0) {
+    throw new Error(`${step} left ${pendingLoads} load(s) pending after the step`)
+  }
+  const late = (feeds?.rowReads() ?? 0) - settledAt
+  if (late > 0) {
+    throw new Error(
+      `${step} loaded ${late} row(s) after the step settled its loads: charged to no step`,
+    )
+  }
   // STEP ISOLATION (POD-4618): a write still awaiting truth after its step is
   // retired later by the runtime's 60 s wall-clock sweep, in whichever step is
   // running then, and charged to it. Refuse it here, where it was written.
