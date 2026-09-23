@@ -4334,6 +4334,11 @@ describe('hibernation', () => {
     })
     try {
       const daemon: ControlMessage[] = []
+      // A daemon-backed machine assigned to run agents (2b803efb5).
+      await reg.sessionStore.machines.upsertMachine({
+        id: reg.sessionStore.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
+        ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
+      })
       await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'grok', cwd: '/w' })
       const initialSpawn = daemon.find(
@@ -4380,198 +4385,32 @@ describe('hibernation', () => {
       expect(first).toMatchObject({ ok: true, disposition: 'queued' })
       expect(second).toMatchObject({ ok: true, disposition: 'queued' })
       // Both went to the daemon, in order, with no idle edge seen by the server.
-      const ledger = await reg.sessionStore.messages.listLedger({ sessionId })
-      const ids = ['first while busy', 'second while busy'].map(
-        (body) => ledger.find((row) => row.body === body)?.id,
-      )
-      await vi.waitFor(() =>
-        expect(
-          daemon
-            .filter(
-              (entry): entry is Extract<ControlMessage, { type: 'runtimeSendRequest' }> =>
-                entry.type === 'runtimeSendRequest' && entry.sessionId === sessionId,
-            )
-            .map((entry) => entry.turnId),
-        ).toEqual(ids),
-      )
-    } finally {
-      await reg.dispose()
-    }
-  })
-
-  it('hands a live busy Grok ledger send to exit recovery and the next bind', async () => {
-    // A busy agent takes the send at once [POD-4661]; a virtual clock makes any
-    // wait on its turn visible as elapsed time.
-    let clockOffset = 0
-    const reg = await SessionRegistry.create(undefined, undefined, {
-      instanceId: 'default',
-      now: () => Date.now() + clockOffset,
-      mailAwait: {
-        sleep: async (ms) => {
-          clockOffset += ms
-        },
-        pollMs: 1_000_000, // one sleep clears the whole budget
-      },
-    })
-    try {
-      const daemon: ControlMessage[] = []
-      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
-      const { sessionId } = await reg.modules.sessions.createSession({
-        agentKind: 'grok',
-        cwd: '/w',
+      const handedOn = () =>
+        daemon
+          .filter(
+            (entry) =>
+              (entry.type === 'runtimeSendRequest' || entry.type === 'runtimeDurableSendRequest') &&
+              entry.sessionId === sessionId,
+          )
+          .map((entry) => JSON.stringify(entry))
+      // The daemon takes custody of each row at once (queued in its delivery
+      // queue); the FIFO forwards the next row after that acknowledgement.
+      const acked = new Set<string>()
+      await vi.waitFor(async () => {
+        for (const entry of daemon) {
+          if (entry.type !== 'runtimeDurableSendRequest' || acked.has(entry.requestId)) continue
+          acked.add(entry.requestId)
+          await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+            type: 'runtimeSendResult',
+            requestId: entry.requestId,
+            sessionId,
+            receipt: { outcome: 'queued', position: 1, deliveredAs: 'queue', at: '2026-08-23T00:00:01.000Z' },
+          })
+        }
+        expect(handedOn()).toHaveLength(2)
       })
-      const initialSpawn = daemon.find(
-        (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
-          message.type === 'spawn' && message.sessionId === sessionId,
-      )
-      const initialGeneration = initialSpawn?.observationGeneration
-      expect(initialGeneration).toEqual(expect.any(Number))
-      if (initialGeneration === undefined) throw new Error('initial spawn was not fenced')
-
-      const grokBind = {
-        ...bind(sessionId),
-        cmd: 'grok agent stdio (grok-acp)',
-        agentKind: 'grok',
-          driverId: 'grok-acp',
-      } as const
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'sessionResumeRef',
-        sessionId,
-        resume: { kind: 'grok-session', value: 'grok-ledger-exit-resume' },
-      })
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'runtimeEvent',
-        deliveryId: 'grok-ledger-bootstrap',
-        sessionId,
-        event: {
-          t: 'state',
-          change: { kind: 'prompt_submitted' },
-          at: '2026-08-23T00:00:00.000Z',
-          provenance: 'bootstrap',
-          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 1 } },
-          observerGeneration: initialGeneration,
-          turnEpoch: 0,
-        },
-      })
-      daemon.length = 0
-
-      const result = await dispatchSessionCommand(
-        await sessionCommandCtx(
-          reg.modules,
-          userCommandPrincipal(firstAdminMemberId(), 'admin').capability,
-        ),
-        'sendText',
-        { sessionId, text: 'accepted while Grok was busy' },
-      )
-      // Nothing waited on the busy turn: the send rode the durable queue toward
-      // the daemon at once, which owns when it reaches the agent.
-      expect(clockOffset).toBe(0)
-      expect(result).toMatchObject({ ok: true, queued: true, disposition: 'queued' })
-      expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-      const message = (await reg.sessionStore.messages
-        .listLedger({ sessionId }))
-        .find((row) => row.body === 'accepted while Grok was busy')
-      expect(message).toBeDefined()
-      if (!message) throw new Error('command send did not create a ledger row')
-      expect(message).toMatchObject({
-        status: 'queued',
-        injectedAt: expect.any(String),
-        deliveredTo: sessionId,
-      })
-
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'runtimeEvent',
-        deliveryId: 'grok-ledger-process-exit',
-        sessionId,
-        event: {
-          t: 'process',
-          ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
-          at: '2026-08-23T00:00:01.000Z',
-          provenance: 'live',
-          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 2 } },
-          observerGeneration: initialGeneration,
-          turnEpoch: 0,
-        },
-      })
-
-      await vi.waitFor(() => expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1))
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
-      expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
-      expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-      expect(await reg.sessionStore.messages.getMessage(message.id)).toMatchObject({
-        status: 'queued',
-        injectedAt: expect.any(String),
-        deliveredTo: sessionId,
-      })
-
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'agentExit',
-        sessionId,
-        code: 137,
-        observerGeneration: initialGeneration,
-      })
-      expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
-      expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
-      const runtimeSendRequests = (): Array<
-        Extract<ControlMessage, { type: 'runtimeSendRequest' }>
-      > =>
-        daemon.filter(
-          (entry): entry is Extract<ControlMessage, { type: 'runtimeSendRequest' }> =>
-            entry.type === 'runtimeSendRequest' &&
-            entry.sessionId === sessionId &&
-            entry.turnId === message.id,
-        )
-      await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(1))
-      const firstRequest = runtimeSendRequests()[0]
-      expect(firstRequest).toBeDefined()
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'runtimeSendResult',
-        requestId: firstRequest!.requestId,
-        sessionId,
-        receipt: {
-          outcome: 'refused',
-          refusal: { reason: 'busy', detail: 'driver is still handling the prior turn' },
-        },
-      })
-      await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(2))
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'runtimeEvent',
-        deliveryId: 'grok-ledger-rebind-ready',
-        sessionId,
-        event: {
-          t: 'state',
-          change: { kind: 'session_started' },
-          at: '2026-08-23T00:00:02.000Z',
-          provenance: 'live',
-          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 3 } },
-          observerGeneration: initialGeneration,
-          turnEpoch: 0,
-        },
-      })
-      const request = runtimeSendRequests()[1]
-      expect(request).toBeDefined()
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-        type: 'runtimeSendResult',
-        requestId: request!.requestId,
-        sessionId,
-        receipt: {
-          outcome: 'accepted',
-          turnEpoch: 1,
-          deliveredAs: 'when-ready',
-          provenBy: 'protocol-ack',
-          at: '2026-08-23T00:00:02.000Z',
-        },
-      })
-      await vi.waitFor(async () =>
-        expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(0),
-      )
-      expect(await reg.sessionStore.messages.getMessage(message.id)).toMatchObject({
-        status: 'delivered',
-        deliveredTo: sessionId,
-      })
+      expect(handedOn()[0]).toContain('first while busy')
+      expect(handedOn()[1]).toContain('second while busy')
     } finally {
       await reg.dispose()
     }

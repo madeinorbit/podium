@@ -3,13 +3,11 @@
  *
  * The chat composer's send is `sessions.sendText` → `mail.send` →
  * `MessageDeliveryService.send`, as the operator, urgency `next-turn`. That
- * service HOLDS a next-turn message while the target reads `working` and hands
- * it to the session inbox only when the phase reaches idle. So a session whose
- * finished turn never reads idle keeps the follow-up as a queued ledger row
- * with no `injectedAt` — the web's "pending · sends after this turn" — and the
- * daemon never sees it. Driving `sessions.queueText` directly skips that hold,
- * which is why a test on that route saw the follow-up forwarded while the
- * session was stuck.
+ * service used to HOLD a next-turn message while the target read `working`, so
+ * a session whose finished turn never read idle kept the follow-up away from
+ * the daemon. It now hands every send to the daemon at once, whatever phase the
+ * server believes; the daemon's delivery queue waits for the turn boundary
+ * [POD-4661].
  *
  * The events are the opencode-server order recorded from a live run: the turn
  * verdict first, then the state it folds.
@@ -83,12 +81,12 @@ describe('a headless follow-up sent through the web route (POD-4647)', () => {
       { kind: 'operator' },
       { to: { kind: 'session', id: s.sessionId }, body: text, urgency: 'next-turn', lifecycle: 'wait' },
     )
-    // Not held behind a turn that has already ended.
-    expect(sent.disposition).not.toBe('queued')
+    // Handed on, awaiting the daemon's settlement.
+    expect(sent.disposition).toBe('queued')
     await vi.waitFor(() => expect(s.handedToDaemon(text)).toHaveLength(1))
   })
 
-  it('control arm: while a turn really is running, the same send waits for its end', async () => {
+  it('while a turn really is running, the same send still reaches the daemon at once [POD-4661]', async () => {
     const s = await headlessOpencode()
     await s.emit({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, 16)
     await s.emit({ t: 'state', change: { kind: 'activity' } }, 19)
@@ -100,13 +98,10 @@ describe('a headless follow-up sent through the web route (POD-4647)', () => {
       { to: { kind: 'session', id: s.sessionId }, body: text, urgency: 'next-turn', lifecycle: 'wait' },
     )
     expect(sent.disposition).toBe('queued')
-    const row = await s.store.messages.getMessage(sent.message.id)
-    expect(row).toMatchObject({ status: 'queued', injectedAt: null })
-    expect(s.handedToDaemon(text)).toHaveLength(0)
-
-    // The turn's own end releases it.
-    await s.emit({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } }, 24)
-    await s.emit({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, 24)
+    // No server hold: the daemon has it before the turn ends, and its delivery
+    // queue decides when the agent sees it.
     await vi.waitFor(() => expect(s.handedToDaemon(text)).toHaveLength(1))
+    const row = await s.store.messages.getMessage(sent.message.id)
+    expect(row).toMatchObject({ status: 'queued', injectedAt: expect.any(String) })
   })
 })
