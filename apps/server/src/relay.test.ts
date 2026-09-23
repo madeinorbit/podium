@@ -4317,6 +4317,88 @@ describe('hibernation', () => {
     await reg.dispose()
   })
 
+  it('forwards a chat send to a busy agent at once and answers without waiting on its turn [POD-4661]', async () => {
+    // The server never holds a message on its own view of the agent: only the
+    // daemon knows whether the turn is really still running. A virtual clock
+    // lets any wait on the agent's turn show up as elapsed time.
+    let clockOffset = 0
+    const reg = await SessionRegistry.create(undefined, undefined, {
+      instanceId: 'default',
+      now: () => Date.now() + clockOffset,
+      mailAwait: {
+        sleep: async (ms) => {
+          clockOffset += ms
+        },
+        pollMs: 1_000_000,
+      },
+    })
+    try {
+      const daemon: ControlMessage[] = []
+      await reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'grok', cwd: '/w' })
+      const initialSpawn = daemon.find(
+        (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+          message.type === 'spawn' && message.sessionId === sessionId,
+      )
+      const generation = initialSpawn?.observationGeneration
+      if (generation === undefined) throw new Error('initial spawn was not fenced')
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        ...bind(sessionId),
+        cmd: 'grok agent stdio (grok-acp)',
+        agentKind: 'grok',
+        driverId: 'grok-acp',
+      })
+      // The server now believes a turn is in flight.
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'busy-forward-bootstrap',
+        sessionId,
+        event: {
+          t: 'state',
+          change: { kind: 'prompt_submitted' },
+          at: '2026-08-23T00:00:00.000Z',
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'busy-forward-segment', components: { seq: 1 } },
+          observerGeneration: generation,
+          turnEpoch: 0,
+        },
+      })
+      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.agentState?.phase).toBe(
+        'working',
+      )
+      daemon.length = 0
+
+      const ctx = await sessionCommandCtx(
+        reg.modules,
+        userCommandPrincipal(firstAdminMemberId(), 'admin').capability,
+      )
+      const first = await dispatchSessionCommand(ctx, 'sendText', { sessionId, text: 'first while busy' })
+      const second = await dispatchSessionCommand(ctx, 'sendText', { sessionId, text: 'second while busy' })
+
+      // Nothing waited on the agent's turn: each send answered at once.
+      expect(clockOffset).toBe(0)
+      expect(first).toMatchObject({ ok: true, disposition: 'queued' })
+      expect(second).toMatchObject({ ok: true, disposition: 'queued' })
+      // Both went to the daemon, in order, with no idle edge seen by the server.
+      const ledger = await reg.sessionStore.messages.listLedger({ sessionId })
+      const ids = ['first while busy', 'second while busy'].map(
+        (body) => ledger.find((row) => row.body === body)?.id,
+      )
+      await vi.waitFor(() =>
+        expect(
+          daemon
+            .filter(
+              (entry): entry is Extract<ControlMessage, { type: 'runtimeSendRequest' }> =>
+                entry.type === 'runtimeSendRequest' && entry.sessionId === sessionId,
+            )
+            .map((entry) => entry.turnId),
+        ).toEqual(ids),
+      )
+    } finally {
+      await reg.dispose()
+    }
+  })
+
   it('hands a live busy Grok ledger send to exit recovery and the next bind', async () => {
     // A contract-bound session takes the CONFIRMING send path, which waits the whole
     // next-turn budget on a busy target. One virtual clock — `sleep` advances the same

@@ -958,6 +958,37 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
       ...over,
     }) as SessionMeta
 
+  // A SEND ANSWERS WITHOUT WAITING ON THE AGENT [POD-4661]. The send is
+  // forwarded to the daemon at once; "delivered" comes later from the daemon's
+  // receipt. A Stop right after a send therefore never queues behind a poll.
+  for (const urgency of ['next-turn', 'interrupt'] as const) {
+    it(`a ${urgency} send to a working target answers at once, forwarded, with no poll [POD-4661]`, async () => {
+      let sleeps = 0
+      const { gate, sent } = await harness({
+        sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
+        sleep: async () => {
+          sleeps += 1
+        },
+      })
+      const first = (await gate.dispatch(PARENT, undefined, 'send', {
+        to: 's1',
+        body: 'one',
+        urgency,
+      })) as { disposition: string }
+      const second = (await gate.dispatch(PARENT, undefined, 'send', {
+        to: 's1',
+        body: 'two',
+        urgency,
+      })) as { disposition: string }
+      expect(sleeps).toBe(0)
+      expect(first.disposition).toBe('queued')
+      expect(second.disposition).toBe('queued')
+      expect(sent.map((s) => s.fn)).toEqual(
+        urgency === 'interrupt' ? ['interruptText', 'interruptText'] : ['queueText', 'queueText'],
+      )
+    })
+  }
+
   it('a next-turn mail send BLOCKS until the boundary confirms, then reports delivered', async () => {
     const sessions = [target({})] // live idle
     // The confirmation fires during the first poll sleep (turn boundary). The hook

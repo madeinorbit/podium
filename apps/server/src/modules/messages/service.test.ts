@@ -1229,6 +1229,43 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     }
   })
 
+  // THE SERVER NEVER HOLDS A MESSAGE ON ITS VIEW OF THE AGENT [POD-4661]. Only
+  // the daemon knows whether a turn is really running; its delivery queue waits
+  // for readiness and the turn boundary (POD-4427). Whatever phase the server
+  // believes, a send to a live agent goes down the durable queue to it now.
+  for (const [label, agentState] of [
+    ['working', WORKING],
+    ['needs_user', NEEDS_USER],
+    ['idle', IDLE],
+  ] as const) {
+    for (const urgency of ['fyi', 'next-turn'] as const) {
+      it(`a ${urgency} send to a session the server believes is ${label} goes to the daemon at once [POD-4661]`, async () => {
+        const { svc, sent, queued } = await harness([
+          session({ sessionId: asSessionId('s1'), agentState }),
+        ])
+        const r = await svc.send(
+          { kind: 'superagent' },
+          { to: { kind: 'session', id: asSessionId('s1') }, body: 'x', urgency },
+        )
+        expect(queued.map((q) => q.sessionId)).toEqual(['s1'])
+        expect(sent).toHaveLength(0)
+        expect(r.message.injectedAt).not.toBeNull()
+        expect(r.message.deliveredTo).toBe('s1')
+      })
+    }
+  }
+
+  it('a send behind a durable backlog joins it rather than waiting for an idle edge [POD-4661]', async () => {
+    const { svc, queued } = await harness([
+      session({ sessionId: asSessionId('s1'), agentState: IDLE, queuedMessageCount: 2 }),
+    ])
+    await svc.send(
+      { kind: 'superagent' },
+      { to: { kind: 'session', id: asSessionId('s1') }, body: 'x', urgency: 'next-turn' },
+    )
+    expect(queued.map((q) => q.sessionId)).toEqual(['s1'])
+  })
+
   it('running target: fyi stays queued until the next pause', async () => {
     const s = session({ sessionId: asSessionId('s1'), agentState: WORKING })
     const { svc, sent, queued, store } = await harness([s])
