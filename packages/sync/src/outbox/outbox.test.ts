@@ -1049,6 +1049,35 @@ describe('single-flight drain', () => {
 
     expect(authority.attempts(record.mutationId)).toBe(1)
   })
+
+  it('drains an entry enqueued while a pass is in flight, without another trigger (POD-4658)', async () => {
+    // The pass reads its partitions once, at its start. A caller that enqueues
+    // while the head is still being submitted joins that pass — which cannot
+    // see its entry — so the entry waited for the next unrelated drain.
+    let releaseHead!: () => void
+    const headHeld = new Promise<void>((resolve) => {
+      releaseHead = resolve
+    })
+    let holdNext = true
+    const { outbox, authority } = await harness(async () => {
+      if (holdNext) {
+        holdNext = false
+        await headHeld
+      }
+      return applied
+    })
+    const head = await outbox.enqueue(close('POD-1'))
+    const draining = outbox.drain()
+
+    const next = await outbox.enqueue(close('POD-1'))
+    const joined = outbox.drain()
+    releaseHead()
+    await Promise.all([draining, joined])
+
+    expect(authority.attempts(head.mutationId)).toBe(1)
+    expect(authority.attempts(next.mutationId)).toBe(1)
+    expect(state(outbox, next.mutationId)).toBe('applied')
+  })
 })
 
 describe('review round 1 — the blockers, each with the test that would have caught it', () => {

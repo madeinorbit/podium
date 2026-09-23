@@ -12,7 +12,7 @@
 
 import { asMutationId, asSessionId, STOPPED_SEND_REASON } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
 import type { OutboxEntry, OutboxStorage } from '../outbox'
 import type { Replica } from '../replica/replica'
@@ -109,6 +109,50 @@ describe('a send stopped before it reached the server', () => {
 
     expect(sends).toEqual(['msg_stopped', 'msg_next'])
     expect(outbox.pending()).toEqual([])
+    expect(outbox.deadLetters()).toEqual([])
+    outbox.dispose()
+  })
+
+  it('the message sent while the stopped send is still in flight goes out when it resolves (POD-4658)', async () => {
+    // The phone's order: the send is on the wire, Stop lands first and clears
+    // at once, and the operator's next message is queued while the stopped
+    // send's reply is still coming back. Nothing else happens afterwards — no
+    // further send, no reconnect, no app reopen.
+    let releaseStopped!: () => void
+    const stoppedHeld = new Promise<void>((resolve) => {
+      releaseStopped = resolve
+    })
+    const sends: string[] = []
+    const api = {
+      sessions: {
+        resumeAndSend: {
+          mutate: async (input: { mutationId: string }) => {
+            sends.push(input.mutationId)
+            if (input.mutationId !== 'msg_stopped') return { ok: true, disposition: 'delivered' }
+            await stoppedHeld
+            return { ok: false, reason: STOPPED_SEND_REASON, disposition: 'dead_letter' }
+          },
+        },
+      },
+    } as unknown as PodiumClientApi
+    const outbox = await open(api)
+    online = true
+
+    await outbox.enqueue(
+      'resumeAndSend',
+      { sessionId: asSessionId('s1'), text: 'Write the numbers from 1 to 400' },
+      { mutationId: asMutationId('msg_stopped') },
+    )
+    await vi.waitFor(() => expect(sends).toEqual(['msg_stopped']))
+    await outbox.enqueue(
+      'resumeAndSend',
+      { sessionId: asSessionId('s1'), text: 'What is 3 times 3?' },
+      { mutationId: asMutationId('msg_next') },
+    )
+    releaseStopped()
+
+    await vi.waitFor(() => expect(sends).toEqual(['msg_stopped', 'msg_next']))
+    await vi.waitFor(() => expect(outbox.pending()).toEqual([]))
     expect(outbox.deadLetters()).toEqual([])
     outbox.dispose()
   })
