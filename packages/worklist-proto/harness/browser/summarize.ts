@@ -23,8 +23,8 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  distribution,
   type Distribution,
+  distribution,
   type RunOutput,
   type Scale,
   type ScenarioName,
@@ -54,7 +54,10 @@ function median(values: number[]): number | null {
   return distribution(values).p50
 }
 
-export function loadRuns(paths: string[]): { ok: RunOutput[]; failed: { path: string; run: RunOutput }[] } {
+export function loadRuns(paths: string[]): {
+  ok: RunOutput[]
+  failed: { path: string; run: RunOutput }[]
+} {
   const files = paths.flatMap((p) =>
     statSync(p).isDirectory()
       ? readdirSync(p)
@@ -120,7 +123,8 @@ function main(): void {
     console.log(`FAILED RUN (not summarised): ${path} — ${run.failures.join('; ')}`)
   }
   const table = cells(ok).sort(
-    (a, b) => a.arm.localeCompare(b.arm) || a.scenario.localeCompare(b.scenario) || a.scale - b.scale,
+    (a, b) =>
+      a.arm.localeCompare(b.arm) || a.scenario.localeCompare(b.scenario) || a.scale - b.scale,
   )
   const floor = (scenario: ScenarioName, scale: Scale): Cell | undefined =>
     table.find((c) => c.arm === 'noop' && c.scenario === scenario && c.scale === scale)
@@ -134,7 +138,8 @@ function main(): void {
   for (const c of table) {
     const fl = floor(c.scenario, c.scale)
     const allowance = allowanceMs(c.scenario, c.scale)
-    const budget = fl?.actionMs.p95 != null && allowance !== null ? fl.actionMs.p95 + allowance : null
+    const budget =
+      fl?.actionMs.p95 != null && allowance !== null ? fl.actionMs.p95 + allowance : null
     const verdict =
       c.arm === 'noop' || budget === null
         ? '—'
@@ -151,14 +156,22 @@ function main(): void {
     )
   }
   console.log('')
-  console.log('| Arm | Scenario | p50 1x / 2x / 4x | slope 4x/1x (budget ≤ 1.2) | excess over floor 4x/1x |')
+  console.log(
+    '| Arm | Scenario | p50 1x / 2x / 4x | slope 4x/1x (budget ≤ 1.2) | excess over floor 4x/1x |',
+  )
   console.log('|---|---|---|---|---|')
-  const slopes: { arm: string; scenario: ScenarioName; slope: number | null; excessSlope: number | null }[] = []
+  const slopes: {
+    arm: string
+    scenario: ScenarioName
+    slope: number | null
+    excessSlope: number | null
+  }[] = []
   const armScenarios = [...new Set(table.map((c) => `${c.arm}|${c.scenario}`))]
   for (const key of armScenarios) {
     const [arm, scenario] = key.split('|') as [string, ScenarioName]
     const at = (scale: Scale): number | null =>
-      table.find((c) => c.arm === arm && c.scenario === scenario && c.scale === scale)?.actionMs.p50 ?? null
+      table.find((c) => c.arm === arm && c.scenario === scenario && c.scale === scale)?.actionMs
+        .p50 ?? null
     const floorAt = (scale: Scale): number | null => floor(scenario, scale)?.actionMs.p50 ?? null
     const p1 = at(1)
     const p4 = at(4)
@@ -170,13 +183,21 @@ function main(): void {
         ? (p4 - f4) / (p1 - f1)
         : null
     slopes.push({ arm, scenario, slope, excessSlope })
-    const verdict = arm === 'noop' || slope === null ? '' : slope <= SLOPE_BUDGET ? ' within' : ' OVER'
+    const verdict =
+      arm === 'noop' || slope === null ? '' : slope <= SLOPE_BUDGET ? ' within' : ' OVER'
     console.log(
       `| ${arm} | ${scenario} | ${f(p1)} / ${f(at(2))} / ${f(p4)} | ${f(slope)}${verdict} | ${f(excessSlope)} |`,
     )
   }
   if (jsonOut !== undefined) {
-    writeFileSync(jsonOut, JSON.stringify({ runtimeSha: shas, cells: table, slopes, failed: failed.map((x) => x.path) }, null, 2))
+    writeFileSync(
+      jsonOut,
+      JSON.stringify(
+        { runtimeSha: shas, cells: table, slopes, failed: failed.map((x) => x.path) },
+        null,
+        2,
+      ),
+    )
   }
 }
 

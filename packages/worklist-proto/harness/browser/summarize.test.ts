@@ -71,7 +71,11 @@ describe('distribution', () => {
 describe('cells', () => {
   it('drops warm-up records and keeps a planted run under its own label', () => {
     const table = cells([
-      run([record({ actionMs: 500, warmup: true }), record({ actionMs: 1 }), record({ actionMs: 3 })]),
+      run([
+        record({ actionMs: 500, warmup: true }),
+        record({ actionMs: 1 }),
+        record({ actionMs: 3 }),
+      ]),
       run([record({ plant: 'late:30', actionMs: 33 })]),
     ])
     const floor = table.find((c) => c.arm === 'noop')
@@ -91,7 +95,10 @@ describe('loadRuns', () => {
   it('refuses a failed run: its numbers never reach a cell', () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod-4558-'))
     writeFileSync(join(dir, 'ok.json'), JSON.stringify(run([record({ actionMs: 1 })])))
-    writeFileSync(join(dir, 'failed.json'), JSON.stringify(run([record({ actionMs: 999 })], 'failed')))
+    writeFileSync(
+      join(dir, 'failed.json'),
+      JSON.stringify(run([record({ actionMs: 999 })], 'failed')),
+    )
     const { ok, failed } = loadRuns([dir])
     expect(ok).toHaveLength(1)
     expect(failed.map((f) => f.path)).toEqual([join(dir, 'failed.json')])

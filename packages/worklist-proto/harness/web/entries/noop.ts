@@ -1,6 +1,6 @@
-import { buildCorpus } from '../../src/fixture/index'
-import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { createRowSource } from '../../../shared/src/row-source'
+import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
+import { buildCorpus } from '../../src/fixture/index'
 import { mountPage, readScale } from '../entrylib'
 import { noopArmFor, readPlant } from '../noop-arm'
 
@@ -12,8 +12,12 @@ const corpus = buildCorpus(scale, FIXTURE_SEED)
 const boot = await startEngineOnCorpus(corpus)
 const source = createRowSource(boot.engine, boot.replica, { mode: 'overlaid' })
 mountPage({
-  arm: readPlant() === null ? 'noop' : `noop+${new URLSearchParams(window.location.search).get('plant')}`,
-  createArm: () => noopArmFor(boot, [boot.targets.visibleRootId, boot.targets.markReadId], readPlant()),
+  arm:
+    readPlant() === null
+      ? 'noop'
+      : `noop+${new URLSearchParams(window.location.search).get('plant')}`,
+  createArm: () =>
+    noopArmFor(boot, [boot.targets.visibleRootId, boot.targets.markReadId], readPlant()),
   source: source.source,
   boot,
   scale,

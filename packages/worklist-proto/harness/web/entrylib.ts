@@ -58,8 +58,13 @@
  */
 
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
-import { createCommitLog, withCommitLog, withCommitLogAsync, type CommitLog } from '../../shared/src/row-shell'
 import { settableLocals } from '../../shared/src/locals-source'
+import {
+  type CommitLog,
+  createCommitLog,
+  withCommitLog,
+  withCommitLogAsync,
+} from '../../shared/src/row-shell'
 import {
   applyHeartbeat,
   applyStageMove,
@@ -91,7 +96,12 @@ export interface ProtoScenarioResult {
   domMutations: number
   /** Commit signals that arrived after the previous settle, before this change. */
   strayCommits: number
-  stats: { rowsDerived: number; rollupsDerived: number; indexUpdates: number; notifications: number }
+  stats: {
+    rowsDerived: number
+    rollupsDerived: number
+    indexUpdates: number
+    notifications: number
+  }
   /** Start to the first task after the dispatch (microtask drain included). */
   drainMs: number
   /** Start to the last commit signal, or to the drain if nothing committed. */
@@ -365,7 +375,9 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       clicked.add(id)
       return { id, button }
     }
-    throw new Error(`[proto] click: no unclicked candidate is mounted (${clicked.size} used); load a fresh page`)
+    throw new Error(
+      `[proto] click: no unclicked candidate is mounted (${clicked.size} used); load a fresh page`,
+    )
   }
 
   let settledSignals = signals()
@@ -397,7 +409,9 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
   }
 
   /** Time one change: `prepare` runs untimed and returns the dispatch. */
-  async function measure(prepare: () => { target: string | null; dispatch: () => void }): Promise<ProtoScenarioResult> {
+  async function measure(
+    prepare: () => { target: string | null; dispatch: () => void },
+  ): Promise<ProtoScenarioResult> {
     if (running) throw new Error('[proto] runScenario is not re-entrant')
     running = true
     try {
@@ -437,7 +451,9 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
           actionMs: end - start,
           frameMs: frameAt - start,
           endedBy,
-          longTasks: longTasks.filter((t) => t.startTime + t.duration > start && t.startTime < settleEnd),
+          longTasks: longTasks.filter(
+            (t) => t.startTime + t.duration > start && t.startTime < settleEnd,
+          ),
           mountedRows: el.querySelectorAll('[data-issue-row]').length,
           target,
         }
@@ -451,7 +467,10 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     return measure(() => {
       switch (name) {
         case 'heartbeat':
-          return { target: boot.targets.heartbeatSessionId, dispatch: () => void applyHeartbeat(boot) }
+          return {
+            target: boot.targets.heartbeatSessionId,
+            dispatch: () => void applyHeartbeat(boot),
+          }
         case 'rename':
           return { target: boot.targets.visibleRootId, dispatch: () => void rename() }
         case 'stagemove': {

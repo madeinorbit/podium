@@ -11,7 +11,6 @@ export type Scale = 1 | 2 | 4
 export const SCENARIOS = ['heartbeat', 'rename', 'stagemove', 'clock', 'click'] as const
 export type ScenarioName = (typeof SCENARIOS)[number]
 
-
 export interface HeapUsage {
   usedSize: number
   totalSize: number
@@ -69,7 +68,6 @@ export interface RunOutput {
   warmup: number
   records: TimingRecord[]
 }
-
 
 /** Nearest-rank percentile of ascending `sorted`; null when empty. */
 export function percentile(sorted: readonly number[], p: number): number | null {

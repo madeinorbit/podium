@@ -37,16 +37,16 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
-import { dirname, extname, join } from 'node:path'
 import { loadavg, uptime } from 'node:os'
+import { dirname, extname, join } from 'node:path'
 import { chromium } from '@playwright/test'
 import type { ProtoScenarioResult } from '../web/entrylib'
 import {
   ARMS,
-  SCENARIOS,
   type ArmName,
   type HeapUsage,
   type RunOutput,
+  SCENARIOS,
   type Scale,
   type ScenarioName,
   type TimingRecord,
@@ -73,12 +73,14 @@ function parseArgs(argv: string[]): Args {
     return argv[index + 1]
   }
   const arm = (get('--arm', 'control') ?? 'control') as string
-  if (get('--plant') !== undefined && arm !== 'noop') throw new Error('--plant is for --arm noop only')
+  if (get('--plant') !== undefined && arm !== 'noop')
+    throw new Error('--plant is for --arm noop only')
   if (!(ARMS as readonly string[]).includes(arm)) {
     throw new Error(`--arm must be one of ${ARMS.join(', ')} (got ${arm})`)
   }
   const scale = Number(get('--scale', '1'))
-  if (scale !== 1 && scale !== 2 && scale !== 4) throw new Error(`--scale must be 1, 2 or 4 (got ${scale})`)
+  if (scale !== 1 && scale !== 2 && scale !== 4)
+    throw new Error(`--scale must be 1, 2 or 4 (got ${scale})`)
   const scenarios = ((get('--scenarios', SCENARIOS.join(',')) ?? '').split(',') as string[]).map(
     (s) => s.trim(),
   )
@@ -95,7 +97,8 @@ function parseArgs(argv: string[]): Args {
     samples: Number(get('--samples', '5')),
     warmup: Number(get('--warmup', '1')),
     maxLoad: Number(get('--max-load', '8')),
-    out: get('--out', `packages/worklist-proto/harness/browser/results/${arm}-${scale}x.json`) ?? '',
+    out:
+      get('--out', `packages/worklist-proto/harness/browser/results/${arm}-${scale}x.json`) ?? '',
     port: Number(get('--port', '8751')),
     serve: get('--serve', 'packages/worklist-proto/harness/web/dist') ?? '',
     // `matrix.ts` holds the lease around each invocation itself.
@@ -142,9 +145,13 @@ function serveDist(dir: string, port: number): Promise<Server> {
 }
 
 function acquireBenchLease(): boolean {
-  const result = spawnSync('podium', ['lock', 'acquire', 'bench:ludovico', '--ttl', '30m', '--wait'], {
-    encoding: 'utf-8',
-  })
+  const result = spawnSync(
+    'podium',
+    ['lock', 'acquire', 'bench:ludovico', '--ttl', '30m', '--wait'],
+    {
+      encoding: 'utf-8',
+    },
+  )
   if (result.status !== 0) {
     console.error(`[browser] bench lease refused:\n${result.stdout}${result.stderr}`)
     return false
@@ -239,7 +246,9 @@ async function main(): Promise<number> {
       // Warm-up rounds number -warmup..-1; measured samples 0..samples-1.
       const sample = round - args.warmup
       // Rotate the scenario order per round so drift hits every scenario.
-      const order = args.scenarios.map((_, i) => args.scenarios[(i + round) % args.scenarios.length]!)
+      const order = args.scenarios.map(
+        (_, i) => args.scenarios[(i + round) % args.scenarios.length] as ScenarioName,
+      )
       for (const scenario of order) {
         const heapBefore = await heap()
         let result: ProtoScenarioResult
@@ -277,9 +286,12 @@ async function main(): Promise<number> {
           runtimeSha,
         }
         output.records.push(record)
-        if (load > args.maxLoad) fail(`load ${load.toFixed(2)} > ${args.maxLoad} at ${scenario}#${sample}`)
+        if (load > args.maxLoad)
+          fail(`load ${load.toFixed(2)} > ${args.maxLoad} at ${scenario}#${sample}`)
         if (record.strayCommits > 0) {
-          fail(`${scenario}#${sample}: ${record.strayCommits} commit signals landed after the previous settle (work deferred past ${output.quietMs} ms cannot be attributed)`)
+          fail(
+            `${scenario}#${sample}: ${record.strayCommits} commit signals landed after the previous settle (work deferred past ${output.quietMs} ms cannot be attributed)`,
+          )
         }
         console.log(
           `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
@@ -294,7 +306,7 @@ async function main(): Promise<number> {
     write(args.out, output)
     console.log(`[browser] wrote ${args.out} (${output.records.length} records, ${output.status})`)
     await browser.close()
-    server !== null && server.close()
+    server?.close()
     if (args.lease) releaseBenchLease()
   }
 }

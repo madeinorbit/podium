@@ -22,8 +22,8 @@
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, renameSync } from 'node:fs'
-import { join } from 'node:path'
 import { loadavg } from 'node:os'
+import { join } from 'node:path'
 import { ARMS, type ArmName, type RunOutput, type Scale } from './records'
 
 function arg(argv: string[], flag: string, fallback: string): string {
@@ -56,7 +56,9 @@ function waitForLoad(): boolean {
     const load = loadavg()[0] ?? 0
     if (load <= maxLoad) return true
     if (Date.now() > deadline) {
-      console.error(`[matrix] load ${load.toFixed(2)} > ${maxLoad} for ${loadWaitMs / 60_000} min: FAILED`)
+      console.error(
+        `[matrix] load ${load.toFixed(2)} > ${maxLoad} for ${loadWaitMs / 60_000} min: FAILED`,
+      )
       return false
     }
     console.log(`[matrix] load ${load.toFixed(2)} > ${maxLoad}; waiting`)
@@ -70,16 +72,21 @@ function lease(verb: 'acquire' | 'release'): boolean {
       ? ['lock', 'acquire', 'bench:ludovico', '--ttl', '30m', '--wait']
       : ['lock', 'release', 'bench:ludovico']
   const result = spawnSync('podium', cmd, { encoding: 'utf-8' })
-  if (result.status !== 0) console.error(`[matrix] lease ${verb} failed:\n${result.stdout}${result.stderr}`)
+  if (result.status !== 0)
+    console.error(`[matrix] lease ${verb} failed:\n${result.stdout}${result.stderr}`)
   return result.status === 0
 }
 
 let failed = false
 outer: for (let round = 0; round < rounds; round += 1) {
-  const order = pairs.map((_, i) => pairs[(i + round) % pairs.length]!)
+  const order = [...pairs.slice(round % pairs.length), ...pairs.slice(0, round % pairs.length)]
   for (const { arm, scale } of order) {
     const out = join(outDir, `r${round}-${arm}-${scale}x.json`)
-    if (resume && existsSync(out) && (JSON.parse(readFileSync(out, 'utf-8')) as RunOutput).status === 'ok') {
+    if (
+      resume &&
+      existsSync(out) &&
+      (JSON.parse(readFileSync(out, 'utf-8')) as RunOutput).status === 'ok'
+    ) {
       console.log(`[matrix] round ${round} ${arm} ${scale}x already passed; kept`)
       continue
     }
@@ -96,17 +103,25 @@ outer: for (let round = 0; round < rounds; round += 1) {
       }
       const runArgs = [
         'packages/worklist-proto/harness/browser/run.ts',
-        '--arm', arm,
-        '--scale', String(scale),
-        '--samples', samples,
-        '--warmup', warmup,
-        '--max-load', String(maxLoad),
-        '--out', out,
+        '--arm',
+        arm,
+        '--scale',
+        String(scale),
+        '--samples',
+        samples,
+        '--warmup',
+        warmup,
+        '--max-load',
+        String(maxLoad),
+        '--out',
+        out,
         '--no-lease',
         ...(scenarios ? ['--scenarios', scenarios] : []),
       ]
       // Each invocation takes the heavy-test lease itself (a browser run is heavy).
-      const result = spawnSync('bun', ['scripts/test-heavy.ts', '--', 'bun', ...runArgs], { stdio: 'inherit' })
+      const result = spawnSync('bun', ['scripts/test-heavy.ts', '--', 'bun', ...runArgs], {
+        stdio: 'inherit',
+      })
       lease('release')
       if (result.status === 0) break
       let loadOnly = false
@@ -123,7 +138,9 @@ outer: for (let round = 0; round < rounds; round += 1) {
         console.log(`[matrix] round ${round} ${arm} ${scale}x failed on load; retrying`)
         continue
       }
-      console.error(`[matrix] round ${round} ${arm} ${scale}x FAILED (exit ${result.status}); see ${out}`)
+      console.error(
+        `[matrix] round ${round} ${arm} ${scale}x FAILED (exit ${result.status}); see ${out}`,
+      )
       failed = true
       break outer
     }

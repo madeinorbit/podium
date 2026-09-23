@@ -28,15 +28,15 @@ import type { Arm, ArmHandle } from '../../shared/src/arm'
 import {
   CommitLogContext,
   currentCommitLog,
+  type RowActions,
   RowActionsContext,
+  type RowProps,
   RowShell,
   useRowActions,
-  type RowActions,
-  type RowProps,
 } from '../../shared/src/row-shell'
+import type { ScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
 import type { ArmStats } from '../../shared/src/stats'
-import type { ScenarioEngine } from '../../shared/src/scenarios'
 import { oracleSnapshot, rowViewsFromStore } from '../src/oracle/index'
 
 /** Rows drawn: about one window of the arms' lists (17 at 1600×1000), plus
@@ -80,7 +80,11 @@ export function readPlant(): NoopPlant {
 }
 
 /** `mustDraw`: rows drawn even when outside the first window (the library's click targets). */
-export function noopArmFor(boot: ScenarioEngine, mustDraw: readonly string[], plant: NoopPlant = null): Arm {
+export function noopArmFor(
+  boot: ScenarioEngine,
+  mustDraw: readonly string[],
+  plant: NoopPlant = null,
+): Arm {
   return {
     create(source, locals): ArmHandle {
       let redraw = (): void => {}
@@ -127,7 +131,9 @@ export function noopArmFor(boot: ScenarioEngine, mustDraw: readonly string[], pl
                 createElement(
                   RowActionsContext.Provider,
                   { value: NOOP_ACTIONS },
-                  rows.map((row) => createElement(RowShell, { key: row.id, row, component: NoopRow })),
+                  rows.map((row) =>
+                    createElement(RowShell, { key: row.id, row, component: NoopRow }),
+                  ),
                 ),
               ),
             )
