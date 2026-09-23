@@ -415,11 +415,18 @@ export class HandPool {
     }
   }
 
-  /** Handler 2: a row that left gives up its cells and record, and its listeners hear once. */
+  /**
+   * Handler 2: an issue that entered or left the pool is news to its row's
+   * listeners — no cell of it may exist to say so (a row evicted and re-added
+   * lost its cells on the way out) — and a row that left gives up its cells
+   * and record.
+   */
   private release(delta: Delta): void {
     switch (delta.kind) {
       case 'row': {
-        if (!delta.membership || this.tables[delta.entity].has(delta.id)) return
+        if (!delta.membership) return
+        if (delta.entity === 'issue') this.changedIds.add(delta.id)
+        if (this.tables[delta.entity].has(delta.id)) return
         this.stats.counters.rowsRemoved += 1
         this.records[delta.entity].delete(delta.id)
         if (delta.entity !== 'issue') return
@@ -428,7 +435,6 @@ export class HandPool {
           cells.dispose()
           this.issues.delete(delta.id)
         }
-        this.changedIds.add(delta.id)
         return
       }
       case 'selection':

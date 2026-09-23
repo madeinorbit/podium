@@ -308,20 +308,29 @@ describe('ingest', () => {
     const r = rig()
     try {
       const { pool } = r.handle
-      const byRepo = new Map<string, string[]>()
-      for (const lane of corpus.sliceWorktrees)
-        if (lane.repoId) byRepo.set(lane.repoId, [...(byRepo.get(lane.repoId) ?? []), lane.path])
-      const [repoId, paths] = [...byRepo].find(([, list]) => list.length > 1)!
-      const prefix = corpus.sliceWorktrees.find((lane) => lane.repoId === repoId)!.prefix
-      expect(pool.record('repo', repoId)?.prefix).toBe(prefix)
-      for (const [i, path] of paths.entries()) {
+      // The 1x fixture gives each repo one lane; the live feed adds root lanes. Add a second.
+      const lane = corpus.sliceWorktrees.find((candidate) => candidate.repoId)!
+      const repoId = lane.repoId!
+      const second = { ...lane, path: `${lane.path}/.worktrees/second` }
+      const issue = corpus.sliceIssues.find((candidate) => candidate.repoId === repoId)!
+      const ref = pool.view(issue.id)?.displayRef
+      expect(ref).toBe(`${lane.prefix}-${issue.seq}`)
+      const refs: (string | undefined)[] = []
+      const off = pool.subscribe(issue.id, () => refs.push(pool.view(issue.id)?.displayRef))
+      r.push({ type: 'update', rows: [{ kind: 'worktree', id: second.path, value: second }] })
+      // The newest lane holds the repo; removing it first makes the other take over.
+      const holder = pool.tables.repo.get(repoId)
+      expect(holder).toBe(pool.tables.worktree.get(second.path))
+      for (const [i, path] of [second.path, lane.path].entries()) {
         r.push({ type: 'update', rows: [{ kind: 'worktree', id: path, value: undefined }] })
         expect(pool.tables.worktree.has(path)).toBe(false)
-        expect(pool.tables.repo.has(repoId), `after lane ${i + 1} of ${paths.length}`).toBe(
-          i < paths.length - 1,
-        )
+        expect(pool.tables.repo.has(repoId), `after lane ${i + 1} of 2`).toBe(i === 0)
       }
+      off()
+      // The prefix held while one lane was left, and went with the last.
+      expect(refs).toEqual([`#${issue.seq}`])
       expect(pool.records.repo.has(repoId)).toBe(false)
+      expect(r.handle.snapshot()).toEqual(r.handle.rebuildFromScratch())
     } finally {
       r.dispose()
     }
