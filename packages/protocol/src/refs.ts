@@ -197,6 +197,45 @@ export function resolveSessionIdentifier<T extends { sessionId: SessionId; displ
 }
 
 /**
+ * What the SERVER says a caller-supplied session identifier names (POD-4637).
+ *
+ * A short id (`214a3887`) cannot be answered by a client: the prefix rule is
+ * the CLI's (POD-4536), it counts sessions the client may not hold, and a
+ * second matcher in each client would drift from it. Links therefore ask the
+ * server through `sessions.resolve` and get one of three answers — never a
+ * silent miss that a screen then renders as "not here yet".
+ */
+export type SessionIdentifierResolution =
+  | { kind: 'session'; sessionId: SessionId }
+  /** More than one readable session starts with the prefix; `message` is the
+   *  CLI's own refusal text, candidates included. */
+  | { kind: 'ambiguous'; prefix: string; candidates: SessionId[]; message: string }
+  /** Nothing readable matches — nonexistent and invisible are one answer. */
+  | { kind: 'absent' }
+
+const UUID_TEMPLATE = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
+
+/**
+ * Could this link value only be a SHORT session id or a birth ref — something a
+ * client must ask the server about rather than look up?
+ *
+ * A proper prefix of the canonical lowercase uuid shape, or `PREFIX-seq-LETTER`
+ * / `PREFIX-DRAFT-n`. A full uuid is NOT: a full id may name an optimistic spawn
+ * the server has not confirmed yet, and it keeps its adopt-then-wait path.
+ * This is a SHAPE test, not a matcher — it decides who to ask, never the answer.
+ */
+export function isShortSessionIdentifier(value: string): boolean {
+  if (parseSessionRef(value)) return true
+  if (value.length === 0 || value.length >= UUID_TEMPLATE.length) return false
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i)
+    const hex = (c >= 48 && c <= 57) || (c >= 97 && c <= 102)
+    if (UUID_TEMPLATE[i] === '-' ? value[i] !== '-' : !hex) return false
+  }
+  return true
+}
+
+/**
  * Any ref token (issue or session). Session forms are tried first so that the
  * `PREFIX-seq-LETTER` and `PREFIX-DRAFT-n` shapes are not misread as an issue.
  */

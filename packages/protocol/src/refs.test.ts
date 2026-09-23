@@ -9,6 +9,7 @@ import {
   formatSessionRef,
   formatShort,
   indexForLetter,
+  isShortSessionIdentifier,
   isValidPrefix,
   letterForIndex,
   parseAnyRef,
@@ -265,5 +266,26 @@ describe('SELF_REF_RULE', () => {
     expect(note).toContain('POD-389')
     expect(note).toContain('offer message')
     expect(note).toContain('this issue')
+  })
+})
+
+describe('isShortSessionIdentifier (POD-4637)', () => {
+  it('is true for a proper prefix of a uuid and for birth refs', () => {
+    for (const v of ['2', '214a', '214a3887', '214a3887-', '214a3887-6146', 'POD-12-A', 'POD-DRAFT-3']) {
+      expect(isShortSessionIdentifier(v), v).toBe(true)
+    }
+  })
+  it('is false for a full uuid, empty, non-hex, uppercase, and misplaced dashes', () => {
+    for (const v of [
+      '214a3887-6146-4a1d-9c3e-0123456789ab',
+      '',
+      'ghost',
+      's1',
+      '214A3887',
+      '214a-3887',
+      'POD-12',
+    ]) {
+      expect(isShortSessionIdentifier(v), v).toBe(false)
+    }
   })
 })

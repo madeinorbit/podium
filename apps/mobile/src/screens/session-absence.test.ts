@@ -16,7 +16,14 @@
 import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SESSION_ABSENCE, sessionAbsence, sessionAbsenceShowsLoader } from './session-absence'
+import {
+  SESSION_ABSENCE,
+  SESSION_LINK_RESOLVING,
+  SESSION_NOT_FOUND,
+  sessionAbsence,
+  sessionAbsenceShowsLoader,
+  sessionLinkAbsence,
+} from './session-absence'
 
 const ID = asSessionId('sess-1')
 const NO_EXIT = () => undefined
@@ -64,5 +71,37 @@ describe('why a session is not on screen', () => {
     for (const state of ['present', 'not-visible', 'removed', 'pending'] as const) {
       expect(SESSION_ABSENCE[state].title.length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('what the server said about the link (POD-4637)', () => {
+  const pending = SESSION_ABSENCE.pending
+
+  it('a short id being asked about is "opening", never "not here yet"', () => {
+    expect(sessionLinkAbsence(pending, { kind: 'resolving' }, true)).toBe(SESSION_LINK_RESOLVING)
+  })
+
+  it('a full id being asked about keeps the pending copy — it may be arriving', () => {
+    expect(sessionLinkAbsence(pending, { kind: 'resolving' }, false)).toBe(pending)
+  })
+
+  it('absent on the server is not found, for short and full ids alike', () => {
+    expect(sessionLinkAbsence(pending, { kind: 'absent' }, true)).toBe(SESSION_NOT_FOUND)
+    expect(sessionLinkAbsence(pending, { kind: 'absent' }, false)).toBe(SESSION_NOT_FOUND)
+  })
+
+  it('ambiguous carries the server message as the body', () => {
+    const absence = sessionLinkAbsence(
+      pending,
+      { kind: 'ambiguous', prefix: '2', candidates: [], message: 'the cli text' },
+      true,
+    )
+    expect(absence.state).toBe('ambiguous')
+    expect(absence.body).toBe('the cli text')
+  })
+
+  it('a settled replica answer is kept over the server', () => {
+    const removed = SESSION_ABSENCE.removed
+    expect(sessionLinkAbsence(removed, { kind: 'absent' }, true)).toBe(removed)
   })
 })

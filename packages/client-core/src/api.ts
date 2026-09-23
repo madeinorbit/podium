@@ -45,6 +45,7 @@ import type {
   HarnessDescriptorWire,
   LockWire,
   ModelChoiceWire,
+  SessionIdentifierResolution,
   SyncChangesSinceResult,
 } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -211,6 +212,10 @@ export interface PodiumClientApi {
       { ok: boolean; reason?: string; worktreeFreed?: boolean; deferredKill?: boolean }
     >
     resurrect: ApiMutation<{ sessionId: SessionId }, { ok: boolean; reason?: string }>
+    /** What a session LINK names — full id, short id prefix or birth ref —
+     *  through the server's one rule (POD-4637). Links never prefix-match
+     *  client-side: the CLI's rule counts sessions a client may not hold. */
+    resolve: ApiQuery<{ identifier: string }, SessionIdentifierResolution>
   }
   snoozes: {
     set: ApiMutation<WithMutationId<{ sessionId: SessionId; until: string | null }>>

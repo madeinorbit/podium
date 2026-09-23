@@ -62,6 +62,7 @@ import type {
   SessionId,
 } from '@podium/model'
 import { asUserId } from '@podium/model'
+import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { PodiumClientApi } from '../api'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
@@ -84,6 +85,8 @@ import {
   routeDefaults,
 } from '../ui-state'
 import {
+  allTabIds,
+  closeTab,
   openTab,
   reposToViews,
   type WorkspaceKey,
@@ -110,6 +113,7 @@ import {
   workspaceKeyForState,
   workspaceMirrorPatch,
   workspaceUiSnapshot,
+  workspacesPatch,
   workspaceWritePatch,
 } from './state'
 import {
@@ -306,6 +310,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Set by destroy(). The state choke point refuses everything after it, so a
    *  superseded principal's late callback cannot reach any consumer. */
   private destroyed = false
+  /** The short-id pane link awaiting the server's answer (POD-4637); a later
+   *  pane navigation supersedes it, so a slow answer never yanks the view. */
+  private pendingPaneLink: string | null = null
   private applyingHydratedUi = false
   /** > 0 while {@link batch} is coalescing applies into one snapshot. */
   private batchDepth = 0
@@ -805,6 +812,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
     // Normalize the URL through the same owner that hydrates and flushes state.
     this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
+    // A cold `?pane=<short id>` link: onRouteChanged never saw it (the route was
+    // read at construction), so ask the server here.
+    this.resolvePaneLink(this.router.current().pane)
   }
 
   /** Tear down everything start() armed. Idempotent; the runtime can re-start
@@ -997,6 +1007,56 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.apply(workspaceMirrorPatch(workspaceFor(this.state, key)))
   }
 
+  /**
+   * A SHORT SESSION ID IN A PANE LINK (POD-4637).
+   *
+   * The pane is adopted as-is first, like every pane — but a short id or birth
+   * ref can never become a session row, so without this the tab named nothing
+   * and the link silently opened nothing. The SERVER answers, through the CLI's
+   * own rule (`sessions.resolve`); no client matches prefixes. A session answer
+   * rewrites the link to its full id and the ordinary full-id path opens it;
+   * ambiguous and absent SAY so. Either way the prefix tab goes.
+   *
+   * A full id never asks: it may be an optimistic spawn the server has not
+   * confirmed, and that keeps its adopt-then-wait path. An unreachable server
+   * leaves the adopted tab to the prune grace, as for any unknown pane.
+   */
+  private resolvePaneLink(pane: string | null | undefined): void {
+    if (!pane || !isShortSessionIdentifier(pane)) {
+      this.pendingPaneLink = null
+      return
+    }
+    if (this.state.sessions.some((session) => session.sessionId === pane)) return
+    this.pendingPaneLink = pane
+    void Promise.resolve()
+      .then(() => this.api.sessions.resolve.query({ identifier: pane }))
+      .then(
+        (answer) => this.adoptPaneLinkAnswer(pane, answer),
+        (error: unknown) => log.debug('pane link resolve failed', { pane, error }),
+      )
+  }
+
+  private adoptPaneLinkAnswer(pane: string, answer: SessionIdentifierResolution): void {
+    if (this.destroyed || this.pendingPaneLink !== pane) return
+    this.pendingPaneLink = null
+    if (answer.kind === 'session') {
+      const route = this.router.current()
+      this.router.replace({ ...route, view: 'workspace', pane: answer.sessionId })
+    } else {
+      const detail =
+        answer.kind === 'ambiguous' ? answer.message : `no session matches '${pane}'`
+      this.notices.error(`Couldn't open session link — ${detail}`)
+    }
+    this.apply(
+      workspacesPatch(this.state, (ws) => (allTabIds(ws).includes(pane) ? closeTab(ws, pane) : ws)),
+    )
+    // A COLD link seeds `paneA` from the URL before any layout holds it, so no
+    // tab closed above; re-derive the scalars from the layout on screen.
+    if (this.state.paneA === pane) {
+      this.apply(workspaceMirrorPatch(workspaceFor(this.state, workspaceKeyForState(this.state))))
+    }
+  }
+
   /** Open a tab in the workspace a navigation is landing in — `selection` is the
    *  selected issue/worktree AFTER the navigation, which may not be the one on
    *  screen yet. */
@@ -1118,6 +1178,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         st.sessions.some((s) => s.cwd === route.worktree || s.cwd.startsWith(`${route.worktree}/`))
       if (canShow) patch.selectedWorktree = route.worktree
     }
+    if (route.pane !== prev?.pane) this.resolvePaneLink(route.pane)
     if (route.pane && route.pane !== prev?.pane && route.pane !== st.paneA) {
       // A deep-linked pane is an OPEN, so the workspace it lands in gains the
       // tab; the mirror would otherwise erase it on the next layout write.

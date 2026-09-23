@@ -22,7 +22,11 @@ import type {
   TranscriptItem,
   MachineId,
 } from '@podium/model'
-import { parseSessionRef, resolveSessionIdentifier } from '@podium/protocol'
+import {
+  parseSessionRef,
+  resolveSessionIdentifier,
+  type SessionIdentifierResolution,
+} from '@podium/protocol'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type { EventsRepository } from '../../store/events'
 import type { ReadWatermarksRepository } from '../../store/read-watermarks'
@@ -208,35 +212,72 @@ export class SessionReadToolkit {
     identifier: string,
     all: readonly SessionFacts[],
   ): Promise<SessionFacts | undefined> {
+    const match = await this.matchFacts(identifier, all)
+    if (match.kind === 'ambiguous') {
+      throw new Error(ambiguousSessionPrefixMessage(identifier, match.candidates))
+    }
+    return match.kind === 'session' ? match.facts : undefined
+  }
+
+  /** {@link resolveFacts}' rule with the ambiguous outcome as a VALUE, so a link
+   *  resolver can say "ambiguous" without parsing an error string (POD-4637).
+   *  There is one rule; the throwing form above is this plus a throw. */
+  private async matchFacts(
+    identifier: string,
+    all: readonly SessionFacts[],
+  ): Promise<
+    | { kind: 'session'; facts: SessionFacts }
+    | { kind: 'ambiguous'; candidates: SessionId[] }
+    | { kind: 'absent' }
+  > {
     const direct = all.find((session) => session.sessionId === identifier)
-    if (direct) return direct
+    if (direct) return { kind: 'session', facts: direct }
     // Unambiguous id PREFIX (POD-4536) — the short id the UI shows. Exact first
     // so a full uuid never scans; a prefix matching exactly one session resolves,
-    // several throws naming the candidates (never silently picks), none falls
-    // through to the birth-ref / issue-ref arms below.
+    // several is ambiguous naming the candidates (never silently picks), none
+    // falls through to the birth-ref / issue-ref arms below.
     if (identifier) {
       const prefixed = all.filter((session) => session.sessionId.startsWith(identifier))
-      if (prefixed.length === 1) return prefixed[0]
+      if (prefixed.length === 1 && prefixed[0]) return { kind: 'session', facts: prefixed[0] }
       if (prefixed.length > 1) {
-        throw new Error(
-          ambiguousSessionPrefixMessage(
-            identifier,
-            prefixed.map((s) => s.sessionId),
-          ),
-        )
+        return { kind: 'ambiguous', candidates: prefixed.map((s) => s.sessionId) }
       }
     }
     const parsed = parseSessionRef(identifier)
-    if (!parsed) return undefined
+    if (!parsed) return { kind: 'absent' }
     const candidates = all.filter((session) =>
       parsed.letter !== undefined
         ? session.refLetter === parsed.letter
         : session.refDraft === parsed.draft,
     )
-    if (candidates.length === 0) return undefined
+    if (candidates.length === 0) return { kind: 'absent' }
     const wired = await this.deps.sessionsById(candidates.map((c) => c.sessionId))
     const hit = resolveSessionIdentifier(identifier, wired)
-    return hit ? all.find((session) => session.sessionId === hit.sessionId) : undefined
+    const facts = hit ? all.find((session) => session.sessionId === hit.sessionId) : undefined
+    return facts ? { kind: 'session', facts } : { kind: 'absent' }
+  }
+
+  /**
+   * WHAT A SESSION LINK NAMES (POD-4637) — the web `?pane=` link and the phone
+   * session route ask this instead of matching prefixes themselves, so a link
+   * and `podium session status` can never disagree about a short id.
+   *
+   * A SESSION identifier only: unlike {@link resolveTarget} it does not fall back
+   * to an issue ref, because a session link naming an issue is a wrong link, not
+   * a request for "that issue's best session". Visibility is the caller's gate
+   * (the tRPC arm filters by the reader), since facts carry none.
+   */
+  async resolveIdentifier(identifier: string): Promise<SessionIdentifierResolution> {
+    const match = await this.matchFacts(identifier, this.deps.sessionFacts())
+    if (match.kind === 'session') return { kind: 'session', sessionId: match.facts.sessionId }
+    if (match.kind === 'absent') return match
+    const candidates = [...match.candidates].sort()
+    return {
+      kind: 'ambiguous',
+      prefix: identifier,
+      candidates,
+      message: ambiguousSessionPrefixMessage(identifier, candidates),
+    }
   }
 
   /**

@@ -17,9 +17,14 @@
  */
 import { type ReferentState, resolveReferent } from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model'
+import type { SessionIdentifierResolution } from '@podium/protocol'
+
+/** The replica's four answers, plus what the SERVER said about a link the
+ *  replica could not answer (POD-4637). */
+export type SessionAbsenceState = ReferentState | 'resolving' | 'ambiguous' | 'not-found'
 
 export interface SessionAbsence {
-  readonly state: ReferentState
+  readonly state: SessionAbsenceState
   readonly title: string
   readonly body: string
 }
@@ -66,7 +71,58 @@ export function sessionAbsence(
   return SESSION_ABSENCE[resolution.state]
 }
 
+/**
+ * THE LINK'S ANSWER (POD-4637). The replica can only say "pending" about an id
+ * it does not hold — and for a short id (`/session/214a3887`) that meant "not
+ * here yet" about a live session, forever. When the replica says pending, the
+ * server's answer (`useSessionLink`) decides instead:
+ *
+ *  - still asking about a SHORT id ⇒ "Opening session…", never "not here yet";
+ *    a full id keeps the pending copy while asking, since it may be arriving;
+ *  - ambiguous ⇒ says so, with the CLI's own message naming the candidates;
+ *  - absent ⇒ "Session not found." — the server is the authority.
+ *
+ * A settled replica answer (deleted, no access) is more specific than the
+ * server's and is kept. A `session` answer navigates, so it renders as pending.
+ */
+export function sessionLinkAbsence(
+  replica: SessionAbsence,
+  link: SessionLinkState,
+  shortId: boolean,
+): SessionAbsence {
+  if (replica.state !== 'pending') return replica
+  switch (link.kind) {
+    case 'resolving':
+      return shortId ? SESSION_LINK_RESOLVING : replica
+    case 'ambiguous':
+      return { state: 'ambiguous', title: 'Several sessions match this link.', body: link.message }
+    case 'absent':
+      return SESSION_NOT_FOUND
+    default:
+      return replica
+  }
+}
+
+export const SESSION_LINK_RESOLVING: SessionAbsence = {
+  state: 'resolving',
+  title: 'Opening session…',
+  body: '',
+}
+
+export const SESSION_NOT_FOUND: SessionAbsence = {
+  state: 'not-found',
+  title: 'Session not found.',
+  body: 'No session you can see matches this link.',
+}
+
+/** What the server said about the route's id; `idle` when nobody asked. */
+export type SessionLinkState =
+  | { kind: 'idle' }
+  | { kind: 'resolving' }
+  | SessionIdentifierResolution
+
 /** Motion is licensed by a real spawn in flight, not absence by itself. */
 export function sessionAbsenceShowsLoader(absence: SessionAbsence, spawnPending: boolean): boolean {
+  if (absence.state === 'resolving') return true
   return absence.state === 'pending' && spawnPending
 }

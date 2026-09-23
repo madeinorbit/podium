@@ -2,7 +2,7 @@ import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { isDraftAgentVessel, sessionTitle } from '@podium/client-core/viewmodels'
 import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
+import { issueDisplayRef, isShortSessionIdentifier } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MoreVertical, SquareTerminal } from '../components/icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -29,7 +29,8 @@ import { issueAgentKind, issueAgentLabel, modelLabel } from '../lib/agent-models
 import type { MobileTrpc } from '../client/trpc'
 import { hasSessionBackTarget, sessionBackTarget, sessionHref } from '../lib/session-route'
 import { color } from '../theme/theme'
-import { sessionAbsence, sessionAbsenceShowsLoader } from './session-absence'
+import { sessionAbsence, sessionAbsenceShowsLoader, sessionLinkAbsence } from './session-absence'
+import { useSessionLink } from './session-link'
 
 const WORK_STATES: (WorkState | null)[] = [
   'planning',
@@ -75,6 +76,15 @@ export function SessionScreen() {
   const observedSpawnPrompt = useSpawnPrompt(sessionId)
   const issue = useIssue(session?.issueId)
   const booting = useBooting()
+  // A short id or birth ref in the route is answered by the server (POD-4637);
+  // a `session` answer is the full id this route should have named.
+  const link = useSessionLink(rawSessionId, { present: session !== undefined, spawnPending })
+  const resolvedSessionId = link.kind === 'session' ? link.sessionId : undefined
+  useEffect(() => {
+    if (resolvedSessionId && resolvedSessionId !== sessionId) {
+      router.replace(sessionHref(resolvedSessionId, backTarget))
+    }
+  }, [backTarget, resolvedSessionId, router, sessionId])
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [workMenuOpen, setWorkMenuOpen] = useState(false)
@@ -209,7 +219,11 @@ export function SessionScreen() {
     // state is terminal copy. Only the genuinely pending state moves: removed
     // and not-visible are settled facts, so animating either would imply that
     // waiting can change the answer.
-    const absence = sessionAbsence(sessionId, session, (id) => replica.exitKind?.('session', id))
+    const absence = sessionLinkAbsence(
+      sessionAbsence(sessionId, session, (id) => replica.exitKind?.('session', id)),
+      link,
+      rawSessionId !== undefined && isShortSessionIdentifier(rawSessionId),
+    )
     return (
       <Screen title="Session" onBack={goBack} safeBottom>
         <BootstrapCrossfade resolved={!booting} placeholder={<DetailSkeleton />}>

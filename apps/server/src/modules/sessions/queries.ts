@@ -20,11 +20,13 @@
  */
 
 import { asUserId, SessionIdField, type SessionId } from '@podium/model'
+import type { SessionIdentifierResolution } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { mayReadOwned } from '../../issue-authz'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
+import { ambiguousSessionPrefixMessage } from './session-access'
 
 const q = defineQuery<FamilyState>()
 
@@ -58,6 +60,27 @@ async function filterAsync<T>(
 ): Promise<T[]> {
   const verdicts = await Promise.all(items.map(keep))
   return items.filter((_item, index) => verdicts[index] === true)
+}
+
+export async function resolveReadableIdentifier(
+  state: FamilyState,
+  identifier: string,
+): Promise<SessionIdentifierResolution> {
+  const match = await state.modules.readToolkit.resolveIdentifier(identifier)
+  if (match.kind === 'absent') return match
+  if (match.kind === 'session') {
+    return (await mayReadSession(state, match.sessionId)) ? match : { kind: 'absent' }
+  }
+  const readable = await filterAsync(match.candidates, (id) => mayReadSession(state, id))
+  const only = readable[0]
+  if (readable.length === 1 && only) return { kind: 'session', sessionId: only }
+  if (readable.length === 0) return { kind: 'absent' }
+  return {
+    kind: 'ambiguous',
+    prefix: match.prefix,
+    candidates: readable,
+    message: ambiguousSessionPrefixMessage(match.prefix, readable),
+  }
 }
 
 export const SESSION_QUERIES = {
@@ -106,6 +129,14 @@ export const SESSION_QUERIES = {
    *  event-logged by the toolkit. */
   status: q(z.object({ ref: z.string() }), async (s, input) =>
     await s.modules.readToolkit.status(input.ref, s.caller.actorSessionId ?? 'operator'),
+  ),
+  /** WHAT A SESSION LINK NAMES (POD-4637): a full id, a short id prefix or a
+   *  birth ref, through the CLI's own rule. A link on the web or the phone asks
+   *  this rather than matching a prefix client-side. Unreadable matches are
+   *  dropped BEFORE counting, so a hidden session neither resolves nor makes a
+   *  readable one ambiguous — either would be an existence oracle (D20.2). */
+  resolve: q(z.object({ identifier: z.string().min(1).max(200) }), async (s, input) =>
+    await resolveReadableIdentifier(s, input.identifier),
   ),
   read: q(
     z.object({
