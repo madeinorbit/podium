@@ -10,8 +10,9 @@
  * - `heartbeat`: lastActiveAt bump on the scenario library's heartbeat
  *   target, a session on a row the worklist never shows (methodology #1).
  * - `rename`: title dual-write on a DRAWN open root (#4).
- * - `stagemove`: stage dual-write (open → done/tucked) on a fresh DRAWN
- *   childless open root per sample (#5).
+ * - `stagemove`: stage dual-write (open → done/tucked) on a DRAWN childless
+ *   open root (#5); the next `prepare` reopens it untimed (its server rows
+ *   restored), so every sample is the same move of the same row.
  * - `clock`: advance the clock 60 s with no row change, through the runtime's
  *   own tick path (the control derives from the engine clock) and on the
  *   locals channel (round-three arms); bands re-derive from the new now (#8).
@@ -28,7 +29,7 @@
  * `FIRST_WINDOW_ROWS` rows of the list as it stands before the change (never
  * an arm's own draw order), pinned rows excluded. The rules are the scenario
  * library's (`pickTargets`): the rename takes the first open human root with
- * children; each stage move the first childless open root (`childlessRoot`);
+ * children; the stage move the first childless open root (`childlessRoot`);
  * each click the first row neither rule wants, then any. Before every write
  * the page asserts the target is mounted in THIS arm and throws if not, so
  * the run FAILS instead of recording a zero. `prepare` picks (untimed, before
@@ -85,6 +86,7 @@ import {
   applyStageMove,
   applyTitleRename,
   type ScenarioEngine,
+  upsert,
 } from '../../shared/src/scenarios'
 import type { SliceLocals } from '../../shared/src/slice-types'
 import { oracleSnapshot, type RowViews, rowViewsFromStore } from '../src/oracle/index'
@@ -151,7 +153,7 @@ export interface ProtoPage {
   corpus: ProtoCorpusCounts
   runtimeSha: string
   /** Untimed: pick the next change's target by rule and assert it is drawn. */
-  prepare(name: ProtoScenarioName): string | null
+  prepare(name: ProtoScenarioName): Promise<string | null>
   /** Time the prepared change; throws when none is prepared for `name`. */
   runScenario(name: ProtoScenarioName): Promise<ProtoScenarioResult>
   /** Check mode only: the last change's redraw against the oracle; null otherwise. */
@@ -401,13 +403,18 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     applyTitleRename(boot, id, `${wire.title} (proto ${renames})`)
   }
   const fresh = (id: string): boolean => id !== renameTarget && !moved.has(id) && !clicked.has(id)
-  /** #5: a fresh drawn childless open root every sample (never one a click selected). */
+  /** #5: the first drawn childless open root no click selected. Each move is
+   *  undone before the next change (`prepare`), so every sample moves the same
+   *  row from the same place across the same groups. */
   function nextStageMove(): string {
     const window = firstWindow()
-    const id = window.find((candidate) => fresh(candidate) && rules.childlessRoot(candidate))
+    const id = window.find(
+      (candidate) =>
+        candidate !== renameTarget && !clicked.has(candidate) && rules.childlessRoot(candidate),
+    )
     if (id === undefined) {
       throw new Error(
-        `[proto] stagemove: no fresh childless open root in the first window ${window.join(',')}`,
+        `[proto] stagemove: no unclicked childless open root in the first window ${window.join(',')}`,
       )
     }
     return id
@@ -496,12 +503,21 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
         return { target: renameTarget as string, row: true, dispatch: rename }
       case 'stagemove': {
         const id = nextStageMove()
+        // Server truth before the move, for the untimed reopen in the next `prepare`.
+        const wire = boot.cache.read('issue', id)?.value
+        const projection = boot.cache.read('issueProjection', id)?.value
+        if (wire === undefined) throw new Error(`[proto] stagemove: ${id} missing from the cache`)
         return {
           target: id,
           row: true,
           dispatch: () => {
             moved.add(id)
             applyStageMove(boot, id)
+            reopen = () =>
+              boot.replica.batch(() => {
+                upsert(boot, 'issue', id, wire)
+                if (projection !== undefined) upsert(boot, 'issueProjection', id, projection)
+              })
           },
         }
       }
@@ -529,8 +545,20 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     }
   }
 
-  function prepare(name: ProtoScenarioName): string | null {
+  /** The last stage move's undo: its row's server truth restored, untimed. */
+  let reopen: (() => void) | null = null
+
+  async function prepare(name: ProtoScenarioName): Promise<string | null> {
     if (running) throw new Error('[proto] prepare during a running change')
+    if (reopen !== null) {
+      // Put the moved row back where it was (same server rows, so the same
+      // place in the list) and settle, so every stage move is the same move of
+      // the same drawn row and the window never runs out of targets.
+      const undo = reopen
+      reopen = null
+      undo()
+      await settleQuiet()
+    }
     const next = planFor(name)
     if (next.row && next.target !== null) assertDrawn(name, next.target)
     plan = {
@@ -668,9 +696,7 @@ export function mountStub(arm: string, reason: string, runtimeSha: string): void
     scale: readScale(),
     corpus: { issues: 0, sessions: 0, repos: 0, worktrees: 0, rows: 0 },
     runtimeSha,
-    prepare: () => {
-      throw new Error(`[proto] ${arm} not implemented: ${reason}`)
-    },
+    prepare: () => Promise.reject(new Error(`[proto] ${arm} not implemented: ${reason}`)),
     runScenario: () => Promise.reject(new Error(`[proto] ${arm} not implemented: ${reason}`)),
     verify: () => null,
     firstWindow: () => [],
