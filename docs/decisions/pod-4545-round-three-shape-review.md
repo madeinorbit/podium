@@ -112,7 +112,7 @@ fixture hides F1.
 
 ## 3. Findings
 
-### F1 (FAIL): bucket maintenance is O(bucket), and `repo.issues` is the issue table
+### F1 (FAIL): bucket maintenance is O(bucket), and on live data `repo.issues` is 88% of the issue table
 
 **What.** A bucket is a sorted, frozen array replaced whole on every
 membership change. `pendingSet` seeds a `Set` from the whole current bucket
@@ -197,7 +197,8 @@ views.
 - Ma4 (POD-4568) is set back to `in_progress` and mailed F1 and F2 with the
   lines above.
 - Mb1 (POD-4569) and everything after it stay blocked on this issue.
-- Re-review: re-run §2 at the new SHA (`bun run test:file --
+- Re-review: re-run §2 at the new SHA (`M3_LIVE_EXPORT=<POD-4552 export>
+  M3_PROBE_OUT=<file> bun run test:file --
   packages/worklist-proto/harness/review/m3-shape-probes.test.tsx`, the gate
   command in §2.2, `bun run lint` in the package), check C3/C4/C8, and record
   PASS here with the SHA.
