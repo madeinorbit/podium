@@ -16,13 +16,14 @@
  * an over-commit. #4's commit cell is written to the results file, not
  * asserted; the fence asserts it from Mb1.
  *
- * #1 joined #4 with Ma2 (POD-4566). The heartbeat's session belongs to a
- * closed agent-audience root (`scenarios.ts` `heartbeat`), a row the worklist
- * hides. Once `issue.sessions` is maintained, that hidden row's `activityAt`
- * (max `lastActiveAt` of its sessions) moves on the heartbeat, and the a1
- * list, drawing every issue, redraws it: the fence's over-commit is exactly
- * that hidden row (`oracleVisible: false` in the results cell). Its reads
- * stay asserted.
+ * #1's commit fence is asserted again from Ma3 (POD-4567). The heartbeat's
+ * session belongs to a closed agent-audience root (`scenarios.ts`
+ * `heartbeat`), a row the worklist hides. With Ma2 its `activityAt` moved on
+ * the heartbeat and the a1 list, drawing every resident issue, redrew it (the
+ * fence's over-commit). Now that root and its session are COLD: the
+ * heartbeat relinks a registry entry, the list never drew the row, and the
+ * fence sees zero drawn rows for zero oracle changes. #4's hidden spin-off
+ * (`i933`) is open, so it stays Mb1's.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -45,7 +46,7 @@ installMobxWarnTrap()
 /** The steps a1 runs, and whether the commit fence applies yet. */
 const STEPS: readonly { methodology: string; commits: boolean }[] = [
   { methodology: '#1', commits: true },
-  { methodology: '#4', commits: true },
+  { methodology: '#4', commits: false },
 ]
 
 /** The pool with a load window that never closes on its own: no load lands inside a counted step. */
