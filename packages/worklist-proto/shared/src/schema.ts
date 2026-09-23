@@ -754,6 +754,35 @@ export function longestPrefixPath(probePath: string, roots: Iterable<string>): s
   return best
 }
 
+/**
+ * `normalized` and every ancestor at a `/` boundary, longest first: exactly
+ * the normalized roots {@link longestPrefixPath} matches for this probe (a
+ * root R matches P when P === R or P starts with `R/`). A pool indexes a
+ * member under each of these to find, without a scan, the members a new root
+ * contains (POD-4579; the same walk as the MobX engine's `ancestorPaths`).
+ */
+export function* prefixAncestors(normalized: string): Generator<string> {
+  yield normalized
+  for (let i = normalized.length - 1; i >= 0; i -= 1) {
+    if (normalized[i] === '/') yield normalized.slice(0, i)
+  }
+}
+
+/**
+ * The root KEYS that could match the normalized probe, longest first: each
+ * {@link prefixAncestors} path in every spelling that normalizes to it (`a`
+ * and `a/`). The first one present in the root set is the answer
+ * {@link longestPrefixPath} gives over that set, found by keyed probes
+ * instead of a walk (`schema.test.ts` holds the two equal).
+ */
+export function* prefixCandidates(normalized: string): Generator<string> {
+  for (const path of prefixAncestors(normalized)) {
+    if (normalizeRootPath(path) === path) yield path
+    const slashed = `${path}/`
+    if (normalizeRootPath(slashed) === path) yield slashed
+  }
+}
+
 /** One row of a collapse group: its entity key and its row. */
 export interface CollapseMember {
   readonly id: string

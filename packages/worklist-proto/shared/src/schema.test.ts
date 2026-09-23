@@ -20,6 +20,7 @@ import {
   expectedLazy,
   longestPrefixPath,
   normalizeRootPath,
+  prefixCandidates,
   validateStructure,
   type EntityName,
   type ModelSchema,
@@ -307,6 +308,28 @@ describe('the prefix resolver', () => {
     expect(normalizeRootPath('/repo/')).toBe('/repo')
     expect(normalizeRootPath('/')).toBe('/')
     expect(longestPrefixPath('/repo/src', ['/repo/'])).toBe('/repo/')
+  })
+
+  // POD-4579: the keyed-probe form a pool uses must give the resolver's answer.
+  it('probing prefixCandidates in order finds the root longestPrefixPath picks', () => {
+    // One spelling per root: with both `a` and `a/` present the resolver breaks
+    // the tie by iteration order, which a keyed probe does not share.
+    const pool = ['', '/', '/r', '/r/a/', '/r/a/b', '/r/ab', '/s/', 'rel', 'rel/x']
+    const probes = ['/', '/r', '/r/', '/r/a', '/r/a/b/c', '/r/ab/x', '/r/abc', '/s', '/t', 'rel/x/y', 'relx', '']
+    let seed = 7
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      return seed / 2147483648
+    }
+    for (let round = 0; round < 200; round += 1) {
+      const roots = pool.filter(() => rand() < 0.5)
+      const present = new Set(roots)
+      for (const probe of probes) {
+        const probed =
+          [...prefixCandidates(normalizeRootPath(probe))].find((key) => present.has(key)) ?? null
+        expect(probed, `${probe} in ${JSON.stringify(roots)}`).toBe(longestPrefixPath(probe, roots))
+      }
+    }
   })
 })
 

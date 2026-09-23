@@ -10,30 +10,31 @@
  * incremental result and its own oracle, and no part list is written twice.
  *
  * WHY PARTS. A cell re-runs when something it read changed, so what a part
- * reads is what a change costs. Each relation is split into its REFERENCE
- * (`repoRef`, `originRef`: the foreign key off the own row, a string) and its
- * RESOLUTION (`prefix`, `originId`: the target's presence and fields). A
- * rename re-runs the references, which return the same strings, so no target
- * is read; an origin's rename re-runs only its spin-offs' `originTick`, which
- * reads the origin's parts, never its row. `view` assembles the parts and
- * reads no row.
+ * reads is what a change costs. Each single-valued relation is its own part
+ * (`repoId`, `originId`), read through the relation accessor (`relations.one`:
+ * the engine's forward slot plus the target's presence), never resolved from
+ * the own row (M3 F2): a rename moves no relation slot, so it re-runs neither;
+ * the target's fields are read by the next part (`prefix`, `originTick`). An
+ * origin's rename re-runs only its spin-offs' `originTick`, which reads the
+ * origin's parts, never its row. `view` assembles the parts and reads no row.
  *
  * WHAT a1 DERIVES (inputs per L1b):
  * - own row: `title` (non-draft), `band`, `repoKey`, `pinned`, `sortKey`,
  *   `createdAt`, `seq`, `foldAt`, `dismissed`;
- * - one hop through a declared single-valued relation (`relations.ts`):
- *   `displayRef` (`issue.repo`'s prefix) and `originTick`
- *   (`issue.discoveredFrom`);
+ * - one hop through a declared relation (`relations.ts`): `displayRef`
+ *   (`issue.repo`'s prefix), `originTick` (`issue.discoveredFrom`), and the
+ *   own explicit sessions (`issue.sessions`) for `activityAt` and a draft's
+ *   title;
  * - locals: `selected`, and the clock through deadlines (`band`'s defer
  *   lapse, `closed`'s grace crossing).
  *
  * STUBS UNTIL THE WORKLIST PHASE. The roll-ups over own sessions and
  * children — `phase`, `progressDone`, `progressTotal`, `working`, `asking`,
  * `workingSince` — are Hb3 (POD-4584), and `closed`'s "zero waiting"
- * conjunct reads them (`STUB_WAITING`). The fields that read own sessions
- * (`activityAt`, a draft's title) read `issue.sessions` through the relation
- * accessor, which answers "none" until Ha2 (POD-4579): the rule applied to an
- * empty member set.
+ * conjunct reads them (`STUB_WAITING`). Sessions owned by containment
+ * (`issue.worktree` → `worktree.sessions`, slice §2 R3) join the own sessions
+ * in the worklist phase; `activityAt` and a draft's title read the explicit
+ * ones (`issue.sessions`, maintained since Ha2, POD-4579).
  *
  * Rules are re-expressed from the frozen slice spec
  * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule). No legacy
@@ -45,7 +46,6 @@ import type { RelationReader } from '../../../shared/src/instrument/reads'
 import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
 import type { EntityName } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
-import { relationRef } from './relations'
 
 /** The finished-row grace before the closed fold (spec §3 R-GROUP). */
 export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
@@ -92,11 +92,10 @@ export interface OwnPart {
 export interface IssueParts {
   /** The row-only fields; undefined when the issue is not in the pool. */
   readonly own: OwnPart | undefined
-  readonly repoRef: string | null
+  readonly repoId: string | null
   readonly prefix: string | null
   readonly displayRef: string | undefined
   readonly displayTitle: string | undefined
-  readonly originRef: string | null
   readonly originId: string | null
   readonly originTick: RowOriginTick | null
   readonly activityAt: number
@@ -221,12 +220,18 @@ export function foldAtOf(issue: SliceIssue): string {
   return issue.tuckedAt ?? issue.closedAt ?? issue.updatedAt
 }
 
+/**
+ * A draft's first member: the lowest session id among its explicit sessions.
+ * A bucket has no order (`relations.ts`), and the legacy runtime's is replica
+ * order, which no pool has; the lowest id is the MobX pool's answer too (its
+ * buckets are sorted). Reads the ids, then one session row.
+ */
 function firstMemberOf(input: ViewInputs, id: string): SliceSession | undefined {
+  let first: string | null = null
   for (const sessionId of input.relations.many('issue', id, 'sessions')) {
-    const session = input.session(sessionId)
-    if (session !== undefined) return session
+    if (first === null || sessionId < first) first = sessionId
   }
-  return undefined
+  return first === null ? undefined : input.session(first)
 }
 
 // ------------------------------------------------------------------- parts
@@ -259,15 +264,14 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
       foldAt: foldAtOf(issue),
     }
   },
-  /** The `issue.repo` foreign key off the own row. */
-  repoRef(input, id) {
-    const issue = input.issue(id)
-    return issue === undefined ? null : relationRef('issue', 'repo', issue)
+  /** The issue's repo (`issue.repo`), when it is in the pool. */
+  repoId(input, id) {
+    return input.relations.one('issue', id, 'repo')
   },
   /** The resolved repo's prefix (one hop), or null. */
   prefix(input, _id, self) {
-    const ref = self.repoRef
-    return ref === null ? null : (input.repo(ref)?.prefix ?? null)
+    const repoId = self.repoId
+    return repoId === null ? null : (input.repo(repoId)?.prefix ?? null)
   },
   /** `prefix-seq`, else `#seq` (spec §3 R-SUM). */
   displayRef(_input, _id, self) {
@@ -278,15 +282,9 @@ export const PART_RULES: { readonly [K in PartName]: PartRule<K> } = {
     const issue = input.issue(id)
     return issue === undefined ? undefined : displayTitleOf(issue, firstMemberOf(input, id))
   },
-  /** The `issue.discoveredFrom` edge target off the own row. */
-  originRef(input, id) {
-    const issue = input.issue(id)
-    return issue === undefined ? null : relationRef('issue', 'discoveredFrom', issue)
-  },
-  /** The origin, when it is in the pool. */
-  originId(input, _id, self) {
-    const ref = self.originRef
-    return ref !== null && input.present('issue', ref) ? ref : null
+  /** The spin-off's origin (`issue.discoveredFrom`), when it is in the pool. */
+  originId(input, id) {
+    return input.relations.one('issue', id, 'discoveredFrom')
   },
   /** The ⤷ tick: a flat copy of the origin's parts (spec §3 R-ORIGIN). */
   originTick(input, _id, self) {

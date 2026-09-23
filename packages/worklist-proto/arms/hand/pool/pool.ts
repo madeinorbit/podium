@@ -15,6 +15,16 @@
  * listeners once (`publish`). No handler knows which derived value reads
  * what: the cells recorded that themselves.
  *
+ * RELATIONS (POD-4579, Ha2). Ingest hands every table write to the relation
+ * engine (`relations.ts`), which maintains every declared relation from the
+ * schema and records each relation slot it wrote; the pool turns those into
+ * `relation` deltas, which dirty exactly the cells that read the slot. A
+ * cell reading a relation reads it through `relations` (the fence's wrapper
+ * over the engine), which records the slot, and `one()`'s presence check is
+ * tracked on the target's PRESENCE (`presence`), not its row: a repo's
+ * rename does not re-run the issues that point at it, only the parts that
+ * read its row.
+ *
  * READ PATH. Every table read goes through the reads fence
  * (`reads.wrapTables`) behind a tracked door (`tracked`), every relation read
  * through `reads.wrapRelations`; with the fence disabled both are the raw
@@ -23,14 +33,16 @@
  *
  * STATS (`README.md` has the definitions): `rowsDerived` counts view-cell
  * runs; `notifications` counts commits that changed pool state;
- * `rollupsDerived` and `indexUpdates` stay 0 until the worklist phase and
- * Ha2 add roll-ups and relation buckets. The pool's own counters are in
- * `stats.counters`.
+ * `indexUpdates` counts relation ELEMENTS the engine touched (a bucket
+ * member, a forward entry, a prefix-index entry, a collapse entry), never
+ * slots, so a bucket-sized walk cannot hide behind one count;
+ * `rollupsDerived` stays 0 until the worklist phase. The pool's own counters
+ * are in `stats.counters`.
  */
 
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import { type RowView, sliceRowOf } from '../../../shared/src/row-view'
-import type { EntityName } from '../../../shared/src/schema'
+import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type {
   LocalsKey,
   SliceIssue,
@@ -74,6 +86,8 @@ import {
  */
 export type Delta =
   | ({ readonly kind: 'row' } & RowDelta)
+  /** A relation slot the engine wrote: `relation` is `${entity}.${name}`, keyed by `id`. */
+  | { readonly kind: 'relation'; readonly relation: string; readonly id: string }
   | { readonly kind: 'selection'; readonly to: string | null }
   | { readonly kind: 'clock'; readonly to: number }
 
@@ -190,6 +204,12 @@ export class HandPool {
   readonly graph: CellGraph
   /** Per entity: the cells that read each row slot. */
   readonly rowReaders: TableSet<DepIndex<string>>
+  /** Per entity: the cells that asked whether a row is present (its slot's membership only). */
+  readonly presence: TableSet<DepIndex<string>>
+  /** The cells that read each relation slot, keyed `${entity}.${name}:${id}`. */
+  readonly relationReaders: DepIndex<string>
+  /** The relation engine; derivations read it only through `relations` (the fence). */
+  readonly engine: PoolRelations
   /** The cells that read a table's membership (its id list). */
   readonly membership: DepIndex<EntityName>
   /** The cells that asked whether an issue is the selected one. */
@@ -218,29 +238,45 @@ export class HandPool {
   constructor(
     readonly reads: ReadFence,
     locals: SliceLocals,
+    schema: ModelSchema = SCHEMA,
   ) {
     const graph = new CellGraph()
     this.graph = graph
     this.tables = createTables()
     this.fenced = reads.wrapTables(this.tables)
     this.rowReaders = tablesOf((entity) => new DepIndex<string>(`rows.${entity}`))
+    this.presence = tablesOf((entity) => new DepIndex<string>(`presence.${entity}`))
+    this.relationReaders = new DepIndex<string>('relations')
     this.membership = new DepIndex<EntityName>('membership')
     this.selection = new DepIndex<string>('selection')
     this.clock = new DeadlineClock(graph, locals.coarseNow)
     this.selectedId = locals.selectedIssueId
-    const { fenced, rowReaders } = this
+    const { fenced, rowReaders, presence, relationReaders } = this
     this.tracked = tablesOf((entity) => ({
       get(id: string): unknown {
         graph.track(rowReaders[entity], id)
         return fenced[entity].get(id)
       },
       has(id: string): boolean {
-        graph.track(rowReaders[entity], id)
+        graph.track(presence[entity], id)
         return fenced[entity].has(id)
       },
     }))
     const tracked = this.tracked
-    this.relations = reads.wrapRelations(new PoolRelations(tracked))
+    this.stats = createStats(graph)
+    const stats = this.stats
+    this.engine = new PoolRelations({
+      schema,
+      rows: fenced,
+      roots: this.tables,
+      present: (entity, id) => tracked[entity].has(id),
+      touch: (entity, id) => reads.touch(entity, id, 'get'),
+      read: (relation, id) => graph.track(relationReaders, `${relation}:${id}`),
+      onWrite: (elements) => {
+        stats.indexUpdates += elements
+      },
+    })
+    this.relations = reads.wrapRelations(this.engine)
     this.inputs = {
       relations: this.relations,
       issue: (id) => tracked.issue.get(id) as SliceIssue | undefined,
@@ -255,9 +291,8 @@ export class HandPool {
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
     }
-    this.stats = createStats(graph)
     this.records = tablesOf(() => new Map<string, EntityRecord>())
-    this.target = { read: this.fenced, write: this.tables }
+    this.target = { read: this.fenced, write: this.tables, relations: this.engine }
     this.idsCell = graph.cell<readonly string[]>(
       'ids:issue',
       () => {
@@ -348,10 +383,13 @@ export class HandPool {
   /** One feed publication: ingest all of it, then one commit. */
   apply(event: RowSourceEvent): void {
     const out = ingestOut()
+    this.engine.begin()
     if (event.type === 'replace') reseed(this.target, event.rows, out)
     else for (const record of event.rows) ingestRecord(this.target, record, out)
     this.stats.counters.tableWrites += out.deltas.length
-    this.commit(out.deltas.map((delta) => ({ kind: 'row', ...delta })))
+    const deltas: Delta[] = out.deltas.map((delta) => ({ kind: 'row', ...delta }))
+    for (const write of this.engine.lastWrites) deltas.push({ kind: 'relation', ...write })
+    this.commit(deltas)
   }
 
   /** One locals notification: only the keys it names that the pool uses. */
@@ -378,7 +416,10 @@ export class HandPool {
       this.tables[entity].clear()
       this.records[entity].clear()
       this.rowReaders[entity].clear()
+      this.presence[entity].clear()
     }
+    this.engine.clear()
+    this.relationReaders.clear()
     this.membership.clear()
     this.selection.clear()
     this.clock.clear()
@@ -405,7 +446,13 @@ export class HandPool {
     switch (delta.kind) {
       case 'row':
         this.graph.invalidateKey(this.rowReaders[delta.entity], delta.id)
-        if (delta.membership) this.graph.invalidateKey(this.membership, delta.entity)
+        if (delta.membership) {
+          this.graph.invalidateKey(this.presence[delta.entity], delta.id)
+          this.graph.invalidateKey(this.membership, delta.entity)
+        }
+        return
+      case 'relation':
+        this.graph.invalidateKey(this.relationReaders, `${delta.relation}:${delta.id}`)
         return
       case 'selection': {
         const from = this.selectedId
@@ -444,6 +491,7 @@ export class HandPool {
         }
         return
       }
+      case 'relation':
       case 'selection':
       case 'clock':
         return

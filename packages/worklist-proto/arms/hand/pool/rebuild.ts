@@ -4,7 +4,8 @@
  * incremental state read or written.
  *
  * It replays the snapshot through the pool's own ingest (`tables.ts`) into
- * fresh maps, resolves relations with the same `PoolRelations`, and derives
+ * fresh maps with a fresh relation engine (`PoolRelations`: one replay, so no
+ * history), and derives
  * every row with the same rule table (`views.ts` `PART_RULES` through
  * `directParts`, then `buildRowView`) as the live cells, with the clock and
  * selection read as plain values. Only the memo differs (none here, a cell
@@ -13,14 +14,25 @@
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { sliceRowOf } from '../../../shared/src/row-view'
+import { type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
 import { PoolRelations } from './relations'
 import { createTables, ingestOut, ingestRecord } from './tables'
 import { buildRowView, directParts, type RepoRow, type ViewInputs } from './views'
 
-export function rebuildSnapshot(source: RowSource, locals: LocalsSource): SliceSnapshot {
+export function rebuildSnapshot(
+  source: RowSource,
+  locals: LocalsSource,
+  schema: ModelSchema = SCHEMA,
+): SliceSnapshot {
   const tables = createTables()
-  const target = { read: tables, write: tables }
+  const relations = new PoolRelations({
+    schema,
+    rows: tables,
+    roots: tables,
+    present: (entity, id) => tables[entity].has(id),
+  })
+  const target = { read: tables, write: tables, relations }
   const out = ingestOut()
   const issues = source.snapshot('issue')
   for (const record of source.snapshot('session')) ingestRecord(target, record, out)
@@ -29,7 +41,7 @@ export function rebuildSnapshot(source: RowSource, locals: LocalsSource): SliceS
 
   const { coarseNow, selectedIssueId } = locals.get()
   const inputs: ViewInputs = {
-    relations: new PoolRelations(tables),
+    relations,
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
     session: (id) => tables.session.get(id) as SliceSession | undefined,
     repo: (id) => tables.repo.get(id) as RepoRow | undefined,
