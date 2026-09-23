@@ -527,10 +527,9 @@ describe('browser heartbeats: unrelated and visible (POD-4560)', () => {
       const orderBefore = JSON.stringify(oracleSnapshot(ctx.engine.getSnapshot()).order)
       for (let sample = 0; sample < 3; sample += 1) {
         expect(await changes(() => applyHeartbeat(ctx)), `unrelated #${sample}`).toEqual([])
-        expect(
-          await changes(() => applyHeartbeat(ctx, sessionId)),
-          `visible #${sample}`,
-        ).toEqual([`${issueId}.activityAt`])
+        expect(await changes(() => applyHeartbeat(ctx, sessionId)), `visible #${sample}`).toEqual([
+          `${issueId}.activityAt`,
+        ])
       }
       expect(JSON.stringify(oracleSnapshot(ctx.engine.getSnapshot()).order), 'order').toBe(
         orderBefore,

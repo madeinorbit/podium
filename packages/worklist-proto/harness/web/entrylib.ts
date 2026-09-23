@@ -501,8 +501,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     applyTitleRename(boot, id, `${wire.title} (renamed)`)
   }
   /** Rows another scenario owns for the page: a click never selects them. */
-  const reserved = (id: string): boolean =>
-    id === renameTarget || id === visibleHeartbeat?.issueId
+  const reserved = (id: string): boolean => id === renameTarget || id === visibleHeartbeat?.issueId
   const fresh = (id: string): boolean => !reserved(id) && !moved.has(id) && !clicked.has(id)
   /** #5: the first drawn childless open root no click selected. Each move is
    *  undone before the next change (`prepare`), so every sample moves the same
