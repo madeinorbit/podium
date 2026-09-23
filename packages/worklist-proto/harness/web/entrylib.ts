@@ -965,7 +965,10 @@ export function mountPage(options: MountPageOptions): void {
       const scriptMs = scriptAt
       return {
         ...resultOf(window, strayCommits, null),
+        // All three from navigation, the hold and the engine boot left out.
         actionMs: scriptMs + window.actionMs,
+        drainMs: scriptMs + window.drainMs,
+        frameMs: scriptMs + window.frameMs,
         phases: {
           scriptMs,
           engineMs: engineAt - scriptAt,
