@@ -18,13 +18,18 @@
  *   A `belongsTo` keeps its reference key even while the target is absent
  *   (doc §4.1: an unresolved reference is never an error); `one()` checks
  *   presence, so a re-added target resolves by itself.
- * - `buckets`: an observable map, target key → the sorted, frozen array of
- *   its members' ids (the inverse collection). A bucket write REPLACES the
- *   array, once per action (`flush`), and only when its content changed, so
- *   a computed reading one bucket invalidates at most once per change and
- *   never for a bucket the change did not touch. Buckets are keyed by the
- *   reference, not by the target's presence: a parent evicted and re-added
- *   finds its children where they were (the round-two hand bug).
+ * - `buckets`: an observable map, target key → an observable SET of its
+ *   members' ids (the inverse collection), UNORDERED: a reader that needs an
+ *   order applies it at view time (schema doc §4, audit §7). A move adds or
+ *   deletes ONE element (M3 F1: the old sorted, frozen array was copied and
+ *   sorted whole on every change, 4,575 elements for one new issue on the
+ *   live export). Moves are netted per action and applied once (`flush`), so
+ *   a computed reading one bucket invalidates at most once per change, never
+ *   for a bucket the change did not touch, and not at all when the action's
+ *   moves cancel out. A bucket is created with its first member and deleted
+ *   with its last. Buckets are keyed by the reference, not by the target's
+ *   presence: a parent evicted and re-added finds its children where they
+ *   were (the round-two hand bug).
  * - for a `prefix` link, `under`: normalized path → the members whose source
  *   path is that path or lies inside it. It is the ONLY way a new root finds
  *   the sessions it now owns without a scan (doc §4.3).
@@ -47,7 +52,8 @@
  * READS. Rows are read through the fenced tables (counted). A `prefix` probe
  * asks the RAW table whether each ancestor path is a root (a miss reads no
  * row) and counts the hit. Bucket moves count no row; `indexUpdates` counts
- * the slots they write.
+ * the slots they write, and `bucketElements` (`onElements`) the elements
+ * they add or delete: one per edge moved, whatever the bucket's size.
  *
  * COLD ROWS (POD-4567). With a residency hook, a link's slots for a row that
  * is not resident (a cold source's `forward` entry, a bucket keyed by a cold
@@ -56,16 +62,19 @@
  * a plain slot observes that row's residency atom, and every plain write
  * reports it changed, so the read is tracked like any other. When the row
  * becomes resident (`changed` with the row in its table) its slots move into
- * the observable maps (`promote`), each move one slot written. Nothing moves
- * back: a removed resident row keeps its buckets observable, as before.
+ * the observable maps (`promote`), each move one slot written; a promoted
+ * bucket's members are copied into its observable set once (counted as
+ * elements), in the row's lifetime. Nothing moves back: a removed resident
+ * row keeps its buckets observable, as before.
  *
  * THE READER. `one` = `forward.get` + the target's presence (one counted
- * read: the target); `many` = the bucket (one counted read per member);
- * `size` = the bucket's length (free). Derivations read buckets only through
- * this reader and never resolve a relation themselves.
+ * read: the target); `many` = the bucket's members, unordered (one counted
+ * read per member); `size` = the bucket's size (free). Derivations resolve
+ * every relation through this reader, `one` included (`views.ts`: the row
+ * views' `issue.repo` and `issue.discoveredFrom`), and never themselves.
  */
 
-import { type ObservableMap, observable } from 'mobx'
+import { type ObservableMap, type ObservableSet, observable } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import {
   type BelongsToSpec,
@@ -90,7 +99,7 @@ export interface ReadableTable {
 
 export type ReadableTables = { readonly [E in EntityName]: ReadableTable }
 
-const NONE: readonly string[] = Object.freeze([])
+const NONE: ReadonlySet<string> = Object.freeze(new Set<string>())
 
 function specOf(schema: ModelSchema, from: EntityName, relation: string): RelationSpec {
   const spec = schema[from].relations[relation]
@@ -113,8 +122,9 @@ export function isLinkSpec(spec: RelationSpec): spec is LinkSpec {
  * The target key a `belongsTo` or outgoing `edge` names on `source` (the
  * foreign key; the first edge of the declared type), after the declared
  * membership filter, WITHOUT checking the target is present. Reading it costs
- * the source row only. The row views memo it separately from the resolution
- * (`views.ts`); the engine computes a link's forward key with it.
+ * the source row only. The engine computes a link's forward key with it, and
+ * the from-scratch scan (`enumerate.ts`) its oracle's; derivations never call
+ * it (they read `one`).
  */
 export function relationRef(
   from: EntityName,
@@ -186,7 +196,7 @@ interface Link {
   readonly collection: string
   readonly inputs: readonly string[]
   readonly forward: ObservableMap<string, string>
-  readonly buckets: ObservableMap<string, readonly string[]>
+  readonly buckets: ObservableMap<string, ObservableSet<string>>
   /** `prefix` only: normalized path → members at or under it. */
   readonly under: Map<string, Set<string>> | null
   /** `prefix` only: member → its indexed normalized source path. */
@@ -194,7 +204,7 @@ interface Link {
   /** Forward entries of sources that are not resident (POD-4567). */
   readonly coldForward: Map<string, string>
   /** Buckets keyed by targets that are not resident (POD-4567). */
-  readonly coldBuckets: Map<string, readonly string[]>
+  readonly coldBuckets: Map<string, Set<string>>
 }
 
 /**
@@ -262,8 +272,11 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private readonly outgoing = new Map<EntityName, Link[]>()
   private readonly prefixTargets = new Map<EntityName, Link[]>()
   private readonly collapses = new Map<EntityName, Collapse>()
-  /** Bucket contents moved in this action, flushed once at its end. */
-  private readonly pending = new Map<Link, Map<string, Set<string>>>()
+  /**
+   * Bucket moves of this action, netted (member → added, or deleted), applied
+   * once at its end (`flush`).
+   */
+  private readonly pending = new Map<Link, Map<string, Map<string, boolean>>>()
 
   constructor(options: PoolRelationsOptions) {
     this.schema = options.schema ?? SCHEMA
@@ -300,7 +313,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
             deep: false,
             name: `pool.${from}.${name}`,
           }),
-          buckets: observable.map<string, readonly string[]>(undefined, {
+          buckets: observable.map<string, ObservableSet<string>>(undefined, {
             deep: false,
             name: `pool.${spec.to}.${spec.inverse}`,
           }),
@@ -349,10 +362,10 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   }
 
   size(from: EntityName, id: string, relation: string): number {
-    return this.bucket(from, id, relation).length
+    return this.bucket(from, id, relation).size
   }
 
-  private bucket(from: EntityName, id: string, relation: string): readonly string[] {
+  private bucket(from: EntityName, id: string, relation: string): ReadonlySet<string> {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) {
       specOf(this.schema, from, relation)
@@ -373,11 +386,19 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return this.collapses.get(entity)?.collapsed.has(id) ?? false
   }
 
+  /**
+   * Maintenance only: a copy, in id order (a removed root's members all move;
+   * a released repo row passes to its first remaining lane, deterministically).
+   */
   members(from: EntityName, id: string, relation: string): readonly string[] {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) throw new Error(`[pool] ${from}.${relation} is not a collection`)
-    const pending = this.pending.get(link)?.get(id)
-    return pending !== undefined ? [...pending] : peekBucket(link, id)
+    const members = new Set(peekBucket(link, id))
+    for (const [member, added] of this.pending.get(link)?.get(id) ?? []) {
+      if (added) members.add(member)
+      else members.delete(member)
+    }
+    return [...members].sort()
   }
 
   /** Start an action: forget the previous action's write record. */
@@ -418,29 +439,50 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     }
   }
 
-  /** End of the action: write every bucket this action moved, once. */
+  /**
+   * End of the action: apply every bucket's net moves, once. Each member
+   * added or deleted is one element touched; the rest of the bucket is not
+   * read.
+   */
   flush(): void {
     for (const [link, targets] of this.pending) {
-      for (const [target, members] of targets) {
-        const current = peekBucket(link, target)
-        const next = Object.freeze([...members].sort())
-        if (sameArray(current, next)) continue
+      for (const [target, moves] of targets) {
+        if (moves.size === 0) continue
         // A bucket is written where it lives. An observable one stays
         // observable even once its target is gone (nothing moves back;
         // POD-4568: writing the plain twin left the observable one stale).
         // Only a bucket that does not exist yet is placed by residency.
+        const observed = link.buckets.get(target)
         const plain =
-          !link.buckets.has(target) &&
+          observed === undefined &&
           this.cold !== null &&
           !this.cold.resident(link.spec.to, target)
-        if (plain && this.cold !== null) {
-          if (next.length === 0) link.coldBuckets.delete(target)
-          else link.coldBuckets.set(target, next)
-          this.cold.changed(link.spec.to, target)
-        } else if (next.length === 0) link.buckets.delete(target)
-        else link.buckets.set(target, next)
+        let bucket: Set<string> | ObservableSet<string> | undefined = plain
+          ? link.coldBuckets.get(target)
+          : observed
+        let created = false
+        if (bucket === undefined) {
+          bucket = plain ? new Set<string>() : newBucket(link)
+          created = true
+        }
+        let elements = 0
+        for (const [member, added] of moves) {
+          if (added === bucket.has(member)) continue
+          if (added) bucket.add(member)
+          else bucket.delete(member)
+          elements += 1
+        }
+        if (elements === 0) continue
+        if (bucket.size === 0) {
+          if (plain) link.coldBuckets.delete(target)
+          else link.buckets.delete(target)
+        } else if (created) {
+          if (plain) link.coldBuckets.set(target, bucket as Set<string>)
+          else link.buckets.set(target, bucket as ObservableSet<string>)
+        }
+        if (plain && this.cold !== null) this.cold.changed(link.spec.to, target)
         this.wrote(`${link.collection}:${target}`)
-        this.touched(next.length)
+        this.touched(elements)
       }
     }
     this.pending.clear()
@@ -547,11 +589,11 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     const old = peekForward(link, id)
     if ((old ?? null) === target) return
     if (old !== undefined) {
-      this.pendingSet(link, old).delete(id)
+      this.move(link, old, id, false)
       if (!link.forward.delete(id)) link.coldForward.delete(id)
     }
     if (target !== null) {
-      this.pendingSet(link, target).add(id)
+      this.move(link, target, id, true)
       if (this.cold !== null && !this.cold.resident(link.from, id)) link.coldForward.set(id, target)
       else link.forward.set(id, target)
     }
@@ -640,25 +682,30 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       const bucket = link.coldBuckets.get(id)
       if (bucket === undefined) continue
       link.coldBuckets.delete(id)
-      link.buckets.set(id, bucket)
+      const promoted = newBucket(link)
+      for (const member of bucket) promoted.add(member)
+      link.buckets.set(id, promoted)
       this.wrote(`${link.collection}:${id}`)
+      this.touched(bucket.size)
       moved = true
     }
     if (moved) this.cold.changed(entity, id)
   }
 
-  private pendingSet(link: Link, target: string): Set<string> {
+  /** Record a move of `member` into (`added`) or out of `target`'s bucket, netted. */
+  private move(link: Link, target: string, member: string, added: boolean): void {
     let targets = this.pending.get(link)
     if (targets === undefined) {
       targets = new Map()
       this.pending.set(link, targets)
     }
-    let members = targets.get(target)
-    if (members === undefined) {
-      members = new Set(peekBucket(link, target))
-      targets.set(target, members)
+    let moves = targets.get(target)
+    if (moves === undefined) {
+      moves = new Map()
+      targets.set(target, moves)
     }
-    return members
+    if (moves.get(member) === !added) moves.delete(member)
+    else moves.set(member, added)
   }
 
   private touched(elements: number): void {
@@ -678,17 +725,18 @@ function peekForward(link: Link, id: string): string | undefined {
 }
 
 /** A target's bucket, wherever it lives (maintenance: untracked). */
-function peekBucket(link: Link, target: string): readonly string[] {
+function peekBucket(link: Link, target: string): ReadonlySet<string> {
   return link.buckets.get(target) ?? link.coldBuckets.get(target) ?? NONE
+}
+
+function newBucket(link: Link): ObservableSet<string> {
+  return observable.set<string>(undefined, {
+    deep: false,
+    name: `pool.${link.collection}.bucket`,
+  })
 }
 
 function sameInputs(fields: readonly string[], a: Row, b: Row): boolean {
   for (const field of fields) if (a[field] !== b[field]) return false
-  return true
-}
-
-function sameArray(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false
   return true
 }

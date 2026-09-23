@@ -229,7 +229,10 @@ export function diffRelations(
     const ids = new Set([...tables[from].keys(), ...(extra[from] ?? [])])
     for (const id of ids) {
       for (const [name, spec] of Object.entries(schema[from].relations)) {
-        const got = isLinkSpec(spec) ? live.one(from, id, name) : [...live.many(from, id, name)]
+        // The live buckets are unordered (M3 F1); the scan's are sorted.
+        const got = isLinkSpec(spec)
+          ? live.one(from, id, name)
+          : [...live.many(from, id, name)].sort()
         const want = isLinkSpec(spec) ? scan.one(from, id, name) : [...scan.many(from, id, name)]
         if (JSON.stringify(got) === JSON.stringify(want)) continue
         if (out.length < 12) {

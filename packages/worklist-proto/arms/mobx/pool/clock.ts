@@ -19,8 +19,23 @@
  *
  * `now` is a plain field read inside derivations. It is safe because every
  * answer it produces is paired with an atom that fires when that answer can
- * change (the crossing, or the rewind); this is the one untracked read in
- * `pool/`, and `clock.test.ts` pins both directions.
+ * change (the crossing, or the rewind); `clock.test.ts` pins both directions.
+ *
+ * EVERY UNTRACKED READ A DERIVATION MAKES IN `pool/` (M3 N1), each paired
+ * with a tracked read or an atom that fires when its answer can change:
+ * 1. this clock's `now` (above);
+ * 2. the residency registry (`residency.ts` `isCold`, reached through
+ *    `loading`/`known`): plain maps, each id's answer paired with that id's
+ *    atom, observed before the plain read and fired by `notify` on every
+ *    registry change;
+ * 3. the relation engine's plain twins (`relations.ts` `coldForward`,
+ *    `coldBuckets`) and its residency probe: `one`/`bucket` observe the
+ *    row's residency atom before reading a twin, and every twin write
+ *    reports it changed (`ColdSlots.changed`);
+ * 4. the pool's model memo (`pool.ts` `inputs.sessionActivity`, the plain
+ *    `models.session` map): either branch ends in a tracked read of the same
+ *    session slot (the model's own row read, or `model()`'s presence check).
+ * Nothing else: every table, bucket and forward read is an observable read.
  */
 
 import { createAtom, type IAtom } from 'mobx'

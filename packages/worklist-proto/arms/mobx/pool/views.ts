@@ -11,9 +11,11 @@
  * WHAT Ma1 DERIVES (inputs per L1b):
  * - own row: `title` (non-draft), `band`, `repoKey`, `pinned`, `sortKey`,
  *   `createdAt`, `seq`, `foldAt`;
- * - one hop through a declared single-valued relation (`relations.ts`
- *   `relationRef`, then the target's presence): `displayRef` (`issue.repo`
- *   prefix) and `originTick` (`issue.discoveredFrom`);
+ * - one hop through a declared single-valued relation, resolved by the
+ *   relation engine (`inputs.relations.one`, `relations.ts`; the rebuild's
+ *   from-scratch scan in the rebuild): `displayRef` (`issue.repo` prefix)
+ *   and `originTick` (`issue.discoveredFrom`). No view resolves a relation
+ *   itself (M3 F2);
  * - locals: `selected` (selection), and the clock through deadlines
  *   (`band`'s defer lapse, `closed`'s grace crossing);
  * - residency (POD-4567): `loading` while the origin or a member session is
@@ -26,8 +28,9 @@
  * "zero waiting" conjunct reads them (`STUB_WAITING`). Fields that read own
  * sessions (`activityAt`, the draft title) read `issue.sessions` once
  * (`sessionIds`) through the relation accessor, maintained by the pool from the schema
- * (`relations.ts`, POD-4566): explicit members, resume twins collapsed, in
- * session-id order.
+ * (`relations.ts`, POD-4566): explicit members, resume twins collapsed. The
+ * bucket is unordered; `sessionIds` sorts it by session id (the order is the
+ * view's, M3 F1).
  *
  * Rules are re-expressed from the frozen slice spec
  * (`docs/plans/pod-4441-round-two-slice.md` §3, cited per rule); round two's
@@ -39,7 +42,6 @@ import type { RelationReader } from '../../../shared/src/instrument/reads'
 import type { RowOriginTick, RowView } from '../../../shared/src/row-view'
 import type { EntityName } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
-import { relationRef } from './relations'
 
 /** The finished-row grace before the closed fold (spec §3 R-GROUP). */
 export const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
@@ -74,22 +76,29 @@ export interface RepoRow {
  * computed on the issue model), so a change re-runs only the parts that read
  * it, and a part whose value did not move stops the propagation there.
  *
- * Relations are split in two: the REFERENCE (`repoRef`, `originRef`: the
- * declared foreign key read off the own row, a string) and its RESOLUTION
- * (`prefix`, `originId`: the target's presence and fields). A rename re-runs
- * the reference, which returns the same string, so the resolution — and the
- * target read it costs — does not run; an origin's rename re-runs only its
- * spin-offs' `originTick`, never their own rows. The rebuild computes the
- * same parts directly (`directParts`).
+ * Relations are split in two: the TARGET (`repoId`, `originRef`: the
+ * engine's `one()`, which reads the relation's forward slot and the target's
+ * presence, never the own row) and the target's FIELDS (`prefix`,
+ * `originTick`). A rename of the row re-runs neither; an origin's rename
+ * re-runs only its spin-offs' `originTick`, never their own rows. The
+ * rebuild computes the same parts directly (`directParts`), over the
+ * from-scratch scan's `one()`, so the gate holds the engine's forward slots
+ * to a scan (M3 F2).
  */
 export interface IssueParts {
   /** The row-only fields; undefined when the issue is not in the pool. */
   readonly own: OwnPart | undefined
-  readonly repoRef: string | null
+  /** `issue.repo`, resolved by the engine: a present repo's id, or null. */
+  readonly repoId: string | null
   readonly prefix: string | null
   readonly displayRef: string | undefined
   readonly displayTitle: string | undefined
+  /**
+   * `issue.discoveredFrom`, resolved by the engine: a KNOWN origin (in the
+   * live pool it may be cold), or null. Its loading check reads this.
+   */
   readonly originRef: string | null
+  /** The origin when it is resident. */
   readonly originId: string | null
   readonly originTick: RowOriginTick | null
   /**
@@ -282,15 +291,14 @@ function firstMemberOf(input: ViewInputs, sessionIds: readonly string[]): SliceS
   return undefined
 }
 
-/** The `issue.repo` foreign key off the own row (declared in the schema). */
-export function repoRefPartOf(input: ViewInputs, id: string): string | null {
-  const issue = input.issue(id)
-  return issue === undefined ? null : relationRef('issue', 'repo', issue)
+/** `issue.repo` through the engine (declared in the schema): the repo's id, or null. */
+export function repoIdPartOf(input: ViewInputs, id: string): string | null {
+  return input.relations.one('issue', id, 'repo')
 }
 
 /** The resolved repo's prefix (one hop), or null. */
-export function prefixPartOf(input: ViewInputs, repoRef: string | null): string | null {
-  return repoRef === null ? null : (input.repo(repoRef)?.prefix ?? null)
+export function prefixPartOf(input: ViewInputs, repoId: string | null): string | null {
+  return repoId === null ? null : (input.repo(repoId)?.prefix ?? null)
 }
 
 /** `prefix-seq`, else `#seq`, from the parts (spec §3 R-SUM). */
@@ -312,13 +320,16 @@ export function displayTitlePartOf(
     : displayTitleOf(issue, () => firstMemberOf(input, sessionIds))
 }
 
-/** The `issue.discoveredFrom` edge target off the own row (declared in the schema). */
+/**
+ * `issue.discoveredFrom` through the engine (declared in the schema): the
+ * origin's id when it is known, resident or cold (`one()` answers a known
+ * cold target as present), or null.
+ */
 export function originRefPartOf(input: ViewInputs, id: string): string | null {
-  const issue = input.issue(id)
-  return issue === undefined ? null : relationRef('issue', 'discoveredFrom', issue)
+  return input.relations.one('issue', id, 'discoveredFrom')
 }
 
-/** The origin, when it is in the pool. */
+/** The origin, when it is resident (a cold one is `loading`, `loadingPartOf`). */
 export function originIdPartOf(input: ViewInputs, originRef: string | null): string | null {
   return originRef !== null && input.present('issue', originRef) ? originRef : null
 }
@@ -337,9 +348,13 @@ export function originTickPartOf(input: ViewInputs, originId: string | null): Ro
   }
 }
 
-/** The own sessions, one bucket read (`IssueParts.sessionIds`). */
+/**
+ * The own sessions, one bucket read (`IssueParts.sessionIds`), in session-id
+ * order: the bucket is unordered, and the draft title's "first member" needs
+ * one.
+ */
 export function sessionIdsPartOf(input: ViewInputs, id: string): readonly string[] {
-  return [...input.relations.many('issue', id, 'sessions')]
+  return [...input.relations.many('issue', id, 'sessions')].sort()
 }
 
 /** A session's contribution to its issue's activity: its `lastActiveAt`, or null when absent. */
@@ -389,11 +404,11 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
     get own() {
       return ownPartOf(input, id)
     },
-    get repoRef() {
-      return repoRefPartOf(input, id)
+    get repoId() {
+      return repoIdPartOf(input, id)
     },
     get prefix() {
-      return prefixPartOf(input, parts.repoRef)
+      return prefixPartOf(input, parts.repoId)
     },
     get displayRef() {
       return displayRefPartOf(parts.own, parts.prefix)

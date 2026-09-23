@@ -47,4 +47,23 @@ export default [
     files: ['**/pool/react/row.tsx', '**/pool/native/row.tsx'],
     rules: { 'mobx/missing-observer': 'off' },
   },
+  {
+    // POD-4568 (M3 F2): the row views resolve every relation through the
+    // engine (`inputs.relations`), never themselves. They may not import the
+    // relation module (its `relationRef` is the engine's and the scan's).
+    files: ['**/pool/views.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['./relations', './relations.ts'],
+              message: 'Resolve relations through inputs.relations (one/many), not relations.ts.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]

@@ -145,7 +145,8 @@ function rig(rows: RowRecord[], options: { fence?: boolean; schema?: ModelSchema
     locals,
     push: (...changes) => replay.push({ type: 'update', rows: changes }),
     one: (from, id, relation) => tracked(() => pool.graph.one(from, id, relation)),
-    many: (from, id, relation) => tracked(() => [...pool.graph.many(from, id, relation)]),
+    // Buckets are unordered (M3 F1): compare them sorted.
+    many: (from, id, relation) => tracked(() => [...pool.graph.many(from, id, relation)].sort()),
     writes: () => [...pool.graph.lastWrites].sort(),
     check(extra = {}) {
       const diff = tracked(() => diffRelations(pool.graph, pool.tables, schema, extra))
@@ -638,7 +639,10 @@ describe('the reads fence and the write record', () => {
         expect(r.reads.stats().rows, `${from}.${relation}`).toBe(1)
       }
       r.reads.reset()
-      expect(tracked(() => [...fenced.many('issue', 'I1', 'children')])).toEqual(['I2', 'I3'])
+      expect(tracked(() => [...fenced.many('issue', 'I1', 'children')].sort())).toEqual([
+        'I2',
+        'I3',
+      ])
       expect(r.reads.stats().rows).toBe(2)
       r.reads.reset()
       expect(tracked(() => fenced.size('repo', 'R', 'issues'))).toBe(4)
@@ -744,25 +748,28 @@ describe('the reads fence and the write record', () => {
     })
   }
 
-  it('a bucket the change does not touch keeps its array; a touched one is replaced once', () => {
+  it('a bucket the change does not touch is not notified; a touched one once; a cancelled move not at all', () => {
     const r = rig(rows)
     try {
-      const untouched = tracked(() =>
-        r.pool.graph.many('worktree', '/repo/.worktrees/a', 'sessions'),
-      )
-      const touched = tracked(() => r.pool.graph.many('issue', 'I1', 'children'))
-      let runs = 0
-      const stop = autorun(() => {
-        runs += 1
-        r.pool.graph.many('issue', 'I1', 'children')
-      })
+      const runs = { touched: 0, untouched: 0 }
+      const watch = (key: keyof typeof runs, from: EntityName, id: string, relation: string) =>
+        autorun(() => {
+          runs[key] += 1
+          for (const _ of r.pool.graph.many(from, id, relation)) void _
+        })
+      const stops = [
+        watch('touched', 'issue', 'I1', 'children'),
+        watch('untouched', 'worktree', '/repo/.worktrees/a', 'sessions'),
+      ]
       r.push(issue('I4', { parentId: 'I1' }), issue('I5', { parentId: 'I1' }))
-      stop()
-      expect(runs).toBe(2)
-      expect(tracked(() => r.pool.graph.many('worktree', '/repo/.worktrees/a', 'sessions'))).toBe(
-        untouched,
-      )
-      expect(tracked(() => r.pool.graph.many('issue', 'I1', 'children'))).not.toBe(touched)
+      expect(runs).toEqual({ touched: 2, untouched: 1 })
+      expect(r.many('issue', 'I1', 'children')).toEqual(['I2', 'I3', 'I4', 'I5'])
+      // I2 leaves I1 and comes back inside one action: the net move is none.
+      r.push(issue('I2', { parentId: 'I4' }), issue('I2', { parentId: 'I1' }))
+      expect(runs).toEqual({ touched: 2, untouched: 1 })
+      expect(r.writes()).toEqual(['issue.parent→I2', 'issue.parent→I2'])
+      for (const stop of stops) stop()
+      r.check({ issue: ['I1'] })
     } finally {
       r.dispose()
     }

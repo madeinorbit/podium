@@ -13,8 +13,10 @@
  *
  * RELATIONS (POD-4566, `relations.ts`). Every table write inside that action
  * tells the relation engine, which maintains every declared relation from
- * the schema; the action ends with one `flush`, so each touched bucket is
- * replaced once. `indexUpdates` counts the relation slots written.
+ * the schema; the action ends with one `flush`, which applies each touched
+ * bucket's net moves once, one element per member added or removed.
+ * `indexUpdates` counts the relation slots written, `counters.bucketElements`
+ * the bucket elements touched (M3 F1).
  *
  * RESIDENCY (POD-4567, `residency.ts`). With a per-row read (`lazy.load`, the
  * feed's `RowSource.row`), rows the schema lets be cold (closed issues and
@@ -33,7 +35,7 @@
  * STATS (`README.md` has the definitions): `rowsDerived` counts row-view
  * body runs; `notifications` counts actions that changed pool state;
  * `indexUpdates` counts relation slots written (forward entries and
- * buckets); `rollupsDerived` stays 0 until the worklist phase adds roll-ups.
+ * buckets; `counters.bucketElements` the elements inside them); `rollupsDerived` stays 0 until the worklist phase adds roll-ups.
  * The pool's own counters are in `counters`.
  */
 
@@ -241,8 +243,9 @@ export class MobxPool {
         ? {}
         : {
             cold: {
+              // Through the fence (M3 N4): a presence probe is a counted read.
               resident: (entity: EntityName, id: string) =>
-                !residency.capable(entity) || this.tables[entity].has(id),
+                !residency.capable(entity) || fenced[entity].has(id),
               observe: (entity: EntityName, id: string) => {
                 residency.known(entity, id)
               },
@@ -352,6 +355,7 @@ export class MobxPool {
    * TRACKED: a lazy collection (Rule L) as its resident members plus the
    * count still loading, every cold one queued. The shape a roll-up reads
    * (Mb3): it derives from `ready` and reports loading while `pending > 0`.
+   * `ready` is in bucket order, which is unordered (M3 F1).
    */
   lazyMany(from: EntityName, id: string, relation: string): LazyMembers {
     const to = this.graph.schema[from].relations[relation]?.to

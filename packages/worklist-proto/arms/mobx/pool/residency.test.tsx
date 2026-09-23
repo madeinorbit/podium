@@ -373,10 +373,10 @@ describe('lazy relations', () => {
       seen.push({ ready: members.ready.length, pending: members.pending })
     })
     // The bucket holds every child id, hot or cold; nothing cold was built.
-    expect(tracked(() => [...pool.relations.many('issue', parentId, 'children')])).toEqual(
+    expect(tracked(() => [...pool.relations.many('issue', parentId, 'children')].sort())).toEqual(
       kids.map((kid) => kid.id).sort(),
     )
-    expect(tracked(() => pool.lazyMany('issue', parentId, 'children').ready)).toEqual(
+    expect(tracked(() => [...pool.lazyMany('issue', parentId, 'children').ready].sort())).toEqual(
       [...hot].sort(),
     )
     expect(pool.residency?.counters.requests).toBe(cold.length)
