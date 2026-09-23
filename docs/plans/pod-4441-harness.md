@@ -118,18 +118,41 @@ goes through ONE timer in the page (`entrylib.ts`, `measure`):
 | `strayCommits` | Commit signals that arrived after the previous settle and before this change | any > 0 FAILS the run |
 | `longTasks`, `longTaskMs` | Long tasks overlapping the change's window (`takeRecords` after the settle) | reported |
 
-The click is a pointer event plus `click()` on a row's pressable; every
-sample clicks a row the page has never selected (the library's `visibleRootId`
-or `markReadId` when mounted, else the mounted issue row with the lowest id,
-never one a stage move took), so every sample is a selection change plus the
-eager mark-read. Round two re-clicked one row: after the first click the
-control committed 0 rows (the row was already read), mixing two workloads in
-one cell. The stage move takes a fresh childless open root per sample, by id
-from the corpus. The clock ticks the runtime's own clock (the control derives
-from it; round two's control clock was a no-op) and the locals channel at
-the same instant. Every record carries `actionMs`, `drainMs`, `frameMs`,
-`commits`, `longTasks`, `heapBefore`/`heapAfter` (CDP forced GC +
-`Runtime.getHeapUsage`), `stats`, `loadavg`, `uptime` and `runtimeSha`.
+**Targets are drawn rows** (coordinator ruling on POD-4558 finding #4). A
+change aimed at a row the arm has not drawn commits nothing on a windowed arm
+and the whole list on the control, so it would time the control's redraw
+against an arm doing nothing. Every row target is therefore picked by rule,
+identically for every arm, from the **first window**: the oracle's first 36
+rows of the list as it stands before the change (`FIRST_WINDOW_ROWS`,
+`entrylib.ts`), root rows only (the control nests formal children inside
+their parent's row). The rules are the scenario library's (`pickTargets`):
+
+| Scenario | Target |
+|---|---|
+| #4 rename | the first open human root with children in the window; fixed for the page |
+| #5 stage move | the first childless open root (`childlessRoot`) no click selected; the next `prepare` reopens it untimed (its server rows restored), so every sample is the same move of the same row |
+| #3 click | the first fresh row (never selected, never moved, not the rename target) that neither rule above wants, else any fresh row; a pointer event plus `click()` on its pressable |
+| #1 heartbeat | the library's heartbeat session (a row the worklist never shows) |
+
+Before every write the page asserts the target is mounted in THAT arm and
+throws if not, so the run FAILS instead of recording a zero. `prepare` picks
+(untimed, before the driver's forced GC); `runScenario` times; `summarize.ts`
+refuses to compare runs whose arms aimed a (scale, scenario, sample) at
+different targets.
+
+**Viewport 1600×2400, for every arm and scale.** The pinned section grows
+with the corpus (6 rows at 1x, 12 at 2x, 24 at 4x) and at 4x the first
+childless open root is row 33 of the list. Round two's 1600×1000 (17 rows on
+hand/MobX) held only pinned rows at 4x: #5 had no drawn target there. At
+2400 px hand and MobX draw about 40 rows.
+
+**Check mode** (`run.ts --check`, page `?check=1`): after each change the page
+compares, over the rows mounted before and after, the rows whose oracle row
+view changed with the rows the arm redrew (committed or remounted) — the
+count harness's exact-commit rule (`changedViews`) applied to what the page
+drew. A mismatch on hand or MobX fails the run; the control and the no-op
+page are reported (they exist to fail it). `--offwindow` plants the library's
+`visibleRootId` as the rename target (off the windowed arms' first window).
 
 Removed (round two's taskMs): the 50 ms `waitForNotifications` poll and the
 two nested animation frames it wrapped, and `inputToPaintMs` (two frames
@@ -210,11 +233,10 @@ few entity rows while its wall time grows with the corpus. The `actionMs`
 slope across 1x/2x/4x, per scenario (`summarize.ts`), is the empirical catch
 for that case; read the two together.
 
-**Scenario-target note.** In the windowed arms (hand, MobX: 17 rows mounted
-at 1600×1000) the library's `visibleRootId` is not in the first window, so
-the rename (#4) changes a visible-but-undrawn row and commits 0 rows there,
-while the control (which draws all 346 rows) commits them all. The timer is
-not blind to it (0 DOM mutations, and the click on a mounted row commits 2).
+**Scenario targets are drawn rows** ("Timings"). The proof, both ways
+(`results/proof/`, SHA and table below):
+
+PROOF_TABLE
 
 ## Reads per change (POD-4557)
 

@@ -73,11 +73,27 @@ and "Instrument floor".
   a windowed arm has ~17 fresh rows to click, so n comes from rounds of 5
   interleaved by `matrix.ts`.
 
-### Open
+### Drawn targets (coordinator ruling on finding #4, 2026-09-23)
 
-- The library's `visibleRootId` is outside the windowed arms' first window:
-  the browser rename (#4) commits 0 rows on hand/MobX, all rows on the
-  control. Reported to the coordinator.
+- **Targets from the oracle's first window, not the arm's DOM.** The DOM
+  order differs by arm (the control nests formal children inside their
+  parent's row; the no-op page draws a frozen list), so "rows mounted in the
+  first window" is taken from the oracle's order (first 36 rows, root rows
+  only) and asserted mounted per arm before every write; a miss throws and
+  fails the run.
+- **The stage move reopens its row** (untimed, in the next `prepare`: the
+  row's cache values restored through `upsert`). The top of the list holds
+  one or two childless open roots, so "a fresh row per sample" ran dry after
+  one sample; the reopen makes every sample the same move of the same row.
+- **Viewport 1600×2400.** The pinned section is 6/12/24 rows at 1x/2x/4x; at
+  4x the first childless open root is row 33, so 1600×1000 (17 rows) had no
+  drawn #5 target at 4x. One viewport for all arms and scales.
+- **Hand/MobX clicks are arm-local selections** (`store.setSelection`); only
+  the control's click writes the engine selection (and its eager mark-read).
+  The click cell therefore does not carry the same engine work on every arm.
+  Reported, not changed here.
+- `prepare` is its own page call so the oracle's garbage is collected by the
+  driver's forced GC before the timed change.
 
 ## POD-4609 (L5g) — reads budgets for #6–#10 · 2026-09-22
 
