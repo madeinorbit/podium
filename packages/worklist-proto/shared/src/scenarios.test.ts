@@ -327,10 +327,19 @@ describe('scenarios on the fixture at 1x', () => {
     expect(issueRows).toHaveLength(result.corpus.issues)
   }, 60_000)
 
-  it('#12 coldBootstrap: empty before, silent stream, full snapshot', async () => {
+  it('#12 coldBootstrap: empty before, discovery lanes only, full snapshot', async () => {
     const result = await coldBootstrap()
     expect(result.before).toEqual({ issues: [], sessions: [], selectedIssueId: null, coarseNow: 0 })
-    expect(result.events).toHaveLength(0)
+    // The hydrate-first seed names no kernel address, so no issue or session
+    // row is emitted. Discovery lands after the source primed, so every lane
+    // it found is announced, once (POD-4606): repo roots plus worktrees.
+    const corpus = buildCorpus(result.corpus.scale, result.corpus.seed)
+    const lanes = corpus.repos.length + corpus.repos.reduce((n, repo) => n + repo.worktrees.length, 0)
+    expect(result.events).toHaveLength(1)
+    expect(result.events[0]?.type).toBe('update')
+    expect(result.events[0]?.rows.every((row) => row.kind === 'worktree')).toBe(true)
+    expect(new Set(result.events[0]?.rows.map((row) => row.id)).size).toBe(lanes)
+    expect(result.events[0]?.rows).toHaveLength(lanes)
     expect(result.after.issues).toHaveLength(result.corpus.issues)
     // The runtime collapses all-parked resume twins on every session read
     // (runtime.ts:465): each non-live twin group shows one row (POD-4551).
@@ -392,7 +401,12 @@ describe('per-row feed on every scenario (POD-4553)', () => {
     }
     console.info(`ROW-SOURCE ENUMERATIONS ${JSON.stringify(table)}`)
     for (const [name, cost] of Object.entries(table)) {
-      expect(cost.enumerations, `${name}: enumerations == replace events`).toBe(cost.replaces)
+      // A cold boot's discovery lands after the source primed: one pass over
+      // the discovery answer (POD-4606). No other scenario discovers.
+      const discoveries = name === 'coldBootstrap' ? 1 : 0
+      expect(cost.enumerations, `${name}: enumerations == replace events + discoveries`).toBe(
+        cost.replaces + discoveries,
+      )
     }
   }, 300_000)
 })

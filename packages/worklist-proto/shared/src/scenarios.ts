@@ -42,7 +42,7 @@
  * | optimisticEchoAndRejection | #9 | as #2 | press, echo, press, rollback |
  * | burst50 | #10 | bounded | 1 update, 50 rows |
  * | principalSwitch | #11 | full once | 1 replace, full (kernel install) |
- * | coldBootstrap | #12 | full once | 0 events; arms snapshot (finding) |
+ * | coldBootstrap | #12 | full once | 1 update, discovery lanes only; arms snapshot (finding) |
  * | rescopeGrowth | #13 | full each | 2 replaces |
  *
  * DUAL-WRITE. Issue writes update wire AND projection rows together, as the
@@ -1323,10 +1323,11 @@ export async function principalSwitch(scale: FixtureScale = 1): Promise<Scenario
 
 /** #12 — cold bootstrap: the source is created before `start()`.
  *
- * The natural cold path yields ZERO events, and that is correct: the
- * hydrate-first seed is already in the snapshot the source primed against
+ * The natural cold path yields no issue or session row, and that is correct:
+ * the hydrate-first seed is already in the snapshot the source primed against
  * (same array identities, no kernel addresses), so there is nothing to
- * report. Arms bootstrap from `source.snapshot()`, not from an event — the
+ * report. Discovery lands after the source primed, so its lanes arrive as
+ * one update (POD-4606). Arms bootstrap from `source.snapshot()`, not from an event — the
  * methodology #12 budget ("full, once") constrains ARM work, and the test
  * asserts the snapshot is full. A kernel-driven install (bootstrap,
  * rescope, principal switch) is what produces a `replace`; those paths are
