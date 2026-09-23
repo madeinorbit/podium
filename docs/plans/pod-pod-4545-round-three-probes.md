@@ -20,7 +20,7 @@ every probe can fire: `packages/worklist-proto/harness/src/reference-arm/probe-a
 | `run.ts` | `runProbe(probe, subject)`: drives any arm through the probe's fence steps and change sequences; `verdicts(probe, run)`: one verdict per instrument |
 | `relations-check.ts` | The relation check (new instrument) and `capturingFence` |
 | `probes.test.tsx` | Every probe: clean reference arm silent; planted reference arm fails as catalogued; legacy control baseline recorded. P4 history pair. The relation check on the real MobX pool |
-| `probes-lint.test.ts` | Every probe's lint plants, linted through the lint fence's own config (the lint column, measured) |
+| `harness/lint/probes-lint.test.ts` | Every probe's lint plants, linted through the lint fence's own config (the lint column, measured) |
 | `harness/src/reference-arm/probe-arm.tsx` | The probe reference arm and its five plants |
 | `harness/lint/fixtures/arms/planted/context.ts` | A type-only context module, so P3's aliased row can be linted |
 
@@ -35,7 +35,7 @@ Each run records one verdict per named instrument:
 | Family | Instrument | What it is | Run by the suite? |
 |---|---|---|---|
 | compile | `typecheck` | `bun run typecheck -- --filter @podium/worklist-proto` | No: the exercise runs it on the planted arm |
-| lint | `lint-fence` | The L6a lint fence over `arms/<folder>` | Shapes: yes (`probes-lint.test.ts`). An arm: the exercise runs `bun run lint` (ESLint cannot run in the happy-dom lane) |
+| lint | `lint-fence` | The L6a lint fence over `arms/<folder>` | Shapes: yes (`harness/lint/probes-lint.test.ts`). An arm: the exercise runs `bun run lint` (ESLint cannot run in the happy-dom lane) |
 | fence | `commit-fence` | `assertCommits`: exactly the rows whose row view changed redraw (L6a) | Yes, per fence step |
 | fence | `reads-fence` | Reads per change against the step's budget (L5a, POD-4609) | Yes, per fence step |
 | gate | `parity` | The step's snapshot against the oracle's | Yes, per fence step |
@@ -391,7 +391,7 @@ and P1's sequence reaches it: its rejection lands after a remote update.
   the P4 history pair; the relation check on the MobX pool for P2 and P5).
   The whole directory (27 tests) runs in about 240 s under load 8–10
   (counts runs; the times are not evidence).
-- `probes-lint.test.ts`: 9 tests (8 plants and a coverage check), green. Module-scope guard →
+- `harness/lint/probes-lint.test.ts`: 9 tests (8 plants and a coverage check), green. Module-scope guard →
   `fence/no-hidden-state`; direct row walk → `fence/no-store-in-component`,
   `fence/no-table-walk`; every other shape SILENT.
 - Armed: the clean reference arm is SILENT and not blind on every instrument

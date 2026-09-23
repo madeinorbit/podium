@@ -85,7 +85,7 @@ export const evictIndexCleanup: Probe = {
       hand: 'silent',
       reference: 'blind',
       control: 'blind',
-      why: 'No rule inspects maintenance completeness (measured in probes-lint.test.ts).',
+      why: 'No rule inspects maintenance completeness (measured in harness/lint/probes-lint.test.ts).',
     },
     {
       instrument: 'commit-fence',

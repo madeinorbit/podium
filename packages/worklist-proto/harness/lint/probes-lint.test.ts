@@ -15,8 +15,8 @@
 import { join } from 'node:path'
 import { ESLint } from 'eslint'
 import { describe, expect, it } from 'vitest'
-import { fenceConfig } from '../../../harness/lint/fence-plugin.mjs'
-import { PROBES } from './index'
+import { PROBES } from '../../shared/src/probes/index'
+import { fenceConfig } from './fence-plugin.mjs'
 
 const PACKAGE_DIR = process.cwd().endsWith(join('packages', 'worklist-proto'))
   ? process.cwd()

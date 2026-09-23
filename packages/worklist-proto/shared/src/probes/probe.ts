@@ -16,7 +16,7 @@
  *   substrate, on the planted probe reference arm (the armed control) and on
  *   the unplanted legacy control (the baseline);
  * - `lintPlants`: the mistake's code shape in each idiom, linted through the
- *   fence's own config in `probes-lint.test.ts`, so the lint column is
+ *   fence's own config in `harness/lint/probes-lint.test.ts`, so the lint column is
  *   measured, not asserted.
  *
  * The planted reference arm (`harness/src/reference-arm/probe-arm.tsx`) is

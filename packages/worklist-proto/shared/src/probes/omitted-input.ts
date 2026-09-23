@@ -86,7 +86,7 @@ export const omittedInput: Probe = {
       hand: 'silent',
       reference: 'blind',
       control: 'blind',
-      why: 'No lint rule names a missing dependency (measured on both shapes in probes-lint.test.ts). The control is outside `arms/`.',
+      why: 'No lint rule names a missing dependency (measured on both shapes in harness/lint/probes-lint.test.ts). The control is outside `arms/`.',
     },
     {
       instrument: 'commit-fence',

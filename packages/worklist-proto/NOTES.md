@@ -21,7 +21,7 @@ Catalogue and how N1b/N2b use it: `docs/plans/pod-pod-4545-round-three-probes.md
 - **Blind is a verdict.** SILENT carries `blind` when the instrument had
   nothing to inspect; the control's baseline is mostly that.
 - **The lint column is measured**, on each probe's code shape in the lint
-  fence's fixture arm (`probes-lint.test.ts`), not asserted from reading the
+  fence's fixture arm (`harness/lint/probes-lint.test.ts`), not asserted from reading the
   rules. New fixture file `planted/context.ts` (type-only context module).
 - **The write-path mistakes of L1c §5 are not probes here**: they need phase
   c. They are already killed in `write-contract.test.ts`; P1's sequence uses
@@ -31,7 +31,7 @@ Catalogue and how N1b/N2b use it: `docs/plans/pod-pod-4545-round-three-probes.md
 
 ### Evidence
 
-- `probes.test.tsx` 18/18, `probes-lint.test.ts` 9/9 (package config).
+- `probes.test.tsx` 18/18, `harness/lint/probes-lint.test.ts` 9/9 (package config).
 - Mutation: the relation check's ghost branch disabled → P2 planted red;
   restored (`cp`) → green.
 - MobX pool (clean): relation check over P2's and P5's sequences, >1,000
