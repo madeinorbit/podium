@@ -21,10 +21,10 @@ import { describe, expect, it } from 'vitest'
 import { mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
 import { tracked } from '../../arms/mobx/pool/pool'
-import { allRelations, type EntityName } from '../../shared/src/schema'
+import type { LocalsSource, RowSource } from '../../shared/src/arm'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { settableLocals } from '../../shared/src/locals-source'
-import type { LocalsSource, RowSource } from '../../shared/src/arm'
+import { allRelations, type EntityName } from '../../shared/src/schema'
 import type { RowRecord } from '../../shared/src/stats'
 import { createReplaySource } from '../src/count-harness'
 import { readSnapshot } from '../src/fixture/export-snapshot'
@@ -213,36 +213,40 @@ describe('M3 probe: bucket-sized work per membership change', () => {
   // replicated repo row (id, prefix) keyed by its id. The scenario engine is
   // not used: it demands fixture-only scenario targets (`pickTargets`).
   const live = process.env['M3_LIVE_EXPORT']
-  it.skipIf(live === undefined)('live export (POD-4552)', () => {
-    const snapshot = readSnapshot(live as string)
-    const worktrees: RowRecord[] = []
-    for (const repo of snapshot.repos as unknown as {
-      path: string
-      repoId?: string | null
-      worktrees?: { path: string }[]
-    }[]) {
-      const stamp = { repoId: repo.repoId ?? null, repoPath: repo.path }
-      worktrees.push({ kind: 'worktree', id: repo.path, value: { path: repo.path, ...stamp } })
-      for (const wt of repo.worktrees ?? []) {
-        worktrees.push({ kind: 'worktree', id: wt.path, value: { path: wt.path, ...stamp } })
+  it.skipIf(live === undefined)(
+    'live export (POD-4552)',
+    () => {
+      const snapshot = readSnapshot(live as string)
+      const worktrees: RowRecord[] = []
+      for (const repo of snapshot.repos as unknown as {
+        path: string
+        repoId?: string | null
+        worktrees?: { path: string }[]
+      }[]) {
+        const stamp = { repoId: repo.repoId ?? null, repoPath: repo.path }
+        worktrees.push({ kind: 'worktree', id: repo.path, value: { path: repo.path, ...stamp } })
+        for (const wt of repo.worktrees ?? []) {
+          worktrees.push({ kind: 'worktree', id: wt.path, value: { path: wt.path, ...stamp } })
+        }
       }
-    }
-    for (const row of snapshot.repoProjections as unknown as { id: string }[]) {
-      worktrees.push({ kind: 'worktree', id: row.id, value: row })
-    }
-    const replay = createReplaySource({
-      issues: (snapshot.issues as unknown as { id: string }[]).map(
-        (value): RowRecord => ({ kind: 'issue', id: value.id, value: value as never }),
-      ),
-      sessions: (snapshot.sessions as unknown as { sessionId: string }[]).map(
-        (value): RowRecord => ({ kind: 'session', id: value.sessionId, value: value as never }),
-      ),
-      worktrees,
-    })
-    const locals = settableLocals({
-      selectedIssueId: null,
-      coarseNow: Date.parse(snapshot.exportedAt),
-    })
-    measure(`live ${snapshot.exportedAt}`, replay.source, locals.source)
-  }, 300_000)
+      for (const row of snapshot.repoProjections as unknown as { id: string }[]) {
+        worktrees.push({ kind: 'worktree', id: row.id, value: row })
+      }
+      const replay = createReplaySource({
+        issues: (snapshot.issues as unknown as { id: string }[]).map(
+          (value): RowRecord => ({ kind: 'issue', id: value.id, value: value as never }),
+        ),
+        sessions: (snapshot.sessions as unknown as { sessionId: string }[]).map(
+          (value): RowRecord => ({ kind: 'session', id: value.sessionId, value: value as never }),
+        ),
+        worktrees,
+      })
+      const locals = settableLocals({
+        selectedIssueId: null,
+        coarseNow: Date.parse(snapshot.exportedAt),
+      })
+      measure(`live ${snapshot.exportedAt}`, replay.source, locals.source)
+    },
+    300_000,
+  )
 })
