@@ -50,6 +50,8 @@ import {
   ingestRecord,
   type PoolTables,
   put,
+  type StoredRow,
+  type TableSet,
 } from './tables'
 
 /** Every issue id in the pool; tracked on membership, counted per id. */
@@ -96,6 +98,21 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
     }
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
+}
+
+/**
+ * The feed's CURRENT rows, every one (cold included), in plain tables through
+ * the pool's own ingest routing: what a relation check holds a lazy pool's
+ * engine to, since its own tables hold only the resident rows (POD-4567).
+ */
+export function feedTables(source: RowSource): TableSet<Map<string, StoredRow>> {
+  const tables = createPlainTables()
+  const target: IngestTarget = { read: tables, write: tables }
+  const out = ingestOut()
+  for (const kind of ['session', 'issue', 'worktree'] as const) {
+    for (const record of source.snapshot(kind)) ingestRecord(target, record, out)
+  }
+  return tables
 }
 
 /** Whole tables, walkable (plain maps in the rebuild; the pool's maps in tests). */
