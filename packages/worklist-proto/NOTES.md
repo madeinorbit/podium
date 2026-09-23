@@ -75,9 +75,24 @@ Numbers and follow-ups: `docs/measurements/POD-4441-fixture-shape.md`,
   closes between the two clocks — the plain corpus's `SliceSnapshot` does not
   move with the derivation clock at any offset up to a year).
 
+- **Clicks pick unread rows.** The first engine-click run at 4x alternated
+  1384 and 0 commits on the control: the app marks only an unread row read,
+  and the control commits nothing for a bare selection. Unread is decided by
+  client-core's own `activityAfterRead(readAt, issueActivityAt(...))` — the
+  pair `fireMarkIssueRead` uses — never a local copy.
+
+### Findings (reported to the coordinator)
+
+- Round-two hand and MobX fail browser parity from the first record at 1x
+  (i286) and 4x (i1150): the known resume-twin ask (POD-4551). They can no
+  longer be timed through `run.ts`; that is the rule working.
+- Mixed-clock callers (tripwire census, whole package suite): only plants,
+  `tickCrossings` (by design, now honest) and the round-two MobX `+60d jump`
+  `it.fails` test (POD-4568's lane) — no live candidate's parity check.
+
 ### Open questions
 
-- (filled in as found)
+- None open.
 
 ## POD-4564 (L6b) — five planted-mistake probes · 2026-09-23
 

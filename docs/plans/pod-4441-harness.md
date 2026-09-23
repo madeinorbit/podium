@@ -115,7 +115,7 @@ goes through ONE timer in the page (`entrylib.ts`, `measure`):
 |---|---|---|
 | `actionMs` | Dispatch to the arm's last commit signal, or to the drain when the change commits nothing. Commit signals: the page's `RowShell`/`CommitBoundary` commit log (every row commit and mount, timestamped when React calls the shell's profiler) and DOM mutations under the arm's root | yes |
 | `drainMs` | Dispatch to the first task after it (a `MessageChannel` message: runs once the dispatch's microtasks — feed flush, arm dispatch, React sync-lane commit — have drained; no timer clamp, no poll) | no |
-| `frameMs` | Dispatch to the first animation frame after `actionMs` ends; for the click, pointer event to the first frame after the arm's commit | no (its vsync phase is not the arm's) |
+| `frameMs` | Dispatch to the first animation frame after `actionMs` ends | no (its vsync phase is not the arm's) |
 | `endedBy` | `drain`, `commit` or `dom`: which signal ended `actionMs` | — |
 | `commits`, `mounts`, `domMutations` | In the change's window | counts |
 | `strayCommits` | Commit signals that arrived after the previous settle and before this change | any > 0 FAILS the run |
@@ -128,20 +128,47 @@ against an arm doing nothing. Every row target is therefore picked by rule,
 identically for every arm, from the **first window**: the oracle's first 36
 rows of the list as it stands before the change (`FIRST_WINDOW_ROWS`,
 `entrylib.ts`), root rows only (the control nests formal children inside
-their parent's row). The rules are the scenario library's (`pickTargets`):
+their parent's row). The rules are the scenario library's (`targetRules`,
+the predicates `pickTargets` uses; POD-4559 removed the page's own copy):
 
 | Scenario | Target |
 |---|---|
-| #4 rename | the first open human root with children in the window; fixed for the page |
+| #4 rename | the first open human root with children in the window; fixed for the page. Server title → `<title> (renamed)`; the next `prepare` restores its server rows untimed, so every sample is the same rename and titles never grow (POD-4559) |
 | #5 stage move | the first childless open root (`childlessRoot`) no click selected; the next `prepare` reopens it untimed (its server rows restored), so every sample is the same move of the same row |
-| #3 click | the first fresh row (never selected, never moved, not the rename target) that neither rule above wants, else any fresh row; a pointer event plus `click()` on its pressable |
+| #3 click | the first fresh UNREAD row (never selected, never moved, not the rename target; unread as the runtime's eager mark-read decides it, client-core's `activityAfterRead` over `issueActivityAt`) that neither rule above wants, else any; the ENGINE selection write `setSelectedIssueId` (POD-4559) |
 | #1 heartbeat | the library's heartbeat session (a row the worklist never shows) |
 
-The click is each arm's own pressable: on hand and MobX it is an arm-local
-selection (`store.setSelection`, no engine write); on the control it sets the
-engine selection, whose eager mark-read redraws the whole list later (see the
-4x proof run below). The click cell therefore does not carry the same engine
-work on every arm; read it with that in mind.
+**The click is the same engine work on every arm** (POD-4559, coordinator
+ruling). Until then it was each arm's pressable: arm-local on hand and MobX
+(`store.setSelection`, no engine write), the engine selection on the control,
+whose eager mark-read then redrew the whole list: two workloads under one
+name. Now every page's click is the engine's `setSelectedIssueId`; every arm
+hears it on the locals channel (`createEngineLocals`; round-two hand and MobX
+stores through the page's bridge into `setSelection` / `setCoarseNow`), and
+the app's own mark-read of the selected row runs for everyone. Only unread
+rows are clicked: a read row's click marks nothing, and on the control
+commits nothing (the first 4x run with engine clicks alternated 1384 and 0
+commits); with unread targets every control click at 4x commits 1384.
+
+**The step's own mark-reads settle inside the step** (POD-4559, as the count
+harness since POD-4618). The runtime throttles issue mark-reads to one per
+`MARK_READ_ON_VIEW_MS` (1.2 s) and keeps an acknowledged read awaiting truth
+until the server echoes it (or its 60 s wall-clock sweep): either lands after
+the 250 ms quiet settle, in the next record. Untimed, after every number of
+the record is taken: a click waits out the throttle window from its
+dispatch; every mark-read the server acknowledged is echoed as truth
+(`echoAcknowledgedMarkReads`, the body the count harness's `settled` uses)
+until the kernel holds no pending write (`pendingWrites`); the page settles
+again. `run.ts --no-mark-settle` (page `?marksettle=0`) removes it: the proof.
+
+**Parity after every sample** (POD-4559). After each record, outside the
+timed window, the driver compares the page's `snapshotHash()` (the arm's
+`snapshot()`) with `oracleHash()` (`oracleSnapshot` over the same engine
+state: its own clock, unselected baseline), both over one sorted-key
+serialisation; a mismatch FAILS the run and names the first differing row in
+the oracle's order with the fields that differ (`firstDifference()`). Each
+record carries `parity: {arm, oracle, firstDifference}`. The no-op floor
+draws its boot snapshot forever and is exempt, unless `--strict-parity`.
 
 Before every write the page asserts the target is mounted in THAT arm and
 throws if not, so the run FAILS instead of recording a zero. `prepare` picks
@@ -181,7 +208,7 @@ quiets fails after 5 s.
 **What fails a run** (status `failed`, exit 2; `summarize.ts` lists it and
 never prints its numbers): 1-minute load above `--max-load` (8) before or
 during the run; any cell that errors (a missing cell is never a gap); any
-stray commit; a page error.
+stray commit; a parity mismatch (the no-op floor exempt); a page error.
 
 Field names overlap `docs/measurements/POD-4286-stage0-live.json` where they
 measure the same thing: `runtimeSha`, `browser`, `capturedAt`, heap
@@ -196,7 +223,7 @@ no per-scenario equivalent here; `records[]` (one per scenario sample) is new.
 | Idle client | zero derivation work except on the clock tick | count harness (`notifications` on settle-only runs) |
 | Unrelated heartbeat | 0 rows committed, 0 derivations, ≤ 3 rows read, publish `actionMs` p95 ≤ floor p95 + 2 ms at 1x (restated, see "Instrument floor") | counts in CI (`assertIsolation` + `rollupsDerived` + `assertReads`); publish wall in Chromium (`summarize.ts`) |
 | Any other hot-path event | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
-| Row click, pointer event to the arm's commit | `actionMs` p95 ≤ floor p95 + 16 ms at 1x, + 32 ms at 4x | same; `frameMs` (to the next frame) reported, not budgeted |
+| Row click, engine selection write to the arm's commit (POD-4559; was the pointer event) | `actionMs` p95 ≤ floor p95 + 16 ms at 1x, + 32 ms at 4x | same; `frameMs` (to the next frame) reported, not budgeted |
 | Cost follows the change, not the corpus | (arm p50 − floor p50) at 4x over the same at 1x ≤ 1.2, per scenario; the 1x excess taken as at least 1 ms (restated, see "Instrument floor") | `summarize.ts` slope table; counts must match at all three scales. A low read count is not proof of constant work (see "Instrument floor") |
 | Bootstrap / principal switch | ≤ 1.1x / ≤ 2x control | driver `coldBootstrap`/`principalSwitch` vs control JSON |
 | Memory | retained heap ≤ 1.1x control, no growth after rescope | `heapAfter` vs control; rescope disposal check |
@@ -305,13 +332,12 @@ plant runs on it. The restated publish budget fails too: `sync:5`'s
 heartbeat p95 at 1x is 25.8 ms against 23.5 (a constant 5 ms over a 2 ms
 allowance), and every `walk:2` wall at 1x is over its budget.
 
-**The control's walls are not published.** Its 1x and 2x round-0 runs
-passed, but its 4x run FAILED: a click's whole-list redraw (1384 row commits)
-landed after the 250 ms settle and arrived as stray commits on the next
-change. Two other 4x clicks committed nothing inside their window. The
-control's click sets the engine selection, whose eager mark-read round trip
-republishes the whole list later; observed, not diagnosed. That is work the
-timer cannot attribute to the click, and the run fails by design.
+**The control's walls are not published** (POD-4558). Its 4x run FAILED: a
+click's whole-list redraw (1384 row commits) landed after the 250 ms settle
+and arrived as stray commits on the next change. Diagnosed and fixed in
+POD-4559 (the step's mark-read settle, and unread click targets): see
+"Browser parity, same click, settled mark-reads" below. The walls themselves
+are for the next matrix.
 
 **The timer can say NO** (planted mistakes on the no-op page, `--plant`,
 summarised under their own label, never a floor run; 1x, functional runs):
@@ -355,6 +381,45 @@ The other direction: `--offwindow` (rename aimed at the library's
 `visibleRootId`, i17 at 1x, outside the first window) FAILS the run on hand
 and on MobX at the first write: `target i17 is not drawn by hand (first window
 i300,i301,i23,…); refusing to time an undrawn row`. Nothing is recorded.
+
+## Browser parity, same click, settled mark-reads (POD-4559)
+
+All on flatblock (`bench:flatblock` held, load 2.0–6.8), warm-up + 5 samples
+per scenario, one page per arm and scale, at `48ef61692`; counts and
+verdicts, not walls. Records in the POD-4559 issue artifacts.
+
+| Run | Result |
+|---|---|
+| control 4x, mark-read settle on | ok, 30 records, 0 stray commits; every click (6 of 6, unread targets i1202–i1210) commits 1384 |
+| control 4x, `--no-mark-settle` | FAILED: heartbeat#3, heartbeat#4, click#4 each carry 1384 stray commits (a click's mark-read landing in the next record) |
+| control 1x | ok, 0 strays, parity equal on 30 of 30 |
+| no-op 1x / 4x | ok (parity exempt; 12 of 30 records differ: every rename and stage move, the floor draws nothing new) |
+| no-op 1x `--strict-parity` | FAILED at the first rename: `first difference row i23: title arm="retire fold 23" oracle="retire fold 23 (renamed)"`; stage move: `row i74: progressDone arm=0 oracle=1; closed arm=false oracle=true` |
+| hand 1x / 4x, MobX 1x / 4x | FAILED on parity from the first record, 30 of 30: `row i286` (1x) / `row i1150` (4x): `phase arm="waiting" oracle="queued"; asking arm=true oracle=false`. The round-two arms' known resume-twin ask (POD-4551 ruling; `mobx.clock.test.tsx` carries it as an expected failure): the runtime collapses resume twins, those arms do not. Round two's arms are no longer timeable through `run.ts`; round three's are the candidates |
+
+Targets: the (scenario, sample) → target list is identical on all four arms
+at each scale (one hash per scale over the sorted list). At 4x: rename i260,
+stage move i145, heartbeat s8606, clicks i1206, i1207, i1204, i1203, i1202,
+i1210. The oracle hash after each rename is the same on every sample
+(`d355a2dc` at 1x): the samples are independent and titles do not grow.
+
+**Oracle clock** (coordinator addendum from POD-4556). `snapshotFromStore`,
+`rebuiltSnapshotFromStore` and `rowViewsFromStore` derive AND project at
+`locals.coarseNow` (`legacyDerivationFromStore(store, coarseNow)`).
+`harness/src/oracle/one-clock.test.ts`: each helper asked at clock X equals
+the engine advanced to X through its tick path; red on the old helpers (row
+views at +7 d and later; the snapshot helpers on a planted finished-unread
+child whose 7-day window closes between the two clocks — the plain corpus's
+`SliceSnapshot` does not move with the derivation clock at any offset up to
+a year). Every caller that passed a clock other than the store's, found by a
+tripwire over the whole package suite (60 files, 532 tests green with the
+fix): the checker's stale-clock control plant (`check.test.ts`) and the
+reference arm's deaf plant (`fences.planted.test.tsx`), both deliberate and
+still caught; `tickCrossings` (`fence-scenarios.ts`), which projects the row
+views at the advanced clock by design and now derives there too; and the
+round-two MobX `+60d jump` test (`mobx.clock.test.tsx`, an `it.fails`), which
+jumps only the arm's clock, so its expected snapshot was built on two clocks.
+No live candidate's parity check was among them.
 
 ## Reads per change (POD-4557)
 

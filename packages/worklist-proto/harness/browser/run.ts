@@ -13,7 +13,7 @@
  * `drainMs`, `frameMs` (to the next animation frame; reported, not budgeted),
  * commits, mounts, long tasks in the change's window, and stray commits that
  * landed between changes. The click goes through the same timer: its
- * dispatch is the pointer event. There is no task-time metric: no poll, no
+ * dispatch is the engine selection write (POD-4559). There is no task-time metric: no poll, no
  * frame wait inside any budgeted number. Around the page call the driver adds
  * heap before/after (CDP, forced GC), loadavg and uptime per record, and the
  * runtime SHA.
