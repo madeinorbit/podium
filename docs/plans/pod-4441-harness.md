@@ -185,7 +185,12 @@ is stated as **floor p95 + allowance**, per scenario and scale (table above);
 the allowances are methodology §1a's numbers, fixed here before any
 round-three arm is timed and not re-read on another dimension afterwards.
 
-FLOOR_TABLE_PLACEHOLDER
+**Floor numbers: not yet measured** (2026-09-23). Every matrix attempt so
+far failed on load: the box's background load sits at 7.7–11, and a browser
+run adds about one, so runs cross 8 and are recorded failed, never
+published. The floor table lands here from a clean `matrix.ts` run
+(`--arms noop,control --scales 1,2,4 --rounds 4 --samples 5`, n = 20 per
+cell), with its SHA; until then no wall budget can be evaluated.
 
 **The timer can say NO** (planted mistakes on the no-op page, `--plant`,
 summarised under their own label, never a floor run; 1x, functional runs):
