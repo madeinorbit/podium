@@ -210,7 +210,9 @@ export function runSummary(argv: string[], print: (line: string) => void): numbe
     print(`FAILED RUN (not summarised): ${path} — ${run.failures.join('; ')}`)
   }
   if (plans.length > 1) {
-    print(`SEVERAL MATRICES (not summarised): ${plans.length} plans; summarise one matrix directory`)
+    print(
+      `SEVERAL MATRICES (not summarised): ${plans.length} plans; summarise one matrix directory`,
+    )
     return 2
   }
   // Complete or nothing: no cell is withheld or provisional (POD-4562).

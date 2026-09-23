@@ -49,7 +49,14 @@ import {
   type MatrixPlan,
   matrixRunFile,
 } from './complete'
-import { ARMS, type ArmName, type RunOutput, SCENARIOS, type Scale, type ScenarioName } from './records'
+import {
+  ARMS,
+  type ArmName,
+  type RunOutput,
+  SCENARIOS,
+  type Scale,
+  type ScenarioName,
+} from './records'
 
 function arg(argv: string[], flag: string, fallback: string): string {
   const index = argv.indexOf(flag)
@@ -120,7 +127,11 @@ if (argv.includes('--dry-run')) {
   console.log(`[matrix] dry run: ${outDir}${host ? ` on ${host}` : ''}`)
   console.log(JSON.stringify(plan))
   for (let round = 0; round < rounds; round += 1) {
-    console.log(`  round ${round}: ${orderOf(round).map((p) => `${p.arm} ${p.scale}x`).join(', ')}`)
+    console.log(
+      `  round ${round}: ${orderOf(round)
+        .map((p) => `${p.arm} ${p.scale}x`)
+        .join(', ')}`,
+    )
   }
   console.log(
     `  complete = ${arms.length * scales.length * rounds} ok runs; per (arm, scale, scenario) ${rounds * plan.samples} samples, every record at load <= ${maxLoad}`,
@@ -178,7 +189,8 @@ outer: for (let round = 0; round < rounds; round += 1) {
       if (!existsSync(earlier)) continue
       // A failed output from an earlier matrix: keep it beside the rerun.
       let n = 0
-      const prior = (k: number): string => failedPathFor(out).replace(/\.failed\.json$/, `.prior${k}.failed.json`)
+      const prior = (k: number): string =>
+        failedPathFor(out).replace(/\.failed\.json$/, `.prior${k}.failed.json`)
       while (existsSync(prior(n))) n += 1
       renameSync(earlier, prior(n))
     }
@@ -238,7 +250,8 @@ outer: for (let round = 0; round < rounds; round += 1) {
       }
       if (loadOnly && attempt < loadRetries) {
         let n = attempt
-        const tried = (k: number): string => failedOut.replace(/\.failed\.json$/, `.try${k}.failed.json`)
+        const tried = (k: number): string =>
+          failedOut.replace(/\.failed\.json$/, `.try${k}.failed.json`)
         while (existsSync(tried(n))) n += 1
         renameSync(failedOut, tried(n))
         console.log(`[matrix] round ${round} ${arm} ${scale}x failed on load; retrying`)

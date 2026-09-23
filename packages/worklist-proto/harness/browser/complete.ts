@@ -48,7 +48,9 @@ export interface PlannedRound {
 }
 
 /** The rounds `run.ts` executes, in order: the scenario order rotates per round so drift hits every scenario. */
-export function plannedRounds(plan: Pick<RunPlan, 'scenarios' | 'samples' | 'warmup'>): PlannedRound[] {
+export function plannedRounds(
+  plan: Pick<RunPlan, 'scenarios' | 'samples' | 'warmup'>,
+): PlannedRound[] {
   const rounds = plan.warmup + plan.samples
   return Array.from({ length: rounds }, (_, round) => ({
     sample: round - plan.warmup,
@@ -77,7 +79,9 @@ export function describePlan(plan: RunPlan, out: string): string[] {
  * planned warm-up and measured records, and no record may exceed the load
  * ceiling. Empty when the run may be written as a result.
  */
-export function runShortfalls(output: Pick<RunOutput, 'scenarios' | 'samples' | 'warmup' | 'maxLoad' | 'records'>): string[] {
+export function runShortfalls(
+  output: Pick<RunOutput, 'scenarios' | 'samples' | 'warmup' | 'maxLoad' | 'records'>,
+): string[] {
   const out: string[] = []
   if (!(output.samples >= 1)) out.push(`samples ${output.samples}: a run needs at least one`)
   const ceiling = Math.min(output.maxLoad, MAX_LOAD)
@@ -88,14 +92,17 @@ export function runShortfalls(output: Pick<RunOutput, 'scenarios' | 'samples' | 
     if (measured !== output.samples) {
       out.push(`cell ${scenario}: ${measured} of ${output.samples} measured records`)
     }
-    if (warm !== output.warmup) out.push(`cell ${scenario}: ${warm} of ${output.warmup} warm-up records`)
+    if (warm !== output.warmup)
+      out.push(`cell ${scenario}: ${warm} of ${output.warmup} warm-up records`)
   }
   for (const record of output.records) {
     if (!output.scenarios.includes(record.scenario)) {
       out.push(`record ${record.scenario}#${record.sample} is outside the plan`)
     }
     if (!(record.loadavg <= ceiling)) {
-      out.push(`load ${record.loadavg.toFixed(2)} > ${ceiling} at ${record.scenario}#${record.sample}`)
+      out.push(
+        `load ${record.loadavg.toFixed(2)} > ${ceiling} at ${record.scenario}#${record.sample}`,
+      )
     }
   }
   return out
@@ -147,10 +154,13 @@ export function gridShortfalls(
   }
   const n = new Map<string, number>()
   for (const run of runs) {
-    if (run.maxLoad > MAX_LOAD) out.push(`run ${labelOf(run)} ${run.scale}x allowed load ${run.maxLoad} > ${MAX_LOAD}`)
+    if (run.maxLoad > MAX_LOAD)
+      out.push(`run ${labelOf(run)} ${run.scale}x allowed load ${run.maxLoad} > ${MAX_LOAD}`)
     for (const record of run.records) {
       if (!(record.loadavg <= MAX_LOAD)) {
-        out.push(`load ${record.loadavg.toFixed(2)} > ${MAX_LOAD} at ${labelOf(record)} ${record.scale}x ${record.scenario}#${record.sample}`)
+        out.push(
+          `load ${record.loadavg.toFixed(2)} > ${MAX_LOAD} at ${labelOf(record)} ${record.scale}x ${record.scenario}#${record.sample}`,
+        )
       }
       if (record.warmup) continue
       const key = `${labelOf(record)}|${record.scenario}|${record.scale}`
@@ -165,7 +175,8 @@ export function gridShortfalls(
     for (const scenario of SCENARIOS.filter((s) => scenarios.has(s))) {
       for (const scale of SCALES) {
         const have = n.get(`${arm}|${scenario}|${scale}`) ?? 0
-        if (have !== required) out.push(`cell ${arm} ${scenario} ${scale}x: ${have} of ${required} samples`)
+        if (have !== required)
+          out.push(`cell ${arm} ${scenario} ${scale}x: ${have} of ${required} samples`)
       }
     }
   }

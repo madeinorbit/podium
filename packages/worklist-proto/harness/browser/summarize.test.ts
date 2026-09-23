@@ -3,7 +3,15 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { distribution, MIN_SAMPLES_FOR_P95, type RunOutput, type TimingRecord } from './records'
+import { MATRIX_PLAN_FILE, type MatrixPlan, matrixRunFile } from './complete'
+import {
+  distribution,
+  MIN_SAMPLES_FOR_P95,
+  type RunOutput,
+  SCENARIOS as SCENARIOS_ALL,
+  type Scale,
+  type TimingRecord,
+} from './records'
 import {
   allowanceMs,
   cells,
@@ -14,36 +22,7 @@ import {
   SLOPE_MIN_EXCESS_MS,
   targetMismatches,
 } from './summarize'
-
-function record(overrides: Partial<TimingRecord>): TimingRecord {
-  return {
-    arm: 'noop',
-    plant: null,
-    scale: 1,
-    scenario: 'rename',
-    sample: 0,
-    warmup: false,
-    target: null,
-    actionMs: 1,
-    drainMs: 1,
-    frameMs: 2,
-    endedBy: 'drain',
-    commits: 0,
-    mounts: 0,
-    domMutations: 0,
-    strayCommits: 0,
-    longTasks: 0,
-    longTaskMs: 0,
-    heapBefore: null,
-    heapAfter: null,
-    mountedRows: 50,
-    stats: { rowsDerived: 0, rollupsDerived: 0, indexUpdates: 0, notifications: 0 },
-    loadavg: 2,
-    uptime: 1,
-    runtimeSha: 'abc',
-    ...overrides,
-  }
-}
+import { completeRun, record } from './test-fixtures'
 
 function run(records: TimingRecord[], status: RunOutput['status'] = 'ok'): RunOutput {
   return {
@@ -154,45 +133,130 @@ describe('targetMismatches', () => {
 })
 
 describe('runSummary (the entry point)', () => {
-  function write(runs: RunOutput[]): string {
+  const SCALES: Scale[] = [1, 2, 4]
+  /** noop and hand at every scale and scenario, n = 20 per cell: a complete set. */
+  const grid = (): RunOutput[] =>
+    (['noop', 'hand'] as const).flatMap((arm) => SCALES.map((scale) => completeRun(arm, scale)))
+
+  function write(runs: RunOutput[], names?: string[]): string {
     const dir = mkdtempSync(join(tmpdir(), 'pod-4558-entry-'))
-    runs.forEach((r, i) => writeFileSync(join(dir, `r${i}.json`), JSON.stringify(r)))
+    runs.forEach((r, i) => {
+      writeFileSync(join(dir, names?.[i] ?? `r${i}.json`), JSON.stringify(r))
+    })
     return dir
   }
 
-  it('refuses runs whose arms timed different rows: exit 2, no table', () => {
-    const dir = write([
-      run([record({ arm: 'noop', scenario: 'click', target: 'i50' })]),
-      run([record({ arm: 'hand', scenario: 'click', target: 'i17' })]),
-    ])
+  function summary(dir: string): { code: number; lines: string[] } {
     const lines: string[] = []
-    expect(runSummary([dir], (line) => lines.push(line))).toBe(2)
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatch(/^TARGETS DIFFER \(not summarised\): 1x click#0: /)
-    expect(lines[0]).toContain('i50 (noop)')
-    expect(lines[0]).toContain('i17 (hand)')
+    const code = runSummary([dir], (line) => lines.push(line))
+    return { code, lines }
+  }
+
+  it('summarises a complete set: exit 0, tables printed, no withheld or provisional column', () => {
+    const { code, lines } = summary(write(grid()))
+    expect(code).toBe(0)
+    expect(lines.some((line) => line.startsWith('| hand | click | 4x | 20 |'))).toBe(true)
+    const headers = lines.filter((line) => line.startsWith('| Arm |'))
+    expect(headers).toHaveLength(2)
+    for (const header of headers) expect(header).not.toMatch(/withheld|provisional|n < 20/i)
+    expect(lines.join('\n')).not.toMatch(/withheld|provisional|n < 20/i)
+  })
+
+  it('refuses a missing cell: exit 2, each shortfall named, no table', () => {
+    const runs = grid().filter((r) => !(r.arm === 'hand' && r.scale === 2))
+    const { code, lines } = summary(write(runs))
+    expect(code).toBe(2)
+    expect(lines).toContain('INCOMPLETE (not summarised): cell hand rename 2x: 0 of 20 samples')
     expect(lines.some((line) => line.startsWith('|'))).toBe(false)
   })
 
-  it('refuses runs timed on two machines: exit 2, no table', () => {
-    const dir = write([
-      { ...run([record({ arm: 'noop' })]), host: 'ludovico' },
-      { ...run([record({ arm: 'hand' })]), host: 'flatblock' },
-    ])
-    const lines: string[] = []
-    expect(runSummary([dir], (line) => lines.push(line))).toBe(2)
-    expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatch(/^MACHINES DIFFER \(not summarised\): /)
+  it('refuses a set whose only run of a cell failed, and lists the failed run', () => {
+    const runs = grid()
+    ;(runs[5] as RunOutput).status = 'failed'
+    ;(runs[5] as RunOutput).failures = ['load 8.40 > 8 at click#3']
+    const { code, lines } = summary(write(runs))
+    expect(code).toBe(2)
+    expect(lines[0]).toMatch(
+      /^FAILED RUN \(not summarised\): .*r5\.json — load 8\.40 > 8 at click#3$/,
+    )
+    expect(lines).toContain('INCOMPLETE (not summarised): cell hand click 4x: 0 of 20 samples')
+    expect(lines.some((line) => line.startsWith('|'))).toBe(false)
   })
 
-  it('summarises runs whose arms timed the same rows: exit 0, tables printed', () => {
-    const dir = write([
-      run([record({ arm: 'noop', scenario: 'click', target: 'i50' })]),
-      run([record({ arm: 'hand', scenario: 'click', target: 'i50', actionMs: 3 })]),
-    ])
-    const lines: string[] = []
-    expect(runSummary([dir], (line) => lines.push(line))).toBe(0)
-    expect(lines.some((line) => line.startsWith('| hand | click | 1x |'))).toBe(true)
+  it('summarises a retried cell: the failed attempt is listed, the passing retry fills the cell', () => {
+    const runs = grid()
+    const failed: RunOutput = {
+      ...completeRun('hand', 4),
+      status: 'failed',
+      failures: ['load 8.40 > 8 at click#3'],
+    }
+    const { code, lines } = summary(write([...runs, failed]))
+    expect(code).toBe(0)
+    expect(lines[0]).toMatch(/^FAILED RUN \(not summarised\): /)
+    expect(lines.some((line) => line.startsWith('| hand | click | 4x | 20 |'))).toBe(true)
+  })
+
+  it('refuses a record above load 8 even in a run marked ok', () => {
+    const runs = grid()
+    ;(runs[4]?.records[10] as TimingRecord).loadavg = 8.5
+    const { code, lines } = summary(write(runs))
+    expect(code).toBe(2)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^INCOMPLETE \(not summarised\): load 8\.50 > 8 at hand 2x /)
+  })
+
+  it('holds a matrix directory to its plan', () => {
+    const plan: MatrixPlan = {
+      arms: ['noop', 'hand'],
+      scales: SCALES,
+      rounds: 4,
+      samples: 5,
+      warmup: 1,
+      scenarios: [...SCENARIOS_ALL],
+      maxLoad: 8,
+    }
+    const runs: RunOutput[] = []
+    const names: string[] = []
+    for (let round = 0; round < 4; round += 1) {
+      for (const arm of plan.arms as ('noop' | 'hand')[]) {
+        for (const scale of SCALES) {
+          runs.push(completeRun(arm, scale, { samples: 5 }))
+          names.push(matrixRunFile(round, arm, scale))
+        }
+      }
+    }
+    const complete = write(runs, names)
+    writeFileSync(join(complete, MATRIX_PLAN_FILE), JSON.stringify(plan))
+    expect(summary(complete).code).toBe(0)
+    // Round 0's noop 1x never passed: cells short, file missing.
+    const short = write(runs.slice(1), names.slice(1))
+    writeFileSync(join(short, MATRIX_PLAN_FILE), JSON.stringify(plan))
+    const { code, lines } = summary(short)
+    expect(code).toBe(2)
+    expect(lines).toContain('INCOMPLETE (not summarised): cell noop heartbeat 1x: 15 of 20 samples')
+    expect(lines).toContain('INCOMPLETE (not summarised): run r0-noop-1x.json: no ok output')
+  })
+
+  it('refuses runs whose arms timed different rows: exit 2, no table', () => {
+    const runs = grid()
+    ;(
+      runs[3]?.records.find((r) => r.scenario === 'click' && r.sample === 0) as TimingRecord
+    ).target = 'i17'
+    const { code, lines } = summary(write(runs))
+    expect(code).toBe(2)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^TARGETS DIFFER \(not summarised\): 1x click#0: /)
+    expect(lines[0]).toContain('1-click-0 (noop)')
+    expect(lines[0]).toContain('i17 (hand)')
+  })
+
+  it('refuses runs timed on two machines: exit 2, no table', () => {
+    const runs = grid()
+    ;(runs[3] as RunOutput).host = 'ludovico'
+    const { code, lines } = summary(write(runs))
+    expect(code).toBe(2)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^MACHINES DIFFER \(not summarised\): /)
   })
 })
 
