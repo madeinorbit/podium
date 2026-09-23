@@ -1664,3 +1664,173 @@ it('retains the binding projection cursor when receipt persistence fails', async
   expect(cursor).toBe(1)
   expect(projected).toEqual(['native'])
 })
+
+/**
+ * A FINISHED TURN READS FINISHED (POD-4641).
+ *
+ * Each case replays the order a real driver emits at a turn boundary, taken
+ * from the acceptance run's stored runtime events, and then queues a follow-up.
+ * The session must read idle once the turn's own end arrives, and the follow-up
+ * must be handed to the daemon.
+ */
+describe('a finished turn ends the session\'s working state (POD-4641)', () => {
+  const at = (second: number) => new Date(Date.UTC(2026, 8, 23, 7, 31, second)).toISOString()
+
+  async function bindDriver(agentKind: string, driverId: string) {
+    const store = await openTestStore(':memory:')
+    const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    const commands: ControlMessage[] = []
+    await store.machines.upsertMachine({
+      id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
+    })
+    await registry.gateway.attachDaemon(store.hostMachineId, (message) => commands.push(message))
+    const { sessionId } = await registry.modules.sessions.createSession({ agentKind, cwd: '/project' })
+    await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+      type: 'bind', sessionId, cmd: agentKind, cwd: '/project', agentKind,
+      geometry: { cols: 80, rows: 24 }, driverId,
+    })
+    let seq = 0
+    const send = async (
+      body: Record<string, unknown>,
+      input: { turnEpoch: number; second: number; provenance?: RuntimeEvent['provenance']; observerGeneration?: number },
+    ) => {
+      seq += 1
+      const event = {
+        ...body,
+        at: at(input.second),
+        provenance: input.provenance ?? 'live',
+        cursor: { segmentId: `${driverId}-segment`, components: { seq } },
+        observerGeneration: input.observerGeneration ?? 1,
+        turnEpoch: input.turnEpoch,
+      } as RuntimeEvent
+      await registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent', sessionId, deliveryId: `${driverId}-${seq}`, event,
+      })
+    }
+    const phase = async () => (await registry.modules.sessions.sessionById(sessionId))?.agentState?.phase
+    const forwarded = (text: string) =>
+      commands.filter((message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId &&
+        (message as { text?: string }).text === text)
+    return { store, registry, sessionId, send, phase, forwarded }
+  }
+
+  async function expectFollowUpForwarded(driver: Awaited<ReturnType<typeof bindDriver>>) {
+    await driver.registry.modules.sessions.queueText({ sessionId: driver.sessionId, text: 'the follow-up' })
+    await vi.waitFor(() => expect(driver.forwarded('the follow-up')).toHaveLength(1))
+  }
+
+  it('server family (opencode-server, headless): the idle state after turn/completed is accepted', async () => {
+    const driver = await bindDriver('opencode', 'opencode-server')
+    try {
+      await driver.send({ t: 'state', change: { kind: 'session_started' } }, { turnEpoch: 0, second: 12, provenance: 'bootstrap' })
+      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 13 })
+      await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 1, second: 14 })
+      expect(await driver.phase()).toBe('working')
+      // opencode's closeTurn: the turn verdict FIRST, then the state it folds.
+      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } }, { turnEpoch: 1, second: 18 })
+      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, { turnEpoch: 1, second: 18 })
+      expect(await driver.phase()).toBe('idle')
+      await expectFollowUpForwarded(driver)
+    } finally {
+      await driver.registry.dispose()
+    }
+  })
+
+  it('server family: an interrupted turn and a failed turn also land their final state', async () => {
+    const driver = await bindDriver('opencode', 'opencode-server')
+    try {
+      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 1 })
+      await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 1, second: 2 })
+      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' } }, { turnEpoch: 1, second: 3 })
+      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'interrupted' } } }, { turnEpoch: 1, second: 3 })
+      expect(await driver.phase()).toBe('idle')
+      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } }, { turnEpoch: 2, second: 4 })
+      await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 2, second: 5 })
+      expect(await driver.phase()).toBe('working')
+      await driver.send({ t: 'turn', ev: { ev: 'failed', turnEpoch: 2, reason: 'provider-error', disposition: 'retryable' } }, { turnEpoch: 2, second: 6 })
+      await driver.send({ t: 'state', change: { kind: 'turn_failed', errorClass: 'provider-error', retryable: true } }, { turnEpoch: 2, second: 6 })
+      expect(await driver.phase()).toBe('errored')
+    } finally {
+      await driver.registry.dispose()
+    }
+  })
+
+  it('terminal family (grok generic-pty, headed): a poll "working" inside the closed turn does not reopen it', async () => {
+    const driver = await bindDriver('grok', 'generic-pty')
+    const snapshot = (phase: string, second: number) => ({
+      t: 'state',
+      change: {
+        kind: 'state_snapshot',
+        state: { phase, since: at(second), nativeSubagentCount: 0, stateSource: 'poll', ...(phase === 'idle' ? { idle: { kind: 'done' } } : {}) },
+        at: at(second),
+      },
+    })
+    try {
+      await driver.send(snapshot('idle', 1), { turnEpoch: 0, second: 1, provenance: 'bootstrap' })
+      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 2 })
+      await driver.send(snapshot('working', 2), { turnEpoch: 1, second: 2 })
+      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } }, { turnEpoch: 1, second: 4 })
+      await driver.send(snapshot('idle', 4), { turnEpoch: 1, second: 4 })
+      expect(await driver.phase()).toBe('idle')
+      // The acceptance run's event 603848: a live poll snapshot a minute after
+      // the turn closed, same epoch, no turn/started before it.
+      await driver.send(snapshot('working', 60), { turnEpoch: 1, second: 60 })
+      expect(await driver.phase()).toBe('idle')
+      await expectFollowUpForwarded(driver)
+      // A real next turn still opens with its own edge and reads working.
+      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } }, { turnEpoch: 2, second: 61 })
+      await driver.send(snapshot('working', 61), { turnEpoch: 2, second: 61 })
+      expect(await driver.phase()).toBe('working')
+    } finally {
+      await driver.registry.dispose()
+    }
+  })
+
+  it('terminal family (claude-code generic-pty, headed): an interrupted turn the driver reports goes idle', async () => {
+    const driver = await bindDriver('claude-code', 'generic-pty')
+    const snapshot = (phase: string, second: number, idle?: string) => ({
+      t: 'state',
+      change: {
+        kind: 'state_snapshot',
+        state: { phase, since: at(second), nativeSubagentCount: 0, stateSource: 'hook', ...(idle ? { idle: { kind: idle } } : {}) },
+        at: at(second),
+      },
+    })
+    try {
+      await driver.send(snapshot('idle', 1, 'done'), { turnEpoch: 0, second: 1, provenance: 'bootstrap' })
+      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 2 })
+      await driver.send(snapshot('working', 2), { turnEpoch: 1, second: 2 })
+      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' } }, { turnEpoch: 1, second: 5 })
+      await driver.send(snapshot('idle', 5, 'interrupted'), { turnEpoch: 1, second: 5 })
+      expect(await driver.phase()).toBe('idle')
+      await expectFollowUpForwarded(driver)
+    } finally {
+      await driver.registry.dispose()
+    }
+  })
+
+  it('control arm: state from a really closed OLDER turn is still rejected', async () => {
+    const driver = await bindDriver('opencode', 'opencode-server')
+    try {
+      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 1 })
+      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } }, { turnEpoch: 1, second: 2 })
+      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, { turnEpoch: 1, second: 2 })
+      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } }, { turnEpoch: 2, second: 3 })
+      await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 2, second: 3 })
+      expect(await driver.phase()).toBe('working')
+      // Epoch 1's terminal state, replayed late while turn 2 runs.
+      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, { turnEpoch: 1, second: 4 })
+      expect(await driver.phase()).toBe('working')
+      // And in the closed epoch, an arm that would reopen the turn stays out.
+      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 2, verdict: 'done' } }, { turnEpoch: 2, second: 5 })
+      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, { turnEpoch: 2, second: 5 })
+      expect(await driver.phase()).toBe('idle')
+      await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 2, second: 6 })
+      await driver.send({ t: 'state', change: { kind: 'prompt_submitted' } }, { turnEpoch: 2, second: 7 })
+      expect(await driver.phase()).toBe('idle')
+    } finally {
+      await driver.registry.dispose()
+    }
+  })
+})
