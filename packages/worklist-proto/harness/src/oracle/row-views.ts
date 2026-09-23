@@ -105,7 +105,8 @@ export function projectRowViews(derivation: LegacyDerivation, locals: SliceLocal
   return views
 }
 
-/** The row views the current app would draw for a live engine store. */
+/** The row views the current app would draw for a live engine store, derived
+ *  and projected at `locals.coarseNow` (one clock, POD-4559). */
 export function rowViewsFromStore(store: Store<PodiumClientApi>, locals: SliceLocals): RowViews {
-  return projectRowViews(legacyDerivationFromStore(store), locals)
+  return projectRowViews(legacyDerivationFromStore(store, locals.coarseNow), locals)
 }

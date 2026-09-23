@@ -18,10 +18,18 @@
  * heap before/after (CDP, forced GC), loadavg and uptime per record, and the
  * runtime SHA.
  *
+ * PARITY (POD-4559). After every sample, outside the timed window, the driver
+ * compares the page's `snapshotHash()` (the arm's slice output) with its
+ * `oracleHash()` (the oracle over the same engine state); a mismatch fails
+ * the run and names the first differing row. The no-op floor draws a frozen
+ * boot snapshot by design and is exempt unless `--strict-parity` (the proof
+ * that the comparison fails a wrong arm).
+ *
  * A run FAILS (status `failed`, exit 2) when the 1-minute load is above
- * `--max-load` (default 8) before or during it, or when any cell errors: a
- * missing cell is never a gap. Its records stay in the JSON for diagnosis;
- * `summarize.ts` refuses to print them as results.
+ * `--max-load` (default 8) before or during it, when any cell errors (a
+ * missing cell is never a gap), on a parity mismatch, or on stray commits.
+ * Its records stay in the JSON for diagnosis; `summarize.ts` refuses to
+ * print them as results.
  *
  * Timing runs under the bench lease of the machine it runs on (`bench:<hostname>`);
  * round three times on flatblock through `matrix.ts --host flatblock`, which
@@ -63,6 +71,9 @@ const VIEWPORT = { width: 1600, height: 2400 }
  *  and the no-op page (draws nothing) exist to fail it and are reported only. */
 const CANDIDATE_ARMS = new Set<ArmName>(['hand', 'mobx'])
 
+/** The floor draws its boot snapshot forever: parity is reported, not enforced, unless `--strict-parity`. */
+const PARITY_EXEMPT = new Set<ArmName>(['noop'])
+
 interface Args {
   arm: ArmName
   scale: Scale
@@ -77,6 +88,8 @@ interface Args {
   plant: string | null
   check: boolean
   offwindow: boolean
+  strictParity: boolean
+  markSettle: boolean
 }
 
 function parseArgs(argv: string[]): Args {
@@ -124,6 +137,10 @@ function parseArgs(argv: string[]): Args {
     // Proof plant: the rename aims at the library's visibleRootId, off the
     // windowed arms' first window; the run must fail there. Never a timing run.
     offwindow: argv.includes('--offwindow'),
+    // Proof plant: hold the no-op floor to parity too; the run must fail.
+    strictParity: argv.includes('--strict-parity'),
+    // Proof plant: drop the step's mark-read settle; the control's strays return.
+    markSettle: !argv.includes('--no-mark-settle'),
   }
 }
 
@@ -238,7 +255,7 @@ async function main(): Promise<number> {
     const page = await browser.newPage({ viewport: VIEWPORT })
     page.on('pageerror', (error) => fail(`page error: ${error.message}`))
     const plant = args.plant === null ? '' : `&plant=${encodeURIComponent(args.plant)}`
-    const proof = `${args.check ? '&check=1' : ''}${args.offwindow ? '&offwindow=1' : ''}`
+    const proof = `${args.check ? '&check=1' : ''}${args.offwindow ? '&offwindow=1' : ''}${args.markSettle ? '' : '&marksettle=0'}`
     const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}${plant}${proof}`
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
@@ -274,12 +291,23 @@ async function main(): Promise<number> {
         let result: ProtoScenarioResult
         let heapBefore: HeapUsage
         let check: ProtoOracleCheck | null
+        let parity: NonNullable<TimingRecord['parity']>
         try {
           // Pick and assert the drawn target (untimed), then the forced GC, then the change.
           await page.evaluate((name) => window.__proto.prepare(name), scenario)
           heapBefore = await heap()
           result = await page.evaluate((name) => window.__proto.runScenario(name), scenario)
           check = await page.evaluate(() => window.__proto.verify())
+          // Untimed: the arm's output against the oracle's for the same state.
+          parity = await page.evaluate(() => {
+            const arm = window.__proto.snapshotHash()
+            const oracle = window.__proto.oracleHash()
+            return {
+              arm,
+              oracle,
+              firstDifference: arm === oracle ? null : window.__proto.firstDifference(),
+            }
+          })
         } catch (error) {
           fail(`${scenario}#${sample}: ${(error as Error).message.split('\n')[0]}`)
           return 2
@@ -315,6 +343,7 @@ async function main(): Promise<number> {
                   over: check.over,
                   under: check.under,
                 },
+          parity,
           stats: result.stats,
           loadavg: load,
           uptime: uptime(),
@@ -333,6 +362,11 @@ async function main(): Promise<number> {
             `${scenario}#${sample}: target ${result.target} redrew [${check.drawn.join(',')}], the oracle changed [${check.changed.join(',')}]`,
           )
         }
+        if (parity.arm !== parity.oracle && (args.strictParity || !PARITY_EXEMPT.has(args.arm))) {
+          fail(
+            `${scenario}#${sample}: parity — arm ${parity.arm} vs oracle ${parity.oracle}; first difference ${parity.firstDifference ?? '(hashes differ, no row differs)'}`,
+          )
+        }
         if (record.strayCommits > 0) {
           fail(
             `${scenario}#${sample}: ${record.strayCommits} commit signals landed after the previous settle (work deferred past ${output.quietMs} ms cannot be attributed)`,
@@ -342,7 +376,7 @@ async function main(): Promise<number> {
           `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
             `actionMs=${record.actionMs.toFixed(2)} frameMs=${record.frameMs.toFixed(1)} ` +
             `by=${record.endedBy} commits=${record.commits} longTasks=${record.longTasks} ` +
-            `stray=${record.strayCommits} target=${result.target}` +
+            `stray=${record.strayCommits} target=${result.target} parity=${parity.arm === parity.oracle ? 'ok' : 'MISMATCH'}` +
             `${check === null ? '' : ` oracle=${check.changed.length} drawn=${check.drawn.length} over=${check.over.length} under=${check.under.length}`}` +
             ` load=${load.toFixed(2)}`,
         )

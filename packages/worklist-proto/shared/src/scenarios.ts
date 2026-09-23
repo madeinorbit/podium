@@ -368,6 +368,51 @@ interface IssueFacts {
 
 const numericId = (id: string): number => Number(id.slice(1))
 
+/** An open human issue: the population every row target is drawn from. */
+function isOpenHuman(i: IssueFacts): boolean {
+  return (
+    i.audience === 'human' &&
+    !i.archived &&
+    !i.deletedAt &&
+    !i.closedAt &&
+    !i.draft &&
+    ACTIVE_STAGES.has(i.stage)
+  )
+}
+
+/** Parents in the corpus (issues some other issue names as its parent). */
+function parentIds(issues: readonly IssueFacts[]): Set<string> {
+  const parents = new Set<string>()
+  for (const issue of issues) if (issue.parentId) parents.add(issue.parentId)
+  return parents
+}
+
+/**
+ * The target rules as predicates over issue ids, for callers that pick among
+ * rows drawn on screen rather than the whole corpus (the browser page,
+ * POD-4558/POD-4559): the same `isOpenHuman`, childless and unpinned rules
+ * {@link pickTargets} applies. `openRootWithChildren` is the rename's rule
+ * without its session condition (a drawn row need not be the #2 row).
+ */
+export function targetRules(corpus: FixtureCorpus): {
+  root: (id: string) => boolean
+  openRootWithChildren: (id: string) => boolean
+  childlessRoot: (id: string) => boolean
+} {
+  const issues = corpus.issues as unknown as IssueFacts[]
+  const byId = new Map(issues.map((i) => [i.id, i]))
+  const parents = parentIds(issues)
+  const openRoot = (id: string): boolean => {
+    const i = byId.get(id)
+    return i !== undefined && isOpenHuman(i) && !i.parentId && !i.pinned
+  }
+  return {
+    root: (id) => byId.get(id) !== undefined && !byId.get(id)?.parentId,
+    openRootWithChildren: (id) => openRoot(id) && parents.has(id),
+    childlessRoot: (id) => openRoot(id) && !parents.has(id),
+  }
+}
+
 /**
  * Pick every scenario target by rule. Deterministic in the corpus; throws
  * when a rule finds nothing, so a corpus that cannot express a scenario fails
@@ -395,13 +440,7 @@ export function pickTargets(corpus: FixtureCorpus): ScenarioTargets {
   }
   const isLiveWorking = (s: (typeof corpus.sessions)[number]): boolean =>
     s.status === 'live' && s.agentState?.phase === 'working' && s.agentKind !== 'shell'
-  const openHuman = (i: IssueFacts): boolean =>
-    i.audience === 'human' &&
-    !i.archived &&
-    !i.deletedAt &&
-    !i.closedAt &&
-    !i.draft &&
-    ACTIVE_STAGES.has(i.stage)
+  const openHuman = isOpenHuman
   const childless = (i: IssueFacts): boolean => (children.get(i.id)?.length ?? 0) === 0
   const fail = (rule: string): never => {
     throw new Error(`[scenarios] corpus seed ${corpus.seed} scale ${corpus.scale}: no ${rule}`)
@@ -805,12 +844,24 @@ function takeMarkReadReceipts(ctx: ScenarioEngine): string[] {
  */
 async function settled(ctx: ScenarioEngine): Promise<void> {
   await settle(ctx.settleMs)
+  if (echoAcknowledgedMarkReads(ctx).length === 0) return
+  await settle(ctx.settleMs)
+}
+
+/**
+ * The server's echo of every mark-read it acknowledged since the last call:
+ * `readAt` at the server's clock, one replica batch, synchronously. Returns
+ * the ids echoed. `settled` (the count harness) and the browser page
+ * (`harness/web/entrylib.ts`, POD-4559) both settle a step's own mark-reads
+ * through this, so no step's awaiting read retires in a later one.
+ */
+export function echoAcknowledgedMarkReads(ctx: ScenarioEngine): string[] {
   const acknowledged = takeMarkReadReceipts(ctx)
-  if (acknowledged.length === 0) return
+  if (acknowledged.length === 0) return acknowledged
   ctx.replica.batch(() => {
     for (const id of acknowledged) echoIssueRead(ctx, id, ctx.stamp())
   })
-  await settle(ctx.settleMs)
+  return acknowledged
 }
 
 /** A kernel upsert through the replica facade: the cache takes the row, then

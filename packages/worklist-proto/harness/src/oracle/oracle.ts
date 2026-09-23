@@ -198,38 +198,52 @@ function rowKeyOf(row: UnifiedWorkRow): string {
  * projects it with the same `projectSnapshot` the fixture oracle uses, so an
  * engine-backed arm (or the legacy control) checks parity against exactly what
  * the current app shows for the engine's present state.
+ *
+ * ONE CLOCK (POD-4559): `locals.coarseNow`, for the derivation AND the
+ * projection. It used to derive with `store.coarseNow` and project with the
+ * caller's, so a caller whose clock differed from the store's got a snapshot
+ * built on two clocks (`one-clock.test.ts`).
  */
 export function snapshotFromStore(
   store: Store<PodiumClientApi>,
   locals: SliceLocals,
 ): SliceSnapshot {
-  return projectSnapshot(legacyDerivationFromStore(store), locals)
+  return projectSnapshot(legacyDerivationFromStore(store, locals.coarseNow), locals)
 }
 
 /**
  * The legacy derivation over a LIVE engine store (`snapshotFromStore` and the
- * row-view oracle project it). Model resolution mirrors `runLegacyDerivation`'s
- * store assembly: the shared issue-view cache when a replica and projections
- * are present, else the store's own issue rows (the POD-1053 fallback inside
- * the slice).
+ * row-view oracle project it), at `coarseNow` (default: the store's own
+ * clock). Model resolution mirrors `runLegacyDerivation`'s store assembly: the
+ * shared issue-view cache when a replica and projections are present, else the
+ * store's own issue rows (the POD-1053 fallback inside the slice).
  */
-export function legacyDerivationFromStore(store: Store<PodiumClientApi>): LegacyDerivation {
+export function legacyDerivationFromStore(
+  store: Store<PodiumClientApi>,
+  coarseNow: number = store.coarseNow,
+): LegacyDerivation {
   const replica = store.replica
   const projections = store.issueProjections ?? []
   const models =
     replica !== undefined && replica !== null && projections.length > 0
       ? allIssueViewModels(replica, projections, store.issues)
       : store.issues
-  const slice = worklistSlice.derive(store)
+  const slice = worklistSlice.derive(atClock(store, coarseNow))
   return { slice, models, sessions: store.sessions, allWorktreePaths: slice.allWorktreePaths }
 }
 
+/** The store as the derivation reads it, with its clock read as `coarseNow`. */
+function atClock(store: Store<PodiumClientApi>, coarseNow: number): Store<PodiumClientApi> {
+  if (store.coarseNow === coarseNow) return store
+  return new Proxy(store, {
+    get: (target, key, receiver) =>
+      key === 'coarseNow' ? coarseNow : Reflect.get(target, key, receiver),
+  })
+}
+
 /**
- * POD-4556 (L4b) — the parity oracle over a live store, derived AND projected
- * with the store's own clock. `snapshotFromStore` derives with
- * `store.coarseNow` but projects (band, closed fold, grouping, order) with
- * `locals.coarseNow`; a caller whose locals lag the engine gets a snapshot
- * from two clocks. This one cannot. Unselected baseline (spec §7).
+ * POD-4556 (L4b) — the parity oracle over a live store at the store's own
+ * clock, unselected baseline (spec §7).
  */
 export function oracleSnapshot(store: Store<PodiumClientApi>): SliceSnapshot {
   return snapshotFromStore(store, { selectedIssueId: null, coarseNow: store.coarseNow })
@@ -252,7 +266,8 @@ const STORE_COLLECTIONS = new Set([
  * view-model cache (`issue-view-cache.ts`, reused row by row since POD-1053)
  * therefore starts empty, and no cache keyed on a collection's identity can
  * hit. Row objects are shared: they are server truth, not derived state. This
- * is the legacy control's `rebuildFromScratch`.
+ * is the legacy control's `rebuildFromScratch`. One clock, `locals.coarseNow`,
+ * as `snapshotFromStore`.
  */
 export function rebuiltSnapshotFromStore(
   store: Store<PodiumClientApi>,
@@ -274,6 +289,7 @@ export function rebuiltSnapshotFromStore(
   const fresh = new Proxy(store, {
     get(target, key, receiver) {
       if (key === 'replica') return replica
+      if (key === 'coarseNow') return locals.coarseNow
       const value: unknown = Reflect.get(target, key, receiver)
       if (typeof key !== 'string' || !STORE_COLLECTIONS.has(key) || !Array.isArray(value))
         return value

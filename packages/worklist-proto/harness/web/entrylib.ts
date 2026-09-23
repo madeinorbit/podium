@@ -9,17 +9,25 @@
  * in Chromium cover the hot path):
  * - `heartbeat`: lastActiveAt bump on the scenario library's heartbeat
  *   target, a session on a row the worklist never shows (methodology #1).
- * - `rename`: title dual-write on a DRAWN open root (#4).
+ * - `rename`: title dual-write on a DRAWN open root (#4), from its server
+ *   title to `<title> (renamed)`; the next `prepare` restores its server rows
+ *   untimed, so every sample is the same rename of the same row and titles
+ *   never grow (POD-4559).
  * - `stagemove`: stage dual-write (open → done/tucked) on a DRAWN childless
  *   open root (#5); the next `prepare` reopens it untimed (its server rows
  *   restored), so every sample is the same move of the same row.
  * - `clock`: advance the clock 60 s with no row change, through the runtime's
  *   own tick path (the control derives from the engine clock) and on the
  *   locals channel (round-three arms); bands re-derive from the new now (#8).
- * - `click`: a pointer event and click on a DRAWN row's pressable (#3). Every
- *   sample clicks a row this page has never selected, so every sample is the
- *   same selection change; a second click on a read row would time a
- *   selection alone and mix two workloads in one cell.
+ * - `click`: the selection write on the ENGINE (`setSelectedIssueId`, #3) for
+ *   a DRAWN row: the write the control's pressable makes and the count
+ *   harness's `writeSelectionClick` makes. Every arm hears it through the
+ *   locals channel (POD-4608; round-two stores through the page's bridge,
+ *   below), and the app's own eager mark-read of the selected row runs for
+ *   every arm. (Before POD-4559 the round-two arms' click was arm-local — no
+ *   engine write, no mark-read — while the control's wrote the engine: two
+ *   workloads under one name.) Every sample selects a row this page has never
+ *   selected, so every sample is the same selection change.
  *
  * DRAWN TARGETS (POD-4558, coordinator ruling on finding #4). A change aimed at
  * a row the arm has not drawn commits nothing on a windowed arm and the whole
@@ -28,9 +36,13 @@
  * identically for every arm, from the FIRST WINDOW: the oracle's first
  * `FIRST_WINDOW_ROWS` rows of the list as it stands before the change (never
  * an arm's own draw order), root rows only. The rules are the scenario
- * library's (`pickTargets`): the rename takes the first open human root with
- * children; the stage move the first childless open root (`childlessRoot`);
- * each click the first row neither rule wants, then any. Before every write
+ * library's (`targetRules`, the predicates `pickTargets` uses): the rename
+ * takes the first open human root with children; the stage move the first
+ * childless open root; each click the first row neither rule wants, then any.
+ * The window is the oracle's over the ENGINE, and every arm makes the same
+ * engine writes (the click included, POD-4559), so every arm and the control
+ * change the same rows in the same order; the summary refuses a matrix whose
+ * targets differ. Before every write
  * the page asserts the target is mounted in THIS arm and throws if not, so
  * the run FAILS instead of recording a zero. `prepare` picks (untimed, before
  * the driver's forced GC); `runScenario` times it; `verify` (check mode,
@@ -71,10 +83,33 @@
  * entirely and surfaced only as strays. POD-4558 NOTES.)
  * Long tasks are those overlapping the change's window, taken synchronously
  * from the observer (`takeRecords`) after the settle.
+ *
+ * THE STEP'S OWN MARK-READS SETTLE INSIDE THE STEP (POD-4559, as the count
+ * harness since POD-4618). A click's eager mark-read is the app's: the kernel
+ * paints `readAt` at once (inside the timed window, for every arm), sends it,
+ * and keeps it awaiting truth until the server's echo — or its 60 s
+ * wall-clock sweep, which republishes in whichever later step is running. And
+ * the runtime throttles issue mark-reads to one per `MARK_READ_ON_VIEW_MS`, so
+ * a click soon after the previous one fires its mark-read up to 1.2 s later.
+ * Either lands after the step's quiet settle, as strays in the next record:
+ * the control's 4x run failed on a click's whole-list redraw (1,384 commits)
+ * that way. So, untimed, after the step's settle: a click waits out the
+ * throttle window from its dispatch; then every mark-read the server
+ * acknowledged is echoed as truth (`echoAcknowledgedMarkReads`) until the
+ * kernel holds no pending write, and the page settles again. `?marksettle=0`
+ * removes it (the proof that the strays come back).
+ *
+ * PARITY AFTER EVERY SAMPLE (POD-4559). `snapshotHash()` is the arm's slice
+ * output, `oracleHash()` the oracle's for the same engine state (its own
+ * clock, unselected baseline), both over one canonical serialisation; the
+ * driver compares them after every sample, outside the timed window, and
+ * `firstDifference()` names the first row (in the oracle's order) that
+ * differs.
  */
 
+import { MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
+import { asIssueId } from '@podium/model'
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
-import { settableLocals } from '../../shared/src/locals-source'
 import {
   type CommitLog,
   createCommitLog,
@@ -85,10 +120,14 @@ import {
   applyHeartbeat,
   applyStageMove,
   applyTitleRename,
+  echoAcknowledgedMarkReads,
+  pendingWrites,
   type ScenarioEngine,
+  targetRules,
   upsert,
 } from '../../shared/src/scenarios'
-import type { SliceLocals } from '../../shared/src/slice-types'
+import type { SliceSnapshot } from '../../shared/src/slice-types'
+import { createEngineLocals, localsOfEngine } from '../src/engine-locals'
 import { oracleSnapshot, type RowViews, rowViewsFromStore } from '../src/oracle/index'
 
 export type ProtoScenarioName = 'heartbeat' | 'rename' | 'stagemove' | 'clock' | 'click'
@@ -168,7 +207,12 @@ export interface ProtoPage {
   settle(): Promise<void>
   /** The settle's quiet window, ms. */
   quietMs: number
+  /** The arm's slice output, canonical hash. */
   snapshotHash(): string
+  /** The oracle's slice output for the same engine state, same hash. */
+  oracleHash(): string
+  /** The first row (oracle order) where the arm's output differs from the oracle's; null when equal. */
+  firstDifference(): string | null
   stats(): ProtoScenarioResult['stats']
 }
 
@@ -189,6 +233,54 @@ function hashString(value: string): string {
     hash = ((hash << 5) + hash + value.charCodeAt(index)) | 0
   }
   return (hash >>> 0).toString(16)
+}
+
+/** JSON with object keys sorted at every level: equal values, equal text. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, inner: unknown) =>
+    inner !== null && typeof inner === 'object' && !Array.isArray(inner)
+      ? Object.fromEntries(
+          Object.entries(inner as Record<string, unknown>).sort(([a], [b]) =>
+            a < b ? -1 : a > b ? 1 : 0,
+          ),
+        )
+      : inner,
+  )
+}
+
+/** The first difference between two slice outputs, walking `expected`'s order. */
+export function firstSnapshotDifference(
+  actual: SliceSnapshot,
+  expected: SliceSnapshot,
+): string | null {
+  const ids = (snapshot: SliceSnapshot): string[] => [
+    ...snapshot.order.pinnedIds,
+    ...snapshot.order.groups.flatMap((group) => [...group.rowIds, ...group.closedIds]),
+  ]
+  const want = ids(expected)
+  for (const id of want) {
+    const a = actual.rowsById[id]
+    const e = expected.rowsById[id]
+    if (a === undefined) return `row ${id}: missing from the arm`
+    if (canonical(a) !== canonical(e)) {
+      const fields = Object.keys({ ...a, ...e }).filter(
+        (field) =>
+          canonical((a as unknown as Record<string, unknown>)[field]) !==
+          canonical((e as unknown as Record<string, unknown>)[field]),
+      )
+      return `row ${id}: ${fields.map((f) => `${f} arm=${canonical((a as unknown as Record<string, unknown>)[f])} oracle=${canonical((e as unknown as Record<string, unknown>)[f])}`).join('; ')}`
+    }
+  }
+  const extra = Object.keys(actual.rowsById).find((id) => !(id in expected.rowsById))
+  if (extra !== undefined) return `row ${extra}: drawn by the arm, not in the oracle`
+  if (canonical(actual.order) !== canonical(expected.order)) {
+    const got = ids(actual)
+    const at = want.findIndex((id, index) => got[index] !== id)
+    return at >= 0
+      ? `order at ${at}: arm has ${got[at] ?? 'nothing'}, oracle ${want[at]}`
+      : 'order: same rows, different grouping'
+  }
+  return null
 }
 
 /** Resolves with the time the next task starts: after every queued microtask. */
@@ -255,51 +347,6 @@ function createTimedCommitLog(): TimedCommitLog {
  */
 export const FIRST_WINDOW_ROWS = 36
 
-type IssueFacts = {
-  id: string
-  parentId?: string | null
-  stage: string
-  archived: boolean
-  audience?: string
-  closedAt?: string | null
-  deletedAt?: string | null
-  pinned?: boolean
-  draft?: boolean
-}
-
-const ACTIVE_STAGES = new Set(['in_progress', 'planning', 'review'])
-
-/** The scenario library's target rules (`pickTargets`), over the corpus facts. */
-function targetRules(boot: ScenarioEngine): {
-  root: (id: string) => boolean
-  openRootWithChildren: (id: string) => boolean
-  childlessRoot: (id: string) => boolean
-} {
-  const issues = boot.corpus.issues as unknown as IssueFacts[]
-  const byId = new Map(issues.map((i) => [i.id, i]))
-  const parents = new Set<string>()
-  for (const issue of issues) if (issue.parentId) parents.add(issue.parentId)
-  const openRoot = (id: string): boolean => {
-    const i = byId.get(id)
-    return (
-      i !== undefined &&
-      i.audience === 'human' &&
-      !i.archived &&
-      !i.deletedAt &&
-      !i.closedAt &&
-      !i.draft &&
-      ACTIVE_STAGES.has(i.stage) &&
-      !i.parentId &&
-      !i.pinned
-    )
-  }
-  return {
-    root: (id) => byId.get(id) !== undefined && !byId.get(id)?.parentId,
-    openRootWithChildren: (id) => openRoot(id) && parents.has(id),
-    childlessRoot: (id) => openRoot(id) && !parents.has(id),
-  }
-}
-
 export interface MountPageOptions {
   arm: string
   createArm: () => Arm
@@ -319,12 +366,27 @@ export function readScale(): 1 | 2 | 4 {
 export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: CommitLog } {
   const { createArm, source, boot, scale, counts, runtimeSha, el } = options
   const { engine } = boot
-  const locals = settableLocals({
-    selectedIssueId: null,
-    coarseNow: engine.getSnapshot().coarseNow,
-  })
+  // The locals channel is the ENGINE's (POD-4608): a click and a tick are
+  // engine writes, and every arm hears them here.
+  const locals = createEngineLocals(engine)
   const arm = createArm()
   const handle = arm.create(source, locals.source)
+  // Round-two stores predate the channel (they read `locals.get()` once and
+  // are driven by `setSelection` / `setCoarseNow`): the page bridges it.
+  const roundTwo = (
+    handle as unknown as {
+      store?: { setSelection?: (id: string) => void; setCoarseNow?: (now: number) => void }
+    }
+  ).store
+  if (roundTwo?.setSelection !== undefined && roundTwo.setCoarseNow !== undefined) {
+    const { setSelection, setCoarseNow } = roundTwo as Required<typeof roundTwo>
+    locals.source.subscribe((changed) => {
+      const now = locals.source.get()
+      if (changed.has('selectedIssueId') && now.selectedIssueId !== null)
+        setSelection.call(roundTwo, now.selectedIssueId)
+      if (changed.has('coarseNow')) setCoarseNow.call(roundTwo, now.coarseNow)
+    })
+  }
   const log = createTimedCommitLog()
   withCommitLog(log, () => {
     const unmount = handle.mountWeb(el)
@@ -366,7 +428,8 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
 
   const params = new URLSearchParams(window.location.search)
   const checkMode = params.get('check') === '1'
-  const rules = targetRules(boot)
+  const rules = targetRules(boot.corpus)
+  const markSettle = params.get('marksettle') !== '0'
 
   /** The oracle's first window of the list as it stands now, root rows only:
    *  the control nests formal children inside their parent's row (no row of
@@ -400,13 +463,22 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     params.get('offwindow') === '1'
       ? boot.targets.visibleRootId
       : bootWindow.find(rules.openRootWithChildren)
-  let renames = 0
-  function rename(): void {
-    const id = renameTarget as string
-    const wire = engine.getSnapshot().issues.find((issue) => issue.id === id)
-    if (!wire) throw new Error(`[proto] issue ${id} missing`)
-    renames += 1
-    applyTitleRename(boot, id, `${wire.title} (proto ${renames})`)
+  /** The row's server rows now, restored by the returned undo (untimed, next `prepare`). */
+  function restorer(id: string): () => void {
+    const wire = boot.cache.read('issue', id)?.value
+    const projection = boot.cache.read('issueProjection', id)?.value
+    if (wire === undefined) throw new Error(`[proto] ${id} missing from the cache`)
+    return () =>
+      boot.replica.batch(() => {
+        upsert(boot, 'issue', id, wire)
+        if (projection !== undefined) upsert(boot, 'issueProjection', id, projection)
+      })
+  }
+  /** Same title every sample: the server title, then `(renamed)`, undone before the next change. */
+  function rename(id: string): void {
+    const wire = boot.cache.read('issue', id)?.value as { title?: string } | undefined
+    if (wire?.title === undefined) throw new Error(`[proto] issue ${id} missing`)
+    applyTitleRename(boot, id, `${wire.title} (renamed)`)
   }
   const fresh = (id: string): boolean => id !== renameTarget && !moved.has(id) && !clicked.has(id)
   /** #5: the first drawn childless open root no click selected. Each move is
@@ -436,26 +508,12 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     return id
   }
 
-  /** The page clock: the runtime's own tick (the control derives from the
-   *  engine clock), the same instant on the locals channel (POD-4608), drained
-   *  at once, and round-two arms' store hook. No row changes — bands and
-   *  folds re-derive from the new now. */
-  let pageNow = locals.source.get().coarseNow
+  /** The page clock: the runtime's own tick (POD-4550). The control derives
+   *  from the engine clock; every other arm hears it on the locals channel.
+   *  No row changes — bands and folds re-derive from the new now. */
   function clock(): void {
-    pageNow += 60_000
     boot.advanceClock(60_000)
-    locals.set({ coarseNow: pageNow })
-    locals.flush()
-    const store = (handle as unknown as { store?: { setCoarseNow?: (now: number) => void } }).store
-    if (store?.setCoarseNow !== undefined) store.setCoarseNow(pageNow)
   }
-
-  /** The selection the oracle's row views show (the page's clicks). */
-  let selected: string | null = null
-  const oracleLocals = (): SliceLocals => ({
-    selectedIssueId: selected,
-    coarseNow: engine.getSnapshot().coarseNow,
-  })
 
   let settledSignals = signals()
   let running = false
@@ -485,12 +543,44 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     return frames
   }
 
+  /**
+   * Untimed: the step's own mark-reads settle inside the step (see the header).
+   * `clickAt` (a click's dispatch time) first waits out the runtime's
+   * mark-read throttle window, so a deferred mark-read has fired. Then every
+   * mark-read the server acknowledged is echoed as truth, until the kernel
+   * holds no pending write; then the page goes quiet again.
+   */
+  async function settleMarkReads(clickAt: number | null): Promise<void> {
+    if (clickAt !== null) {
+      const until = clickAt + MARK_READ_ON_VIEW_MS
+      while (performance.now() < until) {
+        await new Promise((resolve) => setTimeout(resolve, until - performance.now()))
+      }
+    }
+    const began = performance.now()
+    let echoed = 0
+    for (;;) {
+      await nextTask()
+      echoed += echoAcknowledgedMarkReads(boot).length
+      if (pendingWrites(boot).length === 0) break
+      if (performance.now() - began > SETTLE_CAP_MS) {
+        throw new Error(
+          `[proto] the step's writes did not settle within ${SETTLE_CAP_MS} ms: ${pendingWrites(boot).join(', ')}`,
+        )
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    if (echoed > 0 || clickAt !== null) await settleQuiet()
+  }
+
   interface Plan {
     name: ProtoScenarioName
     target: string | null
     /** The target is a row: it must be drawn when the change is dispatched. */
     row: boolean
     dispatch: () => void
+    /** The change's undo, run untimed by the next `prepare` (rename, stage move). */
+    undo?: () => void
     /** Check mode: the oracle's row views and the mounted rows before the change. */
     before: { views: RowViews; mounted: Set<string> } | null
   }
@@ -511,62 +601,52 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
             `[proto] rename: no open root with children in the first window ${bootWindow.join(',')}`,
           )
         }
-        return { target: renameTarget, row: true, dispatch: rename }
+        return {
+          target: renameTarget,
+          row: true,
+          dispatch: () => rename(renameTarget),
+          undo: restorer(renameTarget),
+        }
       case 'stagemove': {
         const id = nextStageMove()
-        // Server truth before the move, for the untimed reopen in the next `prepare`.
-        const wire = boot.cache.read('issue', id)?.value
-        const projection = boot.cache.read('issueProjection', id)?.value
-        if (wire === undefined) throw new Error(`[proto] stagemove: ${id} missing from the cache`)
         return {
           target: id,
           row: true,
           dispatch: () => {
             moved.add(id)
             applyStageMove(boot, id)
-            reopen = () =>
-              boot.replica.batch(() => {
-                upsert(boot, 'issue', id, wire)
-                if (projection !== undefined) upsert(boot, 'issueProjection', id, projection)
-              })
           },
+          undo: restorer(id),
         }
       }
       case 'clock':
         return { target: null, row: false, dispatch: clock }
       case 'click': {
         const id = nextClick()
-        const button = el.querySelector(`[data-issue-row="${CSS.escape(id)}"] [data-pressable]`)
-        if (!(button instanceof HTMLElement)) {
-          throw new Error(`[proto] click: ${id} is not drawn with a pressable by ${options.arm}`)
-        }
         return {
           target: id,
           row: true,
           dispatch: () => {
             clicked.add(id)
-            selected = id
-            if (!button.isConnected)
-              throw new Error(`[proto] click: ${id}'s pressable was replaced`)
-            button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
-            button.click()
+            engine.getSnapshot().setSelectedIssueId(asIssueId(id))
           },
         }
       }
     }
   }
 
-  /** The last stage move's undo: its row's server truth restored, untimed. */
-  let reopen: (() => void) | null = null
+  /** The last change's undo: its row's server truth restored, untimed. */
+  let undoLast: (() => void) | null = null
 
   async function prepare(name: ProtoScenarioName): Promise<string | null> {
     if (running) throw new Error('[proto] prepare during a running change')
-    if (reopen !== null) {
-      // Put the moved row back where it was (same server rows, so the same
-      // place in the list) and settle, so every stage move is the same move of
-      // the same drawn row and the window never runs out of targets.
-      const undo = reopen
-      reopen = null
+    if (undoLast !== null) {
+      // Put the renamed or moved row back as it was (same server rows, so the
+      // same title and the same place in the list) and settle, so every sample
+      // is the same change of the same drawn row and the window never runs
+      // out of targets.
+      const undo = undoLast
+      undoLast = null
       undo()
       await settleQuiet()
     }
@@ -576,7 +656,10 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       ...next,
       name,
       before: checkMode
-        ? { views: rowViewsFromStore(engine.getSnapshot(), oracleLocals()), mounted: mountedIds() }
+        ? {
+            views: rowViewsFromStore(engine.getSnapshot(), localsOfEngine(engine)),
+            mounted: mountedIds(),
+          }
         : null,
     }
     return next.target
@@ -609,6 +692,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
 
         const frames = await settleQuiet()
         const settleEnd = performance.now()
+        if (current.undo !== undefined) undoLast = current.undo
 
         const committed = signals() !== windowSignals
         const commitAt = committed && log.lastAt() >= start ? log.lastAt() : -1
@@ -619,21 +703,30 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
         if (frameAt === undefined) throw new Error('[proto] no frame after the last commit signal')
 
         drainLongTasks()
+        const longTaskList = longTasks.filter(
+          (t) => t.startTime + t.duration > start && t.startTime < settleEnd,
+        )
+        const commits = log.total()
+        const mounts = [...log.mounts.values()].reduce((sum, n) => sum + n, 0)
+        const mountedRows = el.querySelectorAll('[data-issue-row]').length
+        const domMutations = domRecords - domBefore
+        const stats = statsOf()
+        // Untimed, after every number above is taken: this step's own
+        // mark-reads, acknowledged and echoed before the next change.
+        if (markSettle) await settleMarkReads(name === 'click' ? start : null)
         lastRun = current
         return {
-          commits: log.total(),
-          mounts: [...log.mounts.values()].reduce((sum, n) => sum + n, 0),
-          domMutations: domRecords - domBefore,
+          commits,
+          mounts,
+          domMutations,
           strayCommits,
-          stats: statsOf(),
+          stats,
           drainMs: drainEnd - start,
           actionMs: end - start,
           frameMs: frameAt - start,
           endedBy,
-          longTasks: longTasks.filter(
-            (t) => t.startTime + t.duration > start && t.startTime < settleEnd,
-          ),
-          mountedRows: el.querySelectorAll('[data-issue-row]').length,
+          longTasks: longTaskList,
+          mountedRows,
           target: current.target,
         }
       })
@@ -653,7 +746,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     const run = lastRun
     if (!checkMode || run === null || run.before === null) return null
     lastRun = null
-    const after = rowViewsFromStore(engine.getSnapshot(), oracleLocals())
+    const after = rowViewsFromStore(engine.getSnapshot(), localsOfEngine(engine))
     const mountedAfter = mountedIds()
     const both = (id: string): boolean =>
       run.before !== null &&
@@ -705,7 +798,10 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       await settleQuiet()
     },
     quietMs: QUIET_MS,
-    snapshotHash: () => hashString(JSON.stringify(handle.snapshot())),
+    snapshotHash: () => hashString(canonical(handle.snapshot())),
+    oracleHash: () => hashString(canonical(oracleSnapshot(engine.getSnapshot()))),
+    firstDifference: () =>
+      firstSnapshotDifference(handle.snapshot(), oracleSnapshot(engine.getSnapshot())),
     stats: statsOf,
   }
   return { handle, log }
@@ -728,6 +824,8 @@ export function mountStub(arm: string, reason: string, runtimeSha: string): void
     settle: () => Promise.resolve(),
     quietMs: 0,
     snapshotHash: () => 'pending',
+    oracleHash: () => 'pending',
+    firstDifference: () => null,
     stats: () => ({ rowsDerived: 0, rollupsDerived: 0, indexUpdates: 0, notifications: 0 }),
   }
 }

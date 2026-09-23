@@ -76,10 +76,12 @@ describe('store helpers run on the caller clock alone', () => {
     const twoClocks = legacyDerivationFromStore(early)
     const at = (truth: Truth): string => `+${(truth.locals.coarseNow - early.coarseNow) / HOUR}h`
     const snapshots = truths.filter(
-      (truth) => JSON.stringify(projectSnapshot(twoClocks, truth.locals)) !== JSON.stringify(truth.snapshot),
+      (truth) =>
+        JSON.stringify(projectSnapshot(twoClocks, truth.locals)) !== JSON.stringify(truth.snapshot),
     )
     const views = truths.filter(
-      (truth) => JSON.stringify(projectRowViews(twoClocks, truth.locals)) !== JSON.stringify(truth.views),
+      (truth) =>
+        JSON.stringify(projectRowViews(twoClocks, truth.locals)) !== JSON.stringify(truth.views),
     )
     console.info(
       `[one-clock] two clocks differ from the truth: snapshot at [${snapshots.map(at).join(', ')}], row views at [${views.map(at).join(', ')}]`,
@@ -142,7 +144,12 @@ describe('snapshot helpers on a row whose visibility the derivation clock decide
         readAt: null,
         unread: true,
       })
-      upsert(ctx, 'issueProjection', planted, { ...projection, stage: 'done', closedAt, closedReason: 'done' })
+      upsert(ctx, 'issueProjection', planted, {
+        ...projection,
+        stage: 'done',
+        closedAt,
+        closedReason: 'done',
+      })
       for (const session of sessions) {
         const row = ctx.cache.read('session', session.sessionId)?.value as object
         upsert(ctx, 'session', session.sessionId, { ...row, archived: true })

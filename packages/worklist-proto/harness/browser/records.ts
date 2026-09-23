@@ -46,6 +46,10 @@ export interface TimingRecord {
   mountedRows: number
   /** Check mode (`--check`): the arm's redraw against the oracle over rows drawn before and after. */
   oracle?: { changed: number; drawn: number; over: string[]; under: string[] } | null
+  /** POD-4559: the arm's slice-output hash against the oracle's for the same
+   *  engine state, taken after the sample (untimed); `firstDifference` names
+   *  the first differing row, null when the hashes agree. */
+  parity?: { arm: string; oracle: string; firstDifference: string | null }
   stats: ProtoScenarioResult['stats']
   loadavg: number
   uptime: number

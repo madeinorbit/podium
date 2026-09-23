@@ -31,6 +31,54 @@ Numbers and follow-ups: `docs/measurements/POD-4441-fixture-shape.md`,
   oracle rows = 283 top-level + 476 nested). Which definition stage 0 used is
   for the coordinator.
 
+## POD-4559 (L5c) — browser parity, same targets, same click · 2026-09-23
+
+### Decisions
+
+- **Targets.** L5b already picks every row target from the ORACLE's first
+  window, never an arm's order. What was left: the page kept its own copy of
+  the scenario library's rules. `targetRules(corpus)` in `scenarios.ts` now
+  holds the predicates `pickTargets` itself uses; the page imports it.
+  Identical rows across arms also needs identical ENGINE work (the window is
+  the oracle's over the engine), which is why the click had to change.
+- **The click is the engine's selection write for every arm** (coordinator
+  addendum). The page's locals channel is `createEngineLocals(engine)`; the
+  round-two hand/MobX stores predate the channel, so the page bridges it into
+  their `setSelection` / `setCoarseNow` (as it already fed the clock). The
+  click is no longer a synthetic DOM event: the round-two pressables call the
+  arm-local `setSelection`, which is exactly the second workload to remove.
+- **Mark-reads settle inside the step.** The runtime throttles issue
+  mark-reads to one per `MARK_READ_ON_VIEW_MS` (1.2 s), so a click soon after
+  the previous one fires its mark-read up to 1.2 s later — past the 250 ms
+  quiet settle, into the next record as strays. Untimed, after every number is
+  taken: a click waits out the throttle window from its dispatch, then every
+  acknowledged mark-read is echoed (`echoAcknowledgedMarkReads`, one body with
+  the count harness's POD-4618 `settled`) until `pendingWrites` is empty, then
+  settle again. `--no-mark-settle` / `?marksettle=0` removes it for the proof.
+- **Samples are independent.** The rename now goes server title →
+  `<title> (renamed)` and is undone (server rows restored) in the next
+  `prepare`, like the stage move: same change, same row, every sample; titles
+  never grow. The clock still advances 60 s per sample (time only moves
+  forward through the tick path).
+- **Parity after every sample.** Canonical (sorted-key) hashes of the arm's
+  `snapshot()` and of `oracleSnapshot(engine)`; the driver fails the run on a
+  mismatch with `firstDifference()` (first row in the oracle's order, and the
+  fields that differ). The no-op floor is exempt (its snapshot is frozen at
+  boot by design) unless `--strict-parity`, which is the fail proof.
+- **Oracle clock (coordinator addendum from L4b).** `snapshotFromStore`,
+  `rebuiltSnapshotFromStore` and `rowViewsFromStore` now derive AND project
+  at `locals.coarseNow` (`legacyDerivationFromStore(store, coarseNow)` reads
+  the store through a proxy whose `coarseNow` is the caller's).
+  `one-clock.test.ts`: each helper asked at clock X equals the engine actually
+  advanced to X; red on the old helpers (row views at +7 d and later; the
+  snapshot helpers on a planted finished-unread child whose 7-day window
+  closes between the two clocks — the plain corpus's `SliceSnapshot` does not
+  move with the derivation clock at any offset up to a year).
+
+### Open questions
+
+- (filled in as found)
+
 ## POD-4564 (L6b) — five planted-mistake probes · 2026-09-23
 
 Catalogue and how N1b/N2b use it: `docs/plans/pod-pod-4545-round-three-probes.md`
