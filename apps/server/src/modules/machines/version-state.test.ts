@@ -7,6 +7,7 @@ import type { DaemonFeaturePorts } from '../../gateway/daemon-ports'
 import { SessionRegistry } from '../../relay'
 
 import { SessionStore } from '../../store'
+import { assignHostMachine } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import { deriveServerMoveEligibility, deriveVersionState, MachinesService } from './service'
 
@@ -123,12 +124,14 @@ describe('deriveVersionState', () => {
 
   it('composes the server target into the machine read model', async () => {
     const store = await openTestStore(':memory:')
+    // The host row setup enrollment writes; boot no longer provisions it (6fd4f7221).
+    await assignHostMachine(store)
     const registry = await SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       targetVersion: () => '0.4.2',
     })
     const machine = (await store.machines.listMachines())[0]
-    if (!machine) throw new Error('expected the registry host machine')
+    if (!machine) throw new Error('expected the host machine')
 
     await registry.modules.machines.setMachineBuild(
       machine.id,
