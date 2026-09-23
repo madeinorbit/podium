@@ -1216,6 +1216,21 @@ describe('the paste boundary at the driver seam', () => {
     await session.interrupt()
     expect(world.written[0]).toBe(ESC)
   })
+
+  // POD-4638: Stop wrote one ESC to every headed harness. Measured on the
+  // shipped CLIs, opencode 1.18.32 aborts only on a SECOND Esc and grok 1.0.40
+  // never on Esc — so the product's Stop was a no-op for both.
+  it.each([
+    ['opencode', '\x1b[27u\x1b[27u'],
+    ['grok', '\x03'],
+  ] as const)('writes %s its own stop key, in one write', async (harness, bytes) => {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor(harness, shippedProfile(harness))
+    const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
+    await session.interrupt()
+    expect(world.written).toEqual([bytes])
+  })
 })
 
 describe('the human-controller lease', () => {

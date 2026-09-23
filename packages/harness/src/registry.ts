@@ -265,6 +265,12 @@ export interface HarnessInterrupt {
 
 const INTERRUPT_BYTES: Record<HarnessCapabilities['interruptKey'], string> = {
   esc: '\x1b',
+  // Two presses in ONE write (POD-4638). Two raw ESC bytes that arrive
+  // together read as a single Alt+Esc — measured on opencode 1.18.32, 10 ms
+  // apart already merges — and a write can be coalesced anywhere between the
+  // daemon and the PTY. The kitty encoding of Esc (CSI 27 u) cannot merge, and
+  // the TUI reads it as Esc whether or not it negotiated the protocol.
+  'esc-twice': '\x1b[27u\x1b[27u',
   'ctrl-c': '\x03',
 }
 

@@ -269,6 +269,12 @@ export async function translateGrokUpdatePayload(
       if (stopReason === 'error') {
         return withEventTime([classifyGrokProviderFailure(update)], at)
       }
+      // A user cancel (Ctrl+C, a client stop) writes no assistant record, so
+      // the chat tail would lend this turn an EARLIER answer's verdict. Grok's
+      // own stop reason names it (POD-4638).
+      if (stopReason === 'cancelled') {
+        return withEventTime([{ kind: 'turn_completed', verdict: { kind: 'interrupted' } }], at)
+      }
       // Grok's authoritative end-of-turn signal (stop_reason: end_turn). It lands
       // AFTER the Stop hook and the final agent_message_chunk, so it is the record
       // that must settle the phase — without it that trailing chunk (→ activity →

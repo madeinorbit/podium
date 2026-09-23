@@ -1658,9 +1658,10 @@ export interface HarnessCapabilities {
    * The keystroke that aborts a RUNNING turn in this CLI's interactive TUI.
    * There is no universal one, and providers can change it between releases.
    * Sending the wrong key is a silent no-op, so each built-in manifest records
-   * the key verified against its current native TUI.
+   * the key verified against its current native TUI. `esc-twice` is a CLI
+   * that aborts only on a second Esc (the first merely arms it).
    */
-  interruptKey: 'esc' | 'ctrl-c'
+  interruptKey: 'esc' | 'esc-twice' | 'ctrl-c'
   /**
    * Pressing {@link interruptKey} while NO turn is running exits the CLI.
    * Declared per harness rather than derived from the key, because the same byte

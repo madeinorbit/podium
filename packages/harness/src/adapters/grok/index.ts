@@ -96,9 +96,11 @@ export const grokManifest: AgentManifest = {
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
     mcpConfigTransport: 'none',
-    // Measured (1.0.3, POD-1214): the working footer advertises "Esc:cancel",
-    // and one Esc yields "Turn cancelled by user".
-    interruptKey: 'esc',
+    // Measured (1.0.40, POD-4638): the working footer advertises
+    // "Ctrl+c:cancel"; Esc mid-turn only shows a toast pointing at Ctrl+C, and
+    // one Ctrl+C yields "Turn cancelled by user". Ctrl+C on an idle, empty
+    // prompt does nothing. (1.0.3 cancelled on Esc — POD-1214.)
+    interruptKey: 'ctrl-c',
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'grok-session',

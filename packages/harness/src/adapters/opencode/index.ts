@@ -51,11 +51,10 @@ export const opencodeManifest: AgentManifest = {
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
     mcpConfigTransport: 'none',
-    // UNMEASURED (POD-1214): no provider is connected on the host this was
-    // written on, so no turn could be started to abort. Esc is the documented
-    // key and the pre-POD-1214 behaviour, so this declaration changes nothing
-    // for opencode until someone can run the probe.
-    interruptKey: 'esc',
+    // Measured (1.18.32, POD-4638): one Esc only turns the footer to "esc
+    // again to interrupt" and re-arms after 5 s; the TUI calls session.abort
+    // on the second press, and the turn ends as MessageAbortedError.
+    interruptKey: 'esc-twice',
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'opencode-session',

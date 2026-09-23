@@ -130,10 +130,10 @@ export interface TerminalInterruptConfig {
 }
 
 /**
- * The fleet as it ships today: every terminal harness declares esc with
- * quits-when-idle false, so a caller that names no harness still interrupts
- * exactly as before. The default is spelled out rather than reached for
- * because the day a manifest says otherwise the call site must say so too.
+ * What a caller that names no harness gets: esc with quits-when-idle false,
+ * the conservative guess (opencode and grok declare other keys — POD-4638).
+ * The default is spelled out rather than reached for because the day a
+ * manifest says otherwise the call site must say so too.
  */
 export const DEFAULT_TERMINAL_INTERRUPT: TerminalInterruptConfig = {
   bytes: ESC,
