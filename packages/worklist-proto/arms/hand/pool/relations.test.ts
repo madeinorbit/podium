@@ -324,7 +324,12 @@ describe('session.worktree / worktree.sessions (prefix, R3)', () => {
   })
 
   it('a removed root hands its sessions to the next-longest root, or to none', () => {
-    const r = rig([lane(REPO), lane(A), session('S1', { cwd: `${A}/x` }), session('S2', { cwd: A })])
+    const r = rig([
+      lane(REPO),
+      lane(A),
+      session('S1', { cwd: `${A}/x` }),
+      session('S2', { cwd: A }),
+    ])
     try {
       r.push(gone('worktree', A))
       expect(r.one('session', 'S1', 'worktree')).toBe(REPO)
@@ -936,9 +941,9 @@ describe('a relation added to the schema needs no arm code', () => {
         },
       },
     }
-    expect(() => new HandPool(DISABLED_READ_FENCE, { selectedIssueId: null, coarseNow: 0 }, broken)).toThrow(
-      /repo\.orphans is a collection no relation maintains/,
-    )
+    expect(
+      () => new HandPool(DISABLED_READ_FENCE, { selectedIssueId: null, coarseNow: 0 }, broken),
+    ).toThrow(/repo\.orphans is a collection no relation maintains/)
   })
 })
 

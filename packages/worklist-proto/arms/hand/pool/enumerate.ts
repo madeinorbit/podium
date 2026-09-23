@@ -190,7 +190,9 @@ export function diffRelations(
         }
         if (JSON.stringify(got) === JSON.stringify(want)) continue
         if (out.length < 12) {
-          out.push(`${from}:${id}.${name}: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`)
+          out.push(
+            `${from}:${id}.${name}: live ${JSON.stringify(got)}, scan ${JSON.stringify(want)}`,
+          )
         }
       }
     }

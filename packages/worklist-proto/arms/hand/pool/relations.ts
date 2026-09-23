@@ -77,8 +77,6 @@ import type { ReadableTable, TableSet } from './tables'
 
 type Row = Readonly<Record<string, unknown>>
 
-const NONE: ReadonlySet<string> = new Set()
-
 function specOf(schema: ModelSchema, from: EntityName, relation: string): RelationSpec {
   const spec = schema[from].relations[relation]
   if (spec === undefined) throw new Error(`[pool] ${from}.${relation} is not a declared relation`)
@@ -188,6 +186,8 @@ export class PoolRelations implements RelationReader {
   private readonly outgoing = new Map<EntityName, Link[]>()
   private readonly prefixTargets = new Map<EntityName, Link[]>()
   private readonly collapses = new Map<EntityName, Collapse>()
+  /** The answer for a key no bucket holds (per engine: the lint refuses module state). */
+  private readonly none: ReadonlySet<string> = new Set()
 
   constructor(options: PoolRelationsOptions) {
     this.options = options
@@ -225,7 +225,8 @@ export class PoolRelations implements RelationReader {
         this.links.set(link.relation, link)
         this.collections.set(link.collection, link)
         this.outgoing.get(from)?.push(link)
-        if (prefix) this.prefixTargets.set(spec.to, [...(this.prefixTargets.get(spec.to) ?? []), link])
+        if (prefix)
+          this.prefixTargets.set(spec.to, [...(this.prefixTargets.get(spec.to) ?? []), link])
       }
     }
     for (const from of entities) {
@@ -266,7 +267,7 @@ export class PoolRelations implements RelationReader {
       throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
     }
     this.options.read?.(link.collection, id)
-    return link.buckets.get(id) ?? NONE
+    return link.buckets.get(id) ?? this.none
   }
 
   // ------------------------------------------------------------- maintenance
@@ -275,7 +276,7 @@ export class PoolRelations implements RelationReader {
   members(from: EntityName, id: string, relation: string): ReadonlySet<string> {
     const link = this.collections.get(`${from}.${relation}`)
     if (link === undefined) throw new Error(`[pool] ${from}.${relation} is not a collection`)
-    return link.buckets.get(id) ?? NONE
+    return link.buckets.get(id) ?? this.none
   }
 
   /** Whether `id`'s row is collapsed away by its entity's rule. */
@@ -289,7 +290,12 @@ export class PoolRelations implements RelationReader {
   }
 
   /** One table write happened (`prev`/`next` undefined: absent): maintain every relation it touches. */
-  changed(entity: EntityName, id: string, prev: object | undefined, next: object | undefined): void {
+  changed(
+    entity: EntityName,
+    id: string,
+    prev: object | undefined,
+    next: object | undefined,
+  ): void {
     const before = prev as Row | undefined
     const after = next as Row | undefined
     const flipped = this.recollapse(entity, id, before, after)
@@ -387,7 +393,7 @@ export class PoolRelations implements RelationReader {
       if (key === null) continue
       const group = groups.get(key)
       if (group === undefined) continue
-      let losers: ReadonlySet<string> = NONE
+      let losers: ReadonlySet<string> = this.none
       if (group.size > 1) {
         const table = this.options.rows[entity]
         const members = [...group].map((member) => ({

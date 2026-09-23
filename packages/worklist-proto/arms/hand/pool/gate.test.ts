@@ -105,7 +105,10 @@ const relinkSkipped: CheckableArm = {
 }
 
 /** Whether `arm` fails the check on `sequence` (a divergence, or a throw from its checks). */
-async function fails(arm: CheckableArm, sequence: Parameters<typeof checkArm>[1]): Promise<number | null> {
+async function fails(
+  arm: CheckableArm,
+  sequence: Parameters<typeof checkArm>[1],
+): Promise<number | null> {
   try {
     const result = await checkArm(arm, sequence, { oracleEvery: 0, shrink: false })
     return result.ok ? null : result.step

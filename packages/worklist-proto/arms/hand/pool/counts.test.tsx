@@ -15,7 +15,14 @@
  * (POD-4581). The commit fence where a step changes a HIDDEN row: the fence
  * compares against the oracle's VISIBLE rows and the a1 list draws every
  * issue (the visible collection is Hb1, POD-4582). A step whose commit cell
- * is written but not asserted says so in its `commitFence` cell.
+ * is written but not asserted says so in its `commitFence` cell, and is held
+ * instead to the narrower claim a1 CAN meet: every row it drew that the
+ * oracle did not change is a row the oracle does not show.
+ *
+ * #1 joined that set at Ha2 (POD-4579): its session is bound to a closed
+ * agent root the worklist never shows, and now that `issue.sessions` is
+ * maintained the heartbeat really moves that hidden row's `activityAt`, so
+ * the a1 list redraws it.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -33,7 +40,7 @@ import { handPoolArm } from './arm'
 
 /** The steps a1 runs, and whether the commit fence applies yet. */
 const STEPS: readonly { methodology: string; commits: boolean }[] = [
-  { methodology: '#1', commits: true },
+  { methodology: '#1', commits: false },
   { methodology: '#3', commits: true },
   { methodology: '#4', commits: false },
   { methodology: '#8', commits: true },
@@ -57,10 +64,22 @@ describe('fence steps #1, #3, #4, #8, #8b', () => {
         assertReads(result, { readsPerChange: readsBudget })
         mounted.reads.assertNoCopies(mounted.handle)
         const visible = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
+        if (!step.commits) {
+          const changed = new Set(result.oracleChangedRows ?? [])
+          const shownExtra = (result.drawnRows ?? []).filter(
+            (id) => !changed.has(id) && visible[id] !== undefined,
+          )
+          expect(
+            shownExtra,
+            `${step.methodology}: drew a VISIBLE row the oracle did not change`,
+          ).toEqual([])
+        }
         cells.push({
           methodology: result.methodology,
           scenario: result.scenario,
-          commitFence: step.commits ? 'asserted' : 'Hb1 (the a1 list draws hidden rows)',
+          commitFence: step.commits
+            ? 'asserted'
+            : 'Hb1 (the a1 list draws hidden rows); extra drawn rows asserted hidden',
           oracleChanged: result.oracleChangedRows,
           drawn: result.drawnRows,
           oracleVisible: Object.fromEntries(
