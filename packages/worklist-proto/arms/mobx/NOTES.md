@@ -2,6 +2,37 @@
 
 ## Round three: a-phase gates, a4 (POD-4568) · 2026-09-23
 
+### Rework after M3 (POD-4591 FAIL) · 2026-09-23
+
+Numbers: `docs/measurements/POD-4568-a.md` §5.
+
+- **F1: buckets are observable sets, updated in place.** The action's moves
+  are netted per bucket and applied once: 1 element per edge, and moves
+  that cancel out notify nothing. Buckets are unordered. `sessionIds` sorts
+  (the draft title's first member needs an order), `members()` returns a
+  sorted copy, and `diffRelations` sorts.
+  - New counter: `counters.bucketElements`.
+  - Armed test: 4,000-member buckets, 1 element per insert and delete. It
+    was red on the copy-and-sort code (4,001).
+  - Live probe: 4,575 → 1 and 2,264 → 1.
+  - Rejected the binary-searched sorted array. Its insert is a splice that
+    moves O(b) slots, and MobX's observable array notifies the whole array
+    anyway.
+- **F2: the views read `one()`.** `repoTarget` (renamed from `repoRef`,
+  because `repoId` collides with the row field) and `originRef` (a known
+  origin that may be cold, so the loading check stays). The lint forbids
+  `views.ts` from importing `relations.ts`.
+- **Consequence for the gate's plants.** The views now read the forward
+  slots, so the per-step rebuild catches an ISSUE whose promotion was
+  skipped (`displayRef` loses its prefix) before the checkpoint can. The
+  promote-skipped plant is therefore narrowed to sessions, whose forward
+  slots no view reads, so the checkpoint stays proven armed.
+- **Open, not mine.** `SliceRow` has no `originTick`, so the rebuild
+  comparison cannot see an `issue.discoveredFrom` error through the row
+  views. The per-step `diffRelations` does see it. Worth knowing when Mb4
+  wires parity.
+
+
 Numbers and commands: `docs/measurements/POD-4568-a.md`.
 
 ### Decisions
