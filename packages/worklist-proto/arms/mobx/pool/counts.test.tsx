@@ -242,7 +242,7 @@ describe('fence steps #1-#4', () => {
           delete bare.pendingLoads
           return bare as MobxPoolHandle
         },
-        'does not implement both settleLoads() and pendingLoads()',
+        'but has no settleLoads() and pendingLoads()',
       ],
       [
         'a no-op settle',

@@ -180,11 +180,22 @@ by the engine.
   and `Array.prototype.sort`/`toSorted` around the push, and asserts that
   count; `bucketElements` must then equal it. The pool's own counter alone is
   not evidence: a copy-and-sort that does not report itself leaves it at 1.
+  PLAIN SETS AND MAPS TOO (M3 G3): the prefix index is a map of plain `Set`s,
+  so the test also patches `Set` and `Map` (writes, deletes, every iterator,
+  `forEach`) and `Array.from`, skipping calls MobX makes on its own sets.
+  That count must stay under the change's own bookkeeping (16) plus two per
+  ancestor path of the row, plus one: an unsorted copy of one prefix set
+  (8,003 elements per new session) fails it.
   M3's probe (`harness/review/m3-shape-probes.test.tsx`, with
   `M3_LIVE_EXPORT`) prints the same count on the live export.
 - **Fence steps #1-#4**, `pool/counts.test.tsx`: the shared
   `assertCommits` (#1-#3), `assertReads` and `assertNoCopies`, no parity; the
   roster entry with parity is Mb4's (`fences.test.tsx` names it pending).
+  A STEP COUNTS ITS OWN LOADS (M3 G2): the handle's `settleLoads()` flushes
+  the arm's redraws and lands what they queued until nothing is queued, and
+  the shared fence (`runFenceStep`) awaits it inside each step before the
+  reads are sampled; `pendingLoads()` lets it refuse a step that leaves one.
+  M3's cold-issue plant fails #2 there (2,839 reads, budget 3).
 - Numbers: `docs/measurements/POD-4568-a.md`.
 
 ### How to add a field

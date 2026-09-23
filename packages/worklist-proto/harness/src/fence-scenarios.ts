@@ -360,9 +360,13 @@ function loadHooks(
   if (settle && pending) return handle as LazyArmHandle
   const reads = feeds?.rowReads() ?? 0
   if (settle || pending || reads > 0) {
+    const missing = [settle ? null : 'settleLoads()', pending ? null : 'pendingLoads()']
+      .filter((hook) => hook !== null)
+      .join(' and ')
+    const why =
+      reads > 0 ? `${reads} per-row read(s) through RowSource.row` : 'it has one load hook'
     throw new Error(
-      `${step}: the arm is lazy (${reads} per-row read(s) through RowSource.row) but does not ` +
-        'implement both settleLoads() and pendingLoads(): its loads would be charged to no step',
+      `${step}: the arm is lazy (${why}) but has no ${missing}: its loads would be charged to no step`,
     )
   }
   return null
