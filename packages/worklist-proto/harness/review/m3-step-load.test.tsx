@@ -19,8 +19,13 @@
  * (On this corpus a closed issue's sessions are resident: the first probe
  * found 0 cold sessions under every cold issue, so the load is P itself.)
  *
+ * FINAL REVIEW (§7): since POD-4568 G2 the shared fence (`runFenceStep`)
+ * awaits the arm's `settleLoads()` inside each step, so the load now lands in
+ * #2 under BOTH windows and A is charged what B is. The assertions pin that;
+ * the old ones (A charged 2 and passed) pinned the defect.
+ *
  * TWO ARMS, same plant, same steps (#1 then #2), same settle and zeroing as
- * counts.test.tsx:
+ * counts.test.tsx had before G2:
  * - A, the counts test's pool: the window never closes on its own.
  * - B, the control: the window closes on the next microtask, so the load
  *   lands inside the step's act.
@@ -211,11 +216,19 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
     // The window alone changes nothing on the clean pool.
     expect(c.charged).toBe(d.charged)
     expect(c.hydratedInStep).toBe(0)
-    // The plant's load lands in the step only when the window closes in it:
-    // the counts test's pool (A) charges the step its request and passes;
-    // the same step with the load inside it (B) fails the reads fence.
-    expect(a.hydratedInStep).toBe(0)
-    expect(a.fence).toBe('pass')
+    // THE CONTRACT SINCE POD-4568 G2 (b29ea68ce): the shared fence settles a
+    // lazy arm's loads inside the step, so the plant's load lands in #2 under
+    // either window and is charged to it. Before G2, A (the counts test's
+    // window) landed it after the reads were sampled: hydratedInStep 0,
+    // charged 2, fence passed (re-review 2, §6.3). Each line below is red on
+    // that fence.
+    expect(a.hydratedInStep).toBeGreaterThan(0)
+    expect(a.fence).not.toBe('pass')
+    // Nothing lands after the sample: what the fence reads after the step is
+    // what the step was charged.
+    expect(a.after).toBe(a.charged)
+    // The window no longer decides what a step is charged.
+    expect(a.charged).toBe(b.charged)
     expect(b.hydratedInStep).toBeGreaterThan(0)
     expect(b.fence).not.toBe('pass')
   }, 600_000)
