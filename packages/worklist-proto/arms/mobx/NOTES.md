@@ -1,5 +1,140 @@
 # arms/mobx — notes
 
+## Round three: residency, a3 (POD-4567) · 2026-09-23
+
+Cold rows (closed issues and their sessions) stay out of the pool until
+something reads them (`pool/residency.ts`; schema doc §5, audit §7).
+
+### Decisions
+
+- **The rule is the schema's, applied by one function** (`coldByRule`): an
+  issue is cold when `closedAt != null`; a session is cold when its RAW
+  `issueId` names a known issue that is cold by rule. Raw, not through the
+  `issue` relation's `where`: residency follows the reference, so a headless
+  session of a closed issue is cold too (nothing reads it). The pool, the
+  rebuild and the partition check all call `coldByRule`.
+- **Cold means not in the observable tables.** A plain registry keeps the id
+  (and, for a session, the issue it inherits from, so a reopen finds it).
+  No table slot, no model, no observable.
+- **Relations of cold rows live in plain twins** (`relations.ts`
+  `coldForward` / `coldBuckets`). Without them the relation layer alone
+  built ~10k observables for cold rows at 1x (24.7k total vs 29.6k with every
+  row resident, i.e. only -17%). A cold source's forward entry and a bucket
+  keyed by a non-resident target are plain; buckets of resident targets hold
+  hot and cold member ids alike (the brief's "buckets hold ids regardless of
+  temperature"). A row that becomes resident has its slots moved into the
+  observable maps (`promote`, one slot write each). A reader that reaches a
+  plain slot observes that row's residency atom and every plain write reports
+  it, so the read is tracked (pitfall j).
+- **Residency checks are tracked without an observable per cold row.** Each
+  `entity:id` a derivation asks about gets an atom on that first question,
+  dropped when unobserved (observability on first access, applied to
+  residency itself).
+- **First access = a derivation reading through a lazy relation.**
+  `ViewInputs.loading(entity, id)` answers true for a known cold row and
+  queues it; the first request arms a 50 ms window (`LOAD_WINDOW_MS`); every
+  row queued inside it is read by id through `RowSource.row` and installed in
+  ONE action (`MobxPool.hydrate`). Duplicates coalesce. A derivation cannot
+  write state, which is why the load is deferred at all.
+- **A cold row that receives an update stays cold** (relinked, not stored;
+  the kernel holds the value and a later load reads the current one) —
+  UNLESS the update makes the row itself not cold (a reopen): it is installed
+  at once, and the sessions that inherited coldness from it are read by id
+  and installed in the same action (`warmDependents`). A removed issue warms
+  its cold sessions too (nothing makes them cold any more). Chosen so a
+  heartbeat on a closed issue's session costs a registry write, never a
+  load, and a reopen never paints loading.
+- **Nothing makes a resident row cold except a `replace`.** An issue closed
+  while resident stays resident (it was just looked at). `replace`
+  re-partitions: a row resident before and still in the slice stays; every
+  other row follows the rule over the new slice.
+- **`RowView.loading?: true`** (shared contract, coordinator yes): set while
+  the origin or a member session is known but not resident; `originTick`,
+  `activityAt` and a draft's title are provisional exactly then. `loadingPartOf`
+  asks about EVERY member so all of them load in one window. `sliceRowOf`
+  drops it. Divergence from legacy (which never shows loading) pinned into
+  POD-4596 by the coordinator.
+- **`RowSource.row?(kind, id)`** (shared contract, coordinator yes): per mode
+  exactly as `snapshot(kind)` for one id (`row-source.test.ts`), counted by
+  the fence as one keyed read of that row (`residency.test.tsx`).
+- **Lazy collections: `MobxPool.lazyMany` → `{ ready, pending }`** (criterion
+  3 at the relation level, coordinator yes). Mb3 derives progress from
+  `ready` and sets `loading` while `pending > 0`.
+- **`snapshot()` settles**: it reads every resident row, loads what they
+  queued, and reads again until nothing is queued (bounded, 64 rounds).
+- **The rebuild's rows**: the issues the rule keeps hot, plus the pool's
+  resident ones (a residency local, like selection); every row reads full
+  data. The coordinator's safeguard against that input is below.
+- **The arm refuses a feed without `row()`** rather than silently holding
+  every row.
+
+### Numbers
+
+Bootstrap in the count harness (`pool/bootstrap.test.ts`, replay feed,
+`results/mobx-pool-bootstrap-counts.json`). "Observables" are MobX's own
+`spy` "add" events during `create()`: every map slot built (tables, forward
+entries, buckets). Models built: 0 in every cell.
+
+| Scale | Pool | Issues resident / cold | Sessions resident / cold | Table slots | Observables |
+|---|---|---|---|---|---|
+| 1x | lazy (Ma3) | 2,170 / 2,697 | 2,032 / 2,272 | 4,202 | **15,547** |
+| 1x | every row resident (Ma2) | 4,867 / 0 | 4,304 / 0 | 9,171 | 29,636 |
+| 4x | lazy (Ma3) | 8,680 / 10,788 | 8,184 / 9,032 | 16,864 | **62,622** |
+| 4x | every row resident (Ma2) | 19,468 / 0 | 17,216 / 0 | 36,684 | 119,232 |
+
+-48% (1x) and -47% (4x). The 4x all-resident count (119k) is Linear's
+80-100k range; the lazy pool keeps it at 63k.
+
+- **Observability on first access** (`residency.test.tsx`): after bootstrap 0
+  models; with the web list mounted, models == rows drawn == 2,170 (every
+  resident issue; no cold row drawn or modelled).
+- **Loader** (`residency.test.tsx`): two rows asked for inside one window →
+  one timer at 50 ms, one `row()` read each, one action, both resident; the
+  reader saw `loading` then the row, never an empty row; a hydration counts
+  as exactly one fenced read (`rows: 1`, `issue: 1`).
+- **Fence steps** (`counts.test.tsx`): #1's COMMIT fence is asserted again —
+  the heartbeat's closed root and its session are cold, so the heartbeat is a
+  registry write and the a1 list never drew the hidden row Ma2 redrew. #4
+  still redraws an open hidden spin-off (`i933`): Mb1's.
+- **Correctness gate** (`gate.test.ts`): GATE_PENDING
+- **Bootstrap walls**: WALLS_PENDING
+
+### Findings
+
+1. **Loading a row relinks it from its current value, so a relation error
+   confined to a cold row heals when the row loads.** The coordinator's
+   full-residency checkpoint (load everything, compare with no pool input)
+   therefore cannot see that class: the first checkpoint plant (skip relinking
+   for cold updates) passed it. The class IS caught by the per-step relation
+   check, which scans the feed's rows and reads no residency from the pool
+   (`coldRelinkSkipped`, asserted every seed). The checkpoint's own plant is
+   one that survives loading: promotion skipped (`promoteSkipped`).
+2. **The checkpoint cannot run when an arm is disposed on a reload**: the
+   checker has already replaced the engine, so the old arm's feed is dead
+   (its first version failed with every relation "live null"). It runs at the
+   run's last compared step, before that step's snapshot.
+3. **The feed's lanes include discovery-only ones it never announces**
+   (POD-4606, L3c), so a relation scan over the feed's lanes flags the pool
+   for a lane it was never sent. The scan (`knownTables`) takes the feed's
+   rows for the entities that can be cold and the pool's own lanes and repos,
+   as Ma2's check did.
+4. **Visible rows can be cold.** A closed top-level issue inside the 24 h
+   grace window is still drawn (not folded yet), yet the schema's rule makes
+   it cold, so it will load on first paint (loading, then data). At 1x that is
+   the four #8b grace rows. The rule is the schema's (coordinator's call);
+   noted for Mb1/Mb2.
+5. **Corpus shape for lazy relations** (1x / 4x): no open issue has a closed
+   origin, so nothing a1's list draws reaches a cold row and mounting queues
+   nothing; 524 / 2,062 open parents have closed children (Mb3's pending
+   progress); 269 / 1,038 open issues have a closed parent.
+
+### Open
+
+- Bootstrap walls in the browser wait for L5e (POD-4561).
+- Mb3: progress from `lazyMany(...).ready`, `loading` while pending.
+- Mb1/Mb2: the closed fold lists ids from metadata and loads rows only when
+  drawn (the brief's pitfall); finding 4's grace rows.
+
 ## Round three: relations, a2 (POD-4566) · 2026-09-23
 
 ### Decisions

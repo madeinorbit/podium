@@ -12,8 +12,8 @@ Built on the declared schema (`shared/src/schema.ts`, L1a), fed row by row
 by the kernel feed (`shared/src/row-source.ts`, `overlaid` mode), handing
 each row its L1b `RowView` (`shared/src/row-view.ts`). Phase a1 (POD-4565)
 holds the tables and the row views; Ma2 (POD-4566) maintains every declared
-relation; cold rows (Ma3), the visible collection, order, groups and roll-ups
-(Mb1-Mb3) come next.
+relation; Ma3 (POD-4567) keeps cold rows out until something reads them; the
+visible collection, order, groups and roll-ups (Mb1-Mb3) come next.
 
 ### Idiom
 
@@ -65,6 +65,18 @@ relation; cold rows (Ma3), the visible collection, order, groups and roll-ups
   one per member; `size`: free). Adding a relation to the schema needs no
   code here (`relations.test.ts`, the fixture-schema test).
 
+- **Residency from the schema** (`pool/residency.ts`, Ma3): a row the
+  schema's `cold` spec lets stay out (a closed issue; a session of one) is
+  never put in a table. A plain registry holds its id, the relation engine
+  links it, and its relation slots live in plain twins until it is resident.
+  A derivation that reaches it through a lazy relation gets `loading`
+  (`ViewInputs.loading`, `RowView.loading`, `MobxPool.resident`,
+  `MobxPool.lazyMany`) and queues it; one 50 ms window loads every queued
+  row by id through the feed (`RowSource.row`) in ONE action
+  (`MobxPool.hydrate`). An update that makes a row itself not cold (a reopen)
+  installs it and the sessions that inherited coldness from it at once. A
+  resident row never goes cold except on `replace`, which re-partitions.
+
 ### The enumeration module
 
 `pool/enumerate.ts` is the ONE module that walks a whole table
@@ -74,15 +86,20 @@ anywhere else in `pool/`): `issueIdsOf` (every issue id, for the a1 list and
 It also holds the from-scratch relation resolution the live pool never
 runs: `scanRelations` (the rebuild's relations: the declared resolvers over
 whole tables) and `diffRelations` (the live engine against that scan, for
-the relation tests and the gate).
+the relation tests and the gate), plus the gate's residency walks:
+`knownTables` (every row the pool knows, cold ones from the feed) and
+`diffResidency` (the hot/cold partition against the feed).
 
 ### Write path
 
 `RowSourceEvent` → `MobxPool.apply` → one `runInAction`: an `update` runs
 `ingestRecord` per record (the same object is a no-op; `value: undefined`
-removes the row and drops its model); a `replace` runs `reseed` (the new
-slice through the same ingest into plain maps, then kept rows untouched,
-named rows written, the rest removed) — observers see one transition. A
+removes the row and drops its model; a row that can be cold is routed
+through `Residency.ingest`); a `replace` runs `reseed` (the new slice
+through the same ingest into plain maps, then kept rows untouched, named rows
+written or registered cold, the rest removed) — observers see one
+transition. A closed load window → `MobxPool.hydrate` → one `runInAction`
+installing every queued cold row. A
 locals notification → `MobxPool.applyLocals` → one `runInAction` over only
 the keys it names. `rebuildFromScratch` (`pool/rebuild.ts`) replays the
 feed's `snapshot(kind)` through the same ingest and the same part functions
@@ -103,6 +120,11 @@ by the engine.
 - `rollupsDerived` — 0 until the roll-ups (Mb3).
 - `stats.counters` (the pool's own): `modelsCreated` (first accesses),
   `tableWrites` (slots set to a different object or deleted), `rowsRemoved`.
+- `residency.counters` (Ma3): `coldWrites` (a cold row registered, relinked
+  or forgotten: no slot), `requests` (distinct rows queued), `batches` (load
+  windows closed), `hydrated` (rows loaded on access), `warmed` (rows
+  installed because the row they inherit from stopped being cold).
+  `notifications` also counts an action that only touched cold rows.
 - Reads are never counted by the arm: every table read goes through
   `reads.wrapTables`, every relation read through `reads.wrapRelations`, and
   the enumeration records each id it walks with `reads.touch`.

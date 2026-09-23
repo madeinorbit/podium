@@ -407,7 +407,8 @@ describe('lazy relations', () => {
     // Its sessions stay cold: the row is loading, its activity provisional.
     expect(views.length).toBe(1)
     expect(views[0]?.loading).toBe(true)
-    for (const session of sessions) expect(pool.residency?.isCold('session', session.sessionId)).toBe(true)
+    for (const session of sessions)
+      expect(pool.residency?.isCold('session', session.sessionId)).toBe(true)
     // Every member was asked for in the same window.
     expect(r.timers.filter((timer) => !timer.cancelled).length).toBe(1)
     r.fire()
@@ -460,7 +461,10 @@ describe('transitions', () => {
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
     pool.stats.reset()
-    r.push({ type: 'update', rows: [issueRecord(issue.id, { closedAt: null, closedReason: null })] })
+    r.push({
+      type: 'update',
+      rows: [issueRecord(issue.id, { closedAt: null, closedReason: null })],
+    })
     expect(pool.stats.notifications).toBe(1)
     expect(tracked(() => pool.tables.issue.has(issue.id))).toBe(true)
     for (const session of sessions) {
@@ -475,7 +479,10 @@ describe('transitions', () => {
     const r = rig()
     const { pool } = r
     const openIssue = hotIssues[0]!
-    r.push({ type: 'update', rows: [issueRecord(openIssue.id, { closedAt: '2026-09-01T00:00:00.000Z' })] })
+    r.push({
+      type: 'update',
+      rows: [issueRecord(openIssue.id, { closedAt: '2026-09-01T00:00:00.000Z' })],
+    })
     expect(tracked(() => pool.resident('issue', openIssue.id))).toBe('resident')
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
@@ -497,7 +504,10 @@ describe('transitions', () => {
     const { pool } = r
     const { sessions } = closedWithSessions(1)
     const session = sessions[0]!
-    r.push({ type: 'update', rows: [sessionRecord(session.sessionId, { issueId: hotIssues[0]!.id })] })
+    r.push({
+      type: 'update',
+      rows: [sessionRecord(session.sessionId, { issueId: hotIssues[0]!.id })],
+    })
     expect(tracked(() => pool.resident('session', session.sessionId))).toBe('resident')
     expect(
       tracked(() => [...pool.relations.many('issue', hotIssues[0]!.id, 'sessions')]),

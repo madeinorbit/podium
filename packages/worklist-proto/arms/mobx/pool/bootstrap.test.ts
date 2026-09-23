@@ -63,7 +63,11 @@ function boot(arm: Arm, feed: ReturnType<typeof feedOf>): MobxPool {
   const { source } = feed.replay
   pool.apply({
     type: 'replace',
-    rows: [...source.snapshot('session'), ...source.snapshot('issue'), ...source.snapshot('worktree')],
+    rows: [
+      ...source.snapshot('session'),
+      ...source.snapshot('issue'),
+      ...source.snapshot('worktree'),
+    ],
   })
   return pool
 }
@@ -72,7 +76,10 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   const built: Record<string, number> = {}
   const off = spy((event) => {
     if (event.type !== 'add') return
-    const name = String((event as { debugObjectName?: string }).debugObjectName).replace(/@\d+$/, '')
+    const name = String((event as { debugObjectName?: string }).debugObjectName).replace(
+      /@\d+$/,
+      '',
+    )
     built[name] = (built[name] ?? 0) + 1
   })
   const pool = boot(arm, feed)
@@ -84,7 +91,10 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
       worktree: pool.tables.worktree.size,
       repo: pool.tables.repo.size,
     })),
-    cold: { issue: pool.residency?.size('issue') ?? 0, session: pool.residency?.size('session') ?? 0 },
+    cold: {
+      issue: pool.residency?.size('issue') ?? 0,
+      session: pool.residency?.size('session') ?? 0,
+    },
     models: pool.stats.counters.modelsCreated,
     observables: Object.values(built).reduce((a, b) => a + b, 0),
     tableSlots: (built['pool.issue'] ?? 0) + (built['pool.session'] ?? 0),
@@ -137,7 +147,14 @@ describe('bootstrap in the count harness', () => {
             : Object.fromEntries(
                 (['lazy', 'allResident'] as const).map((arm) => {
                   const sorted = [...samples[arm]].sort((a, b) => a - b)
-                  return [arm, { p50: quantile(sorted, 0.5), p90: quantile(sorted, 0.9), samples: samples[arm] }]
+                  return [
+                    arm,
+                    {
+                      p50: quantile(sorted, 0.5),
+                      p90: quantile(sorted, 0.9),
+                      samples: samples[arm],
+                    },
+                  ]
                 }),
               )),
         }

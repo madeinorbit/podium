@@ -64,7 +64,10 @@ export type Schedule = (run: () => void, ms: number) => () => void
 /** The batch window: requests within it load in one action. */
 export const LOAD_WINDOW_MS = 50
 
-const LOADABLE: ReadonlySet<string> = new Set<LoadableEntity>(['issue', 'session'])
+/** Whether the feed can read rows of `entity` by id. */
+function loadable(entity: EntityName): entity is LoadableEntity {
+  return entity === 'issue' || entity === 'session'
+}
 
 /**
  * Whether `row` of `entity` may stay out of memory, by the schema's `cold`
@@ -171,8 +174,10 @@ export class Residency {
       if (spec.kind === 'never') continue
       // A cold row is read back by id through the feed, and the relation
       // engine never re-roots a prefix relation on it: both would break.
-      if (!LOADABLE.has(entity)) throw new Error(`[pool] ${entity} can be cold but the feed cannot load it by id`)
-      if (prefixTargets.has(entity)) throw new Error(`[pool] ${entity} can be cold but roots a prefix relation`)
+      if (!loadable(entity))
+        throw new Error(`[pool] ${entity} can be cold but the feed cannot load it by id`)
+      if (prefixTargets.has(entity))
+        throw new Error(`[pool] ${entity} can be cold but roots a prefix relation`)
       this.cold.set(entity, new Map())
       if (spec.kind === 'via') {
         const relation = this.schema[entity].relations[spec.relation]
@@ -435,7 +440,8 @@ export class Residency {
     const byTarget = this.dependents.get(entity)
     if (byTarget !== undefined && before !== null) unindex(byTarget, before, id)
     this.queue.get(entity as LoadableEntity)?.delete(id)
-    if (this.queue.get(entity as LoadableEntity)?.size === 0) this.queue.delete(entity as LoadableEntity)
+    if (this.queue.get(entity as LoadableEntity)?.size === 0)
+      this.queue.delete(entity as LoadableEntity)
     this.atoms.get(`${entity}:${id}`)?.reportChanged()
   }
 

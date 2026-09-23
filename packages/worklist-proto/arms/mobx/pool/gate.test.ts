@@ -335,7 +335,8 @@ describe('correctness gate (L4b), rebuild-only', () => {
         checked(promoteSkipped, { perStep: false, full: true }),
         sequence,
       )
-      if (!checkpointPlant.ok && checkpointPlant.against === 'checkpoint') checkpointPlantFailures += 1
+      if (!checkpointPlant.ok && checkpointPlant.against === 'checkpoint')
+        checkpointPlantFailures += 1
       cells.push({
         seed,
         steps: STEPS,
@@ -352,7 +353,9 @@ describe('correctness gate (L4b), rebuild-only', () => {
         relinkPlantFailed: !relinkPlant.ok,
         relinkPlantStep: relinkPlant.ok ? null : relinkPlant.step,
         relinkPlantCaughtBy: relinkPlant.ok ? null : relinkPlant.against,
-        relinkPlantDiff: relinkPlant.ok ? null : relinkPlant.diff.split('\n').slice(0, 2).join(' | '),
+        relinkPlantDiff: relinkPlant.ok
+          ? null
+          : relinkPlant.diff.split('\n').slice(0, 2).join(' | '),
         checkpointPlantFailed: !checkpointPlant.ok,
         checkpointPlantCaughtBy: checkpointPlant.ok ? null : checkpointPlant.against,
         checkpointPlantDiff: checkpointPlant.ok

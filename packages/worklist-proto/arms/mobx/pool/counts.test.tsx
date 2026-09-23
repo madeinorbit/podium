@@ -36,8 +36,8 @@ import {
 } from '../../../harness/src/fence-scenarios'
 import { rowViewsFromStore } from '../../../harness/src/oracle/index'
 import { writeResult } from '../../../harness/src/results'
-import { startScenarioEngine } from '../../../shared/src/scenarios'
 import type { CheckableArm } from '../../../shared/src/arm'
+import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { installMobxWarnTrap } from './mobx-trap'
 
