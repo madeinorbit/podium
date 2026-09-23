@@ -32,9 +32,13 @@ function arg(argv: string[], flag: string, fallback: string): string {
 }
 
 const argv = process.argv.slice(2)
-const arms = arg(argv, '--arms', 'noop,control').split(',') as ArmName[]
+// An arm, or `noop+<plant>` for a planted no-op page (the timer's and the
+// budgets' can-say-NO runs), interleaved with the rest like any arm.
+const arms = arg(argv, '--arms', 'noop,control').split(',')
 for (const arm of arms) {
-  if (!(ARMS as readonly string[]).includes(arm)) throw new Error(`unknown arm ${arm}`)
+  const [name, plant] = arm.split('+')
+  if (!(ARMS as readonly string[]).includes(name ?? '')) throw new Error(`unknown arm ${arm}`)
+  if (plant !== undefined && name !== 'noop') throw new Error(`plants are for noop only (${arm})`)
 }
 const scales = arg(argv, '--scales', '1,2,4').split(',').map(Number) as Scale[]
 const rounds = Number(arg(argv, '--rounds', '4'))
@@ -101,10 +105,12 @@ outer: for (let round = 0; round < rounds; round += 1) {
         failed = true
         break outer
       }
+      const [name, plant] = arm.split('+') as [ArmName, string | undefined]
       const runArgs = [
         'packages/worklist-proto/harness/browser/run.ts',
         '--arm',
-        arm,
+        name,
+        ...(plant !== undefined ? ['--plant', plant] : []),
         '--scale',
         String(scale),
         '--samples',
