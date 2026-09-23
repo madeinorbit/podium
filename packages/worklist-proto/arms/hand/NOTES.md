@@ -74,6 +74,43 @@ document, POD-4597, is not written yet).
    side): the repo takeover path never runs on the fixture; the test adds a
    second lane to exercise it.
 
+### Measured (1x, counts only; no walls taken at a1)
+
+Gate of record so far, `POD_POOL_GATE_SEEDS=5` (seeds 1-5 × 200 steps,
+every change kind, 1,005 rebuild comparisons, 2-7 arm creations per seed
+from reloads), heavy lane, 2026-09-23: **green**; the removal-deaf plant
+failed every seed, at steps 15, 37, 7, 3 and 1 (the same first removals Ma1
+recorded on the same sequences). The sequences covered every round-two bug
+shape: `evictThenReAdd` 30, `twoRankMovesInOneBatch` 19, `clockDecay` 46,
+`offerRemovedOnFinishedChild` 49, `rankMoveWithinGroup` 10 — though at a1
+no view reads what most of them move (members, children, order).
+
+Fence steps (`counts.test.tsx`, live 1x engine, shared budgets):
+
+| step | oracle changed | drawn | commit fence | reads / budget | rows derived |
+| --- | --- | --- | --- | --- | --- |
+| #1 heartbeat | — | — | asserted | 1 / 3 (the ingest's slot read) | 0 |
+| #3 click | i17 | i17 | asserted | 1 / 3 | 1 |
+| #4 rename | i17 | i17, i933 | Hb1 (i933 is a hidden spin-off) | 1 / 3 | 2 |
+| #8 tick | — | — | asserted | 0 / 0 | 0 |
+| #8b grace | i300-i303 | i300-i303 | asserted | 4 / 96 | 4 |
+
+Replay corpus tick (`pool.test.tsx`): 30 deadlines waited on over 4,867
+issues; the 24 h tick crossed 4, re-derived 4 views, changed 4 (12 cell
+runs); a rewind restores them and the rebuild agrees both ways.
+
+#4 read 2 until a drawn row's `view(id)` stopped asking the table for a
+row whose cells already exist (the presence check is needed only on a
+first read); now 1, the renamed row.
+
+### Module map (a1, lines incl. comments)
+
+`pool.ts` 476 · `views.ts` 349 · `cells.ts` 281 · `tables.ts` 179 ·
+`clock.ts` 99 · `relations.ts` 97 · `records.ts` 91 · `arm.ts` 85 ·
+`enumerate.ts` 73 · `rebuild.ts` 48 · lists and rows 113: **1,891**
+non-test lines. Ma1's pool at its landing (`dd7fde922`): ~1,606 (no
+`cells.ts`; MobX is the cell layer).
+
 ### Open
 
 - Draft titles read the first member session in the rule; members are none
