@@ -134,6 +134,12 @@ their parent's row). The rules are the scenario library's (`pickTargets`):
 | #3 click | the first fresh row (never selected, never moved, not the rename target) that neither rule above wants, else any fresh row; a pointer event plus `click()` on its pressable |
 | #1 heartbeat | the library's heartbeat session (a row the worklist never shows) |
 
+The click is each arm's own pressable: on hand and MobX it is an arm-local
+selection (`store.setSelection`, no engine write); on the control it sets the
+engine selection, whose eager mark-read redraws the whole list later (see the
+4x proof run below). The click cell therefore does not carry the same engine
+work on every arm; read it with that in mind.
+
 Before every write the page asserts the target is mounted in THAT arm and
 throws if not, so the run FAILS instead of recording a zero. `prepare` picks
 (untimed, before the driver's forced GC); `runScenario` times; `summarize.ts`
@@ -236,7 +242,27 @@ for that case; read the two together.
 **Scenario targets are drawn rows** ("Timings"). The proof, both ways
 (`results/proof/`, SHA and table below):
 
-PROOF_TABLE
+Check-mode runs at `4a870d0dc` (warm-up + 5 samples per scenario, one page
+per arm and scale; counts, not walls, so load was not gated — 7.5 to 11):
+
+| Arm | 1x | 2x | 4x | Records where the redraw ≠ the oracle |
+|---|---|---|---|---|
+| hand | ok | ok | ok | 0 of 90 |
+| MobX | ok | ok | ok | 0 of 90 |
+| no-op | ok | ok | ok | every rename, stage move and click (draws nothing: under) |
+| control | ok | ok | FAILED (1384 stray commits after a click: its whole-list redraw landed past the 250 ms settle) | every record (whole-list redraw: over, 146 / 292 / 584 drawn rows for 1 changed) |
+
+Targets, identical on all four arms at each scale: rename i23 / i133 / i260;
+stage move i74 / i581 / i145 (the same row every sample); clicks i300, i301,
+i292, i274, i57, i50 at 1x, the pinned roots and i96, i55 at 2x, the pinned
+roots i1200–i1207 at 4x. On hand and MobX each rename and stage move redraws
+1 row (oracle 1), each click 2 (oracle 2; 1 on the page's first click), the
+heartbeat and the clock 0 (oracle 0).
+
+The other direction: `--offwindow` (rename aimed at the library's
+`visibleRootId`, i17 at 1x, outside the first window) FAILS the run on hand
+and on MobX at the first write: `target i17 is not drawn by hand (first window
+i300,i301,i23,…); refusing to time an undrawn row`. Nothing is recorded.
 
 ## Reads per change (POD-4557)
 
