@@ -191,15 +191,19 @@ function pendingWrite(entry: OutboxEntry, acked: boolean): OutboxPendingWrite {
   }
 }
 
+/** A {@link WriteTransport} whose events carry the outbox kind and target id.
+ *  Assignable to `WriteTransport`: every {@link ReceiptEvent} is a `WriteEvent`. */
+export interface ReceiptTransport extends Omit<WriteTransport, 'subscribe'> {
+  subscribe(listener: (event: ReceiptEvent) => void): () => void
+}
+
 /**
  * The {@link WriteTransport} a phase-c arm sends through (W2): `send` enqueues
  * under the arm's txId through the runtime's optimistic enqueue; `subscribe`
  * is {@link subscribeReceipts} plus a `rejected` for an enqueue that failed;
  * `pending` lists queued then awaiting-truth entries in queue order (W11).
  */
-export function createWriteTransport(runtime: ReceiptsRuntime): WriteTransport & {
-  subscribe(listener: (event: ReceiptEvent) => void): () => void
-} {
+export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport {
   const failures = new Set<(event: ReceiptEvent) => void>()
   const failureSource: Source = (listener) => {
     failures.add(listener)

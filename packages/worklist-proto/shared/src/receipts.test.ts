@@ -26,7 +26,7 @@ import {
   writeOptimisticEcho,
   writeOptimisticPress,
 } from './scenarios'
-import type { WriteEvent } from './write-contract'
+import type { WriteTransport } from './write-contract'
 
 const tick = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms))
 const tx = (n: string): MutationId => asMutationId(`00000000-0000-4000-8000-${n.padStart(12, '0')}`)
@@ -130,9 +130,9 @@ describe('write transport on the kernel queue', () => {
     upsert(ctx, 'issue', id, { ...issueRow(ctx, id), title: 'Renamed' }, 6)
     await tick()
     expect(events).toHaveLength(1)
-    // A WriteEvent consumer reads the same event.
-    const asContract: WriteEvent = events[0]!
-    expect(asContract.txId).toBe(tx('1'))
+    // The arm's contract type accepts this transport as is.
+    const asContract: WriteTransport = transport
+    expect(typeof asContract.subscribe).toBe('function')
     ctx.engine.destroy()
   }, 60_000)
 
