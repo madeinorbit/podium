@@ -316,7 +316,9 @@ export interface ClaudeStreamTurn {
 }
 
 export interface ClaudeStreamClient {
-  /** Resolves with the CLI-reported session id once initialize is answered. */
+  /** Resolves once initialize is answered, with the harness session id: the
+   *  CLI-reported one, else the one the invocation named — or, with neither,
+   *  once the CLI reports one. Never a gate on the first user line. */
   readonly ready: Promise<string>
   /** Run one turn over the long-lived child. Strictly serial: one open turn. */
   turn(prompt: string, callbacks: ClaudeStreamTurnCallbacks): ClaudeStreamTurn
@@ -357,9 +359,16 @@ interface PendingControl {
  */
 export function createClaudeStreamClient(
   transport: ClaudeStreamTransport,
-  spec: Pick<ClaudeStreamTurnSpec, 'systemPrompt' | 'contextPrompt' | 'timeoutMs'>,
+  spec: Pick<ClaudeStreamTurnSpec, 'systemPrompt' | 'contextPrompt' | 'timeoutMs'> & {
+    /** The harness session id the invocation named (`--session-id` or
+     *  `--resume`), which the CLI keeps. What `ready` answers with until the
+     *  CLI reports one itself. */
+    sessionId?: string
+  },
 ): ClaudeStreamClient {
+  const namedSessionId = spec.sessionId ?? ''
   let sessionId = ''
+  let handshaken = false
   let closed = false
   let resolveReady!: (id: string) => void
   let rejectReady!: (error: Error) => void
@@ -595,6 +604,7 @@ export function createClaudeStreamClient(
         const init = msg as { subtype?: string; session_id?: string }
         if (init.subtype === 'init' && typeof init.session_id === 'string') {
           sessionId = init.session_id
+          if (handshaken) resolveReady(sessionId)
           turn?.callbacks.emit({ kind: 'status', status: 'running' })
         }
         return
@@ -721,8 +731,15 @@ export function createClaudeStreamClient(
       detail: 'the Claude model host exited before it confirmed the interrupt',
     })
     denyPendingPermissions()
-    if (!sessionId && !openTurn) {
-      rejectReady(new HeadlessTurnFailure('the Claude model host process exited before it initialized'))
+    if (!openTurn) {
+      // A no-op once ready has settled.
+      rejectReady(
+        new HeadlessTurnFailure(
+          handshaken
+            ? 'the Claude model host process exited before it reported a session id'
+            : 'the Claude model host process exited before it initialized',
+        ),
+      )
       return
     }
     if (openTurn && !openTurn.settled) {
@@ -745,8 +762,17 @@ export function createClaudeStreamClient(
       request: initializePayload(spec),
     }),
   )
-  void initializing.then(
+  /**
+   * THE HANDSHAKE IS THE ONLY GATE ON THE FIRST USER LINE (POD-4636). The CLI
+   * writes `system/init` in reply to a user line — never to `initialize`
+   * (claude-code 2.1.280) — so a line held for `system/init` is held forever.
+   * The id `ready` answers with is the CLI's if it already reported one, else
+   * the one the invocation named, which the CLI keeps; with neither, `ready`
+   * waits for the `system/init` the first turn draws out.
+   */
+  const handshake = initializing.then(
     (response) => {
+      handshaken = true
       const pending = response.pending_permission_requests as
         | Array<{ request_id?: string; request?: { subtype?: string } }>
         | undefined
@@ -761,32 +787,24 @@ export function createClaudeStreamClient(
           )
         }
       }
-      if (sessionId) resolveReady(sessionId)
-      // The session id arrives on the system/init message, which may race the
-      // initialize answer: resolving here covers a CLI that answers
-      // initialize without a preceding init.
-      else {
-        const waitInit = setInterval(() => {
-          if (sessionId) {
-            clearInterval(waitInit)
-            resolveReady(sessionId)
-          }
-        }, 50)
-        waitInit.unref?.()
-      }
+      const known = sessionId || namedSessionId
+      if (known) resolveReady(known)
     },
     (error) => {
-      rejectReady(
+      const failure =
         error instanceof HeadlessTurnFailure
           ? error
           : new HeadlessTurnFailure(
               redactClaudeSdkFailureDetail(error instanceof Error ? error.message : String(error)) ||
                 'claude turn failed',
               undefined,
-            ),
-      )
+            )
+      rejectReady(failure)
+      throw failure
     },
   )
+  // Like ready: a handshake the transport killed must not surface unhandled.
+  handshake.catch(() => {})
 
   return {
     ready,
@@ -828,7 +846,7 @@ export function createClaudeStreamClient(
       callbacks.emit({ kind: 'status', status: 'starting' })
       // The first turn waits for the handshake: a user line before the
       // initialize answer would race the CLI's setup.
-      void ready
+      void handshake
         .then(() => {
           if (turn.settled || closed) return
           writeLine(userMessageLine(prompt))

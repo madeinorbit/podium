@@ -284,7 +284,6 @@ export function createClaudeSdkSessionRuntime(
     model?: string
     effort?: string
     env?: Readonly<Record<string, string>>
-    initialPrompt?: string
   }): Parameters<ClaudeSdkRuntime['createWithId']>[1] {
     return {
       harness: claudeSdkHarnessKind,
@@ -302,7 +301,6 @@ export function createClaudeSdkSessionRuntime(
       instructions: { supported: false, reason: 'spawn supplied no hidden instruction channel' },
       mcpServers: { supported: false, reason: 'spawn supplied no inline MCP configuration' },
       ...(input.env ? { env: input.env } : {}),
-      ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
     }
   }
 
@@ -412,9 +410,15 @@ export function createClaudeSdkSessionRuntime(
     },
 
     async launch(input) {
-      const handle = input.resume
-        ? await contractRuntime.resumeWithId(input.sessionId, input.resume, launchSpec(input))
-        : await contractRuntime.createWithId(input.sessionId, launchSpec(input))
+      // THE INITIAL PROMPT GOES OUT AFTER THE PUMP SUBSCRIBES (POD-4636).
+      // Handed to `createWithId`, its turn opened before `events('bootstrap')`
+      // was read, so the turn start went out relabelled as bootstrap — behind
+      // the checkpoint `session_started` had already set, which the server's
+      // event gate refuses along with the rest of that turn.
+      const { initialPrompt, ...launch } = input
+      const handle = launch.resume
+        ? await contractRuntime.resumeWithId(launch.sessionId, launch.resume, launchSpec(launch))
+        : await contractRuntime.createWithId(launch.sessionId, launchSpec(launch))
       pump(input.sessionId)
       deps.sessionReady(handle.binding)
       // THE BIND IS BARE (POD-3290). A stream engine has no terminal of any
@@ -430,6 +434,9 @@ export function createClaudeSdkSessionRuntime(
         },
         handle,
       )
+      if (initialPrompt && !launch.resume) {
+        await handle.send({ text: initialPrompt }, { origin: 'system', delivery: 'when-ready' })
+      }
       return handle
     },
   }

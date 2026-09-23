@@ -429,9 +429,13 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
         held.banner = value
       },
     })
+    // The id this invocation named (`--session-id` fresh, `--resume` after):
+    // the CLI keeps it, and reports it only once a user line arrives.
+    const claudeSessionId = spec.sessionUuid ?? spec.resumeValue
     held.client = createClaudeStreamClient(transport, {
       ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
       ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
+      ...(claudeSessionId ? { sessionId: claudeSessionId } : {}),
     })
     return held.client.ready
   }

@@ -191,8 +191,10 @@ describe('the stream client', () => {
     // The user line goes out once the handshake is answered — a microtask
     // after the answer lands, so the handshake settles first.
     await client.ready
-    const user = fake.writes.map((line) => JSON.parse(line)).find((msg) => msg.type === 'user')
-    expect(user.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    await vi.waitFor(() => {
+      const user = fake.writes.map((line) => JSON.parse(line)).find((msg) => msg.type === 'user')
+      expect(user?.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    })
     fake.emitLine(
       frame({
         type: 'stream_event',
