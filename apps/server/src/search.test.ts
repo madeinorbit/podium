@@ -10,8 +10,8 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { forceFeature } from './test-support/features'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
 // `command-palette` flag (PDM-25). These tests are about the indexed path, so

@@ -21,10 +21,10 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import { userClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionRegistry } from '../../relay'
+import { assignHostMachine, attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
 import { SessionTerminal, type ViewportRequest } from './terminal'
-import { assignHostMachine, attachHostDaemon } from '../../test-support/host-daemon'
 
 const SESSION = asSessionId('s-request')
 const MACHINE = asMachineId('m-request')

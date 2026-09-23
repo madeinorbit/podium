@@ -16,11 +16,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import { userClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 import { SessionClientControl } from './client-control'
 import type { SessionInbox } from './inbox'
 import type { Session } from './session'
 import { Session as SessionClass } from './session'
-import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const geo = { cols: 80, rows: 24 }
 const MACHINE = asMachineId('m-home')

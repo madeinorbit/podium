@@ -45,7 +45,7 @@ import {
   type MachineId,
   type SessionId,
 } from '@podium/model'
-import { type ServerMessage, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 
 import { SessionRegistry } from '../../relay'

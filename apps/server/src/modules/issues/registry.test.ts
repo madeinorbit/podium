@@ -5,10 +5,10 @@ import { z } from 'zod'
 
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 import { ShippingOrderAccessError } from '../shipping/service'
 import { IssueCommandDispatcher } from './dispatcher'
 import { guardIssueCommand, issueRegistry } from './registry'
-import { attachHostDaemon } from '../../test-support/host-daemon'
 
 /**
  * A registry whose host daemon is attached and reports `/r`: issues are placed

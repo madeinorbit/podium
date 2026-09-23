@@ -3,8 +3,8 @@ import type { AgentObservation } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 
 const at = (second: number) => `2026-07-18T12:00:${String(second).padStart(2, '0')}.000Z`
 const runtime = (

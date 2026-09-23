@@ -25,6 +25,7 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
+import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import {
   advanceToComposerReady,
@@ -32,7 +33,6 @@ import {
   READY_CEILING_MS,
   READY_STEP_MS,
 } from './test-support/readiness-queue'
-import { attachHostDaemon } from './test-support/host-daemon'
 
 // Outbox write path at the registry seam (docs/spec/outbox-write-path.md §2.1-2.2):
 // queueText wake + durable delivery, restart survival, FIFO + spacing, the

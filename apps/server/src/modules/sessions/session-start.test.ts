@@ -17,8 +17,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAgentCli } from '../../../../cli/src/agent-cli'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
-import { openTestStore } from '../../test-support/open-test-store'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 

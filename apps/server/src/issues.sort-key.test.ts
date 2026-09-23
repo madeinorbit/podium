@@ -26,7 +26,8 @@ const ctx = (registry: SessionRegistry) =>
  *  implicit placement), so the host machine reports the fixture repos. */
 async function newRegistry(): Promise<SessionRegistry> {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  for (const path of ['/r', '/r1', '/r2']) await reg.sessionStore.repos.addRepo(path, reg.sessionStore.hostMachineId)
+  for (const path of ['/r', '/r1', '/r2'])
+    await reg.sessionStore.repos.addRepo(path, reg.sessionStore.hostMachineId)
   return reg
 }
 

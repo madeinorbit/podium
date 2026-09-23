@@ -3,8 +3,8 @@ import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 
 // The split fan-out + catch-up seam (docs/spec/oplog-read-path.md §2.3-2.5):
 // delta-cap clients receive per-entity metadataDelta batches, legacy clients keep

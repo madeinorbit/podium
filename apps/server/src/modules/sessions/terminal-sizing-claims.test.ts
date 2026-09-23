@@ -28,13 +28,13 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import { userClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionRegistry } from '../../relay'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 import { SessionClientControl } from './client-control'
 import { SessionInbox } from './inbox'
 import type { Session } from './session'
 import { Session as SessionClass } from './session'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import { SessionTerminal } from './terminal'
-import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const SESSION = asSessionId('s-sizing')
 const MACHINE = asMachineId('m-sizing')

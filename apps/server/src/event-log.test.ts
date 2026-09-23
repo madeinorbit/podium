@@ -10,9 +10,9 @@ import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { PostCommitError } from './store/executor'
+import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
-import { attachHostDaemon } from './test-support/host-daemon'
 
 async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
   const store = await openTestStore(':memory:')

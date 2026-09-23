@@ -5,8 +5,8 @@ import type { SessionId } from '@podium/model'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 
 // Draft cleanup is tied to an explicit rehome, never inferred from process or
 // session liveness. Exited drafts remain the route to resume/remove in sidebar.

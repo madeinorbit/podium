@@ -66,7 +66,9 @@ export async function attachDaemonWithInventory(
 ): Promise<void> {
   await registry.gateway.attachDaemon(
     machineId,
-    opts.confirmRetirement === false ? transport : confirmingRetirement(registry, machineId, transport),
+    opts.confirmRetirement === false
+      ? transport
+      : confirmingRetirement(registry, machineId, transport),
   )
   await registry.modules.machines.recordInventory(asMachineId(machineId), inventory)
 }

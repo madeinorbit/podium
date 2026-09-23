@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
-import { openTestStore } from '../test-support/open-test-store'
 import { attachHostDaemon } from '../test-support/host-daemon'
+import { openTestStore } from '../test-support/open-test-store'
 
 /**
  * THE LIVE RUNTIME TEARDOWN WAITS FOR THE OUTERMOST COMMIT [POD-3366, sites 6,

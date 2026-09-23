@@ -19,6 +19,7 @@
 import { asMachineId, asSessionId, BUILTIN_HARNESS_KINDS } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 import {
   disposeOracles,
   MUST_NOT_CHANGE,
@@ -27,7 +28,6 @@ import {
   waitFor,
   willChange,
 } from './oracle-support'
-import { attachHostDaemon } from '../../test-support/host-daemon'
 
 afterEach(() => disposeOracles())
 

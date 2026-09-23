@@ -17,8 +17,8 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
-import { openTestStore } from '../../test-support/open-test-store'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {

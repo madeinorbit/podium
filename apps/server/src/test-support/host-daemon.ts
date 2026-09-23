@@ -53,7 +53,10 @@ export async function attachHostDaemon(
   const machineId = store.hostMachineId
   await assignHostMachine(store)
   for (const path of opts.repos ?? []) await store.repos.addRepo(path, machineId)
-  const peer = opts.confirmRetirement === false ? transport : confirmingRetirement(registry, machineId, transport)
+  const peer =
+    opts.confirmRetirement === false
+      ? transport
+      : confirmingRetirement(registry, machineId, transport)
   await registry.gateway.attachDaemon(machineId, peer)
 }
 

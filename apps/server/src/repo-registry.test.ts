@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { browseDirectories, RepoRegistry } from './repo-registry'
 import type { SessionStore } from './store'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 
 /** A RepoRegistry whose registry shares the given store and has one online machine,
  *  so single-machine add/remove attribute to that machine — preserving the original

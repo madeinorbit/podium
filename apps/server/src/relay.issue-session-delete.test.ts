@@ -1,8 +1,8 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 
 async function registryWithDaemon(store?: Awaited<ReturnType<typeof openTestStore>>) {
   const messages: unknown[] = []

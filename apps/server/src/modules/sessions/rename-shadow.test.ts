@@ -50,12 +50,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, firstAdminMemberId } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { OPERATOR } from '../../test-support/capabilities'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import { MIGRATED_COMMANDS, RENAME_PATH_ENV, renamePath } from './rename-adapter'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
 import { SessionStateRegistry} from './session-state/registry'
 import { sessionSurfaceManifest } from './trpc'
-import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {

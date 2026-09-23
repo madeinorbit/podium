@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
-import { openTestStore } from './test-support/open-test-store'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { openTestStore } from './test-support/open-test-store'
 
 type RestartKind = 'daemon-only' | 'server-only' | 'server-and-daemon'
 

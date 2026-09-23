@@ -8,8 +8,8 @@ import { firstAdminMemberId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { openTestStore } from '../../test-support/open-test-store'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 
