@@ -211,6 +211,7 @@ interface HarnessOpts {
 
 async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const store = opts?.store ?? await openTestStore(':memory:')
+  await store.repos.addRepo('/r', store.hostMachineId)
   // Real rows so the legacy issue_messages mirror's FK holds.
   await store.issues.upsertIssue(
     issueRow({ id: ISSUE.id, seq: ISSUE.seq, worktreePath: ISSUE.worktreePath }),
