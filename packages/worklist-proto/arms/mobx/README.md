@@ -174,7 +174,12 @@ by the engine.
   the per-step checks), and promote-skipped for sessions (by the
   full-residency checkpoint alone).
 - **Bucket work (M3 F1)**, `pool/relations.test.ts` "bucket upkeep is
-  proportional to the change": 1 element per edge in 4,000-member buckets.
+  proportional to the change": 1 element per edge in 4,000-member buckets,
+  COUNTED OUTSIDE THE POOL (M3 G1): the test patches MobX's `ObservableSet`
+  prototype (`add`, `delete`, `values`, which every iteration goes through)
+  and `Array.prototype.sort`/`toSorted` around the push, and asserts that
+  count; `bucketElements` must then equal it. The pool's own counter alone is
+  not evidence: a copy-and-sort that does not report itself leaves it at 1.
   M3's probe (`harness/review/m3-shape-probes.test.tsx`, with
   `M3_LIVE_EXPORT`) prints the same count on the live export.
 - **Fence steps #1-#4**, `pool/counts.test.tsx`: the shared
