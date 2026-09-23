@@ -20,12 +20,19 @@
  * tick, and the a1 list draws every resident issue; the visible collection
  * is Mb1's (POD-4569), which asserts it.
  *
- * #2's NO (POD-4568). Before this issue an issue's `activityAt` and draft
- * title read every member session's ROW on any member's change: #2 read 4
- * rows (`s34`, its siblings `s35` and `s507`, and `i17`) against a budget of
- * 3. The parts now re-compose from each member's cached value
- * (`SessionModel.activityMs`) and a non-draft title reads no member. The
- * planted pool below restores the row reads and must fail #2's budget.
+ * #2 BEFORE AND AFTER (POD-4568). Before this issue an issue's `activityAt`
+ * and draft title read every member session's ROW on any member's change:
+ * at base 1cd21c6aa #2 read 4 rows (`s34`, its siblings `s35` and `s507`,
+ * and `i17`) against a budget of 3, and failed. The parts now re-compose
+ * from each member's cached value (`SessionModel.activityMs`) and a
+ * non-draft title reads no member: #2 reads 1.
+ *
+ * FINDING, pinned below (not a NO). The sibling re-read ALONE is not caught
+ * on this target: `i17` has exactly 3 member sessions, so re-reading the
+ * whole family costs 3 reads, the budget of one level. The base failed only
+ * because a second part also read `i17`. The planted pool (member activity
+ * read from the rows again) passes #2 at 3; the pin makes that visible, and
+ * goes red if the fence or the target changes so that it is caught.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -105,12 +112,12 @@ describe('fence steps #1-#4', () => {
     }
   }, 120_000)
 
-  it('fails #2 when a member change re-reads every member row (the planted pool)', async () => {
+  it('pins the #2 finding: a sibling re-read alone sits at the budget on this target', async () => {
     const planted: CheckableArm = {
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads) as MobxPoolHandle
         const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
-        // The pre-POD-4568 shape: each member's row, read again on every run.
+        // The pre-POD-4568 activity: each member's row, read again on every run.
         inputs.sessionActivity = (id) => sessionActivityOf(handle.pool.inputs.session(id))
         return handle
       },
@@ -123,16 +130,13 @@ describe('fence steps #1-#4', () => {
         const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
         expect(entry, methodology).toBeDefined()
         const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
-        if (methodology === '#1') {
-          assertReads(result, { readsPerChange: readsBudget })
-          continue
-        }
-        // Same rows committed as the real pool: only the reads differ.
         assertCommits(result)
-        expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
-          /visibleSessionPhaseChange \(#2\): read \d+ rows, budget 3/,
-        )
-        expect(result.reads?.byEntity['session']).toBeGreaterThan(1)
+        assertReads(result, { readsPerChange: readsBudget })
+        if (methodology !== '#2') continue
+        // The whole family of the changed session, and nothing else: exactly the budget.
+        expect(readsBudget).toBe(3)
+        expect(result.reads?.byEntity).toEqual({ session: 3 })
+        expect(result.readsPerChange).toBe(readsBudget)
       }
     } finally {
       mounted.unmount()
