@@ -5,6 +5,8 @@ import {
   activationAgentIsInstalled,
   activationAgentIsReady,
   activationAgentReadiness,
+  agentReadinessOnMachines,
+  launchAgentKind,
 } from './agent-readiness'
 
 const machineId = asMachineId('machine-a')
@@ -72,5 +74,45 @@ describe('activation agent readiness', () => {
     expect(activationAgentReadiness(repo, [machine(null, { use: 'denied' })], 'codex').state).toBe(
       'unauthorized',
     )
+  })
+})
+
+describe('the harness a launch starts on (POD-4639)', () => {
+  const studio = (logins: Record<string, 'in' | 'out'>): MachineWire => {
+    const base = machine(null)
+    return {
+      ...base,
+      inventory: {
+        ...base.inventory!,
+        agents: Object.entries(logins).map(([kind, login]) => ({
+          kind,
+          installed: true,
+          login: { state: login },
+        })),
+      },
+    }
+  }
+  const pick = (logins: Record<string, 'in' | 'out'>, picked?: 'claude-code' | 'opencode') =>
+    launchAgentKind({
+      picked,
+      preferred: 'claude-code',
+      candidates: ['claude-code', 'codex', 'opencode'] as const,
+      readiness: (agent) => agentReadinessOnMachines([studio(logins)], agent),
+    })
+
+  it('keeps a ready default', () => {
+    expect(pick({ 'claude-code': 'in', opencode: 'in' })).toBe('claude-code')
+  })
+
+  it('steps a signed-out default aside for the first ready harness', () => {
+    expect(pick({ 'claude-code': 'out', opencode: 'in' })).toBe('opencode')
+  })
+
+  it('keeps the default when nothing is ready, so the caller refuses it', () => {
+    expect(pick({ 'claude-code': 'out' })).toBe('claude-code')
+  })
+
+  it('never swaps a harness the operator picked', () => {
+    expect(pick({ 'claude-code': 'out', opencode: 'in' }, 'claude-code')).toBe('claude-code')
   })
 })

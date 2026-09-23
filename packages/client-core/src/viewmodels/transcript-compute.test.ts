@@ -59,4 +59,53 @@ describe('computeTranscript', () => {
       ),
     ).toEqual(['u1', 'a1'])
   })
+
+  /**
+   * FILE ORDER IS NOT TURN ORDER [POD-4639]. Claude Code writes the synthetic
+   * "Not logged in" reply to its JSONL BEFORE the prompt that caused it (the
+   * real bytes, from a signed-out launch: reply at 07:26:46.376, prompt stamped
+   * 07:26:45.756 on the line after). Cursors must stay byte order, so the fix is
+   * here, where rows are shaped: a prompt lifts above the replies stamped after it.
+   */
+  describe('a prompt written after its own reply', () => {
+    const ids = (items: TranscriptItem[]) =>
+      computeTranscript({ items, verbosity: 'normal', query: '', cursor: 0 }).blocks.map(
+        (block) => block.item.id,
+      )
+
+    it('renders the prompt before the reply the harness flushed first', () => {
+      expect(
+        ids([
+          item({ id: 'u0', role: 'user', ts: '2026-09-23T07:20:00.000Z', text: 'earlier' }),
+          item({ id: 'a0', role: 'assistant', ts: '2026-09-23T07:20:05.000Z', text: 'ok' }),
+          item({
+            id: 'err',
+            role: 'assistant',
+            ts: '2026-09-23T07:26:46.376Z',
+            text: 'Not logged in · Please run /login',
+          }),
+          item({ id: 'u1', role: 'user', ts: '2026-09-23T07:26:45.756Z', text: 'What is 8 times 9?' }),
+        ]),
+      ).toEqual(['u0', 'a0', 'u1', 'err'])
+    })
+
+    it('keeps file order when the prompt is stamped after the reply above it', () => {
+      expect(
+        ids([
+          item({ id: 'a0', role: 'assistant', ts: '2026-09-23T07:26:45.000Z', text: 'done' }),
+          item({ id: 'u1', role: 'user', ts: '2026-09-23T07:26:46.000Z', text: 'next' }),
+        ]),
+      ).toEqual(['a0', 'u1'])
+    })
+
+    it('never lifts a prompt past an unstamped item or another prompt', () => {
+      expect(
+        ids([
+          item({ id: 'u0', role: 'user', ts: '2026-09-23T07:26:47.000Z', text: 'first' }),
+          item({ id: 'x', role: 'assistant', text: 'no stamp' }),
+          item({ id: 'u1', role: 'user', ts: '2026-09-23T07:26:45.000Z', text: 'second' }),
+        ]),
+      ).toEqual(['u0', 'x', 'u1'])
+    })
+  })
 })

@@ -7,7 +7,11 @@ import {
   NEW_WORK_REPO_KEY,
 } from '@podium/client-core/ui-state'
 import {
+  AGENT_NOT_READY_COPY,
+  activationAgentIsReady,
+  agentReadinessOnMachines,
   lastUsedMaps,
+  launchAgentKind,
   machineViewsFromWire,
   type RepoNavView,
   resolveSpawnTargetMachine,
@@ -27,6 +31,7 @@ import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import {
   AUTO,
+  ISSUE_AGENT_KINDS,
   allConnectorModelLabel,
   allConnectorModelOptions,
   type CatalogOption,
@@ -36,6 +41,7 @@ import {
   groupedCatalogOptions,
   type IssueAgentKind,
   isEffortValid,
+  issueAgentLabel,
   issueDefaultAgentKind,
   spawnSelection,
 } from '../lib/agent-models'
@@ -206,15 +212,50 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
 
   const decoded = decodeModelPick(model)
   const isShell = model === SHELL_PICK
-  const harness: AgentKind = isShell ? 'shell' : (decoded.agentKind ?? issueDefaultAgentKind(undefined))
 
-  const start = (repo: RepoNavView, explicit?: MachineId) => {
+  /**
+   * The checkout this launch lands in, resolved ONCE so that the harness is
+   * judged on the machine the spawn will actually reach — not on whichever
+   * machine the picker happens to show.
+   */
+  const launchTarget = (repo: RepoNavView, explicit?: MachineId) => {
     const targetMachine = resolveSpawnMachine(
       repo,
       explicit ?? (showMachine ? (machineId ?? undefined) : undefined),
     )
-    if (targetMachine === null) return
-    const { worktree } = spawnTargetForRepo(repo, targetMachine)
+    return targetMachine === null ? null : spawnTargetForRepo(repo, targetMachine).worktree
+  }
+  const selectedTarget = selectedRepo ? launchTarget(selectedRepo) : null
+  const targetMachines = selectedTarget?.machineId
+    ? machines.filter((candidate) => candidate.id === selectedTarget.machineId)
+    : machines
+
+  /**
+   * WHICH HARNESS STARTS, AND WHETHER IT MAY (POD-4639) — the desktop
+   * composer's rule, read from the same client-core functions rather than
+   * restated. This sheet used to send the registry's first harness whatever
+   * the machine reported, so a host with Claude signed out got a session whose
+   * only reply was "Not logged in". Auto now steps aside to a harness that is
+   * ready there; a harness the operator PICKED is kept and refused, because
+   * swapping it would start work on something nobody chose.
+   */
+  const readinessOf = (agent: IssueAgentKind) => agentReadinessOnMachines(targetMachines, agent)
+  const defaultHarness = issueDefaultAgentKind(undefined)
+  const harness: AgentKind = isShell
+    ? 'shell'
+    : launchAgentKind({
+        picked: decoded.agentKind as IssueAgentKind | undefined,
+        preferred: defaultHarness,
+        candidates: ISSUE_AGENT_KINDS,
+        readiness: readinessOf,
+      })
+  const harnessReady =
+    harness === 'shell' || activationAgentIsReady(readinessOf(harness as IssueAgentKind))
+
+  const start = (repo: RepoNavView, explicit?: MachineId) => {
+    if (!harnessReady) return
+    const worktree = launchTarget(repo, explicit)
+    if (worktree === null) return
     const selection = isShell ? {} : spawnSelection(effectiveModel, effort)
     const firstPrompt = prompt.trim()
     setRepoPick(repo.path)
@@ -272,17 +313,21 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     (catalog[pickHarness]?.length ?? 0) > 0 &&
     !catalog[pickHarness]?.some((choice) => choice.value === decoded.model)
   const effectiveModel = retired ? AUTO : model
+  // Auto names its harness once it is not the default one, so the operator can
+  // see that the signed-out default was stepped over rather than guess.
+  const autoValue =
+    harness === defaultHarness ? 'Auto' : `Auto · ${issueAgentLabel(harness, served)}`
   const modelValue = isShell
     ? 'Shell'
-    : retired
-      ? 'Auto'
+    : retired || effectiveModel === AUTO
+      ? autoValue
       : allConnectorModelLabel(decoded.agentKind, decoded.model, catalog, served)
   const effortChoices =
     effectiveModel === AUTO || isShell
       ? []
       : effortOptionsForModel(pickHarness, decoded.model, catalog[pickHarness], served)
   const machineOk = !showMachine || selectedMachine?.availability === 'available'
-  const canStart = machineOk && selectedRepo !== null
+  const canStart = machineOk && selectedRepo !== null && harnessReady
 
   const title =
     step === 'model'
@@ -443,6 +488,8 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
 
             {visibleRepos.length === 0 ? (
               <Text style={styles.none}>No repositories are available on this account.</Text>
+            ) : machineOk && !harnessReady ? (
+              <Text style={styles.none}>{AGENT_NOT_READY_COPY}</Text>
             ) : null}
           </>
         ) : null}

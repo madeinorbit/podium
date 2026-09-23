@@ -1,5 +1,12 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
+import {
+  type ActivationAgentReadiness,
+  activationAgentIsInstalled,
+  activationAgentIsReady,
+  activationAgentReadiness,
+  activationReadinessCopy,
+} from '@podium/client-core/viewmodels'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { HOST_REPOS, machinesFor } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
@@ -29,13 +36,6 @@ import {
 import { cn } from '@/lib/utils'
 import { ActivationShell } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
-import {
-  type ActivationAgentReadiness,
-  activationAgentIsInstalled,
-  activationAgentIsReady,
-  activationAgentReadiness,
-  activationReadinessCopy,
-} from './agent-readiness'
 import { persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
 

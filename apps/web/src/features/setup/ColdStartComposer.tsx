@@ -2,6 +2,10 @@ import { randomUUID } from '@podium/client-core/id'
 import { shallowEqual } from '@podium/client-core/store'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
+  AGENT_NOT_READY_COPY,
+  activationAgentIsReady,
+  activationAgentReadiness,
+  launchAgentKind,
   machineViewsFromWire,
   reposToViews,
   createRepositoryUsageSelector,
@@ -42,7 +46,6 @@ import {
 } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
-import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
 import {
   clearFirstTaskDraft,
   type FirstTaskDraft,
@@ -326,15 +329,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   /** A host the operator may see but not run on. Everything that starts work
    *  refuses on it; the picker still shows it, saying why. */
   const machineDenied = selectedMachine !== undefined && !authorized.has(selectedMachine.id)
-  const detectedReadyAgent = ISSUE_AGENT_KINDS.find((candidate) =>
-    activationAgentIsReady(
-      activationAgentReadiness(
-        selectedCheckout,
-        selectedMachine ? [selectedMachine] : machines,
-        candidate,
-      ),
-    ),
-  )
   /**
    * WHICH HARNESS THIS BOX OPENS ON — the sidebar chip's rule, inherited whole
    * (POD-1469).
@@ -391,18 +385,17 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       // Kept optimistic — see above.
     }
   }
-  const agent =
-    issueAgentKind(draft.agent) ??
-    (activationAgentIsReady(
+  const agent = launchAgentKind({
+    picked: issueAgentKind(draft.agent),
+    preferred: defaultAgent,
+    candidates: ISSUE_AGENT_KINDS,
+    readiness: (candidate) =>
       activationAgentReadiness(
         selectedCheckout,
         selectedMachine ? [selectedMachine] : machines,
-        defaultAgent,
+        candidate,
       ),
-    )
-      ? defaultAgent
-      : detectedReadyAgent) ??
-    defaultAgent
+  })
   const readiness = activationAgentReadiness(
     selectedCheckout,
     selectedMachine ? [selectedMachine] : machines,
@@ -1337,8 +1330,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             !ready &&
             (selectedCheckout ? (
               <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
-                The selected agent is not ready on this machine yet. Open Settings → Agents to
-                finish setup.
+                {AGENT_NOT_READY_COPY}
               </p>
             ) : (
               <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">

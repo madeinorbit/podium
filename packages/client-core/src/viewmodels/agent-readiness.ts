@@ -32,7 +32,19 @@ export function activationAgentReadiness(
   agent: HarnessAgent,
 ): ActivationAgentReadiness {
   if (!repo) return { state: 'unavailable' }
-  const candidates = repoMachines(repo, machines)
+  return agentReadinessOnMachines(repoMachines(repo, machines), agent)
+}
+
+/**
+ * The same reading for a caller that already knows which machine(s) the launch
+ * lands on — the phone's New work sheet resolves its target from the repo view,
+ * not from a registry checkout, and must not grow a second spelling of "is this
+ * harness usable there" (POD-4639: it had none, and started signed-out Claude).
+ */
+export function agentReadinessOnMachines(
+  candidates: readonly MachineWire[],
+  agent: HarnessAgent,
+): ActivationAgentReadiness {
   if (candidates.length === 0) return { state: 'unavailable' }
 
   for (const machine of candidates) {
@@ -69,6 +81,35 @@ export function activationAgentReadiness(
 
 export function activationAgentIsReady(readiness: ActivationAgentReadiness): boolean {
   return readiness.state === 'ready' || readiness.state === 'login-unknown'
+}
+
+/** What a launch surface says when it refuses a harness that is not ready.
+ *  One sentence, so the desktop composer and the phone sheet cannot drift. */
+export const AGENT_NOT_READY_COPY =
+  'The selected agent is not ready on this machine yet. Open Settings → Agents to finish setup.'
+
+/**
+ * Which harness a launch starts on (POD-1469, POD-4639).
+ *
+ * A pick the operator made for THIS launch wins as given — even when it is not
+ * ready, because swapping it silently would start work on a harness nobody
+ * chose; the caller refuses instead. Otherwise the default, but only while it
+ * can start: a default that cannot run is not a default, so it steps aside for
+ * the first candidate (registry order) that is ready. With nothing ready the
+ * default stands, and the caller's readiness check refuses it.
+ */
+export function launchAgentKind<K extends HarnessAgent>(input: {
+  picked: K | undefined
+  preferred: K
+  candidates: readonly K[]
+  readiness: (agent: K) => ActivationAgentReadiness
+}): K {
+  if (input.picked !== undefined) return input.picked
+  if (activationAgentIsReady(input.readiness(input.preferred))) return input.preferred
+  return (
+    input.candidates.find((candidate) => activationAgentIsReady(input.readiness(candidate))) ??
+    input.preferred
+  )
 }
 
 /** Onboarding may finish with any installed harness. A native login is useful
