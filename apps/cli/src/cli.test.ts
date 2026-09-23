@@ -480,6 +480,15 @@ describe('resolvePlan — utility subcommands', () => {
     expect(plan({}, ['channel', 'edge'], agent)).toMatchObject({ kind: 'approval-request' })
   })
 
+  it('routes `podium tunnel` to its sub-CLI, and refuses it inside an agent session (POD-4640)', () => {
+    expect(plan({}, ['tunnel', 'run'])).toEqual({ kind: 'tunnel', args: ['run'] })
+    const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }
+    expect(plan({}, ['tunnel', 'enable'], agent)).toMatchObject({
+      kind: 'usage-error',
+      message: expect.stringContaining('outside a managed agent session'),
+    })
+  })
+
   it('refuses update --channel inside an agent session instead of dropping it', () => {
     const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }
     // The approval op carries no channel, so brokering this would update from

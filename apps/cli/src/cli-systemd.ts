@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { userUnitDir } from '@podium/runtime/topology-migration'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { DAEMON_BLOCKED_EXIT_CODE } from '@podium/runtime/connectivity'
+import { CHILD_REFUSAL_EXIT_CODE } from '@podium/runtime/parent-supervisor'
 import {
   defaultInstancePorts,
   instanceCommandName,
@@ -348,6 +349,43 @@ WantedBy=default.target
 export function renderDaemonUnit(opts: DaemonRenderOptions = {}): string {
   const c = context(opts)
   return generatedUnit(c.profile === 'dev' ? renderDevDaemon(c) : renderPackagedDaemon(c, opts))
+}
+
+/**
+ * The OPT-IN quick-tunnel wrapper (POD-4640): `podium tunnel run`, which owns a cloudflared
+ * child, restarts it with backoff and records each new trycloudflare URL as the public URL.
+ *
+ * Its own unit rather than a parent child, deliberately: a quick tunnel's URL changes only
+ * when cloudflared restarts, and the parent (with the server under it) restarts on every
+ * update and self-handover. So nothing here binds it to the parent — no PartOf, no
+ * Requires — and a Podium restart leaves the tunnel, and its URL, alone. Never part of
+ * {@link renderSystemdFiles}: only `podium tunnel enable` writes it.
+ */
+export function renderTunnelUnit(opts: SystemdRenderOptions = {}): string {
+  const c = context(opts)
+  return generatedUnit(`[Unit]
+Description=Podium quick tunnel (supervised cloudflared; records each new trycloudflare URL)
+After=network-online.target ${c.parentUnit}
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PODIUM_INSTANCE=${c.instanceId}
+# The same port the parent's server listens on: this is the origin cloudflared forwards to.
+Environment=PODIUM_PORT=${c.port}
+Environment=PATH=${USER_RUNTIME_PATH}
+ExecStart=%h/.local/bin/${c.command} tunnel run
+# The wrapper restarts cloudflared itself; this only covers the wrapper dying. The default
+# KillMode=control-group takes cloudflared down with the unit, so a stop leaves no orphan.
+Restart=always
+RestartSec=5
+# 78 is a refused precondition (PODIUM_PUBLIC_URL set, not opted in, no cloudflared, another
+# wrapper running): restarting cannot fix any of them, so don't.
+RestartPreventExitStatus=${CHILD_REFUSAL_EXIT_CODE}
+
+[Install]
+WantedBy=default.target
+`)
 }
 
 // There is no web-build unit any more (POD-1985). The server runs those builds

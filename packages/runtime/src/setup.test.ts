@@ -545,6 +545,11 @@ describe('setup core', () => {
       expect(ephemeralTunnelWarning('https://a-b-c.trycloudflare.com')).toMatch(/quick tunnel/i)
       expect(ephemeralTunnelWarning('wss://a-b-c.trycloudflare.com')).toMatch(/quick tunnel/i)
     })
+    it('names the supervised tunnel, and keeps the manual re-point for boxes without it (POD-4640)', () => {
+      const warning = ephemeralTunnelWarning('https://a-b-c.trycloudflare.com')
+      expect(warning).toContain('podium tunnel enable')
+      expect(warning).toContain('podium set-server <new-url>')
+    })
     it('does not flag stable hosts (incl. lookalike domains)', () => {
       expect(ephemeralTunnelWarning('https://box.ts.net')).toBeUndefined()
       expect(ephemeralTunnelWarning('https://nottrycloudflare.com')).toBeUndefined()

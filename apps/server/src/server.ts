@@ -121,6 +121,7 @@ import { MobilePairingManager } from './mobile-pairing'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
+import { watchPublicUrl } from './modules/connect/public-url-watch'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
@@ -656,14 +657,15 @@ export async function startServer(
   // Keeps Connect's record of where this server is reachable current. Started
   // once the listener is up (below); reads PODIUM_CONNECT and the public URL
   // per tick, so both land without a restart. The base URL is a boot fact.
+  const readConnectPublicUrl = (): string | undefined =>
+    serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env)
   const connectPublisher = new ConnectPublisher({
     client: connectClient({
       baseUrl: resolveConnectBaseUrl(config, process.env),
       identity: () => installation,
     }),
     identity: () => installation,
-    publicUrl: () =>
-      serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env),
+    publicUrl: readConnectPublicUrl,
     enabled: () => store.settings.resolve('connectEnabled').value,
     log: createLogger('server:connect'),
   })
@@ -2446,6 +2448,15 @@ export async function startServer(
       targetsResolvedOnBoot = true
       bootStage('health exposed', healthStarted)
       if (!recoveryOnly && !rehearsal) connectPublisher.start()
+      // A URL written by another process (the quick-tunnel wrapper, POD-4640)
+      // reaches Connect in seconds rather than on the publisher's 5-minute tick.
+      const publicUrlWatch =
+        recoveryOnly || rehearsal
+          ? { stop: () => {} }
+          : watchPublicUrl({
+              read: readConnectPublicUrl,
+              onChange: () => connectPublisher.publicUrlChanged(),
+            })
       resolve({
         port: server.port,
         syncWorker: () => syncWorker,
@@ -2479,6 +2490,7 @@ export async function startServer(
               ['updates.stopTargetRefresh', () => targetRefresh.stop()],
               // A publish that outlives the server would advertise a URL that
               // is about to stop answering; the next boot republishes anyway.
+              ['connect.stopPublicUrlWatch', () => publicUrlWatch.stop()],
               ['connect.stop', () => connectPublisher.stop()],
               ['updates.localParticipant.close', () => localUpdateParticipant?.close()],
               // Same hazard, same window (POD-2097): an armed operation deadline

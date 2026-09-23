@@ -358,6 +358,11 @@ function withUiUrl<T extends PodiumConfig>(config: T, uiUrl: string | undefined)
  * Warn when a server URL is a Cloudflare QUICK tunnel (*.trycloudflare.com): those URLs
  * rotate on every cloudflared restart, so every joined daemon goes dark until it is pointed
  * at the new URL (issue #19). Returned (not thrown) — quick tunnels are legitimate for demos.
+ *
+ * Since POD-4640 the rotation has an owner: `podium tunnel enable` on the server keeps
+ * cloudflared up and records each new URL, which Podium Connect then hands to joined
+ * machines. The manual `set-server` fallback stays in the text because it is still the
+ * answer for a server that did not opt in, or a machine that cannot reach Connect.
  */
 export function ephemeralTunnelWarning(url: string): string | undefined {
   let host: string
@@ -368,9 +373,11 @@ export function ephemeralTunnelWarning(url: string): string | undefined {
   }
   if (host === 'trycloudflare.com' || host.endsWith('.trycloudflare.com')) {
     return (
-      'This is a Cloudflare QUICK tunnel URL — it changes every time cloudflared restarts, ' +
-      'and every joined machine will lose contact until you run `podium set-server <new-url>` ' +
-      'on it. Fine for a demo; use Tailscale or a named tunnel for anything durable.'
+      'This is a Cloudflare QUICK tunnel URL — it changes every time cloudflared restarts. ' +
+      'Run `podium tunnel enable` on the server to keep cloudflared running and record each ' +
+      'new URL, so joined machines can look it up through Podium Connect; without it, every ' +
+      'joined machine loses contact until you run `podium set-server <new-url>` on it. ' +
+      'Fine for a demo; use Tailscale or a named tunnel for anything durable.'
     )
   }
   return undefined

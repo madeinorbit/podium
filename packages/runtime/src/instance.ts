@@ -179,6 +179,8 @@ export type InstanceServiceRole =
   | 'web'
   | 'redeploy'
   | 'health'
+  /** The opt-in quick-tunnel wrapper (`podium tunnel`, POD-4640). */
+  | 'tunnel'
 
 export function instanceServiceName(
   role: InstanceServiceRole,
