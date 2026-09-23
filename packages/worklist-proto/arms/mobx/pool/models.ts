@@ -33,6 +33,7 @@ import {
   displayRefPartOf,
   displayTitlePartOf,
   type IssueParts,
+  loadingPartOf,
   type OwnPart,
   originIdPartOf,
   originRefPartOf,
@@ -108,6 +109,7 @@ export class IssueModel extends EntityModel implements IssueParts {
       originId: computed,
       originTick: computedStruct,
       activityAt: computed,
+      loading: computed,
       view: computedStruct,
     })
   }
@@ -146,6 +148,10 @@ export class IssueModel extends EntityModel implements IssueParts {
 
   get activityAt(): number {
     return activityAtPartOf(this.host.inputs, this.id)
+  }
+
+  get loading(): boolean {
+    return loadingPartOf(this.host.inputs, this.id, this.originRef)
   }
 
   /** The L1b row view, from the parts above; undefined once the row has left. */

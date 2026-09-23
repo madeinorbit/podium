@@ -10,6 +10,7 @@
     "pool/pool.ts",
     "pool/rebuild.ts",
     "pool/relations.ts",
+    "pool/residency.ts",
     "pool/tables.ts"
   ],
   "rows": ["pool/react/row.tsx", "pool/native/row.tsx"]

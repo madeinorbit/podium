@@ -19,6 +19,14 @@ export interface RowSource {
   snapshot(kind: RowRecord['kind']): RowRecord[]
   /** One callback per publication, coalesced: never a transient half-applied list. */
   subscribe(listener: (event: RowSourceEvent) => void): () => void
+  /**
+   * POD-4567 (Ma3) — one row's current value by id, exactly as `snapshot(kind)`
+   * would carry it (the kernel's per-row read, `replica.row`, with that row's
+   * overlays in `overlaid` mode); `undefined` when the row is gone. How a pool
+   * hydrates a cold row it holds only the id of (schema doc §5). Only the kinds
+   * that can be cold. Optional: a source without it cannot back a lazy pool.
+   */
+  row?(kind: 'issue' | 'session', id: string): RowRecord['value']
 }
 
 /**

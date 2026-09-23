@@ -16,6 +16,14 @@
  * the schema; the action ends with one `flush`, so each touched bucket is
  * replaced once. `indexUpdates` counts the relation slots written.
  *
+ * RESIDENCY (POD-4567, `residency.ts`). With a per-row read (`lazy.load`, the
+ * feed's `RowSource.row`), rows the schema lets be cold (closed issues and
+ * their sessions) never enter the tables: ingest registers their ids and the
+ * relation engine links them. A derivation that reaches one through a lazy
+ * relation gets `loading` and queues it; the 50 ms window's batch installs
+ * every queued row in ONE action (`hydrate`). `snapshot()` settles the loader
+ * before it answers. Without `lazy` every row is resident (Ma1/Ma2 tests).
+ *
  * READ PATH. Every table read goes through the reads fence
  * (`reads.wrapTables`), every relation read through `reads.wrapRelations`;
  * with the fence disabled both are the identity. Derivations run lazily: a
@@ -40,7 +48,7 @@ import {
 } from 'mobx'
 import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
 import { sliceRowOf } from '../../../shared/src/row-view'
-import type { EntityName, ModelSchema } from '../../../shared/src/schema'
+import { type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
 import type {
   LocalsKey,
   SliceIssue,
@@ -52,7 +60,8 @@ import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import { DeadlineClock } from './clock'
 import { issueIdsOf, reseed } from './enumerate'
 import { type EntityModel, MODEL_CLASSES, type ModelOf } from './models'
-import { PoolRelations } from './relations'
+import { PoolRelations, type ReadableTables } from './relations'
+import { type LoadRow, Residency, type Schedule } from './residency'
 import {
   createObservableTables,
   ENTITIES,
@@ -75,7 +84,7 @@ export interface PoolCounters {
 
 export type PoolStats = ArmStats & { readonly counters: PoolCounters }
 
-function createStats(): PoolStats {
+function createStats(residency: Residency | null): PoolStats {
   const counters: PoolCounters = { modelsCreated: 0, tableWrites: 0, rowsRemoved: 0 }
   const stats: PoolStats = {
     rowsDerived: 0,
@@ -91,10 +100,37 @@ function createStats(): PoolStats {
       counters.modelsCreated = 0
       counters.tableWrites = 0
       counters.rowsRemoved = 0
+      if (residency !== null) {
+        const r = residency.counters
+        r.coldWrites = 0
+        r.requests = 0
+        r.batches = 0
+        r.hydrated = 0
+        r.warmed = 0
+      }
     },
   }
   return stats
 }
+
+/** Residency options: the per-row read, and (tests) the window and timer. */
+export interface PoolLazyOptions {
+  readonly load: LoadRow
+  readonly windowMs?: number
+  readonly schedule?: Schedule
+}
+
+/** Where a row stands, for a reader that asked for it by id (tracked). */
+export type Residence = 'resident' | 'loading' | 'absent'
+
+/** A lazy collection read: the members in memory, and how many are on their way. */
+export interface LazyMembers {
+  readonly ready: readonly string[]
+  readonly pending: number
+}
+
+/** Settle rounds before `snapshot()` gives up (a load that never lands). */
+const MAX_SETTLE_ROUNDS = 64
 
 /** The worklist's order until Mb1 builds the visible collection. */
 const EMPTY_ORDER = Object.freeze({ pinnedIds: Object.freeze([]), groups: Object.freeze([]) })
@@ -136,6 +172,8 @@ export class MobxPool {
   readonly clock: DeadlineClock
   readonly inputs: ViewInputs
   readonly stats: PoolStats
+  /** Residency (POD-4567); null when the pool holds every row. */
+  readonly residency: Residency | null
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
   private selectedId: string | null
@@ -144,13 +182,40 @@ export class MobxPool {
     readonly reads: ReadFence,
     locals: SliceLocals,
     schema?: ModelSchema,
+    lazy?: PoolLazyOptions,
   ) {
     this.tables = createObservableTables()
     this.fenced = reads.wrapTables(this.tables)
-    this.stats = createStats()
+    const fenced = this.fenced
+    const residency =
+      lazy === undefined
+        ? null
+        : new Residency({
+            schema: schema ?? SCHEMA,
+            hot: fenced,
+            load: lazy.load,
+            ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
+            ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
+          })
+    this.residency = residency
+    this.stats = createStats(residency)
     const stats = this.stats
+    // The engine sees every KNOWN row: a resident one in its table, a cold one
+    // by id (read back through the feed only when the engine needs its fields).
+    const known =
+      residency === null
+        ? fenced
+        : (Object.fromEntries(
+            ENTITIES.map((entity) => [
+              entity,
+              {
+                get: (id: string) => fenced[entity].get(id) ?? residency.read(entity, id),
+                has: (id: string) => fenced[entity].has(id) || residency.known(entity, id),
+              },
+            ]),
+          ) as ReadableTables)
     this.graph = new PoolRelations({
-      tables: this.fenced,
+      tables: known,
       probe: this.tables,
       reads,
       ...(schema === undefined ? {} : { schema }),
@@ -167,15 +232,20 @@ export class MobxPool {
     this.models = Object.fromEntries(
       ENTITIES.map((entity) => [entity, new Map()]),
     ) as MobxPool['models']
-    this.target = { read: this.fenced, write: this.tables, relations: this.graph }
+    this.target = {
+      read: this.fenced,
+      write: this.tables,
+      relations: this.graph,
+      ...(residency === null ? {} : { residency }),
+    }
     this.selectedId = null
-    const fenced = this.fenced
     this.inputs = {
       relations: this.relations,
       issue: (id) => fenced.issue.get(id) as SliceIssue | undefined,
       session: (id) => fenced.session.get(id) as SliceSession | undefined,
       repo: (id) => fenced.repo.get(id) as RepoRow | undefined,
       present: (entity, id) => fenced[entity].has(id),
+      loading: (entity, id) => residency?.loading(entity, id) ?? false,
       parts: (id) => this.issue(id),
       selected: (id) => this.selection.has(id),
       reached: (t) => this.clock.reached(t),
@@ -194,6 +264,11 @@ export class MobxPool {
       target: false,
       selectedId: false,
       reads: false,
+      residency: false,
+      residentIssueIds: false,
+      resident: false,
+      lazyMany: false,
+      hydrate: false,
       issueIds: computedStruct,
       model: false,
       issue: false,
@@ -205,6 +280,7 @@ export class MobxPool {
       select: false,
     })
     runInAction(() => this.select(locals.selectedIssueId))
+    residency?.onDue(() => this.hydrate())
   }
 
   /** Every issue id in the pool, in table order. Re-derived only when membership changes. */
@@ -229,6 +305,53 @@ export class MobxPool {
     return this.model('issue', id)
   }
 
+  /**
+   * TRACKED: where the row `entity:id` stands. A cold row answers `loading`
+   * and is queued (first access); a reader renders that as loading, never as
+   * an empty row.
+   */
+  resident(entity: EntityName, id: string): Residence {
+    if (this.fenced[entity].has(id)) return 'resident'
+    return this.residency?.loading(entity, id) === true ? 'loading' : 'absent'
+  }
+
+  /**
+   * TRACKED: a lazy collection (Rule L) as its resident members plus the
+   * count still loading, every cold one queued. The shape a roll-up reads
+   * (Mb3): it derives from `ready` and reports loading while `pending > 0`.
+   */
+  lazyMany(from: EntityName, id: string, relation: string): LazyMembers {
+    const to = this.graph.schema[from].relations[relation]?.to
+    if (to === undefined) throw new Error(`[pool] ${from}.${relation} is not a declared relation`)
+    const ready: string[] = []
+    let pending = 0
+    for (const member of this.relations.many(from, id, relation)) {
+      if (this.fenced[to].has(member)) ready.push(member)
+      else if (this.residency?.loading(to, member) === true) pending += 1
+    }
+    return { ready, pending }
+  }
+
+  /**
+   * Close the load window now: install every queued cold row, read by id
+   * through the feed, in ONE action. The window's timer calls this; so does
+   * `snapshot()` while settling.
+   */
+  hydrate(): void {
+    const residency = this.residency
+    if (residency === null) return
+    const batch = residency.take()
+    if (batch.length === 0) return
+    const out = ingestOut()
+    this.graph.begin()
+    runInAction(() => {
+      for (const [entity, id] of batch) residency.hydrate(this.target, entity, id, out)
+      this.graph.flush()
+    })
+    this.stats.counters.tableWrites += out.writes
+    if (out.writes > 0) this.stats.notifications += 1
+  }
+
   /** Models currently held, per entity (tests: lifecycle). */
   modelCount(entity: EntityName): number {
     return this.models[entity].size
@@ -246,7 +369,7 @@ export class MobxPool {
     for (const [entity, id] of out.removed) this.models[entity].delete(id)
     this.stats.counters.tableWrites += out.writes
     this.stats.counters.rowsRemoved += out.removed.length
-    if (out.writes > 0) this.stats.notifications += 1
+    if (out.writes > 0 || out.cold > 0) this.stats.notifications += 1
   }
 
   /** One locals notification, one action: only the keys it names. */
@@ -261,16 +384,33 @@ export class MobxPool {
     this.stats.notifications += 1
   }
 
-  /** The Ma1 slice output: every pool issue's row, no order yet (Mb1). */
+  /**
+   * The Ma1 slice output: every RESIDENT issue's row, no order yet (Mb1).
+   * Settled: reading the rows queues the cold rows they reach, and those are
+   * loaded and the rows read again until nothing is queued, as a reader that
+   * waits out its loading state would see them.
+   */
   snapshot(): SliceSnapshot {
-    return tracked(() => {
-      const rowsById: SliceSnapshot['rowsById'] = {}
-      for (const id of this.issueIds) {
-        const view = this.issue(id)?.view
-        if (view !== undefined) rowsById[id] = sliceRowOf(view)
+    for (let round = 0; ; round += 1) {
+      const snapshot = tracked(() => {
+        const rowsById: SliceSnapshot['rowsById'] = {}
+        for (const id of this.issueIds) {
+          const view = this.issue(id)?.view
+          if (view !== undefined) rowsById[id] = sliceRowOf(view)
+        }
+        return { order: EMPTY_ORDER as unknown as SliceSnapshot['order'], rowsById }
+      })
+      if (this.residency?.hasQueued() !== true) return snapshot
+      if (round >= MAX_SETTLE_ROUNDS) {
+        throw new Error(`[pool] snapshot() did not settle in ${MAX_SETTLE_ROUNDS} load rounds`)
       }
-      return { order: EMPTY_ORDER as unknown as SliceSnapshot['order'], rowsById }
-    })
+      this.hydrate()
+    }
+  }
+
+  /** The resident issue ids (the rebuild's residency input). */
+  residentIssueIds(): ReadonlySet<string> {
+    return new Set(tracked(() => this.issueIds))
   }
 
   /** Empty every table, model cache, selection and clock registration. */
@@ -281,6 +421,7 @@ export class MobxPool {
       this.selection.clear()
     })
     for (const entity of ENTITIES) this.models[entity].clear()
+    this.residency?.clear()
     this.clock.clear()
     this.selectedId = null
   }

@@ -239,6 +239,22 @@ export interface RowView extends Readonly<SliceRow> {
    * the row is open or folded only by the grace window. Inputs: own row.
    */
   readonly dismissed: boolean
+
+  // ---------------------------------------------------------------------------
+  // Residency (POD-4567, schema doc §5)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Present (and `true`) only while an input this row reads through a LAZY
+   * relation (Rule L: an origin, a member session, and from Mb3 a child) is
+   * known to the pool but not resident yet: its load is under way, and the
+   * fields derived from it (`originTick`, `activityAt`, a draft's `title`,
+   * the roll-ups) are provisional. A row renders that as loading, never as
+   * data. Absent in every pool that holds everything (the oracle, the
+   * reference arm, round two). Not an oracle field: `sliceRowOf` drops it.
+   * Inputs: residency of the lazy relations' targets.
+   */
+  readonly loading?: true
 }
 
 // -----------------------------------------------------------------------------

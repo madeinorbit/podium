@@ -5,7 +5,9 @@
  *
  * `create` seeds the pool from the feed's snapshot (one `replace`), then
  * follows the feed (`RowSource`) and the locals channel (`LocalsSource`),
- * waking only what each notification names. No JSX here: this module builds
+ * waking only what each notification names. Cold rows load through the
+ * feed's per-row read (`RowSource.row`, POD-4567); a feed without one is
+ * refused rather than silently holding every row. No JSX here: this module builds
  * the pool, and the lint fence keeps store modules out of component files.
  */
 
@@ -37,7 +39,13 @@ export const mobxPoolArm = {
     locals: LocalsSource,
     reads: ReadFence = DISABLED_READ_FENCE,
   ): MobxPoolHandle {
-    const pool = new MobxPool(reads, locals.get())
+    const row = source.row?.bind(source)
+    if (row === undefined) {
+      throw new Error(
+        '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
+      )
+    }
+    const pool = new MobxPool(reads, locals.get(), undefined, { load: row })
     pool.apply({
       type: 'replace',
       rows: [
@@ -53,7 +61,7 @@ export const mobxPoolArm = {
       pool,
       stats: pool.stats,
       snapshot: () => pool.snapshot(),
-      rebuildFromScratch: () => rebuildSnapshot(source, locals),
+      rebuildFromScratch: () => rebuildSnapshot(source, locals, pool.residentIssueIds()),
       dispose(): void {
         offRows()
         offLocals()

@@ -43,6 +43,10 @@
  * look the same, spec §2); every removal is reported in `IngestOut.removed`
  * so the pool drops the row's model.
  *
+ * RESIDENCY (POD-4567). In the live pool a row of an entity that can be cold
+ * (`schema[entity].cold`) is routed through `IngestTarget.residency`
+ * (`residency.ts`): a cold row is registered by id and linked, never stored.
+ *
  * RELATIONS (POD-4566). Every table write — `put` and `drop` — hands the
  * previous and the new row to `IngestTarget.relations` (`relations.ts`),
  * which maintains every declared relation the write touches. The rebuild and
@@ -53,6 +57,7 @@ import { type ObservableMap, observable } from 'mobx'
 import { type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import type { RelationMaintenance } from './relations'
+import type { Residency } from './residency'
 
 /** A stored row: the borrowed object the feed handed out, untouched. */
 export type StoredRow = object
@@ -95,6 +100,8 @@ export function createPlainTables(): TableSet<Map<string, StoredRow>> {
 export interface IngestOut {
   writes: number
   removed: [EntityName, string][]
+  /** Cold rows registered, relinked or forgotten (POD-4567): no slot written. */
+  cold: number
 }
 
 /** Reads go through `read` (the fenced view in the live pool, so the reads
@@ -104,6 +111,12 @@ export interface IngestTarget {
   readonly write: TableSet
   /** Told of every write, in order (the live pool's relations). */
   readonly relations?: RelationMaintenance
+  /**
+   * The live pool's residency (POD-4567, `residency.ts`): a row of an entity
+   * that can be cold is routed through it, and a cold row never reaches
+   * `write`. The rebuild and the replace staging hold every row.
+   */
+  readonly residency?: Pick<Residency, 'capable' | 'ingest' | 'place' | 'forget' | 'ids'>
 }
 
 /** Store `row` under `id` unless the slot already holds that very object. */
@@ -195,11 +208,15 @@ export function ingestRecord(target: IngestTarget, record: RowRecord, out: Inges
     ingestWorktree(target, record.id, value, out)
     return
   }
+  if (target.residency?.capable(record.kind)) {
+    target.residency.ingest(target, record.kind, record.id, value, out)
+    return
+  }
   if (value === undefined) drop(target, record.kind, record.id, out)
   else put(target, record.kind, record.id, value, out)
 }
 
 /** A fresh `IngestOut`. */
 export function ingestOut(): IngestOut {
-  return { writes: 0, removed: [] }
+  return { writes: 0, removed: [], cold: 0 }
 }

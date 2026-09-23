@@ -522,10 +522,21 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     enabled,
     wrapSource(source: RowSource): RowSource {
       if (!enabled) return source
+      const row = source.row?.bind(source)
       return {
         snapshot(kind) {
           return source.snapshot(kind).map(borrowRecord)
         },
+        // A per-row read (a cold row's hydration, POD-4567) is a keyed read of
+        // that row, and its value arrives borrowed like any other.
+        ...(row === undefined
+          ? {}
+          : {
+              row(kind: 'issue' | 'session', id: string) {
+                touch(kind, id, 'get')
+                return borrowRecord({ kind, id, value: row(kind, id) }).value
+              },
+            }),
         subscribe(listener) {
           return source.subscribe((event: RowSourceEvent) => {
             listener({ type: event.type, rows: event.rows.map(borrowRecord) })

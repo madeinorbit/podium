@@ -212,6 +212,9 @@ export function createReplaySource(initial: {
     snapshot(kind: RowRecord['kind']): RowRecord[] {
       return [...rows.values()].filter((row) => row.kind === kind)
     },
+    row(kind: 'issue' | 'session', id: string): RowRecord['value'] {
+      return rows.get(`${kind}:${id}`)?.value
+    },
     subscribe(listener: (event: RowSourceEvent) => void): () => void {
       listeners.add(listener)
       return () => {

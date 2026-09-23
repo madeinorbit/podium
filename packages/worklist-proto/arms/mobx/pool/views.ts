@@ -15,7 +15,10 @@
  *   `relationRef`, then the target's presence): `displayRef` (`issue.repo`
  *   prefix) and `originTick` (`issue.discoveredFrom`);
  * - locals: `selected` (selection), and the clock through deadlines
- *   (`band`'s defer lapse, `closed`'s grace crossing).
+ *   (`band`'s defer lapse, `closed`'s grace crossing);
+ * - residency (POD-4567): `loading` while the origin or a member session is
+ *   known but not in memory. The parts that read them skip a row that is not
+ *   resident, so their value is provisional exactly while `loading` is set.
  *
  * WHAT IS A STUB UNTIL THE WORKLIST PHASE, and why: the roll-ups over own
  * sessions and children — `phase`, `progressDone`, `progressTotal`,
@@ -90,6 +93,8 @@ export interface IssueParts {
   readonly originId: string | null
   readonly originTick: RowOriginTick | null
   readonly activityAt: number
+  /** A lazy input (the origin, a member session) is known but not resident yet. */
+  readonly loading: boolean
 }
 
 /** The fields a row view takes from its own row (and the clock). */
@@ -113,6 +118,11 @@ export interface ViewInputs {
   repo(id: string): RepoRow | undefined
   /** Whether a row of `entity` is in the pool (tracks presence only). */
   present(entity: EntityName, id: string): boolean
+  /**
+   * Whether a row of `entity` is known but not resident (POD-4567): the live
+   * pool queues its load. Always false where every row is held (the rebuild).
+   */
+  loading(entity: EntityName, id: string): boolean
   /** Another issue's parts (the origin of a spin-off). */
   parts(id: string): IssueParts | undefined
   /** The selection local: `selectedIssueId === id`. */
@@ -309,6 +319,20 @@ export function activityAtPartOf(input: ViewInputs, id: string): number {
   return latest ?? parseMs(input.issue(id)?.updatedAt) ?? 0
 }
 
+/**
+ * Whether any lazy input this row's parts read is still loading: the origin
+ * (`issue.discoveredFrom`) and every member session (`issue.sessions`). Asks
+ * about EVERY member, so all of them are queued in one window, not one per
+ * window. Reads residency and the bucket, never a row.
+ */
+export function loadingPartOf(input: ViewInputs, id: string, originRef: string | null): boolean {
+  let loading = originRef !== null && input.loading('issue', originRef)
+  for (const sessionId of input.relations.many('issue', id, 'sessions')) {
+    if (input.loading('session', sessionId)) loading = true
+  }
+  return loading
+}
+
 /** The parts of `id` computed directly, no memo (the rebuild). */
 export function directParts(input: ViewInputs, id: string): IssueParts {
   const parts: IssueParts = {
@@ -339,6 +363,9 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
     get activityAt() {
       return activityAtPartOf(input, id)
     },
+    get loading() {
+      return loadingPartOf(input, id, parts.originRef)
+    },
   }
   return parts
 }
@@ -361,5 +388,6 @@ export function buildRowView(input: ViewInputs, id: string, self: IssueParts): R
     selected: input.selected(id),
     originTick: self.originTick,
     activityAt: self.activityAt,
+    ...(self.loading ? { loading: true as const } : {}),
   }
 }

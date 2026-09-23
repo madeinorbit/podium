@@ -13,7 +13,8 @@
  *   would subscribe the list to every row: see NOTES.md.)
  * - `reseed`: a `replace` publication (bootstrap, principal switch, rescope)
  *   installs the new slice and removes every row it does not name, in the
- *   caller's single action.
+ *   caller's single action. In the live pool it re-partitions residency
+ *   (POD-4567): a named row resident before stays; the rest follow the rule.
  *
  * And one walk that is not the pool's: `scanRelations` (POD-4566) resolves
  * every declared relation FROM SCRATCH over whole tables — the declared
@@ -71,12 +72,23 @@ export function reseed(target: IngestTarget, rows: readonly RowRecord[], out: In
   const scratch = ingestOut()
   const staging: IngestTarget = { read: incoming, write: incoming }
   for (const record of rows) ingestRecord(staging, record, scratch)
+  const residency = target.residency
+  const staged = (to: EntityName, id: string): object | undefined => incoming[to].get(id)
   for (const entity of ENTITIES) {
     const table = target.write[entity]
     const next = incoming[entity]
     const gone: string[] = []
     for (const id of table.keys()) if (!next.has(id)) gone.push(id)
     for (const id of gone) drop(target, entity, id, out)
+    if (residency?.capable(entity)) {
+      // POD-4567: re-partition. Cold rows the slice no longer names leave;
+      // every named row is placed by the rule (a resident row stays).
+      for (const id of residency.ids(entity)) {
+        if (!next.has(id)) residency.forget(target, entity, id, out)
+      }
+      for (const [id, row] of next) residency.place(target, entity, id, row, staged, out)
+      continue
+    }
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
 }

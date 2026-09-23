@@ -592,8 +592,19 @@ export function createRowSource(
     return enumerate(kind, readPending())
   }
 
+  /** One row by id, as `snapshot(kind)` would carry it, with no enumeration
+   *  (POD-4567: a pool hydrating a cold row). Keeps the object last emitted
+   *  when the fold recomposed an equal one; leaves the emit memo alone, so
+   *  the next flush still emits whatever moved. */
+  function row(kind: 'issue' | 'session', id: string): RowRecord['value'] {
+    if (disposed) return undefined
+    stats.rowsVisited += 1
+    return retain(`${kind}:${id}`, resolve(kind, id, readPending()))
+  }
+
   const source: RowSource = {
     snapshot,
+    row,
     subscribe(listener: (event: RowSourceEvent) => void): () => void {
       listeners.add(listener)
       return () => {
