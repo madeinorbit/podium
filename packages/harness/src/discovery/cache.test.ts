@@ -65,6 +65,52 @@ describe('ConversationDiscoveryCache', () => {
     cache.close()
   })
 
+  // POD-4628: a discovery.db copied or restored from another HOME names files
+  // this scan can never see, and pruning them reports every one as removed —
+  // the server then deletes that history. A cache records the home it scanned
+  // and starts cold (nothing to prune, so nothing reported removed) when opened
+  // for a different one, or when it predates the stamp.
+  test('a cache opened for a different scan home starts cold and reports nothing removed', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root)
+    const original = new ConversationDiscoveryCache(db, { scanHome: '/home/original' })
+    original.upsert(file, await stat(file), summary(file), 'codex')
+    original.close()
+
+    const moved = new ConversationDiscoveryCache(db, { scanHome: '/home/elsewhere' })
+    expect(moved.listSummaries()).toEqual([])
+    expect(moved.deleteMissing(new Set()).removedIds).toEqual([])
+    moved.close()
+  })
+
+  test('a cache reopened for the SAME scan home keeps its rows and still prunes', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root)
+    const first = new ConversationDiscoveryCache(db, { scanHome: '/home/same' })
+    first.upsert(file, await stat(file), summary(file), 'codex')
+    first.close()
+
+    const again = new ConversationDiscoveryCache(db, { scanHome: '/home/same' })
+    expect(again.listSummaries().map((s) => s.id)).toEqual(['conv-1'])
+    expect(again.deleteMissing(new Set()).removedIds).toEqual(['conv-1'])
+    again.close()
+  })
+
+  test('an unstamped cache (written before the home was recorded) starts cold under a scan home', async () => {
+    const db = await tempDb()
+    const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))
+    const file = await writeSession(root)
+    const legacy = new ConversationDiscoveryCache(db)
+    legacy.upsert(file, await stat(file), summary(file), 'codex')
+    legacy.close()
+
+    const stamped = new ConversationDiscoveryCache(db, { scanHome: '/home/any' })
+    expect(stamped.deleteMissing(new Set()).removedIds).toEqual([])
+    stamped.close()
+  })
+
   test('only prunes rows whose agent_kind is in the requested scope', async () => {
     const db = await tempDb()
     const root = await mkdtemp(join(tmpdir(), 'podium-cache-root-'))

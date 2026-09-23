@@ -84,14 +84,24 @@ export class ConversationDiscoveryCache {
     seen: ReadonlySet<string>
   }
 
+  /**
+   * `scanHome` is the home directory the scans filling this cache walk. A cache
+   * copied or restored from another home names files this scan can never see,
+   * and pruning them reports every one as removed — the server then deletes that
+   * history [POD-4628]. So the cache records its home and, opened for a different
+   * one (or unstamped, from before the record existed), starts cold: a cold cache
+   * has nothing to prune, so the first scan reports everything as new and nothing
+   * as removed.
+   */
   constructor(
     private readonly path: string = defaultDiscoveryDbPath(),
-    options: { schemaVersion?: number } = {},
+    options: { schemaVersion?: number; scanHome?: string } = {},
   ) {
     this.schemaVersion = options.schemaVersion ?? DISCOVERY_CACHE_SCHEMA_VERSION
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     this.db = openDatabase(path)
     this.migrate()
+    if (options.scanHome !== undefined) this.claimScanHome(options.scanHome)
     this.loadRows()
   }
 
@@ -364,6 +374,24 @@ export class ConversationDiscoveryCache {
       schema_version: this.schemaVersion,
       entry: decodeEntry(summaryJson),
     })
+  }
+
+  private claimScanHome(scanHome: string): void {
+    const recorded = this.db
+      .prepare('SELECT value FROM meta WHERE key = ?')
+      .get('scan_home') as { value: string } | undefined
+    if (recorded?.value === scanHome) return
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      this.db.exec('DELETE FROM conversation_cache')
+      this.db
+        .prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+        .run('scan_home', scanHome)
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
   }
 
   private migrate(): void {

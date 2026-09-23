@@ -1,5 +1,5 @@
 import {
-  type ConversationDiscoveryCache,
+  ConversationDiscoveryCache,
   scanAgentConversationsCached,
   summarizePaths,
 } from '@podium/harness'
@@ -47,6 +47,18 @@ export interface IndexRefreshJobInput {
    * The periodic loop leaves it unset and forwards only the delta.
    */
   full?: boolean
+}
+
+/**
+ * Open the worker's discovery cache for the home its scans walk, resolved the
+ * way the scanner resolves it. The cache starts cold when that home differs from
+ * the one it was filled under, so a discovery.db copied or restored from another
+ * home never reports that home's conversations as removed [POD-4628].
+ */
+export function openIndexCache(input: IndexRefreshJobInput): ConversationDiscoveryCache {
+  return new ConversationDiscoveryCache(input.cachePath, {
+    scanHome: input.homeDir ?? process.env.HOME ?? process.cwd(),
+  })
 }
 
 /**

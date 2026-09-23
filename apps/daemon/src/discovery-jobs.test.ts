@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ConversationDiscoveryCache } from '@podium/harness'
 import { describe, expect, it } from 'vitest'
-import { runIndexRefreshJob, runMemoryBreakdownJob } from './discovery-jobs.js'
+import { openIndexCache, runIndexRefreshJob, runMemoryBreakdownJob } from './discovery-jobs.js'
 
 function fakeProc(
   root: string,
@@ -69,6 +69,42 @@ function writeClaudeSession(home: string, relativePath: string, id: string, titl
 }
 
 describe('runIndexRefreshJob', () => {
+  // POD-4628, the acceptance-run loss at the daemon end: a state dir carrying
+  // another home's discovery.db, scanned against a home that lacks those files,
+  // reported every cached conversation as removed. The worker's cache is opened
+  // for the home it scans, so a copied cache starts cold and reports nothing.
+  it('a discovery.db warmed under another home reports nothing removed once opened for this one', async () => {
+    const original = mkdtempSync(join(tmpdir(), 'podium-original-home-'))
+    const fresh = mkdtempSync(join(tmpdir(), 'podium-fresh-home-'))
+    const state = mkdtempSync(join(tmpdir(), 'podium-copied-state-'))
+    const cachePath = join(state, 'discovery.db')
+    writeClaudeSession(original, '.claude/projects/-repo-project/conv-a.jsonl', 'conv-a', 'A')
+    writeClaudeSession(original, '.claude/projects/-repo-project/conv-b.jsonl', 'conv-b', 'B')
+    try {
+      const warm = openIndexCache({ homeDir: original, cachePath })
+      expect((await runIndexRefreshJob({ homeDir: original }, warm)).changed.length).toBe(2)
+      warm.close()
+
+      // Control: the same copied cache opened WITHOUT its home reproduces the loss.
+      const copy = new ConversationDiscoveryCache(cachePath)
+      const legacy = await runIndexRefreshJob({ homeDir: fresh }, copy)
+      copy.close()
+      expect(legacy.removed.sort()).toEqual(['conv-a', 'conv-b'])
+
+      // Re-warm under the original home, then open for the fresh one.
+      const rewarm = openIndexCache({ homeDir: original, cachePath })
+      await runIndexRefreshJob({ homeDir: original }, rewarm)
+      rewarm.close()
+      const moved = openIndexCache({ homeDir: fresh, cachePath })
+      const result = await runIndexRefreshJob({ homeDir: fresh }, moved)
+      moved.close()
+      expect(result.removed).toEqual([])
+      expect(result.changed).toEqual([])
+    } finally {
+      for (const dir of [original, fresh, state]) rmSync(dir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   // Regression guard for the cold-server-index bug: with a WARM discovery cache the
   // delta scan reports `changed: []` (nothing moved on disk), which would write
   // nothing and leave a fresh/reset server index permanently empty. `full: true`

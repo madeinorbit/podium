@@ -1,10 +1,11 @@
 // apps/daemon/src/discovery-worker.ts
 
 import { parentPort } from 'node:worker_threads'
-import { ConversationDiscoveryCache } from '@podium/harness'
+import type { ConversationDiscoveryCache } from '@podium/harness'
 import {
   type IndexRefreshJobInput,
   type MemoryBreakdownJobInput,
+  openIndexCache,
   runIndexRefreshJob,
   runMemoryBreakdownJob,
 } from './discovery-jobs'
@@ -28,8 +29,8 @@ if (parentPort) {
   // safety-net scans reuse one hydrated cache instead of issuing one SQLite lookup
   // per unchanged conversation (or leaking a connection) on every pass.
   let cache: ConversationDiscoveryCache | undefined
-  const indexCache = (cachePath?: string): ConversationDiscoveryCache => {
-    if (!cache) cache = new ConversationDiscoveryCache(cachePath)
+  const indexCache = (input: IndexRefreshJobInput): ConversationDiscoveryCache => {
+    if (!cache) cache = openIndexCache(input)
     return cache
   }
   port.on('message', async (job: WorkerJob) => {
@@ -39,7 +40,7 @@ if (parentPort) {
       else if (job.kind === 'reclaimDiskEstimate')
         value = await runReclaimDiskEstimateJob(job.input)
       else if (job.kind === 'indexRefresh')
-        value = await runIndexRefreshJob(job.input, indexCache(job.input.cachePath))
+        value = await runIndexRefreshJob(job.input, indexCache(job.input))
       else throw new Error(`unknown job kind: ${(job as { kind: string }).kind}`)
       port.postMessage({ id: job.id, ok: true, value } satisfies WorkerResult)
     } catch (err) {
