@@ -10,7 +10,9 @@
  * only, and the same whatever the residency), cells and records (none until
  * a read). The hand pool has no per-row observable, so what residency saves
  * at bootstrap is table slots; what it saves after is the cells and records
- * a cold row never gets. Counts need no quiet box.
+ * a cold row never gets: `firstRead` reads every listed row's view once (the
+ * a1 list's first paint, before any load lands) and counts the cells built.
+ * Counts need no quiet box.
  *
  * WALLS (`POD_POOL_BOOT_WALLS=1` only): `create()` to a bootstrapped pool,
  * the reads fence disabled, arms interleaved with the order rotated per
@@ -76,6 +78,8 @@ function boot(arm: Arm, feed: ReturnType<typeof feedOf>): HandPool {
 
 function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   const pool = boot(arm, feed)
+  const bootCells = pool.stats.counters.cellsCreated
+  const bootRecords = pool.stats.counters.recordsCreated
   const rows = Object.fromEntries(ENTITIES.map((entity) => [entity, pool.tables[entity].size]))
   const tableSlots = ENTITIES.reduce((sum, entity) => sum + pool.tables[entity].size, 0)
   const cold = {
@@ -91,16 +95,19 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     registryEntries: cold.issue + cold.session,
     relations,
     relationEntries,
-    cells: pool.stats.counters.cellsCreated,
-    records: pool.stats.counters.recordsCreated,
+    cells: bootCells,
+    records: bootRecords,
     /** Everything the bootstrap built: slots, registry entries, relation entries, cells, records. */
-    built:
-      tableSlots +
-      cold.issue +
-      cold.session +
-      relationEntries +
-      pool.stats.counters.cellsCreated +
-      pool.stats.counters.recordsCreated,
+    built: tableSlots + cold.issue + cold.session + relationEntries + bootCells + bootRecords,
+    firstRead: { rows: 0, issueCellSets: 0, cells: 0, loadsQueued: 0 },
+  }
+  const listed = pool.issueIds()
+  for (const id of listed) pool.view(id)
+  cell.firstRead = {
+    rows: listed.length,
+    issueCellSets: pool.issues.size,
+    cells: pool.stats.counters.cellsCreated,
+    loadsQueued: pool.residency?.counters.requests ?? 0,
   }
   pool.dispose()
   return cell
@@ -126,6 +133,9 @@ describe('bootstrap in the count harness', () => {
       expect(lazy.cells).toBe(1)
       expect(lazy.records).toBe(0)
       expect(lazy.tableSlots).toBeLessThan(all.tableSlots)
+      // First read: cells for resident rows only.
+      expect(lazy.firstRead.issueCellSets).toBe(lazy.rows['issue'])
+      expect(lazy.firstRead.cells).toBeLessThan(all.firstRead.cells)
       const cell: Record<string, unknown> = { scale, counts: { lazy, allResident: all } }
       if (WALLS) {
         const samples: Record<Arm, number[]> = { lazy: [], allResident: [] }
