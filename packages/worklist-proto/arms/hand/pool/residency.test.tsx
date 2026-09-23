@@ -562,15 +562,25 @@ describe('transitions', () => {
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
-  it('a new session of a closed issue arrives cold', () => {
+  it('a new session of a closed issue arrives cold; a resume twin reads its cold peer back by id', () => {
     const r = rig()
     const { pool } = r
     const { issue, sessions } = closedWithSessions(1)
-    const fresh = { ...sessions[0]!, sessionId: 's-new-cold', lastActiveAt: sessions[0]!.lastActiveAt }
+    const twin = sessions.find((session) => session.resume != null) ?? sessions[0]!
+    const fresh = { ...twin, sessionId: 's-new-cold', resume: undefined }
     r.push({ type: 'update', rows: [{ kind: 'session', id: fresh.sessionId, value: fresh }] })
     expect(pool.residency?.isCold('session', fresh.sessionId)).toBe(true)
     expect(pool.residency?.registeredTarget('session', fresh.sessionId)).toBe(issue.id)
     expect(r.loads).toEqual([])
+    // Sharing a resume ref, the collapse decides the group over its peers'
+    // fields: the cold peer is read by id, and nothing becomes resident.
+    if (twin.resume == null) return
+    const second = { ...twin, sessionId: 's-new-twin' }
+    r.push({ type: 'update', rows: [{ kind: 'session', id: second.sessionId, value: second }] })
+    expect(new Set(r.loads)).toEqual(new Set([`session:${twin.sessionId}`]))
+    expect(pool.tables.session.has(twin.sessionId)).toBe(false)
+    expect(pool.residency?.isCold('session', second.sessionId)).toBe(true)
+    expect(diffRelations(pool.engine, knownTables(r.replay.source))).toEqual([])
   })
 
   it('a replace re-partitions: what was resident stays, the rest follows the rule', () => {
