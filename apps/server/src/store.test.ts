@@ -288,10 +288,14 @@ describe('SessionStore sessions', () => {
 
     await store.sessions.softDeleteForIssue(['id-1'], asIssueId('iss_1'), deletedAt)
     expect(await store.sessions.loadSessions()).toEqual([])
+    // The delete killed the process, so the row records that exit (POD-4634):
+    // no daemon agentExit will ever reach a session already out of the map.
     expect(await store.sessions.loadDeletedSessionsForIssue(asIssueId('iss_1'))).toEqual([
       row({
         issueId: asIssueId('iss_1'),
-        status: 'live',
+        status: 'exited',
+        stoppedAt: deletedAt,
+        stopReason: 'forced',
         deletedAt,
         deletionSource: 'issue',
         deletedByIssueId: asIssueId('iss_1'),
@@ -301,8 +305,37 @@ describe('SessionStore sessions', () => {
     await store.sessions.restoreDeletedForIssue(asIssueId('iss_1'))
     expect(await store.sessions.loadDeletedSessionsForIssue(asIssueId('iss_1'))).toEqual([])
     expect(await store.sessions.loadSessions()).toEqual([
-      row({ issueId: asIssueId('iss_1'), status: 'exited' }),
+      row({
+        issueId: asIssueId('iss_1'),
+        status: 'exited',
+        stoppedAt: deletedAt,
+        stopReason: 'forced',
+      }),
     ])
+    await store.close()
+  })
+
+  it('records the kill of every running status, and leaves an already-parked row as it stopped (POD-4634)', async () => {
+    const store = await openTestStore(':memory:')
+    const deletedAt = '2026-07-13T12:00:00.000Z'
+    const parkedAt = '2026-07-13T09:00:00.000Z'
+    const running = ['starting', 'live', 'reconnecting'] as const
+    for (const [i, status] of running.entries())
+      await store.sessions.upsertSession(row({ id: asSessionId(`run-${i}`), durableLabel: `podium-run-${i}`, status }))
+    await store.sessions.upsertSession(row({
+      id: asSessionId('parked'), durableLabel: 'podium-parked', status: 'hibernated', stoppedAt: parkedAt, stopReason: 'self',
+    }))
+    await store.sessions.upsertSession(row({
+      id: asSessionId('dead'), durableLabel: 'podium-dead', status: 'exited', exitCode: 3, stoppedAt: parkedAt, stopReason: 'exited',
+    }))
+
+    await store.sessions.softDeleteSessions(['run-0', 'run-1', 'run-2', 'parked', 'dead'], deletedAt, 'standalone')
+
+    const byId = new Map((await store.sessions.loadDeletedSessions()).map((r) => [r.id as string, r]))
+    for (const i of running.keys())
+      expect(byId.get(`run-${i}`)).toMatchObject({ status: 'exited', stoppedAt: deletedAt, stopReason: 'forced', deletedAt })
+    expect(byId.get('parked')).toMatchObject({ status: 'hibernated', stoppedAt: parkedAt, stopReason: 'self', deletedAt })
+    expect(byId.get('dead')).toMatchObject({ status: 'exited', exitCode: 3, stoppedAt: parkedAt, stopReason: 'exited', deletedAt })
     await store.close()
   })
 
@@ -321,7 +354,9 @@ describe('SessionStore sessions', () => {
     expect(await store.sessions.loadDeletedSessions()).toEqual([
       row({
         issueId: asIssueId('iss_1'),
-        status: 'live',
+        status: 'exited',
+        stoppedAt: deletedAt,
+        stopReason: 'forced',
         deletedAt,
         deletionSource: 'standalone',
       }),
