@@ -321,7 +321,36 @@ caught by its intended check. Package lint (`bun run lint` in
 
 ### 5.4a Ma4's one plant change (promote-skipped is now sessions only)
 
-PLANT4-JUDGEMENT
+**Is any defect class now uncaught? No.** Ma4's reason is correct, and I
+checked that the change removes no coverage. Dropping issues from the
+checkpoint plant removed the proof that the checkpoint catches an issue whose
+promotion is skipped. It did not remove the check itself: `fullResidencyCheck`
+(`gate.test.ts`) diffs every relation of every known row, with no branch on
+the entity. And an issue whose promotion is skipped is still caught in
+the gate, first by the rebuild through `displayRef`, and per step by
+`diffRelations`.
+
+To test that claim rather than read it, I ran one experiment in a
+throwaway checkout (not committed). It adds a hook in `promote` that skips
+chosen links, and five plant arms run through the gate's own `checked()` and
+`plantOutcome()`, 3 seeds × 300 steps:
+
+| Variant (promotion skipped for …) | checks on | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|---|
+| issue, every slot (Ma4's old plant) | checkpoint only | rebuild, step 9 (`i168 displayRef "#169"`) | rebuild, step 26 | rebuild, step 14 |
+| issue, forward `parent` + `worktree` only (no view reads them) | checkpoint only | **checkpoint** (`issue:i109.parent: live null`) | checkpoint | checkpoint |
+| the same | per-step only | relations, step 9 | relations, step 26 | relations, step 14 |
+| issue, buckets `children` + `spinOffs` only (no view reads them yet) | checkpoint only | **checkpoint** (`issue:i1212.children: live []`) | checkpoint | checkpoint |
+| session, every slot (the gate's plant now) | checkpoint only | checkpoint | checkpoint | checkpoint |
+
+So the checkpoint still catches issue-side promotion errors that the row
+views cannot see, and the per-step relation check catches them at the first
+step they occur. The one gap is in what the gate *records*, not in what it
+catches: a future edit could weaken the checkpoint for issues only, and no
+committed plant would show it. The checkpoint code has no per-entity
+branch, so I do not require it. If Ma4 is touching the gate for G1 anyway,
+adding the "issue forward `parent` only" arm above as a fifth plant would
+close that gap for the cost of one plant per seed.
 
 ### 5.5 What Ma4 must change (the only send-back line)
 
