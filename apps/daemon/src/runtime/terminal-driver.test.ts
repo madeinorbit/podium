@@ -3641,3 +3641,27 @@ describe('terminal retirement completion', () => {
     world.runtime.dispose()
   })
 })
+
+describe('a Stop the daemon must follow up [POD-4633]', () => {
+  // Claude fires no hook on a user interrupt, and a Stop before any output leaves
+  // no transcript record either — only the screen shows it. The daemon can only
+  // read that screen as a stop if it knows a Stop went out, so every Esc this
+  // driver sends for an interrupt is reported to the host.
+  it('reports the interrupt key it sent, for a plain Stop and for an interrupting send', async () => {
+    const world = makeWorld()
+    const requested: SessionId[] = []
+    world.host.onInterruptRequested = (sessionId) => requested.push(sessionId)
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
+    world.setPhase(session.binding.sessionId, 'working')
+
+    await session.interrupt()
+    expect(world.written.at(-1)).toBe(ESC)
+    expect(requested).toEqual([session.binding.sessionId])
+
+    world.hookOnSubmit(session.binding.sessionId)
+    await session.send({ text: 'do this instead' }, { origin: 'human', delivery: 'interrupt' })
+    expect(requested).toEqual([session.binding.sessionId, session.binding.sessionId])
+  })
+})

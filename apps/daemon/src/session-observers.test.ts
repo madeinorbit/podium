@@ -2945,6 +2945,208 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
   })
 })
 
+/**
+ * A USER INTERRUPT FIRES NO HOOK (POD-4633). Pressing Stop sent Claude its Esc,
+ * Claude stopped, and nothing ever closed the turn: the session read Working and
+ * every later message waited its turn until a daemon restart. The daemon has to
+ * see the stop where Claude leaves it — the transcript's interrupt record, or,
+ * for a Stop before any output, the screen.
+ */
+describe('Claude user interrupt ends the turn [POD-4633]', () => {
+  const at = '2026-09-23T10:00:00.000Z'
+  const lease = {
+    provider: 'claude-code' as const,
+    providerSessionId: 'claude-1',
+    bindingVersion: 2,
+    observationGeneration: 7,
+  }
+  const line = (record: Record<string, unknown>) => `${JSON.stringify(record)}\n`
+  const promptRecord = (promptId: string, text: string) =>
+    line({ type: 'user', promptId, message: { role: 'user', content: text } })
+  const answerRecord = (text: string) =>
+    line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })
+  const interruptRecord = (promptId: string) =>
+    line({
+      type: 'user',
+      promptId,
+      message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+    })
+  /** Paint a whole Claude screen, as the PTY would. */
+  const screen = (lines: string[]) => Buffer.from(`\x1b[2J\x1b[H${lines.join('\r\n')}`)
+  const RULE = '─'.repeat(78)
+  const PROMPT = '❯ Write the numbers from 1 to 2000'
+  const THINKING_SCREEN = [PROMPT, '✢ Pontificating… (2s · thinking)', RULE, '❯ ', RULE, '  ⏸ manual mode on · esc to interrupt']
+  // Esc before any output: Claude takes the turn back and returns the prompt to its box.
+  const REWOUND_SCREEN = [RULE, PROMPT, RULE, '  ⏸ manual mode on']
+
+  async function openClaudeTurn(settleMs = 20) {
+    const root = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
+    const transcript = join(root, 'claude-1.jsonl')
+    await writeFile(transcript, promptRecord('p-1', 'Write the numbers from 1 to 2000'))
+    const sessionId = asSessionId('podium-interrupt')
+    const sent: DaemonMessage[] = []
+    const tick = new ManualStatTick()
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      statTick: tick,
+      interruptSettleMs: settleMs,
+    })
+    const observations = () =>
+      sent.flatMap((message) => (message.type === 'agentObservation' ? [message.observation] : []))
+    let checkpoint: SessionObservationCheckpointV1 | null = null
+    const accept = (observation: AgentObservation) => {
+      const result = acceptAgentObservation(checkpoint, lease, observation, at)
+      if (result.kind === 'rejected') throw new Error(result.rejectionReason)
+      checkpoint = result.checkpoint
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId,
+        observerGeneration: 7,
+        bindingVersion: 2,
+        transitionId: observation.transitionId,
+        result: result.kind,
+        acceptedCursor: result.checkpoint.providerCursor,
+        checkpoint: result.checkpoint,
+      })
+      return result
+    }
+    observers.initSessionObservers(
+      {
+        type: 'spawn',
+        sessionId,
+        agentKind: 'claude-code',
+        cwd: root,
+        geometry: G,
+        durableLabel: 'podium-podium-interrupt',
+        resume: { kind: 'claude-session', value: 'claude-1' },
+        observationGeneration: 7,
+        observationBindingVersion: 2,
+        observationProviderSessionId: 'claude-1',
+      },
+      { onFrame: () => () => {} } as never,
+      claudeProvider(),
+      { seedOnFrame: false },
+    )
+    const hook = (hook_event_name: string, prompt_id: string) =>
+      observers.onHookPayload(sessionId, {
+        hook_event_name,
+        session_id: 'claude-1',
+        transcript_path: transcript,
+        cwd: root,
+        prompt_id,
+      })
+    hook('UserPromptSubmit', 'p-1')
+    await vi.waitFor(() => expect(observations()).toHaveLength(1))
+    accept(observations()[0]!)
+    await vi.waitFor(() => expect(observations()).toHaveLength(2))
+    expect(observations()[1]).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 1 })
+    accept(observations()[1]!)
+    expect(observers.trackedState(sessionId)?.phase).toBe('working')
+    const cleanup = async () => {
+      observers.clearSession(sessionId)
+      await rm(root, { recursive: true, force: true })
+    }
+    return { sessionId, transcript, observers, observations, accept, hook, tick, cleanup }
+  }
+
+  it('ends the turn from the transcript interrupt record, and the next prompt opens a turn', async () => {
+    const turn = await openClaudeTurn()
+    try {
+      // Claude had begun answering; Esc makes it write the interrupt record.
+      await appendFile(turn.transcript, answerRecord('1\n2\n3') + interruptRecord('p-1'))
+      for (const watcher of turn.tick.watchers) watcher()
+
+      await vi.waitFor(() => expect(turn.observations()).toHaveLength(3))
+      const ended = turn.observations()[2]!
+      expect(ended).toMatchObject({
+        transitionKind: 'turn_terminal',
+        turnEpoch: 1,
+        priorPhase: 'working',
+        nextPhase: 'idle',
+        state: { idle: { kind: 'interrupted' } },
+      })
+      const fenced = turn.accept(ended)
+      expect(fenced.checkpoint.terminalFence).toMatchObject({ turnEpoch: 1, verdict: 'interrupted' })
+      // What the delivery gate reads: the session is idle, so a held message goes out.
+      expect(turn.observers.trackedState(turn.sessionId)?.phase).toBe('idle')
+
+      // That message is delivered and opens the next turn, which the gate admits.
+      await appendFile(turn.transcript, promptRecord('p-2', 'Say hi'))
+      turn.hook('UserPromptSubmit', 'p-2')
+      await vi.waitFor(() => expect(turn.observations()).toHaveLength(4))
+      expect(turn.observations()[3]).toMatchObject({ transitionKind: 'turn_opened', turnEpoch: 2 })
+      turn.accept(turn.observations()[3]!)
+      expect(turn.observers.trackedState(turn.sessionId)?.phase).toBe('working')
+    } finally {
+      await turn.cleanup()
+    }
+  })
+
+  it('ends a turn stopped before any output once the screen shows Claude back at its prompt', async () => {
+    const turn = await openClaudeTurn()
+    try {
+      turn.observers.onFrame(turn.sessionId, screen(THINKING_SCREEN))
+      turn.observers.onInterruptRequested(turn.sessionId)
+      turn.observers.onFrame(turn.sessionId, screen(REWOUND_SCREEN))
+
+      await vi.waitFor(() => expect(turn.observations()).toHaveLength(3))
+      const ended = turn.observations()[2]!
+      expect(ended).toMatchObject({
+        transitionKind: 'turn_terminal',
+        turnEpoch: 1,
+        nextPhase: 'idle',
+        state: { idle: { kind: 'interrupted' } },
+      })
+      turn.accept(ended)
+      expect(turn.observers.trackedState(turn.sessionId)?.phase).toBe('idle')
+    } finally {
+      await turn.cleanup()
+    }
+  })
+
+  it('control arms: a Stop Claude did not act on, or a turn that already answered, stays open', async () => {
+    const stillRunning = await openClaudeTurn()
+    try {
+      // The Esc did not stop it (a draft in the box eats it): the spinner is still up.
+      stillRunning.observers.onFrame(stillRunning.sessionId, screen(THINKING_SCREEN))
+      stillRunning.observers.onInterruptRequested(stillRunning.sessionId)
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      expect(stillRunning.observations()).toHaveLength(2)
+      expect(stillRunning.observers.trackedState(stillRunning.sessionId)?.phase).toBe('working')
+    } finally {
+      await stillRunning.cleanup()
+    }
+
+    const answered = await openClaudeTurn()
+    try {
+      // Output exists and no interrupt record: this is not a turn taken back, and
+      // only Claude's own Stop (or its record) may end it.
+      await appendFile(answered.transcript, answerRecord('1\n2\n3'))
+      answered.observers.onFrame(answered.sessionId, screen(REWOUND_SCREEN))
+      answered.observers.onInterruptRequested(answered.sessionId)
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      expect(answered.observations()).toHaveLength(2)
+      expect(answered.observers.trackedState(answered.sessionId)?.phase).toBe('working')
+    } finally {
+      await answered.cleanup()
+    }
+
+    const unrequested = await openClaudeTurn()
+    try {
+      // The same prompt-in-the-box screen shows for a moment at the START of every
+      // turn, before the spinner. Without Podium's own Stop it proves nothing.
+      unrequested.observers.onFrame(unrequested.sessionId, screen(REWOUND_SCREEN))
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      expect(unrequested.observations()).toHaveLength(2)
+      expect(unrequested.observers.trackedState(unrequested.sessionId)?.phase).toBe('working')
+    } finally {
+      await unrequested.cleanup()
+    }
+  })
+})
+
 describe('Grok accepted rebind transcript bridge', () => {
   it('keeps legacy late-created chat_history live and exactly-once across reload', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-transcript-rebind-'))

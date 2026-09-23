@@ -2278,3 +2278,200 @@ describe('bootEvents', () => {
     ])
   })
 })
+
+/**
+ * A USER INTERRUPT FIRES NO HOOK (POD-4633). Measured on Claude Code 2.1.280:
+ * Esc mid-turn sends no Stop, so an epoch only a Stop could close stayed open,
+ * the session read Working, and every later message waited its turn. What Claude
+ * does leave is (a) once it has started answering, an interrupt record carrying
+ * the interrupted turn's own prompt id, written ~0.2 s after the Esc, and
+ * (b) before any output, nothing at all — it takes the turn back and returns the
+ * prompt to its input box, which only the screen shows.
+ */
+describe('Claude user interrupt [POD-4633]', () => {
+  const at = '2026-09-23T10:00:00.000Z'
+  const idle = { phase: 'idle' as const, since: at, workingMsTotal: 0, nativeSubagentCount: 0 }
+  const lease = {
+    provider: 'claude-code' as const,
+    providerSessionId: 'claude-1',
+    bindingVersion: 3,
+    observationGeneration: 7,
+  }
+  const observer = () =>
+    new ClaudeCausalObserver({
+      podiumSessionId: asSessionId('podium-1'),
+      observerGeneration: 7,
+      bindingVersion: 3,
+      providerSessionId: 'claude-1',
+      transcriptPath: '/exact/claude-1.jsonl',
+      bootstrapState: idle,
+      bootstrapOffset: 100,
+      now: () => at,
+    })
+  const hook = (hook_event_name: string, extra: Record<string, unknown> = {}) => ({
+    hook_event_name,
+    session_id: 'claude-1',
+    transcript_path: '/exact/claude-1.jsonl',
+    ...extra,
+  })
+  const line = (record: Record<string, unknown>) => `${JSON.stringify(record)}\n`
+  const prompt = (promptId: string, text: string) =>
+    line({ type: 'user', promptId, message: { role: 'user', content: text } })
+  const thinking = line({
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'thinking', thinking: '', signature: 's' }] },
+  })
+  const answer = (text: string) =>
+    line({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } })
+  const marker = (promptId: string, text = '[Request interrupted by user]') =>
+    line({ type: 'user', promptId, message: { role: 'user', content: [{ type: 'text', text }] } })
+
+  /** Bootstrap, open epoch 1 for prompt `p-1`, and run both through the real gate. */
+  async function openTurn() {
+    const causal = observer()
+    const boot = causal.bootstrap()
+    if (!boot) throw new Error('expected bootstrap snapshot')
+    const booted = acceptAgentObservation(null, lease, boot, at)
+    if (booted.kind === 'rejected') throw new Error(booted.rejectionReason)
+    const opened = await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p-1' }), 110)
+    if (!opened) throw new Error('expected an opening observation')
+    const working = acceptAgentObservation(booted.checkpoint, lease, opened, at)
+    if (working.kind === 'rejected') throw new Error(working.rejectionReason)
+    return { causal, checkpoint: working.checkpoint }
+  }
+
+  describe('transcript capture', () => {
+    it('reports an interrupt record that ends the transcript, with its prompt id', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
+      const path = join(dir, 'claude.jsonl')
+      try {
+        const body = prompt('p-1', 'Write the numbers from 1 to 2000') + thinking + answer('1\n2\n3') + marker('p-1')
+        await writeFile(path, body)
+        const capture = await captureClaudeTranscript(path)
+        expect(capture.terminalInterrupt).toEqual({
+          promptId: 'p-1',
+          recordBoundary: Buffer.byteLength(body),
+        })
+        expect(capture.latestPrompt).toMatchObject({ promptId: 'p-1', hasAssistantOutputAfter: true })
+
+        // The mid-tool wording counts too, after the refused tool's result.
+        const toolBody =
+          prompt('p-2', 'run it') +
+          line({
+            type: 'assistant',
+            message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] },
+          }) +
+          line({
+            type: 'user',
+            promptId: 'p-2',
+            message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'rejected' }] },
+          }) +
+          marker('p-2', '[Request interrupted by user for tool use]')
+        await writeFile(path, toolBody)
+        expect((await captureClaudeTranscript(path)).terminalInterrupt).toEqual({
+          promptId: 'p-2',
+          recordBoundary: Buffer.byteLength(toolBody),
+        })
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+
+    it('reports no interrupt once a later prompt or answer follows it', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
+      const path = join(dir, 'claude.jsonl')
+      try {
+        await writeFile(path, prompt('p-1', 'first') + answer('1') + marker('p-1') + prompt('p-2', 'second'))
+        expect((await captureClaudeTranscript(path)).terminalInterrupt).toBeNull()
+        await appendFile(path, answer('hi'))
+        expect((await captureClaudeTranscript(path)).terminalInterrupt).toBeNull()
+        // An interrupt taken back before any output leaves the prompt alone.
+        await writeFile(path, prompt('p-3', 'stopped early'))
+        const early = await captureClaudeTranscript(path)
+        expect(early.terminalInterrupt).toBeNull()
+        expect(early.latestPrompt).toMatchObject({ promptId: 'p-3', hasAssistantOutputAfter: false })
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe('interrupt record', () => {
+    it('ends the open turn as interrupted, and the durable gate accepts it', async () => {
+      const { causal, checkpoint } = await openTurn()
+      const ended = causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 400 })
+      expect(ended).toMatchObject({
+        transitionKind: 'turn_terminal',
+        provenance: 'live',
+        turnEpoch: 1,
+        priorPhase: 'working',
+        nextPhase: 'idle',
+        providerPromptId: 'p-1',
+        state: { phase: 'idle', idle: { kind: 'interrupted' } },
+        providerCursor: { components: { transcript: 400 } },
+      })
+      if (!ended) throw new Error('expected a terminal observation')
+      const accepted = acceptAgentObservation(checkpoint, lease, ended, at)
+      if (accepted.kind === 'rejected') throw new Error(accepted.rejectionReason)
+      expect(accepted.checkpoint.terminalFence).toMatchObject({ turnEpoch: 1, verdict: 'interrupted' })
+
+      // Terminal is absorbing: the same record cannot end it twice.
+      expect(causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 400 })).toBeNull()
+      // And the next real prompt opens epoch 2 behind it.
+      const next = await causal.observeHook(hook('UserPromptSubmit', { prompt_id: 'p-2' }), 450)
+      if (!next) throw new Error('expected the next turn to open')
+      expect(acceptAgentObservation(accepted.checkpoint, lease, next, at).kind).toBe(
+        'live_transition_accepted',
+      )
+    })
+
+    it('ends the turn even when the last hook was read past the record', async () => {
+      const { causal } = await openTurn()
+      // A hook captured after Claude had already flushed the record leaves the
+      // observer's offset beyond it. The fence still has to advance the cursor.
+      await causal.observeHook(hook('PreToolUse', { prompt_id: 'p-1', tool_use_id: 't1' }), 500)
+      const ended = causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 400 })
+      expect(ended).toMatchObject({ transitionKind: 'turn_terminal', nextPhase: 'idle' })
+      expect(ended?.providerCursor.components.transcript).toBe(500)
+    })
+
+    it("does not end a turn on another turn's record, or with no turn open", async () => {
+      const { causal } = await openTurn()
+      expect(causal.observeInterrupt({ kind: 'marker', promptId: 'p-0', recordBoundary: 400 })).toBeNull()
+      expect(causal.observeInterrupt({ kind: 'marker', promptId: null, recordBoundary: 400 })).toBeNull()
+      await causal.observeHook(hook('Stop', { prompt_id: 'p-1' }), 420)
+      expect(causal.observeInterrupt({ kind: 'marker', promptId: 'p-1', recordBoundary: 440 })).toBeNull()
+    })
+  })
+
+  describe('turn taken back before any output', () => {
+    const early = (promptId: string, hasAssistantOutputAfter = false) => ({
+      offset: 100,
+      recordBoundary: 110,
+      payloadFingerprint: 'f',
+      origin: 'unknown' as const,
+      hasAssistantOutputAfter,
+      promptId,
+    })
+
+    it('ends the open turn as interrupted when its prompt never got an answer', async () => {
+      const { causal, checkpoint } = await openTurn()
+      const ended = causal.observeInterrupt({ kind: 'rewound', turnEpoch: 1, prompt: early('p-1') })
+      expect(ended).toMatchObject({
+        transitionKind: 'turn_terminal',
+        turnEpoch: 1,
+        nextPhase: 'idle',
+        state: { idle: { kind: 'interrupted' } },
+      })
+      if (!ended) throw new Error('expected a terminal observation')
+      expect(acceptAgentObservation(checkpoint, lease, ended, at).kind).toBe('live_transition_accepted')
+    })
+
+    it('never ends a turn that has answered, another turn, or a later epoch', async () => {
+      const { causal } = await openTurn()
+      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 1, prompt: early('p-1', true) })).toBeNull()
+      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 1, prompt: early('p-0') })).toBeNull()
+      expect(causal.observeInterrupt({ kind: 'rewound', turnEpoch: 0, prompt: early('p-1') })).toBeNull()
+    })
+  })
+})

@@ -136,3 +136,72 @@ describe('Claude terminal screen classifier', () => {
     })
   })
 })
+
+/**
+ * Claude Code 2.1.280's own "a turn is running" marks, as the daemon's VT buffer
+ * renders them (captured from the real CLI at 120 columns, POD-4633). A user
+ * interrupt fires no hook, so the screen is one of the two places it shows.
+ */
+describe('Claude turn-running screen rule [POD-4633]', () => {
+  const RULE = '─'.repeat(120)
+  const HEADER = [' ▐▛███▛█   Claude Code v2.1.280', '▝▜██████▀  Haiku 4.5 · Claude Max']
+  const PROMPT = '❯ Write the numbers from 1 to 2000, one per line, no commentary.'
+
+  const THINKING = [
+    ...HEADER,
+    PROMPT,
+    '✢ Pontificating… (2s · thinking)',
+    RULE,
+    '❯ ',
+    RULE,
+    '  ⏸ manual mode on · esc to interrupt · ← 3 agents',
+  ]
+  // A draft in the input box drops the footer hint; the spinner stays.
+  const THINKING_WITH_DRAFT = [
+    ...HEADER,
+    PROMPT,
+    '✽ Precipitating… (3s · thinking)',
+    RULE,
+    '❯ typed while busy',
+    RULE,
+    '  ⏸ manual mode on',
+  ]
+  // Streaming text: no spinner row, the footer hint says it.
+  const STREAMING = [...HEADER, PROMPT, '● 1', '  2', '  3', RULE, '❯ ', RULE, '  ⏸ manual mode on · esc to interrupt · ← 3 agents']
+  // Esc after output: Claude prints the interrupt row and goes back to its prompt.
+  const INTERRUPTED = [
+    ...HEADER,
+    PROMPT,
+    '● 1',
+    '  2',
+    '  ⎿  Interrupted · What should Claude do instead?',
+    RULE,
+    '❯ ',
+    RULE,
+    '  ⏸ manual mode on · ? for shortcuts · ← 3 agents',
+  ]
+  // Esc before any output: the turn is taken back and the prompt returns to the box.
+  const REWOUND = [...HEADER, RULE, PROMPT, RULE, '  ⏸ manual mode on']
+  const FINISHED = [
+    ...HEADER,
+    '❯ Say only the word hi.',
+    '● hi',
+    '✻ Churned for 3s · done 12:08 PM',
+    RULE,
+    '❯ ',
+    RULE,
+    '  ⏸ manual mode on · ? for shortcuts · ← 3 agents',
+  ]
+
+  it('reads a running turn from the spinner row or the footer hint', () => {
+    expect(classifyClaudeScreen(THINKING).turnRunning).toBe(true)
+    expect(classifyClaudeScreen(THINKING_WITH_DRAFT).turnRunning).toBe(true)
+    expect(classifyClaudeScreen(STREAMING).turnRunning).toBe(true)
+  })
+
+  it('reads no running turn once Claude is back at its prompt', () => {
+    expect(classifyClaudeScreen(INTERRUPTED).turnRunning).toBe(false)
+    expect(classifyClaudeScreen(REWOUND).turnRunning).toBe(false)
+    expect(classifyClaudeScreen(FINISHED).turnRunning).toBe(false)
+  })
+})
