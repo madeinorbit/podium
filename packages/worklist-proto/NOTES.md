@@ -1,5 +1,36 @@
 # worklist-proto — package notes
 
+## POD-4552 (L2c) — live snapshot export · 2026-09-23
+
+Numbers and follow-ups: `docs/measurements/POD-4441-fixture-shape.md`,
+"Fixture vs live (POD-4552)". Code: `harness/src/fixture/export-snapshot.ts`
+(CLI), `live-snapshot.ts` (anonymiser, live→corpus adapter), `shape.ts`
+(`measureShape`, one instrument for fixture and live), `shape.test.ts`.
+
+### Decisions
+
+- **Hash by default, keep by allowlist.** A string is kept only when its key
+  is an id/enum/timestamp/`displayRef` key AND the value is one token. The
+  first live export leaked `closedReason` sentences (the key looked like an
+  enum); the file was deleted and the token rule added. Every export is
+  checked by oracle parity (raw vs hashed, equal except titles) and refuses to
+  write otherwise.
+- **Paths hashed per segment, sibling-aware**, so the fork trap and every
+  containment relation survive; a test proves a naive per-segment hash loses
+  the fork trap.
+- **Lanes come from the legacy sections** (`slice.sections`, `isMain` = repo
+  root), not from `sliceWorktrees`, so root lanes are measured as the feed
+  sees them.
+- **No engine cross-check on live**: `pickTargets` refuses a corpus without
+  the fixture's planted targets. Rows use `expectedSnapshot`, the same oracle
+  as `corpus.test.ts`.
+
+### Open questions
+
+- The stage-0 "211 visible rows" is not reproduced on today's data (759
+  oracle rows = 283 top-level + 476 nested). Which definition stage 0 used is
+  for the coordinator.
+
 ## POD-4564 (L6b) — five planted-mistake probes · 2026-09-23
 
 Catalogue and how N1b/N2b use it: `docs/plans/pod-pod-4545-round-three-probes.md`

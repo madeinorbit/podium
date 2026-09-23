@@ -143,6 +143,179 @@ server's title. Mutation: building from the snapshot again makes it carry
 - `displayRef` covers both spellings (`POD-<seq>` and `#<seq>`); repo `r5`
   spans two paths (`/repo-5`, `/other-path-5`) for the group-merge rule.
 
+## Fixture vs live (POD-4552)
+
+The fixture's realism, measured instead of asserted. One anonymised export of
+the live workspace (ludovico, backend `:18787`) at **2026-09-23T06:38:21Z**,
+feed seq 5,828,147, exporter at `964133e06`, box load 12–13 (no timing is read
+from it; every number below is a count). The export itself is NOT committed:
+it is attached to POD-4552 (`live-snapshot-2026-09-23.json.gz`, gitignored
+under `packages/worklist-proto/harness/.live/`).
+
+**How it was read.** `harness/src/fixture/export-snapshot.ts` reads what the
+web client reads, the way it reads it: the kernel rows from
+`HttpBootstrapSource` (`/sync/bootstrap`, the class the web replica
+bootstraps through), the machine scan and pins from the runtime's two boot
+calls (`discovery.refreshRepos`, `pins.list`), with the web's auth (the
+`podium_session` cookie from the CLI's `~/.podium/cli-session.json`). One
+bootstrap stream, read once.
+
+```
+bun --conditions=@podium/source packages/worklist-proto/harness/src/fixture/export-snapshot.ts
+bun --conditions=@podium/source packages/worklist-proto/harness/src/fixture/export-snapshot.ts --compare <export.json.gz>
+```
+
+**Anonymisation.** Every string is hashed with a keyed HMAC (random key per
+run, never stored) unless its key is an id, enum, timestamp or `displayRef`
+AND its value is one token. Paths are hashed per segment so every containment
+relation survives, the string-prefix fork trap included. Proven on this
+export: the oracle over the raw rows and over the hashed rows agree on all
+759 rows except titles (`anonymisation.parity` in the file); an audit of the
+file finds no verbatim string that is not a single token. What stays readable:
+ids, enums, timestamps, `POD-123`-style refs and the nine 3-letter repo
+prefixes. The first export of the day kept `closedReason` verbatim (live rows
+hold closing summaries there); it was deleted, and the one-token rule was
+added (test: "hashes a sentence under a kept key").
+
+**One instrument for both sides.** `measureShape` (`harness/src/fixture/shape.ts`)
+runs on the fixture and on the export alike. Rows come from `expectedSnapshot`
+(the oracle `corpus.test.ts` counts); lanes come from the legacy sections
+(`slice.sections`, the lanes the app shows, a repo root being a lane of its
+own); seating is the legacy longest-prefix rule (`worktreeForCwdIndexed`).
+Before any live number was read, `shape.test.ts` proved it on the fixture:
+parents, open issues, depth histogram, origin edges and prefix-owned sessions
+equal `buildCorpus`'s own `stats`, and the row count equals `corpus.test.ts`'s.
+
+Deviation is |live − fixture| / fixture, on the share where the row says
+"/ issues", "/ sessions" or "/ visible", on the count otherwise.
+
+| measure | fixture 1x | live | deviation | follow-up |
+|---|---|---|---|---|
+| issues | 4,867 | 5,170 | 6% |  |
+| sessions | 4,304 | 4,624 | 7% |  |
+| repo prefixes (kernel `repo` rows) | 500 | 9 | 98% | **yes** |
+| scan repos (`GitRepositoryWire`) | 500 | 541 | 8% |  |
+| visible rows (oracle `rowsById`) | 211 | 759 | 260% | **yes** |
+| top-level rows | 146 | 283 | 94% | **yes** |
+| nested (started-by) rows | 65 | 476 | 632% | **yes** |
+| worktree-kind rows (dropped) | 200 | 4 | 98% | **yes** |
+| open issues / issues | 2,170 (44.6%) | 2,284 (44.2%) | 1% |  |
+| with parent / issues | 1,976 (40.6%) | 3,159 (61.1%) | 50% | **yes** |
+| depth 1 / issues | 2,891 (59.4%) | 2,011 (38.9%) | 35% | **yes** |
+| depth 2 / issues | 1,383 (28.4%) | 1,699 (32.9%) | 16% |  |
+| depth 3 / issues | 445 (9.1%) | 889 (17.2%) | 88% | **yes** |
+| depth 4 / issues | 148 (3.0%) | 506 (9.8%) | 222% | **yes** |
+| depth 5 / issues | 0 (0.0%) | 61 (1.2%) | ∞ (fixture 0) | **yes** |
+| depth 6 / issues | 0 (0.0%) | 4 (0.1%) | ∞ (fixture 0) | **yes** |
+| max depth | 4 | 6 | 50% | **yes** |
+| discovered-from edges / issues | 249 (5.1%) | 1,788 (34.6%) | 576% | **yes** |
+| `blocked-by` deps / issues | 0 (0.0%) | 13 (0.3%) | ∞ (fixture 0) | **yes** |
+| `blocks` deps / issues | 0 (0.0%) | 1,751 (33.9%) | ∞ (fixture 0) | **yes** |
+| `bogus` deps / issues | 0 (0.0%) | 1 (0.0%) | ∞ (fixture 0) | **yes** |
+| `duplicate` deps / issues | 0 (0.0%) | 16 (0.3%) | ∞ (fixture 0) | **yes** |
+| `duplicates` deps / issues | 0 (0.0%) | 3 (0.1%) | ∞ (fixture 0) | **yes** |
+| `related` deps / issues | 0 (0.0%) | 249 (4.8%) | ∞ (fixture 0) | **yes** |
+| `supersedes` deps / issues | 0 (0.0%) | 27 (0.5%) | ∞ (fixture 0) | **yes** |
+| `waits-on` deps / issues | 0 (0.0%) | 11 (0.2%) | ∞ (fixture 0) | **yes** |
+| prefix-owned sessions / sessions | 430 (10.0%) | 701 (15.2%) | 52% | **yes** |
+| lanes | 968 | 521 | 46% | **yes** |
+| repo-root lanes | 500 | 17 | 97% | **yes** |
+| worktree lanes | 468 | 504 | 8% |  |
+| nested lanes (inside another lane) | 0 | 202 | ∞ (fixture 0) | **yes** |
+| fork-trap lane pairs | 1,674 | 19 | 99% | **yes** |
+| prefix-owned → repo-root lane / sessions | 0 (0.0%) | 152 (3.3%) | ∞ (fixture 0) | **yes** |
+| prefix-owned → worktree lane / sessions | 425 (9.9%) | 40 (0.9%) | 91% | **yes** |
+| prefix-owned → no lane / sessions | 5 (0.1%) | 509 (11.0%) | 9376% | **yes** |
+| sessions in repo-root lanes / sessions | 3,135 (72.8%) | 1,287 (27.8%) | 62% | **yes** |
+| `startedBySession` / issues | 0 (0.0%) | 3,770 (72.9%) | ∞ (fixture 0) | **yes** |
+| `coordinatorSessionId` / issues | 0 (0.0%) | 1,315 (25.4%) | ∞ (fixture 0) | **yes** |
+| `needsHuman` / issues | 0 (0.0%) | 46 (0.9%) | ∞ (fixture 0) | **yes** |
+| sessions with `resume` / sessions | 6 (0.1%) | 3,493 (75.5%) | 54088% | **yes** |
+| live sessions / sessions | 631 (14.7%) | 32 (0.7%) | 95% | **yes** |
+| groups | 165 | 8 | 95% | **yes** |
+| pinned rows | 6 | 21 | 250% | **yes** |
+| closed-fold rows / visible | 17 (8.1%) | 71 (9.4%) | 16% |  |
+| asking rows / visible | 101 (47.9%) | 281 (37.0%) | 23% | **yes** |
+| working rows / visible | 142 (67.3%) | 9 (1.2%) | 98% | **yes** |
+| phase queued / visible | 32 (15.2%) | 284 (37.4%) | 147% | **yes** |
+| phase working / visible | 57 (27.0%) | 5 (0.7%) | 98% | **yes** |
+| phase waiting / visible | 101 (47.9%) | 281 (37.0%) | 23% | **yes** |
+| phase done / visible | 21 (10.0%) | 189 (24.9%) | 150% | **yes** |
+
+### Reading the table
+
+- **Visible rows: 759, not 211.** 283 are top-level rows and 476 are nested
+  started-by rows: 72.9% of live issues carry `startedBySession`, and the
+  fixture mints none (see "Deliberate fixture divergences" above, which
+  predicted ~200 extra nested rows; live adds 476). The stage-0 "211 visible
+  rows" (POD-4286, 4,968 issues) is not reproduced by either count today. It
+  was a different definition or a different day; this export cannot tell which.
+  The oracle's row set, which arms must match, is 759.
+- **The row count is the stub oracle's, not a booted runtime's.**
+  `startEngineOnCorpus` refuses the live corpus: `pickTargets` finds none of
+  the fixture's planted targets ("no open human root with children and
+  exactly one working session"). So the engine cross-check was not run.
+  `expectedSnapshot` is the same oracle the fixture's 211 comes from, so the
+  two sides were measured the same way.
+- **Time-dependent rows** (live sessions, working, asking, the phase mix,
+  pinned) describe one moment, 06:38Z. They are listed because they cross
+  20%, but a single export cannot give a typical value. Live had 32 live
+  sessions and 5 working rows then.
+
+### Repo-root lanes (coordinator addendum, POD-4565)
+
+The live feed carries 17 repo-root lanes. 152 unbound sessions (3.3%) sit in a
+repo root and in no worktree, so only a root lane seats them. 202 lanes are
+nested inside another lane (`<repo>/.worktrees/x`), where the longest prefix
+must pick the worktree over the root. 509 unbound sessions (11.0%) are under
+no lane at all. The fixture's feed lanes (derived from its scan, as the row
+source derives them) do include 500 roots, one per scan repo, but none of its
+unbound sessions sits in a root, and no lane nests. Its static
+`sliceWorktrees` has 468 worktree lanes and no root at all.
+
+Assertion: `shape.test.ts`, "repo-root lanes (POD-4565 addendum)". A
+four-session workspace (root, nested worktree, `/r` vs `/r-fork`, no lane)
+must measure 2 root lanes, 1 nested lane, 1 fork-trap pair and 2 / 1 / 1
+root / worktree / unresolved seatings. The control hands the same workspace a
+root-less lane list (the `sliceWorktrees` shape), and the root sessions become
+unresolved. Mutation: dropping `isMain` lanes from `measureShape` fails the
+test (`expected 1 to be 3`); hashing path segments without sibling knowledge
+fails "keeps every lane relation" and the fork-trap control.
+
+### Fixture follow-ups (deviation above 20%)
+
+Grouped by what the generator would have to change; the coordinator decides
+which to take.
+
+1. **Started-by nesting.** `startedBySession` 0% vs 72.9%. Nested rows 65 vs
+   476, top-level 146 vs 283, visible 211 vs 759. The row budget of 211 holds
+   only because the fixture never nests. `coordinatorSessionId` 0% vs 25.4%;
+   `needsHuman` 0% vs 0.9%.
+2. **Hierarchy.** With parent 40.6% vs 61.1%; depth 1 59.4% vs 38.9%, depth 3
+   9.1% vs 17.2%, depth 4 3.0% vs 9.8%, depths 5–6 absent vs 65 issues; max
+   depth 4 vs 6.
+3. **Dependency edges.** The fixture mints only `discovered-from`, on 5.1% of
+   issues; live has it on 34.6%. `blocks` 0 vs 1,751 (33.9%), which makes the
+   fixture's "blocked is always false" unrealistic. Live also has `related`
+   249, `supersedes` 27, `duplicate` 16, `blocked-by` 13, `waits-on` 11,
+   `duplicates` 3 and one `bogus`.
+4. **Repo identity and grouping.** Kernel repo prefixes 500 vs 9; groups 165
+   vs 8. Fork-trap lane pairs 1,674 vs 19: the fixture's `/repo-1`,
+   `/repo-10`, `/repo-100` naming makes string-prefix pairs almost everywhere.
+5. **Lanes and seating.** Root lanes 500 vs 17, lanes 968 vs 521, nested lanes
+   0 vs 202. Unbound sessions are 10.0% vs 15.2% of sessions, seated by a
+   worktree 9.9% vs 0.9%, by a root 0% vs 3.3%, by nothing 0.1% vs 11.0%.
+   Sessions in root lanes 72.8% vs 27.8%. Worktree-kind rows 200 vs 4.
+6. **Resume refs.** 0.1% vs 75.5% of sessions. On live the twin collapse
+   (`dedupeSessions`) runs over most sessions, not over six.
+7. **Time-dependent, one moment.** Live sessions 14.7% vs 0.7%; working rows
+   67.3% vs 1.2%; phases queued 15.2% vs 37.4%, working 27.0% vs 0.7%,
+   waiting 47.9% vs 37.0%, done 10.0% vs 24.9%; pinned rows 6 vs 21. It would
+   take several exports across a working day to settle these.
+
+Within 20%: issues, sessions, scan repos, open share, depth 2, worktree lanes
+and closed-fold rows.
+
 ## Timings under load below 8 (POD-4551, as of ae70508a3)
 
 Measured at 2ef9f6606 before the landing rebase. Its corpus, oracle and
