@@ -25,7 +25,6 @@
  * run of the real guard against source plants is in the review document.
  */
 
-import { appendFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { HandPool } from '../../arms/hand/pool/pool'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
@@ -33,16 +32,10 @@ import { settableLocals } from '../../shared/src/locals-source'
 import { prefixAncestors } from '../../shared/src/schema'
 import type { RowRecord } from '../../shared/src/stats'
 import { createReplaySource } from '../src/count-harness'
+import { type EngineInside, elementOps, held, replaced, report } from './h3-witness'
 
 const T0 = '2026-09-23T00:00:00.000Z'
 const B = 4000
-
-/** Where the numbers go: `H3_PROBE_OUT` (the runner hides console output), else the console. */
-function report(line: string): void {
-  const out = process.env['H3_PROBE_OUT']
-  if (out === undefined) console.info(line)
-  else appendFileSync(out, `${line}\n`)
-}
 
 const issue = (id: string): RowRecord => ({
   kind: 'issue',
@@ -80,101 +73,6 @@ const lane = (path: string): RowRecord => ({
   value: { path, repoId: 'R', repoPath: '/repo', prefix: 'POD' } as RowRecord['value'],
 })
 const gone = (kind: RowRecord['kind'], id: string): RowRecord => ({ kind, id, value: undefined })
-
-type Sized = { readonly size: number }
-type Held = Map<string, { object: object; size: number }>
-
-interface EngineInside {
-  links: Map<
-    string,
-    {
-      forward: Map<string, string>
-      buckets: Map<string, Set<string>>
-      under: Map<string, Set<string>> | null
-      placed: Map<string, string> | null
-    }
-  >
-  collapses: Map<
-    string,
-    { groups: Map<string, Set<string>>; groupOf: Map<string, string>; collapsed: Set<string> }
-  >
-  place(link: unknown, id: string, normalized: string | null): void
-  point(link: unknown, id: string, target: string | null): void
-}
-
-/** Every container the engine holds, top-level and nested, by path: the object and its size. */
-function held(pool: HandPool): Held {
-  const engine = pool.engine as unknown as EngineInside
-  const out: Held = new Map()
-  const one = (label: string, object: Sized | null | undefined): void => {
-    if (object === null || object === undefined) return
-    out.set(label, { object: object as object, size: object.size })
-  }
-  const nested = (label: string, map: Map<string, Set<string>> | null): void => {
-    if (map === null) return
-    one(label, map)
-    for (const [key, set] of map) one(`${label}:${key}`, set)
-  }
-  for (const [name, link] of engine.links) {
-    one(`${name}.forward`, link.forward)
-    one(`${name}.placed`, link.placed)
-    nested(`${name}.buckets`, link.buckets)
-    nested(`${name}.under`, link.under)
-  }
-  for (const [entity, collapse] of engine.collapses) {
-    nested(`${entity}.groups`, collapse.groups)
-    one(`${entity}.groupOf`, collapse.groupOf)
-    one(`${entity}.collapsed`, collapse.collapsed)
-  }
-  return out
-}
-
-/** Containers held before and after that are different objects: elements re-copied. */
-function replaced(before: Held, after: Held): { keys: number; elements: number; where: string[] } {
-  let keys = 0
-  let elements = 0
-  const where: string[] = []
-  for (const [key, was] of before) {
-    const now = after.get(key)
-    if (now === undefined || now.object === was.object) continue
-    keys += 1
-    elements += now.size
-    if (where.length < 4) where.push(key)
-  }
-  return { keys, elements, where }
-}
-
-/** The hand F1 guard's counter, verbatim (`arms/hand/pool/relations.test.ts` `elementOps`). */
-function elementOps(run: () => void): number {
-  type Method = (this: unknown, ...args: unknown[]) => unknown
-  type Patched = { [name: string]: Method }
-  const targets: [Patched, string, (self: unknown) => number][] = [
-    [Set.prototype as unknown as Patched, 'add', () => 1],
-    [Set.prototype as unknown as Patched, 'delete', () => 1],
-    [Object.getPrototypeOf(new Set<unknown>().values()) as Patched, 'next', () => 1],
-    [Map.prototype as unknown as Patched, 'set', () => 1],
-    [Map.prototype as unknown as Patched, 'delete', () => 1],
-    [Object.getPrototypeOf(new Map<unknown, unknown>().entries()) as Patched, 'next', () => 1],
-    [Array.prototype as unknown as Patched, 'sort', (self) => (self as unknown[]).length],
-  ]
-  let ops = 0
-  const saved = targets.map(([proto, name, weight]) => {
-    const original = proto[name] as Method
-    proto[name] = function (this: unknown, ...args: unknown[]) {
-      ops += weight(this)
-      return original.apply(this, args)
-    }
-    return () => {
-      proto[name] = original
-    }
-  })
-  try {
-    run()
-  } finally {
-    for (const restore of saved) restore()
-  }
-  return ops
-}
 
 type Copy = (set: Set<string>) => Set<string>
 const union: Copy = (set) =>
