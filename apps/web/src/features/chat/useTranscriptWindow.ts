@@ -1,6 +1,7 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import {
   createTranscriptController,
+  transcriptActivitySignal,
   type TranscriptFreshness,
 } from '@podium/client-core/transcript'
 import { applyChatVerbosity, type ChatVerbosity } from '@podium/client-core/viewmodels'
@@ -423,7 +424,7 @@ export function useTranscriptWindow(opts: UseTranscriptWindowOptions): UseTransc
   pagedBackRef.current = pagedBack
   // One string, so the effect re-runs on any of the four moving parts without
   // four dependencies that each re-run it on the others' changes.
-  const activitySignal = `${session?.lastActiveAt ?? ''}|${session?.agentState?.phase ?? ''}|${session?.agentState?.since ?? ''}|${session?.busy ?? ''}`
+  const activitySignal = transcriptActivitySignal(session ?? {})
   activitySignalRef.current = activitySignal
   useEffect(() => {
     if (!active || !initialLoaded || pagedBack) return

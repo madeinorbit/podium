@@ -49,6 +49,38 @@ export interface TranscriptControllerOptions {
   connection?: TranscriptConnection
   initialLimit?: number
   pageLimit?: number
+  /** Whether the reader can see the transcript now. The live heartbeat skips
+   *  a tick nobody would see; absent means always visible. */
+  visible?: () => boolean
+}
+
+/**
+ * What the session row says about activity the transcript should be recording
+ * — see {@link TranscriptController.observeActivity}.
+ */
+export interface TranscriptActivity {
+  /** A fingerprint of the row fields that move when the agent does anything;
+   *  {@link transcriptActivitySignal} is the one every host uses. */
+  signal: string
+  /** The session has a process that can append to the transcript. */
+  live: boolean
+}
+
+/** Trailing settle before a moved row re-reads: a working agent moves the row
+ *  several times a second, and the point is to be current, not to re-read on
+ *  every tick. */
+export const TRANSCRIPT_ACTIVITY_SETTLE_MS = 400
+/** The floor under a live transcript: one newest-item probe, escalating to a
+ *  full reconcile only when the tail differs [POD-701]. */
+export const TRANSCRIPT_LIVE_HEARTBEAT_MS = 6_000
+
+/** The row fields that advance on exactly the activity a transcript records. */
+export function transcriptActivitySignal(session: {
+  lastActiveAt?: string | null
+  busy?: boolean | null
+  agentState?: { phase?: string; since?: string } | null
+}): string {
+  return `${session.lastActiveAt ?? ''}|${session.agentState?.phase ?? ''}|${session.agentState?.since ?? ''}|${session.busy ?? ''}`
 }
 
 export interface TranscriptState {
@@ -213,6 +245,14 @@ export class TranscriptController {
   private unsubscribeTranscript: (() => void) | null = null
   private unsubscribeConnection: (() => void) | null = null
   private lastConnected: boolean | null = null
+  private activity: TranscriptActivity | null = null
+  /** The row signal as of the last read that made this window current. */
+  private reconciledSignal: string | null = null
+  /** Older pages are loaded; a newest-window read would drop them. */
+  private pagedBack = false
+  private settleTimer: ReturnType<typeof setTimeout> | null = null
+  private heartbeat: ReturnType<typeof setInterval> | null = null
+  private probing: Promise<boolean> | null = null
 
   constructor(private readonly options: TranscriptControllerOptions) {
     this.initialLimit = options.initialLimit ?? 200
@@ -254,6 +294,7 @@ export class TranscriptController {
         if (reconnected) void this.refresh({ disclose: true }).catch(() => {})
       })
     }
+    this.syncHeartbeat()
     const generation = this.generation
     const initialRefresh = this.refresh()
     const serial = this.readSerial
@@ -278,6 +319,9 @@ export class TranscriptController {
     if (this.disposed) return false
     const generation = this.generation
     const serial = ++this.readSerial
+    // Stamped as of the read's START: activity that lands while it is in
+    // flight may not be in it, and must still earn its own reconcile.
+    const signal = this.activity?.signal ?? null
     if (options.disclose && this.state.items.length > 0) this.patch({ freshness: 'checking' })
     try {
       const page = await this.options.source.read({
@@ -287,6 +331,8 @@ export class TranscriptController {
       })
       if (!this.accepts(generation, serial)) return false
       this.windowEpoch += 1
+      this.reconciledSignal = signal
+      this.pagedBack = false
       const reconciled = page.reset
         ? mergeTranscriptFrame([], page.items)
         : reconcileTranscriptSnapshot(this.state.items, page.items, page.items.at(-1)?.cursor)
@@ -307,6 +353,7 @@ export class TranscriptController {
       })
       if (items.length > 0) this.options.cache?.write(this.options.sessionId, items)
       this.attachSubscription(page.items.at(-1)?.cursor)
+      this.scheduleSettle()
       return true
     } catch (error) {
       if (this.accepts(generation, serial) && this.state.items.length > 0) {
@@ -372,12 +419,14 @@ export class TranscriptController {
         return false
       if (page.reset) {
         this.windowEpoch += 1
+        this.pagedBack = true
         const items = mergeTranscriptFrame([], page.items)
         this.patch({ items, head: page.head, tail: page.tail, hasMoreOlder: page.hasMore })
         this.options.cache?.write(this.options.sessionId, items)
         return true
       }
       const fresh = freshOlderTranscriptPage(page.items, this.state.items)
+      if (fresh.length > 0) this.pagedBack = true
       const items = fresh.length > 0 ? [...fresh, ...this.state.items] : this.state.items
       const head = page.head ?? fresh[0]?.cursor ?? anchor
       this.patch({
@@ -405,6 +454,8 @@ export class TranscriptController {
     this.unsubscribeConnection?.()
     this.unsubscribeTranscript = null
     this.unsubscribeConnection = null
+    this.clearSettle()
+    this.syncHeartbeat()
   }
 
   dispose(): void {
@@ -412,6 +463,80 @@ export class TranscriptController {
     this.stop()
     this.disposed = true
     this.listeners.clear()
+  }
+
+  /**
+   * THE FEED MUST NOT GO QUIET [POD-701, POD-4643].
+   *
+   * The live stream is lossy by contract: a frame dropped on a reconnect, a
+   * tailer that re-seeded without announcing it, or a server that never
+   * forwarded an item (the acceptance run's gate rejected grok's final answer
+   * after a daemon restart) leaves the window showing nothing new while the
+   * session row visibly moves. The desktop chat has always reconciled against
+   * the row and a heartbeat; the phone relied on the stream alone and sat on
+   * "waiting its turn" until a reload. Both read through here now.
+   *
+   *   the ROW       when `signal` moves and settles, re-read the newest window.
+   *   a HEARTBEAT   while `live`, probe the newest item every few seconds, for
+   *                 activity that moves nothing on the row (a row stuck on
+   *                 Working is exactly that).
+   *
+   * Both reconcile rather than replace, so a read that finds nothing new costs
+   * one query and no render. Both stand down while older pages are loaded: a
+   * newest-window read drops them, and someone reading history is not watching
+   * the tail. Call on every row change; an unchanged signal costs nothing.
+   */
+  observeActivity(activity: TranscriptActivity): void {
+    this.activity = activity
+    this.syncHeartbeat()
+    this.scheduleSettle()
+  }
+
+  private scheduleSettle(): void {
+    const signal = this.activity?.signal
+    if (
+      signal === undefined ||
+      !this.started ||
+      this.disposed ||
+      !this.state.initialLoaded ||
+      this.pagedBack ||
+      signal === this.reconciledSignal
+    ) {
+      this.clearSettle()
+      return
+    }
+    this.clearSettle()
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = null
+      if (this.pagedBack || this.activity?.signal === this.reconciledSignal) return
+      void this.refresh().catch(() => {})
+    }, TRANSCRIPT_ACTIVITY_SETTLE_MS)
+  }
+
+  private clearSettle(): void {
+    if (this.settleTimer === null) return
+    clearTimeout(this.settleTimer)
+    this.settleTimer = null
+  }
+
+  private syncHeartbeat(): void {
+    const wanted = this.started && !this.disposed && this.activity?.live === true
+    if (wanted && this.heartbeat === null) {
+      this.heartbeat = setInterval(() => this.beat(), TRANSCRIPT_LIVE_HEARTBEAT_MS)
+    } else if (!wanted && this.heartbeat !== null) {
+      clearInterval(this.heartbeat)
+      this.heartbeat = null
+    }
+  }
+
+  private beat(): void {
+    if (!this.state.initialLoaded || this.pagedBack || this.probing) return
+    if (this.options.visible && !this.options.visible()) return
+    const probing = this.probe().catch(() => false)
+    this.probing = probing
+    void probing.finally(() => {
+      if (this.probing === probing) this.probing = null
+    })
   }
 
   private accepts(generation: number, serial: number): boolean {

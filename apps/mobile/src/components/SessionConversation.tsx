@@ -14,11 +14,14 @@ import {
   nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
-import { createTranscriptController } from '@podium/client-core/transcript'
+import {
+  createTranscriptController,
+  transcriptActivitySignal,
+} from '@podium/client-core/transcript'
 import { asMutationId, type IssueWire, isAgentComputing, type SessionMeta } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
+import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import { useHub, useIssues, useStoreSelector, useSessionDraft, useSessions } from '../client/hooks'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
@@ -183,6 +186,8 @@ export function SessionConversation({
           subscribe: (listener) =>
             hub.onConnectionHealth((health) => listener(health.status !== 'down')),
         },
+        visible: () =>
+          AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
       }),
     [hub, sessionId, store.replica, trpc.sessions.transcriptRead],
   )
@@ -312,6 +317,14 @@ export function SessionConversation({
   useEffect(() => {
     transcriptController.markRendered()
   }, [items, transcriptController])
+
+  // The live stream can drop what the agent wrote; the row and a heartbeat
+  // re-read it, as the desktop chat does [POD-4643].
+  const activitySignal = transcriptActivitySignal(session)
+  const sessionLive = session.status === 'live' || session.status === 'starting'
+  useEffect(() => {
+    transcriptController.observeActivity({ signal: activitySignal, live: sessionLive })
+  }, [activitySignal, sessionLive, transcriptController])
 
   useEffect(() => {
     void conversationController.start()
