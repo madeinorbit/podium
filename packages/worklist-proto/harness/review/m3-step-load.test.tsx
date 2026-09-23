@@ -33,7 +33,7 @@
 import { appendFileSync } from 'node:fs'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
-import { mobxPoolArm, type MobxPoolHandle } from '../../arms/mobx/pool/arm'
+import { type MobxPoolHandle, mobxPoolArm } from '../../arms/mobx/pool/arm'
 import { installMobxWarnTrap } from '../../arms/mobx/pool/mobx-trap'
 import { tracked } from '../../arms/mobx/pool/pool'
 import type { Schedule } from '../../arms/mobx/pool/residency'
@@ -153,7 +153,9 @@ async function runArm(name: string, schedule: Schedule, planted: boolean): Promi
         }
         return out
       })
-      throw new Error(`no cold issue with two sessions; cold issues by sessions/coldSessions: ${JSON.stringify(shape)}`)
+      throw new Error(
+        `no cold issue with two sessions; cold issues by sessions/coldSessions: ${JSON.stringify(shape)}`,
+      )
     }
     if (planted) plant.target = target
 
@@ -226,7 +228,11 @@ describe('a fence step counts the load its own change triggers (M3 re-review 2)'
       const ctx = await startScenarioEngine(1)
       const feeds = openFenceFeeds(ctx, 'overlaid')
       const plant: Plant = { target: null, runs: 0, loadedRuns: 0 }
-      const mounted = mountArmForCounts(plantedArm(schedule, plant), feeds.rows.source, feeds.locals)
+      const mounted = mountArmForCounts(
+        plantedArm(schedule, plant),
+        feeds.rows.source,
+        feeds.locals,
+      )
       try {
         const { pool } = mounted.handle as MobxPoolHandle
         const residency = pool.residency!
