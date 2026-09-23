@@ -152,7 +152,7 @@ import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import type { Session } from './modules/sessions/session'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
-import { DockShellService, resolveShellOwningIssue } from './modules/shells/service'
+import { DockShellService, resolveSampledShellOwners } from './modules/shells/service'
 import {
   bridgeConfigChanged,
   SettingsService,
@@ -1600,20 +1600,12 @@ export class SessionRegistry {
           // shells pay for a lookup too now: skipping them (bound-first) is
           // what let one shell read as owner-open here and owner-closed
           // there. Non-shells never enter the map and keep their bound issue.
-          const ownerIssueIds = new Map<SessionId, IssueId>()
-          await Promise.all(
-            samples
-              .filter((s) => s.agentKind === 'shell')
-              .map(async (s) => {
-                const ownerIssueId = await resolveShellOwningIssue(
-                  {
-                    worktreeForSession: (id) => this.store.dockShells.worktreeForSession(id),
-                    issueForCwd: (cwd) => issueAccess.issueForCwd(cwd),
-                  },
-                  s,
-                )
-                if (ownerIssueId) ownerIssueIds.set(s.sessionId, ownerIssueId)
-              }),
+          const ownerIssueIds = await resolveSampledShellOwners(
+            {
+              worktreeForSession: (id) => this.store.dockShells.worktreeForSession(id),
+              issueForCwd: (cwd) => issueAccess.issueForCwd(cwd),
+            },
+            samples,
           )
           return samples.map((session) => {
             // The bound driver's FAMILY, so the park gate can tell a terminal

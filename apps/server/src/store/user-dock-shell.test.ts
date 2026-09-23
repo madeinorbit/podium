@@ -100,6 +100,27 @@ describe('UserDockShellRepository', () => {
     expect(await shells.listForUser(BOB)).toEqual({})
   })
 
+  it('worktreesForSessions answers every shell in one read, row for row with worktreeForSession', async () => {
+    await shells.set(ALICE, '/repo/.worktrees/a', SHELL_A, AT)
+    await shells.set(BOB, '/repo/.worktrees/b', SHELL_A, AT)
+    await shells.set(ALICE, '/repo/.worktrees/c', SHELL_B, AT)
+    const UNMAPPED = asSessionId('33333333-3333-4333-8333-333333333333')
+    const batched = await shells.worktreesForSessions([SHELL_A, SHELL_B, UNMAPPED, SHELL_A])
+    expect(batched.get(SHELL_A)).toEqual(await shells.worktreeForSession(SHELL_A))
+    expect(batched.get(SHELL_B)).toEqual(await shells.worktreeForSession(SHELL_B))
+    expect(batched.has(UNMAPPED)).toBe(false)
+    expect((await shells.worktreesForSessions([])).size).toBe(0)
+  })
+
+  it('worktreesForSessions chunks past the SQLite variable limit', async () => {
+    const ids = Array.from({ length: 1200 }, (_, i) =>
+      asSessionId(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`))
+    for (const [i, id] of ids.entries()) await shells.set(ALICE, `/repo/.worktrees/w${i}`, id, AT)
+    const batched = await shells.worktreesForSessions(ids)
+    expect(batched.size).toBe(1200)
+    expect(batched.get(ids[1199]!)).toEqual([{ userId: ALICE, worktreeKey: '/repo/.worktrees/w1199' }])
+  })
+
   it('worktreeForSession resolves the owning rows for a shell (step 3 reverse lookup)', async () => {
     await shells.set(ALICE, '/repo/.worktrees/a', SHELL_A, AT)
     expect(await shells.worktreeForSession(SHELL_A)).toEqual([

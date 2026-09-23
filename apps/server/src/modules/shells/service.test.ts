@@ -13,7 +13,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { createBunStoreExecutor } from '../../store/executor'
 import { UserDockShellRepository } from '../../store/user-layout'
-import { DockShellService, type DockShellSessionView, resolveDockShellOwner } from './service'
+import {
+  DockShellService,
+  type DockShellSessionView,
+  resolveDockShellOwner,
+  resolveSampledShellOwners,
+  resolveShellOwningIssue,
+} from './service'
 
 const ALICE: UserId = firstAdminMemberId()
 const BOB: UserId = asUserId('user:bob')
@@ -279,5 +285,87 @@ describe('resolveDockShellOwner (step 3)', () => {
       shell(),
     )
     expect(owner).toEqual({ worktreeKey: WT })
+  })
+})
+
+describe('resolveSampledShellOwners (POD-4627: one host sample, many shells)', () => {
+  // A sample holds EVERY stored session — boot installs all rows, hibernated
+  // and exited ones included — and the reaper reads only the live ones.
+  // Per-shell reads of the mapping were one statement per shell per call,
+  // ~5,000 a sample on a real 1,000-shell database.
+  const ISSUE_OPEN = asIssueId('iss_aaaaaaaaaaaaaaaaaaaaaaaaaa')
+  const ISSUE_BOUND = asIssueId('iss_bbbbbbbbbbbbbbbbbbbbbbbbbb')
+  const shellId = (i: number) => asSessionId(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`)
+
+  async function seed(live: number, dormant: number) {
+    const db = openMigratedTestDatabase()
+    const stage = createBunStoreExecutor({ database: db }).queries
+    if (!stage) throw new Error('the test database is not bun-backed')
+    const repo = new UserDockShellRepository(stage)
+    const sessions: Array<{ sessionId: SessionId; agentKind: string; status: string; issueId?: IssueId }> = []
+    for (let i = 0; i < live + dormant; i += 1) {
+      const sessionId = shellId(i)
+      // Every third shell is mapped to a worktree an issue owns, every third
+      // bound-only, the rest neither — all three precedence arms per sample.
+      if (i % 3 === 0) await repo.set(ALICE, `/repo/.worktrees/owned-${i}`, sessionId, '2026-09-23T00:00:00.000Z')
+      if (i % 3 === 1) await repo.set(ALICE, `/repo/.worktrees/orphan-${i}`, sessionId, '2026-09-23T00:00:00.000Z')
+      sessions.push({
+        sessionId,
+        agentKind: 'shell',
+        status: i < live ? 'live' : i % 2 === 0 ? 'hibernated' : 'exited',
+        ...(i % 3 !== 2 ? { issueId: ISSUE_BOUND } : {}),
+      })
+    }
+    sessions.push({ sessionId: shellId(9_999), agentKind: 'claude-code', status: 'live', issueId: ISSUE_BOUND })
+    let reads = 0
+    const readIds: SessionId[] = []
+    const issueForCwd = async (cwd: string) => (cwd.includes('/owned-') ? ISSUE_OPEN : null)
+    // Both store shapes counted, so the per-shell arm and the batched arm are
+    // measured by the same instrument.
+    const deps = {
+      worktreeForSession: async (id: SessionId) => {
+        reads += 1
+        readIds.push(id)
+        return await repo.worktreeForSession(id)
+      },
+      worktreesForSessions: async (ids: readonly SessionId[]) => {
+        reads += 1
+        readIds.push(...ids)
+        return await repo.worktreesForSessions(ids)
+      },
+      issueForCwd,
+    }
+    const reference = { worktreeForSession: (id: SessionId) => repo.worktreeForSession(id), issueForCwd }
+    return { deps, sessions, reference, reads: () => reads, readIds: () => readIds }
+  }
+
+  it.each([10, 400])('reads the mapping a constant number of times for %i live shells', async (live) => {
+    const world = await seed(live, 3 * live)
+    await resolveSampledShellOwners(world.deps, world.sessions)
+    expect(world.reads()).toBe(1)
+  })
+
+  it('never reads a hibernated or exited shell', async () => {
+    const world = await seed(5, 20)
+    await resolveSampledShellOwners(world.deps, world.sessions)
+    const live = new Set(world.sessions.filter((s) => s.status === 'live').map((s) => s.sessionId))
+    expect(world.readIds().filter((id) => !live.has(id))).toEqual([])
+  })
+
+  it('answers every live shell exactly as the one resolver does', async () => {
+    const world = await seed(30, 30)
+    const owners = await resolveSampledShellOwners(world.deps, world.sessions)
+    const expected = new Map<SessionId, IssueId>()
+    for (const s of world.sessions) {
+      if (s.agentKind !== 'shell' || s.status !== 'live') continue
+      const owner = await resolveShellOwningIssue(world.reference, s)
+      if (owner) expected.set(s.sessionId, owner)
+    }
+    expect(owners).toEqual(expected)
+    // All three arms appear: mapped-and-owned, mapped-orphan (bound
+    // fallback), and unmapped-unbound (absent).
+    expect([...owners.values()]).toContain(ISSUE_OPEN)
+    expect([...owners.values()]).toContain(ISSUE_BOUND)
+    expect(owners.size).toBeLessThan(30)
   })
 })

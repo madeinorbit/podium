@@ -261,3 +261,24 @@ export async function resolveShellOwningIssue(
   if (mapped?.issueId) return mapped.issueId
   return session.issueId ?? undefined
 }
+
+/**
+ * The reaper's owning issue for every shell in one host sample (POD-4526
+ * precedence, via {@link resolveShellOwningIssue}). Non-shells never enter the
+ * map and keep their bound issue at the call site.
+ */
+export async function resolveSampledShellOwners(
+  deps: DockShellOwnerDeps,
+  sessions: Iterable<DockShellOwnerSession & { status: string }>,
+): Promise<Map<SessionId, IssueId>> {
+  const owners = new Map<SessionId, IssueId>()
+  await Promise.all(
+    [...sessions]
+      .filter((s) => s.agentKind === 'shell')
+      .map(async (s) => {
+        const ownerIssueId = await resolveShellOwningIssue(deps, s)
+        if (ownerIssueId) owners.set(s.sessionId, ownerIssueId)
+      }),
+  )
+  return owners
+}
