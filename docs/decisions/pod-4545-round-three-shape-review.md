@@ -678,7 +678,37 @@ code.
 
 ### 7.4 L4b gate, 5 seeds × 300 steps at 1×, live-shaped fixture (POD-4635)
 
-GATE_PLACEHOLDER
+**GREEN.** Run in a detached checkout of `b29ea68ce` with nothing planted,
+through the package config under the validation queue:
+`POD_POOL_GATE_SEEDS=5 POD_POOL_GATE_STEPS=300 bun ../../scripts/validation-admission.ts focused --label m3-final-gate-5x300 -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts arms/mobx/pool/gate.test.ts`.
+`Test Files 1 passed`, `Tests 2 passed` (the gate and the own-row oracle
+test), 2,778 s, 20:18–21:04 UTC, load 9.0–15.0. The fixture is the 1×
+fixture as POD-4635 (L2d, `164b9ae7d`) reshaped it to live shape. That commit
+is in `b29ea68ce`. The run was not chunked. The MobX gate has no
+`POD_POOL_GATE_FIRST_SEED` (only the hand gate has it, at
+`arms/hand/pool/gate.test.ts:91`), and one run fit.
+
+| Seed | Steps / skipped | Rebuild checks | Relation checks | Rows loaded | Checkpoints | `planted` (removals) | `coldDeaf` | `coldRelinkSkipped` | `promoteSkipped` |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 300 / 0 | 301 | 301 | 8,281 | 1 | fails, step 15 | fails (partition) | fails (relations) | fails (checkpoint) |
+| 2 | 300 / 0 | 301 | 301 | 9,707 | 1 | fails, step 32 | fails (relations) | fails (relations) | fails (checkpoint) |
+| 3 | 300 / 0 | 301 | 301 | 4,164 | 1 | fails, step 19 | fails (relations) | fails (relations) | fails (checkpoint) |
+| 4 | 300 / 0 | 301 | 301 | 6,916 | 1 | fails, step 3 | fails (relations) | fails (relations) | fails (checkpoint) |
+| 5 | 300 / 0 | 301 | 301 | 5,519 | 1 | fails, step 1 | fails (partition) | fails (relations) | fails (checkpoint) |
+
+Zero divergence on the clean pool: 1,505 rebuild comparisons, 1,505
+relation-against-scan checks and 5 full-residency checkpoints. Every plant
+fails on every seed, each caught by its intended check. `promoteSkipped` is
+the sessions-only plant from §5.4a. The gate runs rebuild-only
+(`oracleEvery 0`), per the coordinator's correction on POD-4568.
+
+**Other suites at my branch** (pool code identical to `b29ea68ce`), one run
+through the package config: `arms/mobx/pool/{bootstrap,counts,models,pool,relations,residency}`,
+`harness/native/mobx-pool.native.test.tsx` and my three `harness/review/`
+probes gave `Test Files 10 passed`, `Tests 87 passed | 1 skipped` (the
+skipped one is the live-export probe, which needs `M3_LIVE_EXPORT`), in 108
+s. `bun run typecheck -- --filter @podium/worklist-proto` passed. `bun run
+lint` in the package failed, which is G5.
 
 ### 7.5 What must change (G4 and G5, go to POD-4568, land under Mb1)
 
