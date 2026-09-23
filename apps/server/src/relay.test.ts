@@ -6711,7 +6711,11 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
     }
   })
 
-  it('refuses the stop before the driver reports working, without sending an interrupt', async () => {
+  // POD-4666: the server's phase view is not the authority on whether a turn is
+  // running — only the daemon knows. A stop that arrives before the server has
+  // seen `working` (a lagging projection, or a turn the server never heard
+  // start) goes to the driver anyway, and the DRIVER's answer is the reply.
+  it('hands the stop to the driver even before the server has seen it working', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -6724,17 +6728,20 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
       })
       await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
 
-      const answer = await registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({ sessionId })
 
-      expect(answer).toEqual({
-        ok: false,
-        reason: 'Codex only takes an interrupt while it is working, and it is not working right now',
+      await expect.poll(() => daemon.some((message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId)).toBe(true)
+      const request = daemon.find(
+        (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> | undefined
+      expect(daemon.filter((message) => message.type === 'input')).toEqual([])
+      await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult',
+        requestId: request!.requestId,
+        sessionId,
+        result: { ok: true },
       })
-      expect(
-        daemon.filter(
-          (message) => message.type === 'runtimeInterruptRequest' || message.type === 'input',
-        ),
-      ).toEqual([])
+      await expect(answer).resolves.toEqual({ ok: true, requested: 'protocol' })
     } finally {
       await registry.dispose()
     }

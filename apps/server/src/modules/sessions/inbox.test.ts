@@ -1401,20 +1401,33 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.contractInterrupts).toEqual([])
   })
 
-  it('refuses an idle agent stop instead of typing an abort key into its prompt', async () => {
-    const h = harness({ agentKind: 'codex', phase: 'idle' })
+  // POD-4666: the server's phase is a lagging copy of the daemon's; a stop it
+  // gated on that copy was refused while the agent was really running. The
+  // driver owns the idle guard (no key typed at an idle CLI), so the server
+  // hands it every stop and returns the driver's answer.
+  it('hands a stop to the driver even when the server believes the agent is idle', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'idle', contractInterrupt: { ok: true } })
 
     const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
 
-    // Esc is inert at an idle prompt and Ctrl-C-class keys exit one: typing
-    // either is how an interrupt-urgency message became the thing that killed
-    // the session. The driver owns the idle guard now.
-    expect(result).toEqual({
-      ok: false,
-      reason: 'Codex only takes an interrupt while it is working, and it is not working right now',
-    })
+    expect(result).toEqual({ ok: true, requested: 'protocol' })
+    expect(h.contractInterrupts).toEqual([SID])
     expect(h.sent).toEqual([])
-    expect(h.contractInterrupts).toEqual([])
+  })
+
+  it("returns the driver's refusal for a stop the server believes is idle", async () => {
+    const h = harness({
+      agentKind: 'codex',
+      phase: 'idle',
+      contractInterrupt: { reason: 'not_running', detail: 'no driver handle' },
+    })
+
+    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+      ok: false,
+      reason: 'not_running: no driver handle',
+    })
+    expect(h.contractInterrupts).toEqual([SID])
+    expect(h.sent).toEqual([])
   })
 
   it('lets stop retract a queued prompt even when idle codex has no turn to abort', async () => {
@@ -1505,13 +1518,14 @@ describe('SessionInbox authorization and identity', () => {
   // An idle agent has no turn to cut into, so the stop is a refusal, never a
   // keystroke: Esc is inert at an idle prompt and needs no guard dance here —
   // the driver owns the idle guard.
-  it('refuses an idle Esc-harness stop instead of interrupting anyway', async () => {
-    const h = harness({ agentKind: 'claude-code', phase: 'idle' })
+  it('hands an idle-looking Esc-harness stop to the driver, typing nothing', async () => {
+    const h = harness({ agentKind: 'claude-code', phase: 'idle', contractInterrupt: { ok: true } })
 
     expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
-      ok: false,
-      reason: 'Claude only takes an interrupt while it is working, and it is not working right now',
+      ok: true,
+      requested: 'protocol',
     })
+    expect(h.contractInterrupts).toEqual([SID])
     expect(h.sent).toEqual([])
   })
 
@@ -1569,13 +1583,14 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.rows).toEqual([])
   })
 
-  it('interrupt-urgency text at idle Codex queues without typing an abort key', async () => {
+  // POD-4666: the interrupt half of an interrupt-urgency send goes to the driver
+  // whatever the server's phase says; the driver skips it when there is no
+  // turn, and the message queues either way.
+  it('interrupt-urgency text at idle-looking Codex asks the driver to interrupt, then queues', async () => {
     vi.useFakeTimers()
     try {
-      const h = harness({ agentKind: 'codex', phase: 'idle' })
+      const h = harness({ agentKind: 'codex', phase: 'idle', contractInterrupt: { ok: true } })
 
-      // Idle means no turn to cut into: no abort key is typed (an Esc here
-      // would land in the idle prompt), and the message queues as usual.
       expect(
         await h.inbox.interruptText({
           sessionId: SID,
@@ -1585,11 +1600,31 @@ describe('SessionInbox authorization and identity', () => {
       ).toEqual({ ok: true, queued: true })
       await vi.advanceTimersByTimeAsync(500)
 
+      expect(h.contractInterrupts).toEqual([SID])
       expect(h.sent).toEqual([])
       expect(h.rows).toHaveLength(1)
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('interrupt-urgency text still queues when the driver has no running session', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'working', contractInterrupt: { reason: 'not_running' } })
+
+    expect(
+      await h.inbox.interruptText({ sessionId: SID, text: 'read this', principal: agentPrincipal() }),
+    ).toEqual({ ok: true, queued: true })
+    expect(h.contractInterrupts).toEqual([SID])
+    expect(h.rows).toHaveLength(1)
+  })
+
+  it('interrupt-urgency text refuses when the driver refuses the interrupt of a running session', async () => {
+    const h = harness({ agentKind: 'codex', phase: 'idle', contractInterrupt: { reason: 'busy', detail: 'x' } })
+
+    expect(
+      await h.inbox.interruptText({ sessionId: SID, text: 'read this', principal: agentPrincipal() }),
+    ).toEqual({ ok: false, reason: 'busy: x' })
+    expect(h.rows).toEqual([])
   })
 
   it('writes no raw abort bytes for a contract-routed session', async () => {
