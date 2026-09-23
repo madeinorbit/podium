@@ -540,9 +540,10 @@ describe('a live window that the stream stopped feeding heals itself (POD-4643)'
   it('a stopped controller schedules nothing', async () => {
     const { authority, controller } = await started()
     try {
+      // A settle pending and the heartbeat armed at the moment of stop.
+      controller.observeActivity({ signal: 'row-2', live: true })
       controller.stop()
       const readsAtStop = authority.reads.length
-      controller.observeActivity({ signal: 'row-2', live: true })
       await vi.advanceTimersByTimeAsync(TRANSCRIPT_LIVE_HEARTBEAT_MS * 2)
       expect(authority.reads).toHaveLength(readsAtStop)
     } finally {
