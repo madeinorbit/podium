@@ -133,11 +133,12 @@ export function compileTimeControls(store: StoreHandle): ReactElement[] {
 }
 
 // RowView carries no arrays and no store-shaped fields. A field whose type is
-// an array, a Map/Set or a function makes this `true` and fails typecheck.
+// an array, a Map/Set or a function makes this `true` and fails typecheck
+// (`-?`: an optional field is checked too, not read as `undefined`).
 type Leaky<T> = T extends readonly unknown[] | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown> | ((...args: never[]) => unknown)
   ? true
   : false
-type LeakyFields = { [K in keyof RowView]: Leaky<RowView[K]> extends false ? never : K }[keyof RowView]
+type LeakyFields = { [K in keyof RowView]-?: Leaky<RowView[K]> extends false ? never : K }[keyof RowView]
 const _noLeakyFields: [LeakyFields] extends [never] ? true : never = true
 
 // ---------------------------------------------------------------------------

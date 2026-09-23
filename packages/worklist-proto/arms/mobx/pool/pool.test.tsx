@@ -33,6 +33,8 @@ import { FINISHED_GRACE_MS } from './views'
 
 const trap = installMobxWarnTrap()
 const corpus = buildCorpus(1)
+/** Open issues: resident from bootstrap (POD-4567; closed ones are cold). */
+const openIssues = corpus.sliceIssues.filter((issue) => issue.closedAt == null)
 
 interface Rig {
   replay: ReplaySource
@@ -59,6 +61,7 @@ function rig(): Rig {
   let open = 0
   const counted: RowSource = {
     snapshot: (kind) => replay.source.snapshot(kind),
+    row: (kind, id) => replay.source.row?.(kind, id),
     subscribe(listener) {
       open += 1
       const off = replay.source.subscribe(listener)
@@ -80,7 +83,10 @@ function rig(): Rig {
     },
   }
   const reads = createReadFence({ enabled: true })
-  const handle = mobxPoolArm.create(reads.wrapSource(counted), localsSource, reads)
+  // The load window never fires on its own: a test closes it (`pool.hydrate()`).
+  const handle = mobxPoolArm.create(reads.wrapSource(counted), localsSource, reads, {
+    schedule: () => () => {},
+  })
   return {
     replay,
     locals,
@@ -133,7 +139,7 @@ describe('enforcement', () => {
     expect(state.reactionRequiresObservable).toBe(true)
     const r = rig()
     try {
-      const id = corpus.sliceIssues[0]!.id
+      const id = openIssues[0]!.id
       const model = tracked(() => r.handle.pool.issue(id)!)
       expect(() => model.view).toThrow(/trapped.*outside a reactive context/)
       expect(trap.warnings.length).toBe(1)
@@ -145,18 +151,21 @@ describe('enforcement', () => {
 })
 
 describe('ingest', () => {
-  it('bootstraps every row into its table and builds no model until one is read', () => {
+  it('bootstraps every resident row into its table and builds no model until one is read', () => {
     const r = rig()
     try {
       const { pool } = r.handle
       const sizes = tracked(() => ENTITIES.map((entity) => pool.tables[entity].size))
       const repos = new Set(corpus.sliceWorktrees.map((lane) => lane.repoId).filter(Boolean))
-      expect(sizes).toEqual([
+      // Hot plus cold is every row; the split itself is residency.test.ts's.
+      const cold = ENTITIES.map((entity) => pool.residency?.size(entity) ?? 0)
+      expect(sizes.map((size, i) => size + cold[i]!)).toEqual([
         corpus.sliceIssues.length,
         corpus.sliceSessions.length,
         corpus.sliceWorktrees.length,
         repos.size,
       ])
+      expect(sizes[0]).toBe(openIssues.length)
       expect(repos.size).toBeGreaterThan(0)
       for (const entity of ENTITIES) expect(pool.modelCount(entity), entity).toBe(0)
       expect(pool.stats.counters.modelsCreated).toBe(0)
@@ -170,7 +179,7 @@ describe('ingest', () => {
     const all = observeAll(r.handle)
     try {
       const { pool } = r.handle
-      const id = corpus.sliceIssues[3]!.id
+      const id = openIssues[3]!.id
       const stored = runInAction(() => pool.tables.issue.get(id))
       expect(r.reads.isBorrowed(stored)).toBe(true)
       const before = all.views.get(id)
@@ -201,7 +210,7 @@ describe('ingest', () => {
     const all = observeAll(r.handle)
     try {
       const { pool } = r.handle
-      const id = corpus.sliceIssues.find((issue) => !issue.draft)!.id
+      const id = openIssues.find((issue) => !issue.draft)!.id
       const before = new Map(all.views)
       pool.stats.reset()
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Renamed by the test' })] })
@@ -223,10 +232,18 @@ describe('ingest', () => {
     const r = rig()
     try {
       const { pool } = r.handle
-      const keep = r.replay.source.snapshot('issue').slice(0, 5)
-      const renamed = issueRecord(corpus.sliceIssues[7]!.id, { title: 'Reseeded' })
+      const open = new Set(openIssues.map((issue) => issue.id))
+      const keep = r.replay.source
+        .snapshot('issue')
+        .filter((row) => open.has(row.id))
+        .slice(0, 5)
+      const renamed = issueRecord(openIssues[7]!.id, { title: 'Reseeded' })
       const sessions = r.replay.source.snapshot('session').slice(0, 3)
       const lanes = r.replay.source.snapshot('worktree')
+      const hotBefore = tracked(() => [pool.issueIds.length, pool.tables.session.size] as const)
+      // Kept sessions that were cold: their issue is not in the new slice, so
+      // the re-partition makes them resident (installed: one write each).
+      const warmed = sessions.filter((row) => pool.residency?.isCold('session', row.id)).length
       const seen: [number, number][] = []
       const watch = autorun(() => {
         seen.push([pool.issueIds.length, pool.tables.session.size])
@@ -235,19 +252,18 @@ describe('ingest', () => {
       pool.stats.reset()
       r.push({ type: 'replace', rows: [...sessions, ...keep, renamed, ...lanes] })
       watch()
-      expect(seen).toEqual([
-        [corpus.sliceIssues.length, corpus.sliceSessions.length],
-        [6, 3],
-      ])
+      expect(seen).toEqual([[...hotBefore], [6, 3]])
       expect(pool.stats.notifications).toBe(1)
       const heldAfter = runInAction(() => keep.map((row) => pool.tables.issue.get(row.id)))
       expect(heldAfter).toEqual(heldBefore)
       for (const [i, row] of heldAfter.entries()) expect(row).toBe(heldBefore[i])
-      const removed = corpus.sliceIssues.length - 6 + corpus.sliceSessions.length - 3
+      const removed = hotBefore[0] - 6 + hotBefore[1] - (3 - warmed)
       expect(pool.stats.counters.rowsRemoved).toBe(removed)
-      // Every write was a removal or the one renamed row: the kept rows and
-      // lanes were not rewritten.
-      expect(pool.stats.counters.tableWrites).toBe(removed + 1)
+      // Every write was a removal, the one renamed row or a warmed session:
+      // the kept rows and lanes were not rewritten.
+      expect(pool.stats.counters.tableWrites).toBe(removed + 1 + warmed)
+      expect(pool.residency?.size('issue')).toBe(0)
+      expect(pool.residency?.size('session')).toBe(0)
     } finally {
       r.dispose()
     }
@@ -257,7 +273,7 @@ describe('ingest', () => {
     const r = rig()
     try {
       const { pool } = r.handle
-      const id = corpus.sliceIssues.find((issue) => !issue.draft)!.id
+      const id = openIssues.find((issue) => !issue.draft)!.id
       const titles: (string | undefined)[] = []
       const watch = autorun(() => {
         titles.push(pool.issue(id)?.view?.title)
@@ -303,7 +319,7 @@ describe('locals', () => {
     const r = rig()
     const all = observeAll(r.handle)
     try {
-      const [a, b] = corpus.sliceIssues.map((issue) => issue.id)
+      const [a, b] = openIssues.map((issue) => issue.id)
       r.locals.set({ selectedIssueId: a! })
       r.locals.flush()
       expect(all.views.get(a!)?.selected).toBe(true)
@@ -321,9 +337,16 @@ describe('locals', () => {
 
   it('a tick re-derives only the rows whose deadline it crosses', () => {
     const r = rig()
+    // The grace crossings are closed rows, cold at bootstrap: load every
+    // closed issue first, so the tick meets the rows a1 measured.
+    const { pool } = r.handle
+    tracked(() => {
+      for (const issue of corpus.sliceIssues) pool.resident('issue', issue.id)
+    })
+    pool.hydrate()
+    expect(pool.residency?.size('issue')).toBe(0)
     const all = observeAll(r.handle)
     try {
-      const { pool } = r.handle
       const waiting = pool.clock.waiting
       expect(waiting).toBeGreaterThan(0)
       let crossings = pool.clock.crossings
@@ -368,11 +391,16 @@ describe('dispose', () => {
       r.handle.mountWeb(el)
     })
     const { pool } = r.handle
-    expect(el.querySelectorAll('[data-issue-row]').length).toBe(corpus.sliceIssues.length)
+    expect(el.querySelectorAll('[data-issue-row]').length).toBe(openIssues.length)
     const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
     expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(
-      corpus.sliceIssues.length / 2,
+      openIssues.length / 2,
     )
+    // A reader asked for a cold row: queued, and disposal must drop the
+    // queue with everything else.
+    const closed = corpus.sliceIssues.find((issue) => issue.closedAt != null)!
+    expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
+    expect(pool.residency?.hasQueued()).toBe(true)
     const models = tracked(() => pool.issueIds.map((id) => pool.issue(id)!))
     r.locals.set({ selectedIssueId: models[0]!.id })
     r.locals.flush()
@@ -394,6 +422,8 @@ describe('dispose', () => {
     expect(getObserverTree(pool, 'issueIds').observers ?? []).toEqual([])
     for (const model of models) expect(getObserverTree(model, 'view').observers ?? []).toEqual([])
     expect(pool.clock.waiting).toBe(0)
+    expect(pool.residency?.hasQueued()).toBe(false)
+    expect(ENTITIES.map((entity) => pool.residency?.size(entity))).toEqual([0, 0, 0, 0])
     expect(_getGlobalState().pendingReactions.length).toBe(0)
     // After disposal the feed can publish; nothing listens.
     r.push({ type: 'update', rows: [issueRecord(models[1]!.id, { title: 'after dispose' })] })
