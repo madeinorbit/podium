@@ -105,18 +105,16 @@ describe('gen through the engine', () => {
         }
 
         // Every applied row change reached the feed under its own id: a real
-        // change, not a synthesised one. EXCEPT a worktree: it arrives through
-        // discovery (`worktreesChanged` → `refreshRepos`), which the per-row
-        // feed does not publish (worktree lanes emit only for a kernel `repos`
-        // address; POD-4553 documents it as inherited). The engine's own repos
-        // prove the change landed.
+        // change, not a synthesised one. A worktree arrives through discovery
+        // (`worktreesChanged` → `refreshRepos`), not a kernel row; the feed
+        // emits its lane by path all the same (POD-4606), and the engine's own
+        // repos prove the change landed.
         const lanes = new Set(
           run.ctx.engine.getSnapshot().repos.flatMap((r) => (r.worktrees ?? []).map((w) => w.path)),
         )
         const reach = (m: RowChange, ids: Set<string>, where: string): void => {
           if (m.kind === 'newWorktree') {
             expect(lanes.has(m.path), `${where} worktree ${m.path} missing from the engine`).toBe(true)
-            return
           }
           expect(ids.has(targetOf(m)), `${where} ${m.kind} ${targetOf(m)} missing from the feed`).toBe(true)
         }

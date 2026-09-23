@@ -1031,6 +1031,16 @@ class KeyedCache implements KernelCacheRead {
   }
 }
 
+/** One discovery answer, fresh objects per call: a repo root with a linked
+ *  worktree (which the scan also reports as a standalone entry, dropped), and
+ *  an originless root. Three lanes. */
+const FENCE_DISCOVERY = (): unknown[] => [
+  { path: '/fence-a', repoId: 'rf', branch: 'main', worktrees: [{ path: '/fence-a/wt', branch: 'task' }] },
+  { path: '/fence-a/wt', repoId: 'rf', branch: 'task', worktrees: [] },
+  { path: '/fence-b', branch: 'main', worktrees: [] },
+]
+const FENCE_DISCOVERY_LANES = 3
+
 /** Live-shaped sizes (round two's GROWTH_CORPORA x1; x4 is four times it). */
 const FENCE_SCALES = {
   x1: { issues: 4867, sessions: 4304 },
@@ -1158,7 +1168,9 @@ async function runFence(
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
-  const { api } = makeApi()
+  const discovery: { repos: unknown[] } = { repos: [] }
+  const { api } = makeApi(discovery)
+  const hub = new FakeHub()
   const engine = createClientRuntime({
     principal: asClientPrincipal(asUserId('operator')),
     config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
@@ -1168,7 +1180,7 @@ async function runFence(
     },
     createReplicaFn: () => replica,
     routerWindow: makeRouterWindow() as never,
-    createHub: () => new FakeHub() as unknown as SocketHub,
+    createHub: () => hub as unknown as SocketHub,
   })
   engine.start()
   await settle(100)
@@ -1252,6 +1264,15 @@ async function runFence(
     await step('heartbeat after settle', () =>
       upsert('session', 's0', { ...session(0), lastActiveAt: at(9e9 + 99) }),
     )
+    // POD-4606: discovery alone. The answer is the batch, the same size at
+    // both scales; the corpus is never read.
+    const discover = async (repos: unknown[]): Promise<void> => {
+      discovery.repos = repos
+      hub.emit('worktreesChanged')
+      await waitFor(() => engine.getSnapshot().repos === repos, 'discovery to publish')
+    }
+    await step('discovery', () => discover(FENCE_DISCOVERY()))
+    await step('discovery, nothing visible moved', () => discover(FENCE_DISCOVERY()))
   } finally {
     off()
     handle.dispose()
@@ -1284,6 +1305,19 @@ describe('visited-per-publication fence at 1x and 4x (real runtime)', () => {
       for (const [scale, table] of Object.entries(tables)) {
         for (const [name, cost] of Object.entries(table)) {
           const where = `${mode} ${scale} ${name}`
+          if (name.startsWith('discovery')) {
+            // The answer is read (bounded by its own length, never the
+            // corpus) in one pass; every lane it names is visited.
+            const answer = FENCE_DISCOVERY().length
+            expect(cost.elementReads, `${where}: reads bounded by the answer`).toBeGreaterThan(0)
+            expect(cost.elementReads, `${where}: reads bounded by the answer`).toBeLessThanOrEqual(2 * answer)
+            expect(cost.enumerations, `${where}: one pass over the answer`).toBe(1)
+            expect(cost.visited, `${where}: visited == the answer's lanes`).toBe(FENCE_DISCOVERY_LANES)
+            expect(cost.rowsEmitted, `${where}: lanes that moved`).toBe(
+              name === 'discovery' ? FENCE_DISCOVERY_LANES : 0,
+            )
+            continue
+          }
           expect(cost.elementReads, `${where}: no collection element read`).toBe(0)
           expect(cost.enumerations, `${where}: no whole-slice pass`).toBe(0)
           const expected = ADDRESSED[name]
