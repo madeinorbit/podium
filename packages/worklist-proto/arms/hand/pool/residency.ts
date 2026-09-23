@@ -253,6 +253,13 @@ export class Residency {
     return this.queue.size > 0
   }
 
+  /** Rows queued for the open window. */
+  queued(): number {
+    let count = 0
+    for (const ids of this.queue.values()) count += ids.size
+    return count
+  }
+
   /** Close the window now: the queued rows, cleared. */
   take(): [LoadableEntity, string][] {
     this.cancel?.()

@@ -488,6 +488,30 @@ export class HandPool {
     this.commitIngest(out)
   }
 
+  /** Rows queued for a load that has not landed yet (the fence refuses a step that leaves any). */
+  pendingLoads(): number {
+    return this.residency?.queued() ?? 0
+  }
+
+  /**
+   * Land every pending load NOW, and whatever those loads queue in turn,
+   * until nothing is queued: one commit per round, as the window would. The
+   * rows installed are returned, so a caller can charge them to the change
+   * that asked for them (the shared fence's drain hook, POD-4568's G2).
+   */
+  drainLoads(): number {
+    const residency = this.residency
+    if (residency === null) return 0
+    const before = residency.counters.hydrated
+    for (let round = 0; residency.hasQueued(); round += 1) {
+      if (round >= MAX_SETTLE_ROUNDS) {
+        throw new Error(`[pool] loads did not drain in ${MAX_SETTLE_ROUNDS} rounds`)
+      }
+      this.hydrate()
+    }
+    return residency.counters.hydrated - before
+  }
+
   /** The resident issue ids, untracked (the rebuild's residency input). */
   residentIssueIds(): ReadonlySet<string> {
     return new Set(issueIdsOf(this.tables.issue))

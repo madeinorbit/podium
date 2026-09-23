@@ -868,13 +868,15 @@ describe('the reads fence and the write record', () => {
    * independent of b. Counted twice: by the engine (`indexUpdates`, at most 4
    * per edge: the member and the forward entry, detach or attach), and by an
    * instrument the engine cannot under-report to — every `Set` add, delete
-   * and iterator step, and every element an `Array.prototype.sort` is handed,
+   * and iterator step, every `Map` set, delete and iterator step (POD-4580,
+   * the coordinator's G3: a claim counted from outside patches plain `Map`
+   * too), and every element an `Array.prototype.sort` is handed,
    * process-wide, for the ingest. The same count at b = 4,000 and b = 8,000
-   * is the O(1) claim; the planted copy-and-sort (the MobX shape) must break
-   * it.
+   * is the O(1) claim; the planted copy-and-sort (the MobX shape) and a
+   * planted copy of the forward `Map` must each break it.
    */
   describe('bucket upkeep is O(1) in the bucket (M3 F1)', () => {
-    /** Elements any `Set` or sort touched while `run` ran. */
+    /** Elements any `Set`, `Map` or sort touched while `run` ran. */
     function elementOps(run: () => void): number {
       type Method = (this: unknown, ...args: unknown[]) => unknown
       type Patched = { [name: string]: Method }
@@ -882,6 +884,9 @@ describe('the reads fence and the write record', () => {
         [Set.prototype as unknown as Patched, 'add', () => 1],
         [Set.prototype as unknown as Patched, 'delete', () => 1],
         [Object.getPrototypeOf(new Set<unknown>().values()) as Patched, 'next', () => 1],
+        [Map.prototype as unknown as Patched, 'set', () => 1],
+        [Map.prototype as unknown as Patched, 'delete', () => 1],
+        [Object.getPrototypeOf(new Map<unknown, unknown>().entries()) as Patched, 'next', () => 1],
         [Array.prototype as unknown as Patched, 'sort', (self) => (self as unknown[]).length],
       ]
       let ops = 0
@@ -947,6 +952,21 @@ describe('the reads fence and the write record', () => {
       }
     }
 
+    /** A `Map`-shaped copy: every membership change rebuilds the link's forward map. */
+    function forwardCopy(r: Rig): void {
+      type Linked = { forward: Map<string, string> }
+      const engine = r.pool.engine as unknown as {
+        point(link: Linked, id: string, target: string | null): void
+      }
+      const point = engine.point.bind(engine)
+      engine.point = (link, id, target) => {
+        point(link, id, target)
+        const copy = new Map(link.forward)
+        link.forward.clear()
+        for (const [key, value] of copy) link.forward.set(key, value)
+      }
+    }
+
     it('one add and one remove in a bucket of 4,000 touch what they touch in one of 8,000, at most 4 elements each', () => {
       const at4k = upkeep(4_000)
       const at8k = upkeep(8_000)
@@ -966,6 +986,15 @@ describe('the reads fence and the write record', () => {
       expect(at4k.remove.ops).toBeGreaterThan(4_000)
       expect(at8k.add.ops).toBeGreaterThan(at4k.add.ops)
       writeResult('hand-pool-bucket-upkeep-plant', { plant: 'copy-and-sort', at4k, at8k })
+    })
+
+    it('a planted copy of the forward Map fails the bound (the Map patch is armed)', () => {
+      const at4k = upkeep(4_000, forwardCopy)
+      const at8k = upkeep(8_000, forwardCopy)
+      expect(at4k.add.ops).toBeGreaterThan(4_000)
+      expect(at4k.remove.ops).toBeGreaterThan(4_000)
+      expect(at8k.add.ops).toBeGreaterThan(at4k.add.ops)
+      writeResult('hand-pool-bucket-upkeep-map-plant', { plant: 'forward-map copy', at4k, at8k })
     })
   })
 })

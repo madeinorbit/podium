@@ -297,6 +297,29 @@ describe('the loader', () => {
     expect(diffResidency(pool, r.replay.source)).toEqual([])
   })
 
+  it('drains pending loads on demand, following what they queue, and counts the rows', () => {
+    const r = rig()
+    const { pool } = r
+    const { issue, sessions } = closedWithSessions(1)
+    // A reader of the closed issue's row: once the issue lands, its view asks
+    // for its cold sessions, which queue in turn.
+    const row = watch(pool, () =>
+      pool.resident('issue', issue.id) === 'resident'
+        ? (pool.view(issue.id)?.loading ?? false)
+        : 'waiting',
+    )
+    expect(pool.pendingLoads()).toBe(1)
+    expect(r.handle.pendingLoads()).toBe(1)
+    const landed = r.handle.drainLoads()
+    row.stop()
+    expect(landed).toBe(1 + sessions.length)
+    expect(pool.pendingLoads()).toBe(0)
+    expect(row.seen).toEqual(['waiting', true, false])
+    for (const session of sessions) expect(pool.tables.session.has(session.sessionId)).toBe(true)
+    // Nothing queued: a drain is free.
+    expect(r.handle.drainLoads()).toBe(0)
+  })
+
   it('counts a hydration as one read of that row in the reads fence', () => {
     const r = rig()
     const { pool } = r

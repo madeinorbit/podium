@@ -34,7 +34,6 @@
  * the oracle changed that was not drawn is a row the pool holds cold.
  */
 
-import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { assertCommits, assertReads, mountArmForCounts } from '../../../harness/src/count-harness'
 import {
@@ -71,22 +70,12 @@ describe('fence steps #1, #3, #4, #8, #8b', () => {
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
     try {
       // POD-4580: drawn rows reach cold ones (open issues with closed origins
-      // on the live-shaped fixture), so the mount queues loads. Close the
-      // window before counting, under act as the mount's redraw commits, then
-      // start the log, stats and reads from zero: the counted steps see a
-      // settled pool and no load lands inside one.
+      // on the live-shaped fixture), so the mount queues loads. The window
+      // never closes on its own here, so none of them lands inside a counted
+      // step. Draining them per step, and charging them to it, is the shared
+      // fence's hook (POD-4568, G2); the arm offers `drainLoads()`.
       const { pool } = mounted.handle as HandPoolHandle
-      let rounds = 0
-      while (pool.residency?.hasQueued() && rounds < 100) {
-        act(() => {
-          pool.hydrate()
-        })
-        rounds += 1
-      }
-      expect(pool.residency?.hasQueued()).toBe(false)
-      mounted.log.reset()
-      mounted.handle.stats.reset()
-      mounted.reads.reset()
+      expect(pool.pendingLoads()).toBeGreaterThan(0)
       const cells = []
       for (const step of STEPS) {
         const entry = FENCE_SCENARIOS.find(

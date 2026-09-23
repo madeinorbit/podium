@@ -32,6 +32,10 @@ const PoolNativeList = lazy(() => import('./native/list'))
 export interface HandPoolHandle extends CheckableArmHandle {
   /** The live pool (tests; the copy sweep reaches the tables through it). */
   readonly pool: HandPool
+  /** Rows queued for a load that has not landed (POD-4580). */
+  pendingLoads(): number
+  /** Land every pending load now; returns the rows installed (POD-4580). */
+  drainLoads(): number
 }
 
 export const handPoolArm = {
@@ -63,6 +67,8 @@ export const handPoolArm = {
     return {
       pool,
       stats: pool.stats,
+      pendingLoads: () => pool.pendingLoads(),
+      drainLoads: () => pool.drainLoads(),
       snapshot: () => pool.snapshot(),
       rebuildFromScratch: () => rebuildSnapshot(source, locals, pool.residentIssueIds()),
       dispose(): void {
