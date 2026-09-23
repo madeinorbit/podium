@@ -41,7 +41,7 @@ import {
   ownPartOf,
   prefixPartOf,
   type RepoRow,
-  repoIdPartOf,
+  repoTargetPartOf,
   sessionActivityOf,
   sessionIdsPartOf,
   type ViewInputs,
@@ -103,7 +103,7 @@ export class IssueModel extends EntityModel implements IssueParts {
     super('issue', id, host)
     makeObservable(this, {
       own: computedStruct,
-      repoId: computed,
+      repoTarget: computed,
       prefix: computed,
       displayRef: computed,
       displayTitle: computed,
@@ -121,12 +121,12 @@ export class IssueModel extends EntityModel implements IssueParts {
     return ownPartOf(this.host.inputs, this.id)
   }
 
-  get repoId(): string | null {
-    return repoIdPartOf(this.host.inputs, this.id)
+  get repoTarget(): string | null {
+    return repoTargetPartOf(this.host.inputs, this.id)
   }
 
   get prefix(): string | null {
-    return prefixPartOf(this.host.inputs, this.repoId)
+    return prefixPartOf(this.host.inputs, this.repoTarget)
   }
 
   get displayRef(): string | undefined {

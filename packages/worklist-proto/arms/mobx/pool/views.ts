@@ -76,7 +76,7 @@ export interface RepoRow {
  * computed on the issue model), so a change re-runs only the parts that read
  * it, and a part whose value did not move stops the propagation there.
  *
- * Relations are split in two: the TARGET (`repoId`, `originRef`: the
+ * Relations are split in two: the TARGET (`repoTarget`, `originRef`: the
  * engine's `one()`, which reads the relation's forward slot and the target's
  * presence, never the own row) and the target's FIELDS (`prefix`,
  * `originTick`). A rename of the row re-runs neither; an origin's rename
@@ -89,7 +89,7 @@ export interface IssueParts {
   /** The row-only fields; undefined when the issue is not in the pool. */
   readonly own: OwnPart | undefined
   /** `issue.repo`, resolved by the engine: a present repo's id, or null. */
-  readonly repoId: string | null
+  readonly repoTarget: string | null
   readonly prefix: string | null
   readonly displayRef: string | undefined
   readonly displayTitle: string | undefined
@@ -292,13 +292,13 @@ function firstMemberOf(input: ViewInputs, sessionIds: readonly string[]): SliceS
 }
 
 /** `issue.repo` through the engine (declared in the schema): the repo's id, or null. */
-export function repoIdPartOf(input: ViewInputs, id: string): string | null {
+export function repoTargetPartOf(input: ViewInputs, id: string): string | null {
   return input.relations.one('issue', id, 'repo')
 }
 
 /** The resolved repo's prefix (one hop), or null. */
-export function prefixPartOf(input: ViewInputs, repoId: string | null): string | null {
-  return repoId === null ? null : (input.repo(repoId)?.prefix ?? null)
+export function prefixPartOf(input: ViewInputs, repoTarget: string | null): string | null {
+  return repoTarget === null ? null : (input.repo(repoTarget)?.prefix ?? null)
 }
 
 /** `prefix-seq`, else `#seq`, from the parts (spec §3 R-SUM). */
@@ -404,11 +404,11 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
     get own() {
       return ownPartOf(input, id)
     },
-    get repoId() {
-      return repoIdPartOf(input, id)
+    get repoTarget() {
+      return repoTargetPartOf(input, id)
     },
     get prefix() {
-      return prefixPartOf(input, parts.repoId)
+      return prefixPartOf(input, parts.repoTarget)
     },
     get displayRef() {
       return displayRefPartOf(parts.own, parts.prefix)
