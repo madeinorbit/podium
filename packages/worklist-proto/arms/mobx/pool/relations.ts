@@ -461,9 +461,19 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           ? link.coldBuckets.get(target)
           : observed
         let created = false
+        let adopted = false
         if (bucket === undefined) {
           bucket = plain ? new Set<string>() : newBucket(link)
           created = true
+          // A resident target whose bucket is still a plain twin (`promote`
+          // runs first on every path today): take its members along.
+          const twin = plain ? undefined : link.coldBuckets.get(target)
+          if (twin !== undefined) {
+            link.coldBuckets.delete(target)
+            for (const member of twin) bucket.add(member)
+            this.touched(twin.size)
+            adopted = true
+          }
         }
         let elements = 0
         for (const [member, added] of moves) {
@@ -472,7 +482,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
           else bucket.delete(member)
           elements += 1
         }
-        if (elements === 0) continue
+        if (elements === 0 && !adopted) continue
         if (bucket.size === 0) {
           if (plain) link.coldBuckets.delete(target)
           else link.buckets.delete(target)

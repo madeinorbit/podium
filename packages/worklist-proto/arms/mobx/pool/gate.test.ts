@@ -45,9 +45,14 @@
  *   which reads no residency from the pool, must catch a relation error
  *   confined to cold rows. (The checkpoint cannot: loading a row relinks it
  *   from its current value, so this error heals when everything loads.)
- * - `promoteSkipped`: a row that becomes resident keeps its relation slots in
- *   the plain twins. Checked with the per-step checks OFF: the checkpoint
- *   alone must catch it.
+ * - `promoteSkipped`: a SESSION that becomes resident keeps its relation
+ *   slots in the plain twins. Checked with the per-step checks OFF: the
+ *   checkpoint alone must catch it. Sessions only since the POD-4568 rework
+ *   (M3 F2): the row views now read the engine's `issue.repo` forward slot,
+ *   so an issue's skipped promotion breaks `displayRef` and the per-step
+ *   rebuild catches it first (all three seeds of the default run, e.g. seed 1
+ *   `i168: displayRef "#169" (expected "POD-169")`). No view reads a
+ *   session's forward slots, so the checkpoint stays the only catcher.
  * The cells count cold-row work AFTER each bootstrap and before the
  * checkpoint: registry writes (a cold row's update, insert or removal), loads
  * on access, rows warmed by a reopen or removal.
@@ -147,11 +152,17 @@ const coldRelinkSkipped: CheckableArm = {
   },
 }
 
-/** The checkpoint's plant: resident rows keep their relation slots plain. */
+/** The checkpoint's plant: resident sessions keep their relation slots plain. */
 const promoteSkipped: CheckableArm = {
   create(source, locals, reads) {
     const handle = mobxPoolArm.create(source, locals, reads)
-    ;(handle.pool.graph as unknown as { promote: () => void }).promote = () => {}
+    const graph = handle.pool.graph as unknown as {
+      promote: (entity: string, id: string) => void
+    }
+    const promote = graph.promote.bind(graph)
+    graph.promote = (entity, id) => {
+      if (entity !== 'session') promote(entity, id)
+    }
     return handle
   },
 }
