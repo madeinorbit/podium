@@ -22,7 +22,7 @@
  * Claude Code, Codex, Grok, Cursor or opencode exist. Which CLI is being
  * driven, and how, belongs to the harness adapters — behavioral branching on
  * harness identity lives there and only there (ADR 8 D4; the rewrite's
- * "variance at the edge" axiom). Speaks @podium/protocol geometry types.
+ * "variance at the edge" axiom). Speaks @podium/model geometry types.
  *
  * Doors (P2a): no `export *` remains in this package. Each subpath exports a
  * named list; the root re-exports `./pty` + `./screen` only. The

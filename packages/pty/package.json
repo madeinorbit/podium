@@ -40,7 +40,6 @@
   "dependencies": {
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
-    "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@xterm/headless": "^5.5.0"
   },
