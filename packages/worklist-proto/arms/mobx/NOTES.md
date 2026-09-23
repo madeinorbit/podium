@@ -96,7 +96,18 @@ entries, buckets). Models built: 0 in every cell.
   the heartbeat's closed root and its session are cold, so the heartbeat is a
   registry write and the a1 list never drew the hidden row Ma2 redrew. #4
   still redraws an open hidden spin-off (`i933`): Mb1's.
-- **Correctness gate** (`gate.test.ts`): GATE_PENDING
+- **Correctness gate** (`gate.test.ts`, `results/mobx-pool-gate-1x.json`,
+  seeds 1-3 x 200 steps, 729 s at load ~8-9, green): every step compares the
+  settled snapshot with the rebuild, every relation of every known row
+  (cold included) with a scan, and the hot/cold partition with the feed; the
+  last step runs the full-residency checkpoint. Cold-row work after
+  bootstrap, per seed: registry writes 63 / 79 / 70, rows warmed by a reopen
+  or removal 12 / 11 / 10, loads on access 27 / 0 / 0 (seeds 2-3 load only at
+  the checkpoint: no drawn row reached a cold one). Plants, each failing
+  every seed: removal-deaf (steps 15 / 56 / 21, rebuild); cold-deaf (9 /
+  26 / 7, partition then relations); relink-only with the checkpoint off (31
+  / 26 / 8, the per-step relation check); promotion-skipped with the
+  per-step checks off (the checkpoint, at step 199).
 - **Bootstrap walls**: WALLS_PENDING
 
 ### Findings
