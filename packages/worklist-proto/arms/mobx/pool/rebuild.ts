@@ -23,10 +23,9 @@
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { sliceRowOf } from '../../../shared/src/row-view'
-import { type EntityName, SCHEMA } from '../../../shared/src/schema'
+import { coldByRule, type EntityName, SCHEMA } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
 import { scanRelations } from './enumerate'
-import { coldByRule } from './residency'
 import { createPlainTables, ingestOut, ingestRecord } from './tables'
 import {
   buildRowView,

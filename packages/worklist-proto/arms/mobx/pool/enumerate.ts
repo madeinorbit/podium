@@ -29,15 +29,17 @@ import type { RowSource } from '../../../shared/src/arm'
 import type { RelationReader } from '../../../shared/src/instrument/reads'
 import {
   type CollapseMember,
+  coldByRule,
   collapseLosers,
   type EntityName,
   longestPrefixPath,
   type ModelSchema,
   SCHEMA,
+  viaTargetOf,
 } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
 import { isLinkSpec, relationRef } from './relations'
-import { coldByRule, type Residency, viaTargetOf } from './residency'
+import type { Residency } from './residency'
 import {
   createPlainTables,
   drop,

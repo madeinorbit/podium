@@ -3,8 +3,8 @@
  * cold row comes in (schema doc §5; audit §7, Linear's partial bootstrap).
  *
  * THE RULE, FROM THE SCHEMA. `schema[entity].cold` decides, per row, whether
- * it may stay out of memory (`coldByRule`; the rebuild uses the same
- * function): `own` is the entity's predicate over its row (an issue with a
+ * it may stay out of memory (`coldByRule` in `shared/src/schema.ts`, one
+ * rule for both arms, the rebuild and the gate): `own` is the entity's predicate over its row (an issue with a
  * `closedAt`); `via` inherits it through a declared `belongsTo`: the row is
  * cold when the foreign key names a known row that is itself cold by rule (a
  * session of a closed issue). The foreign key is read raw: residency follows
@@ -47,10 +47,13 @@
  */
 
 import { createAtom, type IAtom } from 'mobx'
-import type { EntityName, ModelSchema } from '../../../shared/src/schema'
+import {
+  coldByRule,
+  type EntityName,
+  type ModelSchema,
+  viaTargetOf,
+} from '../../../shared/src/schema'
 import { drop, type IngestOut, type IngestTarget, put, type StoredRow } from './tables'
-
-type Row = Readonly<Record<string, unknown>>
 
 /** The kinds the feed can read by id (`RowSource.row`). */
 export type LoadableEntity = 'issue' | 'session'
@@ -67,40 +70,6 @@ export const LOAD_WINDOW_MS = 50
 /** Whether the feed can read rows of `entity` by id. */
 function loadable(entity: EntityName): entity is LoadableEntity {
   return entity === 'issue' || entity === 'session'
-}
-
-/**
- * Whether `row` of `entity` may stay out of memory, by the schema's `cold`
- * spec. `coldTarget(to, id)` answers for a `via` row's referenced row (the
- * pool asks its registry and tables; the rebuild asks the feed).
- */
-export function coldByRule(
-  schema: ModelSchema,
-  entity: EntityName,
-  row: object,
-  coldTarget: (to: EntityName, id: string) => boolean,
-): boolean {
-  const spec = schema[entity].cold
-  if (spec.kind === 'never') return false
-  if (spec.kind === 'own') return spec.predicate(row as Row)
-  const target = viaTargetOf(schema, entity, row)
-  return target !== null && coldTarget(target.to, target.id)
-}
-
-/** The row a `via` entity inherits residency from, or null (raw foreign key). */
-export function viaTargetOf(
-  schema: ModelSchema,
-  entity: EntityName,
-  row: object,
-): { readonly to: EntityName; readonly id: string } | null {
-  const spec = schema[entity].cold
-  if (spec.kind !== 'via') return null
-  const relation = schema[entity].relations[spec.relation]
-  if (relation?.kind !== 'belongsTo') {
-    throw new Error(`[pool] ${entity}.cold.via must name a belongsTo (got ${relation?.kind})`)
-  }
-  const key = (row as Row)[relation.foreignKey]
-  return typeof key === 'string' && key.length > 0 ? { to: relation.to, id: key } : null
 }
 
 export interface ResidencyOptions {

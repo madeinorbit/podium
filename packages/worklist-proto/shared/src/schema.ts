@@ -740,8 +740,8 @@ export function viaTargetOf(
  * `via` is cold when the row it inherits from ({@link viaTargetOf}) is known
  * and cold by rule, which `coldTarget` answers (a pool asks what it holds;
  * a rebuild asks the feed). POD-4580 (Ha3) shares it so a pool, its rebuild
- * and the gate's partition check apply one rule; the MobX arm carries its
- * own copy (`arms/mobx/pool/residency.ts`) until it next changes.
+ * and the gate's partition check apply one rule; both arms import it (the
+ * MobX arm since POD-4568 G2).
  */
 export function coldByRule(
   schema: ModelSchema,
