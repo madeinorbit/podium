@@ -1,32 +1,34 @@
 // @vitest-environment happy-dom
 /**
- * POD-4565 (Ma1) — the fence steps that need no relation, on the live
- * engine: #1 (an unrelated heartbeat) and #4 (a visible title rename).
+ * POD-4568 (Ma4) — the a-phase fence steps on the live engine: #1 (an
+ * unrelated heartbeat), #2 (a visible session phase change), #3 (a selection
+ * click), and #4 (a visible title rename), in methodology order on one
+ * engine, as the roster runs them.
  *
  * ONLY THE SHARED FENCES (coordinator ruling): `assertCommits`,
  * `assertReads` with the shared budgets (`FenceScenario.readsBudget`, from
- * `READ_BUDGETS`) and `assertNoCopies`. No arm-local assertion.
+ * `READ_BUDGETS`) and `assertNoCopies`. No arm-local assertion. No parity:
+ * the a-phase snapshot has no order and stubs the roll-ups, so the roster
+ * entry with every scenario and parity is Mb4's (POD-4572; coordinator
+ * correction of 2026-09-23).
  *
- * WHAT a1 CANNOT MEET, and where it lands. Parity: the a1 snapshot has no
- * order and stubs the roll-ups; the roster entry with every scenario and
- * parity is Mb4's (POD-4572). The commit fence on #4: `assertCommits`
- * compares against the oracle's VISIBLE rows, and the a1 list draws every
- * issue (the visible collection is Mb1, POD-4569). #4 renames an origin, so
- * its hidden spin-off's ⤷ tick changes and is drawn, which the fence counts as
- * an over-commit. #4's commit cell is written to the results file, not
- * asserted; the fence asserts it from Mb1.
+ * THE COMMIT FENCE is asserted on #1-#3. #1 (Ma3): the heartbeat's closed
+ * root and its session are cold, so the heartbeat is a registry write and the
+ * list never drew the row. #2 and #3 change exactly the visible root the
+ * oracle names. #4's commit cell is written, not asserted: #4 renames an
+ * origin, its hidden spin-off (`i933`, open, so resident) redraws its ⤷
+ * tick, and the a1 list draws every resident issue; the visible collection
+ * is Mb1's (POD-4569), which asserts it.
  *
- * #1's commit fence is asserted again from Ma3 (POD-4567). The heartbeat's
- * session belongs to a closed agent-audience root (`scenarios.ts`
- * `heartbeat`), a row the worklist hides. With Ma2 its `activityAt` moved on
- * the heartbeat and the a1 list, drawing every resident issue, redrew it (the
- * fence's over-commit). Now that root and its session are COLD: the
- * heartbeat relinks a registry entry, the list never drew the row, and the
- * fence sees zero drawn rows for zero oracle changes. #4's hidden spin-off
- * (`i933`) is open, so it stays Mb1's.
+ * #2's NO (POD-4568). Before this issue an issue's `activityAt` and draft
+ * title read every member session's ROW on any member's change: #2 read 4
+ * rows (`s34`, its siblings `s35` and `s507`, and `i17`) against a budget of
+ * 3. The parts now re-compose from each member's cached value
+ * (`SessionModel.activityMs`) and a non-draft title reads no member. The
+ * planted pool below restores the row reads and must fail #2's budget.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { assertCommits, assertReads, mountArmForCounts } from '../../../harness/src/count-harness'
 import {
   engineLocals,
@@ -40,6 +42,7 @@ import type { CheckableArm } from '../../../shared/src/arm'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
 import { installMobxWarnTrap } from './mobx-trap'
+import { sessionActivityOf } from './views'
 
 installMobxWarnTrap()
 
@@ -57,9 +60,8 @@ const arm: CheckableArm = {
     mobxPoolArm.create(source, locals, reads, { schedule: () => () => {} }),
 }
 
-describe('fence steps #1 and #4', () => {
+describe('fence steps #1-#4', () => {
   it('meets the shared reads budget and holds no copy', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] })
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
     const mounted = mountArmForCounts(arm, feeds.rows.source, feeds.locals)
@@ -100,7 +102,42 @@ describe('fence steps #1 and #4', () => {
       mounted.unmount()
       feeds.dispose()
       ctx.engine.destroy()
-      vi.useRealTimers()
+    }
+  }, 120_000)
+
+  it('fails #2 when a member change re-reads every member row (the planted pool)', async () => {
+    const planted: CheckableArm = {
+      create(source, locals, reads) {
+        const handle = arm.create(source, locals, reads) as MobxPoolHandle
+        const inputs = handle.pool.inputs as { sessionActivity: (id: string) => number | null }
+        // The pre-POD-4568 shape: each member's row, read again on every run.
+        inputs.sessionActivity = (id) => sessionActivityOf(handle.pool.inputs.session(id))
+        return handle
+      },
+    }
+    const ctx = await startScenarioEngine(1)
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    const mounted = mountArmForCounts(planted, feeds.rows.source, feeds.locals)
+    try {
+      for (const methodology of ['#1', '#2']) {
+        const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === methodology)
+        expect(entry, methodology).toBeDefined()
+        const { result, readsBudget } = await runFenceStep(mounted, ctx, feeds.flush, entry!)
+        if (methodology === '#1') {
+          assertReads(result, { readsPerChange: readsBudget })
+          continue
+        }
+        // Same rows committed as the real pool: only the reads differ.
+        assertCommits(result)
+        expect(() => assertReads(result, { readsPerChange: readsBudget })).toThrow(
+          /visibleSessionPhaseChange \(#2\): read \d+ rows, budget 3/,
+        )
+        expect(result.reads?.byEntity['session']).toBeGreaterThan(1)
+      }
+    } finally {
+      mounted.unmount()
+      feeds.dispose()
+      ctx.engine.destroy()
     }
   }, 120_000)
 })
