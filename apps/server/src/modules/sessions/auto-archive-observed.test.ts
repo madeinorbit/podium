@@ -19,6 +19,7 @@
 import { asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const registries: SessionRegistry[] = []
@@ -35,6 +36,19 @@ async function stoppedAndRead(): Promise<{
 }> {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
+  // Sessions are placed only on an assigned machine with a daemon (34aa06cf2).
+  // The stop asks that daemon whether the tree is clean; a clean tree answers.
+  await attachHostDaemon(reg, (msg) => {
+    if (msg.type !== 'repoOpRequest') return
+    queueMicrotask(() =>
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'repoOpResult',
+        requestId: msg.requestId,
+        ok: true,
+        output: '',
+      }),
+    )
+  })
   const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r' })
   await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
   // Read AFTER the stop: `readAt >= stoppedAt` is one of the preconditions, so a

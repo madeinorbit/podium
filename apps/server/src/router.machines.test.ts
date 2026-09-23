@@ -27,8 +27,14 @@ async function machineCaller() {
     instanceId: 'default',
     pairing: new PairingManager(),
   })
-  await registry.modules.machines.ensureHostMachine('machine-under-test')
+  // The host row setup enrollment writes — owned, and assigned agent execution
+  // (34aa06cf2) — BEFORE the rename, which keeps the row's custodian and would
+  // otherwise leave the host ownerless (6fd4f7221: boot no longer creates it).
   await attachHostDaemon(registry, () => {})
+  await registry.modules.machines.ensureHostMachine('machine-under-test', undefined, {
+    server: true,
+    agentExecution: true,
+  })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
@@ -94,6 +100,8 @@ describe('sessions.create with machineId', () => {
       hostname: 'host-two',
       tokenHash: 'h2',
       ownerUserId: firstAdminMemberId(),
+      // A daemon machine that may run agents (34aa06cf2).
+      assignment: { server: false, agentExecution: true },
     })
     const inventory = fixtureInventory({
       agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
@@ -125,8 +133,14 @@ describe('sessions.create with machineId', () => {
   it('sessions.create works without machineId (falls back to local)', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    await registry.modules.machines.ensureHostMachine('machine-under-test')
+    // The host row setup enrollment writes — owned, and assigned agent execution
+    // (34aa06cf2) — BEFORE the rename, which keeps the row's custodian and would
+    // otherwise leave the host ownerless (6fd4f7221: boot no longer creates it).
     await attachHostDaemon(registry, () => {})
+    await registry.modules.machines.ensureHostMachine('machine-under-test', undefined, {
+      server: true,
+      agentExecution: true,
+    })
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({

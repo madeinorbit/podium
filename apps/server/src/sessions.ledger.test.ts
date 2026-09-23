@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 
 type ProjectionEvent = {
@@ -33,15 +34,24 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     vi.useRealTimers()
   })
 
+  /** Sessions are placed only on an assigned machine with an attached daemon, and
+   *  issues only on a machine that reported their repo (2b803efb5), so the host
+   *  daemon is attached and reports the fixture's issue repo. A restart over an
+   *  existing `store` keeps the posture it had before: no daemon. */
   async function makeRegistry(store?: SessionStore): Promise<SessionRegistry> {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
+    if (!store) await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     return registry
   }
 
   it('awaits metadata persistence and propagates issue attachment failures', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
+    // The issue's repo is reported only AFTER the spawn, as before 2b803efb5: a
+    // session born inside a reported repo takes a draft ref at spawn, and this
+    // test is about the issue ref the attachment allocates.
+    await registry.sessionStore.repos.addRepo('/w', registry.sessionStore.hostMachineId)
     const issue = await registry.issues.create({ repoPath: '/w', title: 'Attachment', startNow: false })
     const sessions = registry.modules.sessions
     const append = vi.spyOn(registry.sessionStore.sync, 'appendChanges').mockRejectedValueOnce(new Error('attach failed'))
@@ -79,7 +89,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       clientId: '',
       wireVersion: CLIENT_WIRE_VERSION,
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['metadataDelta'],
+      // Admission requires the HTTP sync capability (6b22a3650).
+      caps: ['metadataDelta', 'sync.http.v1'],
     })
     await vi.waitFor(() => {
       expect(inbox.some((message) => message.type === 'feedResume')).toBe(true)
@@ -276,6 +287,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it('(f) boot reconcile records offline row changes durably, with no fan-out', async () => {
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await attachHostDaemon(first, () => {})
     const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     await first.dispose()
     const cursor = (await first.modules.sessions.syncChangesSince(null)).cursor
@@ -502,6 +514,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   it('resets the internal generation across restart without disturbing durable ledger order', async () => {
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await attachHostDaemon(first, () => {})
     const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const clientId = attachTestClient(first.clientGateway, () => {})
     await first.clientGateway.routeClientFrame(clientId, { type: 'attach', sessionId })
@@ -1057,6 +1070,8 @@ describe('feed identity on the wire (ADR 2 D1/D5)', () => {
   async function makeRegistry(): Promise<SessionRegistry> {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    // Sessions are placed only on an assigned machine with a daemon (34aa06cf2).
+    await attachHostDaemon(registry, () => {})
     return registry
   }
 

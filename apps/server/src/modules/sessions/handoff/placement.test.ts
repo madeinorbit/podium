@@ -64,13 +64,27 @@ const repo = (over: Partial<HandoffRepo> = {}): HandoffRepo => ({
   ...over,
 })
 
-const onlineTarget = (over: Partial<HandoffMachine> = {}): HandoffMachine => ({
-  id: TARGET,
-  name: 'target box',
-  online: true,
-  inventory: { agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
-  ...over,
-})
+/** The production port hands placement the machine WIRE, whose service
+ *  assignment is what makes it a daemon machine (34aa06cf2: an unassigned row
+ *  "runs no Podium daemon") and whose observed availability says that daemon is
+ *  attached (an assigned machine without it reads as offline). `HandoffMachine`
+ *  names neither field, so the fixture carries them the way the wire does. */
+const DAEMON_MACHINE = {
+  serviceAssignment: { server: false, agentExecution: true },
+  availability: { daemon: true },
+}
+
+const onlineTarget = (over: Partial<HandoffMachine> = {}): HandoffMachine => {
+  const machine: HandoffMachine & typeof DAEMON_MACHINE = {
+    id: TARGET,
+    name: 'target box',
+    online: true,
+    inventory: { agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }] },
+    ...DAEMON_MACHINE,
+    ...over,
+  }
+  return machine
+}
 
 function ports(over: {
   session?: Session | undefined

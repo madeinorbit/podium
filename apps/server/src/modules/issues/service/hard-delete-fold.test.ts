@@ -31,6 +31,9 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
 
   async function build() {
     const store = await openTestStore(':memory:')
+    // Issues are placed on a machine that reported their repo (2b803efb5 refuses
+    // implicit placement), so the fixture's repo is reported by the host machine.
+    await store.repos.addRepo('/repo', store.hostMachineId)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return { store, registry }

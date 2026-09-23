@@ -16,6 +16,9 @@ import { attachHostDaemon } from './test-support/host-daemon'
 
 async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
   const store = await openTestStore(':memory:')
+  // Issues are placed on a machine that reported their repo (2b803efb5 refuses
+  // implicit placement), so the fixture's repo is reported by the host machine.
+  await store.repos.addRepo('/r', store.hostMachineId)
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,

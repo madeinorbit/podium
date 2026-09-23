@@ -677,6 +677,18 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // `wirePlacement: 'not-on-the-wire'` — so the assertion has to be against the
     // durable event, which is where it decided to put it.
     const o = await makeOracle({ machineId: asMachineId('local') })
+    // The daemon the oracle attached is 'local': give it the paired, assigned row
+    // an agent machine has (34aa06cf2), and let it report the issue's repo, which
+    // is the only way an issue is placed (2b803efb5).
+    await o.store.machines.upsertMachine({
+      id: 'local',
+      name: 'local',
+      hostname: 'local',
+      tokenHash: 'hash-local',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
+    })
+    await o.store.repos.addRepo('/r', asMachineId('local'))
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'handoff', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/h' })
     const { sessionId } = await o.call.sessions.create({

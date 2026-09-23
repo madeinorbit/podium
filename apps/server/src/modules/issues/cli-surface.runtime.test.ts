@@ -43,6 +43,9 @@ const registries: SessionRegistry[] = []
 const fresh = async (): Promise<SessionRegistry> => {
   const r = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(r)
+  // Issues are placed on a machine that reported their repo (2b803efb5 refuses
+  // implicit placement), so the fixture's repo is reported by the host machine.
+  await r.sessionStore.repos.addRepo('/r', r.sessionStore.hostMachineId)
   return r
 }
 afterAll(async () => {

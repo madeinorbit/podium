@@ -24,7 +24,7 @@ const bind = (sessionId: SessionId) =>
 
 async function regWithDaemon(store?: SessionStore) {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  await attachHostDaemon(reg, () => {})
+  await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   return reg
 }
 
@@ -65,6 +65,9 @@ function draftFixture() {
 }
 
 async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
+  // Issues are placed on a machine that reported their repo (2b803efb5 refuses
+  // implicit placement), so the host machine reports it first.
+  await reg.sessionStore.repos.addRepo(repo, reg.sessionStore.hostMachineId)
   const draft = await reg.issues.createDraftFor(repo, 'codex')
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'codex',

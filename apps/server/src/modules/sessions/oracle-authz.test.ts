@@ -95,6 +95,8 @@ function classifyRelay(
 /** An oracle with two issues and one agent session living inside issue A. */
 async function twoIssueOracle() {
   const o = await makeOracle()
+  // Issues are placed on a machine that reported their repo (2b803efb5).
+  await o.store.repos.addRepo('/r', o.store.hostMachineId)
   const a = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
   await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
   const b = await o.reg.issues.create({ repoPath: '/r', title: 'issue B', startNow: false })

@@ -11,6 +11,14 @@ import { OPERATOR } from './test-support/capabilities'
 // mirrors router-issues.test.ts and keeps the test off the heavy services.
 const registries: SessionRegistry[] = []
 
+/** Issues are placed on a machine that reported their repo (2b803efb5 refuses
+ *  implicit placement), so the host machine reports the fixture repo. */
+async function newRegistry(): Promise<SessionRegistry> {
+  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
+  return registry
+}
+
 async function caller(rawCapability: Capability, shared?: SessionRegistry) {
   const capability: Capability =
     rawCapability.scope.kind === 'subtree'
@@ -24,7 +32,7 @@ async function caller(rawCapability: Capability, shared?: SessionRegistry) {
           actorUser: rawCapability.actorUser ?? firstAdminMemberId(),
           onBehalfOf: rawCapability.onBehalfOf ?? firstAdminMemberId(),
         }
-  const registry = shared ?? await SessionRegistry.create(undefined, undefined, { instanceId: 'default' }) // in-memory :memory: store
+  const registry = shared ?? await newRegistry() // in-memory :memory: store
   if (!shared) registries.push(registry)
   return appRouter.createCaller({
     registry,
@@ -64,7 +72,7 @@ describe('issues.* capability gate', () => {
   })
 
   it('subtree-scoped worker may start a CHILD inside its subtree without --outside-scope; outside issues are scope-blocked', async () => {
-    const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    const registry = await newRegistry()
     registries.push(registry)
     // No daemon in this harness: a real repoOp would await a machine round-trip forever.
     // Failing it fast keeps the test on what it proves — the AUTHZ gate decision.

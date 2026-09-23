@@ -24,7 +24,7 @@ import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
 import { SessionTerminal, type ViewportRequest } from './terminal'
-import { attachHostDaemon } from '../../test-support/host-daemon'
+import { assignHostMachine, attachHostDaemon } from '../../test-support/host-daemon'
 
 const SESSION = asSessionId('s-request')
 const MACHINE = asMachineId('m-request')
@@ -573,6 +573,9 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(reg)
     const daemon: ControlMessage[] = []
+    // Sessions are placed only on an assigned machine with a daemon (34aa06cf2);
+    // attached directly because this daemon advertises capabilities.
+    await assignHostMachine(reg.sessionStore)
     await reg.gateway.attachDaemon(
       reg.sessionStore.hostMachineId,
       (m: ControlMessage) => daemon.push(m),
@@ -652,11 +655,12 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     const store = await openTestStore(':memory:')
     const first = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(first)
+    await attachHostDaemon(first, () => {})
     const { sessionId } = await first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
     const restarted = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(restarted)
-    await attachHostDaemon(restarted, () => {}, [
+    await restarted.gateway.attachDaemon(restarted.sessionStore.hostMachineId, () => {}, [
       CAP_DAEMON_GEOMETRY_APPLIED,
     ])
     const session = (restarted as unknown as InternalRegistry).modules.sessions.sessions.get(

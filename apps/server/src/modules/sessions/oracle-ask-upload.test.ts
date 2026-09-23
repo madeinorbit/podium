@@ -143,6 +143,8 @@ describe('oracle: sessions.ask (the seance)', () => {
 
   it(`${MUST_NOT_CHANGE}: an ANSWERED ask returns answered:true with the answer, the ack id and a live snapshot`, async () => {
     const o = await makeOracle()
+    // Issues are placed on a machine that reported their repo (2b803efb5).
+    await o.store.repos.addRepo('/r', o.store.hostMachineId)
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const target = await o.reg.modules.sessions.createSession({
@@ -233,6 +235,8 @@ describe('oracle: sessions.ask (the seance)', () => {
 
   it(`${AGENT_ONLY}: ask is NOT relay-reachable — the allowlist refuses it BEFORE the dispatch arm that implements it`, async () => {
     const o = await makeOracle()
+    // Issues are placed on a machine that reported their repo (2b803efb5).
+    await o.store.repos.addRepo('/r', o.store.hostMachineId)
     const a = await o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
     await o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
     const agent = await o.reg.modules.sessions.createSession({

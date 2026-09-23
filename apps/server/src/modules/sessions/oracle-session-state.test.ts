@@ -280,6 +280,8 @@ describe('oracle: setWorkState', () => {
 describe('oracle: setIssueId', () => {
   it(`${MUST_NOT_CHANGE}: attaching an issue is a NAMING POINT (it allocates a ref letter); detaching is not`, async () => {
     const o = await makeOracle()
+    // Issues are placed on a machine that reported their repo (2b803efb5).
+    await o.store.repos.addRepo('/p', o.store.hostMachineId)
     const issue = await o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 

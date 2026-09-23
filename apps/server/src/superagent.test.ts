@@ -12,8 +12,8 @@ import {
 } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
-import { attachDaemonWithInventory } from './test-support/daemon-inventory'
-import { attachHostDaemon } from './test-support/host-daemon'
+import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
+import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
@@ -140,6 +140,10 @@ describe('harnessAllowedTools', () => {
 describe('start_agent tool wiring (issue #60)', () => {
   async function harness() {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    // Sessions are placed only on an assigned machine with a daemon, and issues
+    // only on a machine that reported their repo (2b803efb5).
+    await assignHostMachine(registry.sessionStore)
+    await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
     await attachDaemonWithInventory(registry, registry.sessionStore.hostMachineId, (m) => {
       if (m.type === 'repoOpRequest') {
         queueMicrotask(() =>
@@ -151,7 +155,14 @@ describe('start_agent tool wiring (issue #60)', () => {
           }),
         )
       }
-    })
+    }, fixtureInventory({
+      // An agent spawn requests a headed terminal driver, which the daemon must
+      // advertise (fb68d2f05).
+      runtimeDrivers: [
+        { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+        { harness: 'codex', id: 'codex-pty', family: 'terminal' },
+      ],
+    }))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     await sa.history(firstAdminMemberId())

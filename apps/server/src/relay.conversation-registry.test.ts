@@ -32,6 +32,16 @@ describe('SessionRegistry conversation registry', () => {
 
   it('scan mints podium ids, enriches broadcasts, and resolves subagent parents', async () => {
     const registry = await makeRegistry()
+    // The daemon machine the sessions are placed on: an assigned row with a
+    // daemon attached is the only default machine there is (34aa06cf2).
+    await registry.sessionStore.machines.upsertMachine({
+      id: 'm1',
+      name: 'm1',
+      hostname: 'm1',
+      tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
+    })
     await registry.gateway.attachDaemon('m1', () => {})
     for (const conversationId of ['parent-1', 'sub-1']) {
       const { sessionId } = await registry.modules.sessions.createSession({

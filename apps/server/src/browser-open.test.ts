@@ -27,6 +27,8 @@ async function setup() {
     hostname: 'one',
     tokenHash: 'x',
     ownerUserId: firstAdminMemberId(),
+    // A daemon machine that may run agents (34aa06cf2).
+    assignment: { server: false, agentExecution: true },
   })
   await store.machines.upsertMachine({
     id: 'm2',
@@ -34,6 +36,8 @@ async function setup() {
     hostname: 'two',
     tokenHash: 'y',
     ownerUserId: firstAdminMemberId(),
+    // A daemon machine that may run agents (34aa06cf2).
+    assignment: { server: false, agentExecution: true },
   })
   const inventory = fixtureInventory({
     agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],

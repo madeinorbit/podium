@@ -14,6 +14,14 @@ import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
 
+/** Issues are placed on a machine that reported their repo (2b803efb5 refuses
+ *  implicit placement), so the host machine reports the fixture repo. */
+async function reportingStore(): Promise<SessionStore> {
+  const store = await openTestStore(':memory:')
+  await store.repos.addRepo('/r', store.hostMachineId)
+  return store
+}
+
 function deps(store: SessionStore): IssueDeps {
   return {
     store,
@@ -49,7 +57,7 @@ describe('IssueService boot quarantine', () => {
   })
 
   it('a structurally corrupt row (NULL id) is skipped; the other rows load and boot proceeds', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await reportingStore()
     const svc = await IssueService.create(deps(store))
     const good1 = await svc.create({ repoPath: '/r', title: 'healthy one', startNow: false })
     const good2 = await svc.create({ repoPath: '/r', title: 'healthy two', startNow: false })
@@ -84,7 +92,7 @@ describe('IssueService boot quarantine', () => {
   })
 
   it('bad JSON in a column quarantines the VALUE but keeps the row', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await reportingStore()
     const svc = await IssueService.create(deps(store))
     const w = await svc.create({ repoPath: '/r', title: 'keep me', startNow: false })
     rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id)

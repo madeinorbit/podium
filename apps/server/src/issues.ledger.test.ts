@@ -20,6 +20,9 @@ async function harness() {
   // updatedAt restore is a REAL wire difference the reconcile would append.
   let wallClock = '2026-07-01T00:00:00.000Z'
   const store = await openTestStore(':memory:')
+  // Issues are placed on a machine that reported their repo (2b803efb5 refuses
+  // implicit placement), so the fixture's repo is reported by the host machine.
+  await store.repos.addRepo('/r', store.hostMachineId)
   const ledger = new Ledger({
     repo: store.sync,
     now: () => 1_000,
