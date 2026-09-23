@@ -32,15 +32,15 @@ visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
   input.
 - **A row view is a cell per part** (`pool/views.ts` `PART_RULES`,
   `pool/pool.ts` `IssueCells`): `own` (row-only fields and the clock),
-  `repoRef` → `prefix` → `displayRef`, `displayTitle`, `originRef` →
-  `originId` → `originTick`, `activityAt`, then `view` assembles them and
-  reads no row. A relation is split into its REFERENCE (the foreign key off
-  the own row, `relations.ts` `relationRef`) and its RESOLUTION (the
-  target's presence and fields), so a rename re-runs the reference, which
-  returns the same string, and reads no target; an origin's rename re-runs
-  only its spin-offs' `originTick`. A cell whose new value is structurally
-  equal (`sameData`) keeps its old object, so the row does not redraw and
-  the propagation stops there.
+  `repoId` → `prefix` → `displayRef`, `displayTitle`, `originId` →
+  `originTick`, `activityAt`, then `view` assembles them and reads no row.
+  A single-valued relation is its own part, read through the relation
+  accessor (`relations.one`: the engine's forward slot plus the target's
+  presence), never resolved off the own row, so a rename moves no relation
+  slot and re-runs neither; the target's fields are the next part's. An
+  origin's rename re-runs only its spin-offs' `originTick`. A cell whose new
+  value is structurally equal (`sameData`) keeps its old object, so the row
+  does not redraw and the propagation stops there.
 - **Records from the schema** (`pool/records.ts`): `HandPool.record(entity,
   id)` is a typed record per row, built on first access, with one getter per
   declared field installed from the schema (`installFields`); it reads the
@@ -51,13 +51,22 @@ visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
   `subscribeIds` for the id list; the lists bind each with
   `useSyncExternalStore` (`pool/react/list.tsx`, `pool/native/list.tsx`).
   A row component gets its `RowView` and nothing else.
-- **Relations from the schema** (`pool/relations.ts`): a1 resolves the
-  single-valued relations a row names itself (`belongsTo`, outgoing `edge`)
-  as reference plus target presence — `displayRef` (`issue.repo`) and
-  `originTick` (`issue.discoveredFrom`) are real one-hop values; a target
-  that arrives, leaves or changes dirties its readers because they read its
-  slot. Collections and prefix containment answer "none" through the shared
-  `RelationReader` until Ha2.
+- **Relations from the schema** (`pool/relations.ts`, Ha2): the engine
+  reads `schema[entity].relations` at construction and names no relation.
+  Each single-valued relation (`belongsTo`, `prefix`, outgoing `edge`) is a
+  LINK: a forward `Map` (source → target key, members only) paired with the
+  inverse collection it maintains, a `Map` of `Set`s (target key → members).
+  Ingest hands every table write to `changed(entity, id, prev, next)`, which
+  re-decides the resume-twin collapse (`session.collapse`) when its inputs
+  moved, relinks each link whose declared inputs (key, path or edge field,
+  plus every `where` field) moved — detach, then attach, one member at a
+  time — and, for a new or removed worktree, re-homes the sessions under it
+  (a path index finds them without a scan). Buckets are keyed by the
+  reference, so an evicted and re-added target finds its members where they
+  were. Every slot written becomes a `relation` delta that dirties only the
+  cells that read that slot; `one()`'s presence check is tracked on the
+  target's presence, not its row. A bucket has no order: a reader that needs
+  one imposes it (a draft's first member is the lowest session id).
 - **Every row is resident** at a1 (Ha3 adds cold rows).
 
 ### The enumeration module
@@ -67,8 +76,11 @@ visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
 anywhere else in `pool/`): `issueIdsOf` (every issue id, for the a1 list and
 `snapshot()`, until Hb1's visible collection; the id-list cell records the
 issue table's MEMBERSHIP as its input, so a rename never re-runs it),
-`reseed` (a `replace`), and `otherLaneOf` (a lane of a repo other than the
-one leaving; Ha2 answers it from `repo.worktrees`).
+`reseed` (a `replace`), and `scanRelations` / `diffRelations`: every
+declared relation resolved from scratch by walking the tables, the oracle
+the gate and `pool/relations.test.ts` hold the engine to (the pool never
+calls it). When a repo's lane leaves, another lane is found in the
+maintained `repo.worktrees` collection, not by a walk.
 
 ### Write path
 
@@ -96,8 +108,12 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
 - `notifications` — commits that changed pool state: one per feed event
   that wrote a table slot, one per locals notification naming a key the
   pool uses (selection, clock). A commit with no delta is not one.
-- `indexUpdates` — 0 until Ha2 maintains relation buckets (the dependency
-  indexes are the cells' bookkeeping, not relation indexes).
+- `indexUpdates` — relation ELEMENTS the engine touched: a bucket member
+  added or removed, a forward entry set or deleted, a path-index entry, a
+  collapse entry. Never slots, so a bucket-sized copy could not hide behind
+  one count (M3 F1); `pool/relations.test.ts` asserts one new issue costs
+  the same in a repo of 1,000 as in a repo of 1. The cells' dependency
+  indexes are bookkeeping, not relation indexes, and are not counted.
 - `rollupsDerived` — 0 until the roll-ups (Hb3).
 - `stats.counters` (the pool's own): `cellsCreated` (cells made on first
   read), `cellRuns` (cell bodies run, first runs included), `cellsChanged`
@@ -112,15 +128,21 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
 ### Gates (a1)
 
 - **Correctness (L4b)**, `pool/gate.test.ts`: rebuild-only (`oracleEvery:
-  0`, coordinator ruling for a1; the oracle compares order and roll-ups).
-  The planted NO is the same pool deaf to removals, which must fail every
-  seed. Defaults 3 seeds x 200 steps; `POD_POOL_GATE_SEEDS` /
+  0`, coordinator ruling for a1; the oracle compares order and roll-ups),
+  plus every relation of every row against the from-scratch scan at every
+  compared step (Ha2). Two planted NOs, each of which must fail every seed:
+  the pool deaf to removals (the rebuild catches it), and the pool skipping
+  relation upkeep on updates (the scan catches it). Defaults 3 seeds x 200 steps; `POD_POOL_GATE_SEEDS` /
   `POD_POOL_GATE_STEPS` set more. The same file compares the own-row and
   one-hop fields with the oracle's row views.
 - **Fence steps** #1, #3, #4, #8, #8b, `pool/counts.test.tsx`: the shared
   `assertCommits` (where the a1 list can meet it), `assertReads` and
   `assertNoCopies`, no parity; the roster entry with parity is Ha4's
   (`harness/src/fences.test.tsx` names it pending).
+- Relations: `pool/relations.test.ts` — per relation, the §4.5 worked
+  example, the write record per change kind, the fixture schema with an
+  extra relation, the resume twins against the legacy dedupe, and seeded
+  random sequences against the scan.
 - Lifecycle, ingest and locals: `pool/pool.test.tsx`; the cell and the clock
   in isolation: `pool/cells.test.ts`, `pool/clock.test.ts`; every schema
   field on a record: `pool/records.test.ts`.
@@ -133,8 +155,10 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
    spells it differently, add it to `FEED_SPELLING`.
 2. If a row view shows it: `shared/src/row-view.ts` (coordinator), then
    compute it in the part whose inputs it reads (`pool/views.ts`
-   `PART_RULES`: own-row fields in `own`; a new relation hop as a reference
-   part plus a resolution part) and assemble it in `buildRowView`. A new
+   `PART_RULES`: own-row fields in `own`; a new relation hop as a part that
+   calls `input.relations.one`/`many` plus a part that reads the target) and
+   assemble it in `buildRowView`. A new RELATION is a schema declaration and
+   nothing else: the engine maintains it. A new
    entry in `PART_RULES` is a new cell in the live pool AND a new getter in
    the rebuild, with nothing else to edit, so the correctness gate holds the
    two together.
