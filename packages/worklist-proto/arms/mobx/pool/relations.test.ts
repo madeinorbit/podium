@@ -805,9 +805,17 @@ function countedOutside(fn: () => void): OutsideCount {
   type Patched = Record<string, Method>
   const set = Object.getPrototypeOf(observable.set<string>()) as Patched
   const array = Array.prototype as unknown as Patched
+  const counted =
+    (field: keyof OutsideCount, weight: (self: unknown) => number) =>
+    (self: unknown, result: unknown): unknown => {
+      count[field] += weight(self)
+      return result
+    }
+  const one = (): number => 1
+  const length = (self: unknown): number => (self as unknown[]).length
   const patches: [Patched, string, (self: unknown, result: unknown) => unknown][] = [
-    [set, 'add', (_self, result) => ((count.added += 1), result)],
-    [set, 'delete', (_self, result) => ((count.deleted += 1), result)],
+    [set, 'add', counted('added', one)],
+    [set, 'delete', counted('deleted', one)],
     [
       set,
       'values',
@@ -824,8 +832,8 @@ function countedOutside(fn: () => void): OutsideCount {
         return counting
       },
     ],
-    [array, 'sort', (self, result) => ((count.sorted += (self as unknown[]).length), result)],
-    [array, 'toSorted', (self, result) => ((count.sorted += (self as unknown[]).length), result)],
+    [array, 'sort', counted('sorted', length)],
+    [array, 'toSorted', counted('sorted', length)],
   ]
   const restore = patches.map(([proto, name, after]) => {
     const original = proto[name] as Method
