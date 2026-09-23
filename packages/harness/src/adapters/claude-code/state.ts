@@ -158,6 +158,26 @@ function turnRunningVisible(visibleLines: readonly string[]): boolean {
 }
 
 /**
+ * Claude's input box as 2.1.280 draws it (POD-4651): the rows between the
+ * screen's last two full-width rules, the first starting with the "❯" prompt
+ * mark, wrapped rows indented under it. Anything else between those rules — a
+ * dialog, a menu — is not a box. Its empty-box hint is not a draft.
+ */
+const INPUT_BOX_RULE = /^─{8,}/u
+const INPUT_PROMPT_ROW = /^❯(?: |$)/u
+const INPUT_PLACEHOLDER_PREFIXES = ['Try "'] as const
+
+function inputDraftVisible(visibleLines: readonly string[]): string | undefined {
+  const bottom = visibleLines.findLastIndex((line) => INPUT_BOX_RULE.test(line))
+  const top = visibleLines.findLastIndex((line, i) => i < bottom && INPUT_BOX_RULE.test(line))
+  if (top === -1 || bottom - top < 2) return undefined
+  const [promptRow = '', ...wrapped] = visibleLines.slice(top + 1, bottom)
+  if (!INPUT_PROMPT_ROW.test(promptRow)) return undefined
+  const draft = [promptRow.replace(INPUT_PROMPT_ROW, ''), ...wrapped].join('\n').trim()
+  return INPUT_PLACEHOLDER_PREFIXES.some((prefix) => draft.startsWith(prefix)) ? '' : draft
+}
+
+/**
  * Classify the small amount of Claude UI that has no hook or transcript
  * representation yet. This intentionally recognizes the title plus one of
  * its actions, rather than a generic "permission" word that would turn every
@@ -170,6 +190,7 @@ export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObser
   const folderTrust = !autoMode && folderTrustVisible(text, visibleLines)
   const interactionVisible = autoMode || folderTrust
   const transcriptDisabled = visibleLines.some((line) => line.includes(CLAUDE_TRANSCRIPT_DISABLED))
+  const inputDraft = inputDraftVisible(visibleLines)
   const events: AgentStateEvent[] = autoMode
     ? [
         {
@@ -189,6 +210,7 @@ export function classifyClaudeScreen(lines: readonly string[]): AgentScreenObser
     events: withStateChannel(events, 'classifier'),
     interactionVisible,
     turnRunning: turnRunningVisible(visibleLines),
+    ...(inputDraft !== undefined ? { inputDraft } : {}),
     // Claude prints this exact standalone status line after the browser login
     // callback. It is the event that lets the daemon re-probe immediately;
     // the inventory command remains the authority for the resulting state.

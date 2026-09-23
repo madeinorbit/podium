@@ -461,16 +461,18 @@ export async function createDaemonHostRuntime(args: {
   // Entries start unlabelled; spawn/reattach/steal label them from the
   // authoritative frame. Nothing here mints a default (POD-4434).
   const sessions = new SessionRegistry()
+  /** Keystrokes into a headed session's terminal, as a person at it would type. */
+  const writeHeadedPty = (sessionId: SessionId, bytes: string): void => {
+    const terminal = sessions.get(sessionId)?.terminal
+    if (terminal?.kind === 'headed') terminal.writeBase64(Buffer.from(bytes, 'utf8').toString('base64'))
+  }
   const composerEngine = new ComposerSyncEngine(
     (sessionId, text) => {
       if (terminalRuntime?.has(sessionId)) terminalRuntime.observeDraft(sessionId, text)
       else send({ type: 'nativeDraft', sessionId, text })
     },
     {
-      writePty: (sessionId, bytes) => {
-        const terminal = sessions.get(sessionId)?.terminal
-        if (terminal?.kind === 'headed') terminal.writeBase64(Buffer.from(bytes, 'utf8').toString('base64'))
-      },
+      writePty: writeHeadedPty,
       onDemote: (sessionId) => log.warn('draft-sync self-demoted to read-only', { sessionId }),
     },
   )
@@ -647,6 +649,7 @@ export async function createDaemonHostRuntime(args: {
     onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
     sharedScreenFor: (sessionId) =>
       daemonCtx ? terminalScreenFor(daemonCtx, sessionId).model : undefined,
+    writeInput: writeHeadedPty,
     onExactCodexBinding: async (sessionId, nativeId) => {
       await sessionBinding.transition({
         event: 'hook-repin',

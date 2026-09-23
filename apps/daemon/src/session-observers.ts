@@ -137,6 +137,19 @@ export const IDLE_TRANSITION_DEBOUNCE_MS = 1000
 export const CLAUDE_INTERRUPT_SETTLE_MS = 1_500
 const CLAUDE_INTERRUPT_PROBES = 3
 
+/**
+ * A turn stopped before any output hands its prompt back to Claude's input box,
+ * where the next message would be typed after it and sent as one (POD-4651).
+ * Ctrl-U deletes one screen row of the box per press, and joins two rows on the
+ * next, so two per row clears it; on an empty box it does nothing. (Esc Esc
+ * clears in one go but opens Claude's Rewind menu on an empty box.) The screen
+ * is re-read after each try, since the box must be seen empty before the turn
+ * may end.
+ */
+const CLAUDE_CLEAR_INPUT_ROW = '\x15\x15'
+const CLAUDE_WITHDRAW_TRIES = 3
+const CLAUDE_WITHDRAW_SETTLE_MS = 300
+
 /** A request to look for a user interrupt, queued behind the hooks on the same
  *  causal chain so it can never overtake one. `rewoundEpoch` is set only for a
  *  Stop Podium sent itself: the epoch that was open when it went out. */
@@ -217,6 +230,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     confirming: boolean
     stopConfirmationPoll?: () => void
     interruptTimer?: ReturnType<typeof setTimeout>
+    /** The stopped turn whose prompt the daemon already saw back in Claude's box
+     *  and began clearing: a later probe that finds the box empty may end it. */
+    withdrawnEpoch?: number
   }
   const causalLeases = new Map<string, CausalLease>()
   const claudeCausal = new Map<string, ClaudeCausalTracker>()
@@ -546,15 +562,18 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         kind: 'marker',
         ...capture.terminalInterrupt,
       })
-    } else if (probe.rewoundEpoch !== undefined && capture) {
-      const screen = await screenObservers.get(causal.sessionId)?.read()
-      if (screen?.turnRunning === false) {
-        observation = causal.observer.observeInterrupt({
-          kind: 'rewound',
-          turnEpoch: probe.rewoundEpoch,
-          answered: capture.assistantOutputInRange,
-        })
-      }
+    } else if (
+      probe.rewoundEpoch !== undefined &&
+      capture &&
+      !capture.assistantOutputInRange &&
+      causal.observer.openTurnEpoch === probe.rewoundEpoch &&
+      (await withdrawRewoundPrompt(causal, probe.rewoundEpoch))
+    ) {
+      observation = causal.observer.observeInterrupt({
+        kind: 'rewound',
+        turnEpoch: probe.rewoundEpoch,
+        answered: capture.assistantOutputInRange,
+      })
     }
     if (observation && claudeCausal.get(causal.sessionId) === causal) {
       causal.pendingObservation = observation
@@ -562,6 +581,41 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       return
     }
     drainClaudeHooks(causal)
+  }
+
+  /**
+   * Proof Claude took a stopped turn back, and the prompt it put back taken out
+   * again (POD-4651): its running marks gone and the prompt sitting in its input
+   * box, which the daemon then clears and watches go empty. Until the box is
+   * empty the turn stays open, because ending it is what releases the next
+   * message into that box. An empty box with no running marks proves nothing —
+   * unless this daemon saw the prompt there and cleared it for the same turn.
+   */
+  async function withdrawRewoundPrompt(
+    causal: ClaudeCausalTracker,
+    epoch: number,
+  ): Promise<boolean> {
+    const { sessionId } = causal
+    const screenObserver = screenObservers.get(sessionId)
+    let screen = await screenObserver?.read()
+    if (screen?.turnRunning !== false || screen.inputDraft === undefined) return false
+    if (screen.inputDraft === '') return causal.withdrawnEpoch === epoch
+    if (!deps.writeInput) return false
+    causal.withdrawnEpoch = epoch
+    const settleMs = Math.min(
+      deps.interruptSettleMs ?? CLAUDE_INTERRUPT_SETTLE_MS,
+      CLAUDE_WITHDRAW_SETTLE_MS,
+    )
+    for (let tries = 0; tries < CLAUDE_WITHDRAW_TRIES; tries++) {
+      const rows = screen.inputDraft.split('\n').length
+      deps.writeInput(sessionId, CLAUDE_CLEAR_INPUT_ROW.repeat(rows))
+      await new Promise((resolve) => setTimeout(resolve, settleMs))
+      screen = await screenObserver?.read()
+      if (screen?.turnRunning !== false || screen.inputDraft === undefined) return false
+      if (screen.inputDraft === '') return true
+    }
+    log.warn('claude kept a stopped prompt in its input box; the turn stays open', { sessionId })
+    return false
   }
 
   const enqueueClaudeInterruptProbe = (sessionId: SessionId, rewoundEpoch?: number): void => {
