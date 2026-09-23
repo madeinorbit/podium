@@ -98,13 +98,18 @@ export class Cell<T> {
   /** Cells that read this one on their last run. */
   readonly readers = new Set<Cell<unknown>>()
 
+  /** Held untyped so a `Cell<T>` is a `Cell<unknown>`; only ever called with this cell's values. */
+  readonly equals: Equals<unknown>
+
   constructor(
     readonly name: string,
     readonly compute: () => T,
-    readonly equals: Equals<T>,
+    equals: Equals<T>,
     /** Called when a re-run changed the value (not on the first run). */
     readonly changed?: () => void,
-  ) {}
+  ) {
+    this.equals = equals as Equals<unknown>
+  }
 }
 
 /** The graph's own counters (`README.md`, "Stats"). */

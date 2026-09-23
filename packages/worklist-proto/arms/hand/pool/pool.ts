@@ -258,7 +258,7 @@ export class HandPool {
     this.stats = createStats(graph)
     this.records = tablesOf(() => new Map<string, EntityRecord>())
     this.target = { read: this.fenced, write: this.tables }
-    this.idsCell = graph.cell(
+    this.idsCell = graph.cell<readonly string[]>(
       'ids:issue',
       () => {
         graph.track(this.membership, 'issue')
