@@ -1,10 +1,17 @@
 # M3: MobX pool shape review (POD-4591)
 
-> **Re-review 2026-09-23 at `62e1a17b5`: FAIL on one line (G1), sent back to
-> POD-4568.** F1 and F2 are fixed in the code, and C3, C4 and C8 now PASS. The
-> 5×300 gate is green, with all four plants caught on every seed. But the F1 guard test reads only
-> the pool's own counter, and it stays green on a copy-and-sort flush that
-> does not report its copy. See §5. The first review follows unchanged.
+> **Re-review 2, 2026-09-23 at `7ebeb9897`: FAIL on two lines (G2, G3), sent
+> back to POD-4568.** G1 now PASSES: the F1 guard counts from outside the pool
+> and fails on my plant and on the old flush. But two ways of doing
+> change-sized work still get past the tests. (G2) A load that a fence step's
+> own change triggers lands after the counts test has sampled its reads, so
+> it is charged to no step: on a planted change it costs 2,839 reads and the
+> counts test passes. (G3) The F1 guard does not see an unsorted copy of a
+> plain `Set`: a copy-on-write of the prefix index copies 8,003 elements per
+> new session and the guard stays green. See §6.
+>
+> Re-review 1, 2026-09-23 at `62e1a17b5`: FAIL on one line (G1), sent back to
+> POD-4568. See §5. The first review follows unchanged.
 
 **Verdict: FAIL, sent back to Ma4 (POD-4568).** Two checklist lines fail:
 bucket maintenance scales with the bucket, and on live data one new
@@ -394,3 +401,154 @@ that plant against the new test, plus the probe line.
   (grep for `relationRef`, `repoId`, `parentId`, `issueId`, `cwd`, `deps`
   over them finds no resolution).
 - N2, N3 and N5 are unchanged and remain with their owners.
+
+## 6. Re-review 2, 2026-09-23, at `7ebeb9897`
+
+**Verdict: FAIL, sent back to Ma4 (POD-4568) on two lines, G2 and G3.** G1
+(the only line from §5.5) PASSES. The pool code is unchanged since
+`62e1a17b5` (G1 was test-only), so every code line of §5.1 still holds. Both
+new lines are about what the tests can see, not about the pool's code: on the
+clean pool, every number the tests report is right (§6.3, clean steps). Mb1
+(POD-4569) and everything after it stay blocked until a re-review records
+PASS.
+
+- **Reviewed commit:** `7ebeb9897` (POD-4568's G1 landing, tip of
+  `integrate/4545-round-three` when this re-review started). It contains
+  POD-4635 (L2d) at `164b9ae7d`. My branch is that commit plus commits that
+  touch only `harness/review/m3-step-load.test.tsx` and this document.
+  Paths are relative to `packages/worklist-proto/`.
+- **Independence:** I built no part of the MobX pool. Between `62e1a17b5` and
+  `7ebeb9897`, `arms/mobx/pool/` changed only in POD-4568's test commits and
+  POD-4635's test commits. None is mine.
+- **Load:** 10.6–13.7 (1-minute) during the runs. Counts and assertions only;
+  no wall timings.
+- **Runner:** every run went through the package config under the validation
+  queue, from `packages/worklist-proto`
+  (`bun ../../scripts/validation-admission.ts focused --label <l> -- …vitest.mjs run --config vitest.config.ts <files>`).
+  The queue was full (two slots, both held by long runs, five waiters), so
+  the plant runs share one slot through a script that runs vitest once per
+  plant with the same config. Plants were written into my worktree and
+  restored with `cp` from copies taken before (a shell `trap` restores them
+  on any exit). `git status` was clean afterwards apart from my probe.
+
+### 6.1 Checklist lines in this round
+
+| # | Check | Verdict at `7ebeb9897` | Evidence |
+|---|---|---|---|
+| G1 | The F1 guard counts bucket work from outside the pool | **PASS** | `arms/mobx/pool/relations.test.ts:802-851` `countedOutside()` patches MobX's `ObservableSet` prototype (`add`, `delete`, `values`; `:806`) and `Array.prototype.sort`/`toSorted` (`:835-836`) for one push, and reads no pool counter. The test (`:855-895`) asserts that outside count is exactly 1 per edge, then checks `bucketElements` and `lastElements` against it. Red on my §5.5 plant and on the old flush, green on clean code (§6.2). |
+| G2 | A fence step counts the load its own change triggers | **FAIL** | `arms/mobx/pool/counts.test.tsx:69` builds the pool with a load window that never closes (`schedule: () => () => {}`). A load that a step queues lands only in `runCountScenario`'s `snapshot()` call (`harness/src/count-harness.tsx:380`; `arms/mobx/pool/pool.ts:430-444` settles by calling `hydrate()`). That happens after the reads are sampled (`count-harness.tsx:377-379`), and the next step resets them. Planted, the counts test's pool charges #2 **2 reads and passes**; with the load landing inside the step, the same change charges **2,839 and fails** (§6.3). |
+| G3 | The F1 guard sees every bucket-sized copy in relation upkeep | **FAIL** | The guard counts `ObservableSet` work and sorts only. The prefix index `under` is a map of plain `Set`s (`arms/mobx/pool/relations.ts:320`, written at `:613-636`), holding every session under each ancestor path. An unsorted copy of one of those sets is not counted by the guard or by the pool: plant P4 copies 8,003 elements per new session and the guard stays **green** (§6.2). |
+
+### 6.2 The F1 guard, planted (`arms/mobx/pool/relations.test.ts -t "M3 F1"`)
+
+| Run | Code | Result | Outside count on the first failing edge |
+|---|---|---|---|
+| clean | `7ebeb9897` | **green** (`Tests 1 passed \| 42 skipped`) | 1 on all four edges |
+| P1 | my §5.5 plant, as written: before the per-move loop in `flush`, rebuild an existing observable bucket from `[...bucket].sort()` and put it back | **red** | `new issue: {"added":4001,"deleted":0,"iterated":4000,"sorted":4000}: expected 12001 to be 1` |
+| old flush | every non-test file of `arms/mobx/pool/` from `54c1e0b23` (frozen sorted-array buckets) | **red** | `new issue: {"added":0,"deleted":0,"iterated":0,"sorted":4001}: expected 4001 to be 1` |
+| P3 | read-only copies, no sort, same place: `Array.from(bucket)`, `[...bucket]`, `new Set(bucket)` | **red** | `new issue: {"added":1,"deleted":0,"iterated":12000,"sorted":0}` |
+| P4 | in `place()`, after `set.add(id)`: `under.set(path, new Set(set))` (copy-on-write of the plain prefix index) | **green: missed** | none (`Tests 1 passed`) |
+| P4s | P4 with a sort: `under.set(path, new Set([...set].sort()))` (the control arm for P4) | **red** | `new session: {"added":1,"deleted":0,"iterated":0,"sorted":8003}: expected 8004 to be 1` |
+
+What this answers:
+- **Does `Array.from` or spread over an `ObservableSet` go through `values()`
+  in the installed MobX (7.0.3)?** Yes. In the source,
+  `ObservableSet[Symbol.iterator]` returns `this.values()`, `forEach` loops
+  `for…of this`, `toJSON` is `Array.from(this)`, and the set algebra starts
+  from `new Set(this)` (`node_modules/mobx/dist/mobx.cjs.development.js:4444,
+  4245, 4438, 4378`). P3 confirms it in the build vitest loads: the three
+  copies count 3 × 4,000 = 12,000 elements, so none escapes.
+- **Does a copy into a plain `Set` or array go uncounted?** A copy *of an
+  observable bucket* into a plain `Set` or array is counted when it is read
+  (P3). A copy *of a plain `Set`* is not counted unless it is sorted. P4 and
+  P4s are the same copy of the same plain sets, with and without a sort: the
+  guard sees 8,003 elements when they are sorted and nothing when they are
+  not. The sets are the prefix index for `/`, `/repo` and `/repo/y`, which
+  hold the rig's 4,000 sessions. On the live export, `worktree.sessions`
+  holds 2,263 under one root (§2.3). The only other path that skips
+  `values()` is MobX's private `data_` field, which no code in `pool/`
+  touches.
+- The cold twins (`coldBuckets`) are plain `Set`s too, but they are keyed by
+  closed issues and hold that issue's children or sessions (tens), and the F1
+  rig has no residency. So they are not part of G3.
+
+### 6.3 Does a step count the load its own change triggers? (`harness/review/m3-step-load.test.tsx`)
+
+**The settle itself hides nothing.** `counts.test.tsx:87-97` runs before
+step #1: it closes the mount's load windows under `act` and then zeroes the
+log, stats and reads. It cannot remove anything a step does. But it is there
+because the pool in that test has a load window that never closes on its own
+(`:69`). So a load that a step's **own** change queues never lands inside
+that step. It lands in the harness's `snapshot()`, after the reads have been
+sampled, and it is charged to no step.
+
+**The plant.** From step #2 on, the pool's `sessionActivity` input (the #2
+session change re-runs it) also asks whether cold issue `i103` is resident
+(`pool.resident`, the check a view does before it reads a row). Once `i103`
+is loaded, the plant also lists its sessions (`relations.many`). That is a
+change whose own work triggers a load. The probe runs four arms with the same
+settle and zeroing as `counts.test.tsx`, then steps #1 and #2, and records
+#2. `hydratedInStep` is the number of rows loaded before the harness sampled
+the reads.
+
+| Arm | Load window | Plant | #2 reads charged | by entity | rows loaded in the step | rows committed | reads fence (budget 3) |
+|---|---|---|---|---|---|---|---|
+| D | never closes (as `counts.test.tsx`) | no | 1 | session 1 | 0 | 1 | pass |
+| C | closes on the next microtask | no | 1 | session 1 | 0 | 1 | pass |
+| **A** | never closes (as `counts.test.tsx`) | yes | **2** | session 1, issue 1 | **0** | 1 | **pass** |
+| **B** | closes on the next microtask | yes | **2,839** | session 3, issue 2,833, repo 1, worktree 2 | **3** | 2 | **fail**: `read 2839 rows, budget 3` |
+
+C equals D, so the window alone changes nothing on the clean pool. A and B
+are the same plant and the same step. The only difference is whether the
+load lands inside the step. The counts test's configuration (A) charges the
+step for asking about the row (1 issue key) and nothing more. When the load
+lands inside the step (B), the step reads 2,839 rows and commits one more row.
+The 2,833 issue reads are iterations of the issue table (the fence's
+`iterate` accesses are 2,833). That is the pool's resident-issue list,
+`issueIds` (`arms/mobx/pool/pool.ts:323-324` → `enumerate.ts:56`
+`issueIdsOf`, the one declared enumeration the a1 list draws from). It is a
+computed over the table's keys, so it runs again when a loaded issue joins
+the table. That list is Mb1's to replace, but it is the real cost of this
+load today, and A never charges it. The probe
+asserts this A/B, and it passes (`Tests 2 passed`).
+
+**Clean steps.** The same probe runs #1–#4 on the clean pool under both
+windows. The cells match exactly: #1 charges 2, #2–#4 charge 1, 0 rows are
+loaded in or after any step, and commits are 0/1/1/1. So the numbers the
+counts test reports at `7ebeb9897` are right. What fails is that test's
+ability to say NO: a regression that makes a step load a row passes it.
+
+### 6.4 What Ma4 must change (send-back lines)
+
+**G2. Count a step's own loads.** In `arms/mobx/pool/counts.test.tsx`, a
+load that a step's change queues must land inside that step, before
+`runCountScenario` samples reads and commits. For example, give the pool a
+window that the step closes inside its `act` (a microtask schedule, as in my
+arm B), or have the step's `apply` hydrate until nothing is queued. Keep the
+mount settle. After each step, assert that nothing is left queued. Then show
+it red: add a planted test next to the sibling re-read one, with the
+cold-issue plant from `harness/review/m3-step-load.test.tsx` (`plantedArm`),
+and show that #2 fails its reads fence.
+
+**G3. The F1 guard must see unsorted copies of the relation engine's plain
+sets.** Extend `countedOutside` (or the test around it) so that plant P4
+(§6.2) goes red while clean code stays green. The prefix index writes one
+entry per ancestor path when a session is placed, so if plain `Set` work is
+counted, restate the per-edge bound to include that (for example, 1 bucket
+element plus one index entry per ancestor path of the new row). Do not count
+MobX's own internal sets. Keep the counter assertions as they are.
+
+The re-review of G2 and G3 is: P4 and the G2 plant, each red against the
+landed tests; clean green; and my probe re-run.
+
+### 6.5 Notes (not send-back)
+
+- **N8.** POD-4635 also changed `arms/mobx/pool/pool.test.tsx` "removes a row
+  with its model": it now picks an open issue with no spin-off origin. That
+  test asserts exactly one issue model (`modelCount('issue') === 1`), and an
+  origin would correctly build a second one, so this narrows the target
+  without hiding anything the test is about.
+- **N6** (`rootAdded` iterates the plain `under` set) is unchanged. If G3 is
+  fixed by counting plain `Set` work, that iteration becomes visible too. It
+  is still bounded by the schema doc's "members under one root" rule, and
+  the F1 rig adds no root.
