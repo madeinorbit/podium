@@ -1,15 +1,15 @@
 # M3: MobX pool shape review (POD-4591)
 
-> **Final review, 2026-09-23 at `b29ea68ce`: FAIL on two lines (G4, G5), both
-> small, and neither changes what the pool does.** G2 and G3 PASS: my cold-issue plant now fails #2 through
+> **Final review, 2026-09-23 at `b29ea68ce`: FAIL on one line (G4), a
+> test-only fix.** G2 and G3 PASS: my cold-issue plant now fails #2 through
 > the shared fence (2,839 reads against a budget of 3), and the F1 guard is
 > red on both of my copy-on-write plants. (G4) Two other copy idioms,
 > `set.union(new Set())` and `structuredClone(set)`, still get past the F1
 > guard, at 8,002 elements per new session. A check that no engine set is
 > replaced by another object catches all four plants, and it is written
-> (`harness/review/m3-index-identity.test.ts`). (G5) The arm's lint is red at
-> `b29ea68ce`: the new load hooks have no `makeObservable` annotation. This
-> is the complete list. It does not block Mb1 (operator decision). See §7.
+> (`harness/review/m3-index-identity.test.ts`). (G5) The arm's lint was red at
+> `b29ea68ce`. POD-4568 fixed it at `5414342a8` while this review was running,
+> and I checked that lint exits 0 there. This is the complete list. It does not block Mb1 (operator decision). See §7.
 >
 > Re-review 2, 2026-09-23 at `7ebeb9897`: FAIL on two lines (G2, G3), sent
 > back to POD-4568. G1 now PASSES: the F1 guard counts from outside the pool
@@ -566,8 +566,8 @@ landed tests; clean green; and my probe re-run.
 
 ## 7. Final review, 2026-09-23, at `b29ea68ce`
 
-**Verdict: FAIL on two lines, G4 and G5. Both are small and neither changes
-what the pool does.** G2 and G3, as sent back in §6.4, both PASS: my cold-issue plant now
+**Verdict: FAIL on one line, G4, with a test-only fix. G5 was red at the
+reviewed SHA and is already fixed (`5414342a8`, checked).** G2 and G3, as sent back in §6.4, both PASS: my cold-issue plant now
 fails #2 through the shared fence, and the F1 guard is red on both of my
 copy-on-write plants. But two other ways of copying the prefix index's plain
 sets, `set.union(new Set())` and `structuredClone(set)`, each copy 8,002
@@ -577,8 +577,9 @@ closes the whole class: a check that no set the engine holds is replaced by a
 new object during one change. It is already written and armed
 (`harness/review/m3-index-identity.test.ts`, §7.3). G5: the arm's own lint
 (L6a, `eslint-plugin-mobx`) is red at `b29ea68ce`, because the two new load
-hooks on `MobxPool` have no `makeObservable` annotation. The fix is two
-`false` entries. By operator decision this
+hooks on `MobxPool` have no `makeObservable` annotation. POD-4568 landed the
+fix (two `false` entries) at `5414342a8`, reported by POD-4581, while this
+review was running. `bun run lint` exits 0 there. By operator decision this
 review no longer blocks Mb1 (POD-4569). The findings go back to POD-4568 and
 land under Mb1. This is the complete list (coordinator ruling): every
 remaining concern is either G4 or a note in §7.6.
@@ -615,7 +616,7 @@ remaining concern is either G4 or a note in §7.6.
 |---|---|---|---|
 | G2 | A fence step counts the load its own change triggers | **PASS** | `harness/src/fence-scenarios.ts:384-432` `runFenceStep`. Before the step, it lands the loads that were already queued, outside the count (:396-405). Inside `apply`, after the write and `flush()`, it awaits the arm's `settleLoads()` (:414). After the step it refuses a load still pending (:425) and a row read through the feed after the settle (:428-429). `loadHooks` (:353-372) refuses a lazy arm that lacks either hook. The MobX handle's settle flushes its roots' redraws before landing loads (`arms/mobx/pool/arm.ts:78-88`). My plant fails #2 at 2,839 reads under both windows, and the probe is red on the pre-G2 fence (§7.2). |
 | G3 | The F1 guard sees an unsorted copy of the relation engine's plain sets | **PASS** | `arms/mobx/pool/relations.test.ts:825-838` `calledByMobx`, `:860-966` `countedOutside` (plain `Set`/`Map` writes, deletes and every iterator, plus `Array.from`), and the per-edge bound `:986-988, 1013`. Clean code is green. P4 fails with `plain … expected 16029 to be less than or equal to 23`, and P4s fails with `sorted 8003` (§7.3). |
-| G5 (C11) | L6a lint clean on the pool | **FAIL** | `bun run lint` in the package exits 1, both in my worktree and in a clean detached checkout of `b29ea68ce`: `arms/mobx/pool/pool.ts:290:5 error Missing annotation for settleLoads, pendingLoads … mobx/exhaustive-make-observable`. `MobxPool.settleLoads`/`pendingLoads` (`pool.ts:397, 412`) are new in this landing, and Ma4's G1 landing mail reported the package lint green at `7ebeb9897`. Functionally harmless, since `makeObservable` leaves an unannotated method alone. But the arm's enforcement gate is red at the landed SHA, and the landing mail did not report lint. |
+| G5 (C11) | L6a lint clean on the pool | **FAIL at `b29ea68ce`; fixed at `5414342a8` (checked)** | `bun run lint` in the package exits 1, both in my worktree and in a clean detached checkout of `b29ea68ce`: `arms/mobx/pool/pool.ts:290:5 error Missing annotation for settleLoads, pendingLoads … mobx/exhaustive-make-observable`. `MobxPool.settleLoads`/`pendingLoads` (`pool.ts:397, 412`) are new in this landing, and Ma4's G1 landing mail reported the package lint green at `7ebeb9897`. Functionally harmless, since `makeObservable` leaves an unannotated method alone. But the arm's enforcement gate is red at the landed SHA, and the landing mail did not report lint. |
 | G4 | The F1 guard sees a copy-on-write of those sets **whatever idiom makes it** | **FAIL** | The guard counts calls to patched prototype methods. `Set.prototype.union` copies the receiver's elements natively, and `structuredClone` calls no prototype method, so neither is counted. As copy-on-writes in `place()` (P7, P8), each copies 8,002 elements per new session and the guard is **green** (§7.3). My identity check is red on P4, P4s, P7 and P8 and green on clean code. |
 
 ### 7.2 G2: a step's own load, through the shared fence (`harness/review/m3-step-load.test.tsx`)
@@ -710,12 +711,23 @@ skipped one is the live-export probe, which needs `M3_LIVE_EXPORT`), in 108
 s. `bun run typecheck -- --filter @podium/worklist-proto` passed. `bun run
 lint` in the package failed, which is G5.
 
-### 7.5 What must change (G4 and G5, go to POD-4568, land under Mb1)
+**What landed after the reviewed SHA.** Three commits landed on the
+integration branch while I was reviewing. `ca3ce2ee2` is POD-4581's hand
+handle, not this arm. `5414342a8` is the G5 fix above. `0a235c14e` is
+POD-4568's: the MobX arm now imports the cold rule (`coldByRule`,
+`viaTargetOf`) from `shared/src/schema.ts` and deletes its own copy from
+`residency.ts`. I compared the deleted bodies with the shared ones, and they
+are the same except for the error prefix (`[schema]` instead of `[pool]`). So
+the gate result above carries over, and I did not re-run it for that commit.
+
+### 7.5 What must change (G4, goes to POD-4568, lands under Mb1; G5 done)
 
 **G5. Annotate the load hooks.** In `arms/mobx/pool/pool.ts:290`, add
 `settleLoads: false` and `pendingLoads: false` to the `makeObservable` map.
 Acceptance: `bun run lint` in the package exits 0. Report lint in the landing
-mail.
+mail. **Done**: POD-4568 landed exactly this at `5414342a8`, and at that tip
+plus my commits `bun run lint` exits 0 and my probes, `counts`, `relations`
+and `residency` pass (`Test Files 5 passed`, `Tests 67 passed`).
 
 **G4. Add the identity check beside the F1 guard.** In
 `arms/mobx/pool/relations.test.ts`, "bucket upkeep is proportional to the
