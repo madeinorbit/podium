@@ -56,7 +56,7 @@ Numbers and commands: `docs/measurements/POD-4568-a.md`.
 2. **#3 commits 1 row, not the brief's 2.** The fence's click starts with
    no selection, so the oracle changes only the clicked row (`i17`); the
    reference arm's cell is also 1. The two-row case (selection moving) is
-   `pool.test.tsx`'s "a click re-derives exactly two views".
+   `pool.test.tsx`'s "a click re-derives exactly the old and the new selection".
 
 ## Round three: residency, a3 (POD-4567) · 2026-09-23
 
