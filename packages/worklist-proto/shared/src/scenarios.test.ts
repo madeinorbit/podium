@@ -363,6 +363,20 @@ describe('scenarios on the fixture at 1x', () => {
   }, 60_000)
 })
 
+describe('seeded kernel rows reach the replica (POD-4624)', () => {
+  it('every fixture repo projection is a replica repos row', async () => {
+    // The kernel maps entity 'repo' (not 'repos') to the kind; a wrong entity
+    // is dropped silently and every displayRef loses its repo prefix.
+    const ctx = await startScenarioEngine(1)
+    try {
+      expect(ctx.corpus.repoProjections.length).toBeGreaterThan(0)
+      expect(ctx.replica.rows('repos')).toHaveLength(ctx.corpus.repoProjections.length)
+    } finally {
+      ctx.engine.destroy()
+    }
+  }, 60_000)
+})
+
 describe('scenario server writes build on server truth (POD-4551)', () => {
   it('a server write on another field of a row with a pending edit keeps the server value', async () => {
     // A server that never answers keeps the title edit pending, so the

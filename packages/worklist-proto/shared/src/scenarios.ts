@@ -87,6 +87,7 @@ import {
   createSideCache,
   memoryStorage,
   type KernelCacheRead,
+  type KernelEntity,
 } from '@podium/client-core/replica'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RouterWindow } from '@podium/client-core/ui-state'
@@ -132,15 +133,16 @@ export class ScenarioCache implements KernelCacheRead {
   durability(): 'durable' {
     return 'durable'
   }
-  put(entity: string, entityId: string, value: unknown): void {
+  put(entity: KernelEntity, entityId: string, value: unknown): void {
     const key = keyOf(entity, entityId)
     // Re-insert at the end, like an upsert into an append log.
     this.byKey.delete(key)
     this.byKey.set(key, { entity, entityId, value, provenance: { seq: 1 } })
     this.materialised = null
   }
-  /** Bulk install for seeding. */
-  install(rows: { entity: string; entityId: string; value: unknown }[]): void {
+  /** Bulk install for seeding. Entities are the kernel's names (`repo`, not
+   *  the kind `repos`): an unmapped name is dropped silently (POD-4624). */
+  install(rows: { entity: KernelEntity; entityId: string; value: unknown }[]): void {
     for (const row of rows) {
       this.byKey.set(keyOf(row.entity, row.entityId), {
         entity: row.entity,
@@ -151,7 +153,7 @@ export class ScenarioCache implements KernelCacheRead {
     }
     this.materialised = null
   }
-  drop(entity: string, entityId: string): void {
+  drop(entity: KernelEntity, entityId: string): void {
     if (this.byKey.delete(keyOf(entity, entityId))) this.materialised = null
   }
 }
@@ -159,14 +161,14 @@ export class ScenarioCache implements KernelCacheRead {
 /** Install the fixture rows as kernel entities, in bulk. */
 export function seedCacheFromCorpus(corpus: FixtureCorpus): ScenarioCache {
   const cache = new ScenarioCache()
-  const rows: { entity: string; entityId: string; value: unknown }[] = []
+  const rows: { entity: KernelEntity; entityId: string; value: unknown }[] = []
   for (const issue of corpus.issues) rows.push({ entity: 'issue', entityId: issue.id, value: issue })
   for (const projection of corpus.issueProjections)
     rows.push({ entity: 'issueProjection', entityId: projection.id, value: projection })
   for (const session of corpus.sessions)
     rows.push({ entity: 'session', entityId: session.sessionId, value: session })
   for (const repo of corpus.repoProjections)
-    rows.push({ entity: 'repos', entityId: repo.id, value: repo })
+    rows.push({ entity: 'repo', entityId: repo.id, value: repo })
   for (const dep of corpus.issueDeps) rows.push({ entity: 'issueDep', entityId: dep.id, value: dep })
   cache.install(rows)
   return cache
@@ -816,7 +818,7 @@ async function settled(ctx: ScenarioEngine): Promise<void> {
  *  `readmitted` marks a row returning after an evict). */
 export function upsert(
   ctx: ScenarioEngine,
-  entity: string,
+  entity: KernelEntity,
   entityId: string,
   value: unknown,
   seq = 2,
@@ -831,13 +833,13 @@ export function upsert(
 }
 
 /** The authority's snapshot omitted the row: `evicted`, not `removed`. */
-export function evict(ctx: ScenarioEngine, entity: string, entityId: string): void {
+export function evict(ctx: ScenarioEngine, entity: KernelEntity, entityId: string): void {
   ctx.cache.drop(entity, entityId)
   ctx.replica.onKernelEvent({ type: 'evicted', entity, entityId } as never)
 }
 
 /** A real deletion (POD-4555): the kernel event is `removed`. */
-export function remove(ctx: ScenarioEngine, entity: string, entityId: string): void {
+export function remove(ctx: ScenarioEngine, entity: KernelEntity, entityId: string): void {
   ctx.cache.drop(entity, entityId)
   ctx.replica.onKernelEvent({ type: 'removed', entity, entityId } as never)
 }
