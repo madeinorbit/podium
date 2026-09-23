@@ -93,7 +93,8 @@ describe('AgentConcurrencyHistory', () => {
         rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
         return rows.length
       },
-      listKindSinceWithPrior: async () => rows,
+      listKindSubjectSinceWithPrior: async () => rows,
+      listEventsSince: async () => [],
     }
     const history = new AgentConcurrencyHistory({
       sessions: () => sessions,
@@ -145,7 +146,8 @@ describe('AgentConcurrencyHistory', () => {
         rows.push({ id: rows.length + 1, repoPath: input.repoPath ?? null, ...input })
         return rows.length
       },
-      listKindSinceWithPrior: async () => rows,
+      listKindSubjectSinceWithPrior: async () => rows,
+      listEventsSince: async () => [],
     }
     const history = new AgentConcurrencyHistory({
       sessions: () => sessions,

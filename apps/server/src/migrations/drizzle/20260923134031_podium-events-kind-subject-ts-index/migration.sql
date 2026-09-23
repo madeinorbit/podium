@@ -1,0 +1,12 @@
+-- THE "WITH PRIOR" EVENT READS SEARCH ONE KIND+SUBJECT, THEY DO NOT WALK THE KIND (POD-4644).
+--
+-- The fleet concurrency graph (polled every five minutes by every open shell) and
+-- the per-session phase history read one kind for one subject over a ts window,
+-- plus the last row before it, ordered by ts. Served by idx_podium_events_kind
+-- alone, each read fetched EVERY row the kind had ever kept and sorted them; on a
+-- 50k-row log that froze the server for 3.5-11.8 s (POD-4604). This index answers
+-- both statements as a range search already in ts order.
+--
+-- Additive: one index, no data change. Building it reads the table once (~0.1 s
+-- on a synthetic 50k-row log).
+CREATE INDEX `idx_podium_events_kind_subject_ts` ON `podium_events` (`kind`,`subject`,`ts`);

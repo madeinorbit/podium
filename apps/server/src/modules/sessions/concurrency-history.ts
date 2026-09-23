@@ -4,6 +4,8 @@ import type { EventBus } from '../bus'
 import type { Session } from './session'
 
 export const AGENT_CONCURRENCY_EVENT = 'fleet.agent_concurrency'
+/** The one subject every concurrency row is written under. */
+export const AGENT_CONCURRENCY_SUBJECT = 'fleet'
 export const AGENT_CONCURRENCY_BUCKET_MS = 30 * 60 * 1_000
 export const AGENT_CONCURRENCY_BUCKETS = 24
 export const AGENT_CONCURRENCY_WINDOW_MS = AGENT_CONCURRENCY_BUCKET_MS * AGENT_CONCURRENCY_BUCKETS
@@ -99,8 +101,31 @@ export function buildAgentConcurrencyHistory(
   }
 }
 
+/** Rows fetched per page when catching up past the watermark. */
+const CATCH_UP_PAGE = 500
+
+/**
+ * The window's rows plus the one carried in from before it — exactly what
+ * `listKindSubjectSinceWithPrior` would return for `since` — sorted by (ts, id).
+ */
+function trimToWindow(rows: readonly PodiumEventRecord[], since: string): PodiumEventRecord[] {
+  const sorted = [...rows].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.id - b.id))
+  const firstInWindow = sorted.findIndex((row) => row.ts >= since)
+  if (firstInWindow === -1) return sorted.slice(-1)
+  return sorted.slice(Math.max(0, firstInWindow - 1))
+}
+
 /** Durable recorder + read model for the shell's fleet-concurrency skyline. */
 export class AgentConcurrencyHistory {
+  /**
+   * The rows the last read answered from, and the highest id it has seen
+   * (POD-4644). Every open shell polls this graph every five minutes, and the
+   * window moves by five minutes per poll, so a poll reads only the rows
+   * appended since the last one (`id > throughId`, a search on the subject
+   * index) instead of the whole window again. Ids only grow, and this recorder
+   * is the only writer of its kind, so nothing can land behind the watermark.
+   */
+  private held: { rows: PodiumEventRecord[]; throughId: number } | undefined
   private lastRecordedCount: number | undefined
   private recording: { count: number } | undefined
   private readonly unsubscribe: () => void
@@ -109,7 +134,10 @@ export class AgentConcurrencyHistory {
     private readonly deps: {
       sessions: () =>
         Iterable<Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt'>>
-      events: Pick<EventsRepository, 'appendEvent' | 'listKindSinceWithPrior'>
+      events: Pick<
+        EventsRepository,
+        'appendEvent' | 'listKindSubjectSinceWithPrior' | 'listEventsSince'
+      >
       bus: EventBus
       now: () => number
     },
@@ -141,7 +169,7 @@ export class AgentConcurrencyHistory {
       await this.deps.events.appendEvent({
         ts: new Date(this.deps.now()).toISOString(),
         kind: AGENT_CONCURRENCY_EVENT,
-        subject: 'fleet',
+        subject: AGENT_CONCURRENCY_SUBJECT,
         payload: { count },
       })
       this.lastRecordedCount = count
@@ -158,9 +186,36 @@ export class AgentConcurrencyHistory {
     const nowMs = this.deps.now()
     await this.capture()
     const since = new Date(nowMs - AGENT_CONCURRENCY_WINDOW_MS).toISOString()
-    return buildAgentConcurrencyHistory(
-      await this.deps.events.listKindSinceWithPrior(AGENT_CONCURRENCY_EVENT, since),
-      nowMs,
-    )
+    return buildAgentConcurrencyHistory(await this.windowRows(since), nowMs)
+  }
+
+  private async windowRows(since: string): Promise<PodiumEventRecord[]> {
+    const held = this.held
+    const fetched = held
+      ? await this.rowsAfter(held.throughId)
+      : await this.deps.events.listKindSubjectSinceWithPrior(
+          AGENT_CONCURRENCY_EVENT,
+          AGENT_CONCURRENCY_SUBJECT,
+          since,
+        )
+    const rows = trimToWindow([...(held?.rows ?? []), ...fetched], since)
+    const throughId = fetched.reduce((max, row) => Math.max(max, row.id), held?.throughId ?? 0)
+    this.held = { rows, throughId }
+    return rows
+  }
+
+  private async rowsAfter(afterId: number): Promise<PodiumEventRecord[]> {
+    const rows: PodiumEventRecord[] = []
+    for (let cursor = afterId; ; ) {
+      const page = await this.deps.events.listEventsSince(cursor, {
+        kinds: [AGENT_CONCURRENCY_EVENT],
+        subject: AGENT_CONCURRENCY_SUBJECT,
+        limit: CATCH_UP_PAGE,
+      })
+      rows.push(...page)
+      const last = page.at(-1)
+      if (!last || page.length < CATCH_UP_PAGE) return rows
+      cursor = last.id
+    }
   }
 }

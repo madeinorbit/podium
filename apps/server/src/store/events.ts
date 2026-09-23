@@ -465,34 +465,17 @@ export class EventsRepository {
   }
 
   /**
-   * One event kind over a time window, plus the last row before the window.
-   *
-   * A step-function reader needs the prior row to know the value carried into
-   * its first bucket. Keeping that lookup here avoids teaching feature modules
-   * about the event table's JSON column or ordering tie-breaker.
-   */
-  async listKindSinceWithPrior(kind: string, since: string): Promise<PodiumEventRecord[]> {
-    const prior = await this.db
-      .select()
-      .from(podiumEvents)
-      .where(and(eq(podiumEvents.kind, kind), sql`${podiumEvents.ts} < ${since}`))
-      .orderBy(desc(podiumEvents.ts), desc(podiumEvents.id))
-      .limit(1)
-      .get()
-    const rows = await this.db
-      .select()
-      .from(podiumEvents)
-      .where(and(eq(podiumEvents.kind, kind), sql`${podiumEvents.ts} >= ${since}`))
-      .orderBy(asc(podiumEvents.ts), asc(podiumEvents.id))
-      .all()
-    return [...(prior ? [rowToEvent(prior)] : []), ...rows.map(rowToEvent)]
-  }
-
-  /**
    * One event kind for ONE subject over a time window, plus the last row
-   * before the window — the per-subject sibling of `listKindSinceWithPrior`,
-   * served by `idx_podium_events_subject`. A per-session step-function reader
-   * (session.phase) needs the carried-in value exactly like the fleet one does.
+   * before the window. A step-function reader needs the prior row to know the
+   * value carried into its first bucket; keeping that lookup here avoids
+   * teaching feature modules about the event table's JSON column or ordering
+   * tie-breaker. Serves the per-session phase history and the fleet
+   * concurrency graph (subject `fleet`).
+   *
+   * Both statements are range searches on `idx_podium_events_kind_subject_ts`,
+   * already in ts order (POD-4644). Keyed on kind alone they fetched and
+   * sorted every row the kind had ever kept — seconds of frozen server on a
+   * real-size log.
    */
   async listKindSubjectSinceWithPrior(kind: string, subject: string, since: string): Promise<PodiumEventRecord[]> {
     const prior = await this.db

@@ -157,7 +157,7 @@ describe('SessionStore event log', () => {
 
     expect(
       (await store.events
-        .listKindSinceWithPrior('fleet', '2026-08-06T10:30:00.000Z'))
+        .listKindSubjectSinceWithPrior('fleet', 'all', '2026-08-06T10:30:00.000Z'))
         .map((row) => row.payload),
     ).toEqual([{ count: 2 }, { count: 5 }, { count: 3 }])
   })

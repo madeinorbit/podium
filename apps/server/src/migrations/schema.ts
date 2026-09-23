@@ -1193,6 +1193,11 @@ export const podiumEvents = sqliteTable(
     index('idx_podium_events_repo').on(table.repoPath),
     index('idx_podium_events_kind').on(table.kind),
     index('idx_podium_events_subject').on(table.subject),
+    // POD-4644: the step-function "with prior" reads (fleet concurrency and
+    // per-session phase history) are kind + subject + a ts window, ordered by
+    // ts. Keyed on kind alone they walked and sorted every row the kind ever
+    // kept — seconds of frozen server on a real-size log.
+    index('idx_podium_events_kind_subject_ts').on(table.kind, table.subject, table.ts),
   ],
 )
 
