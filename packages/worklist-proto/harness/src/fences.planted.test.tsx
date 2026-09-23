@@ -15,6 +15,9 @@
  *   row and the #8b grace-crossing tick never folds the grace rows (under),
  *   while the same arm following the channel passes both exactly.
  *
+ * - bare ref (POD-4624): the one plant PARITY must fail — a dropped repo
+ *   prefix on every displayRef.
+ *
  * The unplanted reference arm passes the same steps (`fences.test.tsx`), so
  * each failure below is the planted mistake, not the scenario.
  */
@@ -136,4 +139,18 @@ describe('planted arms: the exact-commit fence catches what parity cannot', () =
       )
     }, 60_000)
   })
+})
+
+describe('planted arm: parity catches a dropped repo prefix (POD-4624)', () => {
+  it('bare ref: dropping the repo prefix fails parity on displayRef', async () => {
+    // The oracle's refs carry the fixture's repo prefixes. While the scenario
+    // seeder left the replica's repos kind empty they were bare too, and this
+    // plant passed parity.
+    const { result, visibleRootId } = await plantedStep(() => ({ kind: 'bareRef' }), '#1')
+    expect(result.parity).toBe(false)
+    expect(result.parityDiff).toMatch(/"displayRef":"#\d+".*\n.*"displayRef":"[^"#]+-\d+"/)
+    const unplanted = await plantedStep(null, '#1')
+    expect(unplanted.result.parity, unplanted.result.parityDiff ?? '').toBe(true)
+    expect(unplanted.visibleRootId).toBe(visibleRootId)
+  }, 60_000)
 })

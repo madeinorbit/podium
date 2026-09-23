@@ -54,12 +54,22 @@ import { type RowViews, rowViewsFromStore, snapshotFromStore } from '../oracle/i
  * - `deaf`: the locals are read ONCE, at creation, and the channel is never
  *   subscribed — the round-two contract. A click (#3) never selects a row and
  *   a tick (#8b) never folds one (under-commit).
+ * - `bareRef` (POD-4624): every row's `displayRef` loses its repo prefix
+ *   (`POD-12` → `#12`), as an arm reading an empty `repos` kind would. The
+ *   one plant PARITY must fail — and could not while the scenario seeder left
+ *   `repos` empty, because the oracle's refs were bare too.
  */
 export type ReferencePlant =
   | { kind: 'unmemoised' }
   | { kind: 'stale'; id: string }
   | { kind: 'remount' }
   | { kind: 'deaf' }
+  | { kind: 'bareRef' }
+
+/** `POD-12` → `#12`; a ref with no prefix is already bare. */
+function bareRef(ref: string): string {
+  return ref.replace(/^.+-(\d+)$/, '#$1')
+}
 
 interface ReferenceState {
   order: SliceOrder
@@ -75,7 +85,9 @@ function stateOf(
   const store = engine.getSnapshot()
   const fresh = rowViewsFromStore(store, locals)
   const views: RowViews = {}
-  for (const [id, view] of Object.entries(fresh)) {
+  for (const [id, drawn] of Object.entries(fresh)) {
+    const view =
+      plant?.kind === 'bareRef' ? { ...drawn, displayRef: bareRef(drawn.displayRef) } : drawn
     const prior = previous?.views[id]
     const stale = plant?.kind === 'stale' && plant.id === id
     views[id] = prior !== undefined && (stale || isDeepStrictEqual(prior, view)) ? prior : view
@@ -194,10 +206,14 @@ export function referenceArmFor(
       let webRoot: { unmount(): void } | null = null
       return {
         snapshot(): SliceSnapshot {
-          return snapshotFromStore(engine.getSnapshot(), {
+          const snapshot = snapshotFromStore(engine.getSnapshot(), {
             ...localsNow(),
             selectedIssueId: null,
           })
+          if (plant?.kind === 'bareRef')
+            for (const row of Object.values(snapshot.rowsById))
+              row.displayRef = bareRef(row.displayRef)
+          return snapshot
         },
         stats,
         dispose(): void {
