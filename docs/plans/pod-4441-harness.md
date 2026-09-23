@@ -105,8 +105,9 @@ bun packages/worklist-proto/harness/browser/summarize.ts packages/worklist-proto
 
 The driver serves `harness/web/dist`, loads `<arm>.html?scale=N&sha=<HEAD>`,
 waits for `window.__proto.ready`, settles the page (boot commits never land in
-a record), then runs one warm-up round and `--samples` rounds of the five
-scenarios, the order rotated per round. Every scenario, the click included,
+a record), then runs one warm-up round and `--samples` rounds of the six
+scenarios (heartbeat, visibleHeartbeat, rename, stagemove, clock, click;
+visibleHeartbeat since POD-4560), the order rotated per round. Every scenario, the click included,
 goes through ONE timer in the page (`entrylib.ts`, `measure`):
 
     start → dispatch the change → drain → last commit signal → next frame
@@ -227,7 +228,7 @@ no per-scenario equivalent here; `records[]` (one per scenario sample) is new.
 |---|---|---|
 | Idle client | zero derivation work except on the clock tick | count harness (`notifications` on settle-only runs) |
 | Unrelated heartbeat | 0 rows committed, 0 derivations, ≤ 3 rows read, publish `actionMs` p95 ≤ floor p95 + 2 ms at 1x (restated, see "Instrument floor") | counts in CI (`assertIsolation` + `rollupsDerived` + `assertReads`); publish wall in Chromium (`summarize.ts`) |
-| Any other hot-path event | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
+| Any other hot-path event (rename, stage move, clock, visible heartbeat) | `actionMs` p95 ≤ floor p95 + 8 ms at live corpus (1x) | `summarize.ts` over the matrix; floor = the no-op page, same scenario, same scale (POD-4558) |
 | Row click, engine selection write to the arm's commit (POD-4559; was the pointer event) | `actionMs` p95 ≤ floor p95 + 16 ms at 1x, + 32 ms at 4x | same; `frameMs` (to the next frame) reported, not budgeted |
 | Cost follows the change, not the corpus | (arm p50 − floor p50) at 4x over the same at 1x ≤ 1.2, per scenario; the 1x excess taken as at least 1 ms (restated, see "Instrument floor") | `summarize.ts` slope table; counts must match at all three scales. A low read count is not proof of constant work (see "Instrument floor") |
 | Bootstrap / principal switch | ≤ 1.1x / ≤ 2x control | driver `coldBootstrap`/`principalSwitch` vs control JSON |
@@ -252,7 +253,66 @@ is stated as **floor p95 + allowance**, per scenario and scale (table above);
 the allowances are methodology §1a's numbers, fixed here before any
 round-three arm is timed and not re-read on another dimension afterwards.
 
-**Floor numbers — flatblock, THE FLOOR THE BUDGETS USE** (2026-09-23,
+**Floor numbers — flatblock, reshaped fixture: THE FLOOR THE BUDGETS USE**
+(POD-4560, 2026-09-23, `fe1745142`, Chromium 148.0.7778.96, 8 cores). The
+fixture POD-4635 reshaped to the live workspace (732 / 1,464 / 2,928 visible
+rows), the six scenarios, the 1600×5800 viewport and 96-row first window.
+`matrix.ts --host flatblock --remote-dir podium-timing-4560 --arms
+noop,noop+walk:2,noop+sync:5 --scales 1,2,4 --rounds 4 --samples 5 --tag
+floor-4560`, interleaved, `bench:flatblock` lease per invocation: 36 runs
+`ok`, n = 20 per cell, the 1-minute load on every summarised record ≤ 7.99
+(uptime per record); four attempts crossed load 8 part-way (r0 noop 1x, r0
+sync:5 4x, r3 sync:5 2x and 4x), were recorded failed, retried, and never
+summarised. flatblock's own resident load (a Podium server and daemon, several
+opencode sessions) sat at 4–11 during the matrix. `actionMs`, ms:
+
+| Scenario | 1x p50 / p95 | 2x p50 / p95 | 4x p50 / p95 | raw slope p50 4x/1x |
+|---|---|---|---|---|
+| #1 heartbeat | 17.1 / 22.6 | 31.8 / 58.1 | 64.5 / 92.7 | 3.77 |
+| visible heartbeat | 15.5 / 33.1 | 33.5 / 49.3 | 65.3 / 91.1 | 4.21 |
+| #4 rename | 5.1 / 8.1 | 12.7 / 22.3 | 37.5 / 65.2 | 7.35 |
+| #5 stage move | 4.8 / 7.4 | 10.4 / 15.1 | 41.5 / 62.8 | 8.65 |
+| #8 clock | 0.4 / 0.9 | 0.4 / 0.6 | 0.5 / 1.1 | 1.25 |
+| #3 click | 15.4 / 21.8 | 30.1 / 65.6 | 91.9 / 109.3 | 5.97 |
+
+Every no-op record commits 0 rows with 0 stray commits. The click is no
+longer sub-millisecond (0.5 ms on the old floor): since POD-4559 every sample
+clicks an unread row, so the engine's eager mark-read runs a kernel write and
+a feed drain inside the window. The shared write path grows faster with the
+corpus than on the old fixture (raw slopes 3.8–8.7, were 1.2–5.6), so the
+restated excess slope matters more, not less.
+
+**The wall budgets** (floor p95 + allowance), at 1x: heartbeat 24.6
+(publish, + 2); visible heartbeat 41.1, rename 16.1, stage move 15.4, clock
+8.9 (+ 8); click 37.8 at 1x and 141.3 at 4x (+ 16 / + 32). Slope: the excess
+over this floor, ≤ 1.2.
+
+**The restated budgets can still fail** (the same matrix, interleaved with
+the floor; n = 20 per cell):
+
+| Plant | heartbeat | visible heartbeat | rename | stage move | clock | click |
+|---|---|---|---|---|---|---|
+| `walk:2` (O(N)) — excess slope 4x/1x | 5.26 OVER | 6.14 OVER | 5.56 OVER | 5.35 OVER | 5.74 OVER | 4.75 OVER |
+| `sync:5` (constant) — excess slope 4x/1x | 0.98 within | 1.15 within | 0.24 within | −0.65 within | 1.00 within | −0.84 within |
+| `walk:2` 1x p95 against its budget | 83.3 OVER 24.6 | 43.5 OVER 41.1 | 46.4 OVER 16.1 | 33.4 OVER 15.4 | 27.4 OVER 8.9 | 69.0 OVER 37.8 |
+| `sync:5` 1x p95 against its budget | 45.3 OVER 24.6 | 31.8 within 41.1 | 18.7 OVER 16.1 | 14.2 within 15.4 | 5.9 within 8.9 | 30.0 within 37.8 |
+
+`walk:2` fails every slope and every 1x wall (the click too: the mark-read
+now notifies the arm). `sync:5` passes every slope. Its heartbeat fails the
+2 ms publish allowance, as it must (a constant 5 ms). Its rename p95 (18.7)
+is 2.6 ms over a budget a constant 5 ms should meet (8.1 + 8): p95 jitter at
+loads up to 8 on this floor. Reported to the coordinator as an observation;
+no budget re-read here.
+
+**SUPERSEDED — every browser NUMBER below in this section, and in "Browser
+parity" after it, was measured on the fixture BEFORE the POD-4635 reshape**
+(211 visible rows at 1x; five scenarios; 1600×2400 viewport; 36-row first
+window): floors, wall budgets, plant tables, timer self-tests, check-mode
+targets and counts. Kept as the record; no budget uses them (POD-4560). The
+RULINGS stand: the budgets restated as excess over the floor, the 1 ms
+minimum excess, drawn targets, strays and parity failing a run.
+
+**Floor numbers — flatblock, old fixture, SUPERSEDED** (2026-09-23,
 `6fbaf7a3c`, Chromium 148.0.7778.96, 8 cores). Round three times on one
 machine, flatblock (POD-4286 ruling): anything compared must be timed on the
 same machine, so every arm and the control are timed there and every budget
@@ -274,7 +334,7 @@ part-way and were recorded failed and retried, never summarised.
 
 Every no-op record commits 0 rows with 0 stray commits; `endedBy` is `drain`
 throughout (the kernel write, the feed and the settle hop, nothing drawn).
-**The wall budgets** (floor p95 + allowance), at 1x: heartbeat 23.5 (publish,
+**The old wall budgets, SUPERSEDED** (floor p95 + allowance), at 1x: heartbeat 23.5 (publish,
 + 2), rename 11.6, stage move 13.5, clock 10.5 (+ 8); click 16.6 at 1x and
 35.9 at 4x. Slope: the excess over this floor (below).
 
@@ -284,7 +344,7 @@ The runs use Ubuntu's own package unpacked into
 `~/podium-timing/.toolchain/lib`, on `LD_LIBRARY_PATH` (`matrix.ts --host`
 sets it); nothing system-wide was changed.
 
-**Floor numbers — ludovico, a record only** (2026-09-23, `f33022e5f`; the
+**Floor numbers — ludovico, old fixture, a record only, SUPERSEDED** (2026-09-23, `f33022e5f`; the
 first valid floor, not used for any budget). `matrix.ts --arms noop`, same
 shape: 12 runs ok, n = 20 per cell, load ≤ 7.73; four attempts failed on load
 and were not summarised. p50 / p95 at 1x, 2x, 4x: heartbeat 14.2/29.0,
@@ -304,7 +364,7 @@ defect as round two's `taskMs` budget with two frame waits inside it:
 | Budget | Old | New | Why |
 |---|---|---|---|
 | Growth slope (#14), per scenario | `actionMs` p50 4x / p50 1x ≤ 1.2 | (arm p50 − no-op p50) at 4x / (arm p50 − no-op p50) at 1x ≤ 1.2; the 1x excess taken as at least 1 ms (`SLOPE_MIN_EXCESS_MS`) | the no-op's own raw slope is 2.75 (heartbeat), 5.57 (rename), 2.09 (stage move) on flatblock; 2.43, 4.47, 2.05 on ludovico |
-| Unrelated heartbeat publish (#1) | publish ≤ 2 ms | `actionMs` p95 ≤ no-op p95 + 2 ms at 1x (23.5 ms on the flatblock floor) | the no-op's heartbeat is 12.7 ms p50, 21.5 ms p95 on flatblock (14.2 / 29.0 on ludovico) |
+| Unrelated heartbeat publish (#1) | publish ≤ 2 ms | `actionMs` p95 ≤ no-op p95 + 2 ms at 1x (24.6 ms on the POD-4560 flatblock floor; 23.5 on the superseded one) | the no-op's heartbeat is 12.7 ms p50, 21.5 ms p95 on flatblock (14.2 / 29.0 on ludovico) |
 
 The 1 ms minimum: the no-op's per-round p50 moves by at most 0.3 ms on the
 sub-millisecond scenarios (clock, click, rename at 1x), so a smaller 1x
@@ -317,7 +377,7 @@ beside the budgeted one, unbudgeted. Unit tests (`summarize.test.ts`,
 excess 1.0) and work that grows with the corpus fails (excess 4.0); a mutant
 that restores the raw ratio turns three of them red.
 
-**The restated budgets can fail** (flatblock, the same matrix as the floor,
+**The restated budgets can fail, old fixture, SUPERSEDED** (flatblock, the same matrix as the floor,
 interleaved with it; n = 20 per cell). Two planted no-op arms
 (`noop-arm.tsx`): `walk:2` walks every issue and session row of the feed twice
 inside every notification (O(N) per change), `sync:5` busy-waits a constant
@@ -388,6 +448,8 @@ and on MobX at the first write: `target i17 is not drawn by hand (first window
 i300,i301,i23,…); refusing to time an undrawn row`. Nothing is recorded.
 
 ## Browser parity, same click, settled mark-reads (POD-4559)
+
+SUPERSEDED (POD-4560): old-fixture counts, kept as the record.
 
 All on flatblock (`bench:flatblock` held, load 2.0–6.8), warm-up + 5 samples
 per scenario, one page per arm and scale, at `48ef61692`; counts and
