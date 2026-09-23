@@ -121,12 +121,20 @@ the same rule, transitions, window and shared seams (`RowSource.row`,
    go stale. The sequence (evict a parent, move a child away, re-add the
    parent) is a test in `residency.test.tsx` anyway.
 8. **The checkpoint's plant is different from MobX's** because the hand pool
-   has no promotion step: a cold SESSION's update forgotten instead of kept
-   (a row the pool no longer knows, so it never loads). It survives loading,
-   and the checkpoint catches it. On the 2 x 60 shake-out: the removal-deaf
-   plant failed by the rebuild (steps 15, 32), relink-skipped by the scan (14,
-   0), cold-deaf by partition or scan (9, 20), cold-relink by the per-step scan
-   (24, 20), cold-forgotten by the checkpoint (both seeds).
+   has no relation twins to promote: a SESSION loaded on access is installed
+   but keeps its cold-registry entry (a promotion done by half). The per-step
+   rebuild cannot see it (the row's data is resident; the stray `loading`
+   flag is not a slice field); the checkpoint's "no row left cold" does.
+   **The first plant could not fire on every seed**: "a cold session's update
+   forgotten" passed seed 5 of the first 20 x 300 run (at b86e1f547), whose
+   last arm (the checkpoint only sees the arm alive at the last step) saw no
+   cold session update. Seeds 1-4 caught it at the checkpoint and the POOL
+   passed seeds 1-5 on that run; the run was stopped and the plant replaced
+   by one that fires on every seed (session loads happen in every arm), then
+   the gate re-run from seed 1 (below). On the 2 x 60 shake-out the other
+   plants failed where expected: removal-deaf by the rebuild (steps 15, 32),
+   relink-skipped by the scan (14, 0), cold-deaf by partition or scan (9,
+   20), cold-relink by the per-step scan (24, 20).
 9. **The new `loading` part is one more reader of `issue.sessions`**: a
    session joining an issue now re-runs `activityAt`, `loading` and `view`
    (3 cells, was 2; `relations.test.ts` updated). #2's trap (Ma4: `activityAt`

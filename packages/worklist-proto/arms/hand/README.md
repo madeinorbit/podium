@@ -164,7 +164,8 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
   deaf to removals (the rebuild), relation upkeep skipped on a held row's
   update (the scan), deaf to cold rows' updates (partition or scan), cold
   relinks skipped (the per-step scan, checkpoint off: the error heals on
-  load), a cold session forgotten (the checkpoint, per-step checks off).
+  load), a loaded session left in the cold registry (the checkpoint,
+  per-step checks off).
   Defaults 3 seeds x 200 steps; the gate of record is 20 x 300
   (`POD_POOL_GATE_SEEDS`, `POD_POOL_GATE_FIRST_SEED` for chunks,
   `POD_POOL_GATE_STEPS`). The same file compares the own-row and one-hop
