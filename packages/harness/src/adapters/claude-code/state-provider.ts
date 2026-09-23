@@ -673,11 +673,15 @@ export class ClaudeCausalObserver {
     }
 
     const prior = this.state
+    // Hook strength, not classifier: this is Claude's own account of the stop
+    // standing in for the Stop it does not send, already matched to this turn.
+    // At classifier confidence the reducer discards it as stale for 5 s after the
+    // turn's last hook — which is exactly when a person presses Stop.
     const next = reduceAgentState(
       prior,
       withStateChannelEvent(
         { kind: 'turn_completed', verdict: { kind: 'interrupted', summary: 'request interrupted by user' } },
-        'classifier',
+        'hook',
       ),
       this.now(),
     )
