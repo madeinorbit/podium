@@ -25,6 +25,7 @@ import {
   transcriptColorReaderFor,
   transcriptRecordMapperFor,
   transcriptRuntimeReaderFor,
+  withStateChannelEvent,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { AgentKind, SessionId, TranscriptItem } from '@podium/model'
@@ -259,6 +260,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const pendingClaudeOrigins = new Map<string, ObservationInputOrigin[]>()
   const MAX_PENDING_CLAUDE_ORIGINS = 64
   const claudeStarting = new Map<string, unknown[]>()
+  /** What a fresh Claude spawn is assumed to be before its first hook — read
+   *  by `trackedState` only, never folded into the tracker (POD-4663). */
+  const freshBootIdle = new Map<SessionId, AgentRuntimeState>()
   const pendingBindingHooks = new Map<string, Map<string, unknown>>()
   const liveConfirmationStates = new Map<
     string,
@@ -1588,6 +1592,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
     claudeCausal.delete(msg.sessionId)
     causalLeases.delete(msg.sessionId)
+    freshBootIdle.delete(msg.sessionId)
     const earlyFrames = earlyScreenFrames.get(msg.sessionId)
     earlyScreenFrames.delete(msg.sessionId)
     const screenProvider =
@@ -1779,6 +1784,39 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             if (held.length === 0) claudeStarting.delete(msg.sessionId)
             else void startClaudeCausal(msg.sessionId, held[0])
           })
+      } else if (
+        adapter.capabilities.observationProtocol === 'claude-causal' &&
+        observationLease !== undefined &&
+        observationLease.providerSessionId === null &&
+        observationLease.acceptedCheckpoint === null &&
+        msg.type === 'spawn' &&
+        !msg.resume
+      ) {
+        // A FRESH SPAWN HAS NOTHING TO BOOTSTRAP FROM, AND IS AT ITS PROMPT
+        // (POD-4663). No native id, no transcript, no hook until something is
+        // typed — so the durable queue's first row waited for an `idle` that
+        // only its own delivery could produce. A freshly booted CLI is at its
+        // prompt; say so to THIS daemon only. Nothing goes on the wire: the
+        // lease's first bootstrap stays the causal observer's, started by the
+        // first real hook exactly as before, and a screen-detected ask (the
+        // folder-trust dialog) already set on the tracker is left alone.
+        //
+        // HELD BESIDE THE TRACKER, NOT IN IT. `trackedState` answers with it only
+        // while the tracker still knows nothing; the tracker itself stays
+        // `unknown`, so the observer's first state is still a transition INTO
+        // idle — debounced — and not an immediate idle beat for the composer's
+        // injection gate at the instant a prompt is submitted.
+        const tracker = trackers.get(msg.sessionId)
+        if (tracker && tracker.state.phase === 'unknown') {
+          freshBootIdle.set(
+            msg.sessionId,
+            reduceAgentState(
+              tracker.state,
+              withStateChannelEvent({ kind: 'session_started' }, 'classifier'),
+              new Date().toISOString(),
+            ),
+          )
+        }
       }
     }
     // Causal leases (Claude, Grok) skip this: bootEvents would emit on the
@@ -1986,14 +2024,21 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   }
 
   /** Current tracked agent state, if the session has a live tracker. */
-  const trackedState = (sessionId: SessionId): AgentRuntimeState | undefined =>
-    trackers.get(sessionId)?.state
+  const trackedState = (sessionId: SessionId): AgentRuntimeState | undefined => {
+    const state = trackers.get(sessionId)?.state
+    // A fresh Claude spawn's boot assumption (POD-4663), only until the tracker
+    // has anything of its own to say.
+    if (state?.phase === 'unknown' && state.stateSource === undefined)
+      return freshBootIdle.get(sessionId) ?? state
+    return state
+  }
 
   /** Tear down every observer + tail + tracker one session holds (exit/kill path). */
   const clearSession = (sessionId: SessionId): void => {
     cancelPendingIdleEmit(sessionId)
     gitCapture.clearSession(sessionId)
     trackers.delete(sessionId)
+    freshBootIdle.delete(sessionId)
     screenObservers.get(sessionId)?.dispose()
     screenObservers.delete(sessionId)
     earlyScreenFrames.delete(sessionId)

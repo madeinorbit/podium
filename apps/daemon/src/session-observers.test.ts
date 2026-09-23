@@ -1163,6 +1163,42 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     }
   })
 
+  it('holds a fresh Claude spawn idle for this daemon only, before any hook [POD-4663]', () => {
+    // No native id, no transcript and no hook until something is typed: the
+    // durable queue's first row waited for an `idle` only its own delivery could
+    // produce. The seed is local — the lease's bootstrap stays the observer's.
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    const sessionId = asSessionId('podium-fresh')
+    try {
+      observers.initSessionObservers(
+        {
+          type: 'spawn',
+          sessionId,
+          agentKind: 'claude-code',
+          cwd: '/repo',
+          geometry: G,
+          durableLabel: 'podium-podium-fresh',
+          observationGeneration: 1,
+          observationBindingVersion: 1,
+        },
+        { onFrame: () => () => {} } as never,
+        claudeProvider(),
+        { seedOnFrame: false },
+      )
+      expect(observers.trackedState(sessionId)?.phase).toBe('idle')
+      expect(
+        sent.filter((message) => message.type === 'agentState' || message.type === 'agentObservation'),
+      ).toEqual([])
+    } finally {
+      observers.clearSession(sessionId)
+    }
+  })
+
   it('follows a transcript Claude re-buckets mid-turn instead of latching the phase [POD-390]', async () => {
     // Claude stores a conversation under ~/.claude/projects/<slug(cwd)>/ and
     // RENAMES the file into a new bucket when the session's cwd changes. The
