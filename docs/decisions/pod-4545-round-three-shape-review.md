@@ -1,5 +1,11 @@
 # M3: MobX pool shape review (POD-4591)
 
+> **Re-review 2026-09-23 at `62e1a17b5`: FAIL on one line (G1), sent back to
+> POD-4568.** F1 and F2 are fixed in the code, and C3, C4 and C8 now PASS. The
+> 5×300 gate is green, with all four plants caught on every seed. But the F1 guard test reads only
+> the pool's own counter, and it stays green on a copy-and-sort flush that
+> does not report its copy. See §5. The first review follows unchanged.
+
 **Verdict: FAIL, sent back to Ma4 (POD-4568).** Two checklist lines fail:
 bucket maintenance scales with the bucket, and on live data one new
 issue copies and sorts 4,575 entries, 88% of the issue table (F1), and the row views resolve relations themselves
