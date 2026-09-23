@@ -860,6 +860,167 @@ describe('the reads fence and the write record', () => {
     expect(large.sameBucket).toBe(true)
     expect(large.elements).toBeLessThanOrEqual(4)
   })
+
+  /**
+   * M3 F1's bound, on the live shape (one repo holds 4,574 of 5,170 issues):
+   * one add to and one remove from a bucket of b members touch O(1) elements,
+   * independent of b. Counted twice: by the engine (`indexUpdates`, at most 4
+   * per edge: the member and the forward entry, detach or attach), and by an
+   * instrument the engine cannot under-report to — every `Set` add, delete
+   * and iterator step, and every element an `Array.prototype.sort` is handed,
+   * process-wide, for the ingest. The same count at b = 4,000 and b = 8,000
+   * is the O(1) claim; the planted copy-and-sort (the MobX shape) must break
+   * it.
+   */
+  describe('bucket upkeep is O(1) in the bucket (M3 F1)', () => {
+    /** Elements any `Set` or sort touched while `run` ran. */
+    function elementOps(run: () => void): number {
+      type Method = (this: unknown, ...args: unknown[]) => unknown
+      type Patched = { [name: string]: Method }
+      const targets: [Patched, string, (self: unknown) => number][] = [
+        [Set.prototype as unknown as Patched, 'add', () => 1],
+        [Set.prototype as unknown as Patched, 'delete', () => 1],
+        [Object.getPrototypeOf(new Set<unknown>().values()) as Patched, 'next', () => 1],
+        [Array.prototype as unknown as Patched, 'sort', (self) => (self as unknown[]).length],
+      ]
+      let ops = 0
+      const saved = targets.map(([proto, name, weight]) => {
+        const original = proto[name] as Method
+        proto[name] = function (this: unknown, ...args: unknown[]) {
+          ops += weight(this)
+          return original.apply(this, args)
+        }
+        return () => {
+          proto[name] = original
+        }
+      })
+      try {
+        run()
+      } finally {
+        for (const restore of saved) restore()
+      }
+      return ops
+    }
+
+    type Edit = { elements: number; ops: number }
+
+    /** One add of a new issue to repo R's bucket of `size`, then one remove of an old member. */
+    function upkeep(size: number, plant?: (r: Rig) => void): { add: Edit; remove: Edit } {
+      const r = rig(
+        Array.from({ length: size }, (_, i) => issue(`I${i + 1}`)),
+        { fence: false },
+      )
+      try {
+        plant?.(r)
+        expect(r.pool.engine.members('repo', 'R', 'issues').size).toBe(size)
+        const measure = (change: RowRecord): Edit => {
+          const before = r.pool.stats.indexUpdates
+          const ops = elementOps(() => r.push(change))
+          return { elements: r.pool.stats.indexUpdates - before, ops }
+        }
+        const add = measure(issue('I99999'))
+        const remove = measure(gone('issue', `I${Math.ceil(size / 2)}`))
+        expect(r.pool.engine.members('repo', 'R', 'issues').size).toBe(size)
+        r.check()
+        return { add, remove }
+      } finally {
+        r.dispose()
+      }
+    }
+
+    /** The MobX shape: every membership change copies and re-sorts the buckets it touched. */
+    function copyAndSort(r: Rig): void {
+      type Bucketed = { buckets: Map<string, Set<string>>; forward: Map<string, string> }
+      const engine = r.pool.engine as unknown as {
+        point(link: Bucketed, id: string, target: string | null): void
+      }
+      const point = engine.point.bind(engine)
+      engine.point = (link, id, target) => {
+        const old = link.forward.get(id)
+        point(link, id, target)
+        for (const key of [old, target]) {
+          const bucket = key == null ? undefined : link.buckets.get(key)
+          if (key != null && bucket !== undefined)
+            link.buckets.set(key, new Set([...bucket].sort()))
+        }
+      }
+    }
+
+    it('one add and one remove in a bucket of 4,000 touch what they touch in one of 8,000, at most 4 elements each', () => {
+      const at4k = upkeep(4_000)
+      const at8k = upkeep(8_000)
+      expect(at8k).toEqual(at4k)
+      expect(at4k.add.elements).toBeLessThanOrEqual(4)
+      expect(at4k.remove.elements).toBeLessThanOrEqual(4)
+      // Independent of the engine's own count: a small constant, nowhere near b.
+      expect(at4k.add.ops).toBeLessThan(100)
+      expect(at4k.remove.ops).toBeLessThan(100)
+      writeResult('hand-pool-bucket-upkeep', { bound: 'O(1) per edge', at4k, at8k })
+    })
+
+    it('the planted copy-and-sort fails the bound', () => {
+      const at4k = upkeep(4_000, copyAndSort)
+      const at8k = upkeep(8_000, copyAndSort)
+      expect(at4k.add.ops).toBeGreaterThan(4_000)
+      expect(at4k.remove.ops).toBeGreaterThan(4_000)
+      expect(at8k.add.ops).toBeGreaterThan(at4k.add.ops)
+      writeResult('hand-pool-bucket-upkeep-plant', { plant: 'copy-and-sort', at4k, at8k })
+    })
+  })
+})
+
+// ------------------------------------------- row views resolve through one() (M3 F2)
+
+describe('row views resolve single-valued relations through the engine (M3 F2)', () => {
+  const rows = [
+    lane('/repo'),
+    lane('/other', 'R2', { repoPath: '/other', prefix: 'OTH' }),
+    issue('I1'),
+    issue('I2', { deps: [{ id: 'I1', type: 'discovered-from' }] }),
+    issue('I3', { repoId: 'R2', repoPath: '/other' }),
+  ]
+
+  it('a planted wrong forward entry is what the row view shows, and the scan names it', () => {
+    const truth = rig(rows)
+    const planted = rig(rows)
+    try {
+      expect(truth.pool.view('I1')?.displayRef).toBe('POD-1')
+      expect(truth.pool.view('I2')?.originTick?.ref).toBe('POD-1')
+      truth.check()
+      // Plant before any view of the planted pool is read: its cells are born on the lie.
+      const links = (
+        planted.pool.engine as unknown as { links: Map<string, { forward: Map<string, string> }> }
+      ).links
+      links.get('issue.repo')?.forward.set('I1', 'R2')
+      links.get('issue.discoveredFrom')?.forward.set('I2', 'I3')
+      // A view that re-resolved from its own row (relationRef + a table read) would still say POD-1.
+      expect(planted.pool.view('I1')?.displayRef).toBe('OTH-1')
+      expect(planted.pool.view('I2')?.originTick?.id).toBe('I3')
+      expect(planted.pool.view('I2')?.originTick?.ref).toBe('OTH-3')
+      const diff = diffRelations(planted.pool.engine, planted.pool.tables)
+      expect(diff).toEqual([
+        'issue:I1.repo: live "R2", scan "R"',
+        'issue:I2.discoveredFrom: live "I3", scan "I1"',
+      ])
+    } finally {
+      truth.dispose()
+      planted.dispose()
+    }
+  })
+
+  it("a mounted row hears its repo's prefix change and its repo leaving", () => {
+    const r = rig(rows)
+    try {
+      const refs: (string | undefined)[] = [r.pool.view('I1')?.displayRef]
+      const off = r.pool.subscribe('I1', () => refs.push(r.pool.view('I1')?.displayRef))
+      r.push(lane('/repo', 'R', { prefix: 'NEW' }))
+      r.push(gone('worktree', '/repo'))
+      off()
+      expect(refs).toEqual(['POD-1', 'NEW-1', '#1'])
+    } finally {
+      r.dispose()
+    }
+  })
 })
 
 // ------------------------------------------------- a relation added to the schema
