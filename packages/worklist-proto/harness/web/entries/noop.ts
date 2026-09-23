@@ -1,8 +1,10 @@
-import { createRowSource } from '../../../shared/src/row-source'
 import { FIXTURE_SEED, startEngineOnCorpus } from '../../../shared/src/scenarios'
 import { buildCorpus } from '../../src/fixture/index'
 import { mountPage, readScale } from '../entrylib'
 import { noopArmFor, readPlant } from '../noop-arm'
+
+// POD-4561: the bundle is fetched, parsed and evaluated (every static import).
+const scriptAt = performance.now()
 
 // POD-4558: the instrument floor — an arm that does nothing on a change,
 // timed on the same path as every arm (`noop-arm.tsx`).
@@ -10,14 +12,12 @@ const scale = readScale()
 const sha = new URLSearchParams(window.location.search).get('sha') ?? 'dev'
 const corpus = buildCorpus(scale, FIXTURE_SEED)
 const boot = await startEngineOnCorpus(corpus)
-const source = createRowSource(boot.engine, boot.replica, { mode: 'overlaid' })
 mountPage({
   arm:
     readPlant() === null
       ? 'noop'
       : `noop+${new URLSearchParams(window.location.search).get('plant')}`,
-  createArm: () => noopArmFor(boot, readPlant()),
-  source: source.source,
+  createArm: (over) => noopArmFor(over, readPlant()),
   boot,
   scale,
   counts: {
@@ -28,4 +28,5 @@ mountPage({
   },
   runtimeSha: sha,
   el: document.getElementById('root')!,
+  scriptAt,
 })

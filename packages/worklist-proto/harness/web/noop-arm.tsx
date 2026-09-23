@@ -24,6 +24,14 @@
  * times inside every notification and commits nothing: work that grows with
  * the corpus (O(N) per change), which the restated slope budget (excess over
  * the floor, 4x over 1x) must fail while `sync:<ms>` (constant) passes it.
+ *
+ * LIFECYCLE PLANTS (POD-4561, the lifecycle walls' and heap checks' can-say-NO
+ * proof): `build:<ms>` busy-waits that long inside `create` (the arm's own
+ * construction), which coldBootstrap and principalSwitch must charge to
+ * `actionMs`; `leak:<mb>` holds an `mb` MB block per store and, on `dispose`
+ * and on every feed `replace` (a rescope), moves the block to a page global
+ * instead of dropping it (and takes a new one on replace), so a principal
+ * switch retains `mb` MB more and a rescope (two replaces) `2 × mb`.
  */
 
 import { createElement, type ReactElement } from 'react'
@@ -40,7 +48,7 @@ import {
 } from '../../shared/src/row-shell'
 import type { ScenarioEngine } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
-import type { ArmStats } from '../../shared/src/stats'
+import type { ArmStats, RowSourceEvent } from '../../shared/src/stats'
 import { oracleSnapshot, rowViewsFromStore } from '../src/oracle/index'
 
 /** Rows drawn: the first window (`FIRST_WINDOW_ROWS`) plus the rows a page's
@@ -70,25 +78,52 @@ function zeroStats(): ArmStats {
   }
 }
 
-export type NoopPlant = { kind: 'sync' | 'late' | 'walk'; ms: number } | null
+export type NoopPlant = { kind: 'sync' | 'late' | 'walk' | 'build' | 'leak'; ms: number } | null
 
-/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>`; null when absent. */
+const PLANT_KINDS = new Set(['sync', 'late', 'walk', 'build', 'leak'])
+
+/** `?plant=sync:<ms>` / `late:<ms>` / `walk:<passes>` / `build:<ms>` / `leak:<mb>`; null when absent. */
 export function readPlant(): NoopPlant {
   const raw = new URLSearchParams(window.location.search).get('plant')
   if (raw === null) return null
   const [kind, ms] = raw.split(':')
-  if ((kind !== 'sync' && kind !== 'late' && kind !== 'walk') || !Number.isFinite(Number(ms))) {
-    throw new Error(`[noop] bad plant ${raw} (want sync:<ms>, late:<ms> or walk:<passes>)`)
+  if (!PLANT_KINDS.has(kind ?? '') || !Number.isFinite(Number(ms))) {
+    throw new Error(
+      `[noop] bad plant ${raw} (want sync:<ms>, late:<ms>, walk:<passes>, build:<ms> or leak:<mb>)`,
+    )
   }
-  return { kind, ms: Number(ms) }
+  return { kind: kind as NonNullable<NoopPlant>['kind'], ms: Number(ms) }
 }
+
+/** `leak:<mb>`: an `mb` MB block on the V8 heap (a packed array of doubles). */
+function heapBlock(mb: number): number[] {
+  return Array.from({ length: mb * 131_072 }, (_, i) => i + 0.5)
+}
+
+/** Where `leak:<mb>` puts the blocks it should have dropped. */
+const leaked: number[][] = []
 
 export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
   return {
     create(source, locals): ArmHandle {
+      if (plant?.kind === 'build') {
+        const until = performance.now() + plant.ms
+        while (performance.now() < until) {
+          // planted construction work
+        }
+      }
+      let block = plant?.kind === 'leak' ? heapBlock(plant.ms) : null
       let redraw = (): void => {}
-      const onChange = (): void => {
+      const onChange = (event?: RowSourceEvent): void => {
         if (plant === null) return
+        if (plant.kind === 'build') return
+        if (plant.kind === 'leak') {
+          if (event?.type === 'replace' && block !== null) {
+            leaked.push(block)
+            block = heapBlock(plant.ms)
+          }
+          return
+        }
         if (plant.kind === 'walk') {
           let sink = 0
           for (let pass = 0; pass < plant.ms; pass += 1) {
@@ -107,7 +142,7 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
         }
       }
       const offSource = source.subscribe(onChange)
-      const offLocals = locals.subscribe(onChange)
+      const offLocals = locals.subscribe(() => onChange())
       const store = boot.engine.getSnapshot()
       const frozen: SliceSnapshot = oracleSnapshot(store)
       const views = rowViewsFromStore(store, locals.get())
@@ -118,6 +153,8 @@ export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
         snapshot: () => frozen,
         stats: zeroStats(),
         dispose() {
+          if (block !== null) leaked.push(block)
+          block = null
           offSource()
           offLocals()
           root?.unmount()

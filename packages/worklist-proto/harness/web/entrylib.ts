@@ -120,26 +120,32 @@
 import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
 import { activityAfterRead } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
-import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
+import type { Arm, ArmHandle } from '../../shared/src/arm'
+import type { LocalsSourceHandle } from '../../shared/src/locals-source'
 import {
   type CommitLog,
   createCommitLog,
   withCommitLog,
   withCommitLogAsync,
 } from '../../shared/src/row-shell'
+import { createRowSource, type RowSourceHandle } from '../../shared/src/row-source'
 import {
   applyHeartbeat,
   applyStageMove,
   applyTitleRename,
   echoAcknowledgedMarkReads,
+  FIXTURE_SEED,
   pendingWrites,
   pickVisibleHeartbeat,
   type ScenarioEngine,
+  seedCacheFromCorpus,
+  startEngineOnCorpus,
   targetRules,
   upsert,
 } from '../../shared/src/scenarios'
 import type { SliceSnapshot } from '../../shared/src/slice-types'
 import { createEngineLocals, localsOfEngine } from '../src/engine-locals'
+import { buildCorpus } from '../src/fixture/index'
 import { oracleSnapshot, type RowViews, rowViewsFromStore } from '../src/oracle/index'
 
 export type ProtoScenarioName =
@@ -203,8 +209,27 @@ export interface ProtoOracleCheck {
   under: string[]
 }
 
+/** POD-4561 (L5e): the lifecycle steps, each on its own held page load. */
+export type ProtoLifecycleName = 'coldBootstrap' | 'principalSwitch' | 'rescope'
+
+export interface ProtoParity {
+  arm: string
+  oracle: string
+  /** The first row (oracle order) where the two differ; null when they agree. */
+  firstDifference: string | null
+}
+
+/** A lifecycle step's record: the change fields, the step's phases, and for
+ *  rescope the parity at the grown state. */
+export interface ProtoLifecycleResult extends ProtoScenarioResult {
+  phases: Record<string, number>
+  midParity: ProtoParity | null
+}
+
 export interface ProtoPage {
   ready: boolean
+  /** `?hold=1`: the arm waits for a lifecycle step; hot-path changes are refused. */
+  held: boolean
   arm: string
   scale: 1 | 2 | 4
   corpus: ProtoCorpusCounts
@@ -232,6 +257,18 @@ export interface ProtoPage {
   /** The first row (oracle order) where the arm's output differs from the oracle's; null when equal. */
   firstDifference(): string | null
   stats(): ProtoScenarioResult['stats']
+  /** Held page, timed: build the arm and draw its list (page load to first painted list). */
+  coldBootstrap(): Promise<ProtoLifecycleResult>
+  /** Untimed: boot `principal`'s runtime over a fresh replica for `rebuild`. */
+  prepareRebuild(principal: string): Promise<void>
+  /** Held page, timed: dispose the arm and rebuild it over the prepared runtime. */
+  rebuild(principal: string): Promise<ProtoLifecycleResult>
+  /** Untimed: stage the corpus rows at `scale` for `rescope`. */
+  prepareRescope(scale: 1 | 2 | 4): Promise<void>
+  /** Held page, timed: rescope onto the staged corpus, then back. */
+  rescope(scale: 1 | 2 | 4): Promise<ProtoLifecycleResult>
+  /** Commit signals since the last settle (a lifecycle step's late work). */
+  lateSignals(): number
 }
 
 declare global {
@@ -369,13 +406,17 @@ export const FIRST_WINDOW_ROWS = 96
 
 export interface MountPageOptions {
   arm: string
-  createArm: () => Arm
-  source: RowSource
+  /** The arm over one engine: the page builds it at boot and again, over a
+   *  fresh engine, on a principal switch (`rebuild`). */
+  createArm: (boot: ScenarioEngine) => Arm
   boot: ScenarioEngine
   scale: 1 | 2 | 4
   counts: { issues: number; sessions: number; repos: number; worktrees: number }
   runtimeSha: string
   el: Element
+  /** `performance.now()` at the entry module's first statement: the bundle
+   *  fetched, parsed and evaluated (every static import), nothing else run. */
+  scriptAt: number
 }
 
 export function readScale(): 1 | 2 | 4 {
@@ -383,36 +424,26 @@ export function readScale(): 1 | 2 | 4 {
   return raw === '2' ? 2 : raw === '4' ? 4 : 1
 }
 
-export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: CommitLog } {
-  const { createArm, source, boot, scale, counts, runtimeSha, el } = options
-  const { engine } = boot
-  // The locals channel is the ENGINE's (POD-4608): a click and a tick are
-  // engine writes, and every arm hears them here.
-  const locals = createEngineLocals(engine)
-  const arm = createArm()
-  const handle = arm.create(source, locals.source)
-  // Round-two stores predate the channel (they read `locals.get()` once and
-  // are driven by `setSelection` / `setCoarseNow`): the page bridges it.
-  const roundTwo = (
-    handle as unknown as {
-      store?: { setSelection?: (id: string) => void; setCoarseNow?: (now: number) => void }
-    }
-  ).store
-  if (roundTwo?.setSelection !== undefined && roundTwo.setCoarseNow !== undefined) {
-    const { setSelection, setCoarseNow } = roundTwo as Required<typeof roundTwo>
-    locals.source.subscribe((changed) => {
-      const now = locals.source.get()
-      if (changed.has('selectedIssueId') && now.selectedIssueId !== null)
-        setSelection.call(roundTwo, now.selectedIssueId)
-      if (changed.has('coarseNow')) setCoarseNow.call(roundTwo, now.coarseNow)
-    })
-  }
-  const log = createTimedCommitLog()
-  withCommitLog(log, () => {
-    const unmount = handle.mountWeb(el)
-    void unmount
-  })
+/** One built arm over one engine: everything a principal switch disposes. */
+interface LiveArm {
+  boot: ScenarioEngine
+  source: RowSourceHandle
+  locals: LocalsSourceHandle
+  handle: ArmHandle
+  unmount: () => void
+  offBridge: (() => void) | null
+}
 
+export function mountPage(options: MountPageOptions): void {
+  const { createArm, boot, scale, counts, runtimeSha, el } = options
+  const { engine } = boot
+  /** The engine is booted when the entry calls here (fixture built, corpus installed). */
+  const engineAt = performance.now()
+  const params = new URLSearchParams(window.location.search)
+  const log = createTimedCommitLog()
+
+  // The observers exist before any arm draws, so a build's own commits and
+  // DOM writes are signals like a change's.
   let lastDomAt = -1
   let domRecords = 0
   new MutationObserver((records) => {
@@ -439,14 +470,69 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     }
   }
 
-  const statsOf = (): ProtoScenarioResult['stats'] => ({
-    rowsDerived: handle.stats.rowsDerived,
-    rollupsDerived: handle.stats.rollupsDerived,
-    indexUpdates: handle.stats.indexUpdates,
-    notifications: handle.stats.notifications,
-  })
+  /**
+   * Build the arm over `over` and mount it: the row source, the locals
+   * channel, the arm's store, its web list. Synchronous; the list's commits
+   * land after it returns (the timer's window catches them).
+   */
+  function build(over: ScenarioEngine): LiveArm {
+    const source = createRowSource(over.engine, over.replica, { mode: 'overlaid' })
+    // The locals channel is the ENGINE's (POD-4608): a click and a tick are
+    // engine writes, and every arm hears them here.
+    const locals = createEngineLocals(over.engine)
+    const handle = createArm(over).create(source.source, locals.source)
+    // Round-two stores predate the channel (they read `locals.get()` once and
+    // are driven by `setSelection` / `setCoarseNow`): the page bridges it.
+    const roundTwo = (
+      handle as unknown as {
+        store?: { setSelection?: (id: string) => void; setCoarseNow?: (now: number) => void }
+      }
+    ).store
+    let offBridge: (() => void) | null = null
+    if (roundTwo?.setSelection !== undefined && roundTwo.setCoarseNow !== undefined) {
+      const { setSelection, setCoarseNow } = roundTwo as Required<typeof roundTwo>
+      offBridge = locals.source.subscribe((changed) => {
+        const now = locals.source.get()
+        if (changed.has('selectedIssueId') && now.selectedIssueId !== null)
+          setSelection.call(roundTwo, now.selectedIssueId)
+        if (changed.has('coarseNow')) setCoarseNow.call(roundTwo, now.coarseNow)
+      })
+    }
+    let unmount: () => void = () => {}
+    withCommitLog(log, () => {
+      unmount = handle.mountWeb(el)
+    })
+    return { boot: over, source, locals, handle, unmount, offBridge }
+  }
 
-  const params = new URLSearchParams(window.location.search)
+  /** Everything `build` made, released: what a principal switch throws away. */
+  function teardown(arm: LiveArm): void {
+    arm.unmount()
+    arm.handle.dispose()
+    arm.offBridge?.()
+    arm.locals.dispose()
+    arm.source.dispose()
+  }
+
+  // `?hold=1` (lifecycle pages): the engine boots, the arm waits for the
+  // driver's `build()`, so the driver can take the heap before any arm exists.
+  const held = params.get('hold') === '1'
+  let liveArm: LiveArm | null = held ? null : build(boot)
+  const live = (): LiveArm => {
+    if (liveArm === null) throw new Error('[proto] no arm built yet (held page: call build())')
+    return liveArm
+  }
+
+  const statsOf = (): ProtoScenarioResult['stats'] => {
+    const { stats } = live().handle
+    return {
+      rowsDerived: stats.rowsDerived,
+      rollupsDerived: stats.rollupsDerived,
+      indexUpdates: stats.indexUpdates,
+      notifications: stats.notifications,
+    }
+  }
+
   const checkMode = params.get('check') === '1'
   const rules = targetRules(boot.corpus)
   const markSettle = params.get('marksettle') !== '0'
@@ -690,6 +776,7 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
 
   async function prepare(name: ProtoScenarioName): Promise<string | null> {
     if (running) throw new Error('[proto] prepare during a running change')
+    if (held) throw new Error(`[proto] ${name}: a held page (?hold=1) runs lifecycle steps only`)
     if (undoLast !== null) {
       // Put the renamed or moved row back as it was (same server rows, so the
       // same title and the same place in the list) and settle, so every sample
@@ -715,6 +802,76 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     return next.target
   }
 
+  interface TimedWindow extends Omit<ProtoScenarioResult, 'strayCommits' | 'target'> {
+    /** performance.now() at the dispatch. */
+    start: number
+  }
+
+  /**
+   * THE TIMER, one path for every change and every lifecycle step (see the
+   * header): dispatch, drain, settle, then the last commit signal ends the
+   * window. The caller wraps it in the page's commit log.
+   */
+  async function timeWindow(dispatch: () => void): Promise<TimedWindow> {
+    liveArm?.handle.stats.reset()
+    log.reset()
+    drainLongTasks()
+    longTasks.length = 0
+    const domBefore = domRecords
+    const windowSignals = signals()
+
+    const start = performance.now()
+    dispatch()
+    const drainEnd = await nextTask()
+
+    const frames = await settleQuiet()
+    const settleEnd = performance.now()
+
+    const committed = signals() !== windowSignals
+    const commitAt = committed && log.lastAt() >= start ? log.lastAt() : -1
+    const domAt = domRecords !== domBefore && lastDomAt >= start ? lastDomAt : -1
+    const end = Math.max(drainEnd, commitAt, domAt)
+    const endedBy = end === drainEnd ? 'drain' : end === commitAt ? 'commit' : 'dom'
+    const frameAt = frames.find((t) => t >= end)
+    if (frameAt === undefined) throw new Error('[proto] no frame after the last commit signal')
+
+    drainLongTasks()
+    return {
+      start,
+      commits: log.total(),
+      mounts: [...log.mounts.values()].reduce((sum, n) => sum + n, 0),
+      domMutations: domRecords - domBefore,
+      stats: statsOf(),
+      drainMs: drainEnd - start,
+      actionMs: end - start,
+      frameMs: frameAt - start,
+      endedBy,
+      longTasks: longTasks.filter((t) => t.startTime + t.duration > start && t.startTime < settleEnd),
+      mountedRows: el.querySelectorAll('[data-issue-row]').length,
+    }
+  }
+
+  function resultOf(
+    window: TimedWindow,
+    strayCommits: number,
+    target: string | null,
+  ): ProtoScenarioResult {
+    return {
+      commits: window.commits,
+      mounts: window.mounts,
+      domMutations: window.domMutations,
+      strayCommits,
+      stats: window.stats,
+      drainMs: window.drainMs,
+      actionMs: window.actionMs,
+      frameMs: window.frameMs,
+      endedBy: window.endedBy,
+      longTasks: window.longTasks,
+      mountedRows: window.mountedRows,
+      target,
+    }
+  }
+
   /** Time the prepared change (picked and looked up untimed in `prepare`). */
   async function runScenario(name: ProtoScenarioName): Promise<ProtoScenarioResult> {
     if (running) throw new Error('[proto] runScenario is not re-entrant')
@@ -729,61 +886,242 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
         // Re-asserted at the write: nothing between prepare and here may undraw it.
         if (current.row && current.target !== null) assertDrawn(name, current.target)
         const strayCommits = signals() - settledSignals
-        handle.stats.reset()
-        log.reset()
-        drainLongTasks()
-        longTasks.length = 0
-        const domBefore = domRecords
-        const windowSignals = signals()
-
-        const start = performance.now()
-        current.dispatch()
-        const drainEnd = await nextTask()
-
-        const frames = await settleQuiet()
-        const settleEnd = performance.now()
+        const window = await timeWindow(current.dispatch)
         if (current.undo !== undefined) undoLast = current.undo
-
-        const committed = signals() !== windowSignals
-        const commitAt = committed && log.lastAt() >= start ? log.lastAt() : -1
-        const domAt = domRecords !== domBefore && lastDomAt >= start ? lastDomAt : -1
-        const end = Math.max(drainEnd, commitAt, domAt)
-        const endedBy = end === drainEnd ? 'drain' : end === commitAt ? 'commit' : 'dom'
-        const frameAt = frames.find((t) => t >= end)
-        if (frameAt === undefined) throw new Error('[proto] no frame after the last commit signal')
-
-        drainLongTasks()
-        const longTaskList = longTasks.filter(
-          (t) => t.startTime + t.duration > start && t.startTime < settleEnd,
-        )
-        const commits = log.total()
-        const mounts = [...log.mounts.values()].reduce((sum, n) => sum + n, 0)
-        const mountedRows = el.querySelectorAll('[data-issue-row]').length
-        const domMutations = domRecords - domBefore
-        const stats = statsOf()
         // Untimed, after every number above is taken: this step's own
         // mark-reads, acknowledged and echoed before the next change.
-        if (markSettle) await settleMarkReads(name === 'click' ? start : null)
+        if (markSettle) await settleMarkReads(name === 'click' ? window.start : null)
         lastRun = current
-        return {
-          commits,
-          mounts,
-          domMutations,
-          strayCommits,
-          stats,
-          drainMs: drainEnd - start,
-          actionMs: end - start,
-          frameMs: frameAt - start,
-          endedBy,
-          longTasks: longTaskList,
-          mountedRows,
-          target: current.target,
-        }
+        return resultOf(window, strayCommits, current.target)
       })
     } finally {
       running = false
     }
   }
+
+  // ------------------------------------------------------------ lifecycle
+  // POD-4561 (L5e). One lifecycle sample per page load (`?hold=1`): a timed
+  // run that is killed or repeated in one page poisons later renders, so the
+  // driver loads a fresh page for each and the page refuses a second one.
+
+  let lifecycleRan: ProtoLifecycleName | null = null
+  function beginLifecycle(name: ProtoLifecycleName): void {
+    if (!held) throw new Error(`[proto] ${name}: lifecycle steps run on a held page (?hold=1)`)
+    if (running) throw new Error(`[proto] ${name}: a change is running`)
+    if (lifecycleRan !== null) {
+      throw new Error(
+        `[proto] ${name}: this page already ran ${lifecycleRan}; one lifecycle sample per page load`,
+      )
+    }
+    lifecycleRan = name
+  }
+
+  /** The arm's output against the oracle's over the live engine, untimed. */
+  function parityNow(): ProtoParity {
+    const armSnapshot = live().handle.snapshot()
+    const oracle = oracleSnapshot(live().boot.engine.getSnapshot())
+    const armHash = hashString(canonical(armSnapshot))
+    const oracleHash = hashString(canonical(oracle))
+    return {
+      arm: armHash,
+      oracle: oracleHash,
+      firstDifference: armHash === oracleHash ? null : firstSnapshotDifference(armSnapshot, oracle),
+    }
+  }
+
+  /**
+   * coldBootstrap, timed: build the arm over the booted engine and draw its
+   * list. `actionMs` is the arm's share of page load to first painted list:
+   * the entry's own load (navigation to its first statement: the bundle
+   * fetched, parsed and evaluated) plus the build window (source, locals,
+   * store, list, to the last commit signal). The fixture and engine boot
+   * between them are the harness's and the kernel's, the same on every page,
+   * and are reported (`engineMs`), not charged.
+   */
+  async function coldBootstrap(): Promise<ProtoLifecycleResult> {
+    if (liveArm !== null) throw new Error('[proto] coldBootstrap: the arm is already built')
+    const strayCommits = signals() - settledSignals
+    beginLifecycle('coldBootstrap')
+    running = true
+    try {
+      const window = await withCommitLogAsync(log, () =>
+        timeWindow(() => {
+          liveArm = build(boot)
+        }),
+      )
+      page.corpus = corpusCounts()
+      const scriptMs = options.scriptAt
+      return {
+        ...resultOf(window, strayCommits, null),
+        actionMs: scriptMs + window.actionMs,
+        phases: {
+          scriptMs,
+          engineMs: engineAt - options.scriptAt,
+          buildMs: window.actionMs,
+          heldMs: window.start - engineAt,
+          // Navigation to the first frame after the list's last commit, the
+          // driver's hold removed: what a user waits for on this page.
+          loadToPaintMs: engineAt + window.frameMs,
+        },
+        midParity: null,
+      }
+    } finally {
+      running = false
+    }
+  }
+
+  let prepared: { principal: string; boot: ScenarioEngine; engineMs: number } | null = null
+
+  /** Untimed: boot the next principal's runtime over a FRESH replica (and
+   *  cache) on the same corpus, as a switch receives it from the kernel. */
+  async function prepareRebuild(principal: string): Promise<void> {
+    const began = performance.now()
+    const fresh = await startEngineOnCorpus(live().boot.corpus, { principal })
+    prepared = { principal, boot: fresh, engineMs: performance.now() - began }
+    await settleQuiet()
+  }
+
+  /**
+   * principalSwitch, timed: dispose the arm (list, store, locals, source)
+   * and build it over the prepared fresh engine, to the new list's last
+   * commit signal. The old runtime is destroyed after the window (the
+   * kernel's, frozen, the same for every arm).
+   */
+  async function rebuild(principal: string): Promise<ProtoLifecycleResult> {
+    const next = prepared
+    if (next === null || next.principal !== principal) {
+      throw new Error(`[proto] rebuild(${principal}) without prepareRebuild(${principal})`)
+    }
+    const old = live()
+    const strayCommits = signals() - settledSignals
+    beginLifecycle('principalSwitch')
+    prepared = null
+    running = true
+    try {
+      let disposeMs = 0
+      const window = await withCommitLogAsync(log, () =>
+        timeWindow(() => {
+          const began = performance.now()
+          teardown(old)
+          liveArm = null
+          disposeMs = performance.now() - began
+          liveArm = build(next.boot)
+        }),
+      )
+      old.boot.engine.destroy()
+      page.corpus = corpusCounts()
+      return {
+        ...resultOf(window, strayCommits, null),
+        phases: { engineMs: next.engineMs, disposeMs, buildMs: window.actionMs - disposeMs },
+        midParity: null,
+      }
+    } finally {
+      running = false
+    }
+  }
+
+  type CacheRecords = ScenarioEngine['cache']['records']
+  /** The staged rows came out of a `ScenarioCache`, so every entity is a kernel one. */
+  type Entity = Parameters<ScenarioEngine['cache']['put']>[0]
+  let staged: { scale: 1 | 2 | 4; grown: CacheRecords; base: CacheRecords } | null = null
+  let rescopeSeq = 1
+
+  /** Untimed: the rows of the corpus at `to`, and the page's own rows to come back to. */
+  async function prepareRescope(to: 1 | 2 | 4): Promise<void> {
+    if (to === scale)
+      throw new Error(`[proto] prepareRescope(${to}): the page is already at ${scale}x`)
+    staged = {
+      scale: to,
+      grown: seedCacheFromCorpus(buildCorpus(to, FIXTURE_SEED)).records,
+      base: [...live().boot.cache.records],
+    }
+    await settleQuiet()
+  }
+
+  /** Untimed: the kernel cache becomes exactly `rows` (in their order), silently. */
+  function stageRows(rows: CacheRecords): void {
+    const { cache, replica } = live().boot
+    const keep = new Set(rows.map((row) => `${row.entity}:${row.entityId}`))
+    replica.batch(() => {
+      for (const row of [...cache.records]) {
+        if (!keep.has(`${row.entity}:${row.entityId}`)) cache.drop(row.entity as Entity, row.entityId)
+      }
+      for (const row of rows) cache.put(row.entity as Entity, row.entityId, row.value)
+    })
+  }
+
+  /** The kernel's rescope install over the cache as it stands (methodology #13). */
+  function fireRescope(): void {
+    rescopeSeq += 1
+    const { cache, replica } = live().boot
+    replica.onKernelEvent({
+      type: 'bootstrap-installed',
+      cause: 'rescope',
+      snapshotSeq: rescopeSeq,
+      entityCount: cache.records.length,
+      bufferedFramesApplied: 0,
+    } as never)
+  }
+
+  /**
+   * rescope, timed in two windows: the install onto the staged corpus (2x the
+   * page's), then, the page's own rows restaged untimed, the install back.
+   * `actionMs` is the two windows' sum; the kernel cache writes before each
+   * install are untimed (the kernel's, the same for every arm). Parity at the
+   * grown state is taken between the windows (`midParity`); the driver takes
+   * it again after the return.
+   */
+  async function rescope(to: 1 | 2 | 4): Promise<ProtoLifecycleResult> {
+    const stage = staged
+    if (stage === null || stage.scale !== to) {
+      throw new Error(`[proto] rescope(${to}) without prepareRescope(${to})`)
+    }
+    const strayCommits = signals() - settledSignals
+    beginLifecycle('rescope')
+    running = true
+    try {
+      stageRows(stage.grown)
+      const grow = await withCommitLogAsync(log, () => timeWindow(fireRescope))
+      const midParity = parityNow()
+      const grownRows = Object.keys(live().handle.snapshot().rowsById).length
+      stageRows(stage.base)
+      const back = await withCommitLogAsync(log, () => timeWindow(fireRescope))
+      return {
+        commits: grow.commits + back.commits,
+        mounts: grow.mounts + back.mounts,
+        domMutations: grow.domMutations + back.domMutations,
+        strayCommits,
+        stats: {
+          rowsDerived: grow.stats.rowsDerived + back.stats.rowsDerived,
+          rollupsDerived: grow.stats.rollupsDerived + back.stats.rollupsDerived,
+          indexUpdates: grow.stats.indexUpdates + back.stats.indexUpdates,
+          notifications: grow.stats.notifications + back.stats.notifications,
+        },
+        drainMs: grow.drainMs + back.drainMs,
+        actionMs: grow.actionMs + back.actionMs,
+        frameMs: grow.frameMs + back.frameMs,
+        endedBy: back.endedBy,
+        longTasks: [...grow.longTasks, ...back.longTasks],
+        mountedRows: back.mountedRows,
+        target: null,
+        phases: {
+          growMs: grow.actionMs,
+          backMs: back.actionMs,
+          grownRows,
+          grownIssues: stage.grown.filter((row) => row.entity === 'issue').length,
+          baseIssues: stage.base.filter((row) => row.entity === 'issue').length,
+        },
+        midParity,
+      }
+    } finally {
+      running = false
+    }
+  }
+
+  const corpusCounts = (): ProtoCorpusCounts => ({
+    ...counts,
+    rows: liveArm === null ? 0 : Object.keys(liveArm.handle.snapshot().rowsById).length,
+  })
 
   /**
    * Check mode: rows mounted before AND after the change, compared both ways
@@ -821,11 +1159,12 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     }
   }
 
-  window.__proto = {
+  const page: ProtoPage = {
     ready: true,
+    held,
     arm: options.arm,
     scale,
-    corpus: { ...counts, rows: Object.keys(handle.snapshot().rowsById).length },
+    corpus: corpusCounts(),
     runtimeSha,
     prepare,
     runScenario,
@@ -848,20 +1187,28 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
       await settleQuiet()
     },
     quietMs: QUIET_MS,
-    snapshotHash: () => hashString(canonical(handle.snapshot())),
-    oracleHash: () => hashString(canonical(oracleSnapshot(engine.getSnapshot()))),
-    firstDifference: () =>
-      firstSnapshotDifference(handle.snapshot(), oracleSnapshot(engine.getSnapshot())),
+    snapshotHash: () => parityNow().arm,
+    oracleHash: () => parityNow().oracle,
+    firstDifference: () => parityNow().firstDifference,
     stats: statsOf,
+    coldBootstrap,
+    prepareRebuild,
+    rebuild,
+    prepareRescope,
+    rescope,
+    lateSignals: () => signals() - settledSignals,
   }
-  return { handle, log }
+  window.__proto = page
 }
 
 /** Placeholder page for arms whose issue has not landed yet. */
 export function mountStub(arm: string, reason: string, runtimeSha: string): void {
   document.getElementById('root')!.textContent = `${arm}: ${reason}`
+  const refuse = (): Promise<never> =>
+    Promise.reject(new Error(`[proto] ${arm} not implemented: ${reason}`))
   window.__proto = {
     ready: false,
+    held: false,
     arm,
     scale: readScale(),
     corpus: { issues: 0, sessions: 0, repos: 0, worktrees: 0, rows: 0 },
@@ -877,5 +1224,11 @@ export function mountStub(arm: string, reason: string, runtimeSha: string): void
     oracleHash: () => 'pending',
     firstDifference: () => null,
     stats: () => ({ rowsDerived: 0, rollupsDerived: 0, indexUpdates: 0, notifications: 0 }),
+    coldBootstrap: refuse,
+    prepareRebuild: refuse,
+    rebuild: refuse,
+    prepareRescope: refuse,
+    rescope: refuse,
+    lateSignals: () => 0,
   }
 }
