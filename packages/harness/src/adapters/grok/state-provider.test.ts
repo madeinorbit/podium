@@ -352,6 +352,20 @@ describe('grok turn completion ([spec:SP-8b0e])', () => {
     ).resolves.toEqual([{ kind: 'turn_completed' }])
   })
 
+  // POD-4638. A Ctrl+C cancel writes no assistant record (measured on grok
+  // 1.0.40), so classifying the chat tail would name an EARLIER answer's
+  // verdict. Grok's own stop reason is the verdict.
+  it('a cancelled turn boundary ends the turn as interrupted', async () => {
+    await expect(
+      translateGrokUpdatePayload(update('turn_completed', { stop_reason: 'cancelled' })),
+    ).resolves.toEqual([{ kind: 'turn_completed', verdict: { kind: 'interrupted' } }])
+    await expect(
+      translateGrokUpdatePayload(update('turn_completed', { stop_reason: 'cancelled' }), {
+        classifyIdleVerdict: false,
+      }),
+    ).resolves.toEqual([{ kind: 'turn_completed', verdict: { kind: 'interrupted' } }])
+  })
+
   it('never lets a quiet open-plan verdict swallow a structured user action', async () => {
     await expect(
       translateGrokUpdatePayload(update('turn_completed', { stop_reason: 'end_turn' }), {
@@ -505,7 +519,7 @@ describe('observeGrokState', () => {
           updateLine('plan', { entries: [{ content: 'left', status: 'pending' }] }),
           updateLine('turn_completed', { stop_reason: 'cancelled' }),
         ]),
-      ).resolves.toMatchObject({ verdict: { kind: 'done' } })
+      ).resolves.toMatchObject({ verdict: { kind: 'interrupted' } })
     } finally {
       observer.stop()
     }

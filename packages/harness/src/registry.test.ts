@@ -624,8 +624,24 @@ describe('agent manifest registry', () => {
   // Ctrl-C into a CLI this build cannot name could kill an agent mid-turn.
   it('answers the abort chord per harness, and names both no-manifest cases', () => {
     expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessInterrupt(kind).key === 'ctrl-c')).toEqual(
-      [],
+      ['grok'],
     )
+    // POD-4638, measured on grok 1.0.40: Esc mid-turn only shows a "Press
+    // Ctrl+c to cancel" toast; Ctrl+C cancels, and is a no-op while idle.
+    expect(harnessInterrupt('grok')).toEqual({
+      key: 'ctrl-c',
+      bytes: '\x03',
+      quitsWhenIdle: false,
+    })
+    // POD-4638, measured on opencode 1.18.32: one Esc only arms "esc again to
+    // interrupt"; the abort takes a second press. Two raw ESC bytes in one
+    // write read as a single Alt+Esc, so each press is the unambiguous kitty
+    // encoding, and both go in the one write.
+    expect(harnessInterrupt('opencode')).toEqual({
+      key: 'esc-twice',
+      bytes: '\x1b[27u\x1b[27u',
+      quitsWhenIdle: false,
+    })
     expect(harnessInterrupt('claude-code')).toEqual({
       key: 'esc',
       bytes: '\x1b',
