@@ -202,3 +202,154 @@ views.
   packages/worklist-proto/harness/review/m3-shape-probes.test.tsx`, the gate
   command in §2.2, `bun run lint` in the package), check C3/C4/C8, and record
   PASS here with the SHA.
+
+## 5. Re-review, 2026-09-23, at `62e1a17b5`
+
+**Verdict: FAIL, sent back to Ma4 (POD-4568) on one line: the F1 guard
+test is not armed.** The pool code now passes every line: F1 and F2 are
+fixed in the code, and I checked both with my own instruments, not the
+pool's counter. But the test Ma4 added to guard F1 cannot fail on a
+copy-and-sort flush unless that flush also reports its own copy. I planted
+one that does not, and the guard stayed green (§5.3). The fix is test-only
+and small (§5.5). Mb1 (POD-4569) and everything after it stay blocked until
+this line passes.
+
+- **Reviewed commit:** `62e1a17b5` (POD-4568's landing, tip of
+  `integrate/4545-round-three` when this re-review started). My branch is
+  that commit plus probe commits that touch only
+  `harness/review/m3-shape-probes.test.tsx`. Paths below are relative to
+  `packages/worklist-proto/arms/mobx/pool/` unless given in full.
+- **Independence:** I built no part of the MobX pool. The six commits that
+  touch `arms/mobx/pool/` between `4c0ccde73` and `62e1a17b5` are all
+  POD-4568's (`c934005fc`, `270e746f4`, `e1aa71a6d`, `1e0b513e5`,
+  `85135eb7c`, `3289651a7`). POD-4568 also edited my probe file, so that its
+  output includes `elements touched` (the pool's own `bucketElements`). I kept
+  that line and added a counter of my own beside it (§5.2).
+- **Load:** 8.9–11.7 (1-minute) during the runs. Counts and assertions only;
+  no wall timings.
+- **Runner:** every test ran through the package config under the
+  validation queue, from `packages/worklist-proto`:
+  `bun ../../scripts/validation-admission.ts focused --label <l> -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts <files>`.
+  Plants ran in throwaway detached checkouts of my branch in the session
+  scratchpad, so my worktree stayed clean while the clean runs were going.
+
+### 5.1 The three failed or noted lines, re-checked at source
+
+| # | Check | Verdict at `62e1a17b5` | Evidence |
+|---|---|---|---|
+| C3 | No relation resolution inside derivations | **PASS** | `views.ts:295-297` `repoTargetPartOf` = `input.relations.one('issue', id, 'repo')`; `views.ts:328-330` `originRefPartOf` = `one('issue', id, 'discoveredFrom')`; `views.ts:356-358` `sessionIdsPartOf` = `many('issue', id, 'sessions')`, sorted at view time. `views.ts` no longer imports `relations.ts`. A grep for `relationRef` over non-test `pool/` finds only the engine (`relations.ts:129`, called at `:590`) and the scan (`enumerate.ts:39, 184`). The rebuild answers `one()` from the from-scratch scan (`rebuild.ts:53` `scanRelations(tables)`; `enumerate.ts:199-205`), so the gate now holds the engine's forward slots to a scan through the row views. Own-row reads that remain (`views.ts:239` `parentId == null` for "top-level", `:275` `repoKey`) read no target, so they are not resolution. Lint: `arms/mobx/eslint.config.mjs:50-66` forbids `views.ts` from importing `./relations`. It fires on my plant (§5.3). |
+| C4 | No whole-table walk, and no bucket-sized upkeep | **PASS** | A bucket is an `ObservableSet` (`relations.ts:215`, `newBucket` `:737-742`). `flush` (`:447-497`) applies each touched bucket's netted moves one element at a time (`:476-484`) and never reads the rest of the bucket. Bounded exceptions, each proportional to what moves: `members()` (`:393-402`) sorts a copy only for a removed root (`:667-672`, every member moves) and a released repo row (`tables.ts:165`, `repo.worktrees`: tens); `promote` (`:678-702`) copies a cold bucket once in the row's lifetime, counted. My witness (§5.2) sees **1 element added, 0 iterated, 0 sorted** for a new issue into the 4,575-member live bucket, and the same for a new session into the 2,264-member bucket. Table walks: unchanged from §1 C4 (enumeration, rebuild, dispose only). See N6 for `rootAdded`. |
+| C8 | Stats honest | **PASS** | `indexUpdates` still counts slots (`pool.ts:236-238`), and the new `counters.bucketElements` counts elements touched (`pool.ts:239-241`; `relations.ts:472, 493, 697`). The README gives both definitions (`README.md:137-152`). At this commit the counter agrees with my witness on all six probe inserts (1 = 1). N4 is fixed: the engine's residency probe reads `fenced` (`pool.ts:246-248`). The counter is honest here only because the code counts itself. Nothing outside the pool checks it, and that is the send-back (§5.3). |
+
+The other lines of §1 (C1, C2, C5–C7, C9–C11) were re-read in the diff
+`4c0ccde73..62e1a17b5` and none of them regresses. N1 is fixed: `clock.ts:24`
+onward now lists every untracked read in `pool/`.
+
+### 5.2 Bucket probe, clean, at `62e1a17b5`
+
+`M3_LIVE_EXPORT=<POD-4552 export> M3_PROBE_OUT=<file>` with the runner
+above on `harness/review/m3-shape-probes.test.tsx`: 8 of 8 passed. The live
+export was fetched with `podium issue artifact 4552 --get 1` into the
+gitignored `harness/.live/`. The **witness** is mine
+(`independently()` in the probe). For one apply, it patches MobX's
+`ObservableSet` prototype (`add`, `delete`, iteration) and
+`Array.prototype.sort`, and counts what the pool actually did. It does not read
+any pool counter.
+
+| Corpus | largest `repo.issues` / `worktree.sessions` | new issue: pool's `elements touched` / witness | new session: pool's / witness |
+|---|---|---|---|
+| old fixture 1× | 18 / 9 | 1 / add 1, iterate 0, sort 0 | 1 / add 1, iterate 0, sort 0 |
+| old fixture 4× | 41 / 9 | 1 / add 1, iterate 0, sort 0 | 1 / add 1, iterate 0, sort 0 |
+| **live export** | **4,574 / 2,263** | **1 / add 1, iterate 0, sort 0** | **1 / add 1, iterate 0, sort 0** |
+
+`indexUpdates` is +2 per insert (one forward entry, one bucket), as before.
+This meets the F1 bar in §3.
+
+### 5.3 Breaking each fix (plants; restored by deleting the throwaway checkouts)
+
+**F1 plant: a copy-and-sort flush that does not report its copy.** In `flush`,
+before the per-move loop, an existing observable bucket is rebuilt from
+`[...bucket].sort()` into a new set and put back in `link.buckets`. The
+per-move `elements += 1` is left as it is. This is the natural way a
+regression would look: someone re-sorts the bucket and does not think about
+the counter.
+
+| Instrument | Result under the plant |
+|---|---|
+| `relations.test.ts` "bucket upkeep is proportional to the change, not to the bucket (M3 F1)" | **GREEN, so the plant is missed.** The whole file ran with no filter: 1 failure (the F2 test, from the F2 plant in the same run), and the F1 test passed. A second, F1-only run with the verbose reporter: SEE-F1ONLY. |
+| the pool's `bucketElements` in my probe | **1**, so the plant is missed (live new issue and new session) |
+| my witness in the probe | **caught it.** Live new issue: add **4,575**, iterate **9,148**, sort **4,574**. New session: add 2,264, iterate 4,526, sort 2,263. Old fixture 1×: add 19, sort 18. |
+
+The guard asserts `graph.lastElements` and `stats.counters.bucketElements`
+(`relations.test.ts:799-803`), and both are counted by the code under test.
+Ma4's "red at `8869bf15e`" proof wired the counter to the old flush's copy,
+so it shows that the test fails when the code counts its own copy. It does
+not show that the test catches a copy the code does not count. That is
+pitfall (e) in a new form: a counter kept by the code it is supposed to
+measure.
+
+**F2 plant: a view resolves `issue.repo` itself.** `repoTargetPartOf`
+becomes `relationRef('issue', 'repo', input.issue(id))` plus a
+`input.repo(ref)` presence check, with `import { relationRef } from
+'./relations'`.
+
+| Instrument | Result under the plant |
+|---|---|
+| `bunx eslint --config arms/mobx/eslint.config.mjs arms/mobx/pool/views.ts` | **fails**: `45:1 './relations' import is restricted … no-restricted-imports`, exit 1 |
+| `relations.test.ts` "a wrong issue.repo forward slot reaches displayRef, and the rebuild disagrees" | **fails**: `the view reads the engine: expected 'POD-1' to be 'XYZ-1'` |
+
+Both F2 guards are armed. The lint alone would not catch a view that reads
+`issue.repoId` without importing anything; the test would.
+
+### 5.4 L4b gate, 5 seeds × 300 steps at 1× (old fixture), clean
+
+`POD_POOL_GATE_SEEDS=5 POD_POOL_GATE_STEPS=300`, runner above, `arms/mobx/pool/gate.test.ts`:
+`Tests 2 passed (2)`, 1,953 s, exit 0. Cells from
+`harness/browser/results/mobx-pool-gate-1x-5x300.json` (gitignored):
+
+| seed | steps / skipped | rebuild checks | relation checks | cold writes / hydrated / warmed | checkpoints | removal plant fails at step | coldDeaf caught by | relink-skipped caught by | promote-skipped (sessions) caught by |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 300 / 0 | 301 | 301 | 111 / 46 / 17 | 1 | 15 | partition | relations | checkpoint (`session:s-g10.issue: live null`) |
+| 2 | 300 / 0 | 301 | 301 | 125 / 0 / 19 | 1 | 56 | relations | relations | checkpoint |
+| 3 | 300 / 0 | 301 | 301 | 110 / 0 / 18 | 1 | 21 | relations | relations | checkpoint |
+| 4 | 300 / 0 | 301 | 301 | 140 / 14 / 9 | 1 | 29 | relations | relations | checkpoint |
+| 5 | 300 / 0 | 301 | 301 | 100 / 3 / 10 | 1 | 17 | relations | relations | checkpoint |
+
+Zero divergence on the clean pool. All four plants fail on every seed, each
+caught by its intended check. Package lint (`bun run lint` in
+`packages/worklist-proto`) exits 0.
+
+### 5.4a Ma4's one plant change (promote-skipped is now sessions only)
+
+PLANT4-JUDGEMENT
+
+### 5.5 What Ma4 must change (the only send-back line)
+
+**G1. Arm the F1 guard independently of the pool's counter.** In
+`relations.test.ts` "bucket upkeep is proportional to the change", count the
+work from outside the pool. Two ways to do it: MobX `spy` (count `add`/`delete`
+events on sets named `pool.*.bucket`, plus any new bucket set created during
+the push), or the prototype patch in my probe (`independently()`,
+`harness/review/m3-shape-probes.test.tsx`). Also count
+`Array.prototype.sort` elements, because a regression could sort a plain
+copy. Keep the `bucketElements` assertion beside it, since the counter is a
+published stat. Then show it red on the plant in §5.3, applied as written
+(before the per-move loop in `flush`: `if (!plain && !created) { const copy
+= newBucket(link); for (const m of [...bucket].sort()) copy.add(m);
+link.buckets.set(target, copy); bucket = copy }`). The re-review of G1 is
+that plant against the new test, plus the probe line.
+
+### 5.6 Notes (not send-back)
+
+- **N6.** `rootAdded` (`relations.ts:651-665`) iterates every member placed
+  under the new root's path (`[...candidates]`, `:655`). That includes
+  members that stay at a longer root. So a new repo-root lane over the live
+  worktree tree reads about 2,263 plain-set entries to move none. The schema
+  doc §4.3 names this bound ("the members under one root"), and lanes are
+  rare, so it is not a fail. It is also invisible to `bucketElements` and to
+  my witness (plain `Set`s).
+- **N7.** The arm lint's F2 rule covers `views.ts` only. `models.ts` and
+  `pool.ts` could resolve a relation without tripping it; today neither does
+  (grep for `relationRef`, `repoId`, `parentId`, `issueId`, `cwd`, `deps`
+  over them finds no resolution).
+- N2, N3 and N5 are unchanged and remain with their owners.
