@@ -307,75 +307,83 @@ async function plantOutcome(
 }
 
 describe('correctness gate (L4b), rebuild-only', () => {
-  it('passes every seed, and the removal-deaf plant fails', async () => {
-    const cells = []
-    let plantedFailures = 0
-    let coldPlantFailures = 0
-    let checkpointPlantFailures = 0
-    let relinkPlantFailures = 0
-    for (const seed of SEEDS) {
-      const sequence = gen(seed, STEPS)
-      relationChecked.snapshots = 0
-      relationChecked.cold = emptyTally()
-      const result = await checkArm(relationChecked, sequence, { oracleEvery: 0 })
-      expect(relationChecked.snapshots).toBeGreaterThan(STEPS)
-      if (!result.ok) {
-        throw new Error(
-          `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
-            `shrunk:\n${describeSequence(result.shrunk)}`,
+  it(
+    'passes every seed, and the removal-deaf plant fails',
+    async () => {
+      const cells = []
+      let plantedFailures = 0
+      let coldPlantFailures = 0
+      let checkpointPlantFailures = 0
+      let relinkPlantFailures = 0
+      for (const seed of SEEDS) {
+        const sequence = gen(seed, STEPS)
+        relationChecked.snapshots = 0
+        relationChecked.cold = emptyTally()
+        const result = await checkArm(relationChecked, sequence, { oracleEvery: 0 })
+        expect(relationChecked.snapshots).toBeGreaterThan(STEPS)
+        if (!result.ok) {
+          throw new Error(
+            `seed ${seed}: step ${result.step} diverged from the ${result.against}:\n${result.diff}\n` +
+              `shrunk:\n${describeSequence(result.shrunk)}`,
+          )
+        }
+        const cold = { ...relationChecked.cold }
+        // The run must have exercised cold rows, or its green says nothing about them.
+        expect(cold.coldWrites, `seed ${seed} touched no cold row`).toBeGreaterThan(0)
+        expect(cold.checkpoints, `seed ${seed} ran no full-residency checkpoint`).toBeGreaterThan(0)
+        const plant = await checkArm(planted, sequence, { oracleEvery: 0, shrink: false })
+        if (!plant.ok) plantedFailures += 1
+        const coldPlant = await plantOutcome(checked(coldDeaf), sequence)
+        if (!coldPlant.ok) coldPlantFailures += 1
+        const relinkPlant = await plantOutcome(
+          checked(coldRelinkSkipped, { perStep: true, full: false }),
+          sequence,
         )
+        if (!relinkPlant.ok && relinkPlant.against === 'relations') relinkPlantFailures += 1
+        const checkpointPlant = await plantOutcome(
+          checked(promoteSkipped, { perStep: false, full: true }),
+          sequence,
+        )
+        if (!checkpointPlant.ok && checkpointPlant.against === 'checkpoint')
+          checkpointPlantFailures += 1
+        cells.push({
+          seed,
+          steps: STEPS,
+          counts: result.counts,
+          relationChecks: relationChecked.snapshots,
+          cold,
+          kinds: countKinds(sequence),
+          plantFailed: !plant.ok,
+          plantStep: plant.ok ? null : plant.step,
+          coldPlantFailed: !coldPlant.ok,
+          coldPlantStep: coldPlant.ok ? null : coldPlant.step,
+          coldPlantCaughtBy: coldPlant.ok ? null : coldPlant.against,
+          coldPlantDiff: coldPlant.ok ? null : coldPlant.diff.split('\n').slice(0, 2).join(' | '),
+          relinkPlantFailed: !relinkPlant.ok,
+          relinkPlantStep: relinkPlant.ok ? null : relinkPlant.step,
+          relinkPlantCaughtBy: relinkPlant.ok ? null : relinkPlant.against,
+          relinkPlantDiff: relinkPlant.ok
+            ? null
+            : relinkPlant.diff.split('\n').slice(0, 2).join(' | '),
+          checkpointPlantFailed: !checkpointPlant.ok,
+          checkpointPlantCaughtBy: checkpointPlant.ok ? null : checkpointPlant.against,
+          checkpointPlantDiff: checkpointPlant.ok
+            ? null
+            : checkpointPlant.diff.split('\n').slice(0, 2).join(' | '),
+        })
       }
-      const cold = { ...relationChecked.cold }
-      // The run must have exercised cold rows, or its green says nothing about them.
-      expect(cold.coldWrites, `seed ${seed} touched no cold row`).toBeGreaterThan(0)
-      expect(cold.checkpoints, `seed ${seed} ran no full-residency checkpoint`).toBeGreaterThan(0)
-      const plant = await checkArm(planted, sequence, { oracleEvery: 0, shrink: false })
-      if (!plant.ok) plantedFailures += 1
-      const coldPlant = await plantOutcome(checked(coldDeaf), sequence)
-      if (!coldPlant.ok) coldPlantFailures += 1
-      const relinkPlant = await plantOutcome(
-        checked(coldRelinkSkipped, { perStep: true, full: false }),
-        sequence,
-      )
-      if (!relinkPlant.ok && relinkPlant.against === 'relations') relinkPlantFailures += 1
-      const checkpointPlant = await plantOutcome(
-        checked(promoteSkipped, { perStep: false, full: true }),
-        sequence,
-      )
-      if (!checkpointPlant.ok && checkpointPlant.against === 'checkpoint')
-        checkpointPlantFailures += 1
-      cells.push({
-        seed,
+      writeResult(`mobx-pool-gate-1x-${SEEDS.length}x${STEPS}`, {
+        seeds: SEEDS,
         steps: STEPS,
-        counts: result.counts,
-        relationChecks: relationChecked.snapshots,
-        cold,
-        kinds: countKinds(sequence),
-        plantFailed: !plant.ok,
-        plantStep: plant.ok ? null : plant.step,
-        coldPlantFailed: !coldPlant.ok,
-        coldPlantStep: coldPlant.ok ? null : coldPlant.step,
-        coldPlantCaughtBy: coldPlant.ok ? null : coldPlant.against,
-        coldPlantDiff: coldPlant.ok ? null : coldPlant.diff.split('\n').slice(0, 2).join(' | '),
-        relinkPlantFailed: !relinkPlant.ok,
-        relinkPlantStep: relinkPlant.ok ? null : relinkPlant.step,
-        relinkPlantCaughtBy: relinkPlant.ok ? null : relinkPlant.against,
-        relinkPlantDiff: relinkPlant.ok
-          ? null
-          : relinkPlant.diff.split('\n').slice(0, 2).join(' | '),
-        checkpointPlantFailed: !checkpointPlant.ok,
-        checkpointPlantCaughtBy: checkpointPlant.ok ? null : checkpointPlant.against,
-        checkpointPlantDiff: checkpointPlant.ok
-          ? null
-          : checkpointPlant.diff.split('\n').slice(0, 2).join(' | '),
+        cells,
       })
-    }
-    writeResult(`mobx-pool-gate-1x-${SEEDS.length}x${STEPS}`, { seeds: SEEDS, steps: STEPS, cells })
-    expect(plantedFailures).toBe(SEEDS.length)
-    expect(coldPlantFailures).toBe(SEEDS.length)
-    expect(relinkPlantFailures).toBe(SEEDS.length)
-    expect(checkpointPlantFailures).toBe(SEEDS.length)
-  }, GATE_TIMEOUT_MS)
+      expect(plantedFailures).toBe(SEEDS.length)
+      expect(coldPlantFailures).toBe(SEEDS.length)
+      expect(relinkPlantFailures).toBe(SEEDS.length)
+      expect(checkpointPlantFailures).toBe(SEEDS.length)
+    },
+    GATE_TIMEOUT_MS,
+  )
 })
 
 describe('own-row fields against the oracle', () => {
