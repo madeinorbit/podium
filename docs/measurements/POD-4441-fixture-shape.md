@@ -232,6 +232,12 @@ Deviation is |live − fixture| / fixture, on the share where the row says
 | `needsHuman` / issues | 0 (0.0%) | 46 (0.9%) | ∞ (fixture 0) | **yes** |
 | sessions with `resume` / sessions | 6 (0.1%) | 3,493 (75.5%) | 54088% | **yes** |
 | live sessions / sessions | 631 (14.7%) | 32 (0.7%) | 95% | **yes** |
+| resume-twin groups (2+ sessions, one ref) | 3 | 10 | 233% | **yes** |
+| sessions removed by the twin collapse | 2 | 10 | 400% | **yes** |
+| discovery-only lanes | 43 | 200 | 365% | **yes** |
+| scan repos on hidden machines | 0 | 0 | 0% |  |
+| closed issues in the 24 h grace window | 4 | 68 | 1600% | **yes** |
+| `PREFIX-seq` rows / visible | 177 (83.9%) | 757 (99.7%) | 19% |  |
 | groups | 165 | 8 | 95% | **yes** |
 | pinned rows | 6 | 21 | 250% | **yes** |
 | closed-fold rows / visible | 17 (8.1%) | 71 (9.4%) | 16% |  |
@@ -241,6 +247,45 @@ Deviation is |live − fixture| / fixture, on the share where the row says
 | phase working / visible | 57 (27.0%) | 5 (0.7%) | 98% | **yes** |
 | phase waiting / visible | 101 (47.9%) | 281 (37.0%) | 23% | **yes** |
 | phase done / visible | 21 (10.0%) | 189 (24.9%) | 150% | **yes** |
+
+### What the snapshot contains
+
+Exactly these, as the web client holds them: 5,170 `issue` rows and their
+5,170 `issueProjection` rows, 4,624 `session` rows, 9 `repo` rows (id,
+prefix), 3,872 `issueDep` rows, the machine scan (541 repositories with 507
+worktrees on 6 machines, `GitRepositoryWire`), the 6 machine rows, and the
+operator's pins (8 panels, 10 worktrees). The bootstrap's other kinds
+(conversations, issue events, layouts, pending interactions, automations,
+read positions) are counted in `bootstrapEntityCounts` and not exported.
+Readable: ids, enums, timestamps, `POD-123`-style refs, the nine repo
+prefixes, machine ids and pin panel ids. Hashed: titles, descriptions, briefs,
+notes, labels, branches, offers, asks, closing summaries, machine names and
+inventories, origin URLs and every path. The file stays on the issue and in the
+gitignored `harness/.live/`; it is not published anywhere else.
+
+### Live-only cases the fixture barely has
+
+| case | fixture 1x | live |
+|---|---|---|
+| resume-twin groups (2+ sessions sharing a ref) | 3 | 10 |
+| sessions the runtime's twin collapse removes | 2 | 10 |
+| discovery-only lanes (no issue names them, no session sits in them) | 43 | 200 |
+| scan repos on machines the principal cannot see | 0 | 0 (the operator sees all 6 machines) |
+| closed issues in the 24 h grace window | 4 | 68 |
+| repo-root lanes / unbound sessions seated only by a root | 500 / 0 | 17 / 152 |
+
+Hidden-machine repos cannot be measured here: the snapshot is the operator's,
+and the operator can see every machine. The feed's known divergence (it does not
+apply machine scoping) is therefore not exercised by this snapshot either.
+
+**Prefix join (POD-4624).** 757 of the 759 live rows read `PREFIX-seq` through
+the repo-row join. The other two have no repo row with a prefix, so `#seq` is
+correct for them. The
+exporter refuses to write, and `--compare` refuses to measure, a snapshot with
+no repo rows, no `PREFIX-seq` row, or any row whose label disagrees with its
+repo row (`assertPrefixFidelity`). Tests: "labels rows through the repo-row
+prefix join", and a control where losing the repo rows, or only their join,
+throws "prefix join lost".
 
 ### Reading the table
 
