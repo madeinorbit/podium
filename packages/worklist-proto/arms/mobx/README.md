@@ -31,14 +31,20 @@ visible collection, order, groups and roll-ups (Mb1-Mb3) come next.
   differently (a repo's `path` is its lanes' `repoPath`).
 - **Every derived value a computed, split by input** (`pool/views.ts`
   `IssueParts`, computed on `IssueModel`): `own` (row-only fields and the
-  clock), `repoRef` → `prefix` → `displayRef`, `displayTitle`, `originRef` →
-  `originId` → `originTick`, `activityAt`, then `view` assembles them and
-  reads no row. A relation is split into its REFERENCE (the foreign key off
-  the own row, a string, `relations.ts` `relationRef`) and its RESOLUTION
-  (the target's presence and fields), so a rename re-runs the reference,
-  which returns the same string, and no target is read; an origin's rename
-  re-runs only its spin-offs' `originTick`. Objects compare structurally
-  (`computedStruct`), so an unchanged part or view keeps its identity.
+  clock), `repoTarget` → `prefix` → `displayRef`, `displayTitle`,
+  `originRef` → `originId` → `originTick`, `activityAt`, then `view`
+  assembles them and reads no row. A relation's TARGET comes from the
+  engine (`inputs.relations.one('issue', id, 'repo' | 'discoveredFrom')`),
+  which reads the link's forward slot and the target's presence, never the
+  own row; the target's FIELDS are a separate part. So a rename re-runs
+  neither, and an origin's rename re-runs only its spin-offs'
+  `originTick`. No view resolves a relation itself (M3 F2; the lint refuses
+  `views.ts` importing `relations.ts`). `one()` answers a KNOWN cold origin,
+  so `originRef` may be cold: `loading` reads it, `originId` keeps only a
+  resident one. The rebuild runs the same parts over the scan's `one()`, so
+  the gate holds the engine's forward slots to a from-scratch resolution.
+  Objects compare structurally (`computedStruct`), so an unchanged part or
+  view keeps its identity.
 - **Roll-ups re-compose from cached child values** (POD-4568). A part over
   a collection reads the bucket once (`sessionIds`, its own computed) and
   each member's CACHED value, a computed on the member's model
@@ -62,17 +68,21 @@ visible collection, order, groups and roll-ups (Mb1-Mb3) come next.
   `schema[entity].relations` at construction and names no relation. Each
   single-valued relation (`belongsTo`, `prefix`, outgoing `edge`) is a link
   with an observable `forward` map (source → target key, members only) and
-  observable `buckets` (target key → sorted frozen member array: its inverse
-  collection). Ingest tells the engine of every table write; it re-resolves
-  only links whose declared inputs moved (key/path/edge field and every
-  `where` field), detaches then attaches, and the action's one `flush`
-  replaces each touched bucket once. The `prefix` link keeps an ancestor
+  observable `buckets` (target key → an observable SET of member ids: its
+  inverse collection, UNORDERED). Ingest tells the engine of every table
+  write; it re-resolves only links whose declared inputs moved (key/path/edge
+  field and every `where` field), detaches then attaches, and the action's
+  one `flush` applies each touched bucket's NET moves once: one element added
+  or deleted per edge moved, whatever the bucket's size (M3 F1; the round-
+  three a-phase copied and sorted the whole bucket, 4,575 elements for one
+  new issue on the live export). An order a reader needs is applied at view
+  time (`sessionIds` sorts its members). The `prefix` link keeps an ancestor
   index (`under`) so a new root takes its sessions without a scan, and a
   removed root hands them to the next-longest root. The session resume-twin
   collapse is declared in the schema (`session.collapse`,
   `collapseLosers`); a collapsed row contributes no edge. Derivations read
   buckets only through the shared `RelationReader` (`one`: one read; `many`:
-  one per member; `size`: free). Adding a relation to the schema needs no
+  one per member, unordered; `size`: free). Adding a relation to the schema needs no
   code here (`relations.test.ts`, the fixture-schema test).
 
 - **Residency from the schema** (`pool/residency.ts`, Ma3): a row the
@@ -125,13 +135,21 @@ by the engine.
   that wrote a table slot, one per locals notification naming a key the
   pool uses (selection, clock).
 - `indexUpdates` — relation slots written: one per `forward` entry set or
-  deleted, one per bucket array replaced (`PoolRelations.lastWrites` names
-  them for the last action).
+  deleted, one per bucket touched (`PoolRelations.lastWrites` names them
+  for the last action). A slot says nothing about the work inside it; that
+  is `bucketElements`.
+- `counters.bucketElements` (M3 F1) — relation bucket ELEMENTS touched: one
+  per member added to or deleted from a bucket, plus a cold bucket's members
+  once when its target turns resident (`promote`). One edge moved = 1,
+  whatever the bucket's size (`relations.test.ts` "bucket upkeep is
+  proportional to the change": 4,000-member buckets, 1 per insert and per
+  delete). `PoolRelations.lastElements` is the last action's.
 - `rollupsDerived` — 0 until the roll-ups (Mb3).
 - `stats.counters` (the pool's own): `modelsCreated` (first accesses:
   every drawn issue, and each resident member session a drawn row's
   activity reads),
-  `tableWrites` (slots set to a different object or deleted), `rowsRemoved`.
+  `tableWrites` (slots set to a different object or deleted), `rowsRemoved`,
+  `bucketElements` (above).
 - `residency.counters` (Ma3): `coldWrites` (a cold row registered, relinked
   or forgotten: no slot), `requests` (distinct rows queued), `batches` (load
   windows closed), `hydrated` (rows loaded on access), `warmed` (rows

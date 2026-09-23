@@ -42,6 +42,7 @@ import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { diffRelations } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool, tracked } from './pool'
+import { rebuildSnapshot } from './rebuild'
 
 installMobxWarnTrap()
 
@@ -814,6 +815,69 @@ describe('bucket upkeep is proportional to the change, not to the bucket (M3 F1)
       r.dispose()
     }
   }, 120_000)
+})
+
+// ---------------------------------- the views resolve through the engine (M3 F2)
+
+describe('the row views resolve relations through the engine (M3 F2)', () => {
+  // Two repos with distinct prefixes; I3 is a spin-off of I2.
+  const rows = [
+    lane('/repo', 'R', { prefix: 'POD' }),
+    lane('/other', 'RB', { repoPath: '/other', prefix: 'XYZ' }),
+    issue('I1'),
+    issue('I2'),
+    issue('I3', { deps: [{ id: 'I2', type: 'discovered-from' }] }),
+  ]
+
+  /** Plant a wrong target into the engine's forward slot of `from.relation` for `id`. */
+  function plant(r: Rig, relation: string, id: string, target: string): void {
+    const links = (
+      r.pool.graph as unknown as {
+        links: Map<string, { forward: { set(id: string, target: string): void } }>
+      }
+    ).links
+    const link = links.get(`issue.${relation}`)
+    if (link === undefined) throw new Error(`no link issue.${relation}`)
+    runInAction(() => link.forward.set(id, target))
+  }
+
+  const view = (r: Rig, id: string) => tracked(() => r.pool.issue(id)?.view)
+  const rebuilt = (r: Rig) => rebuildSnapshot(r.replay.source, r.locals.source)
+
+  it('a wrong issue.repo forward slot reaches displayRef, and the rebuild disagrees', () => {
+    const r = rig(rows)
+    try {
+      const keep = autorun(() => r.pool.issue('I1')?.view)
+      expect(view(r, 'I1')?.displayRef).toBe('POD-1')
+      expect(r.pool.snapshot().rowsById).toEqual(rebuilt(r).rowsById)
+      plant(r, 'repo', 'I1', 'RB')
+      expect(view(r, 'I1')?.displayRef, 'the view reads the engine').toBe('XYZ-1')
+      expect(rebuilt(r).rowsById['I1']?.displayRef, 'the scan resolves from the row').toBe('POD-1')
+      expect(r.pool.snapshot().rowsById).not.toEqual(rebuilt(r).rowsById)
+      keep()
+    } finally {
+      r.dispose()
+    }
+  })
+
+  // `SliceRow` (the rebuild's output) carries no `originTick`, so here the
+  // row-view assertion is the check; the gate's per-step relation diff
+  // (`diffRelations`) sees the slot itself.
+  it('a wrong issue.discoveredFrom forward slot reaches originTick', () => {
+    const r = rig(rows)
+    try {
+      const keep = autorun(() => r.pool.issue('I3')?.view)
+      expect(view(r, 'I3')?.originTick?.id).toBe('I2')
+      plant(r, 'discoveredFrom', 'I3', 'I1')
+      expect(view(r, 'I3')?.originTick?.id, 'the view reads the engine').toBe('I1')
+      expect(tracked(() => diffRelations(r.pool.graph, r.pool.tables))).toEqual([
+        'issue:I3.discoveredFrom: live "I1", scan "I2"',
+      ])
+      keep()
+    } finally {
+      r.dispose()
+    }
+  })
 })
 
 // ------------------------------------------------- a relation added to the schema

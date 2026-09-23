@@ -13,6 +13,10 @@
  *    `indexUpdates`. Prints the largest bucket per collection on the
  *    live-shaped corpus at 1x and 4x, and the elements copied by one new
  *    issue and one new session. Counts only: no walls, no load rule needed.
+ *    RE-REVIEW (POD-4568 rework): buckets became observable sets updated in
+ *    place, so a touched slot's size is no longer work done. The bar is
+ *    `elements touched`, the pool's `counters.bucketElements` delta (one per
+ *    member added or deleted); `bucket size` is kept beside it.
  */
 
 import { appendFileSync } from 'node:fs'
@@ -138,12 +142,16 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
     const [from, name] = slot.slice(0, at).split('.') as [EntityName, string]
     return tracked(() => pool.relations.size(from, slot.slice(at + 1), name))
   }
-  const copied = (before: number): { slots: string[]; counted: number; elements: number } => {
+  let elementsBefore = 0
+  const copied = (
+    before: number,
+  ): { slots: string[]; counted: number; elements: number; touched: number } => {
     const slots = pool.graph.lastWrites.filter((s) => !s.includes('→'))
     return {
       slots,
       counted: pool.stats.indexUpdates - before,
       elements: slots.reduce((n, s) => n + sizeOf(s), 0),
+      touched: pool.stats.counters.bucketElements - elementsBefore,
     }
   }
   const openIssue = source
@@ -158,6 +166,7 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
     })[0]
   if (openIssue === undefined) throw new Error(`${label}: no open issue with a repo`)
   let before = pool.stats.indexUpdates
+  elementsBefore = pool.stats.counters.bucketElements
   pool.apply({
     type: 'update',
     rows: [
@@ -175,6 +184,7 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
     .find((v) => v !== undefined && v['headless'] !== true)
   if (session === undefined) throw new Error(`${label}: no session`)
   before = pool.stats.indexUpdates
+  elementsBefore = pool.stats.counters.bucketElements
   pool.apply({
     type: 'update',
     rows: [
@@ -190,8 +200,8 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
     `M3 bucket probe ${label}: issues=${known.issue.length} sessions=${known.session.length} ` +
       `lanes=${known.worktree.length} repos=${known.repo.length}\n` +
       `  largest buckets: ${JSON.stringify(largest)}\n` +
-      `  new issue:   indexUpdates +${issueInsert.counted} (slots ${JSON.stringify(issueInsert.slots)}) → ${issueInsert.elements} bucket elements copied+sorted\n` +
-      `  new session: indexUpdates +${sessionInsert.counted} (slots ${JSON.stringify(sessionInsert.slots)}) → ${sessionInsert.elements} bucket elements copied+sorted`,
+      `  new issue:   indexUpdates +${issueInsert.counted} (slots ${JSON.stringify(issueInsert.slots)}) → bucket size ${issueInsert.elements}, elements touched ${issueInsert.touched}\n` +
+      `  new session: indexUpdates +${sessionInsert.counted} (slots ${JSON.stringify(sessionInsert.slots)}) → bucket size ${sessionInsert.elements}, elements touched ${sessionInsert.touched}`,
   )
   handle.dispose()
 }
