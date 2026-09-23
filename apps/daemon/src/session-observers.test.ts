@@ -3715,7 +3715,11 @@ describe('Codex blocking prompts become a needs-you state [POD-4650]', () => {
       { seedOnFrame: false },
     )
     const hook = (hook_event_name: string) =>
-      observers.onHookPayload(sessionId, { hook_event_name, session_id: 'codex-thread-1', cwd: home })
+      observers.onHookPayload(sessionId, {
+        hook_event_name,
+        session_id: 'codex-thread-1',
+        cwd: home,
+      })
     const latest = () => states.at(-1)?.state
     const cleanup = async () => {
       observers.clearSession(sessionId)

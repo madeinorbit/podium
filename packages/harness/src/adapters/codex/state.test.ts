@@ -68,7 +68,9 @@ describe('Codex terminal screen classifier (POD-4650)', () => {
   it('does not hold the session once the menu is closed and only the error stays in the history', () => {
     // After Esc or "Keep current model" Codex is back at its composer; the error
     // line stays in the scrollback for the rest of the session.
-    const menuStart = USAGE_LIMIT_SCREEN.findIndex((line) => line.includes('Approaching rate limits'))
+    const menuStart = USAGE_LIMIT_SCREEN.findIndex((line) =>
+      line.includes('Approaching rate limits'),
+    )
     const afterMenu = [...USAGE_LIMIT_SCREEN.slice(0, menuStart), '› ', '  ? for shortcuts']
     const observation = classifyCodexScreen(afterMenu)
 
@@ -84,8 +86,9 @@ describe('Codex terminal screen classifier (POD-4650)', () => {
   })
 
   it('reports nothing for an ordinary Codex screen', () => {
-    expect(
-      classifyCodexScreen(['› Ask Codex to do anything', '  ? for shortcuts']),
-    ).toEqual({ events: [], interactionVisible: false })
+    expect(classifyCodexScreen(['› Ask Codex to do anything', '  ? for shortcuts'])).toEqual({
+      events: [],
+      interactionVisible: false,
+    })
   })
 })
