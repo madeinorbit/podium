@@ -169,6 +169,14 @@ by the engine.
   vitest.unit.config.ts --project node
   packages/worklist-proto/arms/mobx/pool/gate.test.ts"` (heavy lease only;
   `test:file` inside `test-heavy` would also hold a focused slot for hours).
+  Each seed also runs four planted arms, and each must fail on every seed:
+  removal-deaf (caught by the rebuild), cold-deaf and relink-skipped (by
+  the per-step checks), and promote-skipped for sessions (by the
+  full-residency checkpoint alone).
+- **Bucket work (M3 F1)**, `pool/relations.test.ts` "bucket upkeep is
+  proportional to the change": 1 element per edge in 4,000-member buckets.
+  M3's probe (`harness/review/m3-shape-probes.test.tsx`, with
+  `M3_LIVE_EXPORT`) prints the same count on the live export.
 - **Fence steps #1-#4**, `pool/counts.test.tsx`: the shared
   `assertCommits` (#1-#3), `assertReads` and `assertNoCopies`, no parity; the
   roster entry with parity is Mb4's (`fences.test.tsx` names it pending).
@@ -182,8 +190,9 @@ by the engine.
    `FEED_SPELLING`.
 2. If a row view shows it: `shared/src/row-view.ts` (coordinator), then
    compute it in the part whose inputs it reads (`pool/views.ts`: own-row
-   fields in `ownPartOf`; a new relation hop as a reference part plus a
-   resolution part) and assemble it in `buildRowView`. A new part is a new
+   fields in `ownPartOf`; a new relation hop as a target part that reads
+   `inputs.relations.one(...)`, never the own row, plus a part that reads
+   the target's fields) and assemble it in `buildRowView`. A new part is a new
    computed on `IssueModel` and a new getter in `directParts`, which the
    rebuild uses, so the correctness gate (`pool/gate.test.ts`) holds the two
    together.
