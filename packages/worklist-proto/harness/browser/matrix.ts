@@ -19,7 +19,9 @@
  * is flatblock; POD-4286): the load is read there, each invocation runs there
  * over `ssh -o BatchMode=yes` in `~/<--remote-dir>` (default `podium-timing`)
  * with its pinned toolchain first on PATH, the lease is `bench:<host>` (taken
- * here: the timing machine has no podium CLI), there is no heavy-test lease
+ * here: the timing machine has no podium CLI), `.toolchain/lib` is on
+ * LD_LIBRARY_PATH (flatblock's Chromium needs a user-space libasound.so.2
+ * there, from Ubuntu's libasound2t64), there is no heavy-test lease
  * (that one guards this machine), and each output is copied back here, so
  * `--resume` and `summarize.ts` read local files. The remote checkout must be
  * at the commit being timed, with `harness/web/dist` built there.
@@ -71,7 +73,7 @@ function ssh(command: string, inherit = false): ReturnType<typeof spawnSync> {
       '-o',
       'BatchMode=yes',
       host,
-      `export PATH=$HOME/${remoteDir}/.toolchain:$PATH; cd ~/${remoteDir} && ${command}`,
+      `export PATH=$HOME/${remoteDir}/.toolchain:$PATH LD_LIBRARY_PATH=$HOME/${remoteDir}/.toolchain/lib\${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}; cd ~/${remoteDir} && ${command}`,
     ],
     { encoding: 'utf-8', stdio: inherit ? 'inherit' : 'pipe' },
   )
