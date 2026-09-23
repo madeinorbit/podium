@@ -23,9 +23,10 @@ so the detector is proven before any arm is trusted.
 | `shared/src/gen/check.ts` | The correctness gate (POD-4556): `checkArm`, `diffSnapshots`; tests `check.test.ts` (armed), `check-ci.test.ts` (the CI-sized run, opt-in) |
 | `harness/web/` | Vite pages per arm/control (`entries/`), shared page wiring (`entrylib.ts`, `window.__proto`) |
 | `harness/web/noop-arm.tsx` | The no-op arm: the instrument floor page, and the timer's planted mistakes (POD-4558) |
-| `harness/browser/run.ts` | Chromium timing driver (one invocation per arm/scale) |
-| `harness/browser/matrix.ts` | Interleaved arms × scales × rounds, load-gated, lease per invocation |
-| `harness/browser/summarize.ts` | Tables: actionMs per cell, floor, budget as floor + allowance, slope; refuses failed runs |
+| `harness/browser/run.ts` | Chromium timing driver (one invocation per arm/scale); writes a results file only when every cell is complete under load 8; `--dry-run` prints the plan |
+| `harness/browser/matrix.ts` | Interleaved arms × scales × rounds, load-gated, lease per invocation; writes `matrix-plan.json`; `--dry-run` |
+| `harness/browser/complete.ts` | Complete-or-fail (POD-4562): `runShortfalls` (driver), `gridShortfalls` (summary), the load ceiling `MAX_LOAD` |
+| `harness/browser/summarize.ts` | Tables: actionMs per cell, floor, budget as floor + allowance, slope; refuses failed runs and any incomplete set |
 | `harness/native/` | React Native count lane (`control.native.test.tsx`) |
 
 ## One corpus (POD-4550)
@@ -97,6 +98,7 @@ bun scripts/test-heavy.ts -- bunx vite build --config packages/worklist-proto/ha
 # order rotated each round, load-gated, bench and heavy-test leases per invocation:
 bun packages/worklist-proto/harness/browser/matrix.ts \
   --arms noop,control --scales 1,2,4 --rounds 4 --samples 5 --tag floor --host flatblock
+# (add --dry-run to either matrix.ts or run.ts to print the plan and run nothing)
 # (round three's timing machine is flatblock: push the commit to
 #  ssh://flatblock/home/mgw/podium-timing, check it out there, `bun install`,
 #  build harness/web/dist there with `bun x vite build`; see "Instrument floor")
@@ -212,9 +214,45 @@ arm's work deferred to a later task inside that window is charged to
 quiets fails after 5 s.
 
 **What fails a run** (status `failed`, exit 2; `summarize.ts` lists it and
-never prints its numbers): 1-minute load above `--max-load` (8) before or
-during the run; any cell that errors (a missing cell is never a gap); any
-stray commit; a parity mismatch (the no-op floor exempt); a page error.
+never prints its numbers): 1-minute load above `--max-load` (8) before the
+run or on any record; any cell that errors or holds fewer than the planned
+warm-up and measured records; any stray commit; a parity mismatch (the no-op
+floor exempt); a page error.
+
+**Complete or fail (POD-4562).** Round two published cells as "withheld" and
+"provisional" (`docs/measurements/POD-4489-quiet-rerun.md` §1–§2: a control
+4x with 7 of 40 records under load 8, a hand 1x reported on a 6-record
+subset). Round three has no such state; a run is complete or it failed:
+
+- `run.ts` writes its results file (`--out`) only when the run passed and
+  every scenario holds exactly `--warmup` + `--samples` records, each at load
+  ≤ 8 (`runShortfalls`, `complete.ts`). Anything else goes to
+  `<out>.failed.json`, exits 2, and leaves no file at `--out` (an earlier one
+  is deleted before the run starts). The driver reads the load per record
+  itself: the bench lease fails open, so holding it proves nothing about the
+  load. `--max-load` may lower the ceiling, never raise it (9 is refused).
+  `--dry-run` prints the rounds, the rotated scenario order and what complete
+  means, and exits without a browser.
+- `matrix.ts` writes `matrix-plan.json` (arms, scales, rounds, samples,
+  scenarios) beside the runs, retries a run that failed only on load (its
+  file kept as `.tryN.failed.json`) and fails on anything else. `--dry-run`
+  prints the plan and the rotated pair order.
+- `summarize.ts` refuses the set (exit 2, every shortfall named, no table)
+  unless the ok runs fill the whole grid: every arm present plus the no-op
+  floor (each budget is floor + allowance), × 1x, 2x and 4x, × every
+  scenario, the same n in every cell and at least 20 (the smallest n with a
+  nearest-rank p95 that is not the maximum); with a matrix plan, exactly
+  rounds × samples per cell and an ok output for every planned (round, arm,
+  scale). A record above load 8 refuses the set even inside a run marked ok.
+  A failed attempt the matrix retried is listed and does not refuse the set;
+  a cell with no passing run does. There is no "n < 20" verdict and no
+  withheld column: the note template (`docs/measurements/round-three-note-template.md`)
+  has none either.
+
+Proof: `harness/browser/complete.test.ts` and `summarize.test.ts` (unit, 38
+tests); each refusal was removed in turn and the tests went red (see
+NOTES.md, POD-4562). Live: with the box at load 19, `run.ts` refused before
+timing, wrote only the `.failed.json`, and exited 2.
 
 Field names overlap `docs/measurements/POD-4286-stage0-live.json` where they
 measure the same thing: `runtimeSha`, `browser`, `capturedAt`, heap
@@ -286,6 +324,32 @@ restated excess slope matters more, not less.
 (publish, + 2); visible heartbeat 41.1, rename 16.1, stage move 15.4, clock
 8.9 (+ 8); click 37.8 at 1x and 141.3 at 4x (+ 16 / + 32). Slope: the excess
 over this floor, ≤ 1.2.
+
+**Budgets = no-op floor + allowance, per scale (POD-4562).** Every wall
+budget is derived, never typed in: `summarize.ts` takes the no-op's `actionMs`
+p95 for the same scenario and scale from the SAME interleaved matrix (the
+floor is a required cell; a set without it is refused) and adds the
+allowance below (`allowanceMs`, `summarize.ts`). The allowances are
+methodology §1a's numbers; §1a sets a wall at live corpus (1x) for every
+event and at 4x for the click only. At 2x, and at 4x for the other events,
+the growth is budgeted by the slope, not by a wall; those cells are still
+required (a missing 2x or 4x cell fails the set) and printed. The budget
+column below is that rule applied to the POD-4560 flatblock floor above; a
+new matrix recomputes it from its own floor.
+
+| Scenario | Allowance 1x / 2x / 4x (ms) | Floor p95 1x / 2x / 4x (POD-4560) | Wall budget 1x / 2x / 4x (ms) | Slope budget |
+|---|---|---|---|---|
+| #1 heartbeat (publish) | + 2 / — / — | 22.6 / 58.1 / 92.7 | 24.6 / — / — | excess 4x/1x ≤ 1.2 |
+| visible heartbeat | + 8 / — / — | 33.1 / 49.3 / 91.1 | 41.1 / — / — | excess 4x/1x ≤ 1.2 |
+| #4 rename | + 8 / — / — | 8.1 / 22.3 / 65.2 | 16.1 / — / — | excess 4x/1x ≤ 1.2 |
+| #5 stage move | + 8 / — / — | 7.4 / 15.1 / 62.8 | 15.4 / — / — | excess 4x/1x ≤ 1.2 |
+| #8 clock | + 8 / — / — | 0.9 / 0.6 / 1.1 | 8.9 / — / — | excess 4x/1x ≤ 1.2 |
+| #3 click | + 16 / — / + 32 | 21.8 / 65.6 / 109.3 | 37.8 / — / 141.3 | excess 4x/1x ≤ 1.2 |
+
+"—": §1a sets no wall at that scale. The slope is (arm p50 − floor p50) at
+4x over the same at 1x, the 1x excess taken as at least 1 ms
+(`SLOPE_MIN_EXCESS_MS`); the 2x p50 is printed beside it. Unit test
+(`summarize.test.ts`, "allowanceMs") pins the allowance table.
 
 **The restated budgets can still fail** (the same matrix, interleaved with
 the floor; n = 20 per cell):

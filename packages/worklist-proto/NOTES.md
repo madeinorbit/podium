@@ -1,5 +1,68 @@
 # worklist-proto — package notes
 
+## POD-4562 (L5f) — complete-or-fail runs · 2026-09-23
+
+What landed: `docs/plans/pod-4441-harness.md`, "Complete or fail" and
+"Budgets = no-op floor + allowance, per scale"; the note template
+`docs/measurements/round-three-note-template.md`. Code: `harness/browser/complete.ts`
+(one judge for the driver, the matrix and the summary), wired into `run.ts`,
+`matrix.ts`, `summarize.ts`. Tests: `complete.test.ts`, `summarize.test.ts`,
+fixtures in `test-fixtures.ts`.
+
+### Decisions
+
+- **A failed run writes `<out>.failed.json`, never `--out`.** L5b already
+  marked such runs `failed`, but wrote them at the results path. Now the
+  results path exists only for a complete run, and `run.ts` deletes a stale
+  one before it starts. The failure file keeps the records for diagnosis.
+- **"Complete" is per scenario: exactly `--warmup` + `--samples` records**,
+  each at load ≤ 8. A thrown error mid-run leaves short cells, so the
+  completeness check runs in the driver's `finally`, not only on the happy
+  path.
+- **The load ceiling cannot be raised.** `--max-load` above 8 is refused in
+  both `run.ts` and `matrix.ts`; the driver reads `loadavg` per record
+  itself (the bench lease fails open).
+- **The summary's grid always includes the no-op floor and all three
+  scales**: every wall budget is floor + allowance, and the slope needs 1x
+  and 4x; a set without them has no budget to apply. Every cell needs the
+  same n, at least 20 (a p95 below that is the max), which removes the old
+  "n < 20" verdict.
+- **A matrix plan is written and checked** (`matrix-plan.json`): without it a
+  lost round would leave every cell equally short and pass the equal-n rule.
+  A `--resume` with a different plan is refused (use a new `--tag`).
+- **Load-only retries now accept the "cell N of M" lines** that a load
+  refusal before the run produces (`isLoadOnlyFailure`); any other failure
+  still fails the matrix.
+- **Budgets at 2x (and at 4x except the click) are "—"**: methodology §1a sets
+  walls at live corpus only (and the click at 4x); growth is the slope's job.
+  Not invented here. The cells are still required and printed.
+- **"M2/M3 note templates"** did not exist as files; round two's notes carried
+  withheld columns ad hoc. The new template is the one place a wall note's
+  shape is stated, and it is `summarize.ts`'s own table (no withheld column).
+
+### Evidence
+
+Unit: `complete.test.ts` + `summarize.test.ts`, 38 tests green. Each
+refusal removed in turn (sources restored with `cp`), the tests red every
+time: summary ignores the shortfalls → 4 failed; the no-op floor not
+required → 1; the driver's per-record load check → 1; the summary's
+per-record load check → 2; the driver's short-cell check → 2; equal-n and
+the 20-sample minimum → 1; the matrix plan's file check → 2.
+
+Live, ludovico at load 10.2 (2026-09-23 18:58, this branch):
+`run.ts --arm noop --scale 1 --samples 5 --no-lease --out <o>` with a stale
+`<o>` present printed `FAILED: load 10.18 > 8 before the run; nothing timed`
+plus the twelve `cell … 0 of N` lines, deleted the stale `<o>`, wrote only
+`<o minus .json>.failed.json` (0 records), exit 2. `--max-load 9`: refused,
+exit 1. `run.ts --dry-run` (exit 0) and `matrix.ts --dry-run` (exit 0, no
+directory created) print the rotated plans shown in the harness doc.
+
+### Open
+
+- Count-side results (`fences.test.tsx` `writeResults`, the arm `*.1x/m2/m3`
+  tests) are written by passing tests and do not depend on load; they are not
+  wall results and are out of this change.
+
 ## POD-4552 (L2c) — live snapshot export · 2026-09-23
 
 Numbers and follow-ups: `docs/measurements/POD-4441-fixture-shape.md`,

@@ -104,6 +104,23 @@ describe('allowanceMs', () => {
     expect(allowanceMs('click', 4)).toBe(32)
     expect(allowanceMs('click', 2)).toBeNull()
   })
+
+  it('is the harness doc table, every scenario at 1x, 2x and 4x (POD-4562)', () => {
+    const table = Object.fromEntries(
+      SCENARIOS_ALL.map((scenario) => [
+        scenario,
+        ([1, 2, 4] as const).map((scale) => allowanceMs(scenario, scale)),
+      ]),
+    )
+    expect(table).toEqual({
+      heartbeat: [2, null, null],
+      visibleHeartbeat: [8, null, null],
+      rename: [8, null, null],
+      stagemove: [8, null, null],
+      clock: [8, null, null],
+      click: [16, null, 32],
+    })
+  })
 })
 
 describe('targetMismatches', () => {
