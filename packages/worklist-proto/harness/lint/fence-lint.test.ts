@@ -302,3 +302,54 @@ describe('thawed import fence (POD-4565 ruling: round-three code inside a frozen
     ])
   })
 })
+
+describe('thawed import fence on the hand-rolled pool (POD-4578, same ruling)', () => {
+  const at = 'arms/hand/pool/planted.ts'
+  const red = /^fence\/thawed-import-fence: thawed folder "hand\/pool" imports/
+
+  it("PLANTED: a pool file importing round two's buckets is red; the same file without the import passes", async () => {
+    expect(
+      await problems(
+        "import { HandIndexes } from '../indexes'\nexport const x = HandIndexes\n",
+        at,
+        realLint,
+      ),
+    ).toEqual([expect.stringMatching(red)])
+    expect(await problems('export const x = 1\n', at, realLint)).toEqual([])
+  })
+
+  it('PLANTED: type imports, re-exports, dynamic imports and another arm are red too; shared/ and the pool pass', async () => {
+    const cases = [
+      "import type { HandStore } from '../store'\nexport type S = HandStore\n",
+      "export { handArm } from '../arm'\n",
+      "export const load = () => import('../rollup')\n",
+      "import { mobxPoolArm } from '../../mobx/pool/arm'\nexport const m = mobxPoolArm\n",
+    ]
+    for (const code of cases)
+      expect(await problems(code, at, realLint), code).toEqual([expect.stringMatching(red)])
+    expect(
+      await problems(
+        "import { SCHEMA } from '../../../shared/src/schema'\nexport const s = SCHEMA\n",
+        at,
+        realLint,
+      ),
+    ).toEqual([])
+    expect(
+      await problems("import { HandPool } from './pool'\nexport const p = HandPool\n", at, realLint),
+    ).toEqual([])
+  })
+
+  it('the frozen round-two hand files stay outside the round-three rules; the pool is inside them', async () => {
+    expect(await problems('export let cache = 0\n', 'arms/hand/planted.ts', realLint)).toEqual([])
+    expect(await problems('export let cache = 0\n', at, realLint)).toEqual([
+      expect.stringMatching(/module-scope `let`/),
+    ])
+    expect(
+      await problems(
+        'export function walk(pool: { issue: Map<string, unknown> }) {\n  return [...pool.issue.keys()]\n}\n',
+        at,
+        realLint,
+      ),
+    ).toEqual([expect.stringMatching(/^fence\/no-table-walk: /)])
+  })
+})

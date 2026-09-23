@@ -6,7 +6,9 @@
  * `mobx/pool` is the round-three MobX pool (POD-4565) inside the frozen
  * folder: thawed, so every fence rule applies to it against
  * `arms/mobx/fence.json`, plus the import fence that keeps it from importing
- * the frozen round-two files.
+ * the frozen round-two files. `hand/pool` is the round-three hand-rolled pool
+ * (POD-4578) inside the frozen `hand` folder, thawed the same way against
+ * `arms/hand/fence.json`.
  *
  * The MobX arm's own rules stay in `arms/mobx/eslint.config.mjs`; `bun run
  * lint` runs both.
@@ -14,4 +16,4 @@
 
 import { fenceConfig } from './harness/lint/fence-plugin.mjs'
 
-export default fenceConfig({ root: 'arms', frozen: ['hand', 'mobx'], thawed: ['mobx/pool'] })
+export default fenceConfig({ root: 'arms', frozen: ['hand', 'mobx'], thawed: ['mobx/pool', 'hand/pool'] })
