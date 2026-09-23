@@ -418,7 +418,15 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
         const current = peekBucket(link, target)
         const next = Object.freeze([...members].sort())
         if (sameArray(current, next)) continue
-        if (this.cold !== null && !this.cold.resident(link.spec.to, target)) {
+        // A bucket is written where it lives. An observable one stays
+        // observable even once its target is gone (nothing moves back;
+        // POD-4568: writing the plain twin left the observable one stale).
+        // Only a bucket that does not exist yet is placed by residency.
+        const plain =
+          !link.buckets.has(target) &&
+          this.cold !== null &&
+          !this.cold.resident(link.spec.to, target)
+        if (plain && this.cold !== null) {
           if (next.length === 0) link.coldBuckets.delete(target)
           else link.coldBuckets.set(target, next)
           this.cold.changed(link.spec.to, target)

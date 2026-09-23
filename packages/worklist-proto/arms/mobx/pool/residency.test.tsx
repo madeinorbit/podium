@@ -24,7 +24,7 @@ import type { RowView } from '../../../shared/src/row-view'
 import type { SliceIssue, SliceSession } from '../../../shared/src/slice-types'
 import type { RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import { type MobxPoolHandle, mobxPoolArm } from './arm'
-import { diffResidency } from './enumerate'
+import { diffRelations, diffResidency, knownTables } from './enumerate'
 import { installMobxWarnTrap } from './mobx-trap'
 import { MobxPool, tracked } from './pool'
 import { LOAD_WINDOW_MS } from './residency'
@@ -495,6 +495,30 @@ describe('transitions', () => {
     })
     expect(tracked(() => pool.resident('issue', openIssue.id))).toBe('resident')
     expect(diffResidency(pool, r.replay.source)).toEqual([])
+  })
+
+  it("a removed resident parent's children follow a child that moves away (POD-4568)", () => {
+    // The gate's 20 x 300 run found this: a resident parent keeps its
+    // observable bucket when removed ("nothing moves back"), so the next
+    // flush for that parent must write THAT bucket, not the plain twin.
+    const r = rig()
+    const { pool } = r
+    const child = hotIssues.find(
+      (issue) =>
+        issue.parentId != null &&
+        !isClosed(issueById.get(issue.parentId)) &&
+        issue.archived !== true,
+    )!
+    const parentId = child.parentId as string
+    const children = () => tracked(() => [...pool.relations.many('issue', parentId, 'children')])
+    expect(children()).toContain(child.id)
+    r.push({ type: 'update', rows: [{ kind: 'issue', id: parentId, value: undefined }] })
+    expect(children()).toContain(child.id)
+    r.push({ type: 'update', rows: [issueRecord(child.id, { parentId: null })] })
+    expect(children()).not.toContain(child.id)
+    expect(
+      runInAction(() => diffRelations(pool.graph, knownTables(pool, r.replay.source))),
+    ).toEqual([])
   })
 
   it('removing a cold issue forgets it, and its cold sessions become resident', () => {
