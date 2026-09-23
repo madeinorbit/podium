@@ -57,76 +57,110 @@ async function waitFor(
   }
 }
 
-describe('e2e: a send to an ended claude-code session', () => {
-  it('wakes it and types the message into the resumed CLI', async () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'podium-resume-send-'))
-    const record = join(tmp, 'typed.log')
-    writeFileSync(record, '')
-    const recorder = join(tmp, 'recorder.cjs')
-    writeFileSync(recorder, RECORDER)
-    const nativeId = 'e2e-resume-send-native'
-    // Where Claude really keeps it: `<home>/.claude/projects/<slug(cwd)>/<id>.jsonl`.
-    const projectDir = join(tmp, '.claude', 'projects', tmp.replace(/[^a-zA-Z0-9]/g, '-'))
-    mkdirSync(projectDir, { recursive: true })
-    const transcriptPath = join(projectDir, `${nativeId}.jsonl`)
-    writeFileSync(transcriptPath, '')
-    mkdirSync(join(tmp, 'hooks'), { recursive: true })
-    process.env.PODIUM_TEST_RECORD = record
+type World = Awaited<ReturnType<typeof startWorld>>
 
-    const launches: string[][] = []
-    const launch: NonNullable<DaemonOptions['launch']> = (...args: unknown[]) => {
-      launches.push(args.map((a) => JSON.stringify(a)))
-      return { cmd: process.execPath, args: [recorder], cwd: tmp }
-    }
+/** A real server and daemon on an isolated state dir, with the recorder as the
+ *  agent CLI and Claude's own on-disk layout under a throwaway home. */
+async function startWorld(prefix: string) {
+  const tmp = mkdtempSync(join(tmpdir(), prefix))
+  const record = join(tmp, 'typed.log')
+  writeFileSync(record, '')
+  const recorder = join(tmp, 'recorder.cjs')
+  writeFileSync(recorder, RECORDER)
+  const nativeId = `${prefix}native`
+  // Where Claude really keeps it: `<home>/.claude/projects/<slug(cwd)>/<id>.jsonl`.
+  const projectDir = join(tmp, '.claude', 'projects', tmp.replace(/[^a-zA-Z0-9]/g, '-'))
+  mkdirSync(projectDir, { recursive: true })
+  const transcriptPath = join(projectDir, `${nativeId}.jsonl`)
+  mkdirSync(join(tmp, 'hooks'), { recursive: true })
+  process.env.PODIUM_TEST_RECORD = record
 
-    const srv = await startServer()
-    // The transport fixture enrolls the host as a server only; agents need it
-    // assigned to run them too.
-    await srv.registry.modules.machines.changeAssignment(
-      asMachineId(hostMachineId()),
-      { server: true, agentExecution: true },
-      'resume-send-lane',
-    )
-    const daemon = await startDaemon({
-      serverUrl: `ws://localhost:${srv.port}`,
-      machineToken: srv.machineToken,
-      machineId: hostMachineId(),
-      identityDir: tmp,
-      launch,
-      backend: 'none',
-      discovery: { background: false, cachePath: join(tmp, 'discovery.db'), homeDir: tmp },
-      metrics: { background: false },
-      hooks: { port: 0, settingsDir: join(tmp, 'hooks') },
-      agentRelay: { port: 0 },
-    })
-    const sessions = srv.registry.modules.sessions
-    const postHook = (sessionId: string, payload: Record<string, unknown>): Promise<Response> =>
+  const launch: NonNullable<DaemonOptions['launch']> = () => ({
+    cmd: process.execPath,
+    args: [recorder],
+    cwd: tmp,
+  })
+  const srv = await startServer()
+  // The transport fixture enrolls the host as a server only; agents need it
+  // assigned to run them too.
+  await srv.registry.modules.machines.changeAssignment(
+    asMachineId(hostMachineId()),
+    { server: true, agentExecution: true },
+    'resume-send-lane',
+  )
+  const daemon = await startDaemon({
+    serverUrl: `ws://localhost:${srv.port}`,
+    machineToken: srv.machineToken,
+    machineId: hostMachineId(),
+    identityDir: tmp,
+    launch,
+    // A durable process is required for every spawn (POD-4617); `none` is refused.
+    backend: 'host',
+    discovery: { background: false, cachePath: join(tmp, 'discovery.db'), homeDir: tmp },
+    metrics: { background: false },
+    hooks: { port: 0, settingsDir: join(tmp, 'hooks') },
+    agentRelay: { port: 0 },
+  })
+  const sessions = srv.registry.modules.sessions
+  await waitFor(
+    async () =>
+      (await srv.registry.modules.machines.listMachines()).find((m) => m.id === hostMachineId())
+        ?.online === true,
+    15_000,
+    'machine online',
+  )
+  return {
+    tmp,
+    nativeId,
+    transcriptPath,
+    sessions,
+    postHook: (sessionId: string, payload: Record<string, unknown>): Promise<Response> =>
       fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/${sessionId}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ session_id: nativeId, transcript_path: transcriptPath, cwd: tmp, ...payload }),
-      })
-    const row = async (sessionId: string) =>
-      (await sessions.listSessions()).find((s) => s.sessionId === sessionId)
-    const typed = (): string => (existsSync(record) ? readFileSync(record, 'utf8') : '')
-    const transcriptTurn = (prompt: string, answer: string): void => {
+      }),
+    row: async (sessionId: string) => {
+      const current = sessions.sessions.get(sessionId as never)
+      if (current?.spawnFailure) throw new Error(`spawn refused: ${current.spawnFailure}`)
+      return current
+    },
+    typed: (): string => (existsSync(record) ? readFileSync(record, 'utf8') : ''),
+    clearTyped: (): void => writeFileSync(record, ''),
+    transcriptTurn: (prompt: string, answer: string): void => {
       const at = new Date().toISOString()
       appendFileSync(
         transcriptPath,
         `${JSON.stringify({ type: 'user', uuid: `u-${prompt}`, sessionId: nativeId, timestamp: at, message: { role: 'user', content: prompt } })}\n` +
           `${JSON.stringify({ type: 'assistant', uuid: `a-${prompt}`, sessionId: nativeId, timestamp: at, message: { role: 'assistant', content: [{ type: 'text', text: answer }] } })}\n`,
       )
-    }
+    },
+    close: async (): Promise<void> => {
+      await daemon.close({ reapSessions: true })
+      await srv.close()
+      rmSync(tmp, { recursive: true, force: true })
+    },
+  }
+}
 
+/** The durable row that carried `text` was typed, and the server admitted its
+ *  delivery outcome — the row only leaves the queue on that admission. */
+async function expectTypedAndCleared(world: World, sessionId: string, text: string, what: string) {
+  await waitFor(() => world.typed().includes(text), 40_000, what)
+  await world.postHook(sessionId, { hook_event_name: 'UserPromptSubmit', prompt: text })
+  await waitFor(
+    async () => (await world.row(sessionId))?.queuedMessageCount === 0,
+    20_000,
+    'the queued row to clear on the server',
+  )
+}
+
+describe('e2e: a send to an ended claude-code session', () => {
+  it('wakes it and types the message into the resumed CLI', async () => {
+    const world = await startWorld('podium-resume-send-')
+    const { sessions, row, typed, postHook } = world
     try {
-      await waitFor(
-        async () =>
-          (await srv.registry.modules.machines.listMachines()).find((m) => m.id === hostMachineId())
-            ?.online === true,
-        15_000,
-        'machine online',
-      )
-      const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: tmp })
+      const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: world.tmp })
       await waitFor(async () => (await row(sessionId))?.status === 'live', 15_000, 'first launch live')
 
       // One ordinary turn, so the session is idle with a resume ref — the state
@@ -135,33 +169,68 @@ describe('e2e: a send to an ended claude-code session', () => {
       const first = sessions.receiptSend('now', { sessionId, text: firstText })
       await waitFor(() => typed().includes(firstText), 20_000, 'first turn typed')
       await postHook(sessionId, { hook_event_name: 'UserPromptSubmit', prompt: firstText })
-      transcriptTurn(firstText, 'ok')
+      world.transcriptTurn(firstText, 'ok')
       await postHook(sessionId, { hook_event_name: 'Stop' })
-      expect(await first).toMatchObject({ ok: true })
+      const firstResult = await first
+      expect(firstResult.ok, JSON.stringify(firstResult)).toBe(true)
+
+      // The tester's precondition: idle, with the resume ref Claude reported.
+      await waitFor(
+        async () => {
+          const current = await row(sessionId)
+          return current?.resume?.value === world.nativeId && current.agentState?.phase === 'idle'
+        },
+        20_000,
+        'idle with a resume ref',
+      )
 
       // ---- End session ------------------------------------------------------
       const ended = await sessions.hibernateSession({ sessionId })
-      expect(ended).toMatchObject({ ok: true })
+      expect(ended.ok, JSON.stringify(ended)).toBe(true)
       await waitFor(async () => (await row(sessionId))?.status === 'hibernated', 15_000, 'hibernated')
-      writeFileSync(record, '')
+      world.clearTyped()
 
       // ---- the phone send wakes it ------------------------------------------
       const phoneText = 'phone message after the end'
       const sent = sessions.receiptSend('wake', { sessionId, text: phoneText })
+      // It is held as a durable row first — the count the last step waits to clear.
+      await waitFor(
+        async () => ((await row(sessionId))?.queuedMessageCount ?? 0) > 0 || typed().includes(phoneText),
+        20_000,
+        'the wake send to be queued',
+      )
+      expect(typed()).not.toContain(phoneText)
       await waitFor(async () => (await row(sessionId))?.status === 'live', 20_000, 'resumed live')
       // NO hook here, and that is the case under test: Claude Code posts nothing
       // at interactive boot, `--resume` included — its first hook is the
       // UserPromptSubmit of the prompt somebody types. A resumed session that
-      // waits for a hook before it will type is waiting for itself.
-
-      await waitFor(() => typed().includes(phoneText), 40_000, 'the phone message typed into the resumed CLI')
-      await postHook(sessionId, { hook_event_name: 'UserPromptSubmit', prompt: phoneText })
+      // waits for a hook before it will type is waiting for itself. The server
+      // side of the same fault: the resumed process's events are admitted only
+      // once its observer generation has a bootstrap (the
+      // `replacement-requires-bootstrap` rejection the tester logged).
+      await expectTypedAndCleared(world, sessionId, phoneText, 'the phone message typed into the resumed CLI')
       await sent
     } finally {
-      console.log('launches', JSON.stringify(launches).slice(0, 2000))
-      await daemon.close({ reapSessions: true })
-      await srv.close()
-      rmSync(tmp, { recursive: true, force: true })
+      await world.close()
+    }
+  }, 120_000)
+
+  it('types a durable first message into a fresh session that has had no prompt yet', async () => {
+    // The sibling case: New session with no initial prompt, then a first
+    // message that takes the durable queue (a queued send, or any send while
+    // the native terminal view is open). Claude has posted no hook and written
+    // no transcript yet, so nothing but the spawn itself can say it is idle.
+    const world = await startWorld('podium-fresh-send-')
+    const { sessions, row, typed } = world
+    try {
+      const { sessionId } = await sessions.createSession({ agentKind: 'claude-code', cwd: world.tmp })
+      await waitFor(async () => (await row(sessionId))?.status === 'live', 15_000, 'fresh launch live')
+      const text = 'first message into a fresh session'
+      const sent = sessions.receiptSend('queue', { sessionId, text })
+      await expectTypedAndCleared(world, sessionId, text, 'the first message typed into the fresh CLI')
+      await sent
+    } finally {
+      await world.close()
     }
   }, 120_000)
 })
