@@ -24,8 +24,8 @@
  * sessions and children — `phase`, `progressDone`, `progressTotal`,
  * `working`, `asking`, `workingSince` — are Mb3 (POD-4571), and `closed`'s
  * "zero waiting" conjunct reads them (`STUB_WAITING`). Fields that read own
- * sessions directly (`activityAt`, the draft title) read `issue.sessions`
- * through the relation accessor, maintained by the pool from the schema
+ * sessions (`activityAt`, the draft title) read `issue.sessions` once
+ * (`sessionIds`) through the relation accessor, maintained by the pool from the schema
  * (`relations.ts`, POD-4566): explicit members, resume twins collapsed, in
  * session-id order.
  *
@@ -92,6 +92,13 @@ export interface IssueParts {
   readonly originRef: string | null
   readonly originId: string | null
   readonly originTick: RowOriginTick | null
+  /**
+   * The own sessions (`issue.sessions`: explicit members, resume twins
+   * collapsed, session-id order). One bucket read, cached: a member's change
+   * does not re-read the bucket, and the parts below walk this array, never
+   * the relation, so they touch no member row they do not need.
+   */
+  readonly sessionIds: readonly string[]
   readonly activityAt: number
   /** A lazy input (the origin, a member session) is known but not resident yet. */
   readonly loading: boolean
@@ -115,6 +122,13 @@ export interface ViewInputs {
   readonly relations: RelationReader
   issue(id: string): SliceIssue | undefined
   session(id: string): SliceSession | undefined
+  /**
+   * A member session's own-row part (`sessionActivityOf`): a computed on the
+   * session model in the live pool, so a parent re-composing its roll-up
+   * reads each unchanged member's cached value, not its row (POD-4568; the
+   * harness's "re-compose from cached child results"). Direct in the rebuild.
+   */
+  sessionActivity(id: string): number | null
   repo(id: string): RepoRow | undefined
   /** Whether a row of `entity` is in the pool (tracks presence only). */
   present(entity: EntityName, id: string): boolean
@@ -167,10 +181,18 @@ const PANEL_LABELS: Readonly<Record<string, string>> = {
   shell: 'Shell',
 }
 
-/** A draft wears its first member's label; everything else its own title (spec §3 R-SUM). */
-export function displayTitleOf(issue: SliceIssue, firstMember: SliceSession | undefined): string {
+/**
+ * A draft wears its first member's label; everything else its own title (spec
+ * §3 R-SUM). The member is asked for only for a draft, so a non-draft's title
+ * never depends on its sessions.
+ */
+export function displayTitleOf(
+  issue: SliceIssue,
+  firstMemberOf: () => SliceSession | undefined,
+): string {
   const title = issue.title.trim()
   if (issue.draft !== true || (title !== '' && title !== DRAFT_TITLE)) return issue.title
+  const firstMember = firstMemberOf()
   if (firstMember === undefined) return 'New agent'
   const kind = firstMember.agentKind ?? 'undefined'
   return `New ${PANEL_LABELS[kind] ?? kind} session`
@@ -252,8 +274,8 @@ export function ownPartOf(input: ViewInputs, id: string): OwnPart | undefined {
   }
 }
 
-function firstMemberOf(input: ViewInputs, id: string): SliceSession | undefined {
-  for (const sessionId of input.relations.many('issue', id, 'sessions')) {
+function firstMemberOf(input: ViewInputs, sessionIds: readonly string[]): SliceSession | undefined {
+  for (const sessionId of sessionIds) {
     const session = input.session(sessionId)
     if (session !== undefined) return session
   }
@@ -279,9 +301,15 @@ export function displayRefPartOf(
   return own === undefined ? undefined : displayRefOf(own.seq, prefix)
 }
 
-export function displayTitlePartOf(input: ViewInputs, id: string): string | undefined {
+export function displayTitlePartOf(
+  input: ViewInputs,
+  id: string,
+  sessionIds: readonly string[],
+): string | undefined {
   const issue = input.issue(id)
-  return issue === undefined ? undefined : displayTitleOf(issue, firstMemberOf(input, id))
+  return issue === undefined
+    ? undefined
+    : displayTitleOf(issue, () => firstMemberOf(input, sessionIds))
 }
 
 /** The `issue.discoveredFrom` edge target off the own row (declared in the schema). */
@@ -309,11 +337,29 @@ export function originTickPartOf(input: ViewInputs, originId: string | null): Ro
   }
 }
 
-/** Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec R-BAND). */
-export function activityAtPartOf(input: ViewInputs, id: string): number {
+/** The own sessions, one bucket read (`IssueParts.sessionIds`). */
+export function sessionIdsPartOf(input: ViewInputs, id: string): readonly string[] {
+  return [...input.relations.many('issue', id, 'sessions')]
+}
+
+/** A session's contribution to its issue's activity: its `lastActiveAt`, or null when absent. */
+export function sessionActivityOf(session: SliceSession | undefined): number | null {
+  return parseMs(session?.lastActiveAt)
+}
+
+/**
+ * Max `lastActiveAt` of own sessions, else own `updatedAt`, else 0 (spec
+ * R-BAND). Re-composed from each member's cached contribution
+ * (`ViewInputs.sessionActivity`): a member's change re-reads that member only.
+ */
+export function activityAtPartOf(
+  input: ViewInputs,
+  id: string,
+  sessionIds: readonly string[],
+): number {
   let latest: number | null = null
-  for (const sessionId of input.relations.many('issue', id, 'sessions')) {
-    const at = parseMs(input.session(sessionId)?.lastActiveAt)
+  for (const sessionId of sessionIds) {
+    const at = input.sessionActivity(sessionId)
     if (at !== null && (latest === null || at > latest)) latest = at
   }
   return latest ?? parseMs(input.issue(id)?.updatedAt) ?? 0
@@ -325,9 +371,13 @@ export function activityAtPartOf(input: ViewInputs, id: string): number {
  * about EVERY member, so all of them are queued in one window, not one per
  * window. Reads residency and the bucket, never a row.
  */
-export function loadingPartOf(input: ViewInputs, id: string, originRef: string | null): boolean {
+export function loadingPartOf(
+  input: ViewInputs,
+  originRef: string | null,
+  sessionIds: readonly string[],
+): boolean {
   let loading = originRef !== null && input.loading('issue', originRef)
-  for (const sessionId of input.relations.many('issue', id, 'sessions')) {
+  for (const sessionId of sessionIds) {
     if (input.loading('session', sessionId)) loading = true
   }
   return loading
@@ -349,7 +399,7 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
       return displayRefPartOf(parts.own, parts.prefix)
     },
     get displayTitle() {
-      return displayTitlePartOf(input, id)
+      return displayTitlePartOf(input, id, parts.sessionIds)
     },
     get originRef() {
       return originRefPartOf(input, id)
@@ -360,11 +410,14 @@ export function directParts(input: ViewInputs, id: string): IssueParts {
     get originTick() {
       return originTickPartOf(input, parts.originId)
     },
+    get sessionIds() {
+      return sessionIdsPartOf(input, id)
+    },
     get activityAt() {
-      return activityAtPartOf(input, id)
+      return activityAtPartOf(input, id, parts.sessionIds)
     },
     get loading() {
-      return loadingPartOf(input, id, parts.originRef)
+      return loadingPartOf(input, parts.originRef, parts.sessionIds)
     },
   }
   return parts

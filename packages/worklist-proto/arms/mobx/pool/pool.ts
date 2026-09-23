@@ -59,7 +59,7 @@ import type {
 import type { ArmStats, RowSourceEvent } from '../../../shared/src/stats'
 import { DeadlineClock } from './clock'
 import { issueIdsOf, reseed } from './enumerate'
-import { type EntityModel, MODEL_CLASSES, type ModelOf } from './models'
+import { type EntityModel, MODEL_CLASSES, type ModelOf, type SessionModel } from './models'
 import { PoolRelations, type ReadableTables } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
 import {
@@ -255,6 +255,12 @@ export class MobxPool {
       relations: this.relations,
       issue: (id) => fenced.issue.get(id) as SliceIssue | undefined,
       session: (id) => fenced.session.get(id) as SliceSession | undefined,
+      // The member's cached value. A model already built is taken from the
+      // identity memo without a presence read: it reads its own slot, so a
+      // removed member answers null, and the bucket that listed it has moved.
+      sessionActivity: (id) =>
+        ((this.models.session.get(id) as SessionModel | undefined) ?? this.model('session', id))
+          ?.activityMs ?? null,
       repo: (id) => fenced.repo.get(id) as RepoRow | undefined,
       present: (entity, id) => fenced[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,

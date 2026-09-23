@@ -28,7 +28,13 @@ import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/sr
 import { scanRelations } from './enumerate'
 import { coldByRule } from './residency'
 import { createPlainTables, ingestOut, ingestRecord } from './tables'
-import { buildRowView, directParts, type RepoRow, type ViewInputs } from './views'
+import {
+  buildRowView,
+  directParts,
+  type RepoRow,
+  sessionActivityOf,
+  type ViewInputs,
+} from './views'
 
 export function rebuildSnapshot(
   source: RowSource,
@@ -48,6 +54,7 @@ export function rebuildSnapshot(
     relations: scanRelations(tables),
     issue: (id) => tables.issue.get(id) as SliceIssue | undefined,
     session: (id) => tables.session.get(id) as SliceSession | undefined,
+    sessionActivity: (id) => sessionActivityOf(tables.session.get(id) as SliceSession | undefined),
     repo: (id) => tables.repo.get(id) as RepoRow | undefined,
     present: (entity, id) => tables[entity].has(id),
     loading: () => false,

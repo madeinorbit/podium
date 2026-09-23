@@ -42,6 +42,8 @@ import {
   prefixPartOf,
   type RepoRow,
   repoRefPartOf,
+  sessionActivityOf,
+  sessionIdsPartOf,
   type ViewInputs,
 } from './views'
 
@@ -108,6 +110,7 @@ export class IssueModel extends EntityModel implements IssueParts {
       originRef: computed,
       originId: computed,
       originTick: computedStruct,
+      sessionIds: computedStruct,
       activityAt: computed,
       loading: computed,
       view: computedStruct,
@@ -131,7 +134,7 @@ export class IssueModel extends EntityModel implements IssueParts {
   }
 
   get displayTitle(): string | undefined {
-    return displayTitlePartOf(this.host.inputs, this.id)
+    return displayTitlePartOf(this.host.inputs, this.id, this.sessionIds)
   }
 
   get originRef(): string | null {
@@ -146,12 +149,16 @@ export class IssueModel extends EntityModel implements IssueParts {
     return originTickPartOf(this.host.inputs, this.originId)
   }
 
+  get sessionIds(): readonly string[] {
+    return sessionIdsPartOf(this.host.inputs, this.id)
+  }
+
   get activityAt(): number {
-    return activityAtPartOf(this.host.inputs, this.id)
+    return activityAtPartOf(this.host.inputs, this.id, this.sessionIds)
   }
 
   get loading(): boolean {
-    return loadingPartOf(this.host.inputs, this.id, this.originRef)
+    return loadingPartOf(this.host.inputs, this.originRef, this.sessionIds)
   }
 
   /** The L1b row view, from the parts above; undefined once the row has left. */
@@ -164,6 +171,12 @@ export class IssueModel extends EntityModel implements IssueParts {
 export class SessionModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
+    makeObservable(this, { activityMs: computed })
+  }
+
+  /** This session's contribution to its issue's `activityAt`, cached per session (POD-4568). */
+  get activityMs(): number | null {
+    return sessionActivityOf(this.row as SliceSession | undefined)
   }
 }
 
