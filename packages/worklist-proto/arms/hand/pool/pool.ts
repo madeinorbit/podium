@@ -433,7 +433,7 @@ export class HandPool {
       case 'row': {
         if (!delta.membership) return
         if (delta.entity === 'issue') this.changedIds.add(delta.id)
-        if (this.tables[delta.entity].has(delta.id)) return
+        if (this.fenced[delta.entity].has(delta.id)) return
         this.stats.counters.rowsRemoved += 1
         this.records[delta.entity].delete(delta.id)
         if (delta.entity !== 'issue') return

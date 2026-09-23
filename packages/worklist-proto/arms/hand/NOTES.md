@@ -111,6 +111,27 @@ first read); now 1, the renamed row.
 non-test lines. Ma1's pool at its landing (`dd7fde922`): ~1,606 (no
 `cells.ts`; MobX is the cell layer).
 
+### Open (constraints for Ha2, from the MobX shape review)
+
+M3 (POD-4591, `docs/decisions/pod-4545-round-three-shape-review.md`) sent
+the MobX pool back on two lines that bear on the hand pool's next phase:
+
+- **F2, resolution through the engine.** The a1 parts resolve `issue.repo`
+  and `issue.discoveredFrom` with `relationRef` plus a target read (as Ma1
+  did; at a1 `PoolRelations.one` is the same computation and the only
+  path). Once Ha2 maintains a forward map, the parts must call
+  `relations.one(...)`, which reads the forward slot and the target's
+  presence, never the own row, so the rename split still holds; and
+  `relationRef` stops being exported to `views.ts`.
+- **F1, bucket upkeep sized by the change.** A collection must not be
+  copied and sorted per membership change: on the live export `repo.issues`
+  is 4,574 of 5,170 issues. Ha2's buckets must insert and remove per edge
+  (a `Set`, or a binary-searched insert) and count elements touched, not
+  slots. The lint cannot see a bucket walk (it matches table names).
+- **N5.** The repo-from-lane routing (`tables.ts`) is feed-shape
+  composition that both pools hand-code; the review suggests it belongs in
+  the shared feed or schema layer.
+
 ### Open
 
 - Draft titles read the first member session in the rule; members are none
