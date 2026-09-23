@@ -93,12 +93,13 @@ interface ArmResult {
   after: number
   afterByEntity: Record<string, number>
   hydratedInStep: number
+  rowsCommitted: number
   plantRuns: number
   plantLoadedRuns: number
   fence: 'pass' | string
 }
 
-async function runArm(name: string, schedule: Schedule): Promise<ArmResult> {
+async function runArm(name: string, schedule: Schedule, planted: boolean): Promise<ArmResult> {
   const plant: Plant = { target: null, runs: 0, loadedRuns: 0 }
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'overlaid')
@@ -154,7 +155,7 @@ async function runArm(name: string, schedule: Schedule): Promise<ArmResult> {
       })
       throw new Error(`no cold issue with two sessions; cold issues by sessions/coldSessions: ${JSON.stringify(shape)}`)
     }
-    plant.target = target
+    if (planted) plant.target = target
 
     const hydratedBefore = residency.counters.hydrated
     let hydratedInStep = -1
@@ -182,6 +183,7 @@ async function runArm(name: string, schedule: Schedule): Promise<ArmResult> {
       after: after.rows,
       afterByEntity: after.byEntity,
       hydratedInStep,
+      rowsCommitted: result.rowsCommitted,
       plantRuns: plant.runs,
       plantLoadedRuns: plant.loadedRuns,
       fence,
@@ -198,12 +200,13 @@ async function runArm(name: string, schedule: Schedule): Promise<ArmResult> {
 }
 
 describe('a fence step counts the load its own change triggers (M3 re-review 2)', () => {
-  it('A (counts.test.tsx pool, window never closes) vs B (window closes in the step)', async () => {
-    const a = await runArm('A never', NEVER)
-    const b = await runArm('B microtask', MICROTASK)
-    expect(a.target).toBe(b.target)
+  it('A/B on the load window, each with a no-plant control', async () => {
+    const d = await runArm('D never, no plant', NEVER, false)
+    const a = await runArm('A never, planted', NEVER, true)
+    const c = await runArm('C microtask, no plant', MICROTASK, false)
+    const b = await runArm('B microtask, planted', MICROTASK, true)
+    expect(new Set([a.target, b.target, c.target, d.target]).size).toBe(1)
     // Recorded, not asserted: the review doc reads the printed lines.
-    expect(a.charged).toBeGreaterThan(0)
-    expect(b.charged).toBeGreaterThan(0)
-  }, 300_000)
+    for (const arm of [a, b, c, d]) expect(arm.charged).toBeGreaterThan(0)
+  }, 600_000)
 })
