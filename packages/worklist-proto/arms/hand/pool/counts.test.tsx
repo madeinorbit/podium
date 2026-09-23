@@ -37,7 +37,7 @@ const STEPS: readonly { methodology: string; commits: boolean }[] = [
   { methodology: '#3', commits: true },
   { methodology: '#4', commits: false },
   { methodology: '#8', commits: true },
-  { methodology: '#8b', commits: false },
+  { methodology: '#8b', commits: true },
 ]
 
 describe('fence steps #1, #3, #4, #8, #8b', () => {

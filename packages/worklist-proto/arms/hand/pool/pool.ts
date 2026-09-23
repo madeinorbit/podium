@@ -276,9 +276,16 @@ export class HandPool {
   /** Every issue id in the pool, in table order; a new array only when membership changed. */
   readonly issueIds = (): readonly string[] => this.graph.read(this.idsCell)
 
-  /** The row view of issue `id`, derived on first read; undefined when absent. */
-  readonly view = (id: string): RowView | undefined =>
-    this.fenced.issue.has(id) ? this.cellsOf(id).view : undefined
+  /**
+   * The row view of issue `id`, derived on first read; undefined when absent.
+   * Cells exist only for a present row (`release` drops them with it), so
+   * only a first read asks the table.
+   */
+  readonly view = (id: string): RowView | undefined => {
+    const cells = this.issues.get(id)
+    if (cells !== undefined) return cells.view
+    return this.fenced.issue.has(id) ? this.cellsOf(id).view : undefined
+  }
 
   /** Listen to one row view; returns the unsubscribe. */
   readonly subscribe = (id: string, listener: () => void): (() => void) => {
