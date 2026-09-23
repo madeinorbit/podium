@@ -241,10 +241,17 @@ describe('bootstrap', () => {
     expect(pool.issues.size).toBe(drawn.length)
     expect([...pool.issues.keys()].sort()).toEqual([...drawn].sort())
     for (const id of pool.issues.keys()) expect(pool.residency?.isCold('issue', id)).toBe(false)
-    // Every cell created belongs to a drawn row, plus the id list.
+    // Every cell created belongs to a drawn row: its parts, and (POD-4581)
+    // one activity cell per member session its `activityAt` asked about,
+    // cold members included; plus the id list.
     let cells = 0
-    for (const issue of pool.issues.values()) cells += issue.cells.size
-    expect(pool.stats.counters.cellsCreated).toBe(cells + 1)
+    const members = new Set<string>()
+    for (const issue of pool.issues.values()) {
+      cells += issue.cells.size
+      for (const sessionId of issue.sessionIds) members.add(sessionId)
+    }
+    expect([...pool.sessionCells.keys()].sort()).toEqual([...members].sort())
+    expect(pool.stats.counters.cellsCreated).toBe(cells + pool.sessionCells.size + 1)
     expect(pool.stats.counters.recordsCreated).toBe(0)
     // Cold rows were drawn as nothing and are asked for only when read.
     const closed = corpus.sliceIssues.filter(isClosed)
@@ -253,6 +260,7 @@ describe('bootstrap', () => {
     writeResult('hand-pool-first-read-1x', {
       rowsDrawn: drawn.length,
       issueCellSets: pool.issues.size,
+      sessionActivityCells: pool.sessionCells.size,
       cellsCreated: pool.stats.counters.cellsCreated,
       recordsCreated: pool.stats.counters.recordsCreated,
       loadsQueuedByTheMount: pool.residency?.counters.requests,
