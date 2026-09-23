@@ -10,12 +10,14 @@
  * `snapshot()` (which settles), and that is after it has sampled the reads.
  *
  * THE PLANT. From step #2 on, the pool's `sessionActivity` input (which the
- * #2 session change re-runs) also reads a cold issue's sessions through the
- * lazy relation (`lazyMany`), as a roll-up does, and, for each session that
- * is loaded, follows `session.issue` (`relations.one`). Before the load that
- * charges the S cold session keys; once they load it also charges the issue
- * key. The target issue is chosen with S = 2, so the charge before the load
- * is 1 + 2 = 3 (the #2 budget) and after it is 4.
+ * #2 session change re-runs) also asks where a cold issue P stands
+ * (`pool.resident`, as a view does before it reads a row) and, once P is
+ * loaded, lists P's sessions (`relations.many`). Before the load that
+ * charges one key (P, via the table's `has`) and queues P; once P loads it
+ * also charges P's S session keys. P is chosen cold with S = 2, so the
+ * charge before the load is 1 + 1 = 2 (#2's budget is 3) and after it is 4.
+ * (On this corpus a closed issue's sessions are resident: the first probe
+ * found 0 cold sessions under every cold issue, so the load is P itself.)
  *
  * TWO ARMS, same plant, same steps (#1 then #2), same settle and zeroing as
  * counts.test.tsx:
@@ -54,7 +56,7 @@ const MICROTASK: Schedule = (run) => {
 
 interface Plant {
   target: string | null
-  /** Plant runs with a target, and how many of them saw the sessions loaded. */
+  /** Plant runs with a target, and how many of them saw P loaded. */
   runs: number
   loadedRuns: number
 }
@@ -69,10 +71,11 @@ function plantedArm(schedule: Schedule, plant: Plant): CheckableArm {
       inputs.sessionActivity = (id) => {
         const target = plant.target
         if (target !== null) {
-          const { ready } = pool.lazyMany('issue', target, 'sessions')
           plant.runs += 1
-          if (ready.length > 0) plant.loadedRuns += 1
-          for (const s of ready) pool.inputs.relations.one('session', s, 'issue')
+          if (pool.resident('issue', target) === 'resident') {
+            plant.loadedRuns += 1
+            for (const _ of pool.inputs.relations.many('issue', target, 'sessions')) void _
+          }
         }
         return original(id)
       }
@@ -123,7 +126,7 @@ async function runArm(name: string, schedule: Schedule): Promise<ArmResult> {
     }
     await step('#1')
 
-    // A closed issue with exactly two sessions, all still cold after the settle.
+    // A cold issue with exactly two sessions, still cold after the settle.
     const byIssue = new Map<string, string[]>()
     for (const s of ctx.corpus.sessions) {
       if (s.issueId == null) continue
@@ -133,16 +136,23 @@ async function runArm(name: string, schedule: Schedule): Promise<ArmResult> {
     for (const [issueId, sessions] of byIssue) {
       if (sessions.length !== 2) continue
       // `known` is TRACKED: ask inside a reactive context, as a reader would.
-      const cold = tracked(
-        () =>
-          residency.known('issue', issueId) &&
-          sessions.every((s) => residency.known('session', s)),
-      )
-      if (!cold) continue
+      if (!tracked(() => residency.known('issue', issueId))) continue
       target = issueId
       break
     }
-    if (target === null) throw new Error('no cold issue with two cold sessions in the corpus')
+    if (target === null) {
+      const shape = tracked(() => {
+        const out: Record<string, number> = {}
+        for (const [issueId, sessions] of byIssue) {
+          if (!residency.known('issue', issueId)) continue
+          const cold = sessions.filter((s) => residency.known('session', s)).length
+          const key = `${sessions.length}/${cold}`
+          out[key] = (out[key] ?? 0) + 1
+        }
+        return out
+      })
+      throw new Error(`no cold issue with two sessions; cold issues by sessions/coldSessions: ${JSON.stringify(shape)}`)
+    }
     plant.target = target
 
     const hydratedBefore = residency.counters.hydrated
