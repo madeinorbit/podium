@@ -38,6 +38,7 @@ import {
   longestPrefixPath,
   type ModelSchema,
   SCHEMA,
+  tableColdContext,
   viaTargetOf,
 } from '../../../shared/src/schema'
 import type { RowRecord } from '../../../shared/src/stats'
@@ -88,6 +89,7 @@ export function reseed(
   }
   for (const record of last.values()) ingestRecord(staging, record, scratch)
   const staged = (to: EntityName, id: string): object | undefined => incoming[to].get(id)
+  residency?.reindex((entity) => incoming[entity])
   for (const entity of ENTITIES) {
     const next = incoming[entity]
     const gone: string[] = []
@@ -270,10 +272,8 @@ export function diffResidency(
     }
     feed.set(kind, rows)
   }
-  const coldTarget = (to: EntityName, id: string): boolean => {
-    const row = feed.get(to)?.get(id)
-    return row !== undefined && coldByRule(schema, to, row, coldTarget)
-  }
+  // The rule over the feed at the clock the pool reads it against.
+  const ctx = tableColdContext(schema, (entity) => feed.get(entity), residency.now())
   for (const entity of Object.keys(schema) as EntityName[]) {
     if (!residency.capable(entity)) continue
     const rows = feed.get(entity)
@@ -286,7 +286,7 @@ export function diffResidency(
       const cold = residency.isCold(entity, id)
       if (hot && cold) say(`${entity}:${id} is both resident and cold`)
       else if (!hot && !cold) say(`${entity}:${id} is in the feed but neither resident nor cold`)
-      else if (cold && !coldByRule(schema, entity, row, coldTarget)) {
+      else if (cold && !coldByRule(schema, entity, row, ctx)) {
         say(`${entity}:${id} is cold but the rule keeps it resident`)
       } else if (cold) {
         const want = viaTargetOf(schema, entity, row)?.id ?? null

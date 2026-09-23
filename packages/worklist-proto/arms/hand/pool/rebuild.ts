@@ -24,7 +24,7 @@
 
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import { sliceRowOf } from '../../../shared/src/row-view'
-import { coldByRule, type EntityName, type ModelSchema, SCHEMA } from '../../../shared/src/schema'
+import { coldByRule, type ModelSchema, SCHEMA, tableColdContext } from '../../../shared/src/schema'
 import type { SliceIssue, SliceSession, SliceSnapshot } from '../../../shared/src/slice-types'
 import { PoolRelations } from './relations'
 import { createTables, ingestOut, ingestRecord } from './tables'
@@ -70,13 +70,14 @@ export function rebuildSnapshot(
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
-  const coldTarget = (to: EntityName, id: string): boolean => {
-    const row = tables[to].get(id)
-    return row !== undefined && coldByRule(schema, to, row, coldTarget)
+  const rule = tableColdContext(schema, (entity) => tables[entity], coarseNow)
+  const coldTarget = (id: string): boolean => {
+    const row = tables.issue.get(id)
+    return row !== undefined && coldByRule(schema, 'issue', row, rule)
   }
   const rowsById: SliceSnapshot['rowsById'] = {}
   for (const { id } of issues) {
-    if (resident !== undefined && !resident.has(id) && coldTarget('issue', id)) continue
+    if (resident !== undefined && !resident.has(id) && coldTarget(id)) continue
     const view = buildRowView(inputs, id, directParts(inputs, id))
     if (view !== undefined) rowsById[id] = sliceRowOf(view)
   }

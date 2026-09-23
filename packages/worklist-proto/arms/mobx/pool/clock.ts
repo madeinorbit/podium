@@ -50,6 +50,11 @@ export class DeadlineClock {
 
   constructor(private now: number) {}
 
+  /** The current `coarseNow`, untracked (residency reads it inside ingest: `residency.ts` `now`). */
+  get current(): number {
+    return this.now
+  }
+
   /** How many deadlines are waited on now (tests; disposal). */
   get waiting(): number {
     return this.deadlines.length

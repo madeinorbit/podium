@@ -24,7 +24,9 @@ import {
   normalizeRootPath,
   prefixCandidates,
   type RelationSpec,
+  keeperOf,
   SCHEMA,
+  tableColdContext,
   validateStructure,
   viaTargetOf,
 } from './schema'
@@ -111,14 +113,16 @@ describe('the declared schema', () => {
     expect(relationsOf('issue').spinOffs).toMatchObject({ kind: 'edge', direction: 'in', inverse: 'discoveredFrom' })
   })
 
-  it('declares residency: a closed issue and its sessions are cold, lanes and repos are not', () => {
+  it('declares residency: a closed issue nothing can show and its sessions are cold, lanes and repos are not', () => {
     const cold = SCHEMA.issue.cold
-    expect(cold.kind).toBe('own')
-    if (cold.kind !== 'own') throw new Error('unreachable')
-    expect(cold.dependsOn).toEqual(['closedAt'])
+    expect(cold.kind).toBe('unlessShown')
+    if (cold.kind !== 'unlessShown') throw new Error('unreachable')
+    expect(cold.dependsOn).toContain('closedAt')
     expect(cold.predicate({ closedAt: '2026-09-01T00:00:00.000Z' })).toBe(true)
     expect(cold.predicate({ closedAt: null })).toBe(false)
     expect(cold.predicate({})).toBe(false)
+    // POD-4665: the members that can keep it shown are its sessions.
+    expect(cold.keptBy.relation).toBe('sessions')
 
     // A session cannot decide its own residency: it inherits the issue's.
     expect(SCHEMA.session.cold).toMatchObject({ kind: 'via', relation: 'issue' })
@@ -412,31 +416,151 @@ describe('the resume-twin collapse (session.collapse)', () => {
   })
 })
 
-describe('the cold rule (coldByRule, POD-4580)', () => {
-  const closed = { id: 'i1', closedAt: '2026-01-01T00:00:00Z' }
-  const open = { id: 'i2', closedAt: null }
-  const issues: Record<string, object> = { i1: closed, i2: open }
-  const coldTarget = (to: EntityName, id: string): boolean => {
-    const row = to === 'issue' ? issues[id] : undefined
-    return row !== undefined && coldByRule(SCHEMA, to, row, coldTarget)
+describe('the cold rule (coldByRule, POD-4580, POD-4665)', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const NOW = Date.parse('2026-09-24T00:00:00.000Z')
+  const ago = (days: number) => new Date(NOW - days * DAY).toISOString()
+  /** A closed formal child of a human mission: kept only by its own decay window or a session. */
+  const child = (id: string, closedDaysAgo: number, more: object = {}) => ({
+    id,
+    parentId: 'p',
+    audience: 'human',
+    stage: 'done',
+    closedReason: 'completed',
+    closedAt: ago(closedDaysAgo),
+    updatedAt: ago(closedDaysAgo),
+    ...more,
+  })
+  const session = (sessionId: string, issueId: string, more: object = {}) => ({
+    sessionId,
+    issueId,
+    cwd: '/w',
+    lastActiveAt: ago(30),
+    ...more,
+  })
+  function ruleAt(
+    issues: readonly Record<string, unknown>[],
+    sessions: readonly Record<string, unknown>[] = [],
+    now = NOW,
+  ) {
+    const tables = {
+      issue: new Map(issues.map((row) => [row['id'] as string, row])),
+      session: new Map(sessions.map((row) => [row['sessionId'] as string, row])),
+    } as Record<string, Map<string, unknown>>
+    const ctx = tableColdContext(SCHEMA, (entity) => tables[entity], now)
+    return {
+      issue: (id: string) => coldByRule(SCHEMA, 'issue', tables['issue']!.get(id) as object, ctx),
+      session: (id: string) =>
+        coldByRule(SCHEMA, 'session', tables['session']!.get(id) as object, ctx),
+    }
   }
 
   it('applies own, via and never from the declaration', () => {
-    expect(coldByRule(SCHEMA, 'issue', closed, coldTarget)).toBe(true)
-    expect(coldByRule(SCHEMA, 'issue', open, coldTarget)).toBe(false)
-    expect(coldByRule(SCHEMA, 'session', { sessionId: 's', issueId: 'i1' }, coldTarget)).toBe(true)
-    expect(coldByRule(SCHEMA, 'session', { sessionId: 's', issueId: 'i2' }, coldTarget)).toBe(false)
+    const rule = ruleAt(
+      [child('i1', 30), { id: 'i2', closedAt: null, stage: 'in_progress', audience: 'human' }],
+      [session('s1', 'i1', { stoppedAt: ago(30) }), session('s2', 'i2'), session('s9', 'i9'), { sessionId: 's0', cwd: '/w' }],
+    )
+    expect(rule.issue('i1')).toBe(true)
+    expect(rule.issue('i2')).toBe(false)
+    expect(rule.session('s1')).toBe(true)
+    expect(rule.session('s2')).toBe(false)
     // An unknown issue, or none: nothing makes the session cold.
-    expect(coldByRule(SCHEMA, 'session', { sessionId: 's', issueId: 'i9' }, coldTarget)).toBe(false)
-    expect(coldByRule(SCHEMA, 'session', { sessionId: 's' }, coldTarget)).toBe(false)
-    expect(coldByRule(SCHEMA, 'worktree', { path: '/a' }, () => true)).toBe(false)
-    expect(coldByRule(SCHEMA, 'repo', { id: 'r' }, () => true)).toBe(false)
+    expect(rule.session('s9')).toBe(false)
+    expect(rule.session('s0')).toBe(false)
+    const ctx = tableColdContext(SCHEMA, () => undefined, NOW)
+    expect(coldByRule(SCHEMA, 'worktree', { path: '/a' }, { ...ctx, coldTarget: () => true })).toBe(false)
+    expect(coldByRule(SCHEMA, 'repo', { id: 'r' }, { ...ctx, coldTarget: () => true })).toBe(false)
   })
 
   it('follows the raw reference: a headless session of a closed issue is cold', () => {
-    const headless = { sessionId: 's', issueId: 'i1', headless: true }
+    const headless = session('s', 'i1', { headless: true })
+    const rule = ruleAt([child('i1', 30)], [headless])
     expect(viaTargetOf(SCHEMA, 'session', headless)).toEqual({ to: 'issue', id: 'i1' })
-    expect(coldByRule(SCHEMA, 'session', headless, coldTarget)).toBe(true)
-    expect(viaTargetOf(SCHEMA, 'issue', closed)).toBeNull()
+    expect(rule.session('s')).toBe(true)
+    expect(viaTargetOf(SCHEMA, 'issue', child('i1', 30))).toBeNull()
+  })
+
+  it('keeps resident a closed issue its own standing can show (R-VIS 2, the sessionless keep)', () => {
+    const rule = ruleAt([
+      // The closed fold: a closed top-level human issue never decays.
+      { id: 'top', audience: 'human', stage: 'done', closedReason: 'completed', closedAt: ago(400), updatedAt: ago(400) },
+      // A finished child inside the unread window (7 d), and past it.
+      child('recent', 6),
+      child('old', 8),
+      // Read 12 h ago: the read window (24 h past the later of finish and read) still holds.
+      child('reread', 8, { readAt: new Date(NOW - DAY / 2).toISOString() }),
+      // Agent-audience children and closed agent roots never show without a session.
+      child('agent', 1, { audience: 'agent' }),
+      { id: 'agentRoot', audience: 'agent', stage: 'done', closedReason: 'completed', closedAt: ago(1), updatedAt: ago(1) },
+      // Excluded: archived, even at the top level.
+      { id: 'archived', archived: true, audience: 'human', stage: 'done', closedReason: 'completed', closedAt: ago(1), updatedAt: ago(1) },
+    ])
+    expect(rule.issue('top')).toBe(false)
+    expect(rule.issue('recent')).toBe(false)
+    expect(rule.issue('old')).toBe(true)
+    expect(rule.issue('reread')).toBe(false)
+    expect(rule.issue('agent')).toBe(true)
+    expect(rule.issue('agentRoot')).toBe(true)
+    expect(rule.issue('archived')).toBe(true)
+  })
+
+  it('keeps resident a closed issue a member session can keep shown (sessionRetainsWorklistRow)', () => {
+    const issues = [
+      'open', 'stoppedUnread', 'stoppedRead', 'archived', 'shell', 'headless', 'idleRecent', 'idleOld', 'idleUnfinished',
+    ].map((id): Record<string, unknown> => child(id, 30, { audience: 'agent' }))
+    issues[8] = { ...issues[8], stage: 'in_progress', closedReason: null }
+    const idle = { agentState: { phase: 'idle', since: ago(40), idle: { kind: 'done' } } }
+    const rule = ruleAt(issues, [
+      session('s-open', 'open'),
+      session('s-stoppedUnread', 'stoppedUnread', { stoppedAt: ago(3) }),
+      session('s-stoppedRead', 'stoppedRead', { stoppedAt: ago(3), readAt: ago(2) }),
+      session('s-archived', 'archived', { archived: true }),
+      session('s-shell', 'shell', { agentKind: 'shell' }),
+      session('s-headless', 'headless', { headless: true }),
+      session('s-idleRecent', 'idleRecent', idle),
+      session('s-idleOld', 'idleOld', idle),
+      session('s-idleUnfinished', 'idleUnfinished', idle),
+    ])
+    // A run that never finished keeps its issue without limit.
+    expect(rule.issue('open')).toBe(false)
+    // A finished run: unread for 7 days, read for 24 h past the read.
+    expect(rule.issue('stoppedUnread')).toBe(false)
+    expect(rule.issue('stoppedRead')).toBe(true)
+    // Not a seat, or not a member: keeps nothing.
+    expect(rule.issue('archived')).toBe(true)
+    expect(rule.issue('shell')).toBe(true)
+    expect(rule.issue('headless')).toBe(true)
+    // An idle finished turn decays from its ISSUE's finish (30 days ago here)...
+    expect(rule.issue('idleOld')).toBe(true)
+    // ...and never while its issue is unfinished.
+    expect(rule.issue('idleUnfinished')).toBe(false)
+    // Its sessions follow it.
+    expect(rule.session('s-open')).toBe(false)
+    expect(rule.session('s-idleOld')).toBe(true)
+    const recent = ruleAt(
+      [child('idleRecent', 2, { audience: 'agent' })],
+      [session('s-idleRecent', 'idleRecent', idle)],
+    )
+    expect(recent.issue('idleRecent')).toBe(false)
+  })
+
+  it('only ever turns cold as the clock moves forward (deadlines pass)', () => {
+    const issues = [child('a', 6), child('b', 1, { audience: 'agent' }), child('c', 8)]
+    const sessions = [session('s', 'b', { stoppedAt: ago(1) })]
+    for (const days of [0, 1, 2, 7, 30, 365]) {
+      const earlier = ruleAt(issues, sessions, NOW + days * DAY)
+      const later = ruleAt(issues, sessions, NOW + (days + 1) * DAY)
+      for (const { id } of issues) {
+        if (earlier.issue(id)) expect(later.issue(id), `${id} at +${days}d`).toBe(true)
+      }
+    }
+    expect(ruleAt(issues, sessions, NOW + 365 * DAY).issue('a')).toBe(true)
+  })
+
+  it('names the member by its raw reference, headless excluded (keeperOf)', () => {
+    expect(keeperOf(SCHEMA, 'session', session('s', 'i1'))).toMatchObject({ to: 'issue', id: 'i1' })
+    expect(keeperOf(SCHEMA, 'session', session('s', 'i1', { headless: true }))).toBeNull()
+    expect(keeperOf(SCHEMA, 'session', { sessionId: 's', cwd: '/w' })).toBeNull()
+    expect(keeperOf(SCHEMA, 'issue', child('i1', 1))).toBeNull()
   })
 })

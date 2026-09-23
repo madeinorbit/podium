@@ -18,7 +18,11 @@
  *
  * WHAT IS NOT. Visibility, ordering, grouping, roll-ups and the row shape —
  * those are the row view contract (L1b) and the worklist phase. A rule that
- * reads more than one entity's fields is not a schema rule.
+ * reads more than one entity's fields is not a schema rule, with ONE declared
+ * exception: the issue's residency (`cold: unlessShown`, POD-4665) reads its
+ * member sessions, because a row the list draws must be resident and the
+ * sessions are what keep a closed issue drawn. It is an upper bound on
+ * visibility, not visibility.
  *
  * SOURCES. Every field cites a zod schema in `@podium/model`, which is the
  * authoritative definition site [ADR 4], plus the replica collection the row
@@ -253,6 +257,58 @@ export type ColdSpec =
       readonly why: string
     }
   | { readonly kind: 'via'; readonly relation: string; readonly why: string }
+  | UnlessShownColdSpec
+
+/**
+ * POD-4665 — cold when `predicate` holds AND nothing the visible rule reads
+ * can show the row: the row's own standing ({@link UnlessShownColdSpec.shownUntil})
+ * and the members of one declared `hasMany` ({@link KeptBySpec}) each say how
+ * long they can show it, as a deadline on the slice clock (`coarseNow`,
+ * inclusive: a deadline `t` shows the row while `coarseNow <= t`). The rule is
+ * a SUPERSET of visibility, never a restatement of it: every deadline is the
+ * latest instant its input could keep the row visible, so a row R-VIS shows is
+ * never cold by rule, and a hidden row may be resident. Deadlines only pass,
+ * so a row cold by rule at one clock stays cold by rule at every later one.
+ */
+export interface UnlessShownColdSpec {
+  readonly kind: 'unlessShown'
+  /** Human-readable form of the whole rule, for the document and the panel. */
+  readonly when: string
+  /** Own fields `predicate`, `shownUntil` and `finishOf` read. */
+  readonly dependsOn: readonly string[]
+  /** Whether the row may be cold at all. */
+  readonly predicate: (row: Readonly<Record<string, unknown>>) => boolean
+  /** The last instant the row can show on its own; `-Infinity` never, `Infinity` without limit. */
+  readonly shownUntil: (row: Readonly<Record<string, unknown>>) => number
+  /**
+   * The instant a member's {@link MemberKeep} function decays from, or null
+   * when it does not decay at all (read by the member side only).
+   */
+  readonly finishOf: (row: Readonly<Record<string, unknown>>) => number | null
+  readonly keptBy: KeptBySpec
+  readonly why: string
+}
+
+/**
+ * The member side of an `unlessShown` rule: the rows of one `hasMany` (its
+ * inverse `belongsTo`, by the RAW foreign key with the relation's `where`
+ * applied, before any collapse) that can keep their row shown.
+ */
+export interface KeptBySpec {
+  /** A `hasMany` on the cold entity, the inverse of a `belongsTo`. */
+  readonly relation: string
+  /** Member fields `keep` reads. */
+  readonly dependsOn: readonly string[]
+  readonly keep: (member: Readonly<Record<string, unknown>>) => MemberKeep
+  readonly why: string
+}
+
+/**
+ * How long one member can keep its row shown: a deadline, or a function of
+ * the row's {@link UnlessShownColdSpec.finishOf} (an idle session whose turn
+ * finished decays from its issue's finish, `visibility.ts:51-58`).
+ */
+export type MemberKeep = number | ((finish: number) => number)
 
 /**
  * A whole-kind membership rule: rows of one entity that share a group key
@@ -345,6 +401,105 @@ const SESSION_STATUS_RANK: Readonly<Record<string, number>> = {
   starting: 2,
   reconnecting: 2,
   hibernated: 1,
+}
+
+// ---------------------------------------------------------------------------
+// The issue's residency bound (POD-4665)
+// ---------------------------------------------------------------------------
+//
+// Upper bounds on R-VIS (slice spec §3; executable definition: the legacy
+// `buildUnifiedRows`, `rows.ts:51-118`, with `sessionRetainsWorklistRow` and
+// `issueVisibleInSidebar` from `slices/worklist/visibility.ts`). Each is the
+// latest instant its input could keep the row visible. What is left out only
+// makes a row resident that R-VIS hides: the rescue (a finished row is never
+// rescued, `rows.ts:147`), nesting and placement (they only hide), the
+// unread rollup (both decay windows are allowed), resume-twin collapse (every
+// raw member counts), and R3 (issueless sessions owned by the issue's
+// worktree: 0 closed rows at 1x or 4x are kept by one alone, POD-4665).
+
+/** `SIDEBAR_FINISHED_GRACE_MS` (`visibility.ts:18`). */
+const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
+/** `SIDEBAR_FINISHED_UNREAD_WINDOW_MS` (`visibility.ts:22`). */
+const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
+function epochMs(value: unknown): number {
+  return typeof value === 'string' ? Date.parse(value) || 0 : 0
+}
+
+/** `visibility.ts:25-41` and `:51-69`: unread decays after 7 days, read after 24 h past the later of finish and read. */
+function decayDeadline(finishMs: number, unread: boolean, readMs: number | null): number {
+  if (unread || readMs === null) return finishMs + FINISHED_UNREAD_WINDOW_MS
+  return Math.max(finishMs, readMs) + FINISHED_GRACE_MS
+}
+
+/** `rows.ts:62-69`: archived, deleted, `proposed`, or system-owned (`shipping`). */
+function issueExcluded(row: Readonly<Record<string, unknown>>): boolean {
+  return (
+    row['archived'] === true ||
+    row['deletedAt'] != null ||
+    row['stage'] === 'proposed' ||
+    row['stage'] === 'shipping'
+  )
+}
+
+/** `rows.ts:82`: `done` or a close reason. */
+function issueFinished(row: Readonly<Record<string, unknown>>): boolean {
+  return row['stage'] === 'done' || row['closedReason'] != null
+}
+
+/**
+ * How long the issue can show without a session (`rows.ts:83-106`): an
+ * active human issue and a closed top-level human issue without limit (the
+ * closed fold does not decay, `visibility.ts:30`); a finished human child
+ * inside `issueVisibleInSidebar`'s window, whichever of the unread and read
+ * windows is later (the unread rollup reads sessions); anything else never.
+ */
+function issueShownUntil(row: Readonly<Record<string, unknown>>): number {
+  if (issueExcluded(row)) return Number.NEGATIVE_INFINITY
+  const human = row['audience'] === 'human'
+  const stage = row['stage']
+  if (human && (stage === 'planning' || stage === 'in_progress' || stage === 'review')) {
+    return Number.POSITIVE_INFINITY
+  }
+  if (!issueFinished(row)) return Number.NEGATIVE_INFINITY
+  if (!row['parentId']) {
+    return human && row['closedReason'] != null
+      ? Number.POSITIVE_INFINITY
+      : Number.NEGATIVE_INFINITY
+  }
+  if (!human) return Number.NEGATIVE_INFINITY
+  const finishMs = epochMs(row['closedAt'] ?? row['updatedAt'])
+  const readMs = row['readAt'] ? epochMs(row['readAt']) : null
+  return Math.max(decayDeadline(finishMs, true, null), decayDeadline(finishMs, false, readMs))
+}
+
+/** `issueFinishedAt` (`issues.ts:310`) when the issue is finished; an idle finished turn decays from it. */
+function issueFinishOf(row: Readonly<Record<string, unknown>>): number | null {
+  return issueFinished(row) ? epochMs(row['closedAt'] ?? row['updatedAt']) : null
+}
+
+/**
+ * How long a session can keep its issue shown (`sessionRetainsWorklistRow`,
+ * `visibility.ts:44-70`): a shell or an archived session never
+ * (`isRowSeat`); a run that never finished without limit; a finished run
+ * inside its decay window; an idle finished turn inside the window counted
+ * from its issue's finish.
+ */
+function sessionKeep(row: Readonly<Record<string, unknown>>): MemberKeep {
+  if (row['archived'] === true || row['agentKind'] === 'shell') return Number.NEGATIVE_INFINITY
+  const state = row['agentState'] as
+    | { phase?: unknown; since?: unknown; idle?: { kind?: unknown } }
+    | undefined
+  const phase = state?.phase
+  const unread = row['unread'] === true
+  const readMs = typeof row['readAt'] === 'string' && row['readAt'] ? epochMs(row['readAt']) : null
+  const finishedRaw = row['stoppedAt'] ?? (phase === 'ended' ? state?.since : undefined)
+  if (finishedRaw) return decayDeadline(epochMs(finishedRaw), unread, readMs)
+  const idle = state?.idle?.kind
+  if (phase === 'idle' && (idle === 'done' || idle === 'open_todos')) {
+    return (finish) => decayDeadline(finish, unread, readMs)
+  }
+  return Number.POSITIVE_INFINITY
 }
 
 // ---------------------------------------------------------------------------
@@ -482,11 +637,29 @@ export const SCHEMA: ModelSchema = defineSchema({
       }),
     },
     cold: {
-      kind: 'own',
-      when: 'closedAt != null',
-      dependsOn: ['closedAt'],
+      kind: 'unlessShown',
+      when: 'closedAt != null, and neither the issue itself nor any member session can keep it in the list at the current clock',
+      dependsOn: [
+        'closedAt',
+        'archived',
+        'deletedAt',
+        'stage',
+        'closedReason',
+        'audience',
+        'parentId',
+        'readAt',
+        'updatedAt',
+      ],
       predicate: (row) => row['closedAt'] != null,
-      why: 'Audit §7: every issue is instantiated at bootstrap, including ~2,600 closed ones. Closed issues stay on disk until touched.',
+      shownUntil: issueShownUntil,
+      finishOf: issueFinishOf,
+      keptBy: {
+        relation: 'sessions',
+        dependsOn: ['archived', 'agentKind', 'stoppedAt', 'agentState', 'unread', 'readAt'],
+        keep: sessionKeep,
+        why: 'A retained session keeps a closed issue in the list (R-VIS 2); 294 of the 376 closed rows visible at 1x are there for one.',
+      },
+      why: 'Audit §7: every issue is instantiated at bootstrap, including ~2,600 closed ones. Closed issues stay on disk until touched, EXCEPT one the list can draw (POD-4665): on the live-shaped corpus 376 of the 732 visible rows at 1x are closed, 45 of them in the first 96-row window, and a drawn row that is cold paints as a placeholder and loads a moment later.',
     },
   },
 
@@ -735,25 +908,156 @@ export function viaTargetOf(
 }
 
 /**
+ * What {@link coldByRule} asks of its caller. A pool answers from what it
+ * holds; a rebuild, a re-partition and the gate's check answer from whole
+ * row tables ({@link tableColdContext}).
+ */
+export interface ColdContext {
+  /** The slice clock (`coarseNow`, epoch ms) `unlessShown` deadlines are read against. */
+  readonly now: number
+  /** Whether `to:id` is known and cold by rule (a `via` row's target). */
+  coldTarget(to: EntityName, id: string): boolean
+  /**
+   * The keeps of the members of `entity:id`'s `keptBy` relation (an
+   * `unlessShown` entity): every member row naming it by the raw foreign key
+   * with the relation's `where` passed ({@link keeperOf}).
+   */
+  keeps(entity: EntityName, id: string): Iterable<MemberKeep>
+}
+
+/**
  * Whether `row` of `entity` may stay out of memory, by `schema[entity].cold`:
  * `never` is always resident, `own` is the entity's predicate over its row,
  * `via` is cold when the row it inherits from ({@link viaTargetOf}) is known
- * and cold by rule, which `coldTarget` answers (a pool asks what it holds;
- * a rebuild asks the feed). POD-4580 (Ha3) shares it so a pool, its rebuild
- * and the gate's partition check apply one rule; both arms import it (the
- * MobX arm since POD-4568 G2).
+ * and cold by rule, which `ctx.coldTarget` answers; `unlessShown` is cold when
+ * its predicate holds and every deadline, its own and each member's, has
+ * passed at `ctx.now` (POD-4665). POD-4580 (Ha3) shares it so a pool, its
+ * rebuild and the gate's partition check apply one rule; both arms import it
+ * (the MobX arm since POD-4568 G2).
  */
 export function coldByRule(
   schema: ModelSchema,
   entity: EntityName,
   row: object,
-  coldTarget: (to: EntityName, id: string) => boolean,
+  ctx: ColdContext,
 ): boolean {
   const spec = schema[entity].cold
+  const fields = row as Readonly<Record<string, unknown>>
   if (spec.kind === 'never') return false
-  if (spec.kind === 'own') return spec.predicate(row as Readonly<Record<string, unknown>>)
+  if (spec.kind === 'own') return spec.predicate(fields)
+  if (spec.kind === 'unlessShown') {
+    if (!spec.predicate(fields) || ctx.now <= spec.shownUntil(fields)) return false
+    const id = fields[schema[entity].key]
+    if (typeof id !== 'string') return true
+    const finish = spec.finishOf(fields)
+    for (const keep of ctx.keeps(entity, id)) {
+      if (ctx.now <= keepDeadline(keep, finish)) return false
+    }
+    return true
+  }
   const target = viaTargetOf(schema, entity, row)
-  return target !== null && coldTarget(target.to, target.id)
+  return target !== null && ctx.coldTarget(target.to, target.id)
+}
+
+/** A member's deadline given its row's `finishOf` (null: an idle finished turn never decays). */
+export function keepDeadline(keep: MemberKeep, finish: number | null): number {
+  if (typeof keep === 'number') return keep
+  return finish === null ? Number.POSITIVE_INFINITY : keep(finish)
+}
+
+/** The `belongsTo` a `keptBy` relation is the inverse of, on the member entity. */
+function keptByLink(
+  schema: ModelSchema,
+  entity: EntityName,
+): { readonly member: EntityName; readonly link: BelongsToSpec } | null {
+  const spec = schema[entity].cold
+  if (spec.kind !== 'unlessShown') return null
+  const relation = schema[entity].relations[spec.keptBy.relation]
+  if (relation?.kind !== 'hasMany') {
+    throw new Error(`[schema] ${entity}.cold.keptBy must name a hasMany (got ${relation?.kind})`)
+  }
+  const link = schema[relation.to].relations[relation.inverse]
+  if (link?.kind !== 'belongsTo') {
+    throw new Error(`[schema] ${entity}.cold.keptBy's inverse must be a belongsTo (got ${link?.kind})`)
+  }
+  return { member: relation.to, link }
+}
+
+/** The entities whose rows can keep an `unlessShown` row of another entity resident. */
+export function keeperEntities(schema: ModelSchema): ReadonlySet<EntityName> {
+  const out = new Set<EntityName>()
+  for (const entity of Object.keys(schema) as EntityName[]) {
+    const found = keptByLink(schema, entity)
+    if (found !== null) out.add(found.member)
+  }
+  return out
+}
+
+/**
+ * The row `row` of `entity` can keep resident, and how long ({@link KeptBySpec}):
+ * by the RAW foreign key of the `keptBy` relation's inverse, with that
+ * relation's `where` applied (a headless session keeps nothing), before any
+ * collapse; null when it names nothing.
+ */
+export function keeperOf(
+  schema: ModelSchema,
+  entity: EntityName,
+  row: object,
+): { readonly to: EntityName; readonly id: string; readonly keep: MemberKeep } | null {
+  const fields = row as Readonly<Record<string, unknown>>
+  for (const owner of Object.keys(schema) as EntityName[]) {
+    const found = keptByLink(schema, owner)
+    if (found === null || found.member !== entity) continue
+    const spec = schema[owner].cold as UnlessShownColdSpec
+    if (found.link.where !== undefined && !found.link.where.test(fields)) return null
+    const key = fields[found.link.foreignKey]
+    if (typeof key !== 'string' || key.length === 0) return null
+    return { to: owner, id: key, keep: spec.keptBy.keep(fields) }
+  }
+  return null
+}
+
+/** `schema[entity].cold.finishOf(row)` for an `unlessShown` entity, else null. */
+export function coldFinishOf(schema: ModelSchema, entity: EntityName, row: object): number | null {
+  const spec = schema[entity].cold
+  return spec.kind === 'unlessShown'
+    ? spec.finishOf(row as Readonly<Record<string, unknown>>)
+    : null
+}
+
+/**
+ * The rule over whole row tables at `now`: `coldTarget` recurses by rule over
+ * `tables`, `keeps` reads an index of every member row built once here. What
+ * a rebuild, a re-partition's staged slice and the gate's check pass.
+ */
+export function tableColdContext(
+  schema: ModelSchema,
+  tables: (entity: EntityName) => ReadonlyMap<string, unknown> | undefined,
+  now: number,
+): ColdContext {
+  const index = new Map<string, MemberKeep[]>()
+  for (const member of keeperEntities(schema)) {
+    for (const row of tables(member)?.values() ?? []) {
+      const keeper = keeperOf(schema, member, row as object)
+      if (keeper === null) continue
+      const key = `${keeper.to}:${keeper.id}`
+      let keeps = index.get(key)
+      if (keeps === undefined) {
+        keeps = []
+        index.set(key, keeps)
+      }
+      keeps.push(keeper.keep)
+    }
+  }
+  const ctx: ColdContext = {
+    now,
+    coldTarget: (to, id) => {
+      const row = tables(to)?.get(id)
+      return row !== undefined && coldByRule(schema, to, row as object, ctx)
+    },
+    keeps: (entity, id) => index.get(`${entity}:${id}`) ?? [],
+  }
+  return ctx
 }
 
 /** Every relation in the schema, with the entity and name it is declared under. */
@@ -890,10 +1194,23 @@ export function validateStructure(schema: ModelSchema = SCHEMA): string[] {
       }
     }
 
-    if (entity.cold.kind === 'own') {
+    if (entity.cold.kind === 'own' || entity.cold.kind === 'unlessShown') {
       for (const field of entity.cold.dependsOn) {
         if (!(field in entity.fields)) {
           problems.push(`${from}.cold.dependsOn names undeclared field "${field}"`)
+        }
+      }
+    }
+    if (entity.cold.kind === 'unlessShown') {
+      const relation = entity.relations[entity.cold.keptBy.relation]
+      const back = relation === undefined ? undefined : schema[relation.to].relations[relation.inverse]
+      if (relation?.kind !== 'hasMany' || back?.kind !== 'belongsTo') {
+        problems.push(`${from}.cold.keptBy must name a hasMany whose inverse is a belongsTo`)
+      } else {
+        for (const field of entity.cold.keptBy.dependsOn) {
+          if (!(field in schema[relation.to].fields)) {
+            problems.push(`${from}.cold.keptBy.dependsOn names undeclared ${relation.to} field "${field}"`)
+          }
         }
       }
     }

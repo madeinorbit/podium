@@ -230,6 +230,8 @@ export class MobxPool {
             schema: schema ?? SCHEMA,
             hot: fenced,
             load: lazy.load,
+            // Read at ingest, after the constructor has built the clock.
+            now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
           })

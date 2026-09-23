@@ -4,8 +4,10 @@
  *
  * THE RULE, FROM THE SCHEMA. `schema[entity].cold` decides, per row, whether
  * it may stay out of memory (`coldByRule` in `shared/src/schema.ts`, one
- * rule for both arms, the rebuild and the gate): `own` is the entity's predicate over its row (an issue with a
- * `closedAt`); `via` inherits it through a declared `belongsTo`: the row is
+ * rule for both arms, the rebuild and the gate): `own` is the entity's
+ * predicate over its row; `unlessShown` adds that nothing can keep the row in
+ * the list at the clock (an issue with a `closedAt` and no session or own
+ * standing that can show it, POD-4665); `via` inherits it through a declared `belongsTo`: the row is
  * cold when the foreign key names a known row that is itself cold by rule (a
  * session of a closed issue). The foreign key is read raw: residency follows
  * the reference, not the relation's membership filter, so a headless session
@@ -31,6 +33,14 @@
  *    inherited coldness from it (its sessions) are read by id and installed
  *    in the same action (`warmDependents`). Removing a row warms its
  *    dependents too: with the target gone, nothing makes them cold.
+ * 3. A member that can keep it shown (POD-4665): the issue's rule is
+ *    `unlessShown`, so a session whose deadline (`keptBy.keep`) has not passed
+ *    keeps its closed issue resident. Every member row's deadline is indexed
+ *    here by its raw foreign key (plain maps, ids and numbers, no row); a
+ *    member ingest that can keep a COLD row shown reads that row by id and
+ *    installs it with its dependents (`member`). A cold row's `finishOf`
+ *    is kept beside its id, so deciding it reads nothing. Deadlines only
+ *    pass, so the clock never makes a cold row hot.
  * An update to a cold row that leaves it cold relinks it and is NOT stored:
  * the kernel holds the value, and a later load reads the current one.
  *
@@ -48,8 +58,14 @@
 
 import { createAtom, type IAtom } from 'mobx'
 import {
+  type ColdContext,
   coldByRule,
+  coldFinishOf,
   type EntityName,
+  keepDeadline,
+  keeperEntities,
+  keeperOf,
+  type MemberKeep,
   type ModelSchema,
   viaTargetOf,
 } from '../../../shared/src/schema'
@@ -77,6 +93,8 @@ export interface ResidencyOptions {
   /** The pool's hot tables, read side (fenced: reads counted). */
   readonly hot: { readonly [E in EntityName]: { get(id: string): unknown } }
   readonly load: LoadRow
+  /** The slice clock (`coarseNow`): what an `unlessShown` rule's deadlines are read against. */
+  readonly now: () => number
   readonly windowMs?: number
   readonly schedule?: Schedule
 }
@@ -91,7 +109,7 @@ export interface ResidencyCounters {
   batches: number
   /** Rows installed by a load on access. */
   hydrated: number
-  /** Rows installed because the row they inherit from stopped being cold. */
+  /** Rows installed because the row they inherit from stopped being cold, or a member can keep them shown. */
   warmed: number
 }
 
@@ -112,7 +130,18 @@ export class Residency {
   private readonly schema: ModelSchema
   private readonly hot: ResidencyOptions['hot']
   private readonly load: LoadRow
+  private readonly clock: () => number
   private readonly schedule: Schedule
+  /** Entities whose rows can keep an `unlessShown` row resident (the schema's `keptBy`). */
+  private readonly keeperKinds: ReadonlySet<EntityName>
+  /** `owner:id` → member id → how long it keeps the owner shown, for EVERY known member row. */
+  private readonly keeps = new Map<string, Map<string, MemberKeep>>()
+  /** `member:id` → the `owner:id` it is indexed under. */
+  private readonly keeperKey = new Map<string, string>()
+  /** A cold `unlessShown` row's `finishOf`, kept with its id (its members decay from it). */
+  private readonly finish = new Map<string, number | null>()
+  /** The highest clock seen (`now`). */
+  private high = Number.NEGATIVE_INFINITY
   /** Per cold-capable entity: cold id → the id it inherits from (`via`), else null. */
   private readonly cold = new Map<EntityName, Map<string, string | null>>()
   /** Per `via` entity: inherited-from id → its cold rows. */
@@ -130,6 +159,8 @@ export class Residency {
     this.schema = options.schema
     this.hot = options.hot
     this.load = options.load
+    this.clock = options.now
+    this.keeperKinds = keeperEntities(this.schema)
     this.windowMs = options.windowMs ?? LOAD_WINDOW_MS
     this.schedule = options.schedule ?? realSchedule
     const prefixTargets = new Set<EntityName>()
@@ -189,9 +220,29 @@ export class Residency {
     return this.cold.get(entity)?.get(id)
   }
 
+  /**
+   * The clock the rule is read against: the highest `coarseNow` seen. The
+   * locals channel does not promise monotony (`clock.ts`), and deadlines
+   * only pass forward, so a rewind never warms a cold row; a row a rewind
+   * shows again loads on first access. The gate's partition check reads this.
+   */
+  now(): number {
+    this.high = Math.max(this.high, this.clock())
+    return this.high
+  }
+
   /** `coldByRule` against the pool's own knowledge. */
   coldRule(entity: EntityName, row: object): boolean {
-    return coldByRule(this.schema, entity, row, (to, id) => this.coldTarget(to, id))
+    return coldByRule(this.schema, entity, row, this.context())
+  }
+
+  /** The pool's answers to the rule: what it holds, its member index, its clock. */
+  private context(): ColdContext {
+    return {
+      now: this.now(),
+      coldTarget: (to, id) => this.coldTarget(to, id),
+      keeps: (entity, id) => this.keeps.get(`${entity}:${id}`)?.values() ?? [],
+    }
   }
 
   /** Whether the row `to:id` is cold by rule: registered cold, or hot and cold by rule. */
@@ -277,6 +328,7 @@ export class Residency {
     value: StoredRow | undefined,
     out: IngestOut,
   ): void {
+    if (this.keeperKinds.has(entity)) this.member(target, entity, id, value, out)
     const hot = target.read[entity].get(id) !== undefined
     if (value === undefined) {
       if (hot) drop(target, entity, id, out)
@@ -313,11 +365,15 @@ export class Residency {
     out: IngestOut,
   ): void {
     const hot = target.read[entity].get(id) !== undefined
-    const coldTarget = (to: EntityName, key: string): boolean => {
-      const row = staged(to, key)
-      return row !== undefined && coldByRule(this.schema, to, row, coldTarget)
+    const ctx: ColdContext = {
+      now: this.now(),
+      coldTarget: (to, key) => {
+        const row = staged(to, key)
+        return row !== undefined && coldByRule(this.schema, to, row, ctx)
+      },
+      keeps: (owner, key) => this.keeps.get(`${owner}:${key}`)?.values() ?? [],
     }
-    if (!hot && coldByRule(this.schema, entity, value, coldTarget)) {
+    if (!hot && coldByRule(this.schema, entity, value, ctx)) {
       this.keepCold(target, entity, id, value, out)
       return
     }
@@ -357,6 +413,72 @@ export class Residency {
     this.queue.clear()
     for (const ids of this.cold.values()) ids.clear()
     for (const byTarget of this.dependents.values()) byTarget.clear()
+    this.keeps.clear()
+    this.keeperKey.clear()
+    this.finish.clear()
+  }
+
+  /**
+   * A `replace` (`reseed`), before any row is placed: the member index over
+   * the NEW slice, so each placed row's rule reads the members it will have.
+   */
+  reindex(staged: (entity: EntityName) => ReadonlyMap<string, unknown>): void {
+    this.keeps.clear()
+    this.keeperKey.clear()
+    for (const entity of this.keeperKinds) {
+      for (const [id, row] of staged(entity)) this.indexMember(entity, id, row as object)
+    }
+  }
+
+  /**
+   * A member row's ingest (POD-4665): re-index what it keeps, and when it can
+   * keep a COLD row shown at the clock, install that row now, with the rows
+   * that inherit from it (this one among them), before the member itself is
+   * routed. Nothing is read unless it warms: the member's deadline and the
+   * cold row's `finishOf` are both held.
+   */
+  private member(
+    target: IngestTarget,
+    entity: EntityName,
+    id: string,
+    value: StoredRow | undefined,
+    out: IngestOut,
+  ): void {
+    this.unindexMember(entity, id)
+    if (value === undefined) return
+    const keeper = this.indexMember(entity, id, value)
+    if (keeper === null || !this.isCold(keeper.to, keeper.id)) return
+    const finish = this.finish.get(`${keeper.to}:${keeper.id}`) ?? null
+    if (this.now() > keepDeadline(keeper.keep, finish)) return
+    const row = this.load(keeper.to as LoadableEntity, keeper.id) as StoredRow | undefined
+    if (row === undefined) return // its removal is on the way
+    this.unregister(keeper.to, keeper.id)
+    put(target, keeper.to, keeper.id, row, out)
+    this.counters.warmed += 1
+    this.warmDependents(target, keeper.to, keeper.id, out)
+  }
+
+  private indexMember(entity: EntityName, id: string, row: object): ReturnType<typeof keeperOf> {
+    const keeper = keeperOf(this.schema, entity, row)
+    if (keeper === null) return null
+    const key = `${keeper.to}:${keeper.id}`
+    let members = this.keeps.get(key)
+    if (members === undefined) {
+      members = new Map()
+      this.keeps.set(key, members)
+    }
+    members.set(id, keeper.keep)
+    this.keeperKey.set(`${entity}:${id}`, key)
+    return keeper
+  }
+
+  private unindexMember(entity: EntityName, id: string): void {
+    const key = this.keeperKey.get(`${entity}:${id}`)
+    if (key === undefined) return
+    this.keeperKey.delete(`${entity}:${id}`)
+    const members = this.keeps.get(key)
+    members?.delete(id)
+    if (members?.size === 0) this.keeps.delete(key)
   }
 
   /** Relink a cold row with its new value, keeping only its id. */
@@ -399,6 +521,9 @@ export class Residency {
     const before = ids.get(id) ?? null
     const after = viaTargetOf(this.schema, entity, row)?.id ?? null
     ids.set(id, after)
+    if (this.schema[entity].cold.kind === 'unlessShown') {
+      this.finish.set(`${entity}:${id}`, coldFinishOf(this.schema, entity, row))
+    }
     const byTarget = this.dependents.get(entity)
     if (byTarget !== undefined && before !== after) {
       if (before !== null) unindex(byTarget, before, id)
@@ -414,6 +539,7 @@ export class Residency {
     if (ids === undefined || !ids.has(id)) return
     const before = ids.get(id) ?? null
     ids.delete(id)
+    this.finish.delete(`${entity}:${id}`)
     const byTarget = this.dependents.get(entity)
     if (byTarget !== undefined && before !== null) unindex(byTarget, before, id)
     this.queue.get(entity as LoadableEntity)?.delete(id)

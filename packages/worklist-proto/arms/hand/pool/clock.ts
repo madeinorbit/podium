@@ -39,6 +39,11 @@ export class DeadlineClock {
     })
   }
 
+  /** The current `coarseNow`, untracked (residency reads it inside ingest: `residency.ts` `now`). */
+  get current(): number {
+    return this.now
+  }
+
   /** Deadlines waited on now (tests; disposal). */
   get waiting(): number {
     return this.deadlines.length

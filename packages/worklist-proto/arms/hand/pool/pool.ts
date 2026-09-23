@@ -324,6 +324,7 @@ export class HandPool {
             schema,
             hot: fenced,
             load: lazy.load,
+            now: () => this.clock.current,
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
             ...(lazy.schedule === undefined ? {} : { schedule: lazy.schedule }),
             asked: (entity, id) => graph.track(coldness, `${entity}:${id}`),
