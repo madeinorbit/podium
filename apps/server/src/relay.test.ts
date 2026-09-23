@@ -5763,6 +5763,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     const dbPath = join(dir, 'podium.db')
     const store = await openTestStore(dbPath)
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg)
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     // Exactly what the old build persisted: text and updated_at, no rev, no
     // origin, no history.
