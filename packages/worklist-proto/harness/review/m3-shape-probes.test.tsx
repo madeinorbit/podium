@@ -24,8 +24,13 @@ import { tracked } from '../../arms/mobx/pool/pool'
 import { allRelations, type EntityName } from '../../shared/src/schema'
 import { DISABLED_READ_FENCE } from '../../shared/src/instrument/reads'
 import { settableLocals } from '../../shared/src/locals-source'
+import type { LocalsSource, RowSource } from '../../shared/src/arm'
+import { startEngineOnCorpus } from '../../shared/src/scenarios'
 import type { RowRecord } from '../../shared/src/stats'
 import { createReplaySource } from '../src/count-harness'
+import { openFenceFeeds } from '../src/fence-scenarios'
+import { readSnapshot } from '../src/fixture/export-snapshot'
+import { corpusFromLive } from '../src/fixture/live-snapshot'
 import { buildCorpus } from '../src/fixture/index'
 
 const trap = installMobxWarnTrap()
@@ -103,66 +108,116 @@ function feedOf(scale: 1 | 4) {
   return { corpus, replay: createReplaySource(rows) }
 }
 
+/**
+ * Boot a lazy pool over `source`, print the largest bucket per collection,
+ * then apply one new open issue and one new session (copies of existing
+ * rows, so they land in populated buckets) and print the bucket elements
+ * each insert copied and sorted, beside the `indexUpdates` slots it counted.
+ */
+function measure(label: string, source: RowSource, locals: LocalsSource): void {
+  const handle = mobxPoolArm.create(source, locals, DISABLED_READ_FENCE, {
+    schedule: () => () => {},
+  })
+  const pool = handle.pool
+  const known: Record<EntityName, string[]> = {
+    issue: source.snapshot('issue').map((r) => r.id),
+    session: source.snapshot('session').map((r) => r.id),
+    worktree: source.snapshot('worktree').map((r) => r.id),
+    repo: tracked(() => [...pool.tables.repo.keys()]),
+  }
+  const largest: Record<string, { key: string; size: number }> = {}
+  for (const { from, name, relation } of allRelations()) {
+    if (relation.kind !== 'hasMany' && !(relation.kind === 'edge' && relation.direction === 'in'))
+      continue
+    let best = { key: '', size: 0 }
+    for (const id of known[from]) {
+      const size = tracked(() => pool.relations.size(from, id, name))
+      if (size > best.size) best = { key: id, size }
+    }
+    largest[`${from}.${name}`] = best
+  }
+  const sizeOf = (slot: string): number => {
+    const at = slot.indexOf(':')
+    const [from, name] = slot.slice(0, at).split('.') as [EntityName, string]
+    return tracked(() => pool.relations.size(from, slot.slice(at + 1), name))
+  }
+  const copied = (before: number): { slots: string[]; counted: number; elements: number } => {
+    const slots = pool.graph.lastWrites.filter((s) => !s.includes('→'))
+    return {
+      slots,
+      counted: pool.stats.indexUpdates - before,
+      elements: slots.reduce((n, s) => n + sizeOf(s), 0),
+    }
+  }
+  const openIssue = source
+    .snapshot('issue')
+    .map((r) => r.value as Record<string, unknown> | undefined)
+    .filter((v): v is Record<string, unknown> => v !== undefined && v['closedAt'] == null)
+    .filter((v) => typeof v['repoId'] === 'string')
+    .sort((a, b) => {
+      const size = (v: Record<string, unknown>) =>
+        tracked(() => pool.relations.size('repo', v['repoId'] as string, 'issues'))
+      return size(b) - size(a)
+    })[0]
+  if (openIssue === undefined) throw new Error(`${label}: no open issue with a repo`)
+  let before = pool.stats.indexUpdates
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'issue',
+        id: 'iss_m3_probe',
+        value: { ...openIssue, id: 'iss_m3_probe', seq: 999_999, parentId: null, deps: [] },
+      },
+    ],
+  })
+  const issueInsert = copied(before)
+  const session = source
+    .snapshot('session')
+    .map((r) => r.value as Record<string, unknown> | undefined)
+    .find((v) => v !== undefined && v['headless'] !== true)
+  if (session === undefined) throw new Error(`${label}: no session`)
+  before = pool.stats.indexUpdates
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'session',
+        id: 'ses_m3_probe',
+        value: { ...session, sessionId: 'ses_m3_probe', issueId: null, resume: null },
+      },
+    ],
+  })
+  const sessionInsert = copied(before)
+  report(
+    `M3 bucket probe ${label}: issues=${known.issue.length} sessions=${known.session.length} ` +
+      `lanes=${known.worktree.length} repos=${known.repo.length}\n` +
+      `  largest buckets: ${JSON.stringify(largest)}\n` +
+      `  new issue:   indexUpdates +${issueInsert.counted} (slots ${JSON.stringify(issueInsert.slots)}) → ${issueInsert.elements} bucket elements copied+sorted\n` +
+      `  new session: indexUpdates +${sessionInsert.counted} (slots ${JSON.stringify(sessionInsert.slots)}) → ${sessionInsert.elements} bucket elements copied+sorted`,
+  )
+  handle.dispose()
+}
+
 describe('M3 probe: bucket-sized work per membership change', () => {
   for (const scale of [1, 4] as const) {
-    it(`largest bucket per collection, and one insert's copied elements, at ${scale}x`, () => {
+    it(`old fixture ${scale}x`, () => {
       const feed = feedOf(scale)
       const locals = settableLocals({ selectedIssueId: null, coarseNow: feed.corpus.fixedNow })
-      const handle = mobxPoolArm.create(feed.replay.source, locals.source, DISABLED_READ_FENCE, {
-        schedule: () => () => {},
-      })
-      const pool = handle.pool
-      const known: Record<EntityName, string[]> = {
-        issue: feed.replay.source.snapshot('issue').map((r) => r.id),
-        session: feed.replay.source.snapshot('session').map((r) => r.id),
-        worktree: feed.replay.source.snapshot('worktree').map((r) => r.id),
-        repo: [],
-      }
-      known.repo = tracked(() => [...pool.tables.repo.keys()])
-      const largest: Record<string, { key: string; size: number }> = {}
-      for (const { from, name, relation } of allRelations()) {
-        if (relation.kind !== 'hasMany' && !(relation.kind === 'edge' && relation.direction === 'in'))
-          continue
-        let best = { key: '', size: 0 }
-        for (const id of known[from]) {
-          const size = tracked(() => pool.relations.size(from, id, name))
-          if (size > best.size) best = { key: id, size }
-        }
-        largest[`${from}.${name}`] = best
-      }
-      const sizeOf = (slot: string): number => {
-        // `collection:key` slots written by the last action.
-        const [collection, key] = [slot.slice(0, slot.indexOf(':')), slot.slice(slot.indexOf(':') + 1)]
-        const [from, name] = collection.split('.') as [EntityName, string]
-        return tracked(() => pool.relations.size(from, key, name))
-      }
-      const copied = (): { slots: string[]; elements: number } => {
-        const slots = pool.graph.lastWrites.filter((s) => !s.includes('→'))
-        return { slots, elements: slots.reduce((n, s) => n + sizeOf(s), 0) }
-      }
-      // One new open issue in the biggest repo, and one new session under the biggest lane.
-      const template = feed.corpus.sliceIssues.find((i) => i.closedAt == null && i.repoId != null)
-      if (template === undefined) throw new Error('no open issue with a repo')
-      const newIssue = { ...template, id: 'iss_m3_probe', seq: 999_999, parentId: null, deps: [] }
-      pool.graph.begin()
-      feed.replay.push({ type: 'update', rows: [{ kind: 'issue', id: newIssue.id, value: newIssue }] })
-      const issueInsert = copied()
-      const session = feed.corpus.sliceSessions.find((s) => s.headless !== true)
-      if (session === undefined) throw new Error('no session')
-      const newSession = { ...session, sessionId: 'ses_m3_probe', issueId: null, resume: null }
-      feed.replay.push({
-        type: 'update',
-        rows: [{ kind: 'session', id: newSession.sessionId, value: newSession }],
-      })
-      const sessionInsert = copied()
-      report(
-        `M3 bucket probe ${scale}x: issues=${known.issue.length} sessions=${known.session.length} ` +
-          `lanes=${known.worktree.length} repos=${known.repo.length}\n` +
-          `  largest buckets: ${JSON.stringify(largest)}\n` +
-          `  new issue:   indexUpdates slots ${JSON.stringify(issueInsert.slots)} → ${issueInsert.elements} bucket elements copied+sorted\n` +
-          `  new session: indexUpdates slots ${JSON.stringify(sessionInsert.slots)} → ${sessionInsert.elements} bucket elements copied+sorted`,
-      )
-      handle.dispose()
+      measure(`old fixture ${scale}x`, feed.replay.source, locals.source)
     }, 120_000)
   }
+
+  // The live export (POD-4552) is gitignored: point M3_LIVE_EXPORT at it.
+  const live = process.env['M3_LIVE_EXPORT']
+  it.skipIf(live === undefined)('live export (POD-4552), through the real kernel feed', async () => {
+    const snapshot = readSnapshot(live as string)
+    const ctx = await startEngineOnCorpus(corpusFromLive(snapshot, Date.parse(snapshot.exportedAt)))
+    const feeds = openFenceFeeds(ctx, 'overlaid')
+    try {
+      measure(`live ${snapshot.exportedAt}`, feeds.rows.source, feeds.locals.source)
+    } finally {
+      feeds.dispose()
+    }
+  }, 300_000)
 })
