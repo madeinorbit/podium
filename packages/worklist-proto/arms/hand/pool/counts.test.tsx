@@ -71,9 +71,9 @@ describe('fence steps #1, #3, #4, #8, #8b', () => {
     try {
       // POD-4580: drawn rows reach cold ones (open issues with closed origins
       // on the live-shaped fixture), so the mount queues loads. The window
-      // never closes on its own here, so none of them lands inside a counted
-      // step. Draining them per step, and charging them to it, is the shared
-      // fence's hook (POD-4568, G2); the arm offers `drainLoads()`.
+      // never closes on its own here. The shared fence (POD-4568, G2) lands
+      // them through the arm's `settleLoads()`: the mount's before #1,
+      // outside the count, and each step's own inside it, charged to it.
       const { pool } = mounted.handle as HandPoolHandle
       expect(pool.pendingLoads()).toBeGreaterThan(0)
       const cells = []

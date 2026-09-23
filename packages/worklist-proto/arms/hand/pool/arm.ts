@@ -13,10 +13,12 @@
  */
 
 import { createElement, lazy, type ReactElement, Suspense } from 'react'
+import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import type {
   CheckableArm,
   CheckableArmHandle,
+  LazyArmHandle,
   LocalsSource,
   RowSource,
 } from '../../../shared/src/arm'
@@ -26,15 +28,20 @@ import { HandPool, type PoolLazyOptions } from './pool'
 import { PoolList } from './react/list'
 import { rebuildSnapshot } from './rebuild'
 
+/** Redraw-then-load rounds `settleLoads` allows before it gives up. */
+const SETTLE_ROUNDS = 64
+
 /** Loaded on first native mount only: the node lanes cannot parse `react-native`. */
 const PoolNativeList = lazy(() => import('./native/list'))
 
 export interface HandPoolHandle extends CheckableArmHandle {
   /** The live pool (tests; the copy sweep reaches the tables through it). */
   readonly pool: HandPool
-  /** Rows queued for a load that has not landed (POD-4580). */
-  pendingLoads(): number
-  /** Land every pending load now; returns the rows installed (POD-4580). */
+  /** Rows queued for a load that has not landed (POD-4580; the shared fence's hook, G2). */
+  pendingLoads: LazyArmHandle['pendingLoads']
+  /** The shared fence's hook (POD-4568, G2): redraw, land what that queued, repeat. */
+  settleLoads: LazyArmHandle['settleLoads']
+  /** Land every pending load now, no redraw; returns the rows installed (POD-4580). */
   drainLoads(): number
 }
 
@@ -68,6 +75,20 @@ export const handPoolArm = {
       pool,
       stats: pool.stats,
       pendingLoads: () => pool.pendingLoads(),
+      // A row that REDRAWS can reach a cold row (a view cell created in
+      // render asks for its cold inputs), so a settle flushes this arm's
+      // redraws, lands what they queued, and repeats until a redraw queues
+      // nothing (G2, as the MobX arm).
+      settleLoads: () => {
+        for (let round = 0; ; round += 1) {
+          if (roots.size > 0) flushSync(() => {})
+          if (pool.pendingLoads() === 0) return
+          if (round >= SETTLE_ROUNDS) {
+            throw new Error(`[pool] loads did not settle in ${SETTLE_ROUNDS} redraw rounds`)
+          }
+          pool.drainLoads()
+        }
+      },
       drainLoads: () => pool.drainLoads(),
       snapshot: () => pool.snapshot(),
       rebuildFromScratch: () => rebuildSnapshot(source, locals, pool.residentIssueIds()),
