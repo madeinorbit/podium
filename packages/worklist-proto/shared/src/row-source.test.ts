@@ -22,6 +22,7 @@ import type { SocketHub } from '@podium/client-core/socket-transport'
 import { asIssueId, asUserId } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { legacyDerivationFromStore } from '../../harness/src/oracle/index'
 import {
   createRowSource,
   type RowSourceMode,
@@ -530,6 +531,11 @@ describe('row-source over the real facade (fake runtime)', () => {
 
 class FakeHub {
   private handlers = new Map<string, Set<(...a: unknown[]) => void>>()
+  /** A server push to whatever the runtime subscribed (`worktreesChanged`
+   *  drives the runtime's own discovery refresh). */
+  emit(kind: string, ...args: unknown[]): void {
+    for (const cb of this.handlers.get(kind) ?? []) cb(...args)
+  }
   on(kind: string, cb: (...a: unknown[]) => void): () => void {
     let set = this.handlers.get(kind)
     if (!set) {
@@ -555,7 +561,7 @@ class FakeHub {
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: test API stub — shaped per-test like runtime.test.ts
-function makeApi(): any {
+function makeApi(discovery: { repos: unknown[] } = { repos: [] }): any {
   let rejectNext = false
   const api = {
     sync: {
@@ -572,7 +578,7 @@ function makeApi(): any {
     },
     discovery: {
       refreshRepos: {
-        mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }),
+        mutate: async () => ({ repositories: discovery.repos, diagnostics: [], machines: [] }),
       },
     },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
@@ -809,6 +815,177 @@ describe('row-source truth mode over the real runtime', () => {
       engine.destroy()
     }
   }, 30_000)
+})
+
+// ------------------------------------------- Part B2: discovery lanes (POD-4606)
+
+/**
+ * Discovery alone — a new `EngineState.repos` from `refreshRepos`, with no
+ * kernel row changing — must reach the feed as lane events, by path, in both
+ * modes. The oracle is the legacy derivation over the same runtime snapshot
+ * (`legacyDerivationFromStore` → `sections`): the lanes the current app shows.
+ * The arm side is what a pool holds: `snapshot('worktree')` at creation, then
+ * every emitted worktree row applied (`value: undefined` deletes).
+ *
+ * Repo-root lanes are covered explicitly (the 1x fixture's `sliceWorktrees`
+ * carries none): the first discovered repo is ONLY a root lane, and a real
+ * scan's standalone duplicate of a linked worktree must keep that worktree
+ * under its parent root, as `reposToViews` does.
+ */
+type LaneFacts = { repoPath: string; repoId: string | null }
+
+function legacyLanes(engine: ReturnType<typeof createClientRuntime>): Record<string, LaneFacts> {
+  const { slice } = legacyDerivationFromStore(engine.getSnapshot() as never)
+  const out: Record<string, LaneFacts> = {}
+  for (const repo of [...slice.sections.pinnedRepos, ...slice.sections.repos])
+    for (const wt of repo.worktrees)
+      out[wt.path] = { repoPath: wt.repoPath, repoId: wt.repoId ?? null }
+  return out
+}
+
+describe('discovery lanes: repos from discovery alone reach the feed (POD-4606)', () => {
+  for (const mode of ['overlaid', 'truth'] as const) {
+    it(`${mode}: a discovered repo root, then a worktree, emit lane rows matching the legacy lanes`, async () => {
+      const cache = new FakeCache()
+      const replica = createKernelReplica({
+        cache,
+        side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+      })
+      const discovery: { repos: unknown[] } = { repos: [] }
+      const { api } = makeApi(discovery)
+      const hub = new FakeHub()
+      const engine = createClientRuntime({
+        principal: asClientPrincipal(asUserId('operator')),
+        config: { httpOrigin: 'http://x', wsClientUrl: 'ws://x' },
+        api: api as PodiumClientApi,
+        onFatalError: (message) => {
+          throw new Error(message)
+        },
+        createReplicaFn: () => replica,
+        routerWindow: makeRouterWindow() as never,
+        createHub: () => hub as unknown as SocketHub,
+      })
+      engine.start()
+      await settle(40)
+      try {
+        // The kernel knows repo r1 (its prefix) before discovery reports it.
+        const repoRow = { id: 'r1', prefix: 'POD' }
+        cache.put('repos', 'r1', repoRow)
+        replica.onKernelEvent({
+          type: 'upserted',
+          record: { entity: 'repos', entityId: 'r1', value: repoRow, provenance: { seq: 1 } },
+          readmitted: false,
+        } as never)
+        await settle(40)
+        const handle = createRowSource(engine, replica, { mode })
+        const held = new Map<string, LaneFacts>()
+        for (const lane of handle.source.snapshot('worktree')) {
+          const value = lane.value as { repoPath: string; repoId?: string | null }
+          held.set(lane.id, { repoPath: value.repoPath, repoId: value.repoId ?? null })
+        }
+        const events: RowSourceEvent[] = []
+        const off = handle.source.subscribe((e) => {
+          events.push(e)
+          for (const row of e.rows) {
+            if (row.kind !== 'worktree') continue
+            const value = row.value as { repoPath: string; repoId?: string | null } | undefined
+            if (value === undefined) held.delete(row.id)
+            else held.set(row.id, { repoPath: value.repoPath, repoId: value.repoId ?? null })
+          }
+        })
+        const discover = async (repos: unknown[]) => {
+          await settle(20)
+          handle.flush()
+          handle.stats.reset()
+          events.length = 0
+          const kernelRows = cache.records
+          discovery.repos = repos
+          hub.emit('worktreesChanged')
+          await settle(40)
+          handle.flush()
+          // Discovery alone: not one kernel row moved.
+          expect(cache.records).toBe(kernelRows)
+          expect(engine.getSnapshot().repos).toBe(repos)
+          return events.flatMap((e) => e.rows)
+        }
+        const heldLanes = () => Object.fromEntries([...held].sort(([a], [b]) => a.localeCompare(b)))
+        try {
+          expect(heldLanes()).toEqual({})
+
+          // 1. A repo root, and nothing else: its root lane appears.
+          const rootOnly = [{ path: '/repo-a', repoId: 'r1', branch: 'main', worktrees: [] }]
+          const rows1 = await discover(rootOnly)
+          expect(legacyLanes(engine)).toEqual({ '/repo-a': { repoPath: '/repo-a', repoId: 'r1' } })
+          expect(heldLanes(), 'the feed holds the legacy lanes').toEqual(legacyLanes(engine))
+          expect(rows1).toEqual([
+            {
+              kind: 'worktree',
+              id: '/repo-a',
+              value: { path: '/repo-a', repoId: 'r1', repoPath: '/repo-a', repoName: 'repo-a', prefix: 'POD' },
+            },
+          ])
+          expect(events, 'one discovery, one event').toHaveLength(1)
+          expect(handle.stats.rowsVisited, 'visited == the lanes the answer names').toBe(1)
+
+          // 2. A worktree under it: only the new lane; the root is unchanged.
+          const withWorktree = [
+            { path: '/repo-a', repoId: 'r1', branch: 'main', worktrees: [{ path: '/wt/a1', branch: 'task' }] },
+          ]
+          const rows2 = await discover(withWorktree)
+          expect(heldLanes()).toEqual(legacyLanes(engine))
+          expect(Object.keys(legacyLanes(engine))).toEqual(['/repo-a', '/wt/a1'])
+          expect(rows2.map((r) => r.id)).toEqual(['/wt/a1'])
+          expect(handle.stats.rowsVisited).toBe(2)
+
+          // 3. A real scan also reports the linked worktree as a top-level
+          //    entry. Legacy drops that duplicate, so /wt/a1 stays a worktree
+          //    of /repo-a, not a root of its own: nothing visible moved.
+          const withDuplicate = [
+            ...withWorktree,
+            { path: '/wt/a1', repoId: 'r1', branch: 'task', worktrees: [] },
+          ]
+          const rows3 = await discover(withDuplicate)
+          expect(legacyLanes(engine)['/wt/a1']).toEqual({ repoPath: '/repo-a', repoId: 'r1' })
+          expect(heldLanes()).toEqual(legacyLanes(engine))
+          expect(rows3, 'a duplicate root changes nothing visible').toEqual([])
+
+          // 4. A second repo with no repoId: a root lane with no prefix.
+          const second = [...withDuplicate, { path: '/repo-b', branch: 'main', worktrees: [] }]
+          const rows4 = await discover(second)
+          expect(heldLanes()).toEqual(legacyLanes(engine))
+          expect(rows4).toEqual([
+            { kind: 'worktree', id: '/repo-b', value: { path: '/repo-b', repoPath: '/repo-b', repoName: 'repo-b' } },
+          ])
+
+          // 5. The same answer as fresh objects (a routine refresh), and a
+          //    field no lane carries (branch): no event at all.
+          const rows5 = await discover(
+            second.map((r) => ({ ...r, branch: 'other', worktrees: [...r.worktrees] })),
+          )
+          expect(rows5, 'a discovery that changes nothing visible emits nothing').toEqual([])
+          expect(events).toHaveLength(0)
+          expect(heldLanes()).toEqual(legacyLanes(engine))
+
+          // 6. The worktree goes away: its lane is removed, by path.
+          const removed = [
+            { path: '/repo-a', repoId: 'r1', branch: 'main', worktrees: [] },
+            { path: '/repo-b', branch: 'main', worktrees: [] },
+          ]
+          const rows6 = await discover(removed)
+          expect(rows6).toEqual([{ kind: 'worktree', id: '/wt/a1', value: undefined }])
+          expect(heldLanes()).toEqual(legacyLanes(engine))
+
+          // 7. Discovery emits only lanes: no issue or session row rode along.
+          expect([...rows1, ...rows2, ...rows4, ...rows6].every((r) => r.kind === 'worktree')).toBe(true)
+        } finally {
+          off()
+          handle.dispose()
+        }
+      } finally {
+        engine.destroy()
+      }
+    }, 30_000)
+  }
 })
 
 // ------------------------------------ Part C: visited-per-publication fence
