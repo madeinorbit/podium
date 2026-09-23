@@ -7,9 +7,12 @@
  * (`arms/hand/pool/counts.test.tsx`) until the pool has an order (Hb1).
  *
  * Ha2 (POD-4579): `activityAt` reads `issue.sessions`, so the heartbeat
- * moves its session's issue and the a1 list, which draws every issue,
- * redraws that row. The oracle hides it (the web lane's #1 finding); the
- * commit fence for #1 moves to Hb1.
+ * moved its session's issue and the a1 list, which drew every issue,
+ * redrew that hidden row. Since Ha3 (POD-4580) that closed root and its
+ * session are COLD: the heartbeat relinks a registry entry and the list,
+ * which draws every RESIDENT issue, never drew the row, so the heartbeat
+ * redraws nothing at all. The load window never closes on its own here, so
+ * the mount's queued loads cannot land inside the counted steps.
  */
 
 import { act } from 'react'
@@ -17,14 +20,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { handPoolArm } from '../../arms/hand/pool/arm'
 import { startScenarioEngine, writeHeartbeat, writeTitleRename } from '../../shared/src/scenarios'
 import { mountNativeForCounts } from '../src/count-harness'
-import { engineLocals, openFenceFeeds } from '../src/fence-scenarios'
-import { rowViewsFromStore } from '../src/oracle/index'
+import { openFenceFeeds } from '../src/fence-scenarios'
 
 describe('hand pool on the native renderer', () => {
-  it('mounts every row; a heartbeat redraws no visible row, a rename redraws the renamed row', async () => {
+  it('mounts every resident row; a heartbeat on a cold session redraws nothing, a rename redraws the renamed row', async () => {
     const ctx = await startScenarioEngine(1)
     const feeds = openFenceFeeds(ctx, 'overlaid')
-    const handle = handPoolArm.create(feeds.rows.source, feeds.locals.source)
+    // No load window closes on its own mid-step.
+    const handle = handPoolArm.create(feeds.rows.source, feeds.locals.source, undefined, {
+      schedule: () => () => {},
+    })
     const mounted = await mountNativeForCounts(handle)
     try {
       // The native list is a lazy chunk (`React.lazy` in `pool/arm.ts`): it
@@ -47,11 +52,15 @@ describe('hand pool on the native renderer', () => {
         await writeHeartbeat(ctx)
         feeds.flush()
       })
-      const visible = rowViewsFromStore(ctx.engine.getSnapshot(), engineLocals(ctx))
-      expect(
-        [...mounted.log.counts.keys()].filter((id) => visible[id] !== undefined),
-        'a heartbeat drew a VISIBLE row',
-      ).toEqual([])
+      const heartbeatIssue = handle.pool.relations.one(
+        'session',
+        ctx.targets.heartbeatSessionId,
+        'issue',
+      )
+      expect(heartbeatIssue).not.toBeNull()
+      expect(handle.pool.residency?.isCold('issue', heartbeatIssue!)).toBe(true)
+      expect(handle.pool.residency?.isCold('session', ctx.targets.heartbeatSessionId)).toBe(true)
+      expect([...mounted.log.counts.keys()], 'a heartbeat on a cold session drew a row').toEqual([])
 
       await act(async () => {
         await writeTitleRename(ctx)
