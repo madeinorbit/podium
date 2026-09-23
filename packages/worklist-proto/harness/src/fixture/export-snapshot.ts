@@ -25,6 +25,7 @@ import { dirname, join, resolve } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { HttpBootstrapSource } from '@podium/client-core/sync-stream'
+import { expectedSnapshot } from '../oracle/index'
 import { buildCorpus } from './index'
 import {
   anonymisationParity,
@@ -35,7 +36,13 @@ import {
   type LiveCollections,
   type LiveSnapshot,
 } from './live-snapshot'
-import { compareShapes, measureShape, renderComparison } from './shape'
+import {
+  assertPrefixFidelity,
+  compareShapes,
+  measureShape,
+  prefixFidelity,
+  renderComparison,
+} from './shape'
 
 const DEFAULT_ORIGIN = 'http://127.0.0.1:18787'
 const HERE = dirname(new URL(import.meta.url).pathname)
@@ -157,7 +164,14 @@ export function readSnapshot(file: string): LiveSnapshot {
 /** Fixture 1x vs live: the markdown table plus both measure sets. */
 export function compareWithFixture(snapshot: LiveSnapshot) {
   const fixture = measureShape(buildCorpus(1, 4443))
-  const live = measureShape(corpusFromLive(snapshot, Date.parse(snapshot.exportedAt)))
+  const liveCorpus = corpusFromLive(snapshot, Date.parse(snapshot.exportedAt))
+  assertPrefixFidelity(
+    prefixFidelity(
+      liveCorpus,
+      expectedSnapshot(liveCorpus, { selectedIssueId: null, coarseNow: liveCorpus.fixedNow }),
+    ),
+  )
+  const live = measureShape(liveCorpus)
   const rows = compareShapes(fixture, live)
   return { fixture, live, rows, table: renderComparison(rows, fixture, live) }
 }
@@ -189,6 +203,16 @@ async function main(): Promise<void> {
     throw new Error(
       `anonymisation changed the oracle snapshot (${parity.differingRows.length} rows: ${parity.differingRows.slice(0, 5).join(', ')}); a hashed field is read by the derivation — add it to KEEP_KEYS`,
     )
+  // The repo rows must survive the export, or every POD-123 label reads #123
+  // and the label comparison is vacuous (POD-4624).
+  const now = Date.parse(exportedAt)
+  const hashedCorpus = corpusFromLive(anonymised, now)
+  assertPrefixFidelity(
+    prefixFidelity(
+      hashedCorpus,
+      expectedSnapshot(hashedCorpus, { selectedIssueId: null, coarseNow: now }),
+    ),
+  )
   const snapshot: LiveSnapshot = {
     format: LIVE_SNAPSHOT_FORMAT,
     exportedAt,

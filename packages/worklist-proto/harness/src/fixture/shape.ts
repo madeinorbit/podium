@@ -11,8 +11,14 @@
  * legacy longest-prefix rule (`worktreeForCwdIndexed` over those lanes).
  */
 
+import { dedupeSessions } from '@podium/client-core/engine'
+import {
+  issueFinishedAt,
+  reposVisibleOnMachines,
+  SIDEBAR_FINISHED_GRACE_MS,
+} from '@podium/client-core/viewmodels'
 import { buildWorktreeRootIndex, worktreeForCwdIndexed } from '@podium/model'
-import type { SliceLocals } from '../../../shared/src/slice-types'
+import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types'
 import { projectSnapshot, runLegacyDerivation } from '../oracle/index'
 import type { FixtureCorpus } from './index'
 
@@ -73,6 +79,21 @@ export interface ShapeMeasures {
   askingRows: number
   workingRows: number
   phases: Record<string, number>
+  /** Sessions sharing one resume ref (groups of 2+), and the sessions the
+   *  runtime's collapse (`dedupeSessions`) removes. */
+  resumeTwinGroups: number
+  sessionsCollapsed: number
+  /** Lanes no issue names as its `worktreePath` and no session sits in: the
+   *  feed announces them from discovery alone (POD-4606). */
+  discoveryOnlyLanes: number
+  /** Scan repos on a machine the principal cannot see: legacy drops them
+   *  (`reposVisibleOnMachines`); the feed does not (a known divergence). */
+  hiddenMachineRepos: number
+  /** Closed, unarchived, undeleted issues finished within the 24 h grace
+   *  window (`SIDEBAR_FINISHED_GRACE_MS`) at `coarseNow`. */
+  graceWindowClosed: number
+  /** Oracle rows labelled `PREFIX-seq` (the repo-row prefix join, POD-4624). */
+  prefixedRows: number
 }
 
 const str = (row: unknown, key: string): string | null => {
@@ -181,6 +202,21 @@ export function measureShape(
   const work = derivation.slice.work
   const topLevelRows = work.filter((r) => r.kind === 'issue').length
   const rows = Object.values(snapshot.rowsById)
+  const resumeGroups = new Map<string, number>()
+  for (const s of corpus.sessions)
+    if (s.resume) {
+      const key = `${s.resume.kind}:${s.resume.value}`
+      resumeGroups.set(key, (resumeGroups.get(key) ?? 0) + 1)
+    }
+  const namedLanes = new Set<string>()
+  for (const i of corpus.issues) {
+    const wt = str(i, 'worktreePath')
+    if (wt !== null) namedLanes.add(wt)
+  }
+  for (const s of corpus.sessions) {
+    const owner = worktreeForCwdIndexed(s.cwd, laneIndex)
+    if (owner !== null) namedLanes.add(owner)
+  }
   const phases: Record<string, number> = {}
   for (const row of rows) phases[row.phase] = (phases[row.phase] ?? 0) + 1
 
@@ -221,7 +257,61 @@ export function measureShape(
     askingRows: rows.filter((r) => r.asking).length,
     workingRows: rows.filter((r) => r.working).length,
     phases,
+    resumeTwinGroups: [...resumeGroups.values()].filter((n) => n > 1).length,
+    sessionsCollapsed: corpus.sessions.length - dedupeSessions(corpus.sessions).length,
+    discoveryOnlyLanes: lanePaths.filter((p) => !namedLanes.has(p)).length,
+    hiddenMachineRepos:
+      corpus.repos.length - reposVisibleOnMachines(corpus.repos, corpus.machines).length,
+    graceWindowClosed: corpus.issues.filter(
+      (i) =>
+        str(i, 'closedAt') !== null &&
+        str(i, 'deletedAt') === null &&
+        (i as { archived?: boolean }).archived !== true &&
+        corpus.fixedNow - issueFinishedAt(i) <= SIDEBAR_FINISHED_GRACE_MS,
+    ).length,
+    prefixedRows: prefixFidelity(corpus, snapshot).prefixedRows,
   }
+}
+
+export interface PrefixFidelity {
+  repoRows: number
+  /** Oracle rows whose label is `PREFIX-seq`. */
+  prefixedRows: number
+  /** Rows whose label disagrees with their repo row's prefix (`id: got≠want`). */
+  mismatches: string[]
+}
+
+/**
+ * The `POD-123` labels are only a comparison if the repo rows survived: every
+ * oracle row whose issue's repo has a prefix row must read `PREFIX-seq`, and
+ * at least one must. A snapshot that lost the `repo` entity reads `#seq`
+ * everywhere and fails here (POD-4624).
+ */
+export function prefixFidelity(corpus: FixtureCorpus, snapshot: SliceSnapshot): PrefixFidelity {
+  const prefixOf = new Map(
+    corpus.repoProjections.map((r) => [r.id as string, str(r, 'prefix')] as const),
+  )
+  const issueById = new Map(corpus.issueProjections.map((i) => [i.id as string, i] as const))
+  const mismatches: string[] = []
+  let prefixedRows = 0
+  for (const row of Object.values(snapshot.rowsById)) {
+    const issue = issueById.get(row.id)
+    const repoId = issue === undefined ? null : str(issue, 'repoId')
+    const prefix = repoId === null ? null : (prefixOf.get(repoId) ?? null)
+    if (prefix === null) continue
+    const want = `${prefix}-${(issue as { seq: number }).seq}`
+    if (row.displayRef === want) prefixedRows++
+    else mismatches.push(`${row.id}: ${row.displayRef}≠${want}`)
+  }
+  return { repoRows: corpus.repoProjections.length, prefixedRows, mismatches }
+}
+
+/** Throws unless the snapshot carries repo rows and the labels join them. */
+export function assertPrefixFidelity(fidelity: PrefixFidelity): void {
+  if (fidelity.repoRows === 0 || fidelity.prefixedRows === 0 || fidelity.mismatches.length > 0)
+    throw new Error(
+      `prefix join lost: ${fidelity.repoRows} repo rows, ${fidelity.prefixedRows} PREFIX-seq rows, ${fidelity.mismatches.length} mismatches (${fidelity.mismatches.slice(0, 3).join('; ')})`,
+    )
 }
 
 /** The lanes the legacy sections show, pinned repos included. */
@@ -335,6 +425,12 @@ export function comparisonPickers(fixture: ShapeMeasures, live: ShapeMeasures): 
       per: perSession,
     },
     { measure: 'live sessions / sessions', value: (m) => m.liveSessions, per: perSession },
+    { measure: 'resume-twin groups (2+ sessions, one ref)', value: (m) => m.resumeTwinGroups },
+    { measure: 'sessions removed by the twin collapse', value: (m) => m.sessionsCollapsed },
+    { measure: 'discovery-only lanes', value: (m) => m.discoveryOnlyLanes },
+    { measure: 'scan repos on hidden machines', value: (m) => m.hiddenMachineRepos },
+    { measure: 'closed issues in the 24 h grace window', value: (m) => m.graceWindowClosed },
+    { measure: '`PREFIX-seq` rows / visible', value: (m) => m.prefixedRows, per: perVisible },
     { measure: 'groups', value: (m) => m.groups },
     { measure: 'pinned rows', value: (m) => m.pinnedRows },
     { measure: 'closed-fold rows / visible', value: (m) => m.closedFoldRows, per: perVisible },

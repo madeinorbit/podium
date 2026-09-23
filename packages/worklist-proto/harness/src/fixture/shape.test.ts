@@ -17,7 +17,13 @@ import {
   KEEP_KEYS,
   type LiveCollections,
 } from './live-snapshot'
-import { compareShapes, forkTrapPairs, measureShape } from './shape'
+import {
+  assertPrefixFidelity,
+  compareShapes,
+  forkTrapPairs,
+  measureShape,
+  prefixFidelity,
+} from './shape'
 
 const fixture = buildCorpus(1, 4443)
 const NOW = fixture.fixedNow
@@ -53,6 +59,44 @@ describe('measureShape on the fixture (1x) agrees with the generator', () => {
     expect(m.visibleRows).toBe(Object.keys(snapshot.rowsById).length)
     expect(m.topLevelRows + m.nestedRows).toBe(m.visibleRows)
     expect(m.nestedRows).toBeGreaterThan(0)
+  })
+
+  it('labels rows through the repo-row prefix join (POD-4624), and the check passes', () => {
+    const snapshot = expectedSnapshot(fixture, { selectedIssueId: null, coarseNow: NOW })
+    const fidelity = prefixFidelity(fixture, snapshot)
+    expect(fidelity.repoRows).toBe(fixture.repoProjections.length)
+    expect(fidelity.mismatches).toEqual([])
+    expect(fidelity.prefixedRows).toBeGreaterThan(0)
+    expect(m.prefixedRows).toBe(fidelity.prefixedRows)
+    expect(() => assertPrefixFidelity(fidelity)).not.toThrow()
+  })
+
+  it('control: a snapshot that lost its repo rows fails the prefix check', () => {
+    const lost: FixtureCorpus = { ...fixture, repoProjections: [] }
+    const fidelity = prefixFidelity(
+      lost,
+      expectedSnapshot(lost, { selectedIssueId: null, coarseNow: NOW }),
+    )
+    expect(fidelity.prefixedRows).toBe(0)
+    expect(() => assertPrefixFidelity(fidelity)).toThrow(/prefix join lost/)
+    // Rows keep their repo rows but lose the prefix join: labels fall to #seq.
+    const labelsOnly: FixtureCorpus = {
+      ...fixture,
+      repoProjections: fixture.repoProjections.map((r) => ({ ...r, id: `gone-${r.id}` })) as never,
+    }
+    const mismatched = prefixFidelity(
+      { ...labelsOnly, repoProjections: fixture.repoProjections },
+      expectedSnapshot(labelsOnly, { selectedIssueId: null, coarseNow: NOW }),
+    )
+    expect(mismatched.mismatches.length).toBeGreaterThan(0)
+    expect(() => assertPrefixFidelity(mismatched)).toThrow(/prefix join lost/)
+  })
+
+  it("counts the fixture's own live-shaped cases: twins, grace window, no hidden machine", () => {
+    expect(m.resumeTwinGroups).toBe(fixture.resumeTwins.length)
+    expect(m.sessionsCollapsed).toBeGreaterThan(0)
+    expect(m.hiddenMachineRepos).toBe(0)
+    expect(m.graceWindowClosed).toBeGreaterThan(0)
   })
 
   it('compares against itself with no follow-ups', () => {
@@ -115,6 +159,23 @@ describe('repo-root lanes (POD-4565 addendum)', () => {
     expect(m.prefixOwnedByRootLane).toBe(2)
     expect(m.prefixOwnedByWorktreeLane).toBe(1)
     expect(m.prefixOwnedUnresolved).toBe(1)
+    // Every lane holds a session, so none is discovery-only.
+    expect(m.discoveryOnlyLanes).toBe(0)
+  })
+
+  it('counts a lane no issue or session names as discovery-only, and a repo on an unseen machine as hidden', () => {
+    const extra: LiveCollections = {
+      ...lanesWorkspace,
+      machines: [{ id: 'm-seen', name: 'seen' }] as never,
+      repos: [
+        ...lanesWorkspace.repos.map((r) => ({ ...r, machineId: 'm-seen' })),
+        { ...scanRow('/empty'), machineId: 'm-seen' },
+        { ...scanRow('/elsewhere-repo'), machineId: 'm-unseen' },
+      ] as never,
+    }
+    const m = measureShape(corpusFromLive(extra, NOW))
+    expect(m.discoveryOnlyLanes).toBe(1)
+    expect(m.hiddenMachineRepos).toBe(1)
   })
 
   it('control: a lane list without repo roots (the fixture sliceWorktrees shape) unseats the root sessions', () => {
