@@ -203,6 +203,14 @@ export interface EngineOutboxCallbacks {
    */
   readonly onSuperseded?: (mutationId: MutationId, entry: OutboxEntry | undefined) => void
   /**
+   * Whether anyone is observing supersedes RIGHT NOW. Naming what a collapsed
+   * entry carried costs the kernel queue a scan of its pending records per
+   * collapsible enqueue, so it runs only when this answers true (absent means
+   * true). The runtime answers "an outcome listener is subscribed", which in
+   * production is never: only the round-three prototypes listen (POD-4554).
+   */
+  readonly observingSupersede?: () => boolean
+  /**
    * PLATFORM CONNECTIVITY (POD-2055 WP-C2), when the composition root knows it
    * better than the browser globals below do. Native mobile passes NetInfo:
    * `window`'s `online` event does not exist there, and `navigator.onLine` is

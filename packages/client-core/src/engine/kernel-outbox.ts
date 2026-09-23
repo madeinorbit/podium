@@ -158,7 +158,8 @@ class KernelEngineOutbox implements EngineOutbox {
    * Queued entries an in-flight enqueue may collapse (POD-4554). The kernel
    * removes a superseded record before its event fires, so what it carried is
    * captured here, under the enqueue that could collapse it, for
-   * `onSuperseded`. Empty outside an enqueue.
+   * `onSuperseded`. Empty outside an enqueue, and never filled while nobody
+   * observes supersedes (the scan is not the production write path's cost).
    */
   private readonly collapsible = new Map<string, OutboxEntry>()
   private readonly subscribers = new Set<(size: number) => void>()
@@ -282,7 +283,9 @@ class KernelEngineOutbox implements EngineOutbox {
     // OUTBOX_ROUTING for why the single `client-outbox` key wedged the queue.
     const route = outboxRoutingFor(kind, input, mutationId)
     const candidates =
-      route.collapseKey === undefined
+      route.collapseKey === undefined ||
+      this.callbacks.onSuperseded === undefined ||
+      this.callbacks.observingSupersede?.() === false
         ? []
         : this.kernel
             .pending()

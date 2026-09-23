@@ -459,6 +459,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         if (this.destroyed) return
         this.emitOutcome({ type: 'superseded', mutationId, ...(entry ? { entry } : {}) })
       },
+      observingSupersede: () => this.outcomeListeners.size > 0,
       // The queue-size subscription is not the dead-letter event: a definitive
       // refusal can park before start() installs that subscription. Publish the
       // recovery projection at the event's own boundary so a live park cannot

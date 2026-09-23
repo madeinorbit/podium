@@ -10,7 +10,8 @@
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import { asMutationId, type MutationId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { Outbox as KernelOutbox } from '@podium/sync/outbox'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createWriteTransport,
   type ReceiptEvent,
@@ -219,6 +220,32 @@ describe('write transport on the kernel queue', () => {
         acked: false,
       },
     ])
+    ctx.engine.destroy()
+  }, 60_000)
+
+  it('the kernel queue scans for collapsible entries only while an outcome listener is subscribed', async () => {
+    const network = switchableNetwork()
+    const ctx = await startScenarioEngine(1, { outbox: 'kernel', network })
+    const id = ctx.targets.markReadId
+    const readsFor = async (txId: MutationId): Promise<number> => {
+      const spy = vi.spyOn(KernelOutbox.prototype, 'pending')
+      await ctx.engine.enqueueOverlayed('issueMarkRead', { id }, { mutationId: txId })
+      await tick()
+      const n = spy.mock.calls.length
+      spy.mockRestore()
+      return n
+    }
+    await readsFor(tx('6')) // something queued to collapse
+    const unobserved = await readsFor(tx('7'))
+    const events: ReceiptEvent[] = []
+    const off = subscribeReceipts(ctx.engine, (e) => events.push(e))
+    const observed = await readsFor(tx('8'))
+    off()
+    const afterOff = await readsFor(tx('9'))
+    // One scan, and only while observed. The production runtime has no listener.
+    expect(observed - unobserved).toBe(1)
+    expect(afterOff).toBe(unobserved)
+    expect(events).toEqual([{ type: 'superseded', txId: tx('7'), kind: 'issueMarkRead', id }])
     ctx.engine.destroy()
   }, 60_000)
 
