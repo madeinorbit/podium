@@ -262,23 +262,44 @@ export async function resolveShellOwningIssue(
   return session.issueId ?? undefined
 }
 
+export interface SampledShellOwnerDeps {
+  worktreesForSessions(
+    sessionIds: readonly SessionId[],
+  ): Promise<ReadonlyMap<SessionId, ReadonlyArray<{ userId: UserId; worktreeKey: string }>>>
+  issueForCwd(cwd: string): Promise<IssueId | null | undefined>
+}
+
 /**
- * The reaper's owning issue for every shell in one host sample (POD-4526
- * precedence, via {@link resolveShellOwningIssue}). Non-shells never enter the
- * map and keep their bound issue at the call site.
+ * The reaper's owning issue for every LIVE shell in one host sample, through
+ * {@link resolveShellOwningIssue} so the precedence stays the one resolver's
+ * (POD-4526). Non-shells never enter the map and keep their bound issue at the
+ * call site.
+ *
+ * ONE MAPPING READ PER CALL, and only for live shells (POD-4627). The sample
+ * holds every stored session — boot installs all rows, hibernated and exited
+ * included — and the host sample asks for it four to six times. Reading the
+ * mapping per shell was ~5,000 statements a sample on a real 1,000-shell
+ * database, most of them for dormant shells. Every reaper pass filters
+ * `status === 'live'` before it reads an owner, so a dormant shell's owner
+ * was never an input to a decision; skipping it changes no verdict.
  */
 export async function resolveSampledShellOwners(
-  deps: DockShellOwnerDeps,
+  deps: SampledShellOwnerDeps,
   sessions: Iterable<DockShellOwnerSession & { status: string }>,
 ): Promise<Map<SessionId, IssueId>> {
   const owners = new Map<SessionId, IssueId>()
+  const shells = [...sessions].filter((s) => s.agentKind === 'shell' && s.status === 'live')
+  if (shells.length === 0) return owners
+  const mapped = await deps.worktreesForSessions(shells.map((s) => s.sessionId))
+  const perShell: DockShellOwnerDeps = {
+    worktreeForSession: async (id) => mapped.get(id) ?? [],
+    issueForCwd: (cwd) => deps.issueForCwd(cwd),
+  }
   await Promise.all(
-    [...sessions]
-      .filter((s) => s.agentKind === 'shell')
-      .map(async (s) => {
-        const ownerIssueId = await resolveShellOwningIssue(deps, s)
-        if (ownerIssueId) owners.set(s.sessionId, ownerIssueId)
-      }),
+    shells.map(async (s) => {
+      const ownerIssueId = await resolveShellOwningIssue(perShell, s)
+      if (ownerIssueId) owners.set(s.sessionId, ownerIssueId)
+    }),
   )
   return owners
 }

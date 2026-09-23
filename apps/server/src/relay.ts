@@ -1600,9 +1600,11 @@ export class SessionRegistry {
           // shells pay for a lookup too now: skipping them (bound-first) is
           // what let one shell read as owner-open here and owner-closed
           // there. Non-shells never enter the map and keep their bound issue.
+          // One mapping read per call, live shells only (POD-4627): the map
+          // below holds every stored session, dormant ones included.
           const ownerIssueIds = await resolveSampledShellOwners(
             {
-              worktreeForSession: (id) => this.store.dockShells.worktreeForSession(id),
+              worktreesForSessions: (ids) => this.store.dockShells.worktreesForSessions(ids),
               issueForCwd: (cwd) => issueAccess.issueForCwd(cwd),
             },
             samples,
@@ -1616,8 +1618,9 @@ export class SessionRegistry {
               session.driverId ?? session.selectedDriverId ?? '',
             )
             // The owning issue is the one resolver's answer above (POD-4526):
-            // shells read the map (mapping-first, bound fallback inside),
-            // non-shells keep their bound issue.
+            // live shells read the map (mapping-first, bound fallback inside),
+            // non-shells keep their bound issue. A dormant shell carries no
+            // `issueClosed`; every reaper pass drops it on `status` first.
             const ownerIssueId =
               session.agentKind === 'shell'
                 ? ownerIssueIds.get(session.sessionId)
