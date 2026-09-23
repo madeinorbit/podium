@@ -295,7 +295,7 @@ export class MobxPool {
     residency?.onDue(() => this.hydrate())
   }
 
-  /** Every issue id in the pool, in table order. Re-derived only when membership changes. */
+  /** Every RESIDENT issue id, in table order. Re-derived only when membership changes. */
   get issueIds(): readonly string[] {
     return issueIdsOf(this)
   }

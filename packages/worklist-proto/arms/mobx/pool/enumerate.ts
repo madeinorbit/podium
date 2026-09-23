@@ -4,13 +4,11 @@
  * refuses a table walk anywhere else in `pool/`.
  *
  * Two walks, both membership-sized by nature:
- * - `issueIdsOf`: every issue id, for the Ma1 list and `snapshot()`. Mb1
- *   (POD-4569) replaces it with the visible collection. It iterates KEYS of
- *   the raw table, so the enclosing computed subscribes to membership only (a
- *   rename does not re-run it), and records each id with the reads fence
- *   (`reads.touch`): the walk costs what it walks, where the fence can see
- *   it. (The fenced table's own `keys()` reads every VALUE, which under MobX
- *   would subscribe the list to every row: see NOTES.md.)
+ * - `issueIdsOf`: every RESIDENT issue id, for the Ma1 list and `snapshot()`.
+ *   Mb1 (POD-4569) replaces it with the visible collection. It iterates the
+ *   fenced table's KEYS, which count each id without reading its value
+ *   (POD-4621), so the enclosing computed subscribes to membership only (a
+ *   rename does not re-run it) and the walk costs what it walks.
  * - `reseed`: a `replace` publication (bootstrap, principal switch, rescope)
  *   installs the new slice and removes every row it does not name, in the
  *   caller's single action. In the live pool it re-partitions residency
@@ -28,7 +26,7 @@
 
 import { runInAction } from 'mobx'
 import type { RowSource } from '../../../shared/src/arm'
-import type { ReadFence, RelationReader } from '../../../shared/src/instrument/reads'
+import type { RelationReader } from '../../../shared/src/instrument/reads'
 import {
   type CollapseMember,
   collapseLosers,
@@ -55,16 +53,8 @@ import {
 } from './tables'
 
 /** Every issue id in the pool; tracked on membership, counted per id. */
-export function issueIdsOf(pool: {
-  readonly tables: PoolTables
-  readonly reads: ReadFence
-}): string[] {
-  const ids: string[] = []
-  for (const id of pool.tables.issue.keys()) {
-    pool.reads.touch('issue', id, 'iterate')
-    ids.push(id)
-  }
-  return ids
+export function issueIdsOf(pool: { readonly fenced: PoolTables }): string[] {
+  return [...pool.fenced.issue.keys()]
 }
 
 /**

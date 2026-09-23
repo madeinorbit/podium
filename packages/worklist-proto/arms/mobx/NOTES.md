@@ -161,7 +161,7 @@ stats and "how to add a field" are in `README.md`.
 
 ### Findings
 
-1. **The fenced table's `keys()` reads every VALUE** (`reads.ts` `wrapMap`
+1. **(Resolved by POD-4621, applied in Ma3.)** **The fenced table's `keys()` reads every VALUE** (`reads.ts` `wrapMap`
    iterates `entries()`). Under MobX that subscribes the enumerating computed
    to every row, so a rename would re-run the id list and read the corpus.
    `enumerate.ts` iterates the raw map's keys (tracks membership only) and
