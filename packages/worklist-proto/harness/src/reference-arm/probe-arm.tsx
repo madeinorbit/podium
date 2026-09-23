@@ -60,16 +60,31 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { CheckableArm, CheckableArmHandle, LocalsSource, RowSource } from '../../../shared/src/arm'
+import type {
+  CheckableArm,
+  CheckableArmHandle,
+  LocalsSource,
+  RowSource,
+} from '../../../shared/src/arm'
 import {
   DISABLED_READ_FENCE,
   type ReadFence,
   type RelationReader,
 } from '../../../shared/src/instrument/reads'
-import { CommitLogContext, currentCommitLog, type RowProps, RowShell } from '../../../shared/src/row-shell'
+import {
+  CommitLogContext,
+  currentCommitLog,
+  type RowProps,
+  RowShell,
+} from '../../../shared/src/row-shell'
 import { type RowView, sliceRowOf } from '../../../shared/src/row-view'
 import { type BelongsToSpec, type EntityName, SCHEMA } from '../../../shared/src/schema'
-import type { SliceIssue, SliceLocals, SliceOrder, SliceSnapshot } from '../../../shared/src/slice-types'
+import type {
+  SliceIssue,
+  SliceLocals,
+  SliceOrder,
+  SliceSnapshot,
+} from '../../../shared/src/slice-types'
 import type { ArmStats, RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import type { LegacyControlEngine } from '../legacy-control/arm'
 import {
@@ -80,7 +95,12 @@ import {
   snapshotFromStore,
 } from '../oracle/index'
 
-export type ProbePlant = 'omittedInput' | 'evictKeepsIndex' | 'rowScan' | 'guardSet' | 'oneWayRelation'
+export type ProbePlant =
+  | 'omittedInput'
+  | 'evictKeepsIndex'
+  | 'rowScan'
+  | 'guardSet'
+  | 'oneWayRelation'
 
 // ------------------------------------------------------------------ relations
 
@@ -175,7 +195,9 @@ class IssueGraph {
           ? undefined
           : this.links.find((l) => (side === 'one' ? l.name : l.spec.inverse) === relation)
       if (found === undefined) {
-        throw new Error(`[probe-arm] ${from}.${relation} is not maintained by the probe reference arm`)
+        throw new Error(
+          `[probe-arm] ${from}.${relation} is not maintained by the probe reference arm`,
+        )
       }
       return found
     }
@@ -237,7 +259,8 @@ function keepPrior(
 ): boolean {
   if (isDeepStrictEqual(prior, fresh)) return true
   // PLANTED (P1): `title` is not among the row's declared inputs.
-  if (plant === 'omittedInput' && isDeepStrictEqual({ ...fresh, title: prior.title }, prior)) return true
+  if (plant === 'omittedInput' && isDeepStrictEqual({ ...fresh, title: prior.title }, prior))
+    return true
   if (plant === 'guardSet' && trigger === 'rows') {
     // PLANTED (P4): plain state read inside the derivation, tracked by nothing.
     if (guard.has(fresh.id)) return true
@@ -334,7 +357,11 @@ export function probeReferenceArmFor(
   plant: ProbePlant | null = null,
 ): CheckableArm {
   return {
-    create(source: RowSource, channel: LocalsSource, reads: ReadFence = DISABLED_READ_FENCE): ProbeArmHandle {
+    create(
+      source: RowSource,
+      channel: LocalsSource,
+      reads: ReadFence = DISABLED_READ_FENCE,
+    ): ProbeArmHandle {
       const stats = zeroStats()
       const graph = new IssueGraph(plant, stats)
       graph.replace(source.snapshot('issue'))

@@ -16,4 +16,10 @@ export * from './run'
 export { evictIndexCleanup, missingInverse, omittedInput, rowScan, untrackedState }
 
 /** The five probes, in catalogue order. */
-export const PROBES: readonly Probe[] = [omittedInput, evictIndexCleanup, rowScan, untrackedState, missingInverse]
+export const PROBES: readonly Probe[] = [
+  omittedInput,
+  evictIndexCleanup,
+  rowScan,
+  untrackedState,
+  missingInverse,
+]

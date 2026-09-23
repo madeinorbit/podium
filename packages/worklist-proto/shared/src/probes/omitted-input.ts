@@ -3,8 +3,8 @@
  * invalidation does not know about.
  */
 
-import { firing } from './run'
 import type { Probe } from './probe'
+import { firing } from './run'
 
 const HOLDER = `/** The fixture pool: tables of borrowed rows. */
 export class Pool {
@@ -34,21 +34,21 @@ export const omittedInput: Probe = {
         'Equivalent forms (plant ONE): copy `row.title` into a plain field at ingest and read the copy; or give the part a custom `equals` that ignores `title`.',
         'Do not touch any other part: other fields must stay tracked, so the row still redraws when they move (the heal the probe must see through).',
       ],
-      revert: 'Remove the `untracked` wrapper (or the copy, or the comparer) and re-run the probe: the behaviour test and the gate go green.',
+      revert:
+        'Remove the `untracked` wrapper (or the copy, or the comparer) and re-run the probe: the behaviour test and the gate go green.',
     },
     hand: {
       where:
         "The per-row invalidation map: the declaration of which feed fields dirty which row-view part (the arm's input list for its own-row part; L1b row view contract §2 names the inputs).",
       patch: [
-        "Remove `title` from the fields that dirty the own-row part (or from whatever list decides that an issue update needs its row re-derived).",
+        'Remove `title` from the fields that dirty the own-row part (or from whatever list decides that an issue update needs its row re-derived).',
         'If the arm types that map exhaustively over the row fields, the patch will not compile: record that (typecheck FIRED) and plant the runtime form instead: filter `title` out where the changed fields are computed.',
       ],
       revert: 'Restore the field in the map and re-run the probe.',
     },
   },
   behaviour: {
-    test:
-      "Every input a row reads reaches the row: after a change to one input alone (a session's phase #2, the selection #3, the title #4, the clock across a deadline #8b; a title edit accepted and echoed, a second edit rejected after a remote update landed on it), the arm's snapshot equals the oracle's and its own rebuild.",
+    test: "Every input a row reads reaches the row: after a change to one input alone (a session's phase #2, the selection #3, the title #4, the clock across a deadline #8b; a title edit accepted and echoed, a second edit rejected after a remote update landed on it), the arm's snapshot equals the oracle's and its own rebuild.",
     needs: ['parity', 'gate'],
     steps: ['#2', '#3', '#4', '#8b'],
     sequences: [
@@ -72,7 +72,10 @@ export const omittedInput: Probe = {
     {
       instrument: 'typecheck',
       mobx: 'silent',
-      hand: { firesIf: 'the arm types its input map exhaustively over the row fields (K hand D: the never-check fires when a kind is added unhandled)' },
+      hand: {
+        firesIf:
+          'the arm types its input map exhaustively over the row fields (K hand D: the never-check fires when a kind is added unhandled)',
+      },
       reference: 'not-run',
       control: 'not-run',
       why: 'An untracked read and a shorter list are both well-typed; only an exhaustive map turns the omission into a type error.',
@@ -143,7 +146,10 @@ export const omittedInput: Probe = {
     },
     {
       instrument: 'arm-tests',
-      mobx: { firesIf: 'the suite has a title-only change on a row it asserts (round two: none did, the input rode no corpus row)' },
+      mobx: {
+        firesIf:
+          'the suite has a title-only change on a row it asserts (round two: none did, the input rode no corpus row)',
+      },
       hand: { firesIf: 'the suite has a title-only change on a row it asserts' },
       reference: 'not-run',
       control: 'not-run',

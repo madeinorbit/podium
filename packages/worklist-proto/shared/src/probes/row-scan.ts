@@ -3,8 +3,8 @@
  * entity table on every draw.
  */
 
-import { firing } from './run'
 import type { Probe } from './probe'
+import { firing } from './run'
 
 const ROW_HEAD = `import type { ReactElement } from 'react'
 import { useContext } from 'react'
@@ -26,12 +26,12 @@ export const rowScan: Probe = {
   recipes: {
     mobx: {
       where:
-        'The row component (L1b: `Row({ row })`, rendered through `RowShell`; the module the arm\'s `fence.json` lists under `rows`).',
+        "The row component (L1b: `Row({ row })`, rendered through `RowShell`; the module the arm's `fence.json` lists under `rows`).",
       patch: [
-        "Give the row a way to the pool: a React context the list provides (`createContext` in a module that imports the pool type only), read with `useContext` in the row.",
+        'Give the row a way to the pool: a React context the list provides (`createContext` in a module that imports the pool type only), read with `useContext` in the row.',
         "Inside the row's render, walk an entity table the pool exposes (`for (const issue of table.values()) if (issue.parentId === row.id) children += 1`) and render the count.",
         'Keep the row an `observer`: the walk then subscribes the row to every issue (K MobX F).',
-        'Write the walk over a local alias (`const table = pool.<issue table>`) so the lint fence\'s syntactic rule does not see it; record separately whether the direct form (`pool.<table>.values()`) is caught.',
+        "Write the walk over a local alias (`const table = pool.<issue table>`) so the lint fence's syntactic rule does not see it; record separately whether the direct form (`pool.<table>.values()`) is caught.",
       ],
       revert: 'Remove the context read and the walk; re-run the probe.',
     },
@@ -44,8 +44,7 @@ export const rowScan: Probe = {
     },
   },
   behaviour: {
-    test:
-      'A row draw reads only its row: on a change that redraws one row (#2 its session\'s phase, #4 its title), the reads per change stay within the step\'s budget and exactly the changed row redraws.',
+    test: "A row draw reads only its row: on a change that redraws one row (#2 its session's phase, #4 its title), the reads per change stay within the step's budget and exactly the changed row redraws.",
     needs: ['reads-fence', 'commit-fence'],
     steps: ['#2', '#4'],
     sequences: [],
@@ -62,7 +61,10 @@ export const rowScan: Probe = {
     },
     {
       instrument: 'lint-fence',
-      mobx: { firesIf: 'the walk is written over the declared table name, or the row imports a store module by value (measured: both fire on the direct shape, neither on an alias through a type-only context module)' },
+      mobx: {
+        firesIf:
+          'the walk is written over the declared table name, or the row imports a store module by value (measured: both fire on the direct shape, neither on an alias through a type-only context module)',
+      },
       hand: { firesIf: 'as for MobX: the rule is syntactic' },
       reference: 'blind',
       control: 'blind',
@@ -118,7 +120,10 @@ export const rowScan: Probe = {
     },
     {
       instrument: 'arm-tests',
-      mobx: { firesIf: 'the suite asserts exact commitsByRow on a change (K MobX F: `mobx.ui.test.tsx` did)' },
+      mobx: {
+        firesIf:
+          'the suite asserts exact commitsByRow on a change (K MobX F: `mobx.ui.test.tsx` did)',
+      },
       hand: 'silent',
       reference: 'not-run',
       control: 'not-run',

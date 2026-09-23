@@ -45,6 +45,8 @@ describe('probe lint plants, through the lint fence', () => {
   }
 
   it('every probe has at least one lint plant', () => {
-    expect(PROBES.filter((probe) => probe.lintPlants.length === 0).map((probe) => probe.id)).toEqual([])
+    expect(
+      PROBES.filter((probe) => probe.lintPlants.length === 0).map((probe) => probe.id),
+    ).toEqual([])
   })
 })

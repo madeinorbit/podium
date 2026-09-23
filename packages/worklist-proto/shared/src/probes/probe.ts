@@ -24,9 +24,9 @@
  * it CAN fire; its clean twin passes the same run.
  */
 
+import type { FixtureCorpus } from '../../../harness/src/fixture/index'
 import type { ProbePlant } from '../../../harness/src/reference-arm/probe-arm'
 import type { Arm } from '../arm'
-import type { FixtureCorpus } from '../../../harness/src/fixture/index'
 import type { Change } from '../gen/changes'
 import type { RowSourceMode } from '../row-source'
 import type { ScenarioEngine, ScenarioTargets } from '../scenarios'
@@ -143,7 +143,19 @@ export interface LintPlant {
 }
 
 /** A fence step the probe runs, each on a fresh engine. */
-export type FenceStepName = '#1' | '#2' | '#3' | '#4' | '#5' | '#6a' | '#6b' | '#6c' | '#6d' | '#7' | '#8' | '#8b'
+export type FenceStepName =
+  | '#1'
+  | '#2'
+  | '#3'
+  | '#4'
+  | '#5'
+  | '#6a'
+  | '#6b'
+  | '#6c'
+  | '#6d'
+  | '#7'
+  | '#8'
+  | '#8b'
 
 export interface ProbeSequence {
   name: string

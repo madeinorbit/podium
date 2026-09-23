@@ -22,25 +22,25 @@
  */
 
 import { afterAll, describe, expect, it } from 'vitest'
+import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
 import { legacyControlArmFor } from '../../../harness/src/legacy-control/arm'
 import { type ProbePlant, probeReferenceArmFor } from '../../../harness/src/reference-arm/probe-arm'
 import { writeResult } from '../../../harness/src/results'
 import {
   type ControlExpectation,
   type DetectorVerdict,
+  evictIndexCleanup,
+  missingInverse,
   PROBES,
   type Probe,
   type ProbeRun,
   type ProbeSubject,
   type ReferenceExpectation,
   runProbe,
-  missingInverse,
   runProbeSequence,
   untrackedState,
-  evictIndexCleanup,
   verdicts,
 } from './index'
-import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
 
 const TIMEOUT = 10 * 60_000
 
@@ -83,13 +83,17 @@ function mismatches(probe: Probe, run: ProbeRun, column: 'reference' | 'control'
     const cell = detector[column]
     return matches(cell, v)
       ? []
-      : [`${detector.instrument}: expected ${cell}, got ${v.verdict}${v.blind ? ' (blind)' : ''} — ${v.evidence}`]
+      : [
+          `${detector.instrument}: expected ${cell}, got ${v.verdict}${v.blind ? ' (blind)' : ''} — ${v.evidence}`,
+        ]
   })
 }
 
 function skippedChanges(run: ProbeRun): string[] {
   return run.sequences.flatMap((q) =>
-    q.steps.filter((s) => s.skipped !== undefined).map((s) => `${q.name} step ${s.index}: ${s.skipped}`),
+    q.steps
+      .filter((s) => s.skipped !== undefined)
+      .map((s) => `${q.name} step ${s.index}: ${s.skipped}`),
   )
 }
 
@@ -113,48 +117,69 @@ afterAll(() => {
 
 for (const probe of PROBES) {
   describe(`${probe.id}: ${probe.title}`, () => {
-    it('the clean reference arm passes: every instrument silent, none blind', async () => {
-      const run = await runProbe(probe, reference(null))
-      expect(skippedChanges(run)).toEqual([])
-      const got = verdicts(probe, run)
-      const loud = got.filter((v) => v.verdict === 'FIRED').map((v) => `${v.instrument}: ${v.evidence}`)
-      expect(loud).toEqual([])
-      // Not blind where the planted arm is expected to see something.
-      const blind = got
-        .filter((v, i) => v.blind !== undefined && probe.detectors[i]?.reference !== 'blind')
-        .map((v) => `${v.instrument}: ${v.blind}`)
-      expect(blind).toEqual([])
-      if (probe.behaviour.needs.includes('relation-check')) {
-        const edges = [...run.steps.map((s) => s.relations?.edges ?? 0), ...run.sequences.flatMap((q) => q.steps.map((s) => s.relations?.edges ?? 0))]
-        expect(Math.min(...edges)).toBeGreaterThan(0)
-      }
-    }, TIMEOUT)
+    it(
+      'the clean reference arm passes: every instrument silent, none blind',
+      async () => {
+        const run = await runProbe(probe, reference(null))
+        expect(skippedChanges(run)).toEqual([])
+        const got = verdicts(probe, run)
+        const loud = got
+          .filter((v) => v.verdict === 'FIRED')
+          .map((v) => `${v.instrument}: ${v.evidence}`)
+        expect(loud).toEqual([])
+        // Not blind where the planted arm is expected to see something.
+        const blind = got
+          .filter((v, i) => v.blind !== undefined && probe.detectors[i]?.reference !== 'blind')
+          .map((v) => `${v.instrument}: ${v.blind}`)
+        expect(blind).toEqual([])
+        if (probe.behaviour.needs.includes('relation-check')) {
+          const edges = [
+            ...run.steps.map((s) => s.relations?.edges ?? 0),
+            ...run.sequences.flatMap((q) => q.steps.map((s) => s.relations?.edges ?? 0)),
+          ]
+          expect(Math.min(...edges)).toBeGreaterThan(0)
+        }
+      },
+      TIMEOUT,
+    )
 
-    it(`the planted reference arm (${probe.referencePlant}) fails the behaviour test, and each instrument does what the catalogue says`, async () => {
-      const run = await runProbe(probe, reference(probe.referencePlant))
-      planted[probe.id] = record(probe, run)
-      expect(skippedChanges(run)).toEqual([])
-      expect(probe.behaviour.failure(run)).not.toBeNull()
-      expect(mismatches(probe, run, 'reference')).toEqual([])
-    }, TIMEOUT)
+    it(
+      `the planted reference arm (${probe.referencePlant}) fails the behaviour test, and each instrument does what the catalogue says`,
+      async () => {
+        const run = await runProbe(probe, reference(probe.referencePlant))
+        planted[probe.id] = record(probe, run)
+        expect(skippedChanges(run)).toEqual([])
+        expect(probe.behaviour.failure(run)).not.toBeNull()
+        expect(mismatches(probe, run, 'reference')).toEqual([])
+      },
+      TIMEOUT,
+    )
 
-    it('the legacy control (unplanted) records the baseline: SILENT where it lacks the detector', async () => {
-      const run = await runProbe(probe, CONTROL)
-      baseline[probe.id] = record(probe, run)
-      expect(mismatches(probe, run, 'control')).toEqual([])
-    }, TIMEOUT)
+    it(
+      'the legacy control (unplanted) records the baseline: SILENT where it lacks the detector',
+      async () => {
+        const run = await runProbe(probe, CONTROL)
+        baseline[probe.id] = record(probe, run)
+        expect(mismatches(probe, run, 'control')).toEqual([])
+      },
+      TIMEOUT,
+    )
   })
 }
 
 describe('P4 is history, not inputs', () => {
-  it('the planted guard passes the sequence with a tick between the two changes and fails the one without', async () => {
-    const run = await runProbe(untrackedState, reference('guardSet'), { noGate: true })
-    const [without, ticked] = run.sequences
-    expect(without?.name).toBe('same row twice, nothing between')
-    expect(without?.steps.map((s) => s.history !== null)).toEqual([false, false, false, true])
-    expect(ticked?.name).toBe('same row twice, a tick between')
-    expect(ticked?.steps.map((s) => s.history)).toEqual([null, null, null])
-  }, TIMEOUT)
+  it(
+    'the planted guard passes the sequence with a tick between the two changes and fails the one without',
+    async () => {
+      const run = await runProbe(untrackedState, reference('guardSet'), { noGate: true })
+      const [without, ticked] = run.sequences
+      expect(without?.name).toBe('same row twice, nothing between')
+      expect(without?.steps.map((s) => s.history !== null)).toEqual([false, false, false, true])
+      expect(ticked?.name).toBe('same row twice, a tick between')
+      expect(ticked?.steps.map((s) => s.history)).toEqual([null, null, null])
+    },
+    TIMEOUT,
+  )
 })
 
 describe('the relation check on a real round-three arm (the MobX pool, clean)', () => {
@@ -170,14 +195,20 @@ describe('the relation check on a real round-three arm (the MobX pool, clean)', 
     oracle: false,
   }
   for (const probe of [evictIndexCleanup, missingInverse]) {
-    it(`${probe.id}: every declared relation agrees after every change, and the check saw edges`, async () => {
-      for (const sequence of probe.behaviour.sequences) {
-        const { record: out, relationsSeen } = await runProbeSequence(MOBX_POOL, sequence, { noGate: true })
-        expect(relationsSeen).toBe(true)
-        expect(out.steps.filter((s) => s.skipped !== undefined)).toEqual([])
-        expect(out.steps.flatMap((s) => s.relations?.problems ?? ['no reader'])).toEqual([])
-        expect(Math.min(...out.steps.map((s) => s.relations?.edges ?? 0))).toBeGreaterThan(1000)
-      }
-    }, TIMEOUT)
+    it(
+      `${probe.id}: every declared relation agrees after every change, and the check saw edges`,
+      async () => {
+        for (const sequence of probe.behaviour.sequences) {
+          const { record: out, relationsSeen } = await runProbeSequence(MOBX_POOL, sequence, {
+            noGate: true,
+          })
+          expect(relationsSeen).toBe(true)
+          expect(out.steps.filter((s) => s.skipped !== undefined)).toEqual([])
+          expect(out.steps.flatMap((s) => s.relations?.problems ?? ['no reader'])).toEqual([])
+          expect(Math.min(...out.steps.map((s) => s.relations?.edges ?? 0))).toBeGreaterThan(1000)
+        }
+      },
+      TIMEOUT,
+    )
   }
 })

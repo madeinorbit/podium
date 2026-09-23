@@ -3,8 +3,8 @@
  * moves the reference and leaves the inverse collection where it was.
  */
 
-import { firing } from './run'
 import type { Probe } from './probe'
+import { firing } from './run'
 
 export const missingInverse: Probe = {
   id: 'P5-missing-inverse',
@@ -22,30 +22,32 @@ export const missingInverse: Probe = {
       where:
         "The pool's update path (schema doc §4.2): relation maintenance for a row whose declared inputs changed (for a schema-driven pool, the generic function every relation goes through).",
       patch: [
-        'When the row already existed and still exists (an update, not an insert or a delete), write the new forward reference and return BEFORE detaching the row from the old target\'s inverse collection and attaching it to the new one.',
+        "When the row already existed and still exists (an update, not an insert or a delete), write the new forward reference and return BEFORE detaching the row from the old target's inverse collection and attaching it to the new one.",
         'Plant it for `issue.parent` → `children` at least; leave insert and delete maintaining both directions.',
       ],
       revert: 'Remove the early return and re-run the probe.',
     },
     hand: {
-      where: 'The update handler (schema doc §4.2): the detach-then-attach step for a relation whose foreign key or `where` fields changed.',
-      patch: ['Update the forward reference only; skip the inverse-collection move, for `issue.parent` → `children` at least.'],
+      where:
+        'The update handler (schema doc §4.2): the detach-then-attach step for a relation whose foreign key or `where` fields changed.',
+      patch: [
+        'Update the forward reference only; skip the inverse-collection move, for `issue.parent` → `children` at least.',
+      ],
       revert: 'Restore the move and re-run the probe.',
     },
   },
   behaviour: {
-    test:
-      'Both directions of every declared relation agree after every change that moves an edge: a reparent (#7; to a new parent, to root, back), and an archive and unarchive (a `where` field of `issue.parent`).',
+    test: 'Both directions of every declared relation agree after every change that moves an edge: a reparent (#7; to a new parent, to root, back), and an archive and unarchive (a `where` field of `issue.parent`).',
     needs: ['relation-check'],
     steps: ['#7'],
     sequences: [
       {
         name: 'reparent there and back, archive and unarchive',
-        why: "Steps 0–2 move one visible child to another parent, to the root and back to its original parent (each an update of `parentId`); steps 3–4 archive and unarchive it, which changes no foreign key but must drop and restore the parent edge (`where`, R1).",
+        why: 'Steps 0–2 move one visible child to another parent, to the root and back to its original parent (each an update of `parentId`); steps 3–4 archive and unarchive it, which changes no foreign key but must drop and restore the parent edge (`where`, R1).',
         build: (t, corpus) => {
-          const original = (corpus.issues as ReadonlyArray<{ id: string; parentId?: string | null }>).find(
-            (issue) => issue.id === t.reparentId,
-          )?.parentId
+          const original = (
+            corpus.issues as ReadonlyArray<{ id: string; parentId?: string | null }>
+          ).find((issue) => issue.id === t.reparentId)?.parentId
           if (original == null) throw new Error(`[P5] ${t.reparentId} has no parent in the corpus`)
           return [
             { kind: 'reparent', id: t.reparentId, parentId: t.reparentToId },
@@ -78,7 +80,10 @@ export const missingInverse: Probe = {
     },
     {
       instrument: 'commit-fence',
-      mobx: { firesIf: 'a row view reads the inverse collection (a parent\'s roll-up or nesting over `children`, the worklist phase): the old parent keeps and the new parent lacks the moved child' },
+      mobx: {
+        firesIf:
+          "a row view reads the inverse collection (a parent's roll-up or nesting over `children`, the worklist phase): the old parent keeps and the new parent lacks the moved child",
+      },
       hand: { firesIf: 'a row view reads the inverse collection' },
       reference: 'silent',
       control: 'fires-unplanted',
@@ -102,7 +107,10 @@ export const missingInverse: Probe = {
     },
     {
       instrument: 'gate',
-      mobx: { firesIf: 'a row view reads the inverse collection (the rebuild resolves relations from scratch)' },
+      mobx: {
+        firesIf:
+          'a row view reads the inverse collection (the rebuild resolves relations from scratch)',
+      },
       hand: { firesIf: 'a row view reads the inverse collection' },
       reference: 'silent',
       control: 'silent',
@@ -134,11 +142,14 @@ export const missingInverse: Probe = {
     },
     {
       instrument: 'arm-tests',
-      mobx: { firesIf: 'the suite checks relations against a from-scratch resolution after updates (the MobX pool gate does, POD-4566/4567 `diffRelations`)' },
+      mobx: {
+        firesIf:
+          'the suite checks relations against a from-scratch resolution after updates (the MobX pool gate does, POD-4566/4567 `diffRelations`)',
+      },
       hand: { firesIf: 'the suite checks both directions after an update' },
       reference: 'not-run',
       control: 'not-run',
-      why: 'The arm-private form of this probe\'s relation check.',
+      why: "The arm-private form of this probe's relation check.",
     },
   ],
   lintPlants: [

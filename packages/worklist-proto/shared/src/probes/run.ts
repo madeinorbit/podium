@@ -28,11 +28,8 @@
  * the reason in `blind`; the baseline reports it as such.
  */
 
+import { assertCommits, mountArmForCounts } from '../../../harness/src/count-harness'
 import { createEngineLocals } from '../../../harness/src/engine-locals'
-import {
-  assertCommits,
-  mountArmForCounts,
-} from '../../../harness/src/count-harness'
 import { FENCE_SCENARIOS, openFenceFeeds, runFenceStep } from '../../../harness/src/fence-scenarios'
 import type { ArmHandle, CheckableArm, CheckableArmHandle } from '../arm'
 import type { Change } from '../gen/changes'
@@ -46,14 +43,20 @@ import {
   type DetectorKind,
   type Expectation,
   type FenceStepName,
-  type Instrument,
   INSTRUMENT_KIND,
+  type Instrument,
   type Probe,
   type ProbeId,
   type ProbeSequence,
   type ProbeSubject,
 } from './probe'
-import { capturingFence, checkRelations, declaredLinks, feedRowIds, type RelationCheck } from './relations-check'
+import {
+  capturingFence,
+  checkRelations,
+  declaredLinks,
+  feedRowIds,
+  type RelationCheck,
+} from './relations-check'
 
 export interface StepRecord {
   step: FenceStepName
@@ -122,7 +125,10 @@ function messageOf(error: unknown): string {
 }
 
 /** One fence step on a fresh engine. */
-export async function runProbeStep(subject: ProbeSubject, step: FenceStepName): Promise<{ record: StepRecord; relationsSeen: boolean; checkable: boolean }> {
+export async function runProbeStep(
+  subject: ProbeSubject,
+  step: FenceStepName,
+): Promise<{ record: StepRecord; relationsSeen: boolean; checkable: boolean }> {
   const entry = FENCE_SCENARIOS.find((candidate) => candidate.methodology === step)
   if (entry === undefined) throw new Error(`[probe] no fence scenario ${step}`)
   const ctx = await startScenarioEngine(1)
@@ -151,11 +157,17 @@ export async function runProbeStep(subject: ProbeSubject, step: FenceStepName): 
         commits,
         reads: result.readsPerChange,
         readsBudget,
-        rebuild: checkable ? diffSnapshots(handle.snapshot(), handle.rebuildFromScratch()) : undefined,
+        rebuild: checkable
+          ? diffSnapshots(handle.snapshot(), handle.rebuildFromScratch())
+          : undefined,
         relations:
           reader === null
             ? null
-            : checkRelations(reader, feedRowIds(feeds.rows.source), subject.relations ?? declaredLinks()),
+            : checkRelations(
+                reader,
+                feedRowIds(feeds.rows.source),
+                subject.relations ?? declaredLinks(),
+              ),
       },
       relationsSeen: reader !== null,
       checkable,
@@ -247,13 +259,23 @@ export async function runProbeSequence(
     })
     gate = result.ok
       ? { ok: true }
-      : { ok: false, step: result.step, against: result.against, diff: result.diff, shrunk: result.shrunk }
+      : {
+          ok: false,
+          step: result.step,
+          against: result.against,
+          diff: result.diff,
+          shrunk: result.shrunk,
+        }
   }
   return { record: { name: sequence.name, steps, gate }, relationsSeen, checkable }
 }
 
 /** Run the probe's whole behaviour against one subject. */
-export async function runProbe(probe: Probe, subject: ProbeSubject, opts: RunOptions = {}): Promise<ProbeRun> {
+export async function runProbe(
+  probe: Probe,
+  subject: ProbeSubject,
+  opts: RunOptions = {},
+): Promise<ProbeRun> {
   const steps: StepRecord[] = []
   const sequences: SequenceRecord[] = []
   let relationsSeen = false
@@ -308,7 +330,9 @@ function firstStep<T>(items: readonly T[], pick: (item: T) => string | null): st
 function relationFiring(run: ProbeRun): string | null {
   return (
     firstStep(run.steps, (s) =>
-      s.relations !== null && s.relations.total > 0 ? `${s.step} ${s.scenario}: ${s.relations.problems[0]} (${s.relations.total} in all)` : null,
+      s.relations !== null && s.relations.total > 0
+        ? `${s.step} ${s.scenario}: ${s.relations.problems[0]} (${s.relations.total} in all)`
+        : null,
     ) ??
     firstStep(run.sequences, (q) =>
       firstStep(q.steps, (s) =>
@@ -335,22 +359,30 @@ export function firing(run: ProbeRun, instrument: Instrument): string | null {
       return firstStep(run.steps, (s) => (s.commits === null ? null : `${s.step}: ${s.commits}`))
     case 'reads-fence':
       return firstStep(run.steps, (s) =>
-        s.reads !== null && s.reads > s.readsBudget ? `${s.step} ${s.scenario}: read ${s.reads} rows, budget ${s.readsBudget}` : null,
+        s.reads !== null && s.reads > s.readsBudget
+          ? `${s.step} ${s.scenario}: read ${s.reads} rows, budget ${s.readsBudget}`
+          : null,
       )
     case 'parity':
-      return firstStep(run.steps, (s) => (s.parity ? null : `${s.step} ${s.scenario}: ${s.parityDiff ?? ''}`))
+      return firstStep(run.steps, (s) =>
+        s.parity ? null : `${s.step} ${s.scenario}: ${s.parityDiff ?? ''}`,
+      )
     case 'gate':
       return (
         gateFiring(run) ??
         firstStep(run.steps, (s) =>
-          typeof s.rebuild === 'string' ? `${s.step} ${s.scenario} against the rebuild: ${s.rebuild.split('\n')[0]}` : null,
+          typeof s.rebuild === 'string'
+            ? `${s.step} ${s.scenario} against the rebuild: ${s.rebuild.split('\n')[0]}`
+            : null,
         )
       )
     case 'relation-check':
       return relationFiring(run)
     case 'history-check':
       return firstStep(run.sequences, (q) =>
-        firstStep(q.steps, (s) => (s.history === null ? null : `${q.name} step ${s.index} (${s.change.kind}): ${s.history}`)),
+        firstStep(q.steps, (s) =>
+          s.history === null ? null : `${q.name} step ${s.index} (${s.change.kind}): ${s.history}`,
+        ),
       )
     default:
       return null
@@ -362,8 +394,12 @@ function blindness(run: ProbeRun, instrument: Instrument): string | undefined {
     return 'the arm handed the fence no RelationReader: there is no graph to check'
   }
   if (instrument === 'gate' && !run.checkable) return 'the arm has no rebuildFromScratch'
-  if (instrument === 'history-check' && run.sequences.length === 0) return 'the probe runs no sequence'
-  if ((instrument === 'commit-fence' || instrument === 'reads-fence' || instrument === 'parity') && run.steps.length === 0) {
+  if (instrument === 'history-check' && run.sequences.length === 0)
+    return 'the probe runs no sequence'
+  if (
+    (instrument === 'commit-fence' || instrument === 'reads-fence' || instrument === 'parity') &&
+    run.steps.length === 0
+  ) {
     return 'the probe runs no fence step'
   }
   return undefined

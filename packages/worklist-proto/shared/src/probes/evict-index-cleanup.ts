@@ -3,8 +3,8 @@
  * evicted row stays in the collections that held it.
  */
 
-import { firing } from './run'
 import type { Probe } from './probe'
+import { firing } from './run'
 
 const STORE = (body: string): string => `/** The fixture pool: tables of borrowed rows. */
 export class Pool {
@@ -26,7 +26,7 @@ export const evictIndexCleanup: Probe = {
   mistake:
     "A row arriving with `value: undefined` (a delete or an eviction) is removed from its table but left in the inverse collections that held it, so a parent's `children` still names a row the pool no longer has.",
   provenance: [
-    "K MobX exercise Table 2 row E: orphan-block and session-seat deletes removed; the screen stays right (every read re-checks the table), only the bucket-level unit test `removal disposes buckets` (mobx.test.ts:375) fires",
+    'K MobX exercise Table 2 row E: orphan-block and session-seat deletes removed; the screen stays right (every read re-checks the table), only the bucket-level unit test `removal disposes buckets` (mobx.test.ts:375) fires',
     'K hand exercise row E: the same omission shows a ghost row on screen',
     'Audit §3.3: the hand arm re-adds an evicted row and never re-seats its relations (the generator shape `evictThenReAdd`)',
     'Schema doc §4.3 (delete): the pool removes the instance from the inverse collection on the other side; others keep the reference id',
@@ -37,7 +37,7 @@ export const evictIndexCleanup: Probe = {
       where:
         "The pool's delete path (schema doc §4.3): the relation maintenance the pool runs after the table write for a row arriving with `value: undefined` (for a schema-driven pool, the one generic maintenance function every relation goes through).",
       patch: [
-        'When the incoming value is undefined, return from relation maintenance after the table delete, BEFORE the row is removed from its targets\' inverse collections (for `issue.parent`: leave its id in the parent\'s `children`).',
+        "When the incoming value is undefined, return from relation maintenance after the table delete, BEFORE the row is removed from its targets' inverse collections (for `issue.parent`: leave its id in the parent's `children`).",
         'Keep every other step: the table delete, the forward reference removal, the insert and update paths.',
       ],
       revert: 'Remove the early return and re-run the probe.',
@@ -46,14 +46,13 @@ export const evictIndexCleanup: Probe = {
       where:
         "The delete handler (schema doc §4.3): the walk over the deleted row's declared relations that removes it from each target's inverse collection.",
       patch: [
-        "Skip the inverse-collection removal for the deleted row (keep the table delete and the forward entry removal), for at least `issue.parent` → `children`.",
+        'Skip the inverse-collection removal for the deleted row (keep the table delete and the forward entry removal), for at least `issue.parent` → `children`.',
       ],
       revert: 'Restore the removal and re-run the probe.',
     },
   },
   behaviour: {
-    test:
-      'An evicted or deleted row leaves every collection that held it, and a re-added row is found again: after every eviction (#6c, #6d; a child, a parent with children), re-add and deletion, no collection yields a row the feed does not hold, both directions of every relation agree, and the snapshot equals its rebuild and the oracle.',
+    test: 'An evicted or deleted row leaves every collection that held it, and a re-added row is found again: after every eviction (#6c, #6d; a child, a parent with children), re-add and deletion, no collection yields a row the feed does not hold, both directions of every relation agree, and the snapshot equals its rebuild and the oracle.',
     needs: ['relation-check'],
     steps: ['#6c', '#6d'],
     sequences: [
@@ -90,8 +89,14 @@ export const evictIndexCleanup: Probe = {
     },
     {
       instrument: 'commit-fence',
-      mobx: { firesIf: 'a row view reads the collection without re-checking the table (the hand ghost, K hand E); K MobX E: silent, every read guards' },
-      hand: { firesIf: 'a row view reads the collection without re-checking the table (K hand E: it does)' },
+      mobx: {
+        firesIf:
+          'a row view reads the collection without re-checking the table (the hand ghost, K hand E); K MobX E: silent, every read guards',
+      },
+      hand: {
+        firesIf:
+          'a row view reads the collection without re-checking the table (K hand E: it does)',
+      },
       reference: 'silent',
       control: 'fires-unplanted',
       why: 'The reference arm fails SOFT: its views never read the index, the variant only a graph check sees.',
@@ -114,7 +119,10 @@ export const evictIndexCleanup: Probe = {
     },
     {
       instrument: 'gate',
-      mobx: { firesIf: 'a row view reads the collection unguarded (the rebuild resolves relations from scratch)' },
+      mobx: {
+        firesIf:
+          'a row view reads the collection unguarded (the rebuild resolves relations from scratch)',
+      },
       hand: { firesIf: 'a row view reads the collection unguarded' },
       reference: 'silent',
       control: 'silent',
@@ -146,7 +154,10 @@ export const evictIndexCleanup: Probe = {
     },
     {
       instrument: 'arm-tests',
-      mobx: { firesIf: 'the suite asserts buckets after a removal (K MobX E: `removal disposes buckets` did)' },
+      mobx: {
+        firesIf:
+          'the suite asserts buckets after a removal (K MobX E: `removal disposes buckets` did)',
+      },
       hand: { firesIf: 'the suite asserts buckets after a removal' },
       reference: 'not-run',
       control: 'not-run',

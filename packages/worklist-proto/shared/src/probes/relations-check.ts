@@ -29,8 +29,8 @@
  * id"), and a collection of an absent target is not read.
  */
 
-import type { ReadFence, RelationReader } from '../instrument/reads'
 import type { RowSource } from '../arm'
+import type { ReadFence, RelationReader } from '../instrument/reads'
 import { type EntityName, type ModelSchema, SCHEMA } from '../schema'
 import type { RelationRef } from './probe'
 
@@ -121,7 +121,9 @@ export function checkRelations(
         edges += 1
         if (toIds !== undefined && !toIds.has(y)) continue // a kept reference id (§4.3)
         if (![...reader.many(to, y, inverse)].includes(x)) {
-          report(`one-way: ${from}:${x}.${relation} = ${to}:${y}, but ${to}:${y}.${inverse} does not hold ${x}`)
+          report(
+            `one-way: ${from}:${x}.${relation} = ${to}:${y}, but ${to}:${y}.${inverse} does not hold ${x}`,
+          )
         }
       }
     }
@@ -135,7 +137,9 @@ export function checkRelations(
           }
           const back = reader.one(from, x, relation)
           if (back !== y) {
-            report(`one-way: ${to}:${y}.${inverse} holds ${x}, but ${from}:${x}.${relation} = ${back ?? 'null'}`)
+            report(
+              `one-way: ${to}:${y}.${inverse} holds ${x}, but ${from}:${x}.${relation} = ${back ?? 'null'}`,
+            )
           }
         }
       }
