@@ -39,9 +39,9 @@ import type { SliceSnapshot } from '../../shared/src/slice-types'
 import type { ArmStats } from '../../shared/src/stats'
 import { oracleSnapshot, rowViewsFromStore } from '../src/oracle/index'
 
-/** Rows drawn: about one window of the arms' lists (17 at 1600×1000), plus
- *  the library's click targets. */
-const DRAWN_ROWS = 20
+/** Rows drawn: the first window (`FIRST_WINDOW_ROWS`) plus the rows a page's
+ *  stage moves pull into it (one per round), like a windowed arm's overscan. */
+const DRAWN_ROWS = 24
 
 const NOOP_ACTIONS: RowActions = { select: () => {} }
 
@@ -79,12 +79,7 @@ export function readPlant(): NoopPlant {
   return { kind, ms: Number(ms) }
 }
 
-/** `mustDraw`: rows drawn even when outside the first window (the library's click targets). */
-export function noopArmFor(
-  boot: ScenarioEngine,
-  mustDraw: readonly string[],
-  plant: NoopPlant = null,
-): Arm {
+export function noopArmFor(boot: ScenarioEngine, plant: NoopPlant = null): Arm {
   return {
     create(source, locals): ArmHandle {
       let redraw = (): void => {}
@@ -105,9 +100,7 @@ export function noopArmFor(
       const frozen: SliceSnapshot = oracleSnapshot(store)
       const views = rowViewsFromStore(store, locals.get())
       const ordered = [...frozen.order.pinnedIds, ...frozen.order.groups.flatMap((g) => g.rowIds)]
-      const drawn = new Set(ordered.slice(0, DRAWN_ROWS))
-      for (const id of mustDraw) drawn.add(id)
-      const rows = [...drawn].flatMap((id) => (views[id] ? [views[id]] : []))
+      const rows = ordered.slice(0, DRAWN_ROWS).flatMap((id) => (views[id] ? [views[id]] : []))
       let root: ReturnType<typeof createRoot> | null = null
       return {
         snapshot: () => frozen,

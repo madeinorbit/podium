@@ -16,8 +16,7 @@ mountPage({
     readPlant() === null
       ? 'noop'
       : `noop+${new URLSearchParams(window.location.search).get('plant')}`,
-  createArm: () =>
-    noopArmFor(boot, [boot.targets.visibleRootId, boot.targets.markReadId], readPlant()),
+  createArm: () => noopArmFor(boot, readPlant()),
   source: source.source,
   boot,
   scale,

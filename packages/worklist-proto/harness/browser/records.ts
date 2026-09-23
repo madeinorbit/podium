@@ -44,6 +44,8 @@ export interface TimingRecord {
   heapBefore: HeapUsage | null
   heapAfter: HeapUsage | null
   mountedRows: number
+  /** Check mode (`--check`): the arm's redraw against the oracle over rows drawn before and after. */
+  oracle?: { changed: number; drawn: number; over: string[]; under: string[] } | null
   stats: ProtoScenarioResult['stats']
   loadavg: number
   uptime: number

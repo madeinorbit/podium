@@ -40,7 +40,7 @@ import { createServer, type Server } from 'node:http'
 import { loadavg, uptime } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { chromium } from '@playwright/test'
-import type { ProtoScenarioResult } from '../web/entrylib'
+import type { ProtoOracleCheck, ProtoScenarioResult } from '../web/entrylib'
 import {
   ARMS,
   type ArmName,
@@ -51,6 +51,10 @@ import {
   type ScenarioName,
   type TimingRecord,
 } from './records'
+
+/** The arms held to the oracle in check mode; the control (whole-list redraw)
+ *  and the no-op page (draws nothing) exist to fail it and are reported only. */
+const CANDIDATE_ARMS = new Set<ArmName>(['hand', 'mobx'])
 
 interface Args {
   arm: ArmName
@@ -64,6 +68,8 @@ interface Args {
   serve: string
   lease: boolean
   plant: string | null
+  check: boolean
+  offwindow: boolean
 }
 
 function parseArgs(argv: string[]): Args {
@@ -105,6 +111,12 @@ function parseArgs(argv: string[]): Args {
     lease: !argv.includes('--no-lease'),
     // A timer self-test plant on the noop page (`noop-arm.tsx`); never a floor run.
     plant: get('--plant') ?? null,
+    // Proof mode: every record compares the arm's redraw with the oracle's
+    // changed rows; a mismatch on a candidate arm fails the run.
+    check: argv.includes('--check'),
+    // Proof plant: the rename aims at the library's visibleRootId, off the
+    // windowed arms' first window; the run must fail there. Never a timing run.
+    offwindow: argv.includes('--offwindow'),
   }
 }
 
@@ -218,7 +230,8 @@ async function main(): Promise<number> {
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } })
     page.on('pageerror', (error) => fail(`page error: ${error.message}`))
     const plant = args.plant === null ? '' : `&plant=${encodeURIComponent(args.plant)}`
-    const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}${plant}`
+    const proof = `${args.check ? '&check=1' : ''}${args.offwindow ? '&offwindow=1' : ''}`
+    const url = `http://127.0.0.1:${args.port}/${args.arm}.html?scale=${args.scale}&sha=${runtimeSha}${plant}${proof}`
     await page.goto(url, { waitUntil: 'domcontentloaded' })
     await page.waitForFunction(
       () => (window as unknown as { __proto?: { ready: boolean } }).__proto?.ready !== undefined,
@@ -250,10 +263,15 @@ async function main(): Promise<number> {
         (_, i) => args.scenarios[(i + round) % args.scenarios.length] as ScenarioName,
       )
       for (const scenario of order) {
-        const heapBefore = await heap()
         let result: ProtoScenarioResult
+        let heapBefore: HeapUsage
+        let check: ProtoOracleCheck | null
         try {
+          // Pick and assert the drawn target (untimed), then the forced GC, then the change.
+          await page.evaluate((name) => window.__proto.prepare(name), scenario)
+          heapBefore = await heap()
           result = await page.evaluate((name) => window.__proto.runScenario(name), scenario)
+          check = await page.evaluate(() => window.__proto.verify())
         } catch (error) {
           fail(`${scenario}#${sample}: ${(error as Error).message.split('\n')[0]}`)
           return 2
@@ -280,6 +298,15 @@ async function main(): Promise<number> {
           heapBefore,
           heapAfter: await heap(),
           mountedRows: result.mountedRows,
+          oracle:
+            check === null
+              ? null
+              : {
+                  changed: check.changed.length,
+                  drawn: check.drawn.length,
+                  over: check.over,
+                  under: check.under,
+                },
           stats: result.stats,
           loadavg: load,
           uptime: uptime(),
@@ -288,6 +315,16 @@ async function main(): Promise<number> {
         output.records.push(record)
         if (load > args.maxLoad)
           fail(`load ${load.toFixed(2)} > ${args.maxLoad} at ${scenario}#${sample}`)
+        if (
+          args.check &&
+          check !== null &&
+          CANDIDATE_ARMS.has(args.arm) &&
+          (check.over.length > 0 || check.under.length > 0)
+        ) {
+          fail(
+            `${scenario}#${sample}: target ${result.target} redrew [${check.drawn.join(',')}], the oracle changed [${check.changed.join(',')}]`,
+          )
+        }
         if (record.strayCommits > 0) {
           fail(
             `${scenario}#${sample}: ${record.strayCommits} commit signals landed after the previous settle (work deferred past ${output.quietMs} ms cannot be attributed)`,
@@ -297,7 +334,9 @@ async function main(): Promise<number> {
           `[browser] ${args.arm}${args.plant ? `+${args.plant}` : ''} ${args.scale}x ${scenario}#${sample}${warmup ? ' (warm-up)' : ''}: ` +
             `actionMs=${record.actionMs.toFixed(2)} frameMs=${record.frameMs.toFixed(1)} ` +
             `by=${record.endedBy} commits=${record.commits} longTasks=${record.longTasks} ` +
-            `stray=${record.strayCommits} load=${load.toFixed(2)}`,
+            `stray=${record.strayCommits} target=${result.target}` +
+            `${check === null ? '' : ` oracle=${check.changed.length} drawn=${check.drawn.length} over=${check.over.length} under=${check.under.length}`}` +
+            ` load=${load.toFixed(2)}`,
         )
       }
     }
