@@ -62,6 +62,14 @@ change is POD-4665.
   `i1380` should have made it visible). An atom is now dropped only by the
   call that made it; `residency.test.tsx` "a cold row read by a derivation
   stays tracked..." fails with the old line.
+- **Second gate finding: an untracked node registry** (`worklist/visible.ts`
+  `VisibleCollection.nodes`). Parts look up other issues' nodes (a parent, a
+  child, a starter's owner); with a plain Map, a lookup that missed tracked
+  nothing, so an evicted parent re-added (gate seed 1, step 112, shrunk to
+  evict + reAdd of `i234`) never re-placed its descendants (5 rows missing).
+  The registry is now an observable map. Regression test in
+  `visible.test.tsx`; with the plain Map it fails ("rows missing: i355, i368").
+  Pitfall (j), in the arm's own memo.
 - **Not handled, named**: a started-by nesting cycle (legacy skips the edge
   that would close it, order-dependently); two present issues sharing a
   worktree that owns a starter session (legacy takes its list order, the
