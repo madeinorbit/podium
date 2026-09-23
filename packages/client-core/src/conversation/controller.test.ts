@@ -246,6 +246,66 @@ describe('conversation controller contract', () => {
     controller.dispose()
   })
 
+  it('a Stop that lands ends "just sent" at once, not at the send ceiling (POD-4654)', async () => {
+    // The phone's send resolves on ENQUEUE, and a Stop pressed at once retracts
+    // it before the agent sees it: no echo and no turn will ever move the
+    // session, so only the 30 s ceiling cleared the flag — and the Stop control
+    // it keeps up stayed on screen that long after a Stop that had worked.
+    const feed = transcript()
+    const timers: Array<() => void> = []
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: async () => ({ state: 'queued' }),
+      interrupt: async () => {},
+      clock: {
+        now: () => 0,
+        setTimeout: (callback) => timers.push(callback),
+        clearTimeout: () => {},
+        setInterval: () => 0,
+        clearInterval: () => {},
+      },
+    })
+    await controller.start()
+    controller.updateContext({ canInterrupt: true, agentPhase: 'idle', agentSince: 't0' })
+    await controller.submit({ text: 'Write the numbers from 1 to 400' })
+    expect(controller.getSnapshot().justSent).toBe(true)
+
+    expect(await controller.interrupt()).toBe(true)
+
+    expect(controller.getSnapshot().justSent).toBe(false)
+    controller.dispose()
+  })
+
+  it('a refused Stop leaves "just sent" to the send it did not stop', async () => {
+    const feed = transcript()
+    const controller = createConversationController({
+      sessionId: asSessionId('s1'),
+      transcript: feed.port,
+      createDeliveryId: () => 'msg-1',
+      deliver: async () => ({ state: 'queued' }),
+      interrupt: async () => {
+        throw new Error('agent is idle')
+      },
+      clock: {
+        now: () => 0,
+        setTimeout: () => 0,
+        clearTimeout: () => {},
+        setInterval: () => 0,
+        clearInterval: () => {},
+      },
+    })
+    await controller.start()
+    controller.updateContext({ canInterrupt: true, agentPhase: 'idle', agentSince: 't0' })
+    await controller.submit({ text: 'Write the numbers from 1 to 400' })
+
+    expect(await controller.interrupt()).toBe(false)
+
+    expect(controller.getSnapshot().justSent).toBe(true)
+    controller.dispose()
+  })
+
   it('rejects an older queue read after a newer snapshot lands', async () => {
     const feed = transcript()
     const reads: Array<ReturnType<typeof deferred<unknown>>> = []
