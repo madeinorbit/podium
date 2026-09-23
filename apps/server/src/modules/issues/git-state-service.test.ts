@@ -20,6 +20,8 @@ async function harness(
   opts: { storeBackedSettings?: boolean } = {},
 ) {
   const store = await openTestStore(':memory:')
+  // Issues are placed under a machine that REPORTED their repo (2b803efb5).
+  await store.repos.addRepo('/repo', store.hostMachineId)
   const broadcast = vi.fn()
   const repoOp = vi.fn(async (op: string, _cwd: string, args?: Record<string, string>) => {
     const key =

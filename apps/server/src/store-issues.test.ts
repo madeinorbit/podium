@@ -105,6 +105,9 @@ describe('store issues', () => {
 
   it('lists by repo and increments seq per repo_id', async () => {
     const s = await openTestStore(':memory:')
+    // A repo path resolves only through a machine that REPORTED it (2b803efb5):
+    // the rows' own machine reports both.
+    for (const repo of ['/r', '/other']) await s.repos.addRepo(repo, asMachineId('machine-1'))
     const rid = async (p: string) => await s.repos.resolveRepoIdForPath(p)
     expect(await s.issues.nextIssueSeq(await rid('/r'))).toBe(1)
     await s.issues.upsertIssue({

@@ -40,6 +40,7 @@ async function metaOffer(reg: SessionRegistry, sessionId: string) {
 describe('agent action offer [spec:SP-c7f1]', () => {
   it('setOffer surfaces on session meta with a createdAt; a second offer replaces it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -62,6 +63,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
     const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -86,6 +88,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
   it('clearOffer removes it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -105,6 +108,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
    */
   it('dismissOffer clears the offer it names, and leaves one that replaced it', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -241,6 +245,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     async function seeded() {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -300,6 +305,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       const dir = trackTmp('podium-offer-')
       const file = join(dir, 'store.db')
       const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+      await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -327,6 +333,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
      *  that clear a standing offer gate on the in-memory copy first. */
     it('clearing when there is no offer writes nothing and says nothing', async () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+      await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -371,6 +378,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
     const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -389,6 +397,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
     const reg = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -418,6 +427,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
   it('clears the offer when a message is queued to the session (a user turn)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg, () => {})
     // A session with no live daemon parks the send into the durable queue, which
     // is the clear-on-turn path a button click also rides through.
     const { sessionId } = await reg.modules.sessions.createSession({

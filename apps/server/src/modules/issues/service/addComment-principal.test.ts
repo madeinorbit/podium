@@ -32,6 +32,8 @@ import { sessionReadPorts } from '../../../test-support/session-facts'
 
 async function harness() {
   const store = await openTestStore(':memory:')
+  // An issue is placed under a machine that REPORTED its repo (2b803efb5).
+  await store.repos.addRepo('/r', store.hostMachineId)
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,

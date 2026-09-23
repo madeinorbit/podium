@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
+import { attachHostDaemon } from '../test-support/host-daemon'
 
 /**
  * THE LIVE RUNTIME TEARDOWN WAITS FOR THE OUTERMOST COMMIT [POD-3366, sites 6,
@@ -32,6 +33,8 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
+    // The host runs the sessions and reports the repo the issues sit under (2b803efb5).
+    await attachHostDaemon(registry, () => {}, { repos: ['/repo'] })
     return { store, registry }
   }
 

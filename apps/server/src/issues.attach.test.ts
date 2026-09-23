@@ -21,8 +21,14 @@ import { sessionReadPorts } from './test-support/session-facts'
 // issue-as-workspace: attachSession / drafts / origin persistence (spec
 // docs/internal/superpowers/specs/2026-07-06-issue-as-workspace-design.md).
 
-async function harness(sessions: SessionMeta[] = []) {
+async function harness(
+  sessions: SessionMeta[] = [],
+  { repos = ['/r', '/elsewhere'] }: { repos?: readonly string[] } = {},
+) {
   const store = await openTestStore(':memory:')
+  // Issues are placed under a machine that REPORTED their repo (2b803efb5), so
+  // the fixture repos are reported by the host machine.
+  for (const repo of repos) await store.repos.addRepo(repo, store.hostMachineId)
   const issueBySession = new Map<SessionId, IssueId | null>()
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -482,7 +488,8 @@ describe('soleOwnerForCwd', () => {
   })
 
   it('a registered repo main checkout never owns spawns ([spec:SP-595b] #582)', async () => {
-    const { svc, store } = await harness()
+    // `/r` is registered only AFTER the pre-existing claim below is modelled.
+    const { svc, store } = await harness([], { repos: ['/other'] })
     const squatter = await svc.create({ repoPath: '/other', title: 'Squatter', startNow: false })
     // Model a pre-existing claim: new claims on a registered root are refused.
     await svc.update(squatter.id, { worktreePath: '/r' })

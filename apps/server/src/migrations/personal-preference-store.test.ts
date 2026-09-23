@@ -37,7 +37,8 @@
  * concurrently, and pinning "last" makes a green test a function of merge order.
  */
 
-import { firstAdminMemberId, settingsPathsInTier } from '@podium/model'
+import { firstAdminMemberId, primeFirstAdminMember, settingsPathsInTier } from '@podium/model'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { UserPreferencesRepository } from '../store/user-preferences'
@@ -212,6 +213,10 @@ function preMigrationDb(blob: unknown = nestedBlob()): Db {
 const migrated = (blob?: unknown): Db => {
   const db = blob === undefined ? preMigrationDb() : preMigrationDb(blob)
   runDrizzleMigrations(db, throughThisMigration())
+  // The fixture's first admin is THIS database's, primed the way opening a test
+  // store primes it — never whichever store the worker happened to open last.
+  const admin = earliestAdminMember(db)
+  if (admin) primeFirstAdminMember(admin)
   return db
 }
 

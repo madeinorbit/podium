@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
-import { attachHostDaemon } from './test-support/host-daemon'
+import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
 
 /**
  * The nudge's own opening sentence, taken from the source of truth rather than
@@ -20,11 +20,22 @@ const TITLE_NUDGE = sessionTitleRule(0, []).split('\n')[0]
 
 type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
 
+/** Attach the relaying machine's fake daemon. Like a real daemon it confirms
+ *  every process retirement it is asked for (722704624), so a stop or close of
+ *  a session it runs is not left waiting on an answer this fixture never sends. */
+function attachRelayDaemon(
+  registry: SessionRegistry,
+  machineId: string,
+  transport: (msg: ControlMessage) => void,
+): Promise<void> {
+  return registry.gateway.attachDaemon(machineId, confirmingRetirement(registry, machineId, transport))
+}
+
 // Capture the agentRelayResult the registry sends back to a machine. attachDaemon registers
 // a daemon's control-message send fn (confirmed in wsServer.ts); the relay reply routes to it.
 function captureReply(registry: SessionRegistry, machineId: string): Promise<RelayResult> {
   return new Promise((resolve) => {
-    registry.gateway.attachDaemon(machineId, (msg) => {
+    attachRelayDaemon(registry, machineId, (msg) => {
       if (msg.type === 'agentRelayResult') resolve(msg)
     })
   })
@@ -59,6 +70,10 @@ describe('server agent relay handler (P1b)', () => {
       hostname: 'ludovico.local',
       tokenHash: 'hash-1',
       ownerUserId: firstAdminMemberId(),
+      // The relaying machine runs the calling sessions, so it is assigned agent
+      // execution and reports the fixture repo (2b803efb5 places a session only
+      // on an assigned, attached daemon and an issue only under a reporting one).
+      assignment: { server: false, agentExecution: true },
     })
     await store.machines.upsertMachine({
       id: 'm2',
@@ -69,8 +84,10 @@ describe('server agent relay handler (P1b)', () => {
     })
     await store.repos.addRepo('/home/a/src/podium', asMachineId(machineId))
     await store.repos.addRepo('/home/b/src/podium', asMachineId('m2'))
+    await store.repos.addRepo(repoPath, asMachineId(machineId))
     registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
+    await attachRelayDaemon(registry, machineId, () => {})
     // A is a subtree root with a worktree; a session runs INSIDE it → subtree cap rooted at A.
     // B is unrelated. (create + set worktreePath directly, as capabilityForSession's test does.)
     A = await registry.issues.create({ repoPath, title: 'epic root', startNow: false })
@@ -318,7 +335,7 @@ describe('server agent relay handler (P1b)', () => {
     it('routes a capability-scoped re-probe to the selected online machine', async () => {
       const sent: ControlMessage[] = []
       const reply = new Promise<RelayResult>((resolve) => {
-        registry.gateway.attachDaemon(machineId, (message) => {
+        attachRelayDaemon(registry, machineId, (message) => {
           sent.push(message)
           if (message.type === 'agentRelayResult') resolve(message)
         })
@@ -362,7 +379,7 @@ describe('server agent relay handler (P1b)', () => {
 
   it('relays the read-only multi-machine quota summary used by the panel', async () => {
     const reply = new Promise<RelayResult>((resolve) => {
-      registry.gateway.attachDaemon(machineId, (msg) => {
+      attachRelayDaemon(registry, machineId, (msg) => {
         if (msg.type === 'agentQuotaRequest') {
           registry.gateway.routeDaemonFrame(machineId, {
             type: 'agentQuotaResult',
@@ -546,6 +563,8 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    // The host runs the sessions and reports the repo their issues sit under.
+    await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     A = await registry.issues.create({ repoPath, title: 'stop root', startNow: false })
     await registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-stop-a' })
     wtA = (await registry.issues.get(A.id))?.worktreePath as string
@@ -577,7 +596,7 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
   })
 
   it('self-stop is free and reports deferredKill for after-reply arming', async () => {
-    registry.gateway.attachDaemon(machineId, () => {})
+    attachRelayDaemon(registry, machineId, () => {})
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'bind',
       sessionId: asSessionId(sA),
@@ -736,6 +755,8 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    // The host runs the sessions and reports the repo their issues sit under.
+    await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     A = await registry.issues.create({ repoPath, title: 'Agent relay epic', startNow: false }) as typeof A
     await registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
     const wtA = (await registry.issues.get(A.id))?.worktreePath as string
@@ -876,6 +897,8 @@ describe('offer.set / offer.clear — an agent offers the user next actions', ()
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    // The host runs the sessions and reports the repo their issues sit under.
+    await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     sA = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' })).sessionId
     sB = (await registry.modules.sessions.createSession({ cwd: '/r', agentKind: 'shell' })).sessionId
   })

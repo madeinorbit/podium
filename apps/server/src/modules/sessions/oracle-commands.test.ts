@@ -28,6 +28,7 @@ import {
   waitFor,
   willChange,
 } from './oracle-support'
+import { confirmingRetirement } from '../../test-support/host-daemon'
 
 afterEach(() => disposeOracles())
 
@@ -125,10 +126,11 @@ describe('oracle: create', () => {
       hostname: 'o',
       tokenHash: 'x',
       ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
     })
     const other: ControlMessage[] = []
     // Finish attachment (including machine-cache invalidation) before authorizing a command.
-    await o.reg.gateway.attachDaemon('other', (m) => other.push(m))
+    await o.reg.gateway.attachDaemon('other', confirmingRetirement(o.reg, 'other', (m) => other.push(m)))
 
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'shell',
@@ -473,7 +475,7 @@ describe('oracle: kill', () => {
     // broadcast to everyone, which is a different behaviour.
     const o = await makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen: ControlMessage[] = []
-    o.reg.gateway.attachDaemon('other', (m) => otherSeen.push(m))
+    o.reg.gateway.attachDaemon('other', confirmingRetirement(o.reg, 'other', (m) => otherSeen.push(m)))
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'shell',
       cwd: '/p',

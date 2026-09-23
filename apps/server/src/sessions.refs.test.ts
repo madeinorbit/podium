@@ -6,11 +6,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 async function harness() {
   const store = await openTestStore(':memory:')
   await store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  await attachHostDaemon(reg, () => {})
   const issue = await reg.modules.issues.create({ repoPath: '/r/podium', title: 'T', startNow: false })
   const meta = async (id: string) =>
     (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === id)
@@ -125,6 +127,7 @@ describe('session birth naming (#474)', () => {
     const store = await openTestStore(':memory:')
     await store.repos.addRepo('/r/podium', store.hostMachineId)
     const reg1 = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await attachHostDaemon(reg1, () => {})
     const a = (await reg1.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' })).sessionId
     // Simulate a pre-#474 row: rewrite it with its ref wiped (COALESCE in the
     // upsert keeps non-null refs, so write via a fresh row literal).

@@ -6,6 +6,12 @@ import { issueRegistry } from './modules/issues/registry'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachHostDaemon } from './test-support/host-daemon'
+
+/** Issues are placed under a machine that REPORTED their repo (2b803efb5): the host reports `/r`. */
+async function reportRepo(registry: SessionRegistry): Promise<void> {
+  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
+}
 
 function inputSchema(path: string) {
   // tRPC stores the parsed input parser on the procedure's _def.
@@ -69,6 +75,7 @@ describe('issues.* subtree scope (P1a)', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    await reportRepo(registry)
     const setup = appRouter.createCaller({
       registry,
       repos: {} as never,
@@ -257,6 +264,7 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
   it('capabilityForSession returns subtree cap for a session in an issue worktree, else none', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     // create + set worktreePath directly (start() needs a daemon repoOp round-trip).
     const i = await registry.issues.create({ repoPath: '/r', title: 'W', startNow: false })
     await registry.issues.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
@@ -383,6 +391,7 @@ describe('issues.mail* (agent mail #103)', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    await reportRepo(registry)
     const setup = appRouter.createCaller({
       registry,
       repos: {} as never,
@@ -510,6 +519,7 @@ describe('issues router create/list/update', () => {
   const caller = async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    await reportRepo(registry)
     // OPERATOR clears every issues.* gate so these create/update flows aren't blocked.
     return appRouter.createCaller({
       registry,
@@ -547,6 +557,7 @@ describe('issues.subscription* authz (Phase B)', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    await reportRepo(registry)
     const setup = appRouter.createCaller({
       registry,
       repos: {} as never,

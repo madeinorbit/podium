@@ -30,6 +30,20 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
   async function makeRegistry(store?: SessionStore): Promise<SessionRegistry> {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
+    // m1 is the daemon that reports conversations and runs the sessions owning
+    // them, so it carries the row an enrolled agent machine has: placement picks
+    // only an assigned, attached daemon (2b803efb5). Written before any attach,
+    // which records the daemon's availability onto this row.
+    if (!(await registry.sessionStore.machines.getMachine('m1'))) {
+      await registry.sessionStore.machines.upsertMachine({
+        id: 'm1',
+        name: 'm1',
+        hostname: 'm1',
+        tokenHash: 'm1',
+        ownerUserId: firstAdminMemberId(),
+        assignment: { server: false, agentExecution: true },
+      })
+    }
     return registry
   }
 
@@ -61,11 +75,12 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     await registry.clientGateway.routeClientFrame(id, {
       type: 'hello',
-    caps: ['sync.http.v1'],
+      // Every hello must carry sync.http.v1 (the mux refuses one without it);
+      // a spread `caps` used to REPLACE it, so a delta client never got feedResume.
+      caps: ['sync.http.v1', ...caps],
       wireVersion: 2,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      ...(caps.length ? { caps } : {}),
     })
     await expect.poll(() => inbox.some((message) => message.type === 'feedResume')).toBe(true)
     return { inbox }

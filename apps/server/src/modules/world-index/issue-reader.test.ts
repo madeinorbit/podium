@@ -67,6 +67,8 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 async function setup(bound: boolean) {
   const store = await openTestStore(':memory:')
   stores.push(store)
+  // An issue row resolves its repo only through a machine that REPORTED it (2b803efb5).
+  await store.repos.addRepo('/r', store.hostMachineId)
   await store.issues.upsertIssue(issueRow({ ownerUserId: alice }))
   await WorldIndex.load(store)
   // Only hydration and row projection are needed; workflow ports are not used.

@@ -21,6 +21,8 @@ const registries: SessionRegistry[] = []
 const fresh = async (): Promise<SessionRegistry> => {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
+  // Issues are placed under a machine that REPORTED their repo (2b803efb5).
+  await registry.sessionStore.repos.addRepo('/r', registry.sessionStore.hostMachineId)
   return registry
 }
 afterAll(async () => {

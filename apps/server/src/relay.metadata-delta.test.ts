@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 // The split fan-out + catch-up seam (docs/spec/oplog-read-path.md §2.3-2.5):
 // delta-cap clients receive per-entity metadataDelta batches, legacy clients keep
@@ -18,12 +19,16 @@ describe('SessionRegistry metadata deltas', () => {
   async function makeRegistry(): Promise<SessionRegistry> {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    // The host runs the sessions and reports `/r`, before any client connects (2b803efb5).
+    await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     return registry
   }
 
   async function makeLegacyRegistry(): Promise<SessionRegistry> {
     const registry = await SessionRegistry.create(await openTestStore(':memory:'), undefined, { instanceId: 'default' })
     registries.push(registry)
+    // The host runs the sessions and reports `/r`, before any client connects (2b803efb5).
+    await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     return registry
   }
 

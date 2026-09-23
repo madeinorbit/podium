@@ -25,6 +25,16 @@ import type { IssueRow, SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import { StaleIssueRevisionError } from './issue-revision'
 
+/**
+ * A store whose host machine reports the fixture repo `/r`: an issue row resolves
+ * its repo only through a machine that REPORTED the path (2b803efb5).
+ */
+async function openIssueStore(...repos: string[]): Promise<SessionStore> {
+  const store = await openTestStore(':memory:')
+  for (const repo of ['/r', ...repos]) await store.repos.addRepo(repo, store.hostMachineId)
+  return store
+}
+
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
     id: asIssueId('iss_x'),
@@ -96,7 +106,7 @@ async function seedIssues(store: SessionStore, ids: readonly string[]): Promise<
 
 describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   it('bumps the revision on every accepted write, starting at 1', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
     // The bump is structural — it happens in the writer, with no cooperation
     // from the caller — and it stamps the caller's row in place.
@@ -108,7 +118,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   })
 
   it('accepts a write whose expectedRevision matches the stored one', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
     await store.issues.upsertIssue({ ...row, title: 'second' }, { expectedRevision: 1 })
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('second')
@@ -116,7 +126,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   })
 
   it('REFUSES a write whose expectedRevision is behind the stored one, and writes nothing', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
     // Somebody else committed in the gap: the row is now at revision 2 while
     // this caller's draft was cut from 1. Persisting it would write the draft's
@@ -133,7 +143,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   })
 
   it('a null expectedRevision means "this row must not exist yet"', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     // The spelling matters: null is not "no precondition", it is the
     // precondition for a first write. A conversion that folded null into
     // "unchecked" would let a create silently overwrite a live row.
@@ -151,7 +161,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   })
 
   it('omitting the option checks nothing — the precondition is opt-in', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
     await store.issues.upsertIssue({ ...row, revision: 99, title: 'stale-copy' })
     // The stored revision, not the caller's copy, is what the bump is computed
@@ -161,7 +171,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   })
 
   it('refuses against the STORED revision rather than the one on the caller row', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
     await expect(
       (async () =>
@@ -178,7 +188,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
   // value proves nothing — false is what a broken mapper also returns — so each
   // column is asserted in BOTH states.
   it('round-trips archived in both states', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seed(store, { id: asIssueId('iss_on'), seq: 1, archived: true })
     await seed(store, { id: asIssueId('iss_off'), seq: 2, archived: false })
     expect((await store.issues.getIssue('iss_on'))?.archived).toBe(true)
@@ -187,7 +197,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
   })
 
   it('round-trips needsHuman in both states', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seed(store, { id: asIssueId('iss_on'), seq: 1, needsHuman: true })
     await seed(store, { id: asIssueId('iss_off'), seq: 2, needsHuman: false })
     expect((await store.issues.getIssue('iss_on'))?.needsHuman).toBe(true)
@@ -196,7 +206,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
   })
 
   it('round-trips draft in both states', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seed(store, { id: asIssueId('iss_on'), seq: 1, draft: true })
     await seed(store, { id: asIssueId('iss_off'), seq: 2, draft: false })
     expect((await store.issues.getIssue('iss_on'))?.draft).toBe(true)
@@ -205,7 +215,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
   })
 
   it('carries archived through the projection as well as the row map', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     // `listIssueCwdRows` reads the column directly rather than through
     // `mapIssueRow`, so it is a second decode site and needs its own true case.
     await seed(store, { id: asIssueId('iss_on'), seq: 1, archived: true })
@@ -214,7 +224,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
   })
 
   it('round-trips the whole row through a second write', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     // The write side matters too: a boolean has to survive being read back and
     // written again, which is what every update path does.
     const row = await seed(store, {
@@ -239,7 +249,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
 
 describe('IssuesRepository: purgeIssueUserState (no test executes this today)', () => {
   it('drops the rows of every user for one issue and leaves other issues alone', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     const other = asUserId('usr_other')
     await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
     await store.issues.setIssueUserState(other, asIssueId('iss_1'), { pinnedAt: 't' })
@@ -262,7 +272,7 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
   })
 
   it('is a no-op for an issue nobody has touched', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
     await store.issues.purgeIssueUserState(asIssueId('iss_untouched'))
     expect((await store.issues.listIssueUserState(firstAdminMemberId())).size).toBe(1)
@@ -272,7 +282,7 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
 
 describe('IssuesRepository: the projections (executed, never named)', () => {
   it('listIssueCwdRows returns the four columns, ordered by repo path then seq', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore('/a', '/b')
     await seed(store, { id: asIssueId('iss_b2'), repoPath: '/b', seq: 2, worktreePath: '/wt/b2' })
     await seed(store, { id: asIssueId('iss_a1'), repoPath: '/a', seq: 1 })
     await seed(store, { id: asIssueId('iss_b1'), repoPath: '/b', seq: 1, archived: true })
@@ -288,7 +298,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
   })
 
   it('listIssueCwdRows keeps soft-deleted rows, carrying their deletedAt', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     // A tombstoned issue still owns its worktree path, so the cwd index must
     // see it and decide for itself — filtering here would let a second issue
     // claim a directory the first has not released.
@@ -310,7 +320,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
   })
 
   it('listIssueParentEdges excludes tombstones, on either end of the edge', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seed(store, { id: asIssueId('iss_parent'), seq: 1 })
     await seed(store, { id: asIssueId('iss_child'), seq: 2, parentId: asIssueId('iss_parent') })
     await seed(store, {
@@ -332,7 +342,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
   })
 
   it('issuesMissingRepoId counts zero on rows a live writer produced', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seed(store, { id: asIssueId('iss_1') })
     // `upsertIssue` resolves a repo_id before it inserts, so any non-zero
     // answer means a database from before POD-1360 rather than a live defect.
@@ -343,7 +353,8 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
 
 describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', () => {
   it('stamps the repo id on every issue at or under the path', async () => {
-    const store = await openTestStore(':memory:')
+    // `/rootless` is a repo of its own, reported alongside `/root`.
+    const store = await openIssueStore('/rootless')
     await store.repos.addRepo('/root', asMachineId('m1'))
     const repoId = await store.repos.resolveRepoIdForPath('/root')
     await seed(store, { id: asIssueId('iss_at'), repoPath: '/root', seq: 1, repoId: null })
@@ -361,7 +372,7 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
   })
 
   it('renumbers a colliding seq, oldest row keeping its number', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     // Two SEPARATE path-keyed buckets, each holding its own seq 1 — the state a
     // repo-identity upgrade merges into one logical repo.
     await store.repos.addRepo('/root', asMachineId('m1'))
@@ -395,7 +406,7 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
   })
 
   it('renumbers in creation order, so the oldest merged row takes the lower seq', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     // THREE buckets, not two: the ordering only decides anything when more than
     // one row is being restamped, and a two-row fixture passes whichever way the
     // rows are walked (the incumbent keeps its number by the holder check, not
@@ -435,7 +446,7 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
   })
 
   it('is a no-op when every issue already carries the id', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await store.repos.addRepo('/root', asMachineId('m1'))
     const repoId = await store.repos.resolveRepoIdForPath('/root')
     await seed(store, { id: asIssueId('iss_1'), repoPath: '/root', seq: 7, repoId })
@@ -451,7 +462,7 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
 
 describe('IssuesRepository: the batched child reads (executed, never named)', () => {
   it('listIssueLabelsByIssue groups by issue, labels sorted within each', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seedIssues(store, ['iss_1', 'iss_2'])
     await store.issues.setIssueLabels(asIssueId('iss_2'), ['zeta', 'alpha'])
     await store.issues.setIssueLabels(asIssueId('iss_1'), ['beta'])
@@ -466,7 +477,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
   })
 
   it('listIssueLabelsByIssue omits issues with no labels rather than mapping them to []', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seedIssues(store, ['iss_1'])
     await store.issues.setIssueLabels(asIssueId('iss_1'), ['a'])
     await store.issues.setIssueLabels(asIssueId('iss_1'), [])
@@ -475,7 +486,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
   })
 
   it('listAllIssueDeps returns every edge in a stable order', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seedIssues(store, ['iss_a', 'iss_b', 'iss_c'])
     await store.issues.addIssueDep(asIssueId('iss_b'), asIssueId('iss_a'), 'blocks')
     await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'relates')
@@ -492,7 +503,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
   })
 
   it('countIssueComments and countIssueCommentsByIssue agree, and absence reads as zero', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seedIssues(store, ['iss_1', 'iss_2'])
     for (const [i, issueId] of ['iss_1', 'iss_1', 'iss_2'].entries()) {
       await store.issues.addIssueComment({
@@ -518,7 +529,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
   })
 
   it('deleteIssueMessagesForIssue removes the mail of that issue only', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await seedIssues(store, ['iss_1', 'iss_2'])
     for (const [i, issueId] of ['iss_1', 'iss_2'].entries()) {
       await store.issues.addIssueMessage({
@@ -558,7 +569,7 @@ describe('IssuesRepository: searchIssueComments (executed, never named)', () => 
   }
 
   it('matches a substring anywhere in the body, newest first', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await withComments(store, ['nothing here', 'a needle inside', 'needle at the start'])
 
     const hits = await store.issues.searchIssueComments('needle')
@@ -568,7 +579,7 @@ describe('IssuesRepository: searchIssueComments (executed, never named)', () => 
   })
 
   it('treats % and _ in the query as LITERAL characters', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     // Unescaped, "100%" would match every comment and "a_c" would match "abc".
     // The escape is the whole reason the query is not passed straight to LIKE.
     await withComments(store, ['done 100% of it', 'plain text', 'abc', 'a_c'])
@@ -581,14 +592,14 @@ describe('IssuesRepository: searchIssueComments (executed, never named)', () => 
   })
 
   it('returns nothing for a blank query without touching the database', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await withComments(store, ['anything'])
     expect(await store.issues.searchIssueComments('   ')).toEqual([])
     await store.close()
   })
 
   it('clamps the limit into 1..200, and a null limit means unbounded', async () => {
-    const store = await openTestStore(':memory:')
+    const store = await openIssueStore()
     await withComments(store, ['needle a', 'needle b', 'needle c'])
 
     expect(await store.issues.searchIssueComments('needle', 2)).toHaveLength(2)

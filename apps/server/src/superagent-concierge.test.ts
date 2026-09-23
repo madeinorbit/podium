@@ -24,8 +24,9 @@ import {
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { OPERATOR } from './test-support/capabilities'
-import { attachDaemonWithInventory } from './test-support/daemon-inventory'
+import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { forceFeature } from './test-support/features'
+import { assignHostMachine } from './test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -44,6 +45,9 @@ async function harness(opts?: { eventReadLimit?: number }) {
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the
   // conciergeTurn flow completes without a real harness.
   const turnReqs: TurnReq[] = []
+  // The host's row is assigned agent execution, as setup enrollment leaves it:
+  // placement picks only an assigned, attached daemon (2b803efb5).
+  await assignHostMachine(registry.sessionStore)
   await attachDaemonWithInventory(registry, registry.sessionStore.hostMachineId, (m) => {
     if (m.type === 'repoOpRequest') {
       queueMicrotask(() =>
@@ -69,7 +73,14 @@ async function harness(opts?: { eventReadLimit?: number }) {
         }),
       )
     }
-  })
+  }, fixtureInventory({
+    // An agent spawn requests a headed terminal driver, which the daemon must
+    // advertise (fb68d2f05).
+    runtimeDrivers: [
+      { harness: 'claude-code', id: 'claude-pty', family: 'terminal' },
+      { harness: 'codex', id: 'codex-pty', family: 'terminal' },
+    ],
+  }))
   const repos = new RepoRegistry(registry, registry.sessionStore)
   await repos.add('/r') // conciergeTurn rejects unregistered repos
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, opts)

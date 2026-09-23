@@ -35,6 +35,8 @@ function callerFor(registry: SessionRegistry) {
 }
 
 async function seed(registry: SessionRegistry, title = 'subject') {
+  // An issue is placed under a machine that REPORTED its repo (2b803efb5).
+  await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
   return await registry.issues.create({ repoPath: '/repo', title, startNow: false })
 }
 

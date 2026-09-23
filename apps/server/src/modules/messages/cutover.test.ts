@@ -664,6 +664,8 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
         },
       },
     })
+    // The issue is placed under a machine that REPORTED its repo (2b803efb5).
+    await o.store.repos.addRepo('/r', o.store.hostMachineId)
     const issue = await o.reg.issues.create({ repoPath: '/r', title: 'Target', startNow: false })
     await o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/t' })
     const { sessionId } = await o.call.sessions.create({

@@ -27,7 +27,7 @@ const bind = (sessionId: SessionId, cwd: string) =>
 
 async function regWithDaemon() {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  await attachHostDaemon(reg, () => {})
+  await attachHostDaemon(reg, () => {}, { repos: [REPO] })
   return reg
 }
 

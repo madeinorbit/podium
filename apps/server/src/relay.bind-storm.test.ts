@@ -28,6 +28,7 @@ describe('bind-storm regression', () => {
       hostname: 'one',
       tokenHash: 'x',
       ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
     })
     await store.machines.upsertMachine({
       id: 'm2',
@@ -35,7 +36,11 @@ describe('bind-storm regression', () => {
       hostname: 'two',
       tokenHash: 'y',
       ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
     })
+    // Both machines run agents, and m1 reports the repo the issues sit under:
+    // placement needs an assigned daemon and a reporting machine (2b803efb5).
+    await store.repos.addRepo('/repo', asMachineId('m1'))
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await registry.gateway.attachDaemon('m1', () => {})
     await registry.gateway.attachDaemon('m2', () => {})

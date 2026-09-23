@@ -17,7 +17,8 @@ const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 async function caller() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  await attachHostDaemon(registry, () => {})
+  // The host reports `/p`: a draft issue is placed under a machine that reported its repo (2b803efb5).
+  await attachHostDaemon(registry, () => {}, { repos: ['/p'] })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
@@ -294,11 +295,12 @@ describe('appRouter', () => {
   })
 })
 
-async function repoCaller() {
+/** `repos` are reported by the host; the repos-router cases list the registry, so it defaults empty. */
+async function repoCaller({ repos: reported = [] }: { repos?: readonly string[] } = {}) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
-  await attachHostDaemon(registry, (m) => daemon.push(m))
+  await attachHostDaemon(registry, (m) => daemon.push(m), { repos: reported })
   return {
     registry,
     repos,
@@ -315,7 +317,7 @@ async function repoCaller() {
 
 describe('markRead mutations (#124)', () => {
   it('issues.markRead stamps durable readAt; unread is replica-derived', async () => {
-    const { call } = await repoCaller()
+    const { call } = await repoCaller({ repos: ['/r'] })
     const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     const read = await call.issues.markRead({ id: iss.id })
     expect(read.readAt).not.toBeNull()
@@ -337,7 +339,7 @@ describe('markRead mutations (#124)', () => {
   })
 
   it('issues.markUnread clears durable readAt (#138)', async () => {
-    const { call } = await repoCaller()
+    const { call } = await repoCaller({ repos: ['/r'] })
     const iss = await call.issues.create({ repoPath: '/r', title: 'X', startNow: false })
     await call.issues.markRead({ id: iss.id })
     const un = await call.issues.markUnread({ id: iss.id })

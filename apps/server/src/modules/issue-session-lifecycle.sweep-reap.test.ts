@@ -52,7 +52,7 @@ async function makeFixture(): Promise<Fixture> {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
-  await attachHostDaemon(reg, (m) => daemon.push(m))
+  await attachHostDaemon(reg, (m) => daemon.push(m), { repos: ['/r'] })
   const rpc = (
     reg.modules.sessions as unknown as {
       rpc: {

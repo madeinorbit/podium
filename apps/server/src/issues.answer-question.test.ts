@@ -23,6 +23,8 @@ async function harness(
   opts: { actorSessionId?: SessionId } = {},
 ) {
   const store = await openTestStore(':memory:')
+  // An issue is placed under a machine that REPORTED its repo (2b803efb5).
+  await store.repos.addRepo('/r', store.hostMachineId)
   const deps: IssueDeps = {
     store,
     ...sessionReadPorts(() => []),

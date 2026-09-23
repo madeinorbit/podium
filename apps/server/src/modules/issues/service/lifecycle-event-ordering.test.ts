@@ -42,6 +42,8 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   async function build() {
     const store = await openTestStore(':memory:')
+    // Issues are placed under a machine that REPORTED their repo (2b803efb5).
+    await store.repos.addRepo('/repo', store.hostMachineId)
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     return { store, registry }
