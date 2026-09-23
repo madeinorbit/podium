@@ -35,10 +35,22 @@
  * against a scan, and its snapshot against a rebuild with every row resident.
  * It runs at the last step because loading everything ends the run's cold
  * state, and not at a reload because the checker has already replaced the
- * engine by the time it disposes the old arm (its feed is dead). Its own NO: a
- * third plant skips relation maintenance for updates of cold rows only, and
- * with the per-step checks OFF, the checkpoint alone must fail it on every
- * seed.
+ * engine by the time it disposes the old arm (its feed is dead).
+ *
+ * THE PLANTS, each of which must fail every seed:
+ * - `planted`: deaf to removals (Ma1's; the rebuild catches it).
+ * - `coldDeaf`: an update to a row the pool holds cold never reaches it.
+ * - `coldRelinkSkipped`: a cold row's update skips relation maintenance only.
+ *   Checked per step with the checkpoint OFF: the per-step relation check,
+ *   which reads no residency from the pool, must catch a relation error
+ *   confined to cold rows. (The checkpoint cannot: loading a row relinks it
+ *   from its current value, so this error heals when everything loads.)
+ * - `promoteSkipped`: a row that becomes resident keeps its relation slots in
+ *   the plain twins. Checked with the per-step checks OFF: the checkpoint
+ *   alone must catch it.
+ * The cells count cold-row work AFTER each bootstrap and before the
+ * checkpoint: registry writes (a cold row's update, insert or removal), loads
+ * on access, rows warmed by a reopen or removal.
  *
  * FIDELITY. The fields Ma1 derives from the row, one hop and the locals are
  * compared with the oracle's row views (`rowViewsFromStore`) for every
@@ -128,6 +140,15 @@ const coldRelinkSkipped: CheckableArm = {
   },
 }
 
+/** The checkpoint's plant: resident rows keep their relation slots plain. */
+const promoteSkipped: CheckableArm = {
+  create(source, locals, reads) {
+    const handle = mobxPoolArm.create(source, locals, reads)
+    ;(handle.pool.graph as unknown as { promote: () => void }).promote = () => {}
+    return handle
+  },
+}
+
 /** What the gated arms did with cold rows, summed over every arm a run created. */
 interface ColdTally {
   coldWrites: number
@@ -192,14 +213,16 @@ function checked(
       reads?: Parameters<CheckableArm['create']>[2],
     ) {
       const handle = arm.create(source, locals, reads) as MobxPoolHandle
-      const tally = (): void => {
+      const tally = (count = true): void => {
         const counters = handle.pool.residency?.counters
         if (counters === undefined) return
         for (const key of Object.keys(counters) as (keyof typeof counters)[]) {
-          wrapper.cold[key] += counters[key]
+          if (count) wrapper.cold[key] += counters[key]
           counters[key] = 0
         }
       }
+      // The bootstrap's registrations are the bootstrap test's, not the run's.
+      tally(false)
       return {
         ...handle,
         snapshot() {
@@ -207,7 +230,9 @@ function checked(
           const { pool } = handle
           // The checker snapshots once at boot and once per step.
           if (checks.full && wrapper.snapshots === STEPS + 1) {
+            tally()
             fullResidencyCheck(handle, source, locals, `step ${STEPS - 1}`)
+            tally(false)
             wrapper.cold.checkpoints += 1
           }
           const settled = handle.snapshot()
@@ -280,6 +305,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
     let plantedFailures = 0
     let coldPlantFailures = 0
     let checkpointPlantFailures = 0
+    let relinkPlantFailures = 0
     for (const seed of SEEDS) {
       const sequence = gen(seed, STEPS)
       relationChecked.snapshots = 0
@@ -300,8 +326,13 @@ describe('correctness gate (L4b), rebuild-only', () => {
       if (!plant.ok) plantedFailures += 1
       const coldPlant = await plantOutcome(checked(coldDeaf), sequence)
       if (!coldPlant.ok) coldPlantFailures += 1
+      const relinkPlant = await plantOutcome(
+        checked(coldRelinkSkipped, { perStep: true, full: false }),
+        sequence,
+      )
+      if (!relinkPlant.ok && relinkPlant.against === 'relations') relinkPlantFailures += 1
       const checkpointPlant = await plantOutcome(
-        checked(coldRelinkSkipped, { perStep: false, full: true }),
+        checked(promoteSkipped, { perStep: false, full: true }),
         sequence,
       )
       if (!checkpointPlant.ok && checkpointPlant.against === 'checkpoint') checkpointPlantFailures += 1
@@ -318,6 +349,10 @@ describe('correctness gate (L4b), rebuild-only', () => {
         coldPlantStep: coldPlant.ok ? null : coldPlant.step,
         coldPlantCaughtBy: coldPlant.ok ? null : coldPlant.against,
         coldPlantDiff: coldPlant.ok ? null : coldPlant.diff.split('\n').slice(0, 2).join(' | '),
+        relinkPlantFailed: !relinkPlant.ok,
+        relinkPlantStep: relinkPlant.ok ? null : relinkPlant.step,
+        relinkPlantCaughtBy: relinkPlant.ok ? null : relinkPlant.against,
+        relinkPlantDiff: relinkPlant.ok ? null : relinkPlant.diff.split('\n').slice(0, 2).join(' | '),
         checkpointPlantFailed: !checkpointPlant.ok,
         checkpointPlantCaughtBy: checkpointPlant.ok ? null : checkpointPlant.against,
         checkpointPlantDiff: checkpointPlant.ok
@@ -328,6 +363,7 @@ describe('correctness gate (L4b), rebuild-only', () => {
     writeResult('mobx-pool-gate-1x', { seeds: SEEDS, cells })
     expect(plantedFailures).toBe(SEEDS.length)
     expect(coldPlantFailures).toBe(SEEDS.length)
+    expect(relinkPlantFailures).toBe(SEEDS.length)
     expect(checkpointPlantFailures).toBe(SEEDS.length)
   }, 1_500_000)
 })
