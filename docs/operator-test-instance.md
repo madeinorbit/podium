@@ -33,6 +33,16 @@ Every unit records the full pin in `PODIUM_SPAWN_SHA` and uses this worktree as 
 | Daemon | `podium-operator-source-daemon.service` / `2512536` | 2026-08-27 15:54:56 | `/home/mgw/.bun/bin/bun --conditions=@podium/source scripts/daemon.ts` |
 | Frontend | `podium-operator-source-web.service` / `2519912` | 2026-08-27 15:57:30 | Node running Vite for `apps/web` with `--host 100.110.195.114 --port 32090 --strictPort` |
 
+> **Recreating this split recipe on a fresh state dir (since POD-4150, 6fd4f7221).** The daemon
+> row above worked at `2e7be343a` because `scripts/daemon.ts` then authenticated with the local
+> shared secret. That was removed on purpose. The daemon's only credential now is the machine key
+> that setup enrolls into the state dir. On a fresh state dir, start `scripts/server.ts` first
+> and complete setup on its setup page. That enrolls this host into `PODIUM_STATE_DIR`. Then
+> restart the server when readiness says `restart_required`. Only then start `scripts/daemon.ts`.
+> A daemon started with no enrolled key, stored token or pending setup request exits at once and
+> names this step (POD-4626). A copied `podium.db` does not carry the credential, because the key
+> lives in the state dir.
+
 The units are deliberately labeled `POD-2245 operator SOURCE-MODE ... @ 2e7be343a` in systemd.
 PIDs are point-in-time pins; use `systemctl --user show <unit> -p MainPID` if a unit is restarted.
 

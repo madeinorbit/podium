@@ -20,10 +20,11 @@ import { promoteMachineAssignment } from '../apps/server/src/transfer-machine-as
  */
 
 import { bootProcess } from '@podium/runtime/boot'
-import { resolveLocalServerHost, resolvePort } from '@podium/runtime/config'
+import { resolveLocalServerHost, resolvePort, stateDir } from '@podium/runtime/config'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { parseBackendArg } from '../apps/daemon/src/durable-backend'
+import { standaloneCredentialGap } from '../apps/daemon/src/standalone-credential'
 
 const port = resolvePort()
 // Must match what the server BOUND, not an assumption about it — a `PODIUM_HOST`
@@ -31,12 +32,18 @@ const port = resolvePort()
 const host = resolveLocalServerHost()
 const backend = parseBackendArg(process.argv.slice(2))
 
+// The machine key that setup enrolled into this state dir is this daemon's credential.
+// The local shared secret stopped being one in POD-4150 (6fd4f7221). A fresh state dir
+// has no credential, and no reconnect can create one, so stop here and name the missing
+// setup step. Otherwise the daemon retries `no machine credential` forever (POD-4626).
+const credentialGap = standaloneCredentialGap(stateDir())
+if (credentialGap) {
+  console.error(credentialGap)
+  process.exit(1)
+}
+
 await bootProcess({
   name: 'daemon',
-  // Same-host trust: this bundled daemon authenticates as the LOCAL machine using the
-  // shared secret in the state dir (the server reads/creates the same file). Without it
-  // the split daemon has no credential, never registers a machine, and existing
-  // `machine_id='__local__'` sessions/repos are never adopted — they vanish on restart.
   start: () =>
     startDaemon({
       promoteMachineAssignment,
