@@ -2,6 +2,12 @@
 /**
  * POD-4578 (Ha1) — the pool's ingest, lifecycle and locals, on the 1x corpus
  * through a replay feed, with the reads fence on.
+ *
+ * POD-4580 (Ha3): the pool is lazy, so closed issues and their sessions are
+ * cold after bootstrap. These tests work on the rows that stay resident (open
+ * issues); the tick test first loads every row it looks at. The load window
+ * never fires on its own here: a test closes it (`pool.hydrate()`).
+ * `residency.test.tsx` owns the cold rows.
  */
 
 import { act } from 'react'
@@ -23,6 +29,8 @@ import { FINISHED_GRACE_MS } from './views'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const corpus = buildCorpus(1)
+/** Open issues: resident from bootstrap (closed ones are cold). */
+const openIssues = corpus.sliceIssues.filter((issue) => issue.closedAt == null)
 
 interface Rig {
   replay: ReplaySource
@@ -49,6 +57,7 @@ function rig(): Rig {
   let open = 0
   const counted: RowSource = {
     snapshot: (kind) => replay.source.snapshot(kind),
+    row: (kind, id) => replay.source.row?.(kind, id),
     subscribe(listener) {
       open += 1
       const off = replay.source.subscribe(listener)
@@ -70,7 +79,9 @@ function rig(): Rig {
     },
   }
   const reads = createReadFence({ enabled: true })
-  const handle = handPoolArm.create(reads.wrapSource(counted), localsSource, reads)
+  const handle = handPoolArm.create(reads.wrapSource(counted), localsSource, reads, {
+    schedule: () => () => {},
+  })
   return {
     replay,
     locals,
@@ -118,6 +129,14 @@ function issueRecord(id: string, patch: Partial<SliceIssue> = {}): RowRecord {
   return { kind: 'issue', id, value: { ...base, ...patch } }
 }
 
+/** Load every cold issue, then settle (the rows they read load too). */
+function loadEverything(pool: HandPool): void {
+  for (const id of pool.residency?.ids('issue') ?? []) pool.residency?.request('issue', id)
+  pool.hydrate()
+  pool.snapshot()
+  expect(pool.residency?.size('issue')).toBe(0)
+}
+
 /** Every dependency-index entry, per index, that still names `id`. */
 function readersNaming(pool: HandPool, id: string): string[] {
   const names: string[] = []
@@ -134,17 +153,20 @@ function readersNaming(pool: HandPool, id: string): string[] {
 }
 
 describe('ingest', () => {
-  it('bootstraps every row into its table and derives nothing until a view is read', () => {
+  it('bootstraps every resident row into its table and derives nothing until a view is read', () => {
     const r = rig()
     try {
       const { pool } = r.handle
       const repos = new Set(corpus.sliceWorktrees.map((lane) => lane.repoId).filter(Boolean))
-      expect(ENTITIES.map((entity) => pool.tables[entity].size)).toEqual([
+      // Hot plus cold is every row; the split itself is residency.test.tsx's.
+      const cold = ENTITIES.map((entity) => pool.residency?.size(entity) ?? 0)
+      expect(ENTITIES.map((entity, i) => pool.tables[entity].size + cold[i]!)).toEqual([
         corpus.sliceIssues.length,
         corpus.sliceSessions.length,
         corpus.sliceWorktrees.length,
         repos.size,
       ])
+      expect(pool.tables.issue.size).toBe(openIssues.length)
       expect(repos.size).toBeGreaterThan(0)
       expect(pool.issues.size).toBe(0)
       expect(pool.stats.counters.cellsCreated).toBe(1) // the id list, not yet run
@@ -160,7 +182,7 @@ describe('ingest', () => {
     const all = observeAll(r.handle.pool)
     try {
       const { pool } = r.handle
-      const id = corpus.sliceIssues[3]!.id
+      const id = openIssues[3]!.id
       const stored = pool.tables.issue.get(id)
       expect(r.reads.isBorrowed(stored)).toBe(true)
       const before = all.views.get(id)
@@ -194,7 +216,7 @@ describe('ingest', () => {
     const all = observeAll(r.handle.pool)
     try {
       const { pool } = r.handle
-      const id = corpus.sliceIssues.find((issue) => !issue.draft)!.id
+      const id = openIssues.find((issue) => !issue.draft)!.id
       const before = new Map(all.views)
       pool.stats.reset()
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Renamed by the test' })] })
@@ -217,11 +239,19 @@ describe('ingest', () => {
     const r = rig()
     try {
       const { pool } = r.handle
-      const keep = r.replay.source.snapshot('issue').slice(0, 5)
-      const renamed = issueRecord(corpus.sliceIssues[7]!.id, { title: 'Reseeded' })
+      const open = new Set(openIssues.map((issue) => issue.id))
+      const keep = r.replay.source
+        .snapshot('issue')
+        .filter((row) => open.has(row.id))
+        .slice(0, 5)
+      const renamed = issueRecord(openIssues[7]!.id, { title: 'Reseeded' })
       const sessions = r.replay.source.snapshot('session').slice(0, 3)
       const lanes = r.replay.source.snapshot('worktree')
-      const seen: [number, number][] = [[pool.issueIds().length, pool.tables.session.size]]
+      const hotBefore = [pool.issueIds().length, pool.tables.session.size] as const
+      // Kept sessions that were cold: their issue is not in the new slice, so
+      // the re-partition makes them resident (installed: one write each).
+      const warmed = sessions.filter((row) => pool.residency?.isCold('session', row.id)).length
+      const seen: [number, number][] = [[...hotBefore]]
       const off = pool.subscribeIds(() => {
         seen.push([pool.issueIds().length, pool.tables.session.size])
       })
@@ -229,17 +259,18 @@ describe('ingest', () => {
       pool.stats.reset()
       r.push({ type: 'replace', rows: [...sessions, ...keep, renamed, ...lanes] })
       off()
-      expect(seen).toEqual([
-        [corpus.sliceIssues.length, corpus.sliceSessions.length],
-        [6, 3],
-      ])
+      expect(seen).toEqual([[...hotBefore], [6, 3]])
       expect(pool.stats.notifications).toBe(1)
       const heldAfter = keep.map((row) => pool.tables.issue.get(row.id))
       for (const [i, row] of heldAfter.entries()) expect(row).toBe(heldBefore[i])
-      const removed = corpus.sliceIssues.length - 6 + corpus.sliceSessions.length - 3
+      const removed = hotBefore[0] - 6 + hotBefore[1] - (3 - warmed)
       expect(pool.stats.counters.rowsRemoved).toBe(removed)
-      // Every write was a removal or the one renamed row: kept rows and lanes were not rewritten.
-      expect(pool.stats.counters.tableWrites).toBe(removed + 1)
+      // Every write was a removal, the one renamed row or a warmed session:
+      // kept rows and lanes were not rewritten.
+      expect(pool.stats.counters.tableWrites).toBe(removed + 1 + warmed)
+      // The re-partition forgot every cold row the slice no longer names.
+      expect(pool.residency?.size('issue')).toBe(0)
+      expect(pool.residency?.size('session')).toBe(0)
     } finally {
       r.dispose()
     }
@@ -253,7 +284,7 @@ describe('ingest', () => {
       const origins = new Set(
         corpus.sliceIssues.flatMap((issue) => (issue.deps ?? []).map((dep) => dep.id)),
       )
-      const id = corpus.sliceIssues.find((issue) => !issue.draft && !origins.has(issue.id))!.id
+      const id = openIssues.find((issue) => !issue.draft && !origins.has(issue.id))!.id
       const titles: (string | undefined)[] = [pool.view(id)?.title]
       const off = pool.subscribe(id, () => titles.push(pool.view(id)?.title))
       expect(pool.record('issue', id)?.title).toBe(titles[0])
@@ -283,8 +314,9 @@ describe('ingest', () => {
     const r = rig()
     try {
       const { pool } = r.handle
-      const spinOff = corpus.sliceIssues.find((issue) =>
-        (issue.deps ?? []).some((dep) => dep.type === 'discovered-from'),
+      const open = new Set(openIssues.map((issue) => issue.id))
+      const spinOff = openIssues.find((issue) =>
+        (issue.deps ?? []).some((dep) => dep.type === 'discovered-from' && open.has(dep.id)),
       )!
       const originId = spinOff.deps!.find((dep) => dep.type === 'discovered-from')!.id
       const ticks: (string | null | undefined)[] = [pool.view(spinOff.id)?.originTick?.ref]
@@ -317,7 +349,7 @@ describe('ingest', () => {
       )!
       const repoId = lane.repoId!
       const second = { ...lane, path: `${lane.path}/.worktrees/second` }
-      const issue = corpus.sliceIssues.find((candidate) => candidate.repoId === repoId)!
+      const issue = openIssues.find((candidate) => candidate.repoId === repoId)!
       const ref = pool.view(issue.id)?.displayRef
       expect(ref).toBe(`${lane.prefix}-${issue.seq}`)
       const refs: (string | undefined)[] = []
@@ -347,7 +379,7 @@ describe('locals', () => {
     const r = rig()
     const all = observeAll(r.handle.pool)
     try {
-      const [a, b] = corpus.sliceIssues.map((issue) => issue.id)
+      const [a, b] = openIssues.map((issue) => issue.id)
       r.locals.set({ selectedIssueId: a! })
       r.locals.flush()
       expect(all.views.get(a!)?.selected).toBe(true)
@@ -367,6 +399,7 @@ describe('locals', () => {
 
   it('a tick re-derives only the rows whose deadline it crosses, and a rewind undoes it', () => {
     const r = rig()
+    loadEverything(r.handle.pool)
     const all = observeAll(r.handle.pool)
     try {
       const { pool } = r.handle
@@ -427,12 +460,12 @@ describe('dispose', () => {
       unmount = r.handle.mountWeb(el)
     })
     const { pool } = r.handle
-    expect(el.querySelectorAll('[data-issue-row]').length).toBe(corpus.sliceIssues.length)
+    expect(el.querySelectorAll('[data-issue-row]').length).toBe(openIssues.length)
     const texts = [...el.querySelectorAll('[data-issue-row]')].map((row) => row.textContent ?? '')
     expect(texts.filter((text) => /^POD-\d+ /.test(text)).length).toBeGreaterThan(
-      corpus.sliceIssues.length / 2,
+      openIssues.length / 2,
     )
-    expect(pool.listeners.size).toBe(corpus.sliceIssues.length)
+    expect(pool.listeners.size).toBe(openIssues.length)
     expect(pool.idsListeners.size).toBe(1)
 
     // A selection click reaches the mounted rows.
@@ -465,6 +498,10 @@ describe('dispose', () => {
     }
     expect(pool.issues.size).toBe(0)
     expect(pool.membership.size).toBe(0)
+    expect(pool.coldness.size).toBe(0)
+    expect(pool.residency?.size('issue')).toBe(0)
+    expect(pool.residency?.size('session')).toBe(0)
+    expect(pool.residency?.hasQueued()).toBe(false)
     expect(pool.selection.size).toBe(0)
     expect(pool.clock.waiting).toBe(0)
     expect(pool.clock.index.size).toBe(0)
