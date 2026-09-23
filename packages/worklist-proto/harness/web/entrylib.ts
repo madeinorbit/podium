@@ -26,8 +26,10 @@
  *   below), and the app's own eager mark-read of the selected row runs for
  *   every arm. (Before POD-4559 the round-two arms' click was arm-local — no
  *   engine write, no mark-read — while the control's wrote the engine: two
- *   workloads under one name.) Every sample selects a row this page has never
- *   selected, so every sample is the same selection change.
+ *   workloads under one name.) Every sample selects an UNREAD row this page has
+ *   never selected, so every sample is the same change: a selection plus the
+ *   app's mark-read of that row (a read row's click marks nothing, and the
+ *   control commits nothing for it — a second, lighter workload).
  *
  * DRAWN TARGETS (POD-4558, coordinator ruling on finding #4). A change aimed at
  * a row the arm has not drawn commits nothing on a windowed arm and the whole
@@ -107,7 +109,8 @@
  * differs.
  */
 
-import { MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
+import { issueActivityAt, MARK_READ_ON_VIEW_MS } from '@podium/client-core/engine'
+import { activityAfterRead } from '@podium/client-core/viewmodels'
 import { asIssueId } from '@podium/model'
 import type { Arm, ArmHandle, RowSource } from '../../shared/src/arm'
 import {
@@ -497,15 +500,28 @@ export function mountPage(options: MountPageOptions): { handle: ArmHandle; log: 
     }
     return id
   }
-  /** #3: a fresh drawn row every sample; rows the rename and stage-move rules want go last. */
+  /** #3: a fresh drawn UNREAD row every sample; rows the rename and stage-move rules want go last. */
   function nextClick(): string {
-    const window = firstWindow().filter(fresh)
+    const window = firstWindow().filter((id) => fresh(id) && unread(id))
     const wanted = (id: string): boolean =>
       rules.childlessRoot(id) || rules.openRootWithChildren(id)
     const id = window.find((candidate) => !wanted(candidate)) ?? window[0]
     if (id === undefined)
-      throw new Error('[proto] click: no fresh row in the first window; load a fresh page')
+      throw new Error(
+        '[proto] click: no fresh unread row in the first window; load a fresh page (fewer samples per page)',
+      )
     return id
+  }
+  /** Unread as the runtime's eager mark-read decides it (`fireMarkIssueRead`:
+   *  activity after `readAt`), from client-core's own two helpers. Only an
+   *  unread row's click marks it read, so a click on a read row is a lighter
+   *  workload (the control commits nothing for it); every sample clicks an
+   *  unread one. */
+  function unread(id: string): boolean {
+    const store = engine.getSnapshot()
+    const issue = store.issues.find((candidate) => candidate.id === id)
+    if (issue === undefined) return false
+    return activityAfterRead(issue.readAt, issueActivityAt(issue, store.sessions, store.issues))
   }
 
   /** The page clock: the runtime's own tick (POD-4550). The control derives
