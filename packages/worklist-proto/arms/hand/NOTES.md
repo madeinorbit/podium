@@ -1,5 +1,206 @@
 # arms/hand — notes
 
+## Round three: residency, a3 (POD-4580) · 2026-09-23
+
+Cold rows (closed issues and their sessions) stay out of the pool until
+something reads them (`pool/residency.ts`; schema doc §5, audit §7). Built
+after the MobX build (Ma3, POD-4567; Ma4, POD-4568) and to its contract:
+the same rule, transitions, window and shared seams (`RowSource.row`,
+`RowView.loading`). Read with `pool/residency.test.tsx` and the README's
+"Residency".
+
+### Decisions
+
+- **The rule is the schema's, applied by one shared function**
+  (`coldByRule` / `viaTargetOf`, now in `shared/src/schema.ts` with a test in
+  `schema.test.ts`): an issue is cold when `closedAt != null`; a session when
+  its RAW `issueId` names a known issue cold by rule (a headless session of a
+  closed issue too). The pool, the rebuild and the gate's partition check
+  call it. The MobX arm keeps its own copy (`arms/mobx/pool/residency.ts`);
+  it can switch when it next changes (as with `prefixCandidates` at Ha2).
+- **Cold means not in the tables**: no slot, no cell, no record. A plain
+  registry keeps the id (and a session's issue, so a reopen finds its
+  sessions). The relation engine links cold rows like any other; its maps
+  were plain already, so there is NO second (plain/observable) copy to
+  promote, unlike MobX's twins. Buckets hold hot and cold ids alike.
+- **Tracked the hand way.** "Is this row cold" is read by cells through a
+  door (`ViewInputs.loading`, `HandPool.resident`, `lazyMany`, and `one()`'s
+  presence): the door records the cell under `entity:id` in a `coldness`
+  `DepIndex`. The registry reports each entry that appears or leaves; the
+  pool turns it into a `residency` delta, a new member of the closed `Delta`
+  union handled in every switch, which dirties exactly the cells that asked.
+  No list of dependents is kept by hand.
+- **First access = a cell reading through a lazy relation.** `loading(entity,
+  id)` answers true for a known cold row and queues it; the first request
+  arms a 50 ms window (`LOAD_WINDOW_MS`); every row queued inside it is read
+  by id through `RowSource.row` (fenced: one read of that row) and installed
+  in ONE commit (`HandPool.hydrate`). Duplicates coalesce. The load is
+  deferred because a cell must not write the tables mid-drain.
+- **A cold row's update that keeps it cold is relinked, not stored** (the
+  brief's choice, and Ma3's): the kernel holds the value; a later load reads
+  the current one. The engine gets `changed(entity, id, undefined, value)`:
+  with no previous value held it re-resolves every link of the row (a link
+  that did not move writes nothing) and re-decides the row's collapse group,
+  reading cold PEERS back by id (finding 3). An update that makes the row
+  itself hot (a reopen) installs it at once with its cold sessions
+  (`warmDependents`, same commit, never painted loading); removing an issue
+  warms its cold sessions. Only a `replace` makes rows cold again: it
+  re-partitions (resident rows stay, the rest follow the rule over the new
+  slice). An issue closed while resident stays resident.
+- **`one()` answers a KNOWN target** (resident or cold): the pool's
+  `present` option is "tracked presence, or known cold". A view that needs
+  the target's DATA reads residency itself: the origin is now `originRef`
+  (the engine's answer) → `originId` (resident only) → `originTick`, plus a
+  `loading` part (origin or any member session cold). `buildRowView` sets
+  `loading: true` only then; `sliceRowOf` drops it. `activityAt` and a
+  draft's title read only resident sessions, so they are provisional exactly
+  while `loading` is set.
+- **Lazy collections: `HandPool.lazyMany(from, id, relation)` →
+  `{ ready, pending }`** (criterion 3 at the relation level, as Ma3's): the
+  resident members, and the count still cold, each of which is queued. A
+  roll-up derives from `ready` and shows pending while `pending > 0`; Hb3
+  builds the real progress roll-up on it. Tested with a progress cell over
+  the live corpus (below).
+- **`snapshot()` settles** (reads every resident row, loads what they
+  queued, reads again; at most 64 rounds) and lists RESIDENT issues. The
+  rebuild takes the pool's resident ids as an input (which cold rows were
+  looked at is history, like the selection): its rows are the issues hot by
+  rule plus the resident ones; the gate's checkpoint calls it without.
+- **The arm refuses a feed without `row()`**; `new HandPool(...)` without the
+  `lazy` option still holds every row (the Ha1/Ha2 relation tests).
+- **Engine change (small):** the collapse decision skips a cold peer whose
+  by-id read finds nothing (the kernel removed it ahead of its event); its
+  own removal re-decides the group later in the same event.
+
+### Findings
+
+1. **Residency saves this pool table slots and cells, not bootstrap
+   entries.** The hand pool builds no per-row object at bootstrap in either
+   mode (cells and records are born on first read since Ha1), and a cold
+   row's registry entry replaces its table slot one for one, so the entries
+   a bootstrap builds are EQUAL: 57,125 at 1x, 228,657 at 4x, of which the
+   relation index (ids only, plain, the same whatever the residency) is
+   47,478 / 190,093. The saving shows at first read: the a1 list's first
+   paint builds 23,827 cells lazy vs 53,538 with every row resident at 1x
+   (-55%), 95,305 vs 214,149 at 4x. MobX's "15,547 observables vs 29,636"
+   counts a different thing (observable map slots; its cold rows' relation
+   entries are plain twins it does not count), so the two numbers are not
+   comparable; the nearest like-for-like figure is issue + session table
+   slots: 3,651 here (live-shaped fixture) against MobX's 4,202 at Ma3 (old
+   fixture, so not the same corpus either).
+2. **The lazy bootstrap is not faster here** (walls below): +15% at 1x,
+   +6% at 4x, both flatblock runs. Probed and ruled out on flatblock (not
+   landed): skipping the `residency` deltas no cell has asked about changed
+   nothing measurable (1x 49.5 vs 43.3, 4x 248.0 vs 214.4). Cause not
+   isolated; the remaining per-cold-row work is the rule itself, a registry
+   and dependents write, and the engine re-deciding collapse groups with
+   cold peers read back by id.
+3. **A cold row in a resume-twin group reads its cold peers on every update**
+   (no previous value is held, so the collapse group is re-decided): a new
+   cold session sharing a resume ref with a cold twin read that twin by id
+   (asserted in `residency.test.tsx`; nothing becomes resident). A plain cold
+   heartbeat with no twin reads nothing but its own row.
+4. **#1's commit fence is asserted again** (`counts.test.tsx`): the
+   heartbeat's closed root and its session are cold, so the heartbeat is a
+   registry write and the list never drew the row: 0 rows drawn, 2 reads —
+   the MobX a-phase numbers exactly. The native lane asserts the same
+   (`harness/native/hand-pool.native.test.tsx`: nothing redrawn).
+5. **#8b's grace rows are visible yet cold** (Ma3 finding 4, seen here too):
+   three of the six rows the tick folds (`i1545`, `i23`, `i4535`) are closed
+   issues inside the 24 h grace window, cold by the schema's rule, so the a1
+   list (resident rows only) does not draw them. #8b's commit cell is written,
+   not asserted, and every changed row it did not draw is asserted cold. Hb1's
+   visible collection must load them on first paint.
+6. **The mount queues 617 loads at 1x** (2,399 at 4x): open spin-offs of
+   closed origins on the live-shaped fixture. The a1 list then DRAWS those
+   origins (it lists every resident issue) and they ask for their own cold
+   sessions: a cascade of load windows that Hb1's visible collection ends.
+   The counts test and the native test settle them before counting.
+7. **Ma4's seed-8 shape has no counterpart here**: buckets are keyed by the
+   reference and never placed by residency, so there is no second place to
+   go stale. The sequence (evict a parent, move a child away, re-add the
+   parent) is a test in `residency.test.tsx` anyway.
+8. **The checkpoint's plant is different from MobX's** because the hand pool
+   has no promotion step: a cold SESSION's update forgotten instead of kept
+   (a row the pool no longer knows, so it never loads). It survives loading,
+   and the checkpoint catches it. On the 2 x 60 shake-out: the removal-deaf
+   plant failed by the rebuild (steps 15, 32), relink-skipped by the scan (14,
+   0), cold-deaf by partition or scan (9, 20), cold-relink by the per-step scan
+   (24, 20), cold-forgotten by the checkpoint (both seeds).
+9. **The new `loading` part is one more reader of `issue.sessions`**: a
+   session joining an issue now re-runs `activityAt`, `loading` and `view`
+   (3 cells, was 2; `relations.test.ts` updated). #2's trap (Ma4: `activityAt`
+   re-reading every member ROW on any member's change) is still present here
+   and is Ha4's; the `loading` part reads residency and the bucket, never a
+   row.
+
+### Measured
+
+Box: counts need none; walls on flatblock under `bench:flatblock`, 15 rounds,
+arms interleaved with the order rotated, 1-minute load recorded per sample
+(max 6.17, 4.53: both runs pass the load-8 rule), commit b86e1f547.
+
+Bootstrap in the count harness (`pool/bootstrap.test.ts`, replay feed,
+live-shaped fixture; `hand-pool-bootstrap-counts.json`):
+
+| Scale | Pool | Issues resident / cold | Sessions resident / cold | Table slots | Relation entries | Cells / records | First-read cells |
+|---|---|---|---|---|---|---|---|
+| 1x | lazy (Ha3) | 2,166 / 2,701 | 1,485 / 2,819 | **4,126** | 47,478 | 1 / 0 | **23,827** |
+| 1x | every row resident (Ha2) | 4,867 / 0 | 4,304 / 0 | 9,646 | 47,478 | 1 / 0 | 53,538 |
+| 4x | lazy (Ha3) | 8,664 / 10,804 | 6,219 / 10,997 | **16,762** | 190,093 | 1 / 0 | **95,305** |
+| 4x | every row resident (Ha2) | 19,468 / 0 | 17,216 / 0 | 38,563 | 190,093 | 1 / 0 | 214,149 |
+
+Table slots -57% (1x) and -57% (4x). "Cells 1" is the id list, not yet run.
+First-read cells: every listed row's view read once (the a1 list's first
+paint), before any load lands.
+
+Bootstrap walls, `create()` to a bootstrapped pool, reads fence off
+(`POD_POOL_BOOT_WALLS=1`, flatblock, two runs; p50 / p90 ms):
+
+| Scale | lazy (run 1) | all resident (run 1) | lazy (run 2) | all resident (run 2) |
+|---|---|---|---|---|
+| 1x | 49.1 / 64.6 | 43.9 / 58.8 | 49.5 / 56.3 | 41.4 / 46.1 |
+| 4x | 253.3 / 618.3 | 234.3 / 622.5 | 247.6 / 359.1 | 232.1 / 337.6 |
+
+Browser bootstrap wall: NOT MEASURED; it waits for L5e (POD-4561, still in
+backlog on 2026-09-23).
+
+Row views on first read (`residency.test.tsx`, list mounted, 1x): 2,166
+rows drawn, 2,166 `IssueCells` (one per drawn row, none for a cold one),
+23,827 cells created (every one belongs to a drawn row, plus the id list),
+0 records.
+
+Loader (`residency.test.tsx`): two rows asked for inside one window → one
+timer at 50 ms, one `row()` read each, one commit, both resident; the reader
+saw `loading:-` then the row, never an empty one; a hydration is one fenced
+read (`rows: 1`, `issue: 1`); the real timer closes the window on its own.
+
+Lazy relation (`residency.test.tsx`): a hot parent with hot and cold
+children, a progress cell over `lazyMany`: `{ done 0, total <hot>, pending
+<cold> }` until the window closes, then `{ done <cold>, total <all>,
+pending 0 }` (closed children count as done once loaded).
+
+Fence steps (`counts.test.tsx`, 1x engine, live-shaped fixture, loads
+settled before counting):
+
+| step | oracle changed | drawn | commit fence | reads / budget |
+| --- | --- | --- | --- | --- |
+| #1 heartbeat | — | — | asserted | 2 / 3 (session, worktree) |
+| #3 click | i214 | i214 | asserted | 1 / 3 |
+| #4 rename | i214 | i214 | Hb1 (unchanged ruling) | 1 / 3 |
+| #8 tick | — | — | asserted | 0 / 0 |
+| #8b grace | 6 rows | the 3 resident ones | missed rows asserted cold | 3 / 144 |
+
+GATE_OF_RECORD_PLACEHOLDER
+
+### Open
+
+- Browser bootstrap wall: L5e (POD-4561).
+- Hb1: the closed fold lists ids from metadata and loads rows only when
+  drawn; the grace rows of finding 5 load on first paint.
+- Hb3: progress from `lazyMany(...).ready`, `loading` while pending.
+- Ha4: #2's per-member re-read (Ma4's lesson) is still in `activityAt`.
+
 ## Round three: relations, a2 (POD-4579) · 2026-09-23
 
 The relation engine (`pool/relations.ts`), maintained from the declared

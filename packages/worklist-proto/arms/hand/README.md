@@ -32,8 +32,9 @@ visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
   input.
 - **A row view is a cell per part** (`pool/views.ts` `PART_RULES`,
   `pool/pool.ts` `IssueCells`): `own` (row-only fields and the clock),
-  `repoId` → `prefix` → `displayRef`, `displayTitle`, `originId` →
-  `originTick`, `activityAt`, then `view` assembles them and reads no row.
+  `repoId` → `prefix` → `displayRef`, `displayTitle`, `originRef` →
+  `originId` → `originTick`, `activityAt`, `loading`, then `view` assembles
+  them and reads no row.
   A single-valued relation is its own part, read through the relation
   accessor (`relations.one`: the engine's forward slot plus the target's
   presence), never resolved off the own row, so a rename moves no relation
@@ -67,7 +68,25 @@ visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
   cells that read that slot; `one()`'s presence check is tracked on the
   target's presence, not its row. A bucket has no order: a reader that needs
   one imposes it (a draft's first member is the lowest session id).
-- **Every row is resident** at a1 (Ha3 adds cold rows).
+- **Residency** (`pool/residency.ts`, Ha3): the schema's cold rule
+  (`coldByRule` in `shared/src/schema.ts`: an issue with `closedAt`, a
+  session of such an issue) keeps a row OUT of the tables at ingest: a plain
+  registry holds its id (and a session's issue), and the relation engine
+  links it all the same, so buckets hold hot and cold ids alike. A cell that
+  reaches a cold row asks `ViewInputs.loading(entity, id)`: that records the
+  cell under the row's `coldness` key and queues the row; the first request
+  arms a 50 ms window, and every row queued in it is read by id through the
+  feed (`RowSource.row`) and installed in ONE commit (`HandPool.hydrate`). A
+  registry entry that appears or leaves is a `residency` delta (a member of
+  the closed union) that dirties exactly the cells that asked. The row view
+  sets `loading` while its origin or a member session is cold, so the
+  provisional values are never drawn as data. A cold row's update that keeps
+  it cold relinks it and is not stored; an update that makes it hot (a
+  reopen) installs it and its cold sessions at once; a removal warms its
+  cold sessions; only a `replace` makes rows cold again (it re-partitions).
+  `HandPool.lazyMany` answers a lazy collection as `{ ready, pending }`: what
+  a roll-up (Hb3) derives from, and its pending marker. `HandPool.resident`
+  is the tracked "resident / loading / absent" of one row.
 
 ### The enumeration module
 
@@ -76,10 +95,13 @@ visible collection, order, groups and roll-ups (Hb1-Hb3) come next.
 anywhere else in `pool/`): `issueIdsOf` (every issue id, for the a1 list and
 `snapshot()`, until Hb1's visible collection; the id-list cell records the
 issue table's MEMBERSHIP as its input, so a rename never re-runs it),
-`reseed` (a `replace`), and `scanRelations` / `diffRelations`: every
+`reseed` (a `replace`; with residency it walks the cold registry for the ids
+the slice dropped), and `scanRelations` / `diffRelations`: every
 declared relation resolved from scratch by walking the tables, the oracle
 the gate and `pool/relations.test.ts` hold the engine to (the pool never
-calls it). When a repo's lane leaves, another lane is found in the
+calls it); `knownTables` (every row the pool knows, from the feed, cold ones
+included) and `diffResidency` (the hot/cold partition against the feed), the
+gate's. When a repo's lane leaves, another lane is found in the
 maintained `repo.worktrees` collection, not by a walk.
 
 ### Write path
@@ -115,6 +137,11 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
   the same in a repo of 1,000 as in a repo of 1. The cells' dependency
   indexes are bookkeeping, not relation indexes, and are not counted.
 - `rollupsDerived` — 0 until the roll-ups (Hb3).
+- `residency.counters` (Ha3, zeroed by `stats.reset()`): `coldWrites`
+  (registry writes: a cold row registered, relinked or forgotten),
+  `requests` (distinct rows queued), `batches` (windows closed, one commit
+  each), `hydrated` (rows loaded on access), `warmed` (rows installed because
+  the row they inherit from stopped being cold).
 - `stats.counters` (the pool's own): `cellsCreated` (cells made on first
   read), `cellRuns` (cell bodies run, first runs included), `cellsChanged`
   (re-runs whose value differed), `tableWrites` (slots set to a different
@@ -125,20 +152,32 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
   `reads.wrapTables` (behind the tracked doors), every relation read through
   `reads.wrapRelations`, and the id walk through the fenced table's `keys()`.
 
-### Gates (a1)
+### Gates (a-phase)
 
 - **Correctness (L4b)**, `pool/gate.test.ts`: rebuild-only (`oracleEvery:
-  0`, coordinator ruling for a1; the oracle compares order and roll-ups),
-  plus every relation of every row against the from-scratch scan at every
-  compared step (Ha2). Two planted NOs, each of which must fail every seed:
-  the pool deaf to removals (the rebuild catches it), and the pool skipping
-  relation upkeep on updates (the scan catches it). Defaults 3 seeds x 200 steps; `POD_POOL_GATE_SEEDS` /
-  `POD_POOL_GATE_STEPS` set more. The same file compares the own-row and
-  one-hop fields with the oracle's row views.
+  0`, coordinator ruling for the a-phase; the oracle compares order and
+  roll-ups), plus, at every compared step, every relation of every KNOWN row
+  (cold ones included) against the from-scratch scan of the feed (Ha2) and
+  the hot/cold partition against the feed (Ha3); at the last step, the
+  full-residency checkpoint (load everything, then compare with no input
+  from the pool). Five planted NOs, each of which must fail every seed:
+  deaf to removals (the rebuild), relation upkeep skipped on a held row's
+  update (the scan), deaf to cold rows' updates (partition or scan), cold
+  relinks skipped (the per-step scan, checkpoint off: the error heals on
+  load), a cold session forgotten (the checkpoint, per-step checks off).
+  Defaults 3 seeds x 200 steps; the gate of record is 20 x 300
+  (`POD_POOL_GATE_SEEDS`, `POD_POOL_GATE_FIRST_SEED` for chunks,
+  `POD_POOL_GATE_STEPS`). The same file compares the own-row and one-hop
+  fields with the oracle's row views, after loading the visible rows.
+- **Residency**, `pool/residency.test.tsx` (bootstrap split by count, cells
+  on first read with the list mounted, the loader, lazy relations with the
+  pending marker, every transition) and `pool/bootstrap.test.ts` (counts at
+  1x and 4x; walls with `POD_POOL_BOOT_WALLS=1`).
 - **Fence steps** #1, #3, #4, #8, #8b, `pool/counts.test.tsx`: the shared
   `assertCommits` (where the a1 list can meet it), `assertReads` and
   `assertNoCopies`, no parity; the roster entry with parity is Ha4's
-  (`harness/src/fences.test.tsx` names it pending).
+  (`harness/src/fences.test.tsx` names it pending). The mount's queued loads
+  are settled before counting (the window never closes on its own there).
 - Relations: `pool/relations.test.ts` — per relation, the §4.5 worked
   example, the write record per change kind, the fixture schema with an
   extra relation, the resume twins against the legacy dedupe, and seeded
@@ -165,7 +204,11 @@ and runs the same `PART_RULES` directly (`directParts`), no cells.
 3. Read inputs only through `ViewInputs` (the tracked doors). A plain field,
    closure or module value read inside a part is an input no cell recorded:
    the value goes stale and the gate's rebuild comparison fails.
-4. Never read a row in `view`, and never read a target in a part that also
+4. A part that reads a lazy relation's target (an issue or session that may
+   be cold) reads only resident rows (`input.present`, `input.issue`, ...)
+   and the target joins the `loading` part, so the row shows loading, never
+   a half-built value as data.
+5. Never read a row in `view`, and never read a target in a part that also
    reads the own row: that is how a rename starts charging reads to its
    neighbours (`pool/counts.test.tsx` fails the budget).
 
