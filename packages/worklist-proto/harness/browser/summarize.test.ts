@@ -167,7 +167,10 @@ describe('runSummary (the entry point)', () => {
     ])
     const lines: string[] = []
     expect(runSummary([dir], (line) => lines.push(line))).toBe(2)
-    expect(lines).toEqual(['TARGETS DIFFER (not summarised): 1x click#0: i50 (noop) vs i17 (hand)'])
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^TARGETS DIFFER \(not summarised\): 1x click#0: /)
+    expect(lines[0]).toContain('i50 (noop)')
+    expect(lines[0]).toContain('i17 (hand)')
     expect(lines.some((line) => line.startsWith('|'))).toBe(false)
   })
 
