@@ -867,6 +867,30 @@ describe('short session id pane links (POD-4637)', () => {
     engine.dispose()
   })
 
+  it('the jump-to-session action opens a short id the server resolves (/sessions/<id> links)', async () => {
+    const { api, resolve } = apiResolving({ kind: 'session', sessionId: FULL })
+    const { engine } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', api })
+    engine.start()
+    engine.replica.applySnapshot('sessions', [session(FULL, '/tmp/known-repo')])
+    await settle(40)
+    engine.getSnapshot().navigateToSession('214a3887')
+    await settle(60)
+    expect(resolve).toHaveBeenCalledWith({ identifier: '214a3887' })
+    expect(engine.getSnapshot().paneA).toBe(FULL)
+    engine.dispose()
+  })
+
+  it('the jump-to-session action says why a short id cannot open', async () => {
+    const { api } = apiResolving({ kind: 'absent' })
+    const { engine, errors } = makeEngine({ url: '/workspace?wt=%2Ftmp%2Fknown-repo', api })
+    engine.start()
+    await settle(40)
+    engine.getSnapshot().navigateToSession('bbbbbbbb')
+    await settle(60)
+    expect(errors).toEqual(["Couldn't open session link — no session matches 'bbbbbbbb'"])
+    engine.dispose()
+  })
+
   it('a full session id never asks the server (optimistic spawns stay early, not gone)', async () => {
     const { api, resolve } = apiResolving({ kind: 'absent' })
     const { engine, errors } = makeEngine({

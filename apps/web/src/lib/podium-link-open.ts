@@ -21,7 +21,7 @@
 import { parseRoute } from '@podium/client-core/ui-state'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import type { PodiumTarget } from '@podium/protocol'
-import { parseIssueRef, resolveSessionIdentifier } from '@podium/protocol'
+import { isSessionIdPrefix, parseIssueRef, resolveSessionIdentifier } from '@podium/protocol'
 import { hasUnsupportedTypedDetail } from './podium-link'
 
 /** The fields of an issue this module needs; the replica's rows satisfy it. */
@@ -100,7 +100,12 @@ export function resolvePodiumTarget(
       // with the same shared helper first so the activator reports false when
       // no navigation will happen and the anchor keeps its fallback behavior.
       const session = resolveSessionIdentifier(target.session, context.sessions)
-      return session ? { kind: 'session', sessionIdOrRef: session.sessionId } : null
+      if (session) return { kind: 'session', sessionIdOrRef: session.sessionId }
+      // A short id this client cannot match is NOT inert: navigateToSession asks
+      // the server (POD-4637), which opens it or says why it cannot.
+      return isSessionIdPrefix(target.session)
+        ? { kind: 'session', sessionIdOrRef: target.session }
+        : null
     }
     case 'artifact': {
       if (hasUnsupportedTypedDetail(target)) return null

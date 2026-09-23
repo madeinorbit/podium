@@ -9,6 +9,7 @@ import {
   formatSessionRef,
   formatShort,
   indexForLetter,
+  isSessionIdPrefix,
   isShortSessionIdentifier,
   isValidPrefix,
   letterForIndex,
@@ -287,5 +288,13 @@ describe('isShortSessionIdentifier (POD-4637)', () => {
     ]) {
       expect(isShortSessionIdentifier(v), v).toBe(false)
     }
+  })
+})
+
+describe('isSessionIdPrefix (POD-4637)', () => {
+  it('is a uuid prefix only — a birth ref is not one', () => {
+    expect(isSessionIdPrefix('214a3887')).toBe(true)
+    expect(isSessionIdPrefix('POD-12-A')).toBe(false)
+    expect(isSessionIdPrefix('214a3887-6146-4a1d-9c3e-0123456789ab')).toBe(false)
   })
 })

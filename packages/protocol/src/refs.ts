@@ -216,16 +216,12 @@ export type SessionIdentifierResolution =
 const UUID_TEMPLATE = 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'
 
 /**
- * Could this link value only be a SHORT session id or a birth ref — something a
- * client must ask the server about rather than look up?
- *
- * A proper prefix of the canonical lowercase uuid shape, or `PREFIX-seq-LETTER`
- * / `PREFIX-DRAFT-n`. A full uuid is NOT: a full id may name an optimistic spawn
+ * Is this a proper PREFIX of a canonical (lowercase) session uuid — a short id
+ * like `214a3887`? A full uuid is NOT: a full id may name an optimistic spawn
  * the server has not confirmed yet, and it keeps its adopt-then-wait path.
  * This is a SHAPE test, not a matcher — it decides who to ask, never the answer.
  */
-export function isShortSessionIdentifier(value: string): boolean {
-  if (parseSessionRef(value)) return true
+export function isSessionIdPrefix(value: string): boolean {
   if (value.length === 0 || value.length >= UUID_TEMPLATE.length) return false
   for (let i = 0; i < value.length; i++) {
     const c = value.charCodeAt(i)
@@ -233,6 +229,14 @@ export function isShortSessionIdentifier(value: string): boolean {
     if (UUID_TEMPLATE[i] === '-' ? value[i] !== '-' : !hex) return false
   }
   return true
+}
+
+/**
+ * Could this link value only be a short session id or a birth ref — something
+ * a client must ask the server about rather than look up by exact id?
+ */
+export function isShortSessionIdentifier(value: string): boolean {
+  return isSessionIdPrefix(value) || parseSessionRef(value) !== null
 }
 
 /**

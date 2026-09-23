@@ -20,13 +20,19 @@ import type {
   WorkState,
 } from '@podium/model'
 import { asThreadId } from '@podium/model'
-import { resolveSessionIdentifier } from '@podium/protocol'
+import { createLogger } from '@podium/logger'
+import {
+  isSessionIdPrefix,
+  resolveSessionIdentifier,
+  type SessionIdentifierResolution,
+} from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { Router } from '../ui-state'
 import type { NavigationIntent } from './navigation'
+import { sessionLinkProblem } from './session-link'
 import type {
   DockTab,
   FileScope,
@@ -69,6 +75,8 @@ import {
 } from './state'
 import type { Store, StoreNotices } from './types'
 import type { EngineOutbox, OutboxKinds } from './wiring'
+
+const log = createLogger('client-core:actions')
 
 /**
  * Genuinely device-local actions. Route entries delegate to Router; the rest
@@ -483,7 +491,13 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   const navigateToSession = (sessionIdOrRef: string): void => {
     const state = rt.state()
     const meta = resolveSessionIdentifier(sessionIdOrRef, state.sessions)
-    if (!meta) return
+    if (!meta) {
+      // A short id this client cannot match (POD-4637): the server answers,
+      // through the CLI's rule — no prefix matching here. Anything else stays
+      // inert, as before: an unknown full id may be a spawn still arriving.
+      if (isSessionIdPrefix(sessionIdOrRef)) void navigateToSessionLink(sessionIdOrRef)
+      return
+    }
     const worktree =
       reposToViews(state.repos)
         .flatMap((repo) => repo.worktrees)
@@ -495,6 +509,25 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       ...(worktree ? { selectedWorktree: worktree } : {}),
     }
     rt.navigate({ view: 'workspace', ...selection, tabId: meta.sessionId, history: 'push' })
+  }
+
+  const navigateToSessionLink = async (identifier: string): Promise<void> => {
+    let answer: SessionIdentifierResolution
+    try {
+      answer = await rt.api.sessions.resolve.query({ identifier })
+    } catch (error) {
+      log.debug('session link resolve failed', { identifier, error })
+      return
+    }
+    if (answer.kind !== 'session') {
+      rt.notices.error(sessionLinkProblem(identifier, answer))
+      return
+    }
+    // The row may not be in this replica yet; a full id is then inert here,
+    // exactly as any other unknown full id is.
+    if (resolveSessionIdentifier(answer.sessionId, rt.state().sessions)) {
+      navigateToSession(answer.sessionId)
+    }
   }
 
   return {

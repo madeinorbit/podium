@@ -61,6 +61,13 @@ describe('resolvePodiumTarget', () => {
     })
   })
 
+  it('hands a short session id it does not hold to navigateToSession, which asks the server (POD-4637)', () => {
+    expect(resolvePodiumTarget({ kind: 'session', session: '214a3887' }, context)).toEqual({
+      kind: 'session',
+      sessionIdOrRef: '214a3887',
+    })
+  })
+
   it('does not claim an unknown session that navigateToSession would ignore', () => {
     expect(resolvePodiumTarget({ kind: 'session', session: 'POD-9999-A' }, context)).toBeNull()
   })

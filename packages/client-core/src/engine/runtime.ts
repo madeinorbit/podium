@@ -96,6 +96,7 @@ import { planNavigation, type NavigationIntent } from './navigation'
 import { BootFetches } from './boot'
 import { dedupeSessions, OptimismLedger } from './optimism'
 import { Reactions } from './reactions'
+import { sessionLinkProblem } from './session-link'
 import {
   createReplicaBinding,
   type ReplicaBinding,
@@ -1043,9 +1044,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       const route = this.router.current()
       this.router.replace({ ...route, view: 'workspace', pane: answer.sessionId })
     } else {
-      const detail =
-        answer.kind === 'ambiguous' ? answer.message : `no session matches '${pane}'`
-      this.notices.error(`Couldn't open session link — ${detail}`)
+      this.notices.error(sessionLinkProblem(pane, answer))
     }
     this.apply(
       workspacesPatch(this.state, (ws) => (allTabIds(ws).includes(pane) ? closeTab(ws, pane) : ws)),
