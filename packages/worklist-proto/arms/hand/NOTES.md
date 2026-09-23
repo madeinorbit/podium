@@ -60,7 +60,19 @@ document, POD-4597, is not written yet).
 
 ### Findings
 
-(filled in from the runs below)
+1. **Evict then re-add left a mounted row blank (caught by `pool.test.tsx`,
+   fixed).** Removing an issue disposes its cells; re-adding it dirtied no
+   cell (none existed), so no listener heard, and a mounted slot kept
+   showing nothing. The fix is in `release`: an issue delta that moves
+   membership notifies the row's listeners, whichever direction. The L4b
+   gate cannot see this class: `snapshot()` pulls fresh cells on every call,
+   so the incremental snapshot and the rebuild agree while the mounted row
+   is stale. Only a listener-level test (or the count harness on an evict +
+   re-add step) sees it. H3's "evict then re-add re-seats relations" check
+   should include a mounted row, not only the snapshot.
+2. **The 1x fixture has one lane per repo** (Ma1 finding 3 from the other
+   side): the repo takeover path never runs on the fixture; the test adds a
+   second lane to exercise it.
 
 ### Open
 
