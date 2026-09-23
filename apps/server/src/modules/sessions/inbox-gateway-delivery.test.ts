@@ -75,7 +75,7 @@ function harness(
     phase?: string
     agentKind?: 'claude-code' | 'shell'
     /** Switch the fake gateway between receipts mid-test (migration (c)). */
-    deliver?: () => TurnReceipt
+    deliver?: (input: { turnId: string; deliveryRecovery: boolean }) => TurnReceipt
   } = {},
 ) {
   const rows: Array<QueuedInboxMessage & { sessionId: SessionId; queuedAt: number }> = []
@@ -110,7 +110,8 @@ function harness(
       noteInputAttribution: vi.fn(),
     },
   } as unknown as Session
-  const deliver = () => (options.deliver ? options.deliver() : acceptedReceipt())
+  const deliver = (input: { turnId: string; deliveryRecovery: boolean }) =>
+    options.deliver ? options.deliver(input) : acceptedReceipt()
   const deps = {
     getSession: (id: SessionId) => (id === SID ? session : undefined),
     queue: {
@@ -133,6 +134,13 @@ function harness(
         if (row) {
           row.attempts = Math.max(row.attempts, 1)
           row.deliveryOwner = 'daemon'
+        }
+      },
+      releaseDelivery: async (id: string, attempts: number) => {
+        const row = rows.find((candidate) => candidate.id === id)
+        if (row?.deliveryOwner === 'daemon') {
+          row.attempts = attempts
+          row.deliveryOwner = null
         }
       },
       // Legacy-only supplements: ignored by the gateway-only inbox, required
@@ -194,9 +202,9 @@ function harness(
       return { ok: true }
     },
     contractCancel: vi.fn(async () => ({ ok: true as const })),
-    contractDeliver: async (input: unknown) => {
+    contractDeliver: async (input: { turnId: string; deliveryRecovery: boolean }) => {
       contractSends.push(input)
-      return deliver()
+      return deliver(input)
     },
     contractInterrupt: async (sessionId: SessionId) => {
       contractInterrupts.push(sessionId)
@@ -386,14 +394,17 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
 
   it('(c) rows with no daemon bound stay queued and drain on bind', async () => {
     let bound = false
+    const recoveryFailures: string[] = []
     const h = harness({
-      deliver: () =>
-        bound
-          ? acceptedReceipt()
-          : {
-              outcome: 'refused',
-              refusal: { reason: 'not_running', detail: 'no machine' },
-            },
+      // The fake models the daemon's two arms honestly (delivery-queue.ts): a
+      // RECOVERY forward is confirm-or-fail and never types, so it settles
+      // `failed`; only a fresh forward is typed. A fake that accepted
+      // regardless of the flag is what hid POD-4622.
+      deliver: (input) => {
+        if (!bound) return { outcome: 'refused', refusal: { reason: 'not_running', detail: 'no machine' } }
+        if (input.deliveryRecovery) recoveryFailures.push(input.turnId)
+        return acceptedReceipt()
+      },
     })
 
     expect(
@@ -414,8 +425,12 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     expect(h.rows).toHaveLength(1)
     expect(h.applied).toEqual([])
     expect(h.promptFailed).toHaveLength(1)
+    // `not_running` proves nothing was typed, so the refusal leaves no
+    // custody behind: the row is exactly as fresh as before the forward.
+    expect(h.rows[0]).toMatchObject({ attempts: 0 })
+    expect(h.rows[0]?.deliveryOwner ?? null).toBeNull()
 
-    // The bind drains it.
+    // The bind drains it — as a FRESH send, not a recovery the daemon fails.
     bound = true
     h.inbox.markSessionBound(SID)
     await h.inbox.drain(SID, { justBound: true })
@@ -423,9 +438,74 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
 
     expect(h.sent).toEqual([])
     expect(h.contractSends).toHaveLength(2)
+    expect(h.contractSends[1]).toMatchObject({ turnId: 'unbound-row', deliveryRecovery: false })
+    expect(recoveryFailures).toEqual([])
     await h.inbox.deliveryOutcome(SID, { rowId: 'unbound-row', outcome: 'delivered' })
     expect(h.rows).toEqual([])
     expect(h.applied).toEqual([{ sourceMessageId: 'msg_unbound', sessionId: SID }])
+  })
+
+  it('a refusal releases only the reservation THIS forward took: an earlier custody stays recovery (POD-4622)', async () => {
+    // The row was already forwarded once (reserved, maybe typed, never
+    // confirmed). A later `not_running` proves the SECOND attempt typed
+    // nothing — it says nothing about the first, so the row stays recovery.
+    let bound = false
+    const h = harness({
+      deliver: () => bound
+        ? acceptedReceipt()
+        : { outcome: 'refused', refusal: { reason: 'not_running', detail: 'session is not behind the runtime contract' } },
+    })
+    h.rows.push({
+      id: 'held-row',
+      sessionId: SID,
+      queuedAt: 1,
+      text: 'forwarded before, never confirmed',
+      attempts: 1,
+      deliveryOwner: 'daemon',
+      inputOrigin: 'controller',
+      principal: agentPrincipal(),
+      sourceMessageId: null,
+    })
+    h.session.queuedMessageCount = 1
+
+    await h.inbox.drain(SID)
+    await flush()
+    expect(h.contractSends).toEqual([expect.objectContaining({ turnId: 'held-row', deliveryRecovery: true })])
+    expect(h.rows[0]).toMatchObject({ attempts: 1, deliveryOwner: 'daemon' })
+
+    bound = true
+    h.inbox.markSessionBound(SID)
+    await h.inbox.drain(SID, { justBound: true })
+    await flush()
+    expect(h.contractSends).toHaveLength(2)
+    expect(h.contractSends[1]).toMatchObject({ turnId: 'held-row', deliveryRecovery: true })
+  })
+
+  it('a refusal reason not audited as pre-write keeps the reservation (POD-4622)', async () => {
+    // Only reasons whose every producer on this path answers BEFORE any write
+    // release custody. Anything else keeps confirm-or-fail: a lost message is
+    // visible and retryable, a duplicate turn is not undoable.
+    let bound = false
+    const h = harness({
+      deliver: () => bound ? acceptedReceipt() : { outcome: 'refused', refusal: { reason: 'busy' } },
+    })
+    expect(
+      await h.inbox.queueText({
+        sessionId: SID,
+        text: 'refused busy',
+        mutationId: asMutationId('busy-row'),
+        sourceMessageId: 'msg_busy',
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({ ok: true, queued: true })
+    await flush()
+    expect(h.rows[0]).toMatchObject({ attempts: 1, deliveryOwner: 'daemon' })
+
+    bound = true
+    h.inbox.markSessionBound(SID)
+    await h.inbox.drain(SID, { justBound: true })
+    await flush()
+    expect(h.contractSends[1]).toMatchObject({ turnId: 'busy-row', deliveryRecovery: true })
   })
 
   it('shell rows settle onto the raw transport in FIFO order', async () => {
