@@ -30,6 +30,7 @@
  * (the next step's reset clears it).
  */
 
+import { appendFileSync } from 'node:fs'
 import { act } from 'react'
 import { describe, expect, it } from 'vitest'
 import { mobxPoolArm, type MobxPoolHandle } from '../../arms/mobx/pool/arm'
@@ -185,7 +186,9 @@ async function runArm(name: string, schedule: Schedule): Promise<ArmResult> {
       plantLoadedRuns: plant.loadedRuns,
       fence,
     }
-    console.info(`[m3-step-load] ${JSON.stringify(out)}`)
+    const line = `[m3-step-load] ${JSON.stringify(out)}\n`
+    if (process.env.M3_PROBE_OUT) appendFileSync(process.env.M3_PROBE_OUT, line)
+    else console.info(line)
     return out
   } finally {
     mounted.unmount()
