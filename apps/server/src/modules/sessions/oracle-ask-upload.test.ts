@@ -599,7 +599,7 @@ describe('oracle: sessions.uploadImage', () => {
       // Attached and considered ONLINE, but never answers. Kept as its own
       // characterization because the two states are genuinely different inputs
       // that today produce the same output — which is the fact worth pinning.
-      attachHostDaemon(o.reg, (msg) => o.daemon.push(msg))
+      await attachHostDaemon(o.reg, (msg) => o.daemon.push(msg))
       expect(o.reg.modules.machines.onlineMachineIds()).toEqual([o.store.hostMachineId])
 
       const settled = o.call.sessions

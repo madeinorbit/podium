@@ -17,7 +17,7 @@ const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
 async function caller() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  attachHostDaemon(registry, () => {})
+  await attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
@@ -38,7 +38,7 @@ describe('appRouter', () => {
       instanceId: 'default',
       modelProbe: async (_machineId) => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }),
     })
-    attachHostDaemon(registry, () => {})
+    await attachHostDaemon(registry, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({
@@ -66,7 +66,7 @@ describe('appRouter', () => {
   it('sessions.create passes initialPrompt to the daemon spawn for argv agents (POD-549)', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon: unknown[] = []
-    attachHostDaemon(registry, (m) => daemon.push(m))
+    await attachHostDaemon(registry, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({
@@ -205,7 +205,7 @@ describe('appRouter', () => {
     const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const readTranscript = vi.spyOn(registry.modules.rpc, 'readTranscript')
-    attachHostDaemon(registry, (m) => daemon.push(m))
+    await attachHostDaemon(registry, (m) => daemon.push(m))
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const call = appRouter.createCaller({
       registry,
@@ -237,7 +237,7 @@ describe('appRouter', () => {
 
   it('settings Telegram setup endpoints delegate to the registry', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    attachHostDaemon(registry, () => {})
+    await attachHostDaemon(registry, () => {})
     let polled = ''
     // The router reaches settings through the typed modules seam — stub there.
     const settings = registry.modules.settings as unknown as {
@@ -298,7 +298,7 @@ async function repoCaller() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
-  attachHostDaemon(registry, (m) => daemon.push(m))
+  await attachHostDaemon(registry, (m) => daemon.push(m))
   return {
     registry,
     repos,

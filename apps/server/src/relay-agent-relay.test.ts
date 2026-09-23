@@ -195,7 +195,7 @@ describe('server agent relay handler (P1b)', () => {
     // 'machine <host-uuid> is not reachable right now'. Attached HERE rather than
     // in beforeEach because a third live machine changes the fleet projections
     // the enumeration and quota tests in this file assert on.
-    attachHostDaemon(registry, () => {})
+    await attachHostDaemon(registry, () => {})
     const spawnReply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',

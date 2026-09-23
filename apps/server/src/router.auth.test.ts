@@ -22,7 +22,7 @@ import { attachHostDaemon } from './test-support/host-daemon'
  */
 async function harness(member = false) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  attachHostDaemon(registry, () => {})
+  await attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users

@@ -165,6 +165,7 @@ describe('SessionRegistry', () => {
   it('defaults the first issue agent to coordinator without overriding clear or claim', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
+      await attachHostDaemon(reg, () => {}, { repos: ['/proj'] })
       const issue = await reg.modules.issues.create({
         repoPath: '/proj',
         title: 'Coordinator default',
@@ -215,6 +216,7 @@ describe('SessionRegistry', () => {
       hostname: 'remote',
       tokenHash: 'remote-token',
       ownerUserId: firstAdminMemberId(),
+      assignment: { server: false, agentExecution: true },
     })
     await store.machines.upsertMachine({
       id: store.hostMachineId,
@@ -222,6 +224,7 @@ describe('SessionRegistry', () => {
       hostname: 'host',
       tokenHash: 'host-token',
       ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: true },
     })
     const inventory = fixtureInventory({
       agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
@@ -443,7 +446,7 @@ describe('SessionRegistry', () => {
 
   const adopting = async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await attachHostDaemon(reg, () => {})
+    await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
     const issue = await reg.modules.issues.create({
       repoPath: '/repo',
       title: 'Adopt me',
@@ -543,7 +546,7 @@ describe('SessionRegistry', () => {
     // swallowed live main, the failure [spec:SP-595b] exists to prevent. Verified with
     // real git: `git -C /link/repo rev-parse --show-toplevel` prints /real/repo.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await attachHostDaemon(reg, () => {})
+    await attachHostDaemon(reg, () => {}, { repos: ['/link/repo'] })
     const issue = await reg.modules.issues.create({
       repoPath: '/link/repo', // registered through a symlink…
       title: 'Symlinked',
@@ -1252,7 +1255,7 @@ describe('SessionRegistry', () => {
       release = resolve
     })
     const read = vi.spyOn(reg.modules.machines, 'ownershipRows').mockReturnValue(pendingRows)
-    const attached = attachHostDaemon(reg, (m) => daemon.push(m))
+    const attached = reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     // LET THE PENDING ATTACH REACH THE OWNERSHIP READ. attachDaemon awaits
     // machines.attach first -- that is what writes the machine's daemon component,
     // and the capability guards read that row -- so it suspends before reaching
@@ -6391,9 +6394,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/repo',
@@ -6486,9 +6487,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -6548,9 +6547,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -6634,9 +6631,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -6677,9 +6672,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -6730,9 +6723,7 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         assignment: { server: true, agentExecution: true },
       })
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -6805,9 +6796,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -6852,9 +6841,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -6905,9 +6892,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -7011,9 +6996,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message), { repos: ['/repo'] })
       const issue = await registry.issues.create({
         repoPath: '/repo',
         title: 'Mail target',
@@ -7087,9 +7070,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message))
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/repo',
@@ -7153,9 +7134,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
-      await attachHostDaemon(registry, (message) =>
-        daemon.push(message),
-      )
+      await attachHostDaemon(registry, (message) => daemon.push(message), { repos: ['/repo'] })
       const parent = await registry.modules.issues.create({
         repoPath: '/repo',
         title: 'Epic',

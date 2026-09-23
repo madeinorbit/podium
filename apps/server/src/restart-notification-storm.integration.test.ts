@@ -134,7 +134,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         attachHostDaemon(registry, (msg) =>
           controls.push(msg),
         )
-      attach()
+      await attach()
       await registry.modules.settings.setSettingsFor(
         firstAdminMemberId(),
         normalizeSettings({
@@ -266,7 +266,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           // The server survives. Replacing the daemon forces a provider-history
           // fold against the durable checkpoint after the new lease is issued.
           registry.gateway.detachDaemon(registry.sessionStore.hostMachineId)
-          attach()
+          await attach()
         } else {
           // Both server restart modes reopen the durable store. Their daemon
           // mechanics differ below: a surviving daemon resends its held snapshot;
@@ -277,7 +277,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           registry = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
           registry.bus.on('notification.telegramRequested', telegramRequest)
           attachTestClient(registry.clientGateway, (message) => web.push(message))
-          attach()
+          await attach()
         }
         const generation = await currentGeneration()
         const recovery = controls.find(

@@ -20,7 +20,7 @@ const SYSTEM_TURN_AT = '2026-09-01T00:00:20.000Z'
 
 async function seedContractSession() {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  attachHostDaemon(reg, () => {})
+  await attachHostDaemon(reg, () => {})
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'claude-code',
     cwd: '/p',

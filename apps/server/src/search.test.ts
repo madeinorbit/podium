@@ -491,7 +491,7 @@ describe('search.query tRPC', () => {
   async function caller() {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    attachHostDaemon(registry, () => {})
+    await attachHostDaemon(registry, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     return {

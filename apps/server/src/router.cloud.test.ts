@@ -28,7 +28,7 @@ async function caller(
   onDaemon: (message: ControlMessage) => void = () => {},
 ) {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  attachHostDaemon(registry, onDaemon)
+  await attachHostDaemon(registry, onDaemon)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const call = appRouter.createCaller({

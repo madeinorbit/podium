@@ -809,7 +809,7 @@ describe('issues.get session membership', () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const issue = await registry.issues.create({ repoPath: '/r', title: 'A', startNow: false })
-      attachHostDaemon(registry, () => {})
+      await attachHostDaemon(registry, () => {})
       const first = await registry.modules.sessions.createSession({
         agentKind: 'codex',
         cwd: '/r',

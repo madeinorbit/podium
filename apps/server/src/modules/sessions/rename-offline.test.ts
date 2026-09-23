@@ -63,7 +63,7 @@ async function revocableStack() {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
-  attachHostDaemon(reg, () => {})
+  await attachHostDaemon(reg, () => {})
   const sessions = reg.modules.sessions
   const created = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 

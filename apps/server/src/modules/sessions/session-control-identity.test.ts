@@ -556,7 +556,7 @@ it('attaches, transfers control, and delivers input through the real async owner
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   const daemon: import('@podium/protocol/daemon').ControlMessage[] = []
   try {
-    attachHostDaemon(reg, (message) => daemon.push(message))
+    await attachHostDaemon(reg, (message) => daemon.push(message))
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/tmp',

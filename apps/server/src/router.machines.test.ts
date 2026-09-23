@@ -28,7 +28,7 @@ async function machineCaller() {
     pairing: new PairingManager(),
   })
   await registry.modules.machines.ensureHostMachine('machine-under-test')
-  attachHostDaemon(registry, () => {})
+  await attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
@@ -126,7 +126,7 @@ describe('sessions.create with machineId', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await registry.modules.machines.ensureHostMachine('machine-under-test')
-    attachHostDaemon(registry, () => {})
+    await attachHostDaemon(registry, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
     const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
     const call = appRouter.createCaller({

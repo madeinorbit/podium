@@ -631,7 +631,7 @@ describe('SessionRegistry session.phase events', () => {
     const store = await openTestStore(':memory:')
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
-      attachHostDaemon(reg, () => {})
+      await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/proj',

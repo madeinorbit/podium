@@ -8,7 +8,7 @@ async function registryWithDaemon(store?: Awaited<ReturnType<typeof openTestStor
   const messages: unknown[] = []
   const resolvedStore = store ?? (await openTestStore(':memory:'))
   const registry = await SessionRegistry.create(resolvedStore, undefined, { instanceId: 'default' })
-  attachHostDaemon(registry, (message) => messages.push(message))
+  await attachHostDaemon(registry, (message) => messages.push(message))
   return { registry, store: resolvedStore, messages }
 }
 

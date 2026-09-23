@@ -448,7 +448,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     async function seed() {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      attachHostDaemon(reg, () => {})
+      await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -550,7 +550,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
 
     async function seed(agentKind: 'claude-code' | 'codex') {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-      attachHostDaemon(reg, () => {})
+      await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({ agentKind, cwd: '/p' })
       await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       const createdAt = (await metaOffer(reg, sessionId))?.createdAt as string
@@ -773,7 +773,7 @@ describe('offer retirement across awaited owner notification', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
       vi.setSystemTime(new Date('2026-09-07T12:00:00.000Z'))
-      attachHostDaemon(reg, () => {})
+      await attachHostDaemon(reg, () => {})
       const { sessionId } = await reg.modules.sessions.createSession({
         agentKind: 'shell',
         cwd: '/p',

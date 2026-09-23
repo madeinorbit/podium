@@ -31,6 +31,7 @@ async function regWithTwoDaemons() {
     hostname: 'one',
     tokenHash: 'x',
     ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
   })
   await store.machines.upsertMachine({
     id: 'm2',
@@ -38,6 +39,7 @@ async function regWithTwoDaemons() {
     hostname: 'two',
     tokenHash: 'y',
     ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
   })
   const inventory = fixtureInventory({
     agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
@@ -63,6 +65,7 @@ async function regWithRevocableMachineGrant() {
     hostname: 'shared',
     tokenHash: 'shared-token',
     ownerUserId: COLLEAGUE,
+    assignment: { server: false, agentExecution: true },
   })
   await store.machines.setMachineInventory(
     SHARED_MACHINE,
@@ -478,6 +481,7 @@ async function handoffRegistry(
     hostname: 'source',
     tokenHash: 'x',
     ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
   })
   await store.machines.upsertMachine({
     id: 'm2',
@@ -485,6 +489,7 @@ async function handoffRegistry(
     hostname: 'target',
     tokenHash: 'y',
     ownerUserId: firstAdminMemberId(),
+    assignment: { server: false, agentExecution: true },
   })
   const inventory = fixtureInventory({
     agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],

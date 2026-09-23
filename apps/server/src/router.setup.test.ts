@@ -51,7 +51,7 @@ async function makeHarness() {
   installSetupParent()
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
-  attachHostDaemon(registry, () => {})
+  await attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users
@@ -86,7 +86,7 @@ async function activationHarness(opts: {
 }) {
   const store = await openTestStore(':memory:', readOrCreateLocalMachineId())
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'setup-test-installation' })
-  attachHostDaemon(registry, () => {})
+  await attachHostDaemon(registry, () => {})
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   const users = registry.sessionStore.users

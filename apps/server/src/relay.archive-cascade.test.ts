@@ -10,7 +10,7 @@ import { attachHostDaemon } from './test-support/host-daemon'
 
 async function regWithDaemon() {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-  attachHostDaemon(reg, () => {})
+  await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   return reg
 }
 

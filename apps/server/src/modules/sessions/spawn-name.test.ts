@@ -17,7 +17,7 @@ afterEach(async () => {
 async function makeRegistry(): Promise<SessionRegistry> {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
-  attachHostDaemon(registry, () => {})
+  await attachHostDaemon(registry, () => {})
   return registry
 }
 

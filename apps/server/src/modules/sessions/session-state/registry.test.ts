@@ -42,7 +42,7 @@ async function fixture() {
   const store = await openTestStore(':memory:')
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
-  attachHostDaemon(reg, () => {})
+  await attachHostDaemon(reg, () => {})
   const sessionState = new SessionStateRegistry({
     sessions: reg.modules.sessions,
     state: reg.modules.sessions.state,
@@ -463,7 +463,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     })
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reg)
-    attachHostDaemon(reg, () => {})
+    await attachHostDaemon(reg, () => {})
     const sessionState = new SessionStateRegistry({
       sessions: reg.modules.sessions,
       state: reg.modules.sessions.state,

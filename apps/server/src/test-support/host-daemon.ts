@@ -11,6 +11,10 @@
  *
  * An existing row is left alone: a test that wrote its own machine row (a name,
  * an inventory, a deliberately unassigned machine) keeps exactly what it wrote.
+ *
+ * The same commit resolves an issue's repo only through a machine that REPORTED
+ * it ("no reporting machine for repo path"), so `repos` are registered on the
+ * host the way its daemon's repo scan would register them.
  */
 
 import { firstAdminMemberId } from '@podium/model'
@@ -31,11 +35,14 @@ export async function assignHostMachine(store: SessionStore): Promise<void> {
   })
 }
 
-/** Attach a fake daemon for the host machine, registering the machine first. */
+/** Attach a fake daemon for the host machine, registering the machine (and any `repos` it reports) first. */
 export async function attachHostDaemon(
   registry: SessionRegistry,
   transport: DaemonControlPeer = () => {},
+  opts: { repos?: readonly string[] } = {},
 ): Promise<void> {
-  await assignHostMachine(registry.sessionStore)
-  await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, transport)
+  const store = registry.sessionStore
+  await assignHostMachine(store)
+  for (const path of opts.repos ?? []) await store.repos.addRepo(path, store.hostMachineId)
+  await registry.gateway.attachDaemon(store.hostMachineId, transport)
 }
