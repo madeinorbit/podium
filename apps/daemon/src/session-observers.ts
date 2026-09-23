@@ -106,6 +106,9 @@ export interface SessionObserversDeps {
   sharedScreenFor?: (sessionId: SessionId) => ScreenReader | undefined
   /** Test override for {@link CLAUDE_INTERRUPT_SETTLE_MS}. */
   interruptSettleMs?: number
+  /** Type into this session's terminal, as a person at its keyboard would. Omitted
+   *  = the daemon cannot, and a stopped prompt Claude put back stays there. */
+  writeInput?: (sessionId: SessionId, bytes: string) => void
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */

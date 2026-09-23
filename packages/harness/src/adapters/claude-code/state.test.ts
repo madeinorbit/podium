@@ -204,4 +204,39 @@ describe('Claude turn-running screen rule [POD-4633]', () => {
     expect(classifyClaudeScreen(REWOUND).turnRunning).toBe(false)
     expect(classifyClaudeScreen(FINISHED).turnRunning).toBe(false)
   })
+
+  /**
+   * What sits in the input box (POD-4651). An early Stop leaves the prompt there
+   * (measured on 2.1.280: Esc 0.3 s and 2.5 s after submit), and whatever Podium
+   * types next lands after it: "…Do not use tools.What is 3 times 3?".
+   */
+  it('reads the input box, one line per screen row, empty once cleared', () => {
+    expect(classifyClaudeScreen(REWOUND).inputDraft).toBe(
+      'Write the numbers from 1 to 2000, one per line, no commentary.',
+    )
+    expect(classifyClaudeScreen(THINKING_WITH_DRAFT).inputDraft).toBe('typed while busy')
+    expect(classifyClaudeScreen(THINKING).inputDraft).toBe('')
+    expect(classifyClaudeScreen(INTERRUPTED).inputDraft).toBe('')
+    expect(classifyClaudeScreen(FINISHED).inputDraft).toBe('')
+    // A prompt wrapped over two rows, the second indented under the first.
+    const wrapped = [
+      ...HEADER,
+      RULE,
+      '❯ Think carefully, then write the numbers from 1 to 300, each on its own line with one short sentence about it. Do not',
+      '  use tools.',
+      RULE,
+      '  ⏵⏵ auto mode on (shift+tab to cycle)',
+    ]
+    expect(classifyClaudeScreen(wrapped).inputDraft).toBe(
+      'Think carefully, then write the numbers from 1 to 300, each on its own line with one short sentence about it. Do not\nuse tools.',
+    )
+  })
+
+  it('reads no input box where none is drawn', () => {
+    // Claude's Rewind menu replaces the box; a menu is not a draft.
+    const rewindMenu = [...HEADER, '▔'.repeat(120), '   Rewind', '   Nothing to rewind to yet.', '   Esc to cancel']
+    expect(classifyClaudeScreen(rewindMenu).inputDraft).toBeUndefined()
+    // Between two rules, but not Claude's prompt row.
+    expect(classifyClaudeScreen([...HEADER, RULE, ' Accessing workspace:', RULE]).inputDraft).toBeUndefined()
+  })
 })

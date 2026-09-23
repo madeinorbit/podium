@@ -2978,8 +2978,14 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
   const THINKING_SCREEN = [PROMPT, '✢ Pontificating… (2s · thinking)', RULE, '❯ ', RULE, '  ⏸ manual mode on · esc to interrupt']
   // Esc before any output: Claude takes the turn back and returns the prompt to its box.
   const REWOUND_SCREEN = [RULE, PROMPT, RULE, '  ⏸ manual mode on']
+  // Back at its prompt with nothing in the box.
+  const EMPTY_BOX_SCREEN = [RULE, '❯ ', RULE, '  ⏸ manual mode on · ? for shortcuts']
+  const CTRL_U = '\x15'
 
-  async function openClaudeTurn(settleMs = 20) {
+  async function openClaudeTurn(
+    settleMs = 20,
+    writeInput?: (sessionId: SessionId, bytes: string) => void,
+  ) {
     // Where Claude really keeps it: the adapter locates the conversation under the
     // account home at spawn and points the live tail there.
     const root = await mkdtemp(join(tmpdir(), 'podium-claude-interrupt-'))
@@ -3000,6 +3006,7 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
       statTick: tick,
       homeDir: home,
       interruptSettleMs: settleMs,
+      ...(writeInput ? { writeInput } : {}),
     })
     const observations = () =>
       sent.flatMap((message) => (message.type === 'agentObservation' ? [message.observation] : []))
@@ -3094,14 +3101,27 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
     }
   })
 
-  it('ends a turn stopped before any output once the screen shows Claude back at its prompt', async () => {
-    const turn = await openClaudeTurn()
+  it('ends a turn stopped before any output once the prompt Claude put back is out of its box', async () => {
+    // Claude 2.1.280, Esc before any output: the prompt goes back into the input
+    // box and the next message typed lands after it (POD-4651). Podium takes it
+    // out — Ctrl-U, the key that is harmless on an empty box — BEFORE the turn
+    // ends, since the end is what lets the next message go out.
+    const writes: { bytes: string; observationsAtWrite: number }[] = []
+    let turn!: Awaited<ReturnType<typeof openClaudeTurn>>
+    turn = await openClaudeTurn(20, (sessionId, bytes) => {
+      writes.push({ bytes, observationsAtWrite: turn.observations().length })
+      turn.observers.onFrame(sessionId, screen(EMPTY_BOX_SCREEN))
+    })
     try {
       turn.observers.onFrame(turn.sessionId, screen(THINKING_SCREEN))
       turn.observers.onInterruptRequested(turn.sessionId)
       turn.observers.onFrame(turn.sessionId, screen(REWOUND_SCREEN))
 
       await vi.waitFor(() => expect(turn.observations()).toHaveLength(3))
+      expect(writes.length).toBeGreaterThan(0)
+      expect(writes[0]!.bytes).toMatch(/^\x15{2,}$/)
+      expect(writes[0]!.bytes).toBe(CTRL_U.repeat(writes[0]!.bytes.length))
+      expect(writes[0]!.observationsAtWrite).toBe(2)
       const ended = turn.observations()[2]!
       expect(ended).toMatchObject({
         transitionKind: 'turn_terminal',
@@ -3113,6 +3133,40 @@ describe('Claude user interrupt ends the turn [POD-4633]', () => {
       expect(turn.observers.trackedState(turn.sessionId)?.phase).toBe('idle')
     } finally {
       await turn.cleanup()
+    }
+  })
+
+  it('a prompt still in the input box of Claude does not end the turn', async () => {
+    // The box could not be cleared: Claude would still type the next message
+    // after the stopped prompt, so the turn Podium shows must not end yet.
+    const writes: string[] = []
+    const stuck = await openClaudeTurn(20, (_sessionId, bytes) => writes.push(bytes))
+    try {
+      stuck.observers.onFrame(stuck.sessionId, screen(THINKING_SCREEN))
+      stuck.observers.onInterruptRequested(stuck.sessionId)
+      stuck.observers.onFrame(stuck.sessionId, screen(REWOUND_SCREEN))
+      await vi.waitFor(() => expect(writes.length).toBeGreaterThan(0))
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      expect(stuck.observations()).toHaveLength(2)
+      expect(stuck.observers.trackedState(stuck.sessionId)?.phase).toBe('working')
+    } finally {
+      await stuck.cleanup()
+    }
+
+    const noEvidence = await openClaudeTurn(20, (_sessionId, bytes) => writes.push(bytes))
+    try {
+      // Running marks gone but nothing taken back into the box: no proof Claude
+      // gave the turn back, and nothing to clear.
+      writes.length = 0
+      noEvidence.observers.onFrame(noEvidence.sessionId, screen(THINKING_SCREEN))
+      noEvidence.observers.onInterruptRequested(noEvidence.sessionId)
+      noEvidence.observers.onFrame(noEvidence.sessionId, screen(EMPTY_BOX_SCREEN))
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      expect(writes).toEqual([])
+      expect(noEvidence.observations()).toHaveLength(2)
+      expect(noEvidence.observers.trackedState(noEvidence.sessionId)?.phase).toBe('working')
+    } finally {
+      await noEvidence.cleanup()
     }
   })
 

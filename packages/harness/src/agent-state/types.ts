@@ -145,6 +145,13 @@ export interface AgentScreenObservation {
    * (POD-4633). Absent = the provider does not say.
    */
   turnRunning?: boolean
+  /**
+   * What the harness's input box holds, one line per screen row: '' when empty,
+   * absent when no box is drawn (a menu over it) or the provider does not say.
+   * A harness that takes an early-stopped prompt back puts it here, where the
+   * next message would be typed after it (POD-4651).
+   */
+  inputDraft?: string
 }
 
 export interface AgentStateProvider {
