@@ -16,7 +16,11 @@
  *    RE-REVIEW (POD-4568 rework): buckets became observable sets updated in
  *    place, so a touched slot's size is no longer work done. The bar is
  *    `elements touched`, the pool's `counters.bucketElements` delta (one per
- *    member added or deleted); `bucket size` is kept beside it.
+ *    member added or deleted); `bucket size` is kept beside it. The
+ *    reviewer does not take that counter on trust: `independently` patches
+ *    MobX's ObservableSet prototype and `Array.prototype.sort` for the
+ *    duration of one apply and counts, by itself, the set elements added,
+ *    deleted and iterated and the array elements sorted (`witness`).
  */
 
 import { appendFileSync } from 'node:fs'
@@ -95,6 +99,82 @@ describe('M3 probe: the enforcement trap', () => {
   })
 })
 
+/** What one call did to observable sets and sorts, counted outside the pool. */
+interface Witness {
+  added: number
+  deleted: number
+  iterated: number
+  sorted: number
+}
+
+/**
+ * Run `fn` with MobX's ObservableSet prototype and `Array.prototype.sort`
+ * patched to count, then restore them. A copy-and-sort bucket shows up as
+ * `iterated` or `sorted` near the bucket's size; an in-place move as one
+ * `added` or `deleted`.
+ */
+function independently(fn: () => void): Witness {
+  const witness: Witness = { added: 0, deleted: 0, iterated: 0, sorted: 0 }
+  const proto = Object.getPrototypeOf(observable.set<string>()) as Record<
+    string | symbol,
+    (...args: unknown[]) => unknown
+  >
+  const saved = {
+    add: proto['add'],
+    delete: proto['delete'],
+    values: proto['values'],
+    forEach: proto['forEach'],
+    iterator: proto[Symbol.iterator],
+    sort: Array.prototype.sort,
+  }
+  const counting = (it: Iterator<unknown>): IterableIterator<unknown> => {
+    const wrapped: IterableIterator<unknown> = {
+      next: () => {
+        const step = it.next()
+        if (step.done !== true) witness.iterated += 1
+        return step
+      },
+      [Symbol.iterator]: () => wrapped,
+    }
+    return wrapped
+  }
+  proto['add'] = function (this: unknown, ...args: unknown[]) {
+    witness.added += 1
+    return saved.add?.apply(this, args)
+  }
+  proto['delete'] = function (this: unknown, ...args: unknown[]) {
+    witness.deleted += 1
+    return saved.delete?.apply(this, args)
+  }
+  proto['values'] = function (this: unknown) {
+    return counting(saved.values?.apply(this) as Iterator<unknown>)
+  }
+  proto[Symbol.iterator] = function (this: unknown) {
+    return counting(saved.iterator?.apply(this) as Iterator<unknown>)
+  }
+  proto['forEach'] = function (this: unknown, ...args: unknown[]) {
+    const size = (this as { size: number }).size
+    witness.iterated += size
+    return saved.forEach?.apply(this, args)
+  }
+  // biome-ignore lint/suspicious/noExplicitAny: a measurement patch, restored below
+  ;(Array.prototype as any).sort = function (this: unknown[], ...args: unknown[]) {
+    witness.sorted += this.length
+    return saved.sort.apply(this, args as [])
+  }
+  try {
+    fn()
+  } finally {
+    proto['add'] = saved.add as never
+    proto['delete'] = saved.delete as never
+    proto['values'] = saved.values as never
+    proto['forEach'] = saved.forEach as never
+    proto[Symbol.iterator] = saved.iterator as never
+    Array.prototype.sort = saved.sort
+  }
+  return witness
+}
+
 function feedOf(scale: 1 | 4) {
   const corpus = buildCorpus(scale)
   const rows = {
@@ -167,16 +247,18 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
   if (openIssue === undefined) throw new Error(`${label}: no open issue with a repo`)
   let before = pool.stats.indexUpdates
   elementsBefore = pool.stats.counters.bucketElements
-  pool.apply({
-    type: 'update',
-    rows: [
-      {
-        kind: 'issue',
-        id: 'iss_m3_probe',
-        value: { ...openIssue, id: 'iss_m3_probe', seq: 999_999, parentId: null, deps: [] },
-      },
-    ],
-  })
+  const issueWitness = independently(() =>
+    pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'issue',
+          id: 'iss_m3_probe',
+          value: { ...openIssue, id: 'iss_m3_probe', seq: 999_999, parentId: null, deps: [] },
+        },
+      ],
+    }),
+  )
   const issueInsert = copied(before)
   const session = source
     .snapshot('session')
@@ -185,23 +267,27 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
   if (session === undefined) throw new Error(`${label}: no session`)
   before = pool.stats.indexUpdates
   elementsBefore = pool.stats.counters.bucketElements
-  pool.apply({
-    type: 'update',
-    rows: [
-      {
-        kind: 'session',
-        id: 'ses_m3_probe',
-        value: { ...session, sessionId: 'ses_m3_probe', issueId: null, resume: null },
-      },
-    ],
-  })
+  const sessionWitness = independently(() =>
+    pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'session',
+          id: 'ses_m3_probe',
+          value: { ...session, sessionId: 'ses_m3_probe', issueId: null, resume: null },
+        },
+      ],
+    }),
+  )
   const sessionInsert = copied(before)
   report(
     `M3 bucket probe ${label}: issues=${known.issue.length} sessions=${known.session.length} ` +
       `lanes=${known.worktree.length} repos=${known.repo.length}\n` +
       `  largest buckets: ${JSON.stringify(largest)}\n` +
       `  new issue:   indexUpdates +${issueInsert.counted} (slots ${JSON.stringify(issueInsert.slots)}) → bucket size ${issueInsert.elements}, elements touched ${issueInsert.touched}\n` +
-      `  new session: indexUpdates +${sessionInsert.counted} (slots ${JSON.stringify(sessionInsert.slots)}) → bucket size ${sessionInsert.elements}, elements touched ${sessionInsert.touched}`,
+      `  new session: indexUpdates +${sessionInsert.counted} (slots ${JSON.stringify(sessionInsert.slots)}) → bucket size ${sessionInsert.elements}, elements touched ${sessionInsert.touched}\n` +
+      `  reviewer's witness, new issue:   ${JSON.stringify(issueWitness)}\n` +
+      `  reviewer's witness, new session: ${JSON.stringify(sessionWitness)}`,
   )
   handle.dispose()
 }
