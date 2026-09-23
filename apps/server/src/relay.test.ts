@@ -6718,6 +6718,16 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
   it('hands the stop to the driver even before the server has seen it working', async () => {
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
+      // Self-contained placement: the shared fixture registers no host machine
+      // with agent execution, so createSession would refuse to place.
+      await registry.sessionStore.machines.upsertMachine({
+        id: registry.sessionStore.hostMachineId,
+        name: 'Host',
+        hostname: 'test',
+        tokenHash: 'token',
+        ownerUserId: firstAdminMemberId(),
+        assignment: { server: true, agentExecution: true },
+      })
       const daemon: ControlMessage[] = []
       await registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
         daemon.push(message),

@@ -1697,22 +1697,6 @@ describe('SessionInbox authorization and identity', () => {
     expect(h.sent).toEqual([])
   })
 
-  it('refuses an idle server-family interrupt with wording that cannot mean stopped', async () => {
-    const h = harness({
-      agentKind: 'codex',
-      phase: 'idle',
-      contractInterrupt: { ok: true },
-    })
-
-    const result = await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })
-
-    expect(result).toEqual({
-      ok: false,
-      reason: 'Codex only takes an interrupt while it is working, and it is not working right now',
-    })
-    expect(h.contractInterrupts).toEqual([])
-  })
-
   it('reports a driver that refused the interrupt instead of confirming it', async () => {
     const h = harness({
       agentKind: 'opencode',
@@ -2581,7 +2565,11 @@ describe('offer retirement before inbox admission', () => {
     const retirement = new Promise<void>((resolve) => {
       release = resolve
     })
-    const h = harness({ prepareSend: () => retirement, contractAnswer: { ok: true } })
+    const h = harness({
+      prepareSend: () => retirement,
+      contractAnswer: { ok: true },
+      contractInterrupt: { ok: true },
+    })
     const pending = begin(h, mode)
     await vi.advanceTimersByTimeAsync(500)
     expect(h.rows).toEqual([])
@@ -2600,6 +2588,7 @@ describe('offer retirement before inbox admission', () => {
       prepareSend: async () => {
         throw new Error('offer retirement refused')
       },
+      contractInterrupt: { ok: true },
     })
     await expect(begin(h, mode)).rejects.toThrow('offer retirement refused')
     await vi.advanceTimersByTimeAsync(500)

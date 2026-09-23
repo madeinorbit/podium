@@ -698,12 +698,15 @@ export class SessionInbox {
     // shells (POD-4278) keep the raw path below — they have no driver to call.
     if (session.agentKind !== 'shell') {
       await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
-      // An idle agent has no turn to cut into, so the interrupt is SKIPPED
-      // rather than refused — the message still lands, which is the point of
-      // this path.
-      if (session.agentState?.phase === 'working') {
-        const interruption = await this.contractInterrupt(session, input)
-        if (!interruption.ok) return { ok: false, reason: interruption.reason }
+      // EVERY interrupt goes to the driver (POD-4666). The server's phase is a
+      // lagging copy of the daemon's, so gating on it skipped the interrupt of
+      // a turn that was really running. The driver skips it when there is no
+      // turn to cut into; a driver with no running session (`not_running`) has
+      // nothing to cut into either, and the message still lands, which is the
+      // point of this path.
+      const interruption = await this.requestDriverInterrupt(input.sessionId)
+      if (!('ok' in interruption) && interruption.reason !== 'not_running') {
+        return { ok: false, reason: this.interruptRefusalReason(session, interruption) }
       }
       // The follow-up text rides the durable queue down the drain's contract
       // branch. The queue result is the caller's answer, not a silent ok:true.
@@ -768,14 +771,15 @@ export class SessionInbox {
     // (POD-4278) keep the raw abort path below — they have no driver to call.
     if (session.agentKind !== 'shell') {
       const cancelled = await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
-      if (cancelled && session.agentState?.phase !== 'working') return { ok: true, requested: 'retraction' }
-      if (session.agentState?.phase !== 'working') {
-        return {
-          ok: false,
-          reason: `${this.deps.harnessName(session.agentKind)} only takes an interrupt while it is working, and it is not working right now`,
-        }
-      }
-      return await this.contractInterrupt(session, input)
+      // NO PHASE GATE (POD-4666): only the daemon knows whether a turn is
+      // running, and the server's copy lags it — a stop gated on that copy was
+      // refused while the agent ran on. The driver owns the idle guard and
+      // answers; a refusal after a retraction still completed the operator's
+      // stop, the same rule `sessions.interrupt` applies to a reserved send.
+      const interruption = await this.requestDriverInterrupt(input.sessionId)
+      if ('ok' in interruption) return { ok: true, requested: 'protocol' }
+      if (cancelled) return { ok: true, requested: 'retraction' }
+      return { ok: false, reason: this.interruptRefusalReason(session, interruption) }
     }
     const cancelledDelivery = await this.cancelInterruptedDelivery(
       input.sessionId,
@@ -802,29 +806,27 @@ export class SessionInbox {
   /**
    * The stop, for a session with no terminal to type it into.
    *
+   * The unwired case refuses rather than confirming — a fixture without the
+   * port is still a stop that did not happen. It is not `not_running`: nothing
+   * says the agent is idle, only that this server cannot reach it.
+   */
+  private async requestDriverInterrupt(sessionId: SessionId): Promise<{ ok: true } | Refusal | { reason: 'unwired' }> {
+    const request = this.deps.contractInterrupt
+    if (!request) return { reason: 'unwired' }
+    return await request(sessionId)
+  }
+
+  /**
    * The reason travels back VERBATIM where the driver gave one: the chat
    * composer prints this string, and 'not_running' with the driver's own detail
-   * tells an operator more than a sentence this layer invented would. The
-   * unwired case refuses rather than confirming — a fixture without the port is
-   * still a stop that did not happen.
+   * tells an operator more than a sentence this layer invented would.
    */
-  private async contractInterrupt(
-    session: Session,
-    input: Omit<InboxSendInput, 'text'>,
-  ): Promise<InterruptOutcome> {
-    const request = this.deps.contractInterrupt
-    if (!request) {
-      return {
-        ok: false,
-        reason: `${this.deps.harnessName(session.agentKind)} is running headless and this server has no runtime connection to it, so the stop could not be delivered`,
-      }
+  private interruptRefusalReason(session: Session, refusal: Refusal | { reason: 'unwired' }): string {
+    if (refusal.reason === 'unwired') {
+      return `${this.deps.harnessName(session.agentKind)} is running headless and this server has no runtime connection to it, so the stop could not be delivered`
     }
-    const result = await request(input.sessionId)
-    if ('ok' in result) return { ok: true, requested: 'protocol' }
-    return {
-      ok: false,
-      reason: result.detail ? `${result.reason}: ${result.detail}` : result.reason,
-    }
+    const detail = 'detail' in refusal ? refusal.detail : undefined
+    return detail ? `${refusal.reason}: ${detail}` : refusal.reason
   }
 
   /**
