@@ -291,6 +291,8 @@ export async function makeOracle(
   const clientId = attachTestClient(reg.clientGateway, (msg) => client.push(msg))
   reg.clientGateway.routeClientFrame(clientId, {
     type: 'hello',
+    // Admission refuses a hello without the HTTP sync capability (6b22a3650).
+    caps: ['sync.http.v1'],
     wireVersion: CLIENT_WIRE_VERSION,
     clientId: '',
     viewport: { cols: 80, rows: 24, dpr: 1 },
