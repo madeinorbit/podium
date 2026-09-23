@@ -306,9 +306,18 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   // spends its whole argument keeping apart — and the operator would have no way
   // to find out why the host they can see is not on offer. So the row stays,
   // says `no access`, and only the DEFAULT skips over it.
+  //
+  // A REMEMBERED HOST IS NOT A PICK (POD-4630). The effect below writes every
+  // resolution back into the draft, so `draft.machineId` is usually yesterday's
+  // default, and it outlives that machine going offline. It wins only while it
+  // is usable, or when nothing on the list is; a pick made in THIS box wins
+  // outright, offline or not, so the picker never undoes the operator's click.
+  const [pickedMachineId, setPickedMachineId] = useState<string>()
   const selectedMachine =
-    targetMachines.find((machine) => machine.id === draft.machineId) ??
+    targetMachines.find((machine) => machine.id === pickedMachineId) ??
+    targetMachines.find((machine) => machine.id === draft.machineId && usable.has(machine.id)) ??
     targetMachines.find((machine) => usable.has(machine.id)) ??
+    targetMachines.find((machine) => machine.id === draft.machineId) ??
     targetMachines.find((machine) => authorized.has(machine.id)) ??
     targetMachines[0]
   const selectedCheckout = selectedRepo
@@ -615,6 +624,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       candidates.find((candidate) => authorized.has(candidate.id)) ??
       candidates[0]
     setError(null)
+    setPickedMachineId(undefined)
     setDraft({
       ...draft,
       repoPath,
@@ -634,6 +644,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
 
   const selectMachine = (machineId: string): void => {
     setError(null)
+    setPickedMachineId(machineId)
     setDraft(withoutCreateReservation({ ...draft, machineId }))
   }
 

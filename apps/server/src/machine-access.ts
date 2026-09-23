@@ -228,7 +228,11 @@ export function machineVerbsFor(
   const held = row.revokedAt
     ? new Set<MachineVerb>(machineCustodian(row.grants) === onBehalfOfUser(principal) ? ['see'] : [])
     : verbsFromRow(row, onBehalfOfUser(principal))
-  if (row.daemonAssigned !== true || row.daemonAvailable !== true) held.delete('use')
+  // `use` is a GRANT fact, and a daemon that is unassigned or disconnected does
+  // not take it away (POD-4630). Those are the model's `no-daemon` and `offline`
+  // axes, checked after authorization, and `requireAgent` reports reachability
+  // at execution (D18.5). Folding them in here made every offline machine answer
+  // `unauthorized` — "ask its owner" — to the owner, which waiting never fixes.
   // Administration grants custody, never execution consent (D19.4b).
   if (principal.capability.role === 'admin') {
     held.add('manage')
