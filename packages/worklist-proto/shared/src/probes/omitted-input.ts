@@ -48,20 +48,20 @@ export const omittedInput: Probe = {
   },
   behaviour: {
     test:
-      "Every input a row reads reaches the row: after a change to one input alone (a session's phase #2, the selection #3, the title #4, the clock across a deadline #8b; a title edit, its rejection after a remote update landed on it, a second edit accepted and echoed), the arm's snapshot equals the oracle's and its own rebuild.",
+      "Every input a row reads reaches the row: after a change to one input alone (a session's phase #2, the selection #3, the title #4, the clock across a deadline #8b; a title edit accepted and echoed, a second edit rejected after a remote update landed on it), the arm's snapshot equals the oracle's and its own rebuild.",
     needs: ['parity', 'gate'],
     steps: ['#2', '#3', '#4', '#8b'],
     sequences: [
       {
         name: 'title through the write path',
-        why: 'Each of steps 0, 2 and 3 changes only the title of one visible row: an optimistic edit, a rejection that rewinds to the remote value which landed while it was pending (write contract S2/S3), and a second edit. The tick at the end moves the clock input.',
+        why: 'Steps 0, 3 and 5 each change only the title of one visible row: an optimistic edit (then its receipt and echo, which move nothing), a second edit, and its rejection after a remote update landed on the pending field, which rewinds to the remote value (write contract S2/S3). The rejection comes last because a refused title parks its partition for good (kernel outbox). The tick moves the clock input.',
         build: (t) => [
           { kind: 'edit', handle: 'p1a', id: t.visibleRootId, patch: { title: 'Probe title A' } },
-          { kind: 'remoteOnPending', handle: 'p1a', value: 'Probe title B (remote)' },
-          { kind: 'reject', handle: 'p1a' },
-          { kind: 'edit', handle: 'p1c', id: t.visibleRootId, patch: { title: 'Probe title C' } },
-          { kind: 'accept', handle: 'p1c' },
-          { kind: 'echo', handle: 'p1c' },
+          { kind: 'accept', handle: 'p1a' },
+          { kind: 'echo', handle: 'p1a' },
+          { kind: 'edit', handle: 'p1b', id: t.visibleRootId, patch: { title: 'Probe title B' } },
+          { kind: 'remoteOnPending', handle: 'p1b', value: 'Probe title C (remote)' },
+          { kind: 'reject', handle: 'p1b' },
           { kind: 'clockTick', ms: 25 * 60 * 60 * 1000 },
         ],
       },
